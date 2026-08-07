@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The server is plain HTTP on a Tailscale address — the tailnet is the encryption
+  layer, and there is no certificate to issue to a 100.x.y.z host anyway. So
+  cleartext has to be permitted.
+
+  It is NOT restricted here, and that is deliberate rather than lazy: a
+  network-security-config matches hostnames by DNS suffix, right to left, so a
+  `<domain includeSubdomains="true">100.96</domain>` entry matches `foo.100.96` and
+  emphatically not `100.96.105.106`. There is no way to express "the 100.64.0.0/10
+  range" in this file at all.
+
+  The restriction therefore lives where it can actually do arithmetic on the
+  address: `PairActivity.isPrivateAddress` refuses to pair with a cleartext host
+  outside the Tailscale CGNAT range or loopback. That check runs before the token is
+  ever sent, which is the moment that matters.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

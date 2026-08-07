@@ -1,0 +1,29 @@
+{
+  "name": "beadcause",
+  "version": "0.1.0",
+  "description": "Mobile decision inbox for beads (bd) human-needed issues, over Tailscale, with ntfy push",
+  "type": "module",
+  "private": true,
+  "license": "ISC",
+  "bin": {
+    "beadcause": "bin/beadcause.js"
+  },
+  "scripts": {
+    "start": "node bin/beadcause.js",
+    "qr": "node bin/beadcause.js --qr",
+    "vendor": "node scripts/vendor.js",
+    "postinstall": "node scripts/vendor.js",
+    "demo": "node scripts/demo-question.js",
+    "install-service": "bash scripts/install.sh",
+    "uninstall-service": "bash scripts/uninstall.sh",
+    "android": "bash scripts/build-android.sh",
+    "android:key": "bash scripts/android-keystore.sh"
+  },
+  "dependencies": {
+    "dompurify": "^3.4.13",
+    "marked": "^18.0.9",
+    "mermaid": "^11.16.1",
+    "qrcode-terminal": "^0.12.0",
+    "yaml": "^2.9.0"
+  }
+}

@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Beadcause</string>
+
+    <string name="notifications_denied">Notifications are off, so questions won\'t reach you. Turn them on in Settings → Apps → Beadcause.</string>
+    <string name="cannot_reach_server">Can\'t reach %1$s. Is Tailscale connected?</string>
+
+    <string name="pair_title">Pair with your Mac</string>
+    <string name="pair_hint">Run <b>npm run qr</b> on the Mac and point the camera at the code.</string>
+    <string name="pair_manual">Or enter it by hand</string>
+    <string name="pair_address_hint">Server address (or paste the whole pairing URL)</string>
+    <string name="pair_token_hint">Token</string>
+    <string name="pair_connect">Connect</string>
+    <string name="pair_checking">Checking %1$s…</string>
+    <string name="pair_ok">Paired — %1$d workspaces</string>
+    <string name="pair_need_both">Enter an address and a token, or paste the pairing URL.</string>
+    <string name="pair_bad_address">That doesn\'t look like an address.</string>
+    <string name="pair_bad_token">Found the server, but it rejected the token. Check ~/.config/beadcause/config.json.</string>
+    <string name="pair_unreachable">Couldn\'t reach %1$s — is Tailscale on and the daemon running? (%2$s)</string>
+    <string name="pair_not_private">That address isn\'t on the tailnet. Beadcause only sends its token in the clear to a 100.64–100.127 Tailscale address — use the one from <b>npm run qr</b>.</string>
+    <string name="camera_denied">Camera access was declined, so enter the pairing URL below instead.</string>
+    <string name="camera_unavailable">No camera available — enter the pairing URL below.</string>
+
+    <string name="doc_title">Document</string>
+
+    <string name="share_title">File a question</string>
+    <string name="share_heading">File this as a question</string>
+    <string name="share_workspace">Workspace</string>
+    <string name="share_title_hint">Title</string>
+    <string name="share_body_hint">Details (markdown, including a decision block)</string>
+    <string name="share_cancel">Cancel</string>
+    <string name="share_file">File it</string>
+    <string name="share_filing">Filing…</string>
+    <string name="share_filed">Filed %1$s</string>
+    <string name="share_failed">Couldn\'t file it: %1$s</string>
+    <string name="share_need_title">Give it a title</string>
+    <string name="share_not_paired">Pair Beadcause with your Mac first.</string>
+    <string name="share_offline">Can\'t reach the server — is Tailscale on?</string>
+</resources>

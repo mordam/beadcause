@@ -1,0 +1,59 @@
+<!--
+  Status-bar icon: the same forking strand, but drawn for a mask.
+
+  Android throws away colour here and keeps only alpha — every opaque pixel becomes
+  white. Two consequences shape this file:
+    - the hollow bead must be stroke-only with NO fill, or masking would flood it
+      solid and the "decision not yet made" branch would look identical to the
+      taken one;
+    - strokes are thickened from 16 to 34 on the 512 viewport, because at 24dp the
+      original weight renders under a pixel and disappears.
+
+  The artwork is scaled up about its own centre (232,256 — it sits off-centre in
+  the source) and nudged into the middle of the canvas.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="512"
+    android:viewportHeight="512"
+    android:tint="#FFFFFF">
+    <group
+        android:pivotX="232"
+        android:pivotY="256"
+        android:scaleX="1.42"
+        android:scaleY="1.42"
+        android:translateX="24">
+
+        <path
+            android:pathData="M104,256 H208"
+            android:strokeColor="#FFFFFF"
+            android:strokeWidth="34"
+            android:strokeLineCap="round" />
+        <path
+            android:pathData="M208,256 C268,256 268,152 328,152"
+            android:strokeColor="#FFFFFF"
+            android:strokeWidth="34"
+            android:strokeLineCap="round" />
+        <path
+            android:pathData="M208,256 C268,256 268,360 328,360"
+            android:strokeColor="#FFFFFF"
+            android:strokeWidth="34"
+            android:strokeLineCap="round" />
+
+        <path
+            android:pathData="M70,256 a34,34 0 1,0 68,0 a34,34 0 1,0 -68,0"
+            android:fillColor="#FFFFFF" />
+        <path
+            android:pathData="M186,256 a30,30 0 1,0 60,0 a30,30 0 1,0 -60,0"
+            android:fillColor="#FFFFFF" />
+        <path
+            android:pathData="M310,152 a42,42 0 1,0 84,0 a42,42 0 1,0 -84,0"
+            android:fillColor="#FFFFFF" />
+        <!-- stroke only: transparent stays transparent through the mask -->
+        <path
+            android:pathData="M312,360 a40,40 0 1,0 80,0 a40,40 0 1,0 -80,0"
+            android:strokeColor="#FFFFFF"
+            android:strokeWidth="20" />
+    </group>
+</vector>

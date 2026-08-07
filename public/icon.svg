@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Beadcause">
+  <rect width="512" height="512" rx="112" fill="#0b0f14"/>
+  <!-- a strand of beads, forking at a decision -->
+  <path d="M104 256 H208" stroke="#263140" stroke-width="16" stroke-linecap="round"/>
+  <path d="M208 256 C 268 256, 268 152, 328 152" stroke="#263140" stroke-width="16" stroke-linecap="round" fill="none"/>
+  <path d="M208 256 C 268 256, 268 360, 328 360" stroke="#263140" stroke-width="16" stroke-linecap="round" fill="none"/>
+  <circle cx="104" cy="256" r="34" fill="#5eead4"/>
+  <circle cx="208" cy="256" r="26" fill="#8ba0b6"/>
+  <circle cx="352" cy="152" r="42" fill="#5eead4"/>
+  <circle cx="352" cy="360" r="42" fill="#1c242e" stroke="#5eead4" stroke-width="12"/>
+</svg>

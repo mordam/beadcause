@@ -1,0 +1,58 @@
+<!--
+  The Beadcause mark, ported from public/icon.svg so the app icon and the PWA are
+  the same thing: a strand of beads forking at a decision, one branch still hollow.
+
+  Kept on the source's 512 viewport so the geometry can be diffed against the SVG
+  line for line. Two differences are forced by the format:
+    - vector drawables have no <circle>, so each bead is an arc pair;
+    - the launcher masks everything outside the central 72dp of 108dp, so the group
+      scales to 0.95 and shifts +24 in x to sit the artwork (which is off-centre in
+      the original, spanning x 70..394) inside that safe circle.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="512"
+    android:viewportHeight="512">
+    <group
+        android:pivotX="256"
+        android:pivotY="256"
+        android:scaleX="0.95"
+        android:scaleY="0.95"
+        android:translateX="24">
+
+        <!-- the strand -->
+        <path
+            android:pathData="M104,256 H208"
+            android:strokeColor="#263140"
+            android:strokeWidth="16"
+            android:strokeLineCap="round" />
+        <path
+            android:pathData="M208,256 C268,256 268,152 328,152"
+            android:strokeColor="#263140"
+            android:strokeWidth="16"
+            android:strokeLineCap="round" />
+        <path
+            android:pathData="M208,256 C268,256 268,360 328,360"
+            android:strokeColor="#263140"
+            android:strokeWidth="16"
+            android:strokeLineCap="round" />
+
+        <!-- beads: tail, the junction where it forks, then the two outcomes -->
+        <path
+            android:pathData="M70,256 a34,34 0 1,0 68,0 a34,34 0 1,0 -68,0"
+            android:fillColor="#5eead4" />
+        <path
+            android:pathData="M182,256 a26,26 0 1,0 52,0 a26,26 0 1,0 -52,0"
+            android:fillColor="#8ba0b6" />
+        <path
+            android:pathData="M310,152 a42,42 0 1,0 84,0 a42,42 0 1,0 -84,0"
+            android:fillColor="#5eead4" />
+        <!-- hollow: the branch not taken yet -->
+        <path
+            android:pathData="M310,360 a42,42 0 1,0 84,0 a42,42 0 1,0 -84,0"
+            android:fillColor="#1c242e"
+            android:strokeColor="#5eead4"
+            android:strokeWidth="12" />
+    </group>
+</vector>

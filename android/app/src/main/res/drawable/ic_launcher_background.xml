@@ -1,0 +1,13 @@
+<!--
+  The same #0b0f14 the PWA icon uses. The launcher applies its own mask, so the
+  rx="112" rounding in public/icon.svg is deliberately not reproduced here.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:pathData="M0,0h108v108h-108z"
+        android:fillColor="#0b0f14" />
+</vector>
