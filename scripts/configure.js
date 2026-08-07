@@ -29,8 +29,51 @@ const dim = (s) => `\x1b[2m${s}\x1b[0m`;
 const cfg = loadConfig();
 const workspaces = cfg.workspaces.map((w) => w.name);
 
+/** What is currently configured, in the same shape the interactive run reports. */
+function summary(c) {
+  const q = (s) => {
+    const bits = [];
+    if (s.muted) bits.push('muted');
+    if (s.quietHours?.from) bits.push(`quiet ${s.quietHours.from}-${s.quietHours.to}`);
+    if (s.quietDays?.length) bits.push(s.quietDays.join('/'));
+    if (s.ntfyDetail === 'minimal') bits.push('contentless push');
+    if (s.autoDispatch === false) bits.push('no agents');
+    return bits.length ? ` [${bits.join(', ')}]` : '';
+  };
+  return [
+    `  workspaces        : ${workspaces.join(', ') || '(none)'}`,
+    // Two separate lists govern this, and reporting only one made a workspace look
+    // unprotected when it was actually covered by the other.
+    `  shared workspaces : ${
+      [...new Set([...(c.autoDispatchExclude || []), ...(c.ntfy?.minimalWorkspaces || [])])].join(', ') || '(none)'
+    }`,
+    `  spaces            : ${
+      (c.spaces || []).length
+        ? (c.spaces || []).map((s) => `${s.name} (${(s.workspaces || []).join('/')})${q(s)}`).join(', ')
+        : '(none)'
+    }`,
+    `  asset roots       : ${(c.assetRoots || []).join(', ')}`,
+    `  session dirs      : ${c.projectRoot ? `${c.projectRoot}/<workspace>` : '~/beads/<workspace>'}`,
+    `  ntfy              : ${c.ntfy?.enabled ? c.ntfy.topic : 'disabled'}`,
+    `  auto-dispatch     : ${c.autoDispatch === false ? 'off' : 'on'}`,
+  ].join('\n');
+}
+
+/**
+ * No terminal to ask questions with.
+ *
+ * This is not only CI: running the command through a wrapper that pipes stdin — a
+ * `!`-prefixed shell in an agent session, for instance — lands here too, and
+ * printing "not a terminal" and exiting looked exactly like the command was broken.
+ * So show what IS configured, and say precisely how to change it.
+ */
 if (!tty) {
-  console.log('[beadcause] not a terminal — keeping the current configuration.');
+  console.log(`\n${bold('Beadcause configuration')}  ${dim(CONFIG_PATH)}\n`);
+  console.log(summary(cfg));
+  console.log(
+    `\n${dim('Nothing was changed: this needs an interactive terminal to ask questions.')}\n` +
+      `${dim('Run')} ${bold('npm run configure')} ${dim('directly in Terminal or iTerm, or edit the file above by hand.')}\n`
+  );
   process.exit(0);
 }
 
@@ -221,14 +264,5 @@ saveConfig(cfg);
 rl.close();
 
 console.log(`\n${bold('Saved')} ${CONFIG_PATH}`);
-console.log(`  shared workspaces : ${shared.length ? shared.join(', ') : '(none)'}`);
-console.log(
-  `  spaces            : ${
-    cfg.spaces.length ? cfg.spaces.map((s) => `${s.name} (${s.workspaces.join('/')})`).join(', ') : '(none)'
-  }`
-);
-console.log(`  asset roots       : ${cfg.assetRoots.join(', ')}`);
-console.log(`  session dirs      : ${cfg.projectRoot ? `${cfg.projectRoot}/<workspace>` : '~/beads/<workspace>'}`);
-console.log(`  ntfy              : ${cfg.ntfy.enabled ? cfg.ntfy.topic : 'disabled'}`);
-console.log(`  auto-dispatch     : ${cfg.autoDispatch ? 'on' : 'off'}`);
+console.log(summary(cfg));
 console.log(`\nEdit any of it later in that file, or re-run ${bold('npm run configure')}.\n`);

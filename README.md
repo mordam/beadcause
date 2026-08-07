@@ -178,7 +178,10 @@ than muting the space forever. `ntfyDetail` and `autoDispatch` set at space leve
 keep applying as you add workspaces to that space — which is exactly the drift that
 otherwise leaks a work question onto a public relay.
 
-`npm run configure` walks you through it.
+`npm run configure` walks you through it. Run it **in a terminal** — it needs one to
+ask questions. Anywhere else (a pipe, CI, an agent shell) it prints the current
+configuration and changes nothing, which also makes it a quick way to see what is
+set.
 
 ## Answering
 
