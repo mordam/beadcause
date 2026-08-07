@@ -146,6 +146,40 @@ node bin/ask.js -w acme -t "Which auth flow?" -b ac-abc < brief.md   # -b blocks
 `-b <id>` makes the named issue depend on the question, so it stays out of
 `bd ready` until you answer.
 
+## Spaces — keeping work out of your evening
+
+Workspaces can be grouped into **spaces**, and a space is defined by *when it may
+interrupt you*:
+
+```json
+"spaces": [
+  { "name": "Personal", "workspaces": ["notes", "sideproject"] },
+  { "name": "Work", "workspaces": ["acme"],
+    "quietHours": { "from": "18:00", "to": "09:00" },
+    "quietDays": ["sat", "sun"],
+    "ntfyDetail": "minimal",
+    "autoDispatch": false }
+]
+```
+
+The phone then shows a space row above the workspace chips, and picking a space
+narrows both the list and the chips below it.
+
+**A quiet space is quiet, not hidden.** Its questions still arrive, still appear in
+the list, still count towards the badge — they just don't light up your phone, and
+the chip shows 🔕 so the silence is legible rather than looking like a fault. That
+asymmetry is deliberate: an unwanted buzz is annoying, a question you never saw is a
+real failure.
+
+`muted: true` silences a space regardless of the clock. `quietHours` may cross
+midnight (`18:00` → `09:00` is the normal case) and is evaluated in local time,
+because "after six" means your evening. A malformed time disables the rule rather
+than muting the space forever. `ntfyDetail` and `autoDispatch` set at space level
+keep applying as you add workspaces to that space — which is exactly the drift that
+otherwise leaks a work question onto a public relay.
+
+`npm run configure` walks you through it.
+
 ## Answering
 
 - **Two taps on an option.** The first arms it, the second commits — a pocket tap
@@ -193,6 +227,35 @@ closes with reason "Answered via Beadcause".
 - **Links in comments are live.** Comment bodies render as markdown, bare URLs
   autolink, and local paths become reader-tab links, all opening in a new tab.
   Comments from an agent are marked with an accent bar.
+
+## What a question is blocking
+
+A question whose answer nothing is waiting on is just a question. One that blocks
+seven issues is a queue, and that changes how fast you want to answer it — so an
+open card that blocks anything gets a **What this is blocking** link, into the
+dependency graph. It appears with the details rather than on the collapsed card,
+because `bd human list` doesn't return a dependent count and `bd show` does — the
+same reason `commentCount` is 0 until you open a question.
+
+There is nothing hand-drawn here: `bd graph --html` already emits a complete
+interactive D3 page, and beadcause serves it through `/api/graph` behind the same
+token as everything else, in a tab with a scope switch — *this bead* or the *whole
+workspace* (every open issue, grouped by connected component). Nodes are coloured
+by status, drag to rearrange, pinch to zoom, tap for detail.
+
+Three things are rewritten on the way out, all in `lib/graph.js`, because bd builds
+that page for a desktop browser with an internet connection:
+
+- **D3 comes from `/vendor/d3.js`**, not `d3js.org` — the app has to work on a
+  tailnet with no internet route. If `npm install` hasn't vendored it, the CDN tag
+  is left alone: a graph that needs the internet beats a blank screen.
+- **A viewport meta is added.** Without one a phone lays the page out at 980px and
+  shrinks it to a postage stamp.
+- **`svg { width: 100vw; height: 100vh }` is scoped to the canvas.** bd means that
+  rule for the graph, but it also hits the two 30×10 line swatches in the legend —
+  CSS beats the `width` attribute — so each one inflates to a full screen and the
+  legend becomes a 1900px box with a single stray word visible. That's bd's own
+  bug, and it misdraws in a desktop browser too; one override puts it right.
 
 ## The Android app
 
@@ -386,6 +449,8 @@ Auth on everything under `/api/` except `/api/health`: header
 | POST | `/api/status` | `{workspace, id, phase, detail, actor}` | agent progress |
 | GET | `/api/asset` | `?p=<abs path>` | image/doc bytes, restricted to `assetRoots` |
 | GET | `/doc` | `?p=<abs path>` | the HTML reader page |
+| GET | `/api/graph` | `?workspace=&id=` | `bd graph --html` as a page — the whole workspace with no `id` |
+| GET | `/graph` | `?ws=&id=` | the HTML graph page |
 
 Two things that bite: `commentCount` is **0 from `/api/questions`** and only correct
 from `/api/question`, because `bd human list` doesn't return it. And a question
@@ -405,6 +470,7 @@ at the screen — though it does raise a `created` event so other clients refres
 | `autoDispatch` | commenting spawns an unattended agent to reply (default `true`) |
 | `autoDispatchExclude` | workspaces that never auto-dispatch — put shared trackers here |
 | `autoDispatchTimeoutMs` | kill a dispatched agent after this long (default 10 min) |
+| `spaces` | groups of workspaces sharing a notification policy — see [Spaces](#spaces--keeping-work-out-of-your-evening) |
 | `assetRoots` | the only directories `/api/asset` will read images from |
 | `pollSeconds` | how often new `human` beads are looked for (default 30) |
 | `sharedServer` | leave `false` — see the note below |

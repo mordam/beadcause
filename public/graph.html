@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0b0f14" media="(prefers-color-scheme: dark)">
+  <meta name="theme-color" content="#f6f7f9" media="(prefers-color-scheme: light)">
+  <title>Beadcause · graph</title>
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body class="doc-body graph-body">
+  <header class="topbar">
+    <div class="brand">
+      <span class="dot"></span>
+      <h1 id="graph-title">Loading…</h1>
+    </div>
+    <button id="graph-close" class="icon-btn" aria-label="Close tab">✕</button>
+  </header>
+  <nav class="scope" id="scope" hidden>
+    <button data-scope="bead" class="scope-btn">This bead</button>
+    <button data-scope="all" class="scope-btn">Whole workspace</button>
+  </nav>
+  <main id="graph-main" class="graph-main">
+    <div class="empty">Loading…</div>
+  </main>
+
+  <script src="/graph.js"></script>
+</body>
+</html>

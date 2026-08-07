@@ -175,11 +175,17 @@ class WatchService : Service() {
         for (event in poll.events) {
             val key = event.key ?: continue
             when (event.type) {
+                // A quiet space still gets its card and its badge — the list came
+                // down with this poll — it just doesn't post a notification.
                 "question" -> byKey[key]?.let {
-                    Notifications.question(this, it)
-                    showing += key
+                    if (event.quiet) {
+                        Log.i(TAG, "$key arrived quietly (${event.space} is muted)")
+                    } else {
+                        Notifications.question(this, it)
+                        showing += key
+                    }
                 }
-                "reply" -> Notifications.reply(this, event)
+                "reply" -> if (!event.quiet) Notifications.reply(this, event)
                 // Answered here, on another device, or by an agent closing the bead.
                 // Either way the decision is made and the row should go.
                 "answered", "commented" -> {

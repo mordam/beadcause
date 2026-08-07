@@ -15,6 +15,8 @@ const files = [
   ['marked/lib/marked.umd.js', 'marked.js'],
   ['dompurify/dist/purify.min.js', 'purify.js'],
   ['mermaid/dist/mermaid.min.js', 'mermaid.js'],
+  // What `bd graph --html` loads from d3js.org — see lib/graph.js.
+  ['d3/dist/d3.min.js', 'd3.js'],
 ];
 
 let copied = 0;

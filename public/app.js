@@ -11,6 +11,8 @@
   const state = {
     token: '',
     questions: [],
+    spaces: [],
+    space: 'all',
     workspace: 'all',
     open: new Set(),
     armed: null, // key of the option awaiting its confirm tap
@@ -98,6 +100,11 @@
     if (s.startsWith('file://')) s = decodeURIComponent(s.slice(7));
     if (s.startsWith('~')) s = s.replace(/^~/, '');
     return `/doc?p=${encodeURIComponent(s)}`;
+  }
+
+  /** The bd dependency graph for a question, in its own tab. */
+  function graphUrl(q) {
+    return `/graph?ws=${encodeURIComponent(q.workspace)}&id=${encodeURIComponent(q.id)}`;
   }
 
   function renderMarkdown(md) {
@@ -338,6 +345,18 @@
       );
     }
 
+    // Only when something is actually waiting on this answer. A question that
+    // blocks nothing draws as a single lonely node, which is worse than no link.
+    if (q.dependentCount) {
+      parts.push(
+        `<div class="docs"><a class="graph-link" href="${esc(graphUrl(q))}" target="_blank" rel="noopener noreferrer">
+          <span>What this is blocking<span class="path">${q.dependentCount} issue${
+            q.dependentCount === 1 ? '' : 's'
+          } · dependency graph</span></span>
+        </a></div>`
+      );
+    }
+
     if (d?.links?.length) {
       parts.push(
         `<div class="links">${d.links
@@ -402,6 +421,66 @@
     }
   }
 
+  /** Which space a question belongs to. Unassigned workspaces collect under "Other". */
+  const spaceOf = (q) => q.space || 'Other';
+
+  /**
+   * The filter rows: spaces on top, workspaces below.
+   *
+   * A muted space still shows its count — the whole design is that a quiet space is
+   * quiet, not hidden. The bell tells you why nothing buzzed, so silence never looks
+   * like a bug.
+   */
+  function renderFilters(inSpace) {
+    const spaces = state.spaces || [];
+    const showSpaces = spaces.length >= 2;
+    const names = [...new Set(inSpace.map((q) => q.workspace))].sort();
+    const showWorkspaces = names.length >= 2;
+
+    filtersEl.hidden = !showSpaces && !showWorkspaces;
+    if (filtersEl.hidden) return;
+
+    const rows = [];
+
+    if (showSpaces) {
+      const total = state.questions.length;
+      rows.push(
+        `<div class="chip-row spaces">` +
+          `<button class="chip" data-space="all" aria-pressed="${state.space === 'all'}">All ${total}</button>` +
+          spaces
+            .map(
+              (s) =>
+                `<button class="chip${s.quiet ? ' quiet' : ''}" data-space="${esc(s.name)}" aria-pressed="${
+                  state.space === s.name
+                }" title="${s.quiet ? 'Muted right now — arrives without notifying' : ''}">${esc(s.name)} ${s.count}${
+                  s.quiet ? ' <span class="bell">🔕</span>' : ''
+                }</button>`
+            )
+            .join('') +
+          `</div>`
+      );
+    }
+
+    if (showWorkspaces) {
+      const counts = (ws) => inSpace.filter((q) => q.workspace === ws).length;
+      rows.push(
+        `<div class="chip-row">` +
+          `<button class="chip" data-ws="all" aria-pressed="${state.workspace === 'all'}">All ${inSpace.length}</button>` +
+          names
+            .map(
+              (ws) =>
+                `<button class="chip" data-ws="${esc(ws)}" aria-pressed="${state.workspace === ws}">${esc(ws)} ${counts(
+                  ws
+                )}</button>`
+            )
+            .join('') +
+          `</div>`
+      );
+    }
+
+    filtersEl.innerHTML = rows.join('');
+  }
+
   let pendingRender = false;
 
   /**
@@ -418,28 +497,26 @@
     pendingRender = false;
     const scrollY = window.scrollY;
 
+    // Two levels of filter: space (work vs personal), then workspace within it.
+    // With no spaces configured the first level is skipped entirely and this
+    // behaves exactly as it did before.
+    const inSpace =
+      state.space === 'all'
+        ? state.questions
+        : state.questions.filter((q) => spaceOf(q) === state.space);
     const visible =
-      state.workspace === 'all' ? state.questions : state.questions.filter((q) => q.workspace === state.workspace);
+      state.workspace === 'all' ? inSpace : inSpace.filter((q) => q.workspace === state.workspace);
 
     if (!state.questions.length) {
       listEl.innerHTML = `<div class="empty"><strong>Nothing to decide</strong>No open questions labelled <code>human</code>.</div>`;
     } else if (!visible.length) {
-      listEl.innerHTML = `<div class="empty">Nothing waiting in ${esc(state.workspace)}.</div>`;
+      const where = state.workspace !== 'all' ? state.workspace : state.space !== 'all' ? state.space : '';
+      listEl.innerHTML = `<div class="empty">Nothing waiting${where ? ` in ${esc(where)}` : ''}.</div>`;
     } else {
       listEl.innerHTML = visible.map(cardHtml).join('');
     }
 
-    const spaces = [...new Set(state.questions.map((q) => q.workspace))].sort();
-    filtersEl.hidden = spaces.length < 2;
-    if (!filtersEl.hidden) {
-      const counts = (ws) => state.questions.filter((q) => q.workspace === ws).length;
-      filtersEl.innerHTML = [
-        `<button class="chip" data-ws="all" aria-pressed="${state.workspace === 'all'}">All ${state.questions.length}</button>`,
-        ...spaces.map(
-          (ws) => `<button class="chip" data-ws="${esc(ws)}" aria-pressed="${state.workspace === ws}">${esc(ws)} ${counts(ws)}</button>`
-        ),
-      ].join('');
-    }
+    renderFilters(inSpace);
 
     // innerHTML replacement collapses the page height for an instant; put the
     // reader back where they were rather than at the top of the list.
@@ -632,6 +709,15 @@
   });
 
   filtersEl.addEventListener('click', (ev) => {
+    const spaceChip = ev.target.closest('[data-space]');
+    if (spaceChip) {
+      state.space = spaceChip.dataset.space;
+      // The workspace filter belongs to the space you just left; keeping it would
+      // usually leave you staring at an empty list.
+      state.workspace = 'all';
+      render(true);
+      return;
+    }
     const chip = ev.target.closest('[data-ws]');
     if (!chip) return;
     state.workspace = chip.dataset.ws;
@@ -651,6 +737,10 @@
       // Keep any already-fetched detail so an open card doesn't flicker.
       const prev = new Map(state.questions.map((q) => [q.key, q]));
       state.questions = data.questions.map((q) => (prev.has(q.key) ? Object.assign(prev.get(q.key), q) : q));
+      state.spaces = data.spaces || [];
+      // A space that has been renamed or removed in config would otherwise leave the
+      // filter pinned to something that no longer exists, showing an empty list.
+      if (state.space !== 'all' && !state.spaces.some((s) => s.name === state.space)) state.space = 'all';
       state.open = new Set([...openKeys].filter((k) => state.questions.some((q) => q.key === k)));
       render();
       focusHash();

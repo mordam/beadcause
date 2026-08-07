@@ -149,6 +149,16 @@ data class Event(
     val title: String?,
     val author: String?,
     val text: String?,
+    /** The space this belongs to, or null when spaces aren't configured. */
+    val space: String?,
+    /**
+     * The owning space is muted or inside its quiet hours right now.
+     *
+     * The event still arrives — the question must appear in the list and the badge
+     * — but nothing should light up the phone for it. Suppressing the event instead
+     * would hide the question outright, which is a far worse failure than a buzz.
+     */
+    val quiet: Boolean,
 )
 
 data class Poll(
@@ -193,6 +203,8 @@ private fun JSONObject.toEvent() = Event(
     title = optStringOrNull("title"),
     author = optStringOrNull("author"),
     text = optStringOrNull("text"),
+    space = optStringOrNull("space"),
+    quiet = optBoolean("quiet"),
 )
 
 private fun JSONObject.toQuestion(): Question {

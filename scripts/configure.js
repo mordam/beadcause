@@ -94,9 +94,57 @@ const shared = /^none$/i.test(sharedRaw)
 cfg.autoDispatchExclude = shared;
 cfg.ntfy = { ...cfg.ntfy, minimalWorkspaces: shared };
 
+/* --------------------------------------------------------------------- spaces */
+
+console.log(`\n${bold('2. Group them into spaces?')}`);
+console.log(
+  dim(
+    '   A space is a set of workspaces that share a notification policy — the point\n' +
+      '   being that you can mute one. "Work" muted after 18:00 and at weekends means\n' +
+      '   work questions still arrive and still show a badge, they just never buzz.\n' +
+      '   Skip if you only have one kind of work.'
+  )
+);
+
+if (await yes('   set up spaces? (y/n)', (cfg.spaces || []).length ? 'y' : 'n')) {
+  const spaces = [];
+  let remaining = [...workspaces];
+  while (remaining.length) {
+    console.log(dim(`\n   unassigned: ${remaining.join(', ')}`));
+    const name = await ask('   space name (blank to finish):', '');
+    if (!name) break;
+    const picked = (await ask(`   workspaces in "${name}" (comma-separated):`, remaining.join(', ')))
+      .split(',')
+      .map((s) => s.trim())
+      .filter((s) => remaining.includes(s));
+    if (!picked.length) {
+      console.log(dim('   (nothing matched — skipping)'));
+      continue;
+    }
+    const space = { name, workspaces: picked };
+
+    if (await yes(`   quiet hours for "${name}"? (y/n)`, 'n')) {
+      const from = await ask('     quiet from (HH:MM):', '18:00');
+      const to = await ask('     quiet until (HH:MM):', '09:00');
+      space.quietHours = { from, to };
+      const days = await ask('     also quiet all day on (e.g. sat,sun — blank for none):', 'sat,sun');
+      if (days.trim()) space.quietDays = days.split(',').map((d) => d.trim().slice(0, 3).toLowerCase()).filter(Boolean);
+    }
+    // Shared workspaces were already handled in question 1; this is the space-level
+    // equivalent, and it keeps applying as you add workspaces to the space later.
+    if (picked.some((w) => shared.includes(w))) space.ntfyDetail = 'minimal';
+
+    spaces.push(space);
+    remaining = remaining.filter((w) => !picked.includes(w));
+  }
+  cfg.spaces = spaces;
+} else {
+  cfg.spaces = [];
+}
+
 /* ---------------------------------------------------------------- asset roots */
 
-console.log(`\n${bold('2. Where does your code live?')}`);
+console.log(`\n${bold('3. Where does your code live?')}`);
 console.log(
   dim(
     '   A question can only show you an image or open a document that sits under one\n' +
@@ -117,7 +165,7 @@ cfg.assetRoots = [...assetRoots];
 
 /* ----------------------------------------------------------------- projectRoot */
 
-console.log(`\n${bold('3. Does your shell pick a beads workspace from the current directory?')}`);
+console.log(`\n${bold('4. Does your shell pick a beads workspace from the current directory?')}`);
 console.log(
   dim(
     '   Some setups have a chpwd hook mapping <root>/<repo> to ~/beads/<repo>, often\n' +
@@ -145,7 +193,7 @@ if (await yes('   shell-derived? (y/n)', 'n')) {
 
 /* ------------------------------------------------------------------------ push */
 
-console.log(`\n${bold('4. Push notifications')}`);
+console.log(`\n${bold('5. Push notifications')}`);
 console.log(
   dim(
     '   The Android app posts its own notifications over your tailnet and needs\n' +
@@ -157,7 +205,7 @@ cfg.ntfy = { ...cfg.ntfy, enabled: await yes('   use ntfy? (y/n)', cfg.ntfy?.ena
 
 /* --------------------------------------------------------------- unattended work */
 
-console.log(`\n${bold('5. Should commenting spawn an agent to answer you?')}`);
+console.log(`\n${bold('6. Should commenting spawn an agent to answer you?')}`);
 console.log(
   dim(
     '   Otherwise a comment just sets a label and waits for an agent session to come\n' +
@@ -174,6 +222,11 @@ rl.close();
 
 console.log(`\n${bold('Saved')} ${CONFIG_PATH}`);
 console.log(`  shared workspaces : ${shared.length ? shared.join(', ') : '(none)'}`);
+console.log(
+  `  spaces            : ${
+    cfg.spaces.length ? cfg.spaces.map((s) => `${s.name} (${s.workspaces.join('/')})`).join(', ') : '(none)'
+  }`
+);
 console.log(`  asset roots       : ${cfg.assetRoots.join(', ')}`);
 console.log(`  session dirs      : ${cfg.projectRoot ? `${cfg.projectRoot}/<workspace>` : '~/beads/<workspace>'}`);
 console.log(`  ntfy              : ${cfg.ntfy.enabled ? cfg.ntfy.topic : 'disabled'}`);

@@ -84,13 +84,23 @@ body {
   cursor: pointer;
 }
 
+/*
+  Two stacked rows now — spaces, then the workspaces within the chosen space — so
+  the container stacks and each row scrolls sideways on its own. With no spaces
+  configured only the second row renders and this looks exactly as it did.
+*/
 .filters {
-  display: flex; gap: 8px;
+  display: flex; flex-direction: column; gap: 6px;
   padding: 12px 16px 4px;
+}
+.chip-row {
+  display: flex; gap: 8px;
   overflow-x: auto;
   scrollbar-width: none;
 }
-.filters::-webkit-scrollbar { display: none; }
+.chip-row::-webkit-scrollbar { display: none; }
+/* The space row leads, so it reads as the coarser choice. */
+.chip-row.spaces .chip { font-weight: 620; }
 .chip {
   flex: 0 0 auto;
   border: 1px solid var(--line);
@@ -103,6 +113,14 @@ body {
   cursor: pointer;
 }
 .chip[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+/*
+  A muted space. Dimmed, but the count stays at full strength — the questions are
+  still there and still need answering; only the notification is suppressed. The
+  bell is what makes the silence legible instead of looking like a fault.
+*/
+.chip.quiet { border-style: dashed; opacity: 0.75; }
+.chip.quiet[aria-pressed="true"] { opacity: 1; }
+.chip .bell { font-size: 11px; }
 
 .list { padding: 12px 12px 0; display: flex; flex-direction: column; gap: 12px; }
 
@@ -424,6 +442,28 @@ body {
 .doc { padding: 16px 16px 40px; max-width: 780px; margin: 0 auto; }
 .doc pre { white-space: pre-wrap; }
 .doc .pdf { width: 100%; height: calc(100vh - 140px); border: 1px solid var(--line); border-radius: 10px; }
+/* The graph tab. The framed page sizes itself in vw/vh, so it gets a real box to
+   fill rather than the reader's scrolling column. */
+.graph-body { overflow: hidden; height: 100dvh; display: flex; flex-direction: column; }
+.graph-main { flex: 1; min-height: 0; display: flex; }
+.graph-frame { flex: 1; width: 100%; border: 0; background: #1a1a2e; }
+.graph-main .empty { margin: auto; }
+/* `display: flex` beats the UA's [hidden] rule — see .brief[hidden]. */
+.scope[hidden] { display: none; }
+.scope { position: relative; z-index: 20; display: flex; gap: 8px; padding: 8px 16px 10px; border-bottom: 1px solid var(--line); background: var(--bg); }
+.scope-btn {
+  min-height: 36px;
+  padding: 6px 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 550;
+}
+.scope-btn.on { color: var(--text); border-color: color-mix(in srgb, var(--text) 35%, transparent); }
+
 .doc-body .brand h1 {
   font-size: 15px;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -447,6 +487,7 @@ body {
   overflow-wrap: anywhere;
 }
 .docs a::before { content: "📄"; }
+.docs a.graph-link::before { content: "🕸️"; }
 .docs a .path {
   display: block;
   font-size: 11.5px;
