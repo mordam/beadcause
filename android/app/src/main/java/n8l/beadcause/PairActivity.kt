@@ -1,4 +1,4 @@
-package ca.neadamthal.beadcause
+package n8l.beadcause
 
 import android.Manifest
 import android.content.pm.PackageManager
@@ -13,7 +13,7 @@ import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
-import ca.neadamthal.beadcause.databinding.ActivityPairBinding
+import n8l.beadcause.databinding.ActivityPairBinding
 import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.barcode.BarcodeScannerOptions

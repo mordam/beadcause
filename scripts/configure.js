@@ -1,0 +1,181 @@
+#!/usr/bin/env node
+/**
+ * Ask the handful of questions that can't be guessed, and write the answers into
+ * ~/.config/beadcause/config.json.
+ *
+ *   npm run configure
+ *
+ * Run by the installer, and re-runnable at any time. Only three things genuinely
+ * need a human: which workspaces are shared with other people (that decides what a
+ * public relay is allowed to see and where unattended agents may comment), where
+ * your code lives (so questions can show you files from it), and whether your shell
+ * derives BEADS_DIR from the working directory.
+ *
+ * Every question offers a default that is the conservative choice, so holding Enter
+ * through the whole thing produces a safe configuration. With no TTY — CI, a piped
+ * install — it takes those defaults silently rather than blocking.
+ */
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import readline from 'node:readline/promises';
+import { loadConfig, saveConfig, CONFIG_PATH } from '../lib/config.js';
+
+const HOME = os.homedir();
+const tty = process.stdin.isTTY && process.stdout.isTTY;
+const bold = (s) => `\x1b[1m${s}\x1b[0m`;
+const dim = (s) => `\x1b[2m${s}\x1b[0m`;
+
+const cfg = loadConfig();
+const workspaces = cfg.workspaces.map((w) => w.name);
+
+if (!tty) {
+  console.log('[beadcause] not a terminal — keeping the current configuration.');
+  process.exit(0);
+}
+
+if (!workspaces.length) {
+  console.log(`\nNo beads workspaces found under ~/beads.`);
+  console.log(`Create one and re-run: ${bold('npm run configure')}\n`);
+  process.exit(0);
+}
+
+const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+
+/**
+ * Ctrl+C and Ctrl+D during setup are ordinary — you change your mind, or the
+ * installer is being driven by something that closes stdin. Either way it must not
+ * dump a Node stack trace at someone who is installing this for the first time, and
+ * it must not leave a half-answered config behind: nothing is written until the end.
+ */
+function bail() {
+  rl.close();
+  console.log(`\n\nSetup cancelled — nothing was changed. Run ${bold('npm run configure')} when ready.\n`);
+  process.exit(0);
+}
+rl.on('SIGINT', bail);
+
+const ask = async (q, dflt) => {
+  try {
+    return (await rl.question(`${q} ${dim(`[${dflt}]`)} `)).trim() || dflt;
+  } catch {
+    bail();
+  }
+};
+const yes = async (q, dflt = 'n') => /^y/i.test(await ask(q, dflt));
+
+console.log(`\n${bold('Beadcause setup')} — Enter accepts the default shown in brackets.`);
+console.log(`Workspaces found: ${workspaces.join(', ')}\n`);
+
+/* ------------------------------------------------- shared vs private workspaces */
+
+console.log(bold('1. Which of these are shared with other people?'));
+console.log(
+  dim(
+    '   Shared workspaces are treated carefully in two ways: their questions push a\n' +
+      '   contentless nudge rather than the text (an ntfy.sh topic is readable by anyone\n' +
+      '   who guesses its name), and no unattended agent will comment on them.\n' +
+      '   Comma-separated, or "none".'
+  )
+);
+const sharedRaw = await ask('   shared:', 'none');
+const shared = /^none$/i.test(sharedRaw)
+  ? []
+  : sharedRaw
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .filter((name) => {
+        const known = workspaces.includes(name);
+        if (!known) console.log(dim(`   (ignoring "${name}" — not a workspace under ~/beads)`));
+        return known;
+      });
+
+cfg.autoDispatchExclude = shared;
+cfg.ntfy = { ...cfg.ntfy, minimalWorkspaces: shared };
+
+/* ---------------------------------------------------------------- asset roots */
+
+console.log(`\n${bold('2. Where does your code live?')}`);
+console.log(
+  dim(
+    '   A question can only show you an image or open a document that sits under one\n' +
+      '   of these directories. ~/beads is always included. Blank to skip.'
+  )
+);
+const guesses = ['code', 'src', 'dev', 'projects', 'Projects', 'work', 'repos'].map((d) => path.join(HOME, d));
+const guess = guesses.find((d) => fs.existsSync(d)) || '';
+const codeRoot = await ask('   path:', guess);
+
+const assetRoots = new Set([path.join(HOME, 'beads'), ...(cfg.assetRoots || [])]);
+if (codeRoot) {
+  const resolved = path.resolve(codeRoot.replace(/^~/, HOME));
+  if (fs.existsSync(resolved)) assetRoots.add(resolved);
+  else console.log(dim(`   (${resolved} does not exist — skipping)`));
+}
+cfg.assetRoots = [...assetRoots];
+
+/* ----------------------------------------------------------------- projectRoot */
+
+console.log(`\n${bold('3. Does your shell pick a beads workspace from the current directory?')}`);
+console.log(
+  dim(
+    '   Some setups have a chpwd hook mapping <root>/<repo> to ~/beads/<repo>, often\n' +
+      '   carrying an actor, an API token, or a Claude account along with it. If yours\n' +
+      '   does, a session opened from the phone must start in the matching checkout.\n' +
+      '   Answer n if you are unsure — sessions then open in ~/beads/<workspace>, which\n' +
+      '   always works.'
+  )
+);
+if (await yes('   shell-derived? (y/n)', 'n')) {
+  const root = await ask('   the root your checkouts live under:', codeRoot || path.join(HOME, 'code'));
+  const resolved = path.resolve(root.replace(/^~/, HOME));
+  if (fs.existsSync(resolved)) {
+    cfg.projectRoot = resolved;
+    const fallback = await ask('   workspace a shell OUTSIDE that root resolves to (blank for none):', '');
+    cfg.fallbackWorkspace = fallback || null;
+  } else {
+    console.log(dim(`   (${resolved} does not exist — leaving sessions on the default)`));
+    cfg.projectRoot = null;
+  }
+} else {
+  cfg.projectRoot = null;
+  cfg.fallbackWorkspace = null;
+}
+
+/* ------------------------------------------------------------------------ push */
+
+console.log(`\n${bold('4. Push notifications')}`);
+console.log(
+  dim(
+    '   The Android app posts its own notifications over your tailnet and needs\n' +
+      '   nothing here. Answer y only if you want the PWA to push via ntfy.sh, which\n' +
+      '   relays through a public server.'
+  )
+);
+cfg.ntfy = { ...cfg.ntfy, enabled: await yes('   use ntfy? (y/n)', cfg.ntfy?.enabled ? 'y' : 'n') };
+
+/* --------------------------------------------------------------- unattended work */
+
+console.log(`\n${bold('5. Should commenting spawn an agent to answer you?')}`);
+console.log(
+  dim(
+    '   Otherwise a comment just sets a label and waits for an agent session to come\n' +
+      '   looking — which, if none ever does, means it is never answered. Costs tokens\n' +
+      '   per comment, and the agent runs unattended (read + `bd` only, no edits).'
+  )
+);
+cfg.autoDispatch = await yes('   auto-dispatch? (y/n)', cfg.autoDispatch === false ? 'n' : 'y');
+
+/* ---------------------------------------------------------------------- write */
+
+saveConfig(cfg);
+rl.close();
+
+console.log(`\n${bold('Saved')} ${CONFIG_PATH}`);
+console.log(`  shared workspaces : ${shared.length ? shared.join(', ') : '(none)'}`);
+console.log(`  asset roots       : ${cfg.assetRoots.join(', ')}`);
+console.log(`  session dirs      : ${cfg.projectRoot ? `${cfg.projectRoot}/<workspace>` : '~/beads/<workspace>'}`);
+console.log(`  ntfy              : ${cfg.ntfy.enabled ? cfg.ntfy.topic : 'disabled'}`);
+console.log(`  auto-dispatch     : ${cfg.autoDispatch ? 'on' : 'off'}`);
+console.log(`\nEdit any of it later in that file, or re-run ${bold('npm run configure')}.\n`);

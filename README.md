@@ -31,9 +31,18 @@ git clone <this repo> beadcause && cd beadcause
 npm run install-service
 ```
 
-That checks the prerequisites, installs dependencies, generates a launchd plist for
-*your* home directory and node binary, starts the service, waits for it to answer,
-and prints the pairing QR. It's re-runnable — run it again after pulling.
+That checks the prerequisites, installs dependencies, **asks you the handful of
+things that can't be guessed**, generates a launchd plist for *your* home directory
+and node binary, starts the service, waits for it to answer, and prints the pairing
+QR. It's re-runnable — run it again after pulling.
+
+The questions, all with a safe default on Enter: which workspaces are **shared with
+other people** (those get a contentless push and no unattended agents), where your
+**code lives** (so a question can show you files from it), whether your shell
+**derives `BEADS_DIR` from the working directory**, whether to use **ntfy**, and
+whether commenting should **spawn an agent** to answer you. Re-run them any time
+with `npm run configure`; nothing is written until the last answer, so Ctrl+C is
+always safe.
 
 ```bash
 npm run uninstall-service    # remove the service (keeps your config and token)
@@ -65,11 +74,10 @@ otherwise its poller would keep firing notifications with no listener behind the
 
 - **`~/.config/beadcause/config.json` is written on first run** and holds the shared
   token. Everything below is tunable there; see [Config](#config--configbeadcauseconfigjson).
-- **`assetRoots` defaults to `~/beads` only.** A question can display an image or a
-  document only if it lives under one of these — add your code directory.
-- **Sessions open in `~/beads/<workspace>` by default.** If your shell derives
-  `BEADS_DIR` from the working directory, set `projectRoot` so they open in the
-  matching checkout instead; see
+- **`assetRoots`** is what a question may show you — images and documents outside it
+  are refused. Setup asks for your code directory; add more later.
+- **Sessions open in `~/beads/<workspace>` by default**, which always works. Setup
+  asks whether your shell derives `BEADS_DIR` from the working directory; see
   [Discussing a question on the Mac](#discussing-a-question-on-the-mac).
 - **Nothing is exposed beyond the tailnet.** The daemon binds `127.0.0.1` and your
   Tailscale IP, never `0.0.0.0`.
@@ -175,8 +183,8 @@ closes with reason "Answered via Beadcause".
   The agent runs with a narrow allowlist — `Bash(bd *) Read Grep Glob`, so it can
   research and comment but not edit anything — and is told to comment with
   `--actor claude-session`, never to close the bead. One agent per bead at a time.
-  Off with `autoDispatch: false`; `climative` is excluded by default for the same
-  reason it pushes `minimal`.
+  Off with `autoDispatch: false`, and workspaces you marked as shared during setup
+  are excluded for the same reason they push `minimal`.
 - **Agent → you.** The poller watches those threads and pushes an ntfy the moment
   a comment lands from anyone other than `beadcause`, then clears the flag. Only
   questions you've replied to are watched — `bd human list` carries no comment

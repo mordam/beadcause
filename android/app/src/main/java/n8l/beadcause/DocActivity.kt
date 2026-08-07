@@ -1,4 +1,4 @@
-package ca.neadamthal.beadcause
+package n8l.beadcause
 
 import android.content.Intent
 import android.net.Uri
@@ -9,7 +9,7 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
-import ca.neadamthal.beadcause.databinding.ActivityDocBinding
+import n8l.beadcause.databinding.ActivityDocBinding
 
 /**
  * The reader tab, as a real screen.

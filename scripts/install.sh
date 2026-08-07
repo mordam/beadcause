@@ -47,6 +47,13 @@ command -v tailscale >/dev/null 2>&1 || \
 say "installing dependencies"
 ( cd "$ROOT" && npm install --silent )
 
+# ------------------------------------------------------------------- configure
+
+# Writes ~/.config/beadcause/config.json on first run, then asks the few things
+# that cannot be guessed. Skips itself when there is no TTY.
+( cd "$ROOT" && node scripts/configure.js < /dev/tty ) || \
+  warn "configuration skipped — run 'npm run configure' later to set it up."
+
 # ------------------------------------------------------------ migrate old install
 
 # Labels this service has been known by. Leaving an old one loaded would leave two

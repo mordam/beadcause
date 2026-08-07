@@ -2,9 +2,9 @@
 /**
  * Tell the phone what you're doing about a question.
  *
- *   beadcause-status -w climative -i cl-abc -p researching -m "reading the Stripe docs"
- *   beadcause-status -w climative -i cl-abc -p drafting -m "comparing both fee models"
- *   beadcause-status -w climative -i cl-abc --clear
+ *   beadcause-status -w acme -i ac-abc -p researching -m "reading the Stripe docs"
+ *   beadcause-status -w acme -i ac-abc -p drafting -m "comparing both fee models"
+ *   beadcause-status -w acme -i ac-abc --clear
  *
  * Phases: thinking · researching · drafting · building · blocked · waiting · done
  * (anything else is accepted and shown as-is).

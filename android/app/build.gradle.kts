@@ -21,11 +21,11 @@ val keystoreProps = Properties().apply {
 val hasSideloadKey = keystoreProps.getProperty("storeFile")?.let { File(it).exists() } == true
 
 android {
-    namespace = "ca.neadamthal.beadcause"
+    namespace = "n8l.beadcause"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "ca.neadamthal.beadcause"
+        applicationId = "n8l.beadcause"
         minSdk = 26
         targetSdk = 35
         versionCode = 1

@@ -1,4 +1,4 @@
-package ca.neadamthal.beadcause
+package n8l.beadcause
 
 import android.app.Service
 import android.content.Context

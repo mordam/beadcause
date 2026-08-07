@@ -14,6 +14,7 @@
     "vendor": "node scripts/vendor.js",
     "postinstall": "node scripts/vendor.js",
     "demo": "node scripts/demo-question.js",
+    "configure": "node scripts/configure.js",
     "install-service": "bash scripts/install.sh",
     "uninstall-service": "bash scripts/uninstall.sh",
     "android": "bash scripts/build-android.sh",

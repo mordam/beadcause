@@ -1,4 +1,4 @@
-package ca.neadamthal.beadcause
+package n8l.beadcause
 
 import android.Manifest
 import android.content.Intent
@@ -18,7 +18,7 @@ import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
-import ca.neadamthal.beadcause.databinding.ActivityMainBinding
+import n8l.beadcause.databinding.ActivityMainBinding
 import org.json.JSONObject
 
 /**
