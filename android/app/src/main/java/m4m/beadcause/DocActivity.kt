@@ -1,4 +1,4 @@
-package n8l.beadcause
+package m4m.beadcause
 
 import android.content.Intent
 import android.net.Uri
@@ -9,7 +9,7 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
-import n8l.beadcause.databinding.ActivityDocBinding
+import m4m.beadcause.databinding.ActivityDocBinding
 
 /**
  * The reader tab, as a real screen.

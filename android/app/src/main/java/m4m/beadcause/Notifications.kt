@@ -1,4 +1,4 @@
-package n8l.beadcause
+package m4m.beadcause
 
 import android.app.Notification
 import android.app.NotificationChannel

@@ -1,4 +1,4 @@
-package n8l.beadcause
+package m4m.beadcause
 
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull

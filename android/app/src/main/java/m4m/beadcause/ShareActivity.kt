@@ -1,4 +1,4 @@
-package n8l.beadcause
+package m4m.beadcause
 
 import android.content.Intent
 import android.os.Bundle
@@ -7,7 +7,7 @@ import android.widget.ArrayAdapter
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
-import n8l.beadcause.databinding.ActivityShareBinding
+import m4m.beadcause.databinding.ActivityShareBinding
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
