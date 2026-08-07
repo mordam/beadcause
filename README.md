@@ -47,7 +47,7 @@ always safe.
 ```bash
 npm run uninstall-service    # remove the service (keeps your config and token)
 tail -f ~/Library/Logs/beadcause.log
-launchctl kickstart -k gui/$(id -u)/n8l.beadcause   # restart after changing lib/ or bin/
+launchctl kickstart -k gui/$(id -u)/m4m.beadcause   # restart after changing lib/ or bin/
 ```
 
 The plist is generated, never committed: a checked-in one cannot work on a second

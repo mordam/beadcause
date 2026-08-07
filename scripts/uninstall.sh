@@ -10,8 +10,8 @@
 #
 set -euo pipefail
 
-LABEL="n8l.beadcause"
-LEGACY_LABELS=("com.neadamthal.beadcause" "com.beadcause")
+LABEL="m4m.beadcause"
+LEGACY_LABELS=("com.neadamthal.beadcause" "com.beadcause" "n8l.beadcause")
 
 for label in "$LABEL" "${LEGACY_LABELS[@]}"; do
   plist="$HOME/Library/LaunchAgents/$label.plist"

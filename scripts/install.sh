@@ -12,10 +12,10 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-LABEL="n8l.beadcause"
+LABEL="m4m.beadcause"
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 LOG="$HOME/Library/Logs/beadcause.log"
-LEGACY_LABELS=("com.neadamthal.beadcause" "com.beadcause")
+LEGACY_LABELS=("com.neadamthal.beadcause" "com.beadcause" "n8l.beadcause")
 
 say()  { printf '\033[1m==>\033[0m %s\n' "$*"; }
 warn() { printf '\033[33m warn\033[0m %s\n' "$*" >&2; }
