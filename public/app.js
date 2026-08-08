@@ -84,7 +84,9 @@
       throw new Error('token rejected');
     }
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+    // The body travels with the error: a 428 asking for an acknowledgement carries
+    // the whole warning to show, and a message string alone would throw it away.
+    if (!res.ok) throw Object.assign(new Error(data.error || `HTTP ${res.status}`), { status: res.status, body: data });
     return data;
   }
 
@@ -538,6 +540,7 @@
         <button class="chip agent-add" data-act="agent-new" aria-label="New agent">＋</button>
       </div>
       <p class="agent-desc">${esc(chosen?.description || '')}</p>
+      ${allowToolsHtml(chosen)}
       <div class="agent-form" ${state.agentForm ? '' : 'hidden'}>
         <input data-role="agent-name" placeholder="Name — e.g. Pricing hawk" maxlength="40">
         <textarea data-role="agent-desc" rows="4"
@@ -547,6 +550,70 @@
           <button class="secondary" data-act="agent-cancel">Cancel</button>
         </div>
       </div>`;
+  }
+
+  /**
+   * "Allow tools" — off by every time.
+   *
+   * A checkbox rather than a setting, because it is spent by the comment it rides
+   * on: the server arms the agent's configured override for exactly one reply and
+   * drops it the moment the dispatch goes. So this is re-ticked for every comment
+   * you want it for, which is the point — an elevation you set once and forget is an
+   * elevation nobody remembers granting.
+   *
+   * Only drawn for an agent that HAS an override in the config file. Nothing here
+   * can write one; this decides whether it is used, never what it says.
+   */
+  function allowToolsHtml(agent) {
+    if (!agent?.tools) return '';
+    const busy = agent.busyOn;
+    return `<label class="allow-tools${agent.armed ? ' on' : ''}${busy ? ' busy' : ''}">
+      <input type="checkbox" data-act="allow-tools" data-agent="${esc(agent.id)}" ${agent.armed ? 'checked' : ''} ${
+        busy ? 'disabled' : ''
+      }>
+      <span class="allow-label">⚠ Allow tools for this comment</span>
+      <span class="allow-note">${
+        busy
+          ? `${esc(agent.name)} is answering ${esc(busy)} — not while it is running`
+          : agent.armed
+            ? 'armed · spent when you send'
+            : esc(agent.tools)
+      }</span>
+    </label>`;
+  }
+
+  /**
+   * The warning, the first time an agent is given its extra reach.
+   *
+   * The text comes from the server so every client warns in the same words about the
+   * same tools — and it names them verbatim, because a warning that will not say
+   * what is being granted is theatre.
+   */
+  function confirmTools(disclaimer) {
+    return new Promise((resolve) => {
+      const wrap = document.createElement('div');
+      wrap.className = 'dialog-wrap';
+      wrap.innerHTML = `<div class="dialog" role="dialog" aria-modal="true" aria-label="${esc(disclaimer.title)}">
+        <h2>${esc(disclaimer.title)}</h2>
+        <pre class="dialog-tools">${esc(disclaimer.tools)}</pre>
+        <ul>${disclaimer.points.map((p) => `<li>${esc(p)}</li>`).join('')}</ul>
+        <div class="row">
+          <button class="primary" data-yes>I understand — allow for this comment</button>
+          <button class="secondary" data-no>Cancel</button>
+        </div>
+      </div>`;
+      const done = (v) => {
+        wrap.remove();
+        resolve(v);
+      };
+      wrap.addEventListener('click', (ev) => {
+        if (ev.target.closest('[data-yes]')) return done(true);
+        // The backdrop cancels, like every other dismissable thing here — but a tap
+        // inside the panel must not, or reading it would close it.
+        if (ev.target.closest('[data-no]') || !ev.target.closest('.dialog')) return done(false);
+      });
+      document.body.appendChild(wrap);
+    });
   }
 
   /**
@@ -1013,7 +1080,7 @@
     sending.innerHTML = `<span class="spark"></span>${close ? 'Recording your answer…' : 'Adding your comment…'}`;
     card?.appendChild(sending);
     try {
-      await api(close ? '/api/respond' : '/api/comment', {
+      const res = await api(close ? '/api/respond' : '/api/comment', {
         method: 'POST',
         body: JSON.stringify(
           close
@@ -1043,7 +1110,11 @@
         // so a deferred render would never fire and the card would linger.
         render(true);
       } else {
-        toast(`Comment added — an agent will be told`);
+        toast(res?.elevated ? 'Comment added — running with tools, this once' : 'Comment added — an agent will be told');
+        // The server has spent the arm on this dispatch, so the box must come back
+        // off. Re-read rather than assume: if the dispatch was refused the arm is
+        // still there, and a tick that lied either way would be the worst outcome.
+        loadAgents();
         card?.classList.remove('answering');
         sending.remove();
         // Reflect the awaiting-agent flag the server just set, without waiting
@@ -1175,6 +1246,36 @@
       state.agent = btn.dataset.agent;
       localStorage.setItem('beadcause.agent', state.agent);
       state.agentForm = false;
+      paintAgents();
+      return;
+    }
+
+    if (act === 'allow-tools') {
+      const id = btn.dataset.agent;
+      // The box is painted from the server's answer, never from the tap: an arm that
+      // was refused must not leave a tick behind suggesting it was granted.
+      const wanted = btn.checked;
+      btn.checked = !wanted;
+      try {
+        const send = (extra = {}) =>
+          api('/api/agent-arm', { method: 'POST', body: JSON.stringify({ id, ...extra }) });
+        if (!wanted) {
+          state.agents = (await send({ disarm: true })).agents || state.agents;
+        } else {
+          let data;
+          try {
+            data = await send();
+          } catch (err) {
+            if (!err.body?.needsAcknowledgement) throw err;
+            if (!(await confirmTools(err.body.disclaimer))) return paintAgents();
+            data = await send({ acknowledge: true });
+          }
+          state.agents = data.agents || state.agents;
+          toast('Allowed for this comment only');
+        }
+      } catch (err) {
+        toast(err.message, true);
+      }
       paintAgents();
       return;
     }

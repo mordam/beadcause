@@ -232,10 +232,44 @@ of the standard thread instructions. That is the whole definition: everything el
 shared. It is saved to `agents` in the config, so it survives restarts and can be
 edited by hand later.
 
-What a new agent cannot do is widen its own reach. **Tools are not per-agent from the
-phone.** Every reply agent gets the same read-only allowlist, and a `tools` override
-is honoured only when written into the config file by hand — a form on a lock screen
-is the wrong place to hand out edit rights.
+### Allow tools — for one comment, and only that one
+
+An agent can be given more than the read-only allowlist, and it takes two separate
+acts by design: **defining** the reach, and **using** it.
+
+**Defining** it is a config-file edit, and only that. Give the agent a `tools`
+string:
+
+```json
+"agents": [
+  { "id": "critic", "tools": "Bash(bd show:*) Bash(bd comment:*) Bash(git log:*) Read Grep Glob Edit" }
+]
+```
+
+An entry that names a built-in only overrides the fields it sets, so the line above
+is the whole of giving the Critic edit rights — its name and foundation stay where
+they are. Nothing in the app can write this string; there is no endpoint that accepts
+one. A form on a lock screen is the wrong place to hand out edit rights.
+
+**Using** it is a checkbox under the agent chips, and it is spent by the comment it
+rides on:
+
+- **Off every time.** Arming applies to the **next reply only** and is dropped the
+  moment the dispatch goes. Want tools on the comment after that? Tick it again.
+  Nothing about it is persisted; restarting the daemon disarms everything.
+- **A warning the first time, per agent.** The dialog names the tools verbatim —
+  a warning that won't say what is being granted is theatre — and the acknowledgement
+  is recorded per agent in `agentToolsAcknowledged`, because the content of the
+  warning is *what this particular agent may now do*.
+- **Not while it is answering.** Arming is refused with a 409 naming the bead:
+  changing what a running agent may do is either meaningless or an attempt to widen
+  it mid-flight.
+- **Loud in the log.** Both the arming and the dispatch print the whole tools string
+  to `~/Library/Logs/beadcause.log`, which is what makes an elevated run findable
+  after the fact.
+
+The elevated run is also told, in its prompt, that it is elevated deliberately for
+one reply and should say in its comment exactly what it did with the reach.
 
 ### What a reply agent may do — and the four verbs it used to have by accident
 
@@ -1140,6 +1174,7 @@ Auth on everything under `/api/` except `/api/health`: header
 | GET | `/api/work` | — | `{workspaces[], elsewhere[], advocates[]}` — per workspace: claimed beads, live `claude` sessions, counts, errors |
 | GET | `/api/agents` | — | `{agents[], default}` — the roster you can address a comment to |
 | POST | `/api/agents` | `{name, description}` | creates one and returns the new roster. `tools` is never accepted here |
+| POST | `/api/agent-arm` | `{id, acknowledge?, disarm?}` | arms that agent's configured tools override for **one** reply. `428` the first time, carrying the warning to show; `409` while it is answering; `400` if it has no override |
 | DELETE | `/api/agents` | `?id=` | removes one of yours; built-ins refuse |
 | GET | `/api/advocates` | — | `{advocates[]}` — per repo: queue, open sessions, note, error |
 | POST | `/api/advocate` | `{workspace, action}` | `pause` · `resume` · `release` (free the slots) · `forget` (clear attempt counters) |
@@ -1211,6 +1246,8 @@ decision block and only means anything for a `human` bead.
 | `advocates.sessionTranscripts` | also store the raw Claude Code transcript — megabytes, and it carries paths and tool output (default `false`; set per repo in `perWorkspace`) |
 | `agents` | extra reply agents beyond the four built in — `{id, name, emoji, description}`, plus `tools`/`model` if you set them by hand |
 | `defaultAgent` | which one answers when you haven't picked (default `answerer`) |
+| `agents[].tools` | the allowlist that agent may be *armed* with, for one reply at a time. Config-file only — see [Allow tools](#allow-tools--for-one-comment-and-only-that-one) |
+| `agentToolsAcknowledged` | agents whose extended-tools warning you have accepted; written when you accept it |
 | `spaces` | groups of workspaces sharing a notification policy — see [Spaces](#spaces--keeping-work-out-of-your-evening) |
 | `claudeSessions` | `false` to stop reading `~/.claude/sessions` for the current-sessions page (default on; absent directory is not an error) |
 | `claudeSessionsDir` | where those per-process records live, if not `$CLAUDE_CONFIG_DIR/sessions` or `~/.claude/sessions` |
