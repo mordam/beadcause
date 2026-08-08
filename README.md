@@ -584,6 +584,64 @@ actually protects it, which is why `EnterWorktree` taking one matters. And the s
 runs whether or not the advocate is paused: pausing means "open no more sessions",
 not "leave the mess". `tidyWorktrees: false` is the setting that means that.
 
+### The session log, kept in the repo
+
+A session's window closes when it exits, the rendered log in `~/.config/beadcause/`
+is per-bead and the next run overwrites it, and Claude Code's transcript lives under
+`~/.claude/projects/` — outside the repo, on one laptop. Three months later the
+commit is all that is left, and a commit does not say which bead it was, which agent
+wrote it, or what it was asked.
+
+So the log goes into the repo, in refs — the same trick beads uses to carry Dolt data
+on `refs/dolt/*`. It is worth separating the two halves of that trick, because only
+one of them is Dolt's:
+
+- **Transport.** A ref outside `refs/heads/*` and `refs/tags/*` is invisible to
+  `git log`, `git branch`, `git status` and `git checkout`, is never fetched or
+  pushed unless named, and keeps its objects alive against `gc`. Dolt layers a
+  database inside those objects; a log file needs no database, so these are plain
+  blobs.
+- **Anchoring.** Dolt attaches nothing to a code commit — its history is its own.
+  Attaching data *to a commit hash* is what `git notes` is for.
+
+Both, therefore, written when the session exits:
+
+```
+refs/beadcause/sessions/<bead>   one commit per session, chained, tree =
+                                 meta.json + session.log [+ transcript.jsonl]
+refs/notes/beadcause             three lines on each commit the session made — and
+                                 on the merge that later lands them in main
+```
+
+Read it with plain git, which is the whole reason for storing it this way:
+
+```bash
+git log --notes=beadcause main                        # which bead wrote each commit
+git log refs/beadcause/sessions/bc-bk6                # every session that worked it
+git cat-file -p refs/beadcause/sessions/bc-bk6:session.log
+git for-each-ref refs/beadcause/                      # note the trailing slash
+```
+
+**`session.log` is a rendering, not the transcript.** It reuses `renderEvent` from
+lib/agentlog.js — the same code that draws the live pane on your phone — so one real
+session came out at **31KB from a 1.7MB transcript**, which is the difference between
+something you can keep forever and something you can't. The raw `.jsonl` is stored
+too only where `sessionTranscripts` is on, per repo, because it is megabytes and it
+carries absolute paths, environment and whatever tool output scrolled past.
+
+`meta.json` records the branch, the worktree, the outcome, the session uuid and the
+commits — plus `commitsFrom`, which says **how** the commit list was decided:
+`not-in-main` when the work was still on its branch (exact), or
+`since-session-start` when it had already been merged and the only remaining signal
+was time (a heuristic, labelled as one rather than presented as fact). A session that
+committed nothing gets no landing note at all, since its branch is trivially an
+ancestor of main and the note would put its bead's name on someone else's merge.
+
+Two caveats. `git log --all` **does** walk `refs/*`, so these commits appear there and
+in some GUIs — everything else ignores them. And nothing is pushed unless you ask:
+`git push origin 'refs/beadcause/*:refs/beadcause/*'` and `refs/notes/beadcause` are
+explicit acts, and on a shared repo they should stay that way.
+
 ### Stopping it
 
 Pause from the phone, per repo. `advocates.enabled: false` stops all of them.
@@ -935,6 +993,8 @@ Auth on everything under `/api/` except `/api/health`: header
 | GET | `/api/advocates` | — | `{advocates[]}` — per repo: queue, open sessions, note, error |
 | POST | `/api/advocate` | `{workspace, action}` | `pause` · `resume` · `release` (free the slots) · `forget` (clear attempt counters) |
 | GET | `/api/advocate-log` | `?workspace=` | the survey agent's transcript, as the CLI would have shown it |
+| GET | `/api/session-archive` | `?workspace=&id=` | the archived sessions for a bead |
+| GET | `/api/session-archive` | `?workspace=&commit=&file=` | one archived `session.log`, `meta.json` or `transcript.jsonl` |
 | GET | `/sessions`, `/work` | — | the current-sessions page (same page, two paths) |
 | GET | `/graph` | `?ws=&id=` | the HTML graph page |
 | GET | `/api/consoles` | — | `{consoles[], workspaces[]}` — every bead console, newest first |
@@ -985,6 +1045,8 @@ decision block and only means anything for a `human` bead.
 | `advocates.respectQuietHours` | a quiet space's advocate watches without launching (default `true`) |
 | `advocates.tidyWorktrees` | retire merged, clean, unlocked worktrees after a session ends (default `true`) — moved to `.claude/worktrees-retired/`, never deleted |
 | `advocates.tidyIntervalMinutes` | how often it sweeps when nothing has just finished (default 15) |
+| `advocates.sessionLog` | archive each finished session to `refs/beadcause/sessions/<bead>` and note its commits (default `true`) |
+| `advocates.sessionTranscripts` | also store the raw Claude Code transcript — megabytes, and it carries paths and tool output (default `false`; set per repo in `perWorkspace`) |
 | `spaces` | groups of workspaces sharing a notification policy — see [Spaces](#spaces--keeping-work-out-of-your-evening) |
 | `claudeSessions` | `false` to stop reading `~/.claude/sessions` for the current-sessions page (default on; absent directory is not an error) |
 | `claudeSessionsDir` | where those per-process records live, if not `$CLAUDE_CONFIG_DIR/sessions` or `~/.claude/sessions` |
