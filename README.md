@@ -956,6 +956,87 @@ Two notes:
   controlling iTerm", approve it once in System Settings → Privacy & Security →
   Automation.
 
+## The terminal — driving a session from the phone
+
+That button needs you to walk to the Mac. **⌨️** in the top bar, or **Drive a session
+on it from here** in a card's ⋮ menu, opens the same thing on the screen you are
+already holding: the real Claude Code TUI, on a pty, over a WebSocket. Everywhere else
+in beadcause you answer an agent; this is the one place you steer one.
+
+Seeded from a card it opens on that bead with the same *talk it through, don't answer
+for me* brief. Opened cold it asks which workspace, and starts there.
+
+### It keeps running when your screen locks
+
+This is the whole design, not a nicety. A phone that locks drops the socket within
+seconds and iOS kills it the moment the tab is backgrounded — so a terminal whose
+process died with its connection would lose the conversation every single time the
+screen went dark, which is worse than not having one.
+
+So the pty belongs to the daemon, not to the connection. Sockets attach and detach;
+output keeps accumulating into a scrollback ring while nobody is watching; coming back
+replays it into a cleared screen. Reconnecting is automatic and backs off, and the page
+drops its own socket when you background the tab rather than waiting for the OS to.
+What ends a terminal is quitting `claude`, pressing **⏹**, or the idle reaper — never
+a dropped connection.
+
+### The keys a phone doesn't have
+
+Claude Code is driven by esc, ^C and shift-tab, and an Android soft keyboard offers
+none of the three. The row above the keyboard is therefore the feature and not the
+trim: **esc · tab · ⇧tab · ^C · arrows · ⏎**, plus **⌨** to bring the keyboard back
+after a tap on one of them stole focus. They send real bytes, so ^C is a real SIGINT
+handled by `claude` itself.
+
+Rotating the phone reflows properly. The pty is resized for real — `stty` against the
+slave device, which makes the kernel raise SIGWINCH in the foreground process group —
+rather than the TUI being left drawn at the width it started at.
+
+### What it costs you to know
+
+- **The pty comes from `expect`, and could not have come from `script(1)`.** There is
+  no `openpty(3)` in Node's standard library, and `node-pty` is a native module
+  ABI-locked to the Node the launchd plist pins. `script(1)` is the obvious substitute
+  and does not work: it calls `tcgetattr()` on its own stdin before allocating
+  anything and only tolerates `ENOTTY`, while a spawned child's stdin is a socket and
+  gives `ENOTSUP`. Redirecting from `/dev/null` gets past that and then there is no way
+  to send a keystroke, which is the entire point. `expect` is in the base system, needs
+  no Homebrew and no npm, relays raw bytes both ways over ordinary pipes, and writes
+  out the slave device name — which is what buys back the resize. See the long note at
+  the top of `scripts/pty-relay.exp`.
+- **It starts in the workspace's session directory**, by `resolveSessionDir` and
+  nothing else — the same rule the "discuss on the Mac" button and the bead console
+  follow, so `~/.zshenv` points `BEADS_DIR`, `BEADS_ACTOR` and `CLAUDE_CONFIG_DIR`
+  (which tracker, and which account is billed) at the right tree.
+- **The token rides as a WebSocket subprotocol**, `new WebSocket(url, [proto, tok])`,
+  never in the URL. A browser cannot set a header on a handshake, and the query string
+  is the one place a secret must not go — it is what ends up in history and in every
+  log between here and there. The same token as everything else; the same tailnet.
+- **Permission prompts are left on.** `terminalPermissionMode` defaults to `null` —
+  inherit whatever your settings do — unlike `sessionPermissionMode`, which is `auto`
+  precisely because nobody is watching. Here you are watching; the prompts are the
+  point. The brief asks the agent to batch what it needs approved, because every
+  prompt is a tap on a keyboard you can barely hit.
+- **Idle terminals are reaped.** After `terminalIdleMinutes` (default 30) with no
+  socket attached, a terminal is closed. The clock only runs while nobody is watching:
+  a session you have open is never reaped for being quiet, because quiet is exactly
+  what one looks like while it reads a repo. At most `terminalMax` (default 4) at once,
+  and the daemon kills them all on shutdown — outliving a *socket* is the point,
+  outliving the process that owns them is a leak.
+- **Scrollback is bytes, not lines** — `terminalScrollbackBytes`, 256 kB by default —
+  and it is kept as raw chunks, never decoded on the way in. A pty splits UTF-8
+  sequences across chunk boundaries constantly, and decoding per chunk would put
+  replacement characters in the scrollback permanently. When the ring overflows you get
+  a one-off "scrollback was trimmed" toast.
+- **This is a bigger escalation than `POST /api/session`** — arbitrary interaction with
+  an agent rather than one fixed command — so it has its own switch: `terminal: false`.
+  It is on by default, on the grounds that what gates it (tailnet plus token) already
+  gates a button that starts an *unattended* agent on the same Mac.
+- **`script(1)`'s limitation is gone, but `ws` is a dependency.** If the daemon starts
+  without it installed the terminal switches itself off with a warning and nothing else
+  is affected — an install that pulls this update and restarts before `npm install`
+  loses one page, not the inbox.
+
 ## Progress: what an agent is doing right now
 
 An agent working on a question can say so, and it shows on the card — a breathing
@@ -1075,6 +1156,12 @@ Auth on everything under `/api/` except `/api/health`: header
 | POST | `/api/console/draft` | `{id, draft}` | the cards as you edited them; re-normalised on the way in |
 | POST | `/api/console/create` | `{id, draft?}` | `{created[], warnings[]}` — **the only writer in the console** |
 | GET | `/console` | `?id=` or `?ws=&seed=` | the bead console page |
+| GET | `/api/terminals` | — | `{terminals[], workspaces[], enabled}` — every terminal, newest first |
+| POST | `/api/terminal` | `{workspace, id?, cols?, rows?}` | `{terminal}` — opens one; an `id` seeds it on that bead |
+| GET | `/api/terminal` | `?id=` | `{terminal}` — one, without its bytes |
+| POST | `/api/terminal/close` | `{id}` | ends it (SIGTERM, then SIGKILL after 5s) |
+| WS | `/ws/terminal` | `?id=`, subprotocols `beadcause.term.v1` + `tok.<token>` | binary frames both ways are pty bytes; JSON carries `hello` · `ready` · `exit` in, `input` · `resize` · `close` out |
+| GET | `/terminal` | `?id=` or `?ws=&seed=` | the terminal page |
 
 Two things that bite: `commentCount` is **0 from `/api/questions`** and only correct
 from `/api/question`, because `bd human list` doesn't return it. And a question
@@ -1099,6 +1186,11 @@ decision block and only means anything for a `human` bead.
 | `beadConsole` | allow the [bead console](#the-bead-console--deciding-what-to-file) to open conversations and create beads (default `true`) |
 | `consoleModel` | model for a console turn (default `null` — whatever `claude` uses on its own; `"sonnet"` for a cheaper conversation) |
 | `consoleTimeoutMs` | kill a console turn that has been going this long (default 15 min) |
+| `terminal` | allow the [in-app terminal](#the-terminal--driving-a-session-from-the-phone) to open a real Claude Code session over a WebSocket (default `true`) |
+| `terminalPermissionMode` | `--permission-mode` for a terminal (default `null` — inherit your settings; unlike `sessionPermissionMode`, you are sitting in front of this one) |
+| `terminalIdleMinutes` | close a terminal nobody has been watching for this long (default 30; the clock only runs with no socket attached) |
+| `terminalScrollbackBytes` | replayed on reconnect, so a locked screen misses nothing (default 256 kB) |
+| `terminalMax` | how many terminals may be open at once (default 4) |
 | `autoDispatch` | commenting spawns an unattended agent to reply (default `true`) |
 | `autoDispatchExclude` | workspaces that never auto-dispatch — put shared trackers here |
 | `autoDispatchTimeoutMs` | kill a dispatched agent after this long (default 10 min) |

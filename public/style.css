@@ -1307,3 +1307,113 @@ a.menu-item { text-decoration: none; color: var(--text); }
 .mon-tally { font-size: 12px; font-weight: 600; color: var(--muted); }
 .mon-tally.warn { color: var(--warn); }
 .adv-note .dim { opacity: 0.7; }
+
+/* ── The in-app terminal ─────────────────────────────────────────────────────
+   A real Claude Code TUI on a pty, driven from the phone. The page is a fixed
+   three-row column — bar, screen, key row — for the same reason the console is:
+   the controls must not scroll away with the content, and here the content
+   scrolls inside xterm.js rather than in the document at all.
+
+   The key row is the part that makes this usable. Claude Code is driven by esc,
+   ^C and shift-tab; an Android soft keyboard offers none of them, so without a
+   row of real keys the terminal is readable and not steerable. It sits above the
+   keyboard, not under it — `dvh` plus the visual-viewport resize in term.js are
+   what keep it there when the keyboard opens. */
+
+.term-body {
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding-bottom: 0;
+}
+
+.screen-wrap {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+/* The positioning context for the status pill — the screen alone, so a pill that
+   is bottom-anchored lands above the key row rather than across it. */
+.screen-area {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  position: relative;
+}
+/* Same wrinkle as the console's launcher: `display: flex` beats the UA's
+   `[hidden] { display: none }`, and without this the key row sits across the
+   bottom of the launcher, before there is any terminal for it to type into. */
+.screen-wrap[hidden] { display: none; }
+
+/* The xterm.js host. `min-height: 0` matters more than it looks: without it the
+   flex item refuses to shrink below its content, and the key row is pushed off
+   the bottom of the screen the moment output arrives. */
+.screen {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  padding: 6px 4px 0 8px;
+  background: var(--bg);
+  overflow: hidden;
+}
+.screen .xterm { height: 100%; }
+.screen .xterm-viewport { overscroll-behavior-y: contain; }
+
+/* Connecting, reconnecting, ended. Floats over the screen rather than taking a
+   row, so the terminal never reflows just because the socket blinked. */
+.term-status {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: 8px;
+  z-index: 4;
+  max-width: calc(100% - 24px);
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 12.5px;
+  font-weight: 550;
+  text-align: center;
+}
+.term-status.bad { color: var(--warn); border-color: var(--warn); }
+
+.keyrow {
+  flex: none;
+  display: flex;
+  gap: 6px;
+  padding: 8px 8px calc(env(safe-area-inset-bottom) + 8px);
+  background: var(--surface);
+  border-top: 1px solid var(--line);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.keyrow::-webkit-scrollbar { display: none; }
+
+.key {
+  flex: 0 0 auto;
+  min-width: 46px;
+  height: 40px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  /* No selection and no callout: these get held down and mashed, and a long-press
+     that selects "esc" or offers to copy it is pure obstruction. */
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  touch-action: manipulation;
+}
+.key:active { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+.key.danger { color: var(--danger); }
+.key.wide { min-width: 62px; }
+
+.term-body .toast { bottom: calc(env(safe-area-inset-bottom) + 64px); }

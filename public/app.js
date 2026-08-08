@@ -361,12 +361,13 @@
   }
 
   /**
-   * What is behind the kebab: the two ways out of a card that aren't reading it.
+   * What is behind the kebab: the three ways out of a card that aren't reading it.
    *
-   * The first acts *on* this bead. The second goes the other way — what work comes
-   * off the back of it — and is an anchor rather than a button, because the console
-   * page opens the conversation itself from `?ws=&seed=` (see public/console.js) and
-   * so needs nothing from this one.
+   * The first two act *on* this bead and differ only in which screen the session
+   * lands on — the Mac's, or this one. The third goes the other way: what work
+   * comes off the back of it. All but the first are anchors rather than buttons,
+   * because both of those pages open from `?ws=&seed=` on their own (see
+   * public/term.js and public/console.js) and so need nothing from this one.
    *
    * The key is `workspace/id`; a workspace name never contains a slash, so the first
    * one splits it.
@@ -379,6 +380,10 @@
       <button class="menu-item" role="menuitem" data-act="discuss" data-key="${esc(key)}">
         <span class="glyph">&gt;_</span> Discuss in a Claude session on the Mac
       </button>
+      <a class="menu-item" role="menuitem"
+        href="/terminal?ws=${encodeURIComponent(ws)}&amp;seed=${encodeURIComponent(id)}">
+        <span class="glyph">⌨️</span> Drive a session on it from here
+      </a>
       <a class="menu-item" role="menuitem"
         href="/console?ws=${encodeURIComponent(ws)}&amp;seed=${encodeURIComponent(id)}">
         <span class="glyph">🧾</span> Work out the next beads from this
