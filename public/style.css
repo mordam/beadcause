@@ -1145,3 +1145,120 @@ a.menu-item { text-decoration: none; color: var(--text); }
 /* A sibling bead is named by its title, and titles are sentences. Let CSS cut
    them off with an ellipsis rather than slicing mid-word in JS. */
 .field .chip { max-width: 46vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ------------------------------------------------------------------ agents */
+
+/* Tabs, not a segmented control: four destinations is one too many for a
+   segmented control on a phone, and these are places you go rather than modes
+   you toggle. Sticky, because the Foundation tab is long enough to scroll past
+   the point of forgetting which agent you are looking at. */
+.tabs {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  gap: 2px;
+  margin: -18px -16px 14px;
+  padding: 6px 12px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--line);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.tabs::-webkit-scrollbar { display: none; }
+.tab {
+  flex: 1;
+  min-height: 40px;
+  padding: 0 12px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 560;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.tab[aria-selected="true"] { background: var(--surface-2); color: var(--text); }
+
+.tab-panel[hidden] { display: none; }
+/* Clear the sticky save bar. Without it the last field sits under the buttons and
+   looks like the page ended early. */
+#tab-foundation { padding-bottom: 96px; }
+
+/* One editable field. The hint sits under the input rather than beside it — at
+   phone width a hint beside a field is a hint nobody reads. */
+.f-row { margin-bottom: 18px; }
+.f-label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+.f-input {
+  width: 100%;
+  padding: 11px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 14.5px;
+  line-height: 1.5;
+  resize: vertical;
+}
+textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
+.f-input:focus { outline: none; border-color: var(--accent); }
+.f-unit { font-size: 12px; color: var(--muted); margin-left: 8px; }
+.f-hint { font-size: 12.5px; color: var(--muted); margin: 6px 2px 0; line-height: 1.45; }
+
+/* Locked fields are shown, not hidden. "Why can I not change this" is a question
+   the screen should answer rather than raise. */
+.f-row.locked .f-locked {
+  padding: 11px 12px;
+  border: 1px dashed var(--line);
+  border-radius: 10px;
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+}
+
+.f-actions {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  gap: 8px;
+  padding: 12px 0 calc(env(safe-area-inset-bottom) + 12px);
+  background: linear-gradient(to bottom, transparent, var(--bg) 22%);
+}
+.f-actions .primary { flex: 2; }
+.f-actions .secondary { flex: 1; }
+
+.card.hist .q { font-size: 15px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.card.hist .md { font-size: 13.5px; }
+.card.hist.declined { opacity: 0.75; border-left: 3px solid var(--danger); }
+
+/* The chat tab owns the rest of the viewport so the composer pins to the bottom,
+   the same way it does on the console. */
+.chat-panel { display: flex; flex-direction: column; min-height: 60vh; }
+.chat-panel .thread { flex: 1; }
+.chat-panel .composer { position: sticky; bottom: 0; }
+
+#save-dialog textarea {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  font-size: 14.5px;
+  margin-bottom: 12px;
+  resize: vertical;
+}

@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0b0f14" media="(prefers-color-scheme: dark)">
+  <meta name="theme-color" content="#f6f7f9" media="(prefers-color-scheme: light)">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <title>Beadcause · agents</title>
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body class="console-body">
+  <header class="topbar">
+    <div class="brand">
+      <a href="/" class="icon-btn" id="back" aria-label="Back to the inbox">‹</a>
+      <span class="dot" id="pulse"></span>
+      <h1 id="title">Agents</h1>
+    </div>
+    <div class="sheet-actions">
+      <button id="ws-btn" class="icon-btn wide" hidden aria-label="Which repo this agent runs in"></button>
+      <a href="/" class="icon-btn" aria-label="Close">✕</a>
+    </div>
+  </header>
+
+  <!--
+    The list. Four agent kinds, not four instances — a foundation belongs to a kind,
+    and the instances (an advocate per repo, a worker per bead) show up under a
+    kind's Activity tab where they actually differ.
+  -->
+  <main id="list" class="launcher" hidden>
+    <p class="lede">What each agent is, what it has been allowed to become, and what
+      it is doing. Editing a foundation here is recorded exactly like an amendment an
+      agent asked for — same history, same justification.</p>
+    <h2 class="section-label">Agents</h2>
+    <div id="agent-list" class="list"></div>
+  </main>
+
+  <!-- One agent: four tabs over the same header. -->
+  <main id="detail" class="launcher" hidden>
+    <nav class="tabs" role="tablist">
+      <button class="tab" data-tab="foundation" role="tab" aria-selected="true">Foundation</button>
+      <button class="tab" data-tab="history" role="tab" aria-selected="false">History</button>
+      <button class="tab" data-tab="chat" role="tab" aria-selected="false">Chat</button>
+      <button class="tab" data-tab="activity" role="tab" aria-selected="false">Activity</button>
+    </nav>
+
+    <section id="tab-foundation" class="tab-panel" role="tabpanel"></section>
+    <section id="tab-history" class="tab-panel" role="tabpanel" hidden></section>
+    <section id="tab-activity" class="tab-panel" role="tabpanel" hidden></section>
+
+    <!--
+      The chat is the same conversation record the bead console uses, with a
+      different agent on the other end — so it streams and resumes identically, and
+      an unfinished chat survives a daemon restart the same way.
+    -->
+    <section id="tab-chat" class="tab-panel chat-panel" role="tabpanel" hidden>
+      <div id="chat-thread" class="thread" aria-live="polite"></div>
+      <form id="chat-composer" class="composer">
+        <textarea id="chat-say" rows="1" placeholder="Ask this agent something…"
+          enterkeyhint="send" autocomplete="off"></textarea>
+        <button id="chat-send" class="primary send" type="submit" aria-label="Send">↑</button>
+      </form>
+    </section>
+  </main>
+
+  <!--
+    Saving an edit. The justification is required, and that is the point rather than
+    friction: an amendment with no reason is one nobody can evaluate three months
+    later, whoever made it.
+  -->
+  <dialog id="save-dialog" class="setup">
+    <form method="dialog">
+      <h2>Save as an amendment</h2>
+      <p id="save-summary" class="lede"></p>
+      <textarea id="save-why" rows="3" placeholder="Why — in terms that will still make sense in six months"></textarea>
+      <div class="scope">
+        <button value="cancel" class="secondary scope-btn" type="submit">Cancel</button>
+        <button value="save" class="primary scope-btn" type="submit">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="setup" class="setup">
+    <form method="dialog">
+      <h2>Access token</h2>
+      <p>Open this app from the link the server printed, or paste the token from
+        <code>~/.config/beadcause/config.json</code>.</p>
+      <input id="token-input" type="password" autocomplete="off" placeholder="token" inputmode="text">
+      <button value="save" class="primary">Save</button>
+    </form>
+  </dialog>
+
+  <div id="toast" class="toast" role="status" hidden></div>
+
+  <script src="/vendor/marked.js"></script>
+  <script src="/vendor/purify.js"></script>
+  <script src="/agents.js"></script>
+</body>
+</html>
