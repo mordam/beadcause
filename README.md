@@ -295,6 +295,143 @@ notifies you exactly as before (anything not authored `beadcause` is an agent
 talking back). A comment costs one model run: the Critic's reply on a real thread,
 which read four files and quoted line numbers, was **98s and $0.85**.
 
+## What an agent is — and how it asks to be different
+
+An agent's definition used to be spread across four places that had nothing to do
+with each other: a system prompt as a template literal in `lib/console.js`, an
+allowlist as a bare string in `lib/dispatch.js`, a model buried in a config key, and
+an environment derived implicitly from whichever directory the process was spawned
+in. That was fine while the only reader was the code doing the spawning. It stops
+working the moment an agent is allowed to *ask* to be different, because you cannot
+request a change to something with no single form.
+
+So `lib/foundation.js`: **one foundation per agent kind**, for all four of them —
+the console, the comment answerer, the repo advocate, and the worker session opened
+in iTerm. Read it to know what an agent may do; commit a change to it to change what
+the agent is.
+
+The line it draws is the important part. A foundation is what the agent is on **every**
+run. The prompt handed to one invocation — this bead, this comment, this survey — is
+what it was *asked* this time, and stays in the module that composes it. Only the
+former is amendable: an agent that could rewrite the brief it was given for a task
+could decide it had been asked something else.
+
+**Two layers, and neither can clobber the other.**
+
+- The **baseline** is in code, shipping with the release. Normal development edits it
+  freely.
+- **Amendments** live on `refs/beadcause/foundations` — a commit per amendment, a tree
+  of `<agent>.json` overlays, the justification in the message. Written with the same
+  plumbing as the session log (`lib/gitref.js`), so nothing touches the working tree
+  and a human mid-edit in the same checkout never sees it.
+
+Effective = baseline ⊕ overlay, resolved at spawn. Editing a prompt in a release
+therefore cannot silently revert an approved amendment, and an approved amendment
+cannot freeze a copy of a prompt development has since moved past.
+
+Because every amendment is a commit, the history reads as what each agent was
+allowed to become:
+
+```
+git log --format='%aI %s' refs/beadcause/foundations
+git cat-file -p refs/beadcause/foundations:console.json
+```
+
+### What may never be amended
+
+`id`, `protocolOwner` and `writes`. Not distrust of the approval — these are the
+fields whose wrongness is invisible at approval time. "Let the console call `bd
+create`" reads as a one-line convenience and silently deletes the review step; a
+changed output contract reads as a formatting preference and breaks the parser three
+turns later, in a way that looks like the agent being unhelpful. Those change by
+editing the file in a release, which is a human writing code.
+
+Amendable: `purpose`, `role`, `model`, `tools`, `allowedTools`, `env`, `timeoutMs`,
+`permissionMode`. A request naming anything else is **rejected, not filtered** —
+silently dropping half a request would apply an amendment you did not approve.
+
+### The loop
+
+1. **It reflects.** After the task — answering a comment, running a survey — the agent
+   is asked one question: was there something you could not do? Its own foundation is
+   printed for it, along with every request of its that has already been refused.
+2. **It writes a block.** Not a bead. `lib/amendment.js` parses an `amendment` block
+   off the end of its output; the agent never files anything and never writes a
+   foundation. Both of those are beadcause's, and that separation is the whole safety
+   property.
+3. **beadcause files one question.** An ordinary `human` bead, labelled `foundation`,
+   carrying what it wants, what it is now, the scope, the argument, and what actually
+   happened. One at a time, per agent.
+4. **You answer it from your phone.** Approve, decline, or ask — commenting starts a
+   thread the way any other question does.
+5. **Approval is a commit**, and the agent starts its next session on the new
+   definition.
+
+```amendment
+agent: dispatch
+kind: prohibited
+scope: reading git history in the repo I am already reading; no writes
+justification: |
+  The comment asked which commit introduced the bug. I can read the files but not
+  the history, so I answered with a guess at the file instead of the commit.
+evidence: |
+  Bash(git log --oneline -20) was denied.
+add:
+  allowedTools:
+    - Bash(git log:*)
+```
+
+**Scope is mandatory.** A request without it is thrown away before it can become a
+bead. "Give me Write" is not a decision anyone can make on a phone; "give me Write
+under my own directory, because X" is. So is a justification — a phrase does not
+clear the bar, and a request re-arguing something already refused never reaches you
+at all.
+
+**`add`/`remove`, not a rewritten list.** A model asked to restate a thirteen-entry
+allowlist in order to append one line to it will eventually drop an entry, and that
+would read as an approved amendment quietly *removing* a tool nobody discussed. The
+agent names the delta; beadcause computes the result against the effective
+foundation, so two amendments in sequence compose instead of the second reverting the
+first.
+
+### Prohibition and omission are not symmetric
+
+A prohibition is observable: the agent asked for a tool and was denied, and the
+denial is in the transcript. beadcause **reads it off the stream** rather than taking
+the agent's word for it, and puts it on the card under "what actually happened" — so
+a denial the agent forgot to mention still reaches you, and an account of a denial
+that never happened is catchable.
+
+An omission is not observable at all. The agent cannot see what it was never given,
+so those requests are speculative by construction. Both are allowed; `kind` says
+which it is, and the justification bar is what keeps the speculative half honest.
+
+### A "no" is remembered
+
+Declining writes a commit too, with your words as the reason, and every future
+reflection is seeded with it verbatim. Without that the same argument arrives every
+session forever — reasoned to from the same starting point by an agent with no memory
+of having lost it — and the one channel you read for constitutional questions fills
+with arguments you have already had.
+
+### Who answers a question about a request
+
+The agent that made it. Commenting on an ordinary question dispatches whichever agent
+you picked from the roster; commenting on an amendment request instead re-seeds the
+*requesting* agent with its own foundation and its own argument, because a Critic
+explaining why the console wants a tool is a stranger guessing at someone else's
+motive. It is told, in as many words, that withdrawing the request is a better
+outcome than defending it.
+
+### Where it takes effect
+
+Three of the four agent kinds re-seed themselves for free: dispatch, the advocate
+survey and a worker session are each one `claude` process that exits, so the next
+spawn reads the amended foundation and *is* the new session. The console is the
+exception — a turn is a fresh `claude -p` resumed by session id — so an approved
+amendment restarts it on a new session, keeps the conversation on screen, and says so
+in the transcript.
+
 ## The conversation, both ways
 
 *Comment only* is not a dead end — it starts a thread.

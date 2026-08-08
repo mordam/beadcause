@@ -234,6 +234,13 @@
         <div class="created-list">${pills}</div>${warn}</div>`;
     }
 
+    // What beadcause did to the agent between turns. Its own row rather than an
+    // assistant bubble: the console did not say this, and a note about the console
+    // being restarted is the last thing that should look like the agent talking.
+    if (m.role === 'system' && m.kind === 'reseeded') {
+      return `<div class="msg reseed-note"><strong>↻ Foundation changed</strong>${esc(m.text)}</div>`;
+    }
+
     // Assistant. A pending turn shows what it is doing; a finished one shows what
     // it said, plus a line pointing at the proposal it just made.
     const parts = [];
