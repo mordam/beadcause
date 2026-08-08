@@ -210,6 +210,44 @@ set.
 Either way the answer lands as a comment authored by `beadcause` and the bead
 closes with reason "Answered via Beadcause".
 
+### Keeping your place in a long brief
+
+Deferring the repaint covers the case where you are typing. It does not cover the
+much commoner one: reading. An open card is `position: fixed; inset: 0;
+overflow-y: auto` — it takes the whole screen and **scrolls its own contents** — so
+`window.scrollY` is 0 for the entire time a brief is on screen, and the list's
+`innerHTML` rebuild throws that card away and builds a new one at `scrollTop` 0.
+That is the jump back to the top of the card, and it is why putting `window.scrollY`
+back afterwards never helped anyone with a brief open: it was restoring a number
+that was zero all along. (It was doing real work for the list behind, which is why
+the list's own offset is still put back too.)
+
+Restoring the card's own offset is still not enough on its own, because mermaid
+renders **asynchronously**. At the instant the position is put back, every diagram
+is an empty placeholder and the card is at its shortest; the offset gets clamped to
+the short content, the diagrams then draw and push everything down, and you are left
+above where you were by exactly the height of the diagrams above you.
+
+So what is stored is an *element* — the card by its key, then the way down into it
+by child index to the deepest thing still starting above the fold — and it is
+re-measured every time the layout changes: immediately, on the next frame, as each
+image decodes, and when the diagrams finish. Each restore is absolute rather than
+incremental, so a later one refines the answer instead of compounding the last.
+Anything deliberate that moves the page — your thumb, a wheel, an arrow key, or the
+scroll that **↑ Collapse** does to put you back on the card's head — ends the
+sequence rather than fighting it. The caret, the selection and the focused textarea
+come back the same way, for the repaints that genuinely cannot be deferred.
+
+`node scripts/scroll-check.mjs` checks all of it: headless Chrome at phone size,
+driving the real `public/app.js` against fixtures served by the script itself, so it
+never touches a bead. It asserts that a poll leaves a long brief where it was, that
+it still does when a diagram sits above the reading point and sizes late, that a
+deep link naming the card you already have open moves nothing, that a forced repaint
+keeps a half-typed answer with its caret, and that collapsing still lands on the
+card's head. `--baseline` serves `HEAD:public/app.js` instead of the working copy —
+which is how you tell a real failure from a flaky one: baseline must fail the scroll
+cases, the working copy must pass all of them.
+
 ## Who you are talking to
 
 Commenting dispatches an agent to reply — and you choose which one. Above the

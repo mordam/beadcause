@@ -1008,13 +1008,203 @@
     if (state.logs.size) pollLogs();
   }, 2000);
 
+  /* ----------------------------------------------------- keeping your place */
+
+  /**
+   * Where the reader was, stored as "this element, this far down the screen"
+   * rather than as a scroll offset — and applied to the element that actually
+   * scrolls, which is usually not the window.
+   *
+   * An open card is `position: fixed; inset: 0; overflow-y: auto` (see .card.open):
+   * it takes the whole screen and scrolls its own contents, so `window.scrollY` is
+   * 0 the entire time a brief is being read. Rebuilding the list with innerHTML
+   * throws that card away and builds a new one at scrollTop 0 — which is the jump
+   * back to the top of the card, and why putting `window.scrollY` back never helped a
+   * reader with a brief open: it was restoring a number that was zero all along.
+   *
+   * The offset alone is still not enough. mermaid renders asynchronously, so at the
+   * moment the position is put back every diagram is an empty placeholder and the
+   * card is at its shortest; the offset is clamped to the short content, the
+   * diagrams then draw and push everything down, and the reader ends up above where
+   * they were. So an element is stored too — the card by its key, then the way down
+   * into it by child index — and re-measured each time the layout changes.
+   */
+  const ANCHOR_SLOP = 8;
+  // Redrawn or rewritten wholesale, so never anchor *inside* one: a mermaid
+  // placeholder holds a fresh SVG after every repaint, and a log pane is replaced
+  // line by line.
+  const OPAQUE = '.diagram, svg, pre';
+  const docScroller = () => document.scrollingElement || document.documentElement;
+  let placeGen = 0;
+
+  /** Something deliberate is moving the page. Stop putting it back. */
+  const releasePlace = () => {
+    placeGen++;
+  };
+  // A thumb, a wheel or an arrow key is the reader deciding where to be, and it
+  // ends any restore still waiting on a late diagram. Deliberate scrolls in code
+  // call releasePlace() themselves. `scroll` is deliberately not in this list —
+  // the restore scrolls, and would cancel itself.
+  for (const ev of ['wheel', 'touchmove', 'keydown']) {
+    addEventListener(ev, releasePlace, { passive: true });
+  }
+
+  /**
+   * Does this element scroll its own contents? An open card does — it is fixed to
+   * the screen with `overflow-y: auto` — and asking rather than assuming is what
+   * keeps this honest if the card ever lays out inline on a wider screen.
+   */
+  const scrolls = (el) =>
+    el.scrollHeight > el.clientHeight + 1 && /(auto|scroll)/.test(getComputedStyle(el).overflowY);
+
+  function capturePlace() {
+    const place = {
+      gen: ++placeGen,
+      docTop: docScroller().scrollTop,
+      key: null,
+      self: false,
+      scrollTop: 0,
+      top: 0,
+      path: [],
+      focus: null,
+    };
+
+    // An open card is the whole screen, so it is the only thing worth anchoring to
+    // while one is up. Otherwise: the card that owns the top of the list — the last
+    // one starting at or above it, since anything below moves when a height above it
+    // changes. Above the first card, the first card is the best there is.
+    let anchor = [...listEl.querySelectorAll('.card.open')].pop() || null;
+    if (!anchor) {
+      for (const card of listEl.querySelectorAll('.card[data-key]')) {
+        const top = card.getBoundingClientRect().top;
+        if (top <= ANCHOR_SLOP || !anchor) anchor = card;
+        if (top > ANCHOR_SLOP) break;
+      }
+    }
+    if (!anchor) return place;
+
+    // Decided here rather than at restore time: straight after the rebuild the card
+    // is at its shortest, so it may not look like a scroller even though it is one,
+    // and mistaking it for the page would write a card offset onto the document.
+    place.self = scrolls(anchor);
+    const scroller = place.self ? anchor : docScroller();
+    place.key = anchor.dataset.key;
+    place.scrollTop = scroller.scrollTop;
+    place.top = anchor.getBoundingClientRect().top;
+
+    // Then down into it, by child index, to the deepest thing still starting above
+    // the fold. The card alone is not a fine enough anchor for a long brief: a
+    // diagram inside it and above where you are reading grows after the repaint,
+    // and everything under it — the paragraph you were on included — slides down by
+    // that diagram's height while the card's own top never moves.
+    const fold = (place.self ? place.top : 0) + ANCHOR_SLOP;
+    let node = anchor;
+    while (!node.matches(OPAQUE)) {
+      const kids = node.children;
+      let step = null;
+      for (let i = kids.length - 1; i >= 0; i--) {
+        const r = kids[i].getBoundingClientRect();
+        if (r.height && r.top <= fold) {
+          step = { index: i, top: r.top };
+          break;
+        }
+      }
+      if (!step) break;
+      place.path.push(step);
+      node = kids[step.index];
+    }
+
+    const box = document.activeElement;
+    if (box?.matches?.('[data-role="answer"]')) {
+      place.focus = {
+        key: box.closest('.card')?.dataset.key,
+        start: box.selectionStart,
+        end: box.selectionEnd,
+        scrollTop: box.scrollTop,
+      };
+    }
+    return place;
+  }
+
+  function restorePlace(place) {
+    if (place.gen !== placeGen) return;
+    // The list behind an open card scrolls too, and it is what you come back to
+    // when the card is collapsed.
+    docScroller().scrollTop = place.docTop;
+    if (!place.key) return;
+    const card = listEl.querySelector(`.card[data-key="${CSS.escape(place.key)}"]`);
+    // The anchor card is gone — answered, or filtered away. The page offset above
+    // is all that is left to go on.
+    if (!card) return;
+
+    const scroller = place.self ? card : docScroller();
+    // Absolute, not incremental: every call starts from the recorded offset and
+    // then corrects, so running again after the diagrams land refines the answer
+    // instead of compounding the last one.
+    scroller.scrollTop = place.scrollTop;
+
+    // As deep as the rebuilt card still goes. A step that no longer resolves means
+    // that part of the brief has not been laid out yet, and its parent is the best
+    // anchor available until it has — which is exactly why this runs again once the
+    // diagrams are drawn.
+    let node = card;
+    let top = place.top;
+    for (const step of place.path) {
+      const kid = node.children[step.index];
+      if (!kid) break;
+      node = kid;
+      top = step.top;
+    }
+    const delta = node.getBoundingClientRect().top - top;
+    if (Math.abs(delta) > 1) scroller.scrollTop += delta;
+  }
+
+  /**
+   * Put the caret back where it was.
+   *
+   * This cannot promise the soft keyboard: a textarea removed from the document is
+   * blurred, and refocusing outside a touch gesture does not always raise the
+   * keyboard again. That is why a repaint is still deferred whenever it can be
+   * (see isAnswering) — this is what makes the repaints that *cannot* be deferred,
+   * like the one after a comment is filed, survivable rather than destructive.
+   */
+  function restoreFocus(f) {
+    if (!f.key) return;
+    const box = listEl.querySelector(`.card[data-key="${CSS.escape(f.key)}"] [data-role="answer"]`);
+    if (!box || box === document.activeElement) return;
+    // preventScroll: where the card sits is restorePlace's decision, and focus
+    // scrolling the box into view would fight it.
+    box.focus({ preventScroll: true });
+    try {
+      box.setSelectionRange(f.start, f.end);
+    } catch {
+      /* the draft came back shorter than the selection did */
+    }
+    box.scrollTop = f.scrollTop;
+  }
+
+  /**
+   * Restore now, then keep restoring as the late layout lands: the next frame, each
+   * image as it decodes, and the diagrams — mermaid renders asynchronously, so a
+   * brief with a diagram in it resizes well after the repaint that contained it.
+   */
+  function settlePlace(place, drawn) {
+    if (place.focus) restoreFocus(place.focus);
+    restorePlace(place);
+    requestAnimationFrame(() => restorePlace(place));
+    for (const img of listEl.querySelectorAll('img')) {
+      if (!img.complete) img.addEventListener('load', () => restorePlace(place), { once: true });
+    }
+    drawn.then(() => restorePlace(place)).catch(() => {});
+  }
+
   function render(force = false) {
     if (!force && isAnswering()) {
       pendingRender = true;
       return;
     }
     pendingRender = false;
-    const scrollY = window.scrollY;
+    const place = capturePlace();
 
     // Two levels of filter: space (work vs personal), then workspace within it.
     // With no spaces configured the first level is skipped entirely and this
@@ -1043,12 +1233,10 @@
 
     renderFilters(inSpace);
 
-    // innerHTML replacement collapses the page height for an instant; put the
-    // reader back where they were rather than at the top of the list.
-    if (scrollY) window.scrollTo(0, scrollY);
-
     openLinksInNewTab(listEl);
-    drawDiagrams(listEl);
+    // Puts the caret and the scroll position back — immediately, and again as the
+    // diagrams and images size themselves afterwards.
+    settlePlace(place, drawDiagrams(listEl));
   }
 
   /* --------------------------------------------------------------- actions */
@@ -1236,6 +1424,9 @@
       paintArmed();
       state.open.delete(key);
       render(true);
+      // This scroll is the point of the button, so it outranks the repaint's own
+      // restore — which would otherwise pull the page back as the diagrams land.
+      releasePlace();
       listEl
         .querySelector(`.card[data-key="${CSS.escape(key)}"]`)
         ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -1578,8 +1769,16 @@
       return;
     }
     hashHandled = key;
+    // The card is already open and there is an answer on the go: the link is
+    // pointing at where you already are. Rebuilding the list to "open" what is
+    // open drops the keyboard and loses the caret for nothing — this is the tap
+    // that comes back from the notification shade, or a fresh push about the very
+    // bead being answered.
+    if (state.open.has(key) && isAnswering()) return;
     await expand(key);
     const el = listEl.querySelector(`.card[data-key="${CSS.escape(key)}"]`);
+    // Going to the card is what the link asked for; it outranks the restore.
+    releasePlace();
     el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }
 
