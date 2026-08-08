@@ -56,6 +56,15 @@ function summary(c) {
     `  session dirs      : ${c.projectRoot ? `${c.projectRoot}/<workspace>` : '~/beads/<workspace>'}`,
     `  ntfy              : ${c.ntfy?.enabled ? c.ntfy.topic : 'disabled'}`,
     `  auto-dispatch     : ${c.autoDispatch === false ? 'off' : 'on'}`,
+    // Both numbers, always: "advocates: sophab" without the session count reads as
+    // an unbounded thing, and that is the number people want to be sure of.
+    `  advocates         : ${
+      (c.advocates?.workspaces || []).length && c.advocates?.enabled !== false
+        ? `${(c.advocates.workspaces || []).join(', ')} — up to ${c.advocates.maxWorkers ?? 1} session(s) each, ${
+            c.advocates.globalMaxWorkers ?? 3
+          } in total`
+        : 'off'
+    }`,
     `  monitor at login  : ${c.monitor?.enabled ? 'yes' : 'no (npm run monitor)'}`,
   ].join('\n');
 }
@@ -275,6 +284,43 @@ cfg.monitor = {
   ...(cfg.monitor || {}),
   enabled: await yes('   open the monitor at login? (y/n)', cfg.monitor?.enabled ? 'y' : 'n'),
 };
+
+/* ------------------------------------------------------------------ advocates */
+
+console.log(`\n${bold('8. Which repos should have an advocate?')}`);
+console.log(
+  dim(
+    '   An advocate watches one repo\'s ready beads and opens a Claude session on each\n' +
+      '   one until there are none left. It runs unattended and costs tokens; it will\n' +
+      '   never create a bead without asking you first. Comma-separated, or "none".'
+  )
+);
+const advRaw = await ask('   advocates:', (cfg.advocates?.workspaces || []).join(',') || 'none');
+const advocated = /^none$/i.test(advRaw)
+  ? []
+  : advRaw
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .filter((name) => {
+        const known = workspaces.includes(name) || name === '*';
+        if (!known) console.log(dim(`   (ignoring "${name}" — not a workspace under ~/beads)`));
+        return known;
+      });
+
+let maxWorkers = cfg.advocates?.maxWorkers ?? 1;
+if (advocated.length) {
+  console.log(
+    dim('   How many sessions may ONE advocate have open at once? 1 is calm; 3 is the most\n   it will allow.')
+  );
+  // Clamped rather than rejected, and echoed back: a silently ignored answer here
+  // would be a promise of three windows that only ever opens one.
+  const raw = Number(await ask('   sessions per repo (1-3):', String(maxWorkers)));
+  maxWorkers = Number.isFinite(raw) ? Math.min(3, Math.max(1, Math.floor(raw))) : 1;
+  if (maxWorkers !== raw) console.log(dim(`   (using ${maxWorkers})`));
+}
+
+cfg.advocates = { ...(cfg.advocates || {}), workspaces: advocated, maxWorkers, enabled: true };
 
 /* ---------------------------------------------------------------------- write */
 

@@ -23,6 +23,15 @@
     open: new Set(),
     armed: null, // key of the option awaiting its confirm tap
     armedTimer: null,
+    // Which cards have their agent log showing, and the text last fetched for each.
+    // Kept out of the question objects so a list refresh can't wipe a pane you are
+    // reading mid-run.
+    logs: new Set(),
+    logText: new Map(),
+    logTimer: null,
+    // Key of the card whose ⋮ menu is showing. At most one, and it is deliberately
+    // opened and closed by DOM surgery rather than render() — see closeMenu().
+    menu: null,
   };
 
   /* ---------------------------------------------------------------- token */
@@ -286,6 +295,87 @@
     </div>`;
   }
 
+  /**
+   * The corner controls an open card carries: the kebab, and collapse — hard right.
+   *
+   * A card only grows these once it is open, because closed it is a row in a list
+   * and has nothing to collapse. Both corners get a way out: the top one is where
+   * your thumb already is when the card opens, the bottom one is where you land
+   * after reading a brief with a diagram and a thread in it.
+   *
+   * Everything that is neither reading nor answering lives behind the kebab — the
+   * card is a question, and a third full-width button under the answer box read as
+   * a third way to answer it.
+   */
+  function cardTopHtml(q) {
+    const on = state.menu === q.key;
+    return `<div class="card-top">
+      <div class="menu-wrap">
+        <button class="kebab${on ? ' on' : ''}" data-act="menu" data-key="${esc(q.key)}"
+          aria-haspopup="true" aria-expanded="${on}" aria-label="More actions">⋮</button>
+        ${on ? menuHtml(q.key) : ''}
+      </div>
+      <button class="collapse" data-act="collapse" data-key="${esc(q.key)}">↑ Collapse</button>
+    </div>`;
+  }
+
+  /**
+   * The same identifying line the card opens with, repeated at its foot.
+   *
+   * A brief can run several screens — a diagram, a spec, a thread — and by the time
+   * you reach the answer box the workspace, the id and the question itself are far
+   * above you. Answering the wrong bead is the expensive mistake here, so the foot
+   * says which one this is rather than making you scroll up to check.
+   *
+   * Quieter than the head on purpose: the same facts, second time, as a caption.
+   */
+  function cardFootHtml(q) {
+    const time = q.agent ? q.since : q.createdAt;
+    const sub = q.agent
+      ? [q.type, q.actor].filter(Boolean).map(esc).join(' · ')
+      : q.question && q.title !== q.question
+        ? esc(q.title)
+        : '';
+    return `<div class="card-foot">
+      <div class="meta">
+        <span class="pill">${esc(q.workspace)}</span>
+        <span class="pill id">${esc(q.id)}</span>
+        ${q.priority != null ? `<span class="pill p${q.priority}">P${q.priority}</span>` : ''}
+        ${q.agent ? `<span class="pill st-${esc(q.status)}">${esc(STATUS_LABEL[q.status] || q.status)}</span>` : ''}
+        ${q.dependentCount ? `<span class="pill">blocks ${q.dependentCount}</span>` : ''}
+        <time>${esc(relTime(time))}</time>
+      </div>
+      <p class="q">${esc(q.question || q.title)}</p>
+      ${sub ? `<p class="subtitle">${sub}</p>` : ''}
+    </div>`;
+  }
+
+  /**
+   * What is behind the kebab: the two ways out of a card that aren't reading it.
+   *
+   * The first acts *on* this bead. The second goes the other way — what work comes
+   * off the back of it — and is an anchor rather than a button, because the console
+   * page opens the conversation itself from `?ws=&seed=` (see public/console.js) and
+   * so needs nothing from this one.
+   *
+   * The key is `workspace/id`; a workspace name never contains a slash, so the first
+   * one splits it.
+   */
+  function menuHtml(key) {
+    const cut = String(key).indexOf('/');
+    const ws = String(key).slice(0, cut);
+    const id = String(key).slice(cut + 1);
+    return `<div class="menu" role="menu">
+      <button class="menu-item" role="menuitem" data-act="discuss" data-key="${esc(key)}">
+        <span class="glyph">&gt;_</span> Discuss in a Claude session on the Mac
+      </button>
+      <a class="menu-item" role="menuitem"
+        href="/console?ws=${encodeURIComponent(ws)}&amp;seed=${encodeURIComponent(id)}">
+        <span class="glyph">🧾</span> Work out the next beads from this
+      </a>
+    </div>`;
+  }
+
   function cardHtml(q) {
     if (q.agent) return agentCardHtml(q);
     const d = q.decision;
@@ -312,7 +402,13 @@
     const brief = open ? briefHtml(q) : '';
     const draft = getDraft(q.key);
 
-    return `<article class="card" id="card-${cardId(q.key)}" data-key="${esc(q.key)}">
+    // `open` takes the card full screen — see .card.open in style.css. A question is
+    // read one at a time, and on a phone an inline accordion meant the brief, the
+    // thread and the answer box all competed with the list around them.
+    return `<article class="card${open ? ' open' : ''}${q.awaitingAgent ? ' replied' : ''}" id="card-${cardId(
+      q.key
+    )}" data-key="${esc(q.key)}">
+      ${open ? cardTopHtml(q) : ''}
       <div class="card-head">
         <div class="meta">
           <span class="pill">${esc(q.workspace)}</span>
@@ -332,7 +428,19 @@
         <button class="linkish" data-act="toggle" data-key="${esc(q.key)}">
           ${open ? 'Hide details' : draft ? 'Resume your answer' : hasBrief ? 'Show details' : 'Write an answer'}
         </button>
+        ${
+          q.awaitingAgent
+            ? `<button class="linkish log-btn" data-act="log" data-key="${esc(q.key)}">${
+                state.logs.has(q.key) ? 'Hide session log' : 'Session log'
+              }</button>`
+            : ''
+        }
       </div>
+      ${
+        state.logs.has(q.key)
+          ? `<pre class="agent-log" data-log="${esc(q.key)}">${esc(state.logText.get(q.key) || 'opening the log…')}</pre>`
+          : ''
+      }
       <div class="brief"${open ? '' : ' hidden'}>${brief}</div>
     </article>`;
   }
@@ -355,6 +463,7 @@
   function agentCardHtml(q) {
     const open = state.open.has(q.key);
     return `<article class="card agent-card" id="card-${cardId(q.key)}" data-key="${esc(q.key)}">
+      ${open ? cardTopHtml(q) : ''}
       <div class="card-head">
         <div class="meta">
           <span class="pill">${esc(q.workspace)}</span>
@@ -398,21 +507,10 @@
       parts.push(`<div class="comments">${q.comments.map(commentHtml).join('')}</div>`);
     }
 
-    // The one action. Nothing on this card writes to the bead, so the way to act on
-    // it is a session that can.
-    parts.push(`<div class="freeform">
-      <button class="discuss" data-act="discuss" data-key="${esc(q.key)}">
-        <span class="glyph">&gt;_</span> Discuss in a Claude session on the Mac
-      </button>
-      <!--
-        The other direction: not "act on this bead" but "what comes off the back of
-        it". A link rather than a button, because the console page does its own
-        opening — see the ?ws=&seed= entry in public/console.js.
-      -->
-      <a class="discuss" href="/console?ws=${encodeURIComponent(q.workspace)}&amp;seed=${encodeURIComponent(q.id)}">
-        <span class="glyph">🧾</span> Work out the next beads from this
-      </a>
-    </div>`);
+    // Nothing on this card writes to the bead, so the way to act on it is a session
+    // that can — and that lives behind the kebab in the corner, with everything else
+    // that isn't reading.
+    parts.push(cardFootHtml(q));
 
     parts.push(`<div class="collapse-row">
       <button class="collapse" data-act="collapse" data-key="${esc(q.key)}">↑ Collapse</button>
@@ -493,22 +591,13 @@
         <button class="primary" data-act="answer" data-key="${esc(q.key)}">Answer &amp; close</button>
         <button class="secondary" data-act="note" data-key="${esc(q.key)}">Comment only</button>
       </div>
-      <button class="discuss" data-act="discuss" data-key="${esc(q.key)}">
-        <span class="glyph">&gt;_</span> Discuss in a Claude session on the Mac
-      </button>
-      <!--
-        The other direction: not "act on this bead" but "what comes off the back of
-        it". A link rather than a button, because the console page does its own
-        opening — see the ?ws=&seed= entry in public/console.js.
-      -->
-      <a class="discuss" href="/console?ws=${encodeURIComponent(q.workspace)}&amp;seed=${encodeURIComponent(q.id)}">
-        <span class="glyph">🧾</span> Work out the next beads from this
-      </a>
     </div>`);
 
-    // A second way out, at the end of the brief. The toggle in the card head is the
-    // only one otherwise, and after reading a long brief with diagrams and a thread
-    // it is several screens above you.
+    parts.push(cardFootHtml(q));
+
+    // A second way out, at the end of the brief — under the one in the top corner,
+    // which after a long brief with diagrams and a thread is several screens above
+    // you. Both sit hard right, so collapsing is the same corner either way.
     parts.push(`<div class="collapse-row">
       <button class="collapse" data-act="collapse" data-key="${esc(q.key)}">↑ Collapse</button>
     </div>`);
@@ -613,6 +702,42 @@
    * thrown away. While a card is being answered, defer instead; the flush
    * happens on blur, or when the answer is submitted.
    */
+  /**
+   * Tail the agent's log into the open panes.
+   *
+   * Written straight into the `<pre>` rather than through render(): a repaint would
+   * scroll the pane back to the top every two seconds, and the list around it does
+   * not change just because an agent typed another line.
+   */
+  async function pollLogs(only = null) {
+    const keys = only ? [only] : [...state.logs];
+    for (const key of keys) {
+      if (!state.logs.has(key)) continue;
+      const [workspace, id] = [key.slice(0, key.indexOf('/')), key.slice(key.indexOf('/') + 1)];
+      try {
+        const data = await api(`/api/agent-log?workspace=${encodeURIComponent(workspace)}&id=${encodeURIComponent(id)}`);
+        const text = (data.lines || []).join('\n') || 'No output yet — the agent is starting.';
+        state.logText.set(key, text);
+        const pre = listEl.querySelector(`[data-log="${CSS.escape(key)}"]`);
+        if (pre) {
+          const atBottom = pre.scrollHeight - pre.scrollTop - pre.clientHeight < 40;
+          pre.textContent = text;
+          // Follow the tail only if you were already at the bottom, so scrolling
+          // back to read something isn't yanked away by the next line.
+          if (atBottom) pre.scrollTop = pre.scrollHeight;
+        }
+      } catch {
+        /* the next tick tries again */
+      }
+    }
+  }
+
+  // One timer for every open pane. It costs a file read per pane per two seconds,
+  // and only ever runs while at least one is open.
+  setInterval(() => {
+    if (state.logs.size) pollLogs();
+  }, 2000);
+
   function render(force = false) {
     if (!force && isAnswering()) {
       pendingRender = true;
@@ -637,7 +762,13 @@
       const where = state.workspace !== 'all' ? state.workspace : state.space !== 'all' ? state.space : '';
       listEl.innerHTML = `<div class="empty">Nothing waiting${where ? ` in ${esc(where)}` : ''}.${gearNudge()}</div>`;
     } else {
-      listEl.innerHTML = visible.map(cardHtml).join('');
+      // Anything you've already replied to sinks to the bottom. It is not waiting on
+      // you any more — an agent has it — so it must not sit between you and the
+      // questions that are. Order within each group is left exactly as the server
+      // sent it (priority, then age).
+      const waiting = visible.filter((q) => !q.awaitingAgent);
+      const replied = visible.filter((q) => q.awaitingAgent);
+      listEl.innerHTML = [...waiting, ...replied].map(cardHtml).join('');
     }
 
     renderFilters(inSpace);
@@ -704,7 +835,12 @@
         // Reflect the awaiting-agent flag the server just set, without waiting
         // for the next poll.
         q.awaitingAgent = true;
-        await expand(key, true);
+        // Collapse and let it sink. You have said your piece; keeping the card open
+        // in front of you implies there is something left for you to do with it,
+        // when the next move belongs to the agent. It comes back up when it replies.
+        state.open.delete(key);
+        clearDraft(key);
+        render(true);
       }
     } catch (err) {
       card?.classList.remove('answering');
@@ -752,13 +888,48 @@
     render(true);
   }
 
+  /**
+   * Shut the ⋮ menu without a render().
+   *
+   * The menu can be open over a half-typed answer — that is the whole reason
+   * `discuss` never re-renders — so opening and closing it is DOM surgery on the
+   * one popover, not a rebuild of the list. `state.menu` still exists so that a
+   * refresh landing while the menu is open paints it back.
+   */
+  function closeMenu() {
+    state.menu = null;
+    for (const m of listEl.querySelectorAll('.menu')) m.remove();
+    for (const k of listEl.querySelectorAll('.kebab.on')) {
+      k.classList.remove('on');
+      k.setAttribute('aria-expanded', 'false');
+    }
+  }
+
+  // A tap anywhere that isn't the menu or its button dismisses it. This runs after
+  // the list's own handler below, so opening the menu doesn't immediately close it.
+  document.addEventListener('click', (ev) => {
+    if (state.menu && !ev.target.closest('.menu-wrap')) closeMenu();
+  });
+
   listEl.addEventListener('click', async (ev) => {
     const btn = ev.target.closest('[data-act]');
     if (!btn) return;
     const key = btn.dataset.key;
     const act = btn.dataset.act;
 
+    if (act === 'menu') {
+      const wasOpen = state.menu === key;
+      closeMenu();
+      if (wasOpen) return;
+      state.menu = key;
+      btn.classList.add('on');
+      btn.setAttribute('aria-expanded', 'true');
+      btn.parentElement.insertAdjacentHTML('beforeend', menuHtml(key));
+      return;
+    }
+
     if (act === 'toggle') {
+      closeMenu();
       disarm();
       paintArmed();
       if (state.open.has(key)) {
@@ -775,6 +946,7 @@
     // from above you and leaves the scroll position pointing at whatever card
     // happens to have slid up into it.
     if (act === 'collapse') {
+      closeMenu();
       disarm();
       paintArmed();
       state.open.delete(key);
@@ -826,7 +998,20 @@
       } finally {
         btn.disabled = false;
         btn.innerHTML = label;
+        closeMenu();
       }
+      return;
+    }
+
+    if (act === 'log') {
+      if (state.logs.has(key)) {
+        state.logs.delete(key);
+        state.logText.delete(key);
+      } else {
+        state.logs.add(key);
+        pollLogs(key);
+      }
+      render(true);
       return;
     }
 

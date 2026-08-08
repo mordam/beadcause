@@ -69,6 +69,7 @@ const C = {
   magenta: sgr(35),
   cyan: sgr(36),
   redBold: sgr('1;31'),
+  cyanBold: sgr('1;36'),
 };
 
 /* ---------------------------------------------------------------------- width */
@@ -238,6 +239,7 @@ function stamp(at) {
 const priorityColour = (p) => (p === 0 ? C.redBold : p === 1 ? C.red : p === 2 ? C.yellow : C.dim);
 
 const EVENT_COLOUR = {
+  advocate: C.cyanBold,
   question: C.yellow,
   reply: C.green,
   commented: C.cyan,
@@ -264,6 +266,12 @@ function eventDetail(e) {
       return 'you commented — an agent should pick it up';
     case 'resync':
       return 'reconnected after falling off the event log';
+    case 'advocate': {
+      // The action is the verb and the key already carries the repo, so this line
+      // is only what the verb doesn't say: which bead, and why.
+      const what = [e.title, e.detail].filter(Boolean).join(' — ');
+      return `${e.action || 'tick'}${what ? `  ${what}` : ''}`;
+    }
     case 'monitor':
       return `watching ${BASE} — everything the daemon does appears here`;
     default:
@@ -277,6 +285,7 @@ const state = {
   since: null, // null means "cold start": ask for the full picture
   questions: [],
   spaces: [],
+  advocates: [],
   workspaces: [],
   events: [{ type: 'monitor', at: new Date().toISOString(), key: '' }], // newest first
   status: {}, // status.json, merged over each question's activity
@@ -377,6 +386,59 @@ function spaceRows(now) {
   });
 }
 
+/**
+ * One line per advocate: what its repo's queue looks like, and what it is doing
+ * about it.
+ *
+ * Deliberately in the head, above the questions, because it answers a different
+ * question from the rest of this screen — not "what needs Adam", but "is anything
+ * being got on with". A paused or quiet advocate is dimmed rather than hidden: an
+ * advocate you cannot see is indistinguishable from a repo with nothing to do,
+ * which is the exact confusion this whole feature exists to end.
+ */
+function advocateRows(now) {
+  const rows = state.advocates || [];
+  if (!rows.length) return [];
+
+  const nameW = Math.max(...rows.map((a) => dw(a.workspace)));
+  return [
+    rule('mid', seg().add('advocates', C.dim)),
+    ...rows.map((a) => {
+      const idle = a.paused || a.quiet;
+      const left = seg().add(a.workspace.padEnd(nameW), idle ? C.dim : C.bold).add('  ');
+      const ready = a.queue ? ` · ${a.queue} ready` : '';
+
+      // `state` is the word the note is checked against below, so the two can't
+      // both say "paused" and eat half the line saying it twice.
+      let state = 'clear';
+      if (a.paused) left.add((state = `⏸ paused${ready}`), C.yellow);
+      else if (a.quiet) left.add((state = `🔇 quiet${ready} — watching`), C.yellow);
+      else if (a.surveying) left.add((state = '🔍 surveying for work to propose'), C.magenta);
+      else if (a.workers.length)
+        left.add((state = `▶ ${a.workers.length}/${a.limit} session${a.workers.length === 1 ? '' : 's'}${ready}`), C.green);
+      else if (a.queue) left.add((state = `${a.queue} ready`), C.yellow);
+      else left.add(state, C.dim);
+
+      const said = state.toLowerCase();
+      if (a.error) left.add('  ').add(`⚠ ${a.error}`, C.red);
+      else if (a.note && !said.includes(a.note.toLowerCase().split(/[ ·—]/)[0])) left.add('  ').add(a.note, C.dim);
+
+      // The right-hand column is the beads themselves: which one, how long, and
+      // whether the session ever claimed it. An unclaimed worker ten minutes in is
+      // the row that tells you a window was opened and then closed on you.
+      const right = seg();
+      a.workers.slice(0, 3).forEach((w, i) => {
+        if (i) right.add(' ');
+        right.add(w.id, C.cyan).add(`·${ago(w.at, now) || 'now'}`, C.dim);
+        if (!w.claimed) right.add('?', C.yellow);
+      });
+      if (!a.workers.length && a.queue) right.add(a.next?.[0]?.id || `${a.queue}`, C.dim);
+
+      return row(left, right);
+    }),
+  ];
+}
+
 /** The lines a question gets: what it is, and what is happening about it. */
 function questionGroup(q, now) {
   const activity = state.status[q.key] || q.activity || null;
@@ -431,6 +493,7 @@ function frame() {
       seg().add(BASE.replace(/^https?:\/\//, ''), C.dim).add('  ').add(conn.ansi())
     ),
     ...spaceRows(now),
+    ...advocateRows(now),
   ];
 
   const groups = state.questions.map((q) => questionGroup(q, now));
@@ -517,6 +580,10 @@ function apply(data) {
   // Absent on a poll that timed out with nothing to say — keep what we have.
   if (data.questions) state.questions = data.questions;
   if (data.spaces) state.spaces = data.spaces;
+  // Sent on every poll, changed or not: an advocate moves without any question
+  // moving — a session it opened finishes, a slot frees — and a pane that only
+  // updated when the inbox did would sit on a stale picture for hours.
+  if (data.advocates) state.advocates = data.advocates;
 
   const arrived = [];
   if (data.resync) arrived.push({ type: 'resync', at: new Date().toISOString(), key: '' });
