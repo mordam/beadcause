@@ -210,6 +210,57 @@ set.
 Either way the answer lands as a comment authored by `beadcause` and the bead
 closes with reason "Answered via Beadcause".
 
+## Who you are talking to
+
+Commenting dispatches an agent to reply — and you choose which one. Above the
+comment box is a row of chips; the one you pick answers, and the foundation it
+answers from is printed underneath, because an agent whose brief you cannot read is
+a name you are guessing at.
+
+Four are built in, and they are the four shapes a comment on a decision actually
+takes:
+
+| | for |
+|---|---|
+| 💬 **Answerer** | do the thing the comment asks. The default, and what this used to be |
+| 🔍 **Researcher** | answer from evidence in the repo — real paths, quoted lines, and the cases where the evidence contradicts the question |
+| 🧨 **Critic** | argue the strongest case against whatever is being proposed, with the one condition that would change its mind |
+| 📋 **Summariser** | hand back the decision still left in a thread that has gone on too long |
+
+**＋ makes a new one from a name and a foundation** — a paragraph that goes in front
+of the standard thread instructions. That is the whole definition: everything else is
+shared. It is saved to `agents` in the config, so it survives restarts and can be
+edited by hand later.
+
+What a new agent cannot do is widen its own reach. **Tools are not per-agent from the
+phone.** Every reply agent gets the same read-only allowlist, and a `tools` override
+is honoured only when written into the config file by hand — a form on a lock screen
+is the wrong place to hand out edit rights.
+
+### What a reply agent may do — and the four verbs it used to have by accident
+
+The allowlist was `Bash(bd *)`, which is one pattern and four verbs too many: it
+allowed `bd create`, `bd close`, `bd delete` and `bd label`. So the agent you chat
+with could file beads without asking — the exact thing the [proposal
+flow](#it-will-not-create-beads) exists to prevent — and could close the very
+question it was answering. It is now named subcommand by subcommand:
+
+```
+Bash(bd show:*) Bash(bd comments:*) Bash(bd comment:*) Bash(bd list:*)
+Bash(bd ready:*) Bash(bd blocked:*) Bash(bd search:*) Bash(bd stats:*)
+Bash(bd memories:*) Bash(bd dep:*) Read Grep Glob
+```
+
+Adding a verb there should feel like a decision, which is why they are listed rather
+than globbed. The prompt says the same thing in words — answer, never close, never
+create — but the allowlist is what makes it true.
+
+The agent's reply is authored as `--actor <agent-id>`, so the thread says which one
+answered, the phase chip says which one is thinking, and the reply poller still
+notifies you exactly as before (anything not authored `beadcause` is an agent
+talking back). A comment costs one model run: the Critic's reply on a real thread,
+which read four files and quoted line numbers, was **98s and $0.85**.
+
 ## The conversation, both ways
 
 *Comment only* is not a dead end — it starts a thread.
@@ -997,7 +1048,7 @@ Auth on everything under `/api/` except `/api/health`: header
 | GET | `/api/question` | `?workspace=&id=` | one question **plus `comments[]`** |
 | GET | `/api/poll` | `?since=<seq>&wait=<s>` | long-poll: `{seq, resync, events[], questions, workspaces[]}` |
 | POST | `/api/respond` | `{workspace, id, response, create?}` | comments, then closes the bead. `create` is the 1-based indices of an advocate proposal's beads to file; without it, `CREATE:` in the text means all and `CREATE: 1,3` means those |
-| POST | `/api/comment` | `{workspace, id, text}` | comments, sets `human-replied` |
+| POST | `/api/comment` | `{workspace, id, text, agent?}` | comments, sets `human-replied`, dispatches that agent to reply (default when absent or unknown) |
 | POST | `/api/ask` | `{workspace, title, body, priority}` | `{id, key}` — files a new `human` bead |
 | POST | `/api/session` | `{workspace, id}` | `{dir}` — opens iTerm2 + `claude` on that bead |
 | POST | `/api/status` | `{workspace, id, phase, detail, actor}` | agent progress |
@@ -1006,6 +1057,9 @@ Auth on everything under `/api/` except `/api/health`: header
 | GET | `/api/graph` | `?workspace=&id=` | `{nodes, links}` — the whole workspace with no `id` |
 | GET | `/api/bead` | `?workspace=&id=` | one issue in full, plus `comments[]` — for the graph's detail sheet |
 | GET | `/api/work` | — | `{workspaces[], elsewhere[], advocates[]}` — per workspace: claimed beads, live `claude` sessions, counts, errors |
+| GET | `/api/agents` | — | `{agents[], default}` — the roster you can address a comment to |
+| POST | `/api/agents` | `{name, description}` | creates one and returns the new roster. `tools` is never accepted here |
+| DELETE | `/api/agents` | `?id=` | removes one of yours; built-ins refuse |
 | GET | `/api/advocates` | — | `{advocates[]}` — per repo: queue, open sessions, note, error |
 | POST | `/api/advocate` | `{workspace, action}` | `pause` · `resume` · `release` (free the slots) · `forget` (clear attempt counters) |
 | GET | `/api/advocate-log` | `?workspace=` | the survey agent's transcript, as the CLI would have shown it |
@@ -1063,6 +1117,8 @@ decision block and only means anything for a `human` bead.
 | `advocates.tidyIntervalMinutes` | how often it sweeps when nothing has just finished (default 15) |
 | `advocates.sessionLog` | archive each finished session to `refs/beadcause/sessions/<bead>` and note its commits (default `true`) |
 | `advocates.sessionTranscripts` | also store the raw Claude Code transcript — megabytes, and it carries paths and tool output (default `false`; set per repo in `perWorkspace`) |
+| `agents` | extra reply agents beyond the four built in — `{id, name, emoji, description}`, plus `tools`/`model` if you set them by hand |
+| `defaultAgent` | which one answers when you haven't picked (default `answerer`) |
 | `spaces` | groups of workspaces sharing a notification policy — see [Spaces](#spaces--keeping-work-out-of-your-evening) |
 | `claudeSessions` | `false` to stop reading `~/.claude/sessions` for the current-sessions page (default on; absent directory is not an error) |
 | `claudeSessionsDir` | where those per-process records live, if not `$CLAUDE_CONFIG_DIR/sessions` or `~/.claude/sessions` |

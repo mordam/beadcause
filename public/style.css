@@ -227,6 +227,31 @@ body {
 
 .actions { display: flex; gap: 8px; padding: 0 15px 14px; }
 
+/* Who answers when you comment. A mode rather than a per-card setting, so it sits
+   directly above the box it changes the behaviour of. */
+.agents { padding: 0 15px 2px; }
+.agents .section-label { margin-bottom: 6px; }
+.agent-row { padding: 0 0 6px; gap: 6px; }
+.agent-chip { font-size: 13px; }
+.agent-add { font-size: 16px; font-weight: 700; padding: 0 14px; }
+/* The foundation of the selected agent, printed rather than hidden behind a tap:
+   an agent whose brief you cannot read is a name you are guessing at. */
+.agent-desc {
+  margin: 0 0 10px; font-size: 12.5px; line-height: 1.5; color: var(--muted);
+  display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden;
+}
+.agent-form { display: flex; flex-direction: column; gap: 8px; margin: 0 0 12px; }
+.agent-form[hidden] { display: none; }
+.agent-form input, .agent-form textarea {
+  width: 100%;
+  padding: 11px 12px;
+  border: 1px solid var(--line); border-radius: 10px;
+  background: var(--bg); color: var(--text);
+  font: inherit; font-size: 15px;
+  resize: vertical;
+}
+.agent-form .row { display: flex; gap: 8px; }
+
 /* An advocate's proposal: one row per bead it wants to create, each with its own
    approve and decline, because "all or nothing" is what makes an agent's
    suggestions annoying — one good bead in three is an ordinary outcome. */

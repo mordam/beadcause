@@ -32,6 +32,12 @@
     // Key of the card whose ⋮ menu is showing. At most one, and it is deliberately
     // opened and closed by DOM surgery rather than render() — see closeMenu().
     menu: null,
+    // The roster you can put a comment to, and which one is selected. The choice is
+    // global rather than per card: "who am I talking to" is a mode you are in, not a
+    // property of one question.
+    agents: [],
+    agent: localStorage.getItem('beadcause.agent') || '',
+    agentForm: false,
     // Per-bead decisions on an advocate's proposal: key → Map(1-based index →
     // 'yes' | 'no'). Held here rather than on the question so a background refresh
     // cannot wipe a half-made decision, the same reason drafts live outside it.
@@ -495,6 +501,73 @@
     }
   }
 
+  /** The selected agent, falling back to the first one the server offered. */
+  const currentAgent = () => state.agents.find((a) => a.id === state.agent) || state.agents[0] || null;
+
+  /**
+   * Who answers when you comment.
+   *
+   * Commenting has always dispatched an agent; there was just only one of it, and
+   * its brief was hard-coded. Half the time what a thread needs is not an answer but
+   * the counter-argument, or the three paths that settle it — different briefs, not
+   * different phrasings of one.
+   *
+   * The chips are a mode, not a per-card setting, and the foundation of the selected
+   * one is printed underneath: an agent whose brief you cannot read is a name you
+   * are guessing at. Creating one needs only a name and that paragraph — never
+   * tools, which is why this form cannot widen what any agent may do.
+   */
+  function agentsHtml() {
+    if (!state.agents.length) return '';
+    const chosen = currentAgent();
+    const chips = state.agents
+      .map(
+        (a) => `<button class="chip agent-chip" data-act="agent" data-agent="${esc(a.id)}"
+          aria-pressed="${a.id === chosen?.id}">${esc(a.emoji || '🤖')} ${esc(a.name)}</button>`
+      )
+      .join('');
+
+    return `<div class="section-label">Reply from <span>the agent that picks up your comment</span></div>
+      <div class="chip-row agent-row">
+        ${chips}
+        <button class="chip agent-add" data-act="agent-new" aria-label="New agent">＋</button>
+      </div>
+      <p class="agent-desc">${esc(chosen?.description || '')}</p>
+      <div class="agent-form" ${state.agentForm ? '' : 'hidden'}>
+        <input data-role="agent-name" placeholder="Name — e.g. Pricing hawk" maxlength="40">
+        <textarea data-role="agent-desc" rows="4"
+          placeholder="Its foundation: what this agent is for, and how it should answer. This goes in front of every reply it writes."></textarea>
+        <div class="row">
+          <button class="primary" data-act="agent-create">Create agent</button>
+          <button class="secondary" data-act="agent-cancel">Cancel</button>
+        </div>
+      </div>`;
+  }
+
+  /**
+   * Repaint the chooser in place.
+   *
+   * Never through render(): the comment box sits directly beneath it, and rebuilding
+   * the card to change which chip is pressed would drop a half-written comment —
+   * which is the exact failure the draft machinery elsewhere exists to prevent.
+   */
+  function paintAgents() {
+    for (const block of listEl.querySelectorAll('.agents')) block.innerHTML = agentsHtml();
+  }
+
+  async function loadAgents() {
+    try {
+      const data = await api('/api/agents');
+      state.agents = data.agents || [];
+      if (!state.agents.some((a) => a.id === state.agent)) state.agent = data.default || state.agents[0]?.id || '';
+      paintAgents();
+    } catch {
+      // A roster that won't load must not stop you commenting: with no chips, the
+      // server falls back to the default agent exactly as it did before this existed.
+      state.agents = [];
+    }
+  }
+
   function cardHtml(q) {
     if (q.agent) return agentCardHtml(q);
     const d = q.decision;
@@ -707,6 +780,8 @@
         }</div>`
       );
     }
+
+    parts.push(`<div class="agents">${agentsHtml()}</div>`);
 
     parts.push(`<div class="freeform">
       <textarea data-role="answer" placeholder="Answer in your own words…" rows="3">${esc(getDraft(q.key))}</textarea>
@@ -945,7 +1020,9 @@
                 // out of the sentence: the text is for you, the array is for it.
                 ...(create ? { create } : {}),
               }
-            : { workspace: q.workspace, id: q.id, text }
+            : // Which agent picks this up. Absent or unknown resolves to the
+              // default server-side, so an old phone still gets an answer.
+              { workspace: q.workspace, id: q.id, text, agent: state.agent || undefined }
         ),
       });
       clearDraft(key);
@@ -1086,6 +1163,44 @@
       listEl
         .querySelector(`.card[data-key="${CSS.escape(key)}"]`)
         ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      return;
+    }
+
+    if (act === 'agent') {
+      state.agent = btn.dataset.agent;
+      localStorage.setItem('beadcause.agent', state.agent);
+      state.agentForm = false;
+      paintAgents();
+      return;
+    }
+
+    if (act === 'agent-new' || act === 'agent-cancel') {
+      state.agentForm = act === 'agent-new';
+      paintAgents();
+      // Focus after the repaint, or there is nothing yet to focus.
+      if (state.agentForm) listEl.querySelector('[data-role="agent-name"]')?.focus();
+      return;
+    }
+
+    if (act === 'agent-create') {
+      const block = btn.closest('.agents');
+      const name = block?.querySelector('[data-role="agent-name"]')?.value.trim() || '';
+      const description = block?.querySelector('[data-role="agent-desc"]')?.value.trim() || '';
+      if (!name) return toast('Give it a name', true);
+      if (description.length < 20) return toast('Give it a foundation — a sentence or two', true);
+      btn.disabled = true;
+      try {
+        const data = await api('/api/agents', { method: 'POST', body: JSON.stringify({ name, description }) });
+        state.agents = data.agents || state.agents;
+        state.agent = data.agent.id;
+        localStorage.setItem('beadcause.agent', state.agent);
+        state.agentForm = false;
+        paintAgents();
+        toast(`${data.agent.name} is ready`);
+      } catch (err) {
+        btn.disabled = false;
+        toast(err.message, true);
+      }
       return;
     }
 
@@ -1407,4 +1522,7 @@
   bootToken();
   bootScope();
   load();
+  // After the list, and never blocking it: the chooser only appears inside an open
+  // card, so there is nothing on screen waiting for this.
+  loadAgents();
 })();
