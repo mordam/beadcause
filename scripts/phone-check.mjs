@@ -318,11 +318,22 @@ try {
       ? `${p.onScreen} of ${p.nodes} still visible after panning to ${ID}`
       : `${p.onScreen} of ${p.nodes} beads visible` + (p.overflow > 0 ? `, worst bead ${p.overflow}px outside the canvas` : '')
   );
-  check('glass is up', L.up || p.titlePx * p.k >= 8, L.up ? `${L.m}x` : 'no loupe, and the scene is not readable either');
-  check('glass is readable', !L.up || p.titlePx * L.innerK >= 8, `${(p.titlePx * (L.innerK || p.k)).toFixed(1)} css px inside it`);
-  check('room for three across', !L.up || L.fitsAcross >= 3, `${L.fitsAcross} bead widths across the glass`);
-  check('reticle names a bead', !L.up || !!L.label, L.label || 'nothing under the glass');
+  // With few enough beads the scene is already readable and the glass stays down
+  // on purpose — so the requirement is "readable one way or the other", and the
+  // glass-specific rows only mean something when there is a glass.
+  check(
+    'a bead is readable',
+    L.up ? p.titlePx * L.innerK >= 8 : p.titlePx * p.k >= 8,
+    L.up
+      ? `${(p.titlePx * L.innerK).toFixed(1)} css px inside the glass`
+      : `${(p.titlePx * p.k).toFixed(1)} css px, no glass needed`
+  );
+  if (L.up) {
+    check('room for three across', L.fitsAcross >= 3, `${L.fitsAcross} bead widths across the glass`);
+    check('reticle names a bead', !!L.label, L.label || 'nothing under the glass');
+  }
   if (ID) check('opened onto that bead', (L.label || '').startsWith(ID), L.label ? `glass holds ${L.label.slice(0, 40)}` : 'nothing under the glass');
+
 
   // Retried, because a pinch that lands on a bead sometimes does nothing at all —
   // the node's drag behaviour stops propagation on touchstart, so the zoom bound
