@@ -227,6 +227,26 @@ body {
 
 .actions { display: flex; gap: 8px; padding: 0 15px 14px; }
 
+.note-line {
+  align-self: center; max-width: 100%;
+  padding: 4px 12px; margin: 2px 0;
+  font-size: 12px; color: var(--muted);
+}
+
+/* A row in the console list, plus the ✕ that ends it. The link and the button are
+   siblings rather than nested, so closing a console can never also open it. */
+.console-row { display: flex; align-items: center; gap: 4px; }
+.console-row .work-row { flex: 1; min-width: 0; }
+.console-row.closed { opacity: 0.55; }
+.console-row.closed .work-title { font-weight: 500; }
+.row-x {
+  flex: none; width: 40px; height: 40px;
+  border: 1px solid var(--line); border-radius: 10px;
+  background: none; color: var(--muted);
+  font-size: 14px; line-height: 1; cursor: pointer;
+}
+.row-x:disabled { opacity: 0.4; }
+
 /* Who answers when you comment. A mode rather than a per-card setting, so it sits
    directly above the box it changes the behaviour of. */
 .agents { padding: 0 15px 2px; }
