@@ -1,6 +1,6 @@
 /* Cache the shell so the inbox opens instantly and the 3.5 MB mermaid bundle is
    fetched once. API traffic is never cached — an answered question must vanish. */
-const CACHE = 'beadcause-v8';
+const CACHE = 'beadcause-v9';
 const SHELL = [
   '/',
   '/index.html',
@@ -17,6 +17,11 @@ const SHELL = [
   '/work.js',
   '/console.html',
   '/console.js',
+  // The advocate console. Two paths for one page, the same way /work and /sessions
+  // are: launchd opens '/monitor', and '/advocates' is what you guess when typing.
+  '/monitor',
+  '/monitor.html',
+  '/monitor.js',
   '/icon.svg',
   '/vendor/marked.js',
   '/vendor/purify.js',

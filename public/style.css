@@ -583,8 +583,10 @@ body {
   border-radius: 50%;
   background: var(--muted);
 }
-/* A busy session breathes; an idle one is a hollow ring drawn as text. */
-.activity.live .spark, .sending .spark, .session-row .spark { background: var(--accent); animation: breathe 1.3s ease-in-out infinite; }
+/* A busy session breathes; an idle one is a hollow ring drawn as text. `.adv-worker`
+   is on the list because a claimed, still-running window is the most alive thing on
+   either page, and it was drawing the same dead grey dot as an idle one. */
+.activity.live .spark, .sending .spark, .session-row .spark, .adv-worker .spark { background: var(--accent); animation: breathe 1.3s ease-in-out infinite; }
 @keyframes breathe {
   0%, 100% { opacity: 1; transform: scale(1); }
   50% { opacity: 0.35; transform: scale(0.7); }
@@ -1145,3 +1147,138 @@ a.menu-item { text-decoration: none; color: var(--text); }
 /* A sibling bead is named by its title, and titles are sentences. Let CSS cut
    them off with an ellipsis rather than slicing mid-word in JS. */
 .field .chip { max-width: 46vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ------------------------------------------------------------ the advocate console
+
+   /monitor. One card per repo, and inside it the whole of `advocates.snapshot()` —
+   what it is doing, what it will take next, what it is thinking, what it wants to
+   file, and what its finished sessions left behind. The sections are shut by default
+   and remembered open: a card with six panes expanded is a wall, and the one you were
+   reading must survive the twenty-second repaint.
+*/
+.mon-card .work-head { align-items: center; flex-wrap: wrap; }
+.mon-card.bad { border-color: color-mix(in srgb, var(--danger) 45%, var(--line)); }
+.mon-card.plain { opacity: 0.82; }
+
+/* The one line that says what it is doing. Colour carries the difference between
+   "held on purpose" and "should be moving and isn't" — amber is the one that wants
+   looking at, and it is deliberately not the red an error gets. */
+.mon-state { font-size: 12.5px; font-weight: 600; color: var(--muted); }
+.mon-state.live { color: var(--accent); }
+.mon-state.warn { color: var(--warn); }
+.mon-state.held { color: var(--muted); font-style: italic; }
+.mon-state.bad { color: var(--danger); }
+.mon-state.dim { color: var(--muted); opacity: 0.7; }
+
+/* The repo's own numbers, and beside them the part of it this advocate may act on. */
+.mon-domain { display: flex; flex-wrap: wrap; gap: 6px; margin: 2px 0 8px; }
+.pill.on { background: color-mix(in srgb, var(--accent) 20%, transparent); color: var(--accent); }
+.pill.mine { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); }
+.pill.muted { opacity: 0.7; }
+
+/* A section header is a button, not a <summary>: the body is re-rendered from state
+   rather than toggled by the browser, so the open set survives a repaint. */
+.mon-sec { border-top: 1px solid var(--line); }
+.mon-sum {
+  display: flex; align-items: center; gap: 8px;
+  width: 100%; min-height: 40px; padding: 8px 2px;
+  border: 0; background: none; color: var(--text);
+  font: inherit; font-size: 12px; font-weight: 700;
+  letter-spacing: 0.05em; text-transform: uppercase;
+  cursor: pointer; text-align: left;
+}
+/* One glyph, rotated, rather than two characters: ▸ and ▾ are different widths and
+   different weights in the system font, so swapping them made the whole header shift
+   by a pixel on every open. Rotating cannot. */
+.mon-caret {
+  width: 12px; flex: none; color: var(--muted); font-size: 11px; line-height: 1;
+  display: inline-block; transform: rotate(-90deg); transform-origin: 50% 50%;
+  transition: transform 120ms ease;
+}
+.mon-sec.open .mon-caret { transform: rotate(0deg); color: var(--accent); }
+.mon-sum-title { flex: 1; min-width: 0; }
+.mon-n {
+  flex: none; font-size: 11px; font-weight: 650; letter-spacing: 0;
+  padding: 2px 8px; border-radius: 999px;
+  background: var(--surface-2); color: var(--muted);
+}
+.mon-n.live { background: color-mix(in srgb, var(--accent) 20%, transparent); color: var(--accent); }
+.mon-n.warn { background: color-mix(in srgb, var(--warn) 20%, transparent); color: var(--warn); }
+.mon-body { padding-bottom: 8px; }
+.mon-body .work-row:first-child { border-top: 0; }
+.mon-body .subtitle { margin: 4px 2px 8px; }
+
+/* Small, inline, and unclickable — distinct from `.chip`, which is a filter control
+   sized for a thumb. These are facts about a row, not things to press. */
+.tag {
+  display: inline-block; margin-right: 5px;
+  font-size: 11px; font-weight: 600;
+  padding: 1px 7px; border-radius: 999px;
+  background: var(--surface-2); color: var(--muted);
+}
+.tag.ok { background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--accent); }
+.tag.warn { background: color-mix(in srgb, var(--warn) 20%, transparent); color: var(--warn); }
+.tag.dim { opacity: 0.65; }
+.tag.live {
+  display: inline-flex; align-items: center; gap: 5px;
+  letter-spacing: 0; text-transform: none;
+  background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--accent);
+}
+
+/* The position in the queue, and the number you approve a proposed bead by. The same
+   glyph in both places on purpose — in each, the number is how you refer to the row. */
+.mon-rank {
+  flex: none; display: inline-grid; place-content: center;
+  width: 20px; height: 20px; border-radius: 6px;
+  background: var(--surface-2); color: var(--muted);
+  font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums;
+}
+.mon-next-row .work-phase { display: flex; align-items: center; justify-content: center; }
+
+/* The survey transcript. Shorter than the dispatched-agent log it borrows from —
+   this one sits inside a card with five other panes and must not swallow the page. */
+.mon-log { max-height: 34vh; margin: 4px 0 8px; font-size: 10px; }
+
+/* A proposed bead: the full text, and its own yes and no. The picked state has to be
+   visible at a glance across five of them, so it colours the whole block rather than
+   only the button you pressed. */
+.mon-proposal { border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; margin: 4px 0 10px; }
+.mon-prop-head { display: flex; align-items: center; gap: 8px; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
+.mon-prop-title { flex: 1; min-width: 0; font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mon-prop-head time { flex: none; font-size: 12px; color: var(--muted); }
+.mon-bead { padding: 8px 0; border-bottom: 1px solid var(--line); }
+.mon-bead.picked-yes { box-shadow: inset 3px 0 0 var(--accent); padding-left: 8px; }
+.mon-bead.picked-no { box-shadow: inset 3px 0 0 var(--danger); padding-left: 8px; opacity: 0.6; }
+.mon-bead-head { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.mon-bead-head strong { font-size: 14px; font-weight: 600; }
+.mon-bead-body { margin: 6px 0 0; font-size: 13px; color: var(--prose); white-space: pre-wrap; }
+.mon-bead-meta { margin: 5px 0 0; font-size: 12px; color: var(--muted); }
+.mon-bead-meta.why { font-style: italic; }
+.mon-bead-acts { display: flex; gap: 6px; margin-top: 8px; }
+.mon-prop-foot { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding-top: 8px; }
+.mon-prop-count { flex: 1; min-width: 0; font-size: 12px; color: var(--muted); }
+.adv-btn.on { border-color: var(--accent); color: var(--accent); }
+.adv-btn.on.danger { border-color: var(--danger); color: var(--danger); }
+.adv-btn.primary { border-color: var(--accent); background: var(--accent); color: var(--accent-ink); }
+.adv-btn.primary:disabled { background: none; color: var(--muted); border-color: var(--line); }
+
+/* Sessions archived to a git ref. A row per archived run, and the log itself below. */
+.mon-plain { cursor: default; }
+.mon-plain code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; }
+.mon-arc-list { display: flex; flex-direction: column; }
+.mon-arc-row {
+  display: flex; align-items: center; gap: 10px;
+  min-height: 40px; padding: 6px 2px;
+  border: 0; border-top: 1px solid var(--line);
+  background: none; color: var(--text);
+  font: inherit; font-size: 13px; text-align: left; cursor: pointer;
+}
+.mon-arc-row span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mon-arc-row time { flex: none; font-size: 12px; color: var(--muted); }
+
+/* When it last looked, launched and asked — three facts that only mean anything
+   beside each other, so they are one line rather than three pills. */
+.mon-times { font-size: 11.5px; color: var(--muted); gap: 0; }
+.mon-tally { font-size: 12px; font-weight: 600; color: var(--muted); }
+.mon-tally.warn { color: var(--warn); }
+.adv-note .dim { opacity: 0.7; }
