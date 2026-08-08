@@ -337,6 +337,27 @@ like something else:
   transition kept cancelling each other, leaving every node stuck at opacity 0.0004 —
   a fully drawn, entirely invisible graph. The fade is a CSS animation now.
 
+### Checking it on a phone
+
+The graph is the one screen that was only ever verified in a desktop browser, which
+is the one place it is never used. `node scripts/phone-check.mjs <workspace>` opens
+it the way a phone does — headless Chrome emulating an iPhone 14 Pro at 393x852 and
+3x, mobile user agent, real two-finger touch events — and asserts the four things
+that only break on a phone: every bead ends up on screen, a pinch zooms, the view it
+opened on is still reachable afterwards, and a tap raises the card. It needs the
+daemon running; `--base=http://127.0.0.1:PORT` points it at a checkout instead, and
+`--out=DIR` saves a screenshot. No dependency — it drives Chrome over the DevTools
+protocol on Node's built-in `WebSocket`.
+
+Run it with the window hidden and it will still be honest: Chrome throttles an
+occluded renderer to about one frame a second, the force layout never settles, and
+every measurement becomes a measurement of the throttling — so the script disables
+that explicitly. That is also the answer if the numbers ever look impossible.
+
+It prints the fitted zoom and what a bead's title measures there, which is the part
+that does not pass or fail: 128 beads only fit a phone by shrinking to a thirteenth
+of full size, where a title is 1.4 css px. See `bc-z7s`.
+
 ## Current sessions — who is working, and on what
 
 The inbox answers *what needs me*. It is `bd human list`, so a bead only appears if

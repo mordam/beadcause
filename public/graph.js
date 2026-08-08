@@ -23,6 +23,8 @@
   const TICK = 130;         // ms between batches — fast enough to feel alive
   const NODE_W = 132;
   const NODE_H = 40;
+  const ZOOM_MIN = 0.15;    // the floor a finger can reach on its own
+  const ZOOM_MAX = 3;
 
   const $ = (id) => document.getElementById(id);
   const main = $('graph-main');
@@ -106,7 +108,7 @@
 
     zoom = d3
       .zoom()
-      .scaleExtent([0.15, 3])
+      .scaleExtent([ZOOM_MIN, ZOOM_MAX])
       .on('start', (e) => {
         // Only a gesture counts. Programmatic fitting also fires 'zoom'.
         if (e.sourceEvent) userMoved = true;
@@ -139,6 +141,12 @@
     // blow six beads up to fill the screen, which looks like a bug rather than a
     // fit — the point of this is to get everything *in*, not to magnify.
     const k = Math.min(1, Math.min(w / (x1 - x0), h / (y1 - y0)));
+    // `zoom.transform` isn't clamped by scaleExtent but every gesture is, so a
+    // graph big enough to fit below the floor — deluvia's 128 beads land at 0.13
+    // on a phone — opens on a view a finger can never get back to: the first
+    // pinch out stops at 0.15 and half the graph is off screen for good. Let the
+    // floor follow the fit down.
+    zoom.scaleExtent([Math.min(ZOOM_MIN, k), ZOOM_MAX]);
     const t = d3.zoomIdentity
       .translate(w / 2 - ((x0 + x1) / 2) * k, h / 2 - ((y0 + y1) / 2) * k)
       .scale(k);
