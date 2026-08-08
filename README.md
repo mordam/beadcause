@@ -47,10 +47,15 @@ always safe.
 
 ```bash
 npm run monitor              # live view of what the daemon is doing
+npm run swap:status          # which build is actually answering the port
 npm run uninstall-service    # remove the service (keeps your config and token)
 tail -f ~/Library/Logs/beadcause.log
-launchctl kickstart -k gui/$(id -u)/m4m.beadcause   # restart after changing lib/ or bin/
+launchctl kickstart -k gui/$(id -u)/m4m.beadcause   # only for bin/router.js itself
 ```
+
+**You do not restart it after editing `lib/`.** What launchd runs is
+[the router](#the-router--why-you-never-restart-it), which swaps a fresh backend in
+under the port a few seconds after the files settle.
 
 The plist is generated, never committed: a checked-in one cannot work on a second
 machine, because `node` alone moves between `/opt/homebrew/bin`, `/usr/local/bin`
@@ -85,8 +90,11 @@ otherwise its poller would keep firing notifications with no listener behind the
 - **Sessions open in `~/beads/<workspace>` by default**, which always works. Setup
   asks whether your shell derives `BEADS_DIR` from the working directory; see
   [Discussing a question on the Mac](#discussing-a-question-on-the-mac).
-- **Nothing is exposed beyond the tailnet.** The daemon binds `127.0.0.1` and your
-  Tailscale IP, never `0.0.0.0`.
+- **Nothing is exposed beyond the tailnet.** The router binds `127.0.0.1` and your
+  Tailscale IP, never `0.0.0.0`; the backends behind it bind loopback only.
+- **Editing `lib/` needs no restart.** The router swaps a fresh backend in under the
+  port a few seconds later — see [The router](#the-router--why-you-never-restart-it)
+  for what it will and will not do for you.
 
 ## Asking a question
 
@@ -829,6 +837,73 @@ launchctl kickstart -k gui/$(id -u)/m4m.beadcause.monitor   # reopen the window 
 Piped rather than shown on a terminal, it drops the box and prints one line per
 event instead, so `node bin/monitor.js >> somewhere.log` does something sensible.
 
+## The router — why you never restart it
+
+Static files are read from disk on every request. Server code is read **once**, at
+startup. So an edit to `lib/` leaves a running daemon serving today's pages against
+yesterday's routes, and nothing about it looks wrong: the files are correct, the
+process is healthy, and `/sessions` returns 404 to a page that plainly asks for it.
+That happened against a ten-hour-old process, and "remember to restart" is not a fix
+— forgetting is the entire bug.
+
+What launchd runs is therefore `bin/router.js`, not the server:
+
+```
+     phone ──▶ :4318  router ──▶ :49223  backend (active)   ← polls, notifies
+                        │
+                        └─────▶ :49238  backend (draining)  ← standby, no poller
+```
+
+The router owns the port and never needs replacing. It compares the files on disk
+against the build the backend reported *at its own startup*, and when they part it
+brings a second backend up beside the first, waits for it to answer, stands the old
+one down, promotes the new one, and drains the old one's remaining sockets before
+killing it. A few seconds after you save, the port is answering from new code, and
+nothing in flight was dropped.
+
+Two properties it holds onto, both of which cost more than they look:
+
+- **Exactly one poller, ever.** A backend starts in `--standby`, with no poller and
+  so no advocates and no notifications. The old one is told to stand down *before*
+  the new one is promoted, never the other way round — two live pollers would both
+  see a new question and both push it, and a duplicate notification on your phone is
+  the one thing this must never produce. The few milliseconds in between cost
+  nothing; the next tick picks up whatever appeared.
+- **Nothing in flight is cut.** `/api/poll` parks for up to 55 seconds by design, so
+  a superseded backend is left alive until its last request finishes (or 60 seconds
+  pass). Killing it under a parked poll is the difference between a seamless swap and
+  the phone deciding it is offline.
+
+Every response carries `x-beadcause-build` and `x-beadcause-pid`, so `curl -sI`
+against the real port settles the question that started all this:
+
+```bash
+npm run swap:status     # active pid, build, whether disk has moved past it
+npm run swap            # swap now, even if nothing changed
+npm test                # drives a real swap under load and proves nothing drops
+curl -sI http://127.0.0.1:4318/api/health | grep beadcause
+```
+
+The limits, stated plainly:
+
+- **The router cannot replace itself.** Doing so means giving up the socket, which is
+  the outage the whole thing exists to avoid. Change `bin/router.js`, `lib/build.js`
+  or `lib/config.js` and it says so once in the log; you restart it by hand with
+  `launchctl kickstart -k gui/$(id -u)/m4m.beadcause`. It is small and it rarely
+  moves, which is the trade.
+- **A build that will not start is tried once.** If the new backend never becomes
+  healthy — a syntax error, a bad import — the old one keeps serving and the failed
+  build is not retried until the files change again, because respawning a broken
+  process every three seconds helps nobody. `npm run swap:status` names it.
+- **The stamp is size and mtime**, over `lib/*.js` and `bin/*.js`. `public/` is
+  deliberately absent: it is served from disk per request, so a CSS edit is live
+  already and swapping for one would be churn. `touch lib/server.js` is enough to
+  force a swap by hand.
+- **A backend nobody is steering shuts itself down.** If the router is `kill -9`'d,
+  its children survive it — and a stranded backend still holds a poller while the
+  replacement router starts a fresh one. So a backend that has heard nothing from a
+  router for 60 seconds exits. `npm run start:bare` has no router and is exempt.
+
 ## HTTP API
 
 Auth on everything under `/api/` except `/api/health`: header
@@ -855,6 +930,17 @@ Auth on everything under `/api/` except `/api/health`: header
 | GET | `/api/advocate-log` | `?workspace=` | the survey agent's transcript, as the CLI would have shown it |
 | GET | `/sessions`, `/work` | — | the current-sessions page (same page, two paths) |
 | GET | `/graph` | `?ws=&id=` | the HTML graph page |
+
+Two more, **loopback and token only**, and never proxied to a backend — anyone on
+the tailnet holding the token could otherwise stop the poller:
+
+| Method | Path | Returns |
+|---|---|---|
+| GET | `/internal/router/state` | `{router, disk, stale, poisoned, active, retiring[]}` — what `npm run swap:status` prints |
+| POST | `/internal/router/swap` | `{ok, active}` — or `{ok:false, error}` if the new build would not start |
+
+Every proxied response also carries `x-beadcause-build` and `x-beadcause-pid`,
+naming the process that actually answered.
 
 Two things that bite: `commentCount` is **0 from `/api/questions`** and only correct
 from `/api/question`, because `bd human list` doesn't return it. And a question

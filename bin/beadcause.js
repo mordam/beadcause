@@ -2,8 +2,29 @@
 import { loadConfig, CONFIG_PATH } from '../lib/config.js';
 import { createApp, startPoller, listen } from '../lib/server.js';
 import { advocatedWorkspaces, workerLimit } from '../lib/advocate.js';
+import { buildStamp } from '../lib/build.js';
 
 const cfg = loadConfig();
+
+/**
+ * This process may be the one the phone talks to, or the understudy.
+ *
+ * `--port` puts it on an internal loopback port behind bin/router.js, and
+ * `--standby` starts it **without its poller**. That second flag is the whole
+ * safety property: two live pollers would both see a new question and both push
+ * it, so exactly one process is ever active, and the router promotes the new one
+ * only after the old one has stood down. See bin/router.js for the sequence.
+ *
+ * With neither flag this is the plain unsupervised server it always was, on the real
+ * port, polling — which is what `npm run start:bare` gives you.
+ */
+const flagValue = (name) => {
+  const i = process.argv.indexOf(name);
+  return i >= 0 ? process.argv[i + 1] : null;
+};
+const internalPort = Number(flagValue('--port') || 0) || null;
+const startStandby = process.argv.includes('--standby');
+
 const setupUrl = `${cfg.baseUrl}/?t=${cfg.token}`;
 
 if (process.argv.includes('--url')) {
@@ -59,8 +80,99 @@ if (!cfg.workspaces.length) {
 }
 
 const app = createApp(cfg);
-const servers = listen(cfg, app.handler);
-const poller = startPoller(cfg, app);
+
+const startedAt = new Date().toISOString();
+const build = buildStamp();
+let role = startStandby ? 'standby' : 'active';
+let poller = startStandby ? null : startPoller(cfg, app);
+// What draining waits on. A long poll parks for up to 55 seconds, and killing the
+// process out from under one is the difference between a seamless swap and the
+// phone deciding it is offline.
+let inflight = 0;
+
+/**
+ * The control plane, wrapped around the app rather than added to lib/server.js.
+ *
+ * Keeping it here means the swap machinery touches no file another session is
+ * likely to be editing, and these calls can never collide with a real route: the
+ * paths are under `/internal/`, refused off loopback, and still need the token.
+ */
+const control = (req, res) => {
+  const url = new URL(req.url, 'http://localhost');
+  const addr = req.socket.remoteAddress;
+  const local = addr === '127.0.0.1' || addr === '::1' || addr === '::ffff:127.0.0.1';
+  const supplied = req.headers['x-beadcause-token'] || url.searchParams.get('t');
+  if (!local || supplied !== cfg.token) {
+    res.writeHead(403, { 'content-type': 'application/json' });
+    return res.end('{"error":"internal"}');
+  }
+
+  // Any authenticated control call is proof a router is still watching. See the
+  // orphan guard below for why that matters.
+  lastContact = Date.now();
+
+  const reply = (obj) => {
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify(obj));
+  };
+
+  switch (url.pathname) {
+    case '/internal/state':
+      // `inflight - 1` excludes this very request, which is counted like any other.
+      return reply({ role, build, startedAt, pid: process.pid, inflight: inflight - 1 });
+    case '/internal/activate':
+      if (!poller) poller = startPoller(cfg, app);
+      if (role !== 'active') console.log('[beadcause] promoted to active — polling');
+      role = 'active';
+      return reply({ ok: true, role });
+    case '/internal/standby':
+      if (poller) clearInterval(poller);
+      poller = null;
+      if (role !== 'standby') console.log('[beadcause] stood down — poller stopped');
+      role = 'standby';
+      return reply({ ok: true, role });
+    default:
+      res.writeHead(404, { 'content-type': 'application/json' });
+      return res.end('{"error":"no such control"}');
+  }
+};
+
+const handler = (req, res) => {
+  inflight++;
+  res.on('close', () => inflight--);
+  if (req.url.startsWith('/internal/')) return control(req, res);
+  return app.handler(req, res);
+};
+
+const servers = listen(
+  // Behind the router this binds loopback only. The tailnet reaches the router; an
+  // internal backend that also bound the tailnet IP would be answerable directly,
+  // skipping every cutover guarantee the router exists to provide.
+  internalPort ? { ...cfg, port: internalPort, host: '127.0.0.1' } : cfg,
+  handler
+);
+
+/**
+ * The orphan guard: an active backend nobody is steering shuts itself down.
+ *
+ * If the router is SIGKILLed — crash, `kill -9`, a botched launchctl bootout — its
+ * children are not killed with it. A stranded backend still holds a poller, and the
+ * replacement router starts a fresh one, which is exactly the double-notify this
+ * design exists to prevent. The router touches `/internal/state` every few seconds,
+ * so silence for a minute means there is no longer anyone to serve.
+ *
+ * Only armed behind a router: an unsupervised server has no control plane and must
+ * stay up forever.
+ */
+const ORPHAN_MS = 60000;
+let lastContact = Date.now();
+if (internalPort) {
+  setInterval(() => {
+    if (Date.now() - lastContact < ORPHAN_MS) return;
+    console.error(`[beadcause] no router contact in ${ORPHAN_MS / 1000}s — exiting rather than polling unsupervised`);
+    process.exit(0);
+  }, 5000).unref();
+}
 
 console.log(`[beadcause] config      ${CONFIG_PATH}`);
 console.log(`[beadcause] workspaces  ${cfg.workspaces.map((w) => w.name).join(', ')}`);
@@ -75,9 +187,10 @@ console.log(
 );
 console.log(`[beadcause] ntfy topic  ${cfg.ntfy.enabled ? cfg.ntfy.topic : '(disabled)'}`);
 console.log(`[beadcause] phone URL   ${cfg.baseUrl}/?t=${cfg.token}`);
+console.log(`[beadcause] build       ${build} (${role}${internalPort ? `, internal :${internalPort}` : ', standalone'})`);
 
 const shutdown = () => {
-  clearInterval(poller);
+  if (poller) clearInterval(poller);
   servers.forEach((s) => s.close());
   process.exit(0);
 };
