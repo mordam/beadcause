@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0b0f14" media="(prefers-color-scheme: dark)">
+  <meta name="theme-color" content="#f6f7f9" media="(prefers-color-scheme: light)">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <title>Beadcause · bead console</title>
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body class="console-body">
+  <header class="topbar">
+    <div class="brand">
+      <a href="/" class="icon-btn" aria-label="Back to the inbox">‹</a>
+      <span class="dot" id="pulse"></span>
+      <h1 id="title">Bead console</h1>
+    </div>
+    <div class="sheet-actions">
+      <!--
+        The proposal, and how many beads are in it. Deliberately the loudest thing
+        in the bar once it has a count: it is the only control that leads to
+        anything being created, and on a phone the conversation above it can be
+        long enough that a proposal made four messages ago is off screen.
+      -->
+      <button id="draft-btn" class="icon-btn wide" hidden aria-label="The proposed beads">🧾 <span id="draft-count">0</span></button>
+      <a href="/" class="icon-btn" aria-label="Close">✕</a>
+    </div>
+  </header>
+
+  <!-- No console id in the URL: pick a workspace, or pick up where you left off. -->
+  <main id="launcher" class="launcher" hidden>
+    <p class="lede">Talk through what the next bead should be. Nothing is filed until
+      you have read the proposal and pressed the button.</p>
+    <h2 class="section-label">Start one in</h2>
+    <div id="ws-row" class="chip-row"></div>
+    <h2 class="section-label" id="recent-label" hidden>Pick up again</h2>
+    <div id="recent" class="recent"></div>
+  </main>
+
+  <main id="thread" class="thread" aria-live="polite" hidden>
+    <div class="empty">Loading…</div>
+  </main>
+
+  <form id="composer" class="composer" hidden>
+    <textarea id="say" rows="1" placeholder="What should the next bead be?"
+      enterkeyhint="send" autocomplete="off"></textarea>
+    <button id="send" class="primary send" type="submit" aria-label="Send">↑</button>
+  </form>
+
+  <!--
+    The proposal: the summary of what is about to be created, and the place you
+    edit it. There is deliberately no second confirmation screen after this one —
+    this IS the review, so it has to be the thing you can change.
+  -->
+  <section id="sheet" class="sheet" hidden aria-label="Proposed beads">
+    <div class="sheet-grip"></div>
+    <div class="sheet-head">
+      <strong id="sheet-title">Proposed beads</strong>
+      <div class="sheet-actions">
+        <button id="sheet-add" class="icon-btn" aria-label="Add another bead">＋</button>
+        <button id="sheet-close" class="icon-btn" aria-label="Close">✕</button>
+      </div>
+    </div>
+    <div id="sheet-body" class="sheet-body"></div>
+    <div class="sheet-foot">
+      <button id="discuss" class="secondary" type="button">Ask for changes</button>
+      <button id="create" class="primary" type="button">Create</button>
+    </div>
+  </section>
+
+  <div id="toast" class="toast" role="status" hidden></div>
+
+  <dialog id="setup" class="setup">
+    <form method="dialog">
+      <h2>Access token</h2>
+      <p>Open this app from the link the server printed, or paste the token from
+        <code>~/.config/beadcause/config.json</code>.</p>
+      <input id="token-input" type="password" autocomplete="off" placeholder="token" inputmode="text">
+      <button value="save" class="primary">Save</button>
+    </form>
+  </dialog>
+
+  <script src="/vendor/marked.js"></script>
+  <script src="/vendor/purify.js"></script>
+  <script src="/console.js"></script>
+</body>
+</html>

@@ -766,3 +766,219 @@ body {
      row beneath both panes; give it the full width there. */
   .card:has(> .brief:not([hidden])) > .sending { grid-column: 1 / -1; }
 }
+
+/* ── The bead console ──────────────────────────────────────────────────────
+   A chat that ends in a proposal, and a sheet where that proposal is edited.
+   The page is a fixed three-row grid — bar, scrolling thread, composer — rather
+   than a long document, because a composer that scrolls away with the
+   conversation is a composer you have to hunt for on every turn. */
+
+.console-body {
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding-bottom: 0;
+}
+
+.launcher { flex: 1; overflow-y: auto; padding: 18px 16px 40px; max-width: 780px; margin: 0 auto; width: 100%; }
+.launcher .section-label { margin-top: 22px; }
+.lede { color: var(--muted); font-size: 14.5px; line-height: 1.55; margin: 0 0 4px; }
+.recent { display: flex; flex-direction: column; gap: 2px; }
+.recent .work-row { text-decoration: none; color: inherit; }
+
+.thread {
+  flex: 1;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  padding: 14px 14px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 780px;
+  margin: 0 auto;
+  width: 100%;
+}
+.thread .empty { margin-top: 8px; }
+
+.seed-note {
+  font-size: 13px; color: var(--muted);
+  display: flex; align-items: center; gap: 7px; flex-wrap: wrap;
+  padding-bottom: 4px; border-bottom: 1px solid var(--line);
+}
+.seed-note a { text-decoration: none; }
+
+.msg { font-size: 15.5px; line-height: 1.6; }
+
+/* You: a bubble, right-aligned, capped short of the full width so the two sides
+   of the conversation are distinguishable at a glance without reading either. */
+.msg.you {
+  align-self: flex-end;
+  max-width: 86%;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 14px 14px 4px 14px;
+  padding: 10px 13px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* The agent: no bubble. Its replies carry markdown, lists and code, and a bubble
+   around a fenced block on a 390px screen wastes the only width there is. */
+.msg.claude { padding: 0 2px; }
+.msg.claude .md { font-size: 15.5px; }
+.msg.claude .md > *:last-child { margin-bottom: 0; }
+
+.msg.bad {
+  border: 1px solid var(--danger); color: var(--danger);
+  border-radius: 12px; padding: 10px 13px; font-size: 14px;
+}
+
+.working { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 14px; margin-top: 6px; }
+
+/* What it is actually doing. Three lines at most: this is reassurance that
+   something is happening, not a log to read. */
+.tools { display: flex; flex-direction: column; gap: 3px; margin-top: 6px; }
+.tool {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11.5px; color: var(--muted);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.tool b { color: var(--accent); font-weight: 600; margin-right: 6px; }
+
+.proposed-link {
+  display: inline-flex; align-items: center; gap: 6px;
+  margin-top: 10px; min-height: 40px; padding: 0 14px;
+  border-radius: 10px; border: 1px solid var(--accent); background: none;
+  color: var(--accent); font: inherit; font-size: 14px; font-weight: 600; cursor: pointer;
+}
+
+.created-note {
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--line));
+  border-radius: 12px; padding: 11px 13px; background: color-mix(in srgb, var(--accent) 7%, transparent);
+}
+.created-note strong { display: block; font-size: 14.5px; margin-bottom: 8px; }
+.created-list { display: grid; grid-template-columns: auto 1fr; gap: 5px 9px; align-items: baseline; }
+.created-list .pill.id { text-decoration: none; }
+.created-title { font-size: 13.5px; color: var(--prose); }
+
+.warnings { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
+.warnings span { font-size: 12.5px; color: var(--warn); }
+
+/* ── Composer ─────────────────────────────────────────────────────────────── */
+
+.composer {
+  flex: none;
+  display: flex; gap: 8px; align-items: flex-end;
+  padding: 10px 12px calc(env(safe-area-inset-bottom) + 10px);
+  border-top: 1px solid var(--line);
+  background: color-mix(in srgb, var(--bg) 92%, transparent);
+  backdrop-filter: blur(12px);
+  max-width: 780px; margin: 0 auto; width: 100%;
+}
+.composer textarea {
+  flex: 1; resize: none; max-height: 40dvh;
+  min-height: var(--tap);
+  padding: 13px 14px;
+  border-radius: 14px; border: 1px solid var(--line);
+  background: var(--surface); color: var(--text);
+  font: inherit; font-size: 16px; /* 16px or iOS zooms the page on focus */
+  line-height: 1.45;
+}
+.composer textarea:disabled { opacity: 0.6; }
+.primary.send {
+  flex: none; width: var(--tap); height: var(--tap); min-height: var(--tap);
+  padding: 0; border-radius: 50%; font-size: 20px; font-weight: 700;
+}
+
+/* ── The proposal sheet ───────────────────────────────────────────────────── */
+
+.sheet-foot {
+  flex: none; display: flex; gap: 8px;
+  padding: 10px 14px calc(env(safe-area-inset-bottom) + 12px);
+  border-top: 1px solid var(--line);
+}
+.sheet-foot .primary { flex: 2; }
+.sheet-foot .secondary { flex: 1; }
+/* Primed. The colour change is the whole message: the next tap is the real one. */
+.primary.armed { background: var(--warn); color: #1a1204; }
+
+.sheet .lede { margin-bottom: 12px; }
+.sheet-warn { margin-bottom: 12px; }
+
+.bead { margin-bottom: 10px; overflow: hidden; }
+.bead-head {
+  display: block; width: 100%; text-align: left;
+  background: none; border: none; color: inherit; font: inherit;
+  padding: 12px 14px; cursor: pointer;
+}
+.bead-title { display: block; font-size: 15.5px; font-weight: 600; line-height: 1.35; margin-bottom: 7px; }
+.bead-head .meta { margin-bottom: 0; }
+.bead.open .bead-head { border-bottom: 1px solid var(--line); }
+.bead-body { padding: 14px; display: flex; flex-direction: column; gap: 14px; }
+
+.field { display: flex; flex-direction: column; gap: 7px; }
+.field > span {
+  font-size: 11.5px; font-weight: 640; letter-spacing: 0.05em;
+  text-transform: uppercase; color: var(--muted);
+}
+.field textarea, .field input[type="text"] {
+  width: 100%; resize: none;
+  padding: 11px 12px; border-radius: 10px;
+  border: 1px solid var(--line); background: var(--bg); color: var(--text);
+  font: inherit; font-size: 16px; line-height: 1.5;
+}
+.field textarea:focus, .field input:focus { outline: 2px solid var(--accent); outline-offset: -2px; }
+/* The chip rows inside a field wrap; the filter row at the top of the inbox scrolls. */
+.field .chip-row { flex-wrap: wrap; overflow: visible; padding: 0; }
+.field .chip:disabled { opacity: 0.4; }
+
+.danger-btn {
+  min-height: 42px; border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--danger) 55%, var(--line));
+  background: none; color: var(--danger); font: inherit; font-size: 14px; cursor: pointer;
+}
+
+.revision {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  border: 1px solid var(--warn); border-radius: 12px;
+  padding: 10px 12px; margin-bottom: 12px;
+  font-size: 13.5px; color: var(--warn);
+}
+.revision .secondary { min-height: 38px; padding: 0 12px; font-size: 13.5px; }
+
+/* Two columns once there is room: the conversation and the proposal side by side,
+   which is how this reads on a laptop. The sheet stops being a sheet. */
+@media (min-width: 900px) {
+  .console-body:has(.sheet.open) .thread { max-width: none; margin: 0; }
+  .sheet {
+    left: auto; right: 0; top: 0; bottom: 0;
+    width: min(460px, 46vw); height: 100dvh;
+    border-radius: 0; border-left: 1px solid var(--line); border-top: none;
+    transform: translateX(100%);
+    transition: transform 0.24s ease;
+  }
+  .sheet.open { transform: translateX(0); }
+  .sheet-grip { display: none; }
+}
+
+/* One of the two `.discuss` rows is an <a> now — the way into the bead console.
+   An anchor ignores the flex centring it inherits unless told, the same wrinkle
+   `.icon-btn` hit when the sessions link stopped being a button. */
+a.discuss { text-decoration: none; }
+
+/* Every element on this page that sets `display` also has to say what `hidden`
+   means, because a class rule beats the UA's `[hidden] { display: none }` — the
+   bug that once left an invisible overlay eating every tap on the graph. The two
+   <main>s and the composer swap the whole page between the launcher and a
+   conversation, so getting this wrong shows both at once. */
+.thread[hidden], .composer[hidden], .icon-btn[hidden], .launcher[hidden] { display: none; }
+
+/* The toast is bottom-anchored, and on this page the bottom is the composer —
+   "created 3 beads" landed across the box you type in. Lift it clear of both the
+   composer and the sheet's own footer. */
+.console-body .toast { bottom: calc(env(safe-area-inset-bottom) + 84px); }
+
+/* A sibling bead is named by its title, and titles are sentences. Let CSS cut
+   them off with an ellipsis rather than slicing mid-word in JS. */
+.field .chip { max-width: 46vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

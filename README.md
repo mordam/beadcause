@@ -498,6 +498,88 @@ service restart resumes rather than re-notifying — and a cold start (no `since
 reads current state with no backlog, the same way the daemon's own poller refuses to
 push the questions already waiting when it boots.
 
+## The bead console — deciding what to file
+
+Everything above acts on beads that already exist. The console is upstream of that:
+a chat where you work out *what the next bead should be*, and beadcause creates it
+only once you have read the proposal and pressed the button.
+
+**🧾 in the inbox's top bar** opens it. Pick a workspace and start talking — or open
+one **on an existing bead**, from *Work out the next beads from this* at the foot of
+any card, which starts the conversation with that bead already read.
+
+```
+you: the install script never checks that iTerm2 is there before
+     offering the monitor-at-login option
+
+     ◗ Read install.sh   ◗ bd search iterm   ◗ Read configure.js
+
+     Nothing in the tracker covers this. install.sh:29-48 checks Darwin,
+     node, bd and tailscale but never iTerm2 — so configure.js still offers
+     the monitor, the agent gets bootstrapped, and install.sh prints
+     "monitor window opens at login" while open-monitor.sh fails inside
+     launchd. Two things that would change the bead:
+
+     1. warn and carry on, or skip the monitor agent entirely?
+     2. installer only, or the "discuss on the Mac" button too?
+
+     🧾 proposed 1 bead — review
+```
+
+It asks before it proposes, and it looks before it guesses: it can read the working
+tree and the tracker, so "does something already cover this?" is answered rather than
+assumed. A conversation that has not earned a proposal yet doesn't make one — an
+early half-guessed set of beads costs you more to read than one more question does.
+
+### The proposal is the review, so the review is editable
+
+Tapping **🧾** opens the proposal: one card per bead, and that is exactly what will be
+created. There is deliberately no second *are you sure?* screen after it — a
+confirmation you cannot change is only a delay.
+
+Tap a card and everything is editable in place: title, type, priority, description,
+acceptance, labels, and — as chips naming the other beads in the proposal — **parent**
+and **blocked by**. Remove a bead, or **＋** one the conversation missed. **Create N
+beads** takes two taps, the same as answering a question, because creating six beads
+in a tracker off a pocket tap is not undoable in any way that matters.
+
+Your edits go back to the agent. The next thing you say arrives with the current draft
+attached, so it argues with what is on your screen rather than what it last wrote —
+without that it re-proposes a title you rewrote two turns ago, which reads exactly like
+being ignored. And the sheet never repaints under your hands: a turn that lands while
+you are mid-sentence in a description parks its revision behind a *use its version*
+button instead of taking the textarea away.
+
+Dependencies are resolved at creation time, in order — parents and in-proposal
+dependencies exist before the bead that points at them. A `dependsOn` may also name a
+bead that already exists (`dependsOn: [bc-7rx]`), which is how "this waits on the one
+we started from" is written; those are checked against the tracker before anything is
+written, so a made-up id costs a warning rather than a half-created proposal.
+
+### What it costs you to know
+
+- **The agent cannot write to the tracker.** Its allowlist is read-only `bd` plus
+  Read/Grep/Glob. That is not belt-and-braces around the prompt — the review step is
+  the whole promise of the feature, and an agent that could call `bd create` would
+  eventually do it mid-conversation, after which beadcause would create the same beads
+  again from the proposal. One writer, and it is the button you press.
+- **A turn is a fresh `claude -p`, resumed by session id** — not a process parked
+  across the minutes of silence in a phone conversation, where a laptop lid or a
+  `launchctl kickstart` would take the conversation with it. `--session-id` on the
+  first turn, `--resume` after, so Claude Code's own transcript is the durable copy and
+  a console survives a daemon restart.
+- **It starts in the workspace's session directory**, the same rule the "discuss on the
+  Mac" button follows (`resolveSessionDir`), so `~/.zshenv` points `BEADS_DIR` and
+  `CLAUDE_CONFIG_DIR` — which tracker, and which account is billed — at the right tree.
+- **A turn that reads half a repo is not cheap.** The one in the example above was
+  about $0.40. `consoleModel: "sonnet"` trades some judgement for a cheaper
+  conversation; `beadConsole: false` turns the whole thing off.
+- **The proposal is a fenced `beads` block** in the agent's own reply, parsed the same
+  way a `decision` block is (`lib/proposal.js`). It replaces rather than appends, so a
+  revision re-emits every bead — merging partial proposals would mean reconstructing
+  what the agent meant from a diff it never wrote.
+- **Consoles live in `~/.config/beadcause/consoles/`** and are pruned after 30 days.
+
 ## Discussing a question on the Mac
 
 Some questions can't be answered with two taps — you want to argue with someone
@@ -670,6 +752,14 @@ Auth on everything under `/api/` except `/api/health`: header
 | GET | `/api/work` | — | `{workspaces[], elsewhere[]}` — per workspace: claimed beads, live `claude` sessions, counts, errors |
 | GET | `/sessions`, `/work` | — | the current-sessions page (same page, two paths) |
 | GET | `/graph` | `?ws=&id=` | the HTML graph page |
+| GET | `/api/consoles` | — | `{consoles[], workspaces[]}` — every bead console, newest first |
+| POST | `/api/console` | `{workspace, seed?}` | `{id, console}` — opens one; a `seed` bead auto-starts the first turn |
+| GET | `/api/console` | `?id=` | the whole console: messages, draft, created beads |
+| POST | `/api/console/message` | `{id, text}` | starts a turn and returns — follow it on `/api/console/poll` |
+| GET | `/api/console/poll` | `?id=&since=&wait=` | long-poll: the whole console, once its `seq` moves |
+| POST | `/api/console/draft` | `{id, draft}` | the cards as you edited them; re-normalised on the way in |
+| POST | `/api/console/create` | `{id, draft?}` | `{created[], warnings[]}` — **the only writer in the console** |
+| GET | `/console` | `?id=` or `?ws=&seed=` | the bead console page |
 
 Two things that bite: `commentCount` is **0 from `/api/questions`** and only correct
 from `/api/question`, because `bd human list` doesn't return it. And a question
@@ -691,6 +781,9 @@ decision block and only means anything for a `human` bead.
 | `openSessions` | allow `POST /api/session` to open a Claude session on the Mac (default `true`) |
 | `sessionDirs` | override where a workspace's session opens. Normally unnecessary — see Discussing a question on the Mac |
 | `sessionPermissionMode` | `--permission-mode` for an opened session (default `auto`; `null` to omit the flag) |
+| `beadConsole` | allow the [bead console](#the-bead-console--deciding-what-to-file) to open conversations and create beads (default `true`) |
+| `consoleModel` | model for a console turn (default `null` — whatever `claude` uses on its own; `"sonnet"` for a cheaper conversation) |
+| `consoleTimeoutMs` | kill a console turn that has been going this long (default 15 min) |
 | `autoDispatch` | commenting spawns an unattended agent to reply (default `true`) |
 | `autoDispatchExclude` | workspaces that never auto-dispatch — put shared trackers here |
 | `autoDispatchTimeoutMs` | kill a dispatched agent after this long (default 10 min) |

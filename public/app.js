@@ -404,6 +404,14 @@
       <button class="discuss" data-act="discuss" data-key="${esc(q.key)}">
         <span class="glyph">&gt;_</span> Discuss in a Claude session on the Mac
       </button>
+      <!--
+        The other direction: not "act on this bead" but "what comes off the back of
+        it". A link rather than a button, because the console page does its own
+        opening — see the ?ws=&seed= entry in public/console.js.
+      -->
+      <a class="discuss" href="/console?ws=${encodeURIComponent(q.workspace)}&amp;seed=${encodeURIComponent(q.id)}">
+        <span class="glyph">🧾</span> Work out the next beads from this
+      </a>
     </div>`);
 
     parts.push(`<div class="collapse-row">
@@ -488,6 +496,14 @@
       <button class="discuss" data-act="discuss" data-key="${esc(q.key)}">
         <span class="glyph">&gt;_</span> Discuss in a Claude session on the Mac
       </button>
+      <!--
+        The other direction: not "act on this bead" but "what comes off the back of
+        it". A link rather than a button, because the console page does its own
+        opening — see the ?ws=&seed= entry in public/console.js.
+      -->
+      <a class="discuss" href="/console?ws=${encodeURIComponent(q.workspace)}&amp;seed=${encodeURIComponent(q.id)}">
+        <span class="glyph">🧾</span> Work out the next beads from this
+      </a>
     </div>`);
 
     // A second way out, at the end of the brief. The toggle in the card head is the
