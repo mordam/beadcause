@@ -163,6 +163,12 @@
       </div>
       ${workers}${next}
       ${note && !a.error ? `<div class="adv-note">${esc(note)}</div>` : ''}
+      ${
+        // What the last sweep did with the worktrees sessions leave behind. Only
+        // when it actually did something — a sweep that found nothing to do is the
+        // normal case, and saying so every fifteen minutes is noise.
+        a.tidy?.summary ? `<div class="adv-note">🧹 ${esc(a.tidy.summary)}</div>` : ''
+      }
     </div>`;
   }
 

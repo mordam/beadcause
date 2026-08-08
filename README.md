@@ -555,6 +555,35 @@ a bead, and that is all it knows. So:
   the brief asks it to do. Where it didn't, the row says when the window was opened
   and nothing more.
 
+### Clearing up after it
+
+A session that obeys its repo's rules makes a git worktree before its first edit.
+Two beads a day is seven hundred worktrees a year, so the daemon sweeps them: on the
+tick after a session ends, and every `tidyIntervalMinutes` otherwise.
+
+A worktree is retired only when **all five** hold — and if any one fails it is left
+alone and *named*, with the reason, in the log and on the card:
+
+| condition | why |
+|---|---|
+| under `.claude/worktrees/` | never the main checkout, never `worktrees-retired/`, never anything outside |
+| not locked | a lock is a session's claim on it, and `EnterWorktree` takes one |
+| no live `claude` in it | nothing is moved out from under someone working |
+| `git status --porcelain` empty | untracked files count; uncommitted work is never swept |
+| its branch is an ancestor of `main` | everything it did is already in main |
+
+**Retired means moved, not deleted**: `git worktree move` into
+`.claude/worktrees-retired/`, the same soft delete the `ship` skill does by hand, so
+it is resumable. The branch is kept deliberately — `git branch -d` refuses a branch
+checked out in another worktree, and the branch is what makes the retirement
+reversible. Retired worktrees accumulate; nothing here ever removes one.
+
+Two limits worth knowing. A session's `cwd` is recorded when it starts, so a session
+that later entered a worktree does not show as being *in* it — the lock is what
+actually protects it, which is why `EnterWorktree` taking one matters. And the sweep
+runs whether or not the advocate is paused: pausing means "open no more sessions",
+not "leave the mess". `tidyWorktrees: false` is the setting that means that.
+
 ### Stopping it
 
 Pause from the phone, per repo. `advocates.enabled: false` stops all of them.
@@ -861,6 +890,8 @@ decision block and only means anything for a `human` bead.
 | `advocates.settleSeconds` | how long a new bead sits before a session opens on it (default 60) |
 | `advocates.lapseMinutes`, `advocates.maxAttemptsPerBead` | when an unclaimed window is treated as gone, and how many times one bead may be retried |
 | `advocates.respectQuietHours` | a quiet space's advocate watches without launching (default `true`) |
+| `advocates.tidyWorktrees` | retire merged, clean, unlocked worktrees after a session ends (default `true`) — moved to `.claude/worktrees-retired/`, never deleted |
+| `advocates.tidyIntervalMinutes` | how often it sweeps when nothing has just finished (default 15) |
 | `spaces` | groups of workspaces sharing a notification policy — see [Spaces](#spaces--keeping-work-out-of-your-evening) |
 | `claudeSessions` | `false` to stop reading `~/.claude/sessions` for the current-sessions page (default on; absent directory is not an error) |
 | `claudeSessionsDir` | where those per-process records live, if not `$CLAUDE_CONFIG_DIR/sessions` or `~/.claude/sessions` |
