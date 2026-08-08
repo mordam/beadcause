@@ -129,6 +129,34 @@ test('observing:advocate-launches-nothing', async () => {
   // proves the guards are conditional; that is as close as it is worth getting.
 });
 
+test('observing:says-so-on-the-wire', async () => {
+  // The badge is only as good as the field behind it, and the field is the only way
+  // an instance with no advocates configured says anything at all in the UI.
+  const { createApp, listen } = await import(LIB('server.js'));
+  const cfg = {
+    port: 4373,
+    host: '127.0.0.1',
+    token: 'test-token',
+    workspaces: [],
+    spaces: [],
+    claudeSessions: false,
+    advocates: { enabled: true, workspaces: [] },
+    ntfy: {},
+  };
+  const app = createApp(cfg);
+  const servers = listen(cfg, app.handler);
+  try {
+    const res = await fetch('http://127.0.0.1:4373/api/work', { headers: { 'x-beadcause-token': cfg.token } });
+    assert.equal(res.status, 200);
+    assert.equal((await res.json()).observing, true, '/api/work must say which daemon this is');
+
+    const poll = await fetch('http://127.0.0.1:4373/api/poll', { headers: { 'x-beadcause-token': cfg.token } });
+    assert.equal((await poll.json()).observing, true, '/api/poll must say it too — the TUI reads only this one');
+  } finally {
+    for (const s of servers) s.close();
+  }
+});
+
 test('off:acts-normally', async () => {
   const { OBSERVING } = await import(LIB('config.js'));
   const { dispatchReply } = await import(LIB('dispatch.js'));
@@ -158,6 +186,30 @@ test('off:acts-normally', async () => {
     () => pushQuestion(cfg, q).then((r) => assert.notEqual(r?.skipped, true, 'must not be skipped')),
     'the push should have been attempted, not skipped'
   );
+
+  // The badge's negative, and the one that matters most: on the LIVE instance the
+  // field must be false, so a console can never paint "observing" over a daemon
+  // that is in fact opening windows. No advocates are configured here, so this
+  // server has nothing it could launch even in principle.
+  const { createApp, listen } = await import(LIB('server.js'));
+  const scfg = {
+    port: 4374,
+    host: '127.0.0.1',
+    token: 'test-token',
+    workspaces: [],
+    spaces: [],
+    claudeSessions: false,
+    openSessions: false,
+    advocates: { enabled: true, workspaces: [] },
+    ntfy: {},
+  };
+  const servers = listen(scfg, createApp(scfg).handler);
+  try {
+    const r = await fetch('http://127.0.0.1:4374/api/work', { headers: { 'x-beadcause-token': scfg.token } });
+    assert.equal((await r.json()).observing, false, 'a live instance must say so plainly, not by omission');
+  } finally {
+    for (const s of servers) s.close();
+  }
 });
 
 /* ------------------------------------------------------------------- running */
@@ -172,6 +224,7 @@ if (only) {
     ['flag:reads', {}],
     ['observing:withholds', { BEADCAUSE_OBSERVE: '1' }],
     ['observing:advocate-launches-nothing', { BEADCAUSE_OBSERVE: '1', BEADCAUSE_CONFIG_DIR: tmp }],
+    ['observing:says-so-on-the-wire', { BEADCAUSE_OBSERVE: '1', BEADCAUSE_CONFIG_DIR: tmp }],
     ['off:acts-normally', {}],
   ];
   let failed = 0;

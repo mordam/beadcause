@@ -1303,6 +1303,15 @@ Advocates still **survey**, so the ready queue and what each would pick up next 
 on screen — that is usually the thing you booted a second instance to look at. Each
 card reads `observing — this instance never acts on its own · N ready`.
 
+**Which daemon am I looking at?** An amber `⦿ OBSERVING` badge sits beside the page
+title on `/monitor` and `/work`, and beside the name in the terminal monitor. The
+advocate cards say it too, but an instance with *no* advocates configured would
+otherwise look identical to the live one — and believing you are in observer mode
+when you are not is the whole failure this mode exists to prevent. The signal is one
+field, `observing`, on `/api/work` and `/api/poll`; it is `false` on the live
+instance rather than absent, so a console can never paint the badge over a daemon
+that is in fact opening windows.
+
 **What still works** is everything you sit in front of: the terminal, the bead
 console, answering and commenting on questions. A mode that broke those would be a
 mode nobody uses. Note the tracker is shared regardless — a bead you create from the
@@ -1327,8 +1336,9 @@ and the terminal is gone; get this one subtly wrong and everything looks fine un
 there are two Claude windows open on repos you weren't working in. It checks that
 the flag reads the way this section says (both spellings, and `0`/`false`/empty
 meaning off), that an armed advocate with a full queue surveys and launches nothing,
-that no reply agent or push goes out — and, as the control, that with the flag off
-all of that goes down the ordinary path instead.
+that no reply agent or push goes out, that `/api/work` and `/api/poll` carry the
+`observing` field the badge is drawn from — and, as the control, that with the flag
+off all of that goes down the ordinary path and the field reads `false`.
 
 The mirror-image test is deliberately absent: "with the flag off, does an advocate
 really open a window?" can only be answered by opening one. That is the incident
