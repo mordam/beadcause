@@ -566,14 +566,30 @@ goes idle, which is a perfectly good outcome and one the prompt asks for explici
 If it does find something, you get **one ordinary question in the inbox** carrying
 the entire text of every bead it wants — title, type, priority, the full
 description, what done looks like, and how it found it. Nothing is created until you
-press the button. Approving runs `bd create` for each, labelled `advocate`, and the
-answer comes back with the new ids in it.
+say so. Approving runs `bd create` for each, labelled `advocate`, and the answer
+comes back with the new ids in it.
 
-Consent is checked against the approval option's own response text (it starts with
-`CREATE:`), not against a button id — the phone and an ntfy action button both send
-back only text. So free text can never create a bead by accident: *"yeah go on then"*
-is a comment, which is exactly what it looks like. One open proposal per repo at a
-time, and at most one every `proposeCooldownHours`.
+**Each bead gets its own ✓ and ✕, and there are bulk controls above them.** A
+proposal is *n* decisions that happen to arrive together, and flattening them into
+all-or-nothing is what makes an agent's suggestions annoying: one good bead in three
+is an ordinary outcome, and having to decline all three to avoid the two bad ones
+teaches you to decline everything. So the card draws a row per bead — approve,
+decline, or leave it undecided — with **Approve all** / **Decline all** beside an
+undecided count, and one primary button that says exactly what it will do (*"Create 2
+of 3"*). Two taps to commit, like every other answer here. The YAML block no longer
+renders on the phone at all; it is parsed out and drawn as those rows.
+
+What was **declined is recorded** on the closed question along with what was created,
+because a proposal answered "create 1 and 3" and closed with only the new ids reads,
+later, as though 2 was never offered.
+
+Consent is still checked against text, because two of the three paths have nothing
+else: an ntfy action button and a typed answer can only send a string. `CREATE:` on
+its own means all of them; `CREATE: 1,3` picks by the numbers printed beside the
+beads. The app sends both — the sentence for you, the indices as a field — and the
+field wins. Free text can never create a bead by accident: *"yeah go on then"* is a
+comment, which is exactly what it looks like. One open proposal per repo at a time,
+and at most one every `proposeCooldownHours`.
 
 ### What you see, and where
 
@@ -1044,7 +1060,7 @@ Auth on everything under `/api/` except `/api/health`: header
 | GET | `/api/questions` | `?scope=human\|both\|agent` | `{questions[], workspaces[], spaces[], scope}` — `scope` defaults to `human`, and an unrecognised value falls back to it rather than erroring |
 | GET | `/api/question` | `?workspace=&id=` | one question **plus `comments[]`** |
 | GET | `/api/poll` | `?since=<seq>&wait=<s>` | long-poll: `{seq, resync, events[], questions, workspaces[]}` |
-| POST | `/api/respond` | `{workspace, id, response}` | comments, then closes the bead |
+| POST | `/api/respond` | `{workspace, id, response, create?}` | comments, then closes the bead. `create` is the 1-based indices of an advocate proposal's beads to file; without it, `CREATE:` in the text means all and `CREATE: 1,3` means those |
 | POST | `/api/comment` | `{workspace, id, text}` | comments, sets `human-replied` |
 | POST | `/api/ask` | `{workspace, title, body, priority}` | `{id, key}` — files a new `human` bead |
 | POST | `/api/session` | `{workspace, id}` | `{dir}` — opens iTerm2 + `claude` on that bead |

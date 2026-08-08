@@ -36,6 +36,10 @@
     // Key of the card whose ⋮ menu is showing. At most one, and it is deliberately
     // opened and closed by DOM surgery rather than render() — see closeMenu().
     menu: null,
+    // Per-bead decisions on an advocate's proposal: key → Map(1-based index →
+    // 'yes' | 'no'). Held here rather than on the question so a background refresh
+    // cannot wipe a half-made decision, the same reason drafts live outside it.
+    picks: new Map(),
   };
 
   /* ---------------------------------------------------------------- token */
@@ -380,10 +384,128 @@
     </div>`;
   }
 
+  /** What you have said about each proposed bead so far. */
+  const picksFor = (key) => {
+    if (!state.picks.has(key)) state.picks.set(key, new Map());
+    return state.picks.get(key);
+  };
+
+  const approvedIndices = (key, beads) =>
+    beads.map((_, i) => i + 1).filter((n) => picksFor(key).get(n) === 'yes');
+
+  /**
+   * An advocate asking to create beads.
+   *
+   * Every other question in the inbox is one decision, which is why the rest of this
+   * file can treat an option tap as the answer. A proposal is *n* decisions that
+   * happen to arrive together, and flattening them into "all or nothing" is what
+   * makes an agent's suggestions annoying: one good bead in three is a perfectly
+   * ordinary outcome, and having to decline all three to avoid the two bad ones
+   * teaches you to decline everything.
+   *
+   * So: approve and decline per row, two bulk controls for when they all point the
+   * same way, and one primary action that says exactly how many it will file. It
+   * paints in place — see paintPicks — because a re-render would rebuild the card
+   * under a decision you are halfway through making.
+   */
+  function proposalHtml(q) {
+    const beads = q.proposal?.beads || [];
+    if (!beads.length) return '';
+    const picks = picksFor(q.key);
+    const approved = approvedIndices(q.key, beads);
+    const armed = state.armed === `${q.key}|proposal`;
+
+    const rows = beads
+      .map((b, i) => {
+        const n = i + 1;
+        const choice = picks.get(n) || '';
+        return `<div class="prop-row ${choice ? `pick-${choice}` : ''}" data-idx="${n}" data-key="${esc(q.key)}">
+          <div class="prop-main">
+            <span class="prop-title"><span class="prop-n">${n}</span>${esc(b.title)}</span>
+            <span class="prop-meta">
+              <span class="pill">${esc(b.type)}</span><span class="pill p${b.priority}">P${b.priority}</span>
+              ${b.acceptance ? `<span class="prop-acc">${esc(b.acceptance)}</span>` : ''}
+            </span>
+            ${b.description ? `<span class="prop-desc">${esc(b.description)}</span>` : ''}
+            ${b.rationale ? `<span class="prop-why">${esc(b.rationale)}</span>` : ''}
+          </div>
+          <div class="prop-choice">
+            <button class="prop-btn yes" data-act="pick" data-key="${esc(q.key)}" data-idx="${n}" data-pick="yes"
+              aria-label="Approve bead ${n}" aria-pressed="${choice === 'yes'}">✓</button>
+            <button class="prop-btn no" data-act="pick" data-key="${esc(q.key)}" data-idx="${n}" data-pick="no"
+              aria-label="Decline bead ${n}" aria-pressed="${choice === 'no'}">✕</button>
+          </div>
+        </div>`;
+      })
+      .join('');
+
+    // Undecided rows are counted, not silently treated as a no: "3 undecided" is the
+    // difference between a considered decline and a half-read card.
+    const undecided = beads.length - [...picks.values()].filter((v) => v === 'yes' || v === 'no').length;
+
+    return `<div class="proposal" data-key="${esc(q.key)}">
+      <div class="section-label">${beads.length} bead${beads.length === 1 ? '' : 's'} proposed <span>nothing is created until you say so</span></div>
+      ${rows}
+      <div class="prop-bulk">
+        <button class="linkish" data-act="pick-all" data-key="${esc(q.key)}" data-pick="yes">Approve all</button>
+        <button class="linkish" data-act="pick-all" data-key="${esc(q.key)}" data-pick="no">Decline all</button>
+        <span class="prop-count">${undecided ? `${undecided} undecided` : ''}</span>
+      </div>
+      <button class="primary prop-go${armed ? ' confirm' : ''}" data-act="pick-submit" data-key="${esc(q.key)}" ${
+        approved.length || undecided === 0 ? '' : 'disabled'
+      }>${propGoLabel(approved.length, beads.length, armed)}</button>
+    </div>`;
+  }
+
+  /** The primary button says what it will do, including when that is "create nothing". */
+  function propGoLabel(approved, total, armed) {
+    const what = approved === 0 ? 'Decline all — create nothing' : approved === total ? `Create all ${total}` : `Create ${approved} of ${total}`;
+    return armed ? `Tap again to confirm · ${what}` : what;
+  }
+
+  /**
+   * Repaint one proposal in place: row states, the undecided count and the primary
+   * button. Deliberately not a render() — that rebuilds every card in the list, and
+   * this runs on every tap.
+   */
+  function paintPicks(key) {
+    const q = byKey(key);
+    const beads = q?.proposal?.beads || [];
+    const block = listEl.querySelector(`.proposal[data-key="${CSS.escape(key)}"]`);
+    if (!block || !beads.length) return;
+    const picks = picksFor(key);
+
+    for (const row of block.querySelectorAll('.prop-row')) {
+      const n = Number(row.dataset.idx);
+      const choice = picks.get(n) || '';
+      row.classList.toggle('pick-yes', choice === 'yes');
+      row.classList.toggle('pick-no', choice === 'no');
+      for (const btn of row.querySelectorAll('.prop-btn')) {
+        btn.setAttribute('aria-pressed', String(btn.dataset.pick === choice));
+      }
+    }
+
+    const decided = [...picks.values()].filter((v) => v === 'yes' || v === 'no').length;
+    const undecided = beads.length - decided;
+    const approved = approvedIndices(key, beads).length;
+    const count = block.querySelector('.prop-count');
+    if (count) count.textContent = undecided ? `${undecided} undecided` : '';
+    const go = block.querySelector('.prop-go');
+    if (go) {
+      const armed = state.armed === `${key}|proposal`;
+      go.textContent = propGoLabel(approved, beads.length, armed);
+      go.classList.toggle('confirm', armed);
+      go.disabled = !(approved || undecided === 0);
+    }
+  }
+
   function cardHtml(q) {
     if (q.agent) return agentCardHtml(q);
     const d = q.decision;
-    const opts = d?.options || [];
+    // A proposal draws its own controls, one pair per bead plus the two bulk ones.
+    // Showing the decision block's "Create all / No" underneath as well would be two
+    // sets of buttons for the same choice, disagreeing about granularity.
+    const opts = q.proposal?.beads?.length ? [] : d?.options || [];
     const open = state.open.has(q.key);
     const hasBrief = Boolean(
       d?.diagrams?.length || d?.links?.length || d?.docs?.length || d?.images?.length || q.sections.length || d?.context
@@ -427,6 +549,7 @@
         ${q.question && q.title !== q.question ? `<p class="subtitle">${esc(q.title)}</p>` : ''}
         ${(q.errors || []).map((e) => `<p class="subtitle bad">⚠ ${esc(e)}</p>`).join('')}
       </div>
+      ${proposalHtml(q)}
       ${options ? `<div class="options">${options}</div>` : ''}
       <div class="actions">
         <button class="linkish" data-act="toggle" data-key="${esc(q.key)}">
@@ -815,7 +938,7 @@
     clearTimeout(state.armedTimer);
   }
 
-  async function submit(key, text, { close }) {
+  async function submit(key, text, { close, create = null }) {
     const q = byKey(key);
     if (!q) return;
     const card = listEl.querySelector(`.card[data-key="${CSS.escape(key)}"]`);
@@ -830,7 +953,16 @@
       await api(close ? '/api/respond' : '/api/comment', {
         method: 'POST',
         body: JSON.stringify(
-          close ? { workspace: q.workspace, id: q.id, response: text } : { workspace: q.workspace, id: q.id, text }
+          close
+            ? {
+                workspace: q.workspace,
+                id: q.id,
+                response: text,
+                // Explicit, rather than leaving the server to read the numbers back
+                // out of the sentence: the text is for you, the array is for it.
+                ...(create ? { create } : {}),
+              }
+            : { workspace: q.workspace, id: q.id, text }
         ),
       });
       clearDraft(key);
@@ -971,6 +1103,56 @@
       listEl
         .querySelector(`.card[data-key="${CSS.escape(key)}"]`)
         ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      return;
+    }
+
+    if (act === 'pick') {
+      const n = Number(btn.dataset.idx);
+      const picks = picksFor(key);
+      // Tapping the choice you already made clears it — undecided is a real state,
+      // and there has to be a way back to it.
+      if (picks.get(n) === btn.dataset.pick) picks.delete(n);
+      else picks.set(n, btn.dataset.pick);
+      disarm();
+      paintPicks(key);
+      return;
+    }
+
+    if (act === 'pick-all') {
+      const q = byKey(key);
+      const picks = picksFor(key);
+      (q?.proposal?.beads || []).forEach((_, i) => picks.set(i + 1, btn.dataset.pick));
+      disarm();
+      paintPicks(key);
+      return;
+    }
+
+    if (act === 'pick-submit') {
+      const q = byKey(key);
+      const beads = q?.proposal?.beads || [];
+      const approved = approvedIndices(key, beads);
+      const token = `${key}|proposal`;
+      if (state.armed !== token) {
+        // The same two taps every other answer needs. This one creates beads.
+        state.armed = token;
+        clearTimeout(state.armedTimer);
+        state.armedTimer = setTimeout(() => {
+          disarm();
+          paintPicks(key);
+          paintArmed();
+        }, 6000);
+        paintPicks(key);
+        return;
+      }
+      disarm();
+      state.picks.delete(key);
+      const declined = beads.length - approved.length;
+      const text = approved.length
+        ? `CREATE: ${approved.join(',')} — filing ${approved.length} of ${beads.length} proposed bead${
+            beads.length === 1 ? '' : 's'
+          }${declined ? `, declining ${declined}` : ''}.`
+        : `Not now — none of the ${beads.length} proposed beads.`;
+      await submit(key, text, { close: true, create: approved.length ? approved : null });
       return;
     }
 
