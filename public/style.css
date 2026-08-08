@@ -190,6 +190,26 @@ body {
 }
 .card.answering { opacity: 0.5; pointer-events: none; }
 
+/*
+  An answer you started and did not send.
+
+  Opening another question collapses this one — that is the accordion, and it is
+  never suppressed for a draft — so the incompleteness has to be readable from the
+  list itself. The "draft saved" flag in the meta row says it once you are looking at
+  the card; the edge says it while you are scrolling past twenty of them.
+
+  Same --warn as that flag, deliberately: one orange, one meaning. But solid, where
+  the P0/P1 pill in the same meta row is a 22% tint of it, so a high-priority card
+  and an unfinished one can't be mistaken for each other.
+
+  An inset shadow rather than a border-left because paintDraftMark() toggles this
+  class on the first keystroke, and a border would shove the text sideways under the
+  cursor. It is clipped by the card's border-radius the way a border would be.
+  Suppressed when the card is open: .card.open is a full-screen layer with no side
+  edges, and you are looking at the draft, not for it.
+*/
+.card.has-draft:not(.open) { box-shadow: inset 3px 0 0 var(--warn); }
+
 .card-head { padding: 14px 15px 0; }
 
 .meta { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; margin-bottom: 8px; }
@@ -811,6 +831,75 @@ body {
   letter-spacing: 0.03em;
   text-transform: uppercase;
   color: var(--warn);
+}
+
+/*
+  Where you are in the list.
+
+  With eleven questions every card looks like every other card from a thumb's height,
+  and there was no sense of how far in you had got or how much was left. "4 of 11"
+  answers above, below and total in one phrase; the rail beside it is the same fact
+  for a glance that doesn't stop to read, with the thumb sized by how much of the list
+  fits on screen the way a scrollbar's would be.
+
+  Right edge and vertically centred, which is where a scroll indicator is expected —
+  and, unlike the bottom, is nowhere near the toast. Taps pass straight through it to
+  the card underneath.
+
+  It fades in while you scroll and out 1.6s after you stop: this is a navigation aid,
+  and parked on top of a card for the whole session it would just be in the way. It is
+  hidden outright while a card is open, because .card.open is a full-screen layer that
+  scrolls on its own and the count below it would be describing a list you can't see.
+*/
+.scrollpos {
+  position: fixed;
+  right: calc(env(safe-area-inset-right) + 9px);
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px 8px 12px;
+  /* A rounded rect, not 999px: this box is taller than it is wide, so a pill radius
+     resolves to an ellipse whose sides bow inward past the rail sitting inside it. */
+  border-radius: 18px;
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--surface) 90%, transparent);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 6px 18px rgb(0 0 0 / 0.28);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 220ms ease;
+}
+.scrollpos[hidden] { display: none; }
+.scrollpos.on { opacity: 1; }
+.scrollpos .n { color: var(--text); font-weight: 700; }
+.scrollpos .rail {
+  position: relative;
+  width: 3px;
+  height: 76px;
+  border-radius: 3px;
+  /* --line is a border colour and disappears against the pill at 3px wide; the
+     track has to be visible or the thumb reads as a mark with nothing to be on. */
+  background: color-mix(in srgb, var(--muted) 32%, transparent);
+}
+.scrollpos .rail i {
+  position: absolute;
+  left: 0;
+  width: 100%;
+  min-height: 10px;
+  border-radius: 3px;
+  background: var(--accent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .scrollpos { transition: none; }
 }
 
 .toast {

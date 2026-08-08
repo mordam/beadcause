@@ -525,11 +525,12 @@
     const draft = getDraft(q.key);
 
     // `open` takes the card full screen — see .card.open in style.css. A question is
-    // read one at a time, and on a phone an inline accordion meant the brief, the
-    // thread and the answer box all competed with the list around them.
-    return `<article class="card${open ? ' open' : ''}${q.awaitingAgent ? ' replied' : ''}" id="card-${cardId(
-      q.key
-    )}" data-key="${esc(q.key)}">
+    // read one at a time, and on a phone expanding inline meant the brief, the thread
+    // and the answer box all competed with the list around them. openOnly() is what
+    // keeps "one at a time" true.
+    return `<article class="card${open ? ' open' : ''}${draft ? ' has-draft' : ''}${
+      q.awaitingAgent ? ' replied' : ''
+    }" id="card-${cardId(q.key)}" data-key="${esc(q.key)}">
       ${open ? cardTopHtml(q) : ''}
       <div class="card-head">
         <div class="meta">
@@ -757,6 +758,19 @@
     }
   }
 
+  /**
+   * Turn the unsent-draft mark on or off in place.
+   *
+   * Same rule as paintArmed(): a draft changes on every keystroke, and going through
+   * render() to show it would rebuild the list under the textarea the keystroke went
+   * into. The mark is an inset shadow rather than a border for the same reason —
+   * toggling it reflows nothing, so the line you are typing on does not move.
+   */
+  function paintDraftMark(key) {
+    const card = listEl.querySelector(`.card[data-key="${CSS.escape(key)}"]`);
+    card?.classList.toggle('has-draft', Boolean(getDraft(key)));
+  }
+
   /** Which space a question belongs to. Unassigned workspaces collect under "Other". */
   const spaceOf = (q) => q.space || 'Other';
 
@@ -902,7 +916,90 @@
 
     openLinksInNewTab(listEl);
     drawDiagrams(listEl);
+    // The list it describes has just been replaced, so its counts are stale — but a
+    // 25s poll must not make it flash on screen at someone who isn't scrolling.
+    paintScrollPos(false);
   }
+
+  /* ------------------------------------------ where you are in the list */
+
+  const scrollPosEl = $('#scrollpos');
+  const topbarEl = $('.topbar');
+  let scrollPosTimer = null;
+  let scrollPosFrame = 0;
+
+  /**
+   * Paint the scroll position indicator: which card the top of the screen is on, out
+   * of how many the current filters left in the list.
+   *
+   * Counted off the DOM rather than off state.questions, so it describes exactly what
+   * you can see — the space and workspace chips have already been applied by the time
+   * the cards exist, and an open card is excluded because it is a fixed full-screen
+   * layer with a scroll position of its own.
+   *
+   * `reveal` is what separates a scroll from a repaint. Scrolling fades it in and
+   * restarts the 1.6s fade-out; a render() only refreshes the numbers, so a background
+   * poll landing while you read can't flash a pill at you.
+   */
+  function paintScrollPos(reveal = true) {
+    if (!scrollPosEl) return;
+    const cards = [...listEl.querySelectorAll('.card:not(.open)')];
+    // Nothing to place yourself within: a single card, an empty list, or a card open
+    // over the top of it.
+    if (cards.length < 2 || listEl.querySelector('.card.open')) {
+      scrollPosEl.hidden = true;
+      scrollPosEl.classList.remove('on');
+      clearTimeout(scrollPosTimer);
+      return;
+    }
+
+    // Reading starts under whatever is covering the top of the viewport, not at the
+    // top of it. The topbar is sticky so it always is; the filter chips only are
+    // while you are near the top of the list, and once they have scrolled away their
+    // bottom edge is a long way above the screen — taking it unconditionally put
+    // every card below the line and pinned the count at "1 of 9".
+    const top = Math.max(
+      topbarEl.getBoundingClientRect().bottom,
+      filtersEl.hidden ? 0 : filtersEl.getBoundingClientRect().bottom
+    );
+    // The first card still showing below that line is the one you are on; the 4px is
+    // slack so a card whose last pixel is under the bar doesn't count as current.
+    let idx = cards.findIndex((c) => c.getBoundingClientRect().bottom > top + 4);
+    if (idx < 0) idx = cards.length - 1; // scrolled past the end of the list
+
+    if (!scrollPosEl.firstChild) {
+      scrollPosEl.innerHTML =
+        '<span><span class="n"></span> of <span class="total"></span></span><span class="rail"><i></i></span>';
+    }
+    scrollPosEl.querySelector('.n').textContent = String(idx + 1);
+    scrollPosEl.querySelector('.total').textContent = String(cards.length);
+    // The thumb is sized by how much of the list is on screen and placed by how far
+    // down it you are, so its gaps above and below read as the cards above and below.
+    const bar = scrollPosEl.querySelector('.rail i');
+    const height = Math.max(100 / cards.length, 12);
+    bar.style.height = `${height}%`;
+    bar.style.top = `${Math.min((100 * idx) / cards.length, 100 - height)}%`;
+
+    scrollPosEl.hidden = false;
+    if (!reveal) return;
+    scrollPosEl.classList.add('on');
+    clearTimeout(scrollPosTimer);
+    scrollPosTimer = setTimeout(() => scrollPosEl.classList.remove('on'), 1600);
+  }
+
+  // One paint per frame at most. Scroll fires far faster than the screen redraws, and
+  // every paint here reads geometry back out of the layout.
+  addEventListener(
+    'scroll',
+    () => {
+      if (scrollPosFrame) return;
+      scrollPosFrame = requestAnimationFrame(() => {
+        scrollPosFrame = 0;
+        paintScrollPos();
+      });
+    },
+    { passive: true }
+  );
 
   /* --------------------------------------------------------------- actions */
 
@@ -1016,8 +1113,33 @@
         q.comments = q.comments || [];
       }
     }
-    state.open.add(key);
+    openOnly(key);
     render(true);
+  }
+
+  /**
+   * Expand one card and collapse whatever was expanded before it — the accordion.
+   *
+   * `state.open` stays a Set because the rest of the file reads it with .has() and
+   * .delete(), and because load() rebuilds it by filtering; what changes is that
+   * nothing ever puts a second key in it. Two reasons it has to be one:
+   *
+   * • `.card.open` is a fixed full-screen layer (style.css), so a second open card
+   *   simply stacks on the first. Closing it revealed a brief you had already
+   *   finished with instead of the list — reachable today by tapping a notification
+   *   while a card is open, which deep-links straight into expand().
+   * • Left to accumulate, the list grows past the point where you can find your
+   *   place scrolling through it, which is the other half of this bead.
+   *
+   * A card being collapsed may be holding an unsent draft. That is allowed and is
+   * never suppressed — the draft survives in localStorage, the card comes back
+   * marked incomplete (see .card.has-draft), and its toggle reads "Resume your
+   * answer". Deleted in place rather than by reassigning the Set, because load()
+   * captures `state.open` by reference while a request is in flight.
+   */
+  function openOnly(key) {
+    for (const k of [...state.open]) if (k !== key) state.open.delete(k);
+    state.open.add(key);
   }
 
   /**
@@ -1213,7 +1335,11 @@
     const box = ev.target.closest('[data-role="answer"]');
     if (!box) return;
     const key = box.closest('.card')?.dataset.key;
-    if (key) setDraft(key, box.value);
+    if (!key) return;
+    setDraft(key, box.value);
+    // Keep the incomplete mark honest from the first character, so the card is
+    // already carrying it by the time the accordion collapses it.
+    paintDraftMark(key);
   });
 
   // Focus left an empty box: nothing is in flight, so let any deferred refresh in.

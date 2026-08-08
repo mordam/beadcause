@@ -38,6 +38,16 @@
     <div class="empty" id="loading">Loading questions…</div>
   </main>
 
+  <!--
+    Where you are in the list — "4 of 11" and a rail. Filled in by paintScrollPos()
+    in app.js, which is also what shows and hides it.
+
+    aria-hidden on purpose: a screen reader already walks the list item by item and
+    knows the position, and a live region re-announcing it on every scroll tick would
+    make the app unusable to listen to.
+  -->
+  <div id="scrollpos" class="scrollpos" hidden aria-hidden="true"></div>
+
   <div id="toast" class="toast" role="status" hidden></div>
 
   <!--

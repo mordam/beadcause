@@ -210,6 +210,36 @@ set.
 Either way the answer lands as a comment authored by `beadcause` and the bead
 closes with reason "Answered via Beadcause".
 
+### One open at a time, and where you are in the list
+
+Opening a question **collapses whichever one was open before it**. An open card is a
+fixed full-screen layer, so before this a second one just stacked on the first — tap a
+notification while reading, close what it opened, and you were looking at a brief you
+had already finished with rather than the list. Left to accumulate they also made the
+list unscrollable in the only sense that matters: you could not find your place in it.
+
+**Collapsing is never suppressed, not even for an unsent draft.** The alternative — a
+card that refuses to close because you started typing in it — trades a small surprise
+for a bigger one. Instead the card comes back **marked in orange down its left edge**,
+so a question you have half answered is legible from the list while you scroll past it.
+Same `--warn` as the "draft saved" flag it sits beside, deliberately: one orange, one
+meaning. It is a solid edge where the P0/P1 pill is a 22% tint of the same colour, so
+*high priority* and *unfinished* can't be mistaken for each other. The mark comes off
+where the draft does — on **Comment only**, which is the one path that clears a draft
+and leaves the card in the list.
+
+Scrolling raises a **"5 of 9"** against the right edge, with a rail whose thumb is
+sized by how much of the list is on screen: how many above, how many below, how many
+in total, which several open questions otherwise give you no sense of at all. It fades
+out 1.6s after you stop, because it is a navigation aid and not a permanent fixture
+sitting on top of a card's buttons. It counts what the space and workspace chips have
+left in the list rather than what the server sent, and it is hidden entirely while a
+card is open — that card scrolls itself, and a count of the list underneath would be
+describing something you can't see.
+
+Both are painted the way `paintArmed()` is — a class toggled on the card in place, not
+a `render()` — so nothing here can rebuild the list under a half-typed answer.
+
 ## The conversation, both ways
 
 *Comment only* is not a dead end — it starts a thread.
