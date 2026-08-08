@@ -337,6 +337,45 @@ like something else:
   transition kept cancelling each other, leaving every node stuck at opacity 0.0004 —
   a fully drawn, entirely invisible graph. The fade is a CSS animation now.
 
+### The glass in the middle
+
+A phone can hold the whole graph or one readable bead, never both. deluvia's 128
+beads only fit a 393px screen by shrinking to a thirteenth, where a title measures
+**1.4 css px** — the fit was working perfectly and producing a field of coloured
+specks. Zooming in to read one is the obvious answer and the wrong one: you lose
+the shape of the work, which is the only reason to draw a graph at all.
+
+So the fitted view stays, and a **circle in the middle of it is magnified** — sized
+for three beads across and the rows above and below, at a scale that never passes
+1:1. You pan the graph under the glass instead of zooming into it. A `[ ]` reticle
+frames whichever bead is under it and a pill underneath names it in full, because
+a node clips its title at twenty characters and that is the one thing magnifying
+cannot fix. Open the graph for a particular bead — the **What this is blocking**
+link — and once the layout settles that bead slides under the glass on its own.
+
+The magnification needs no layout maths at all. Holding the centre of the screen
+fixed and scaling about it by `m` is, in screen space, exactly
+`translate(c(1-m)) scale(m)` — so the loupe is a `<use>` of the scene carrying that
+transform, clipped to a circle. There is no second layout and nothing to keep in
+sync: the force simulation ticks the original and the copy follows.
+
+Two things that are not obvious:
+
+- **The copy takes no pointer events, so taps have to be re-aimed.** Inside the
+  circle you are looking at the magnified copy while your finger lands on the
+  shrunken original underneath — without intercepting the tap and mapping it back
+  through the magnification, tapping a bead you can read selects a different bead
+  you cannot. It is a capture-phase listener, so it runs before the nodes' own.
+- **The glass is down until the graph has finished arriving**, and hides itself
+  whenever it would magnify by less than 1.1 — at that point it is a ring drawn
+  around what the screen already shows.
+
+On a workspace as large as deluvia the glass is about as wide as the whole fitted
+graph, so the overview it is supposed to sit inside has very little left to show.
+That is the layout's fault rather than the loupe's: the force spreads by dependency
+layer along **x**, so a portrait phone fits to width and leaves 59% of the screen
+empty above and below. Rotating that axis is still open — see `bc-z7s`.
+
 ### Checking it on a phone
 
 The graph is the one screen that was only ever verified in a desktop browser, which
@@ -354,9 +393,9 @@ occluded renderer to about one frame a second, the force layout never settles, a
 every measurement becomes a measurement of the throttling — so the script disables
 that explicitly. That is also the answer if the numbers ever look impossible.
 
-It prints the fitted zoom and what a bead's title measures there, which is the part
-that does not pass or fail: 128 beads only fit a phone by shrinking to a thirteenth
-of full size, where a title is 1.4 css px. See `bc-z7s`.
+It also prints what the glass is doing — how much it magnifies, how big a title is
+inside it, how many beads it has room for — and `--id=<bead>` opens the graph the
+way **What this is blocking** does and asserts that bead ends up under it.
 
 ## Current sessions — who is working, and on what
 

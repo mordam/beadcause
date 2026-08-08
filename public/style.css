@@ -694,6 +694,39 @@ body {
 .graph-main .empty[hidden] { display: none; }
 .graph-main .empty { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; }
 .gn.on .gn-box { stroke-width: 3; }
+.gn.reticled .gn-box { stroke-width: 2.5; }
+
+/* The loupe. A circle in the middle of the fitted view, magnified enough to read
+   three beads across — because a phone can hold the whole graph or one readable
+   bead, never both. `.loupe-back` is opaque so the magnified copy never blends
+   into the shrunken original showing through from underneath. */
+.loupe-back { fill: var(--bg); }
+.loupe-rim {
+  fill: none;
+  stroke: color-mix(in srgb, var(--accent) 45%, transparent);
+  stroke-width: 1.5;
+}
+.reticle path { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linecap: round; }
+
+/* Names the bead in the brackets — the node itself clips its title at twenty
+   characters, which is the thing the glass cannot fix. */
+.reticle-label[hidden] { display: none; }
+.reticle-label {
+  position: absolute; left: 50%; transform: translateX(-50%);
+  z-index: 12; pointer-events: none;
+  display: flex; align-items: center; gap: 8px;
+  max-width: calc(100% - 24px);
+  padding: 5px 11px;
+  border: 1px solid var(--line); border-radius: 999px;
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  backdrop-filter: blur(8px);
+  font-size: 12.5px;
+}
+/* The id is the short half and must never be the part that wraps — without this
+   flex squeezes it to two lines and the title gets the room. */
+.reticle-label .pill { flex: none; white-space: nowrap; }
+.reticle-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.reticle-hint { color: var(--muted); }
 /* Each batch of five fades in on arrival. A CSS animation, deliberately: a d3
    transition shares its default name with the auto-fit's and got restarted to a
    standstill. */

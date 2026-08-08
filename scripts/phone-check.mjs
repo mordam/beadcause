@@ -28,6 +28,9 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const args = process.argv.slice(2).filter((a) => !a.startsWith('--'));
 const outDir = (process.argv.find((a) => a.startsWith('--out=')) || '').slice(6);
+// `--id=<bead>` opens the graph the way "What this is blocking" does, and asserts
+// that bead ends up under the glass rather than somewhere off screen.
+const ID = (process.argv.find((a) => a.startsWith('--id=')) || '').slice(5);
 const cfg = loadConfig();
 const WS = args[0] || cfg.workspaces[0]?.name;
 // Defaults to the running daemon. `--base=` points it at a checkout you are
@@ -163,6 +166,8 @@ const PROBE = `(() => {
   const nodes = [...document.querySelectorAll('g.gn')];
   const t = (g && g.getAttribute('transform')) || '';
   const k = +((t.match(/scale\\(([-\\d.]+)\\)/) || [0, 1])[1]);
+  const trm = t.match(/translate\\(([-\\d.]+),\\s*([-\\d.]+)\\)/);
+  const tr = trm ? [+trm[1], +trm[2]] : [0, 0];
   const W = main ? main.clientWidth : 0, H = main ? main.clientHeight : 0;
   const box = main ? main.getBoundingClientRect() : { left: 0, top: 0, right: 0, bottom: 0 };
   let on = 0, over = 0;
@@ -184,6 +189,37 @@ const PROBE = `(() => {
     viewport: [W, H],
     box: xs.length ? [Math.round(Math.max(...xs) - Math.min(...xs)) + 132, Math.round(Math.max(...ys) - Math.min(...ys)) + 40] : [0, 0],
     settled: (document.getElementById('growth') || {}).hidden === true,
+    loupe: (() => {
+      const rim = document.querySelector('.loupe-rim');
+      const use = document.querySelector('.loupe use');
+      if (!rim || !use || rim.getAttribute('display') === 'none') return { up: false };
+      const m = +((use.getAttribute('transform') || '').match(/scale\\(([-\\d.]+)\\)/) || [0, 1])[1];
+      const R = +rim.getAttribute('r');
+      const cx = +rim.getAttribute('cx'), cy = +rim.getAttribute('cy');
+      // Beads whose magnified position lands inside the glass, and how many of
+      // them sit shoulder to shoulder across its middle.
+      const seen = [];
+      for (const n of document.querySelectorAll('g.gn')) {
+        const mt = (n.getAttribute('transform') || '').match(/translate\\(([-\\d.]+),\\s*([-\\d.]+)\\)/);
+        if (!mt) continue;
+        const sx = m * (+mt[1] * k + tr[0]) + cx * (1 - m);
+        const sy = m * (+mt[2] * k + tr[1]) + cy * (1 - m);
+        if (Math.hypot(sx - cx, sy - cy) <= R) seen.push([sx, sy]);
+      }
+      const band = seen.filter(p => Math.abs(p[1] - cy) < 40 * m * k * 1.5).length;
+      const fits = Math.floor((2 * R) / (132 * m * k));
+      const ret = document.querySelector('g.gn.reticled');
+      const label = document.getElementById('reticle-label');
+      return {
+        up: true, m: +m.toFixed(3), r: R,
+        innerK: +(m * k).toFixed(3),
+        inGlass: seen.length,
+        acrossMiddle: band,
+        fitsAcross: fits,
+        reticled: !!ret,
+        label: label && !label.hidden ? [...label.children].map(e => e.textContent.trim()).join(' — ') || label.textContent.trim() : null,
+      };
+    })(),
     cardHidden: (document.getElementById('card') || {}).hidden,
     cardTitle: (document.getElementById('card-title') || {}).textContent,
     titlePx: nodes.length ? +getComputedStyle(nodes[0].querySelector('text')).fontSize.replace('px', '') : 0,
@@ -221,9 +257,10 @@ try {
   await s.send('Page.navigate', { url: `${BASE}/` });
   await sleep(1200);
   await evalJs(s, `localStorage.setItem('beadcause.token', ${JSON.stringify(cfg.token)})`);
-  await s.send('Page.navigate', { url: `${BASE}/graph?ws=${encodeURIComponent(WS)}` });
+  const url = `${BASE}/graph?ws=${encodeURIComponent(WS)}${ID ? `&id=${encodeURIComponent(ID)}&scope=all` : ''}`;
+  await s.send('Page.navigate', { url });
 
-  console.log(`\niPhone 14 Pro ${VP.width}x${VP.height} @${VP.dpr}x · ${BASE}/graph?ws=${WS}\n`);
+  console.log(`\niPhone 14 Pro ${VP.width}x${VP.height} @${VP.dpr}x · ${url}\n`);
 
   let p = null;
   for (let i = 0; i < 90; i++) {
@@ -231,7 +268,9 @@ try {
     p = await evalJs(s, PROBE);
     if (p.settled && p.nodes) break;
   }
-  await sleep(3000);
+  // The glass goes up a beat after the layout settles, and when a bead was named
+  // it then slides under it — wait for that to finish before measuring.
+  await sleep(ID ? 5000 : 3000);
   p = await evalJs(s, PROBE);
 
   if (!p.nodes) {
@@ -249,22 +288,41 @@ try {
   say('fit is limited by', fillsWidth ? 'width — the layout is wider than it is tall' : 'height');
   say('screen left empty', `${Math.round(100 - (Math.min(1, (p.box[1] * p.k) / p.viewport[1]) * 100))}% vertically`);
 
-  const legible = p.titlePx * p.k;
-  if (legible < 8) {
-    console.log(
-      `\n  NOTE  at this zoom a bead title is ${legible.toFixed(1)} css px, which is not readable.\n` +
-        `        ${p.nodes} beads only fit on a phone by shrinking past legibility; you have to\n` +
-        `        pinch to about 1:1 to read one, and then a handful are on screen. Not a\n` +
-        `        regression — it is what fitting this many beads to a phone costs.`
-    );
+  if (outDir) {
+    fs.mkdirSync(outDir, { recursive: true });
+    const file = path.join(outDir, `phone-${WS}.png`);
+    const r = await s.send('Page.captureScreenshot', { format: 'png' });
+    fs.writeFileSync(file, Buffer.from(r.data, 'base64'));
+    say('screenshot', file);
+  }
+
+  const L = p.loupe || { up: false };
+  console.log('\nthe glass in the middle');
+  if (L.up) {
+    say('magnifies by', `${L.m}x  (scene ${p.k} -> ${L.innerK} inside)`);
+    say('radius (css px)', L.r);
+    say('bead title inside', `${(p.titlePx * L.innerK).toFixed(1)} css px`);
+    say('room for', `${L.fitsAcross} beads across  (${L.inGlass} actually under it)`);
+    say('reticle says', L.label || '(nothing under it)');
+  } else {
+    say('glass', 'down — the scene is already at a readable scale');
   }
 
   console.log('\nwhat a finger can do');
+  // Only for the whole-workspace view. Asking for one bead pans it to the middle,
+  // which pushes the far edge of the graph off screen on purpose.
   check(
     'everything on screen',
-    p.overflow <= 2,
-    `${p.onScreen} of ${p.nodes} beads visible` + (p.overflow > 0 ? `, worst bead ${p.overflow}px outside the canvas` : '')
+    ID ? true : p.overflow <= 2,
+    ID
+      ? `${p.onScreen} of ${p.nodes} still visible after panning to ${ID}`
+      : `${p.onScreen} of ${p.nodes} beads visible` + (p.overflow > 0 ? `, worst bead ${p.overflow}px outside the canvas` : '')
   );
+  check('glass is up', L.up || p.titlePx * p.k >= 8, L.up ? `${L.m}x` : 'no loupe, and the scene is not readable either');
+  check('glass is readable', !L.up || p.titlePx * L.innerK >= 8, `${(p.titlePx * (L.innerK || p.k)).toFixed(1)} css px inside it`);
+  check('room for three across', !L.up || L.fitsAcross >= 3, `${L.fitsAcross} bead widths across the glass`);
+  check('reticle names a bead', !L.up || !!L.label, L.label || 'nothing under the glass');
+  if (ID) check('opened onto that bead', (L.label || '').startsWith(ID), L.label ? `glass holds ${L.label.slice(0, 40)}` : 'nothing under the glass');
 
   // Retried, because a pinch that lands on a bead sometimes does nothing at all —
   // the node's drag behaviour stops propagation on touchstart, so the zoom bound
@@ -284,29 +342,35 @@ try {
   const out = await evalJs(s, PROBE);
   check('pinch reaches the fit', out.k <= beforePinch + 0.0005, `back to ${out.k} (opened on ${beforePinch}), ${out.onScreen} of ${out.nodes} on screen`);
 
+  // Tap what a finger can see. Under the glass that is the magnified copy, not
+  // the speck it was made from — tapping the speck would be testing a thing
+  // nobody is looking at, and would select the wrong bead.
   const spot = await evalJs(s, `(() => {
-    const m = document.getElementById('graph-main');
-    const cx = m.clientWidth / 2, cy = m.clientHeight / 2;
-    let best = null, bd = Infinity;
-    for (const n of document.querySelectorAll('g.gn')) {
-      const r = n.getBoundingClientRect();
-      const d = Math.hypot(r.x + r.width / 2 - cx, r.y + r.height / 2 - cy);
-      if (d < bd) { bd = d; best = [Math.round(r.x + r.width / 2), Math.round(r.y + r.height / 2)]; }
+    const scene = document.querySelector('#scene');
+    const ret = document.querySelector('g.gn.reticled') || document.querySelector('g.gn');
+    if (!ret) return null;
+    const box = document.getElementById('graph-main').getBoundingClientRect();
+    const t = scene.getAttribute('transform') || '';
+    const k = +((t.match(/scale\\(([-\\d.]+)\\)/) || [0, 1])[1]);
+    const trm = t.match(/translate\\(([-\\d.]+),\\s*([-\\d.]+)\\)/);
+    const tr = trm ? [+trm[1], +trm[2]] : [0, 0];
+    const mt = (ret.getAttribute('transform') || '').match(/translate\\(([-\\d.]+),\\s*([-\\d.]+)\\)/);
+    if (!mt) return null;
+    let sx = +mt[1] * k + tr[0], sy = +mt[2] * k + tr[1];
+    const rim = document.querySelector('.loupe-rim');
+    const use = document.querySelector('.loupe use');
+    if (rim && use && rim.getAttribute('display') !== 'none') {
+      const m = +((use.getAttribute('transform') || '').match(/scale\\(([-\\d.]+)\\)/) || [0, 1])[1];
+      const cx = +rim.getAttribute('cx'), cy = +rim.getAttribute('cy');
+      sx = m * sx + cx * (1 - m);
+      sy = m * sy + cy * (1 - m);
     }
-    return best;
+    return [Math.round(box.left + sx), Math.round(box.top + sy)];
   })()`);
   if (spot) {
     await tap(s, spot[0], spot[1]);
     const tapped = await evalJs(s, PROBE);
     check('tap raises the card', !tapped.cardHidden, tapped.cardHidden ? 'card stayed hidden' : `"${(tapped.cardTitle || '').slice(0, 34)}"`);
-  }
-
-  if (outDir) {
-    fs.mkdirSync(outDir, { recursive: true });
-    const file = path.join(outDir, `phone-${WS}.png`);
-    const r = await s.send('Page.captureScreenshot', { format: 'png' });
-    fs.writeFileSync(file, Buffer.from(r.data, 'base64'));
-    console.log(`\n  screenshot ${file}`);
   }
 
   console.log(failures ? `\n${failures} check${failures === 1 ? '' : 's'} failed.\n` : '\nAll checks passed.\n');
