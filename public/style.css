@@ -160,9 +160,10 @@ body {
 .card.replied { opacity: 0.72; }
 .card.replied.open { opacity: 1; }
 
-/* The agent's log, as the CLI would have shown it. 80 columns is the width the
-   output is written for, so the pane is sized in `ch` and scrolls sideways rather
-   than reflowing lines that were laid out by something that counted characters. */
+/* The agent's log, as the CLI would have shown it. The output was laid out by
+   something counting characters at 80 columns, so the pane scrolls sideways
+   (`white-space: pre`) rather than reflowing lines and destroying the only
+   alignment they have. Small enough that most of those 80 fit on a phone. */
 .agent-log {
   margin: 10px 0 0;
   padding: 10px 12px;
