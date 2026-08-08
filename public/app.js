@@ -8,8 +8,14 @@
   const pulseEl = $('#pulse');
   const toastEl = $('#toast');
 
+  // Which slice of the tracker the list is. See the settings panel in index.html:
+  // `human` is the app's premise, but it made a workspace with no questions look
+  // empty when it was anything but.
+  const SCOPES = ['human', 'both', 'agent'];
+
   const state = {
     token: '',
+    scope: 'human',
     questions: [],
     spaces: [],
     space: 'all',
@@ -67,6 +73,9 @@
 
   const esc = (s) =>
     String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+  /** `sophab/sp-hz3.5` is not a valid id attribute; the anchor has to survive it. */
+  const cardId = (key) => esc(String(key).replace(/[^\w-]/g, '_'));
 
   /** Local files can't be loaded by the browser directly — route them through the server. */
   function assetUrl(p) {
@@ -259,6 +268,15 @@
     return null;
   }
 
+  /** One message in a bead's thread. Shared with the agent-bead card, which has a
+   *  thread but no decision and nothing to answer. */
+  function commentHtml(c) {
+    return `<div class="comment${c.author && c.author !== 'beadcause' ? ' from-agent' : ''}">
+      <span class="who">${esc(c.author || '')} · ${esc(relTime(c.created_at))}</span>
+      <div class="md">${renderMarkdown(c.text || '')}</div>
+    </div>`;
+  }
+
   /** A placeholder shaped like the agent comment that is about to land here. */
   function pendingHtml(a) {
     const live = LIVE_PHASES.has(a.phase);
@@ -269,6 +287,7 @@
   }
 
   function cardHtml(q) {
+    if (q.agent) return agentCardHtml(q);
     const d = q.decision;
     const opts = d?.options || [];
     const open = state.open.has(q.key);
@@ -293,7 +312,7 @@
     const brief = open ? briefHtml(q) : '';
     const draft = getDraft(q.key);
 
-    return `<article class="card" id="card-${esc(q.key.replace(/[^\w-]/g, '_'))}" data-key="${esc(q.key)}">
+    return `<article class="card" id="card-${cardId(q.key)}" data-key="${esc(q.key)}">
       <div class="card-head">
         <div class="meta">
           <span class="pill">${esc(q.workspace)}</span>
@@ -316,6 +335,82 @@
       </div>
       <div class="brief"${open ? '' : ' hidden'}>${brief}</div>
     </article>`;
+  }
+
+  const STATUS_LABEL = { in_progress: 'claimed', blocked: 'blocked', open: 'open' };
+
+  /**
+   * A bead nobody is asking you about.
+   *
+   * Read-only on purpose. There is no decision block, so there are no options — and
+   * deliberately no "Answer & close", because that path comments "Answered via
+   * Beadcause" and closes the bead, which on another session's in-progress work
+   * would be vandalism rather than an answer. What a card gives you is what the bead
+   * is, who has it, and the two ways in: the graph, or a session on the Mac that can
+   * actually write.
+   *
+   * Smaller type than a question, too. There can be two hundred of these and eleven
+   * questions; they must not compete for attention with the thing that needs you.
+   */
+  function agentCardHtml(q) {
+    const open = state.open.has(q.key);
+    return `<article class="card agent-card" id="card-${cardId(q.key)}" data-key="${esc(q.key)}">
+      <div class="card-head">
+        <div class="meta">
+          <span class="pill">${esc(q.workspace)}</span>
+          <span class="pill id">${esc(q.id)}</span>
+          ${q.priority != null ? `<span class="pill p${q.priority}">P${q.priority}</span>` : ''}
+          <span class="pill st-${esc(q.status)}">${esc(STATUS_LABEL[q.status] || q.status)}</span>
+          ${q.dependentCount ? `<span class="pill">blocks ${q.dependentCount}</span>` : ''}
+          <time>${esc(relTime(q.since))}</time>
+        </div>
+        ${activityHtml(q)}
+        <p class="q">${esc(q.title)}</p>
+        ${
+          q.actor || q.type
+            ? `<p class="subtitle">${[q.type, q.actor].filter(Boolean).map(esc).join(' · ')}</p>`
+            : ''
+        }
+      </div>
+      <div class="actions">
+        <button class="linkish" data-act="toggle" data-key="${esc(q.key)}">${open ? 'Hide details' : 'Show details'}</button>
+        <a class="linkish" href="${esc(graphUrl(q))}" target="_blank" rel="noopener noreferrer">Graph →</a>
+      </div>
+      <div class="brief"${open ? '' : ' hidden'}>${open ? agentBriefHtml(q) : ''}</div>
+    </article>`;
+  }
+
+  /** The body of an agent bead: description, notes, thread. Fetched by expand(). */
+  function agentBriefHtml(q) {
+    const parts = [];
+    if (q.description) parts.push(`<div class="md">${renderMarkdown(q.description)}</div>`);
+    // `notes` is where sessions record what they actually did, and it is often the
+    // only part worth reading — a bead can have an aspirational description and a
+    // notes field saying it shipped three days ago.
+    if (q.notes) {
+      parts.push('<div class="section-label">notes</div>');
+      parts.push(`<div class="md">${renderMarkdown(q.notes)}</div>`);
+    }
+    if (!q.description && !q.notes) parts.push('<p class="subtitle">No description on this bead.</p>');
+
+    if (q.comments?.length) {
+      parts.push('<div class="section-label">Thread</div>');
+      parts.push(`<div class="comments">${q.comments.map(commentHtml).join('')}</div>`);
+    }
+
+    // The one action. Nothing on this card writes to the bead, so the way to act on
+    // it is a session that can.
+    parts.push(`<div class="freeform">
+      <button class="discuss" data-act="discuss" data-key="${esc(q.key)}">
+        <span class="glyph">&gt;_</span> Discuss in a Claude session on the Mac
+      </button>
+    </div>`);
+
+    parts.push(`<div class="collapse-row">
+      <button class="collapse" data-act="collapse" data-key="${esc(q.key)}">↑ Collapse</button>
+    </div>`);
+
+    return parts.join('');
   }
 
   function briefHtml(q) {
@@ -378,15 +473,9 @@
     if (q.comments?.length || working) {
       parts.push('<div class="section-label">Thread</div>');
       parts.push(
-        `<div class="comments">${(q.comments || [])
-          .map(
-            (c) =>
-              `<div class="comment${c.author && c.author !== 'beadcause' ? ' from-agent' : ''}">
-                <span class="who">${esc(c.author || '')} · ${esc(relTime(c.created_at))}</span>
-                <div class="md">${renderMarkdown(c.text || '')}</div>
-              </div>`
-          )
-          .join('')}${working ? pendingHtml(working) : ''}</div>`
+        `<div class="comments">${(q.comments || []).map(commentHtml).join('')}${
+          working ? pendingHtml(working) : ''
+        }</div>`
       );
     }
 
@@ -409,6 +498,25 @@
     </div>`);
 
     return parts.join('');
+  }
+
+  /**
+   * An empty list has to say which empty it is.
+   *
+   * The old text — "no open questions labelled human" — was true and still read as a
+   * broken app, because a space could be showing 0 while fifty-four beads were open
+   * in it. So when the scope is the narrow one, the empty state names the way out.
+   */
+  const gearNudge = () => (state.scope === 'human' ? ' Tap ⚙ to include the work agents are on.' : '');
+
+  function emptyHtml() {
+    if (state.scope === 'agent') {
+      return `<div class="empty"><strong>Nothing live</strong>No open, claimed or blocked beads in any workspace.</div>`;
+    }
+    if (state.scope === 'both') {
+      return `<div class="empty"><strong>Nothing live</strong>No questions, and no bead open anywhere.</div>`;
+    }
+    return `<div class="empty"><strong>Nothing to decide</strong>No open questions labelled <code>human</code>.${gearNudge()}</div>`;
   }
 
   /** Repaint the armed option in place. Cheap, and never touches the textarea. */
@@ -508,10 +616,10 @@
       state.workspace === 'all' ? inSpace : inSpace.filter((q) => q.workspace === state.workspace);
 
     if (!state.questions.length) {
-      listEl.innerHTML = `<div class="empty"><strong>Nothing to decide</strong>No open questions labelled <code>human</code>.</div>`;
+      listEl.innerHTML = emptyHtml();
     } else if (!visible.length) {
       const where = state.workspace !== 'all' ? state.workspace : state.space !== 'all' ? state.space : '';
-      listEl.innerHTML = `<div class="empty">Nothing waiting${where ? ` in ${esc(where)}` : ''}.</div>`;
+      listEl.innerHTML = `<div class="empty">Nothing waiting${where ? ` in ${esc(where)}` : ''}.${gearNudge()}</div>`;
     } else {
       listEl.innerHTML = visible.map(cardHtml).join('');
     }
@@ -589,14 +697,37 @@
     }
   }
 
-  /** Pull the full record (comments included) the first time a card is opened. */
+  /**
+   * Pull the full record (comments included) the first time a card is opened.
+   *
+   * Two endpoints, because the two kinds of bead are not the same thing.
+   * `/api/question` parses the decision block and is only meaningful for a `human`
+   * bead; an agent bead is an ordinary issue, so it comes through `/api/bead` — the
+   * same endpoint the graph's detail sheet uses. Fields are copied across by name
+   * rather than with a bare Object.assign, so the list's own `agent` flag and the
+   * slimmed-down shape it was built from survive the merge.
+   */
   async function expand(key, force = false) {
     const q = byKey(key);
     if (!q) return;
-    if (force || !q.comments) {
+    const ws = encodeURIComponent(q.workspace);
+    const id = encodeURIComponent(q.id);
+    if (q.agent) {
+      // `undefined` means never fetched; `''` means fetched and genuinely empty.
+      if (force || q.description === undefined) {
+        try {
+          const full = await api(`/api/bead?workspace=${ws}&id=${id}`);
+          q.description = full.description || '';
+          q.notes = full.notes || '';
+          q.comments = full.comments || [];
+        } catch {
+          q.description = q.description || '';
+          q.comments = q.comments || [];
+        }
+      }
+    } else if (force || !q.comments) {
       try {
-        const full = await api(`/api/question?workspace=${encodeURIComponent(q.workspace)}&id=${encodeURIComponent(q.id)}`);
-        Object.assign(q, full);
+        Object.assign(q, await api(`/api/question?workspace=${ws}&id=${id}`));
       } catch {
         q.comments = q.comments || [];
       }
@@ -724,19 +855,83 @@
     render(true);
   });
 
+  /* ------------------------------------------------------------- settings */
+
+  const scopeDlg = $('#settings-panel');
+
+  const SCOPE_NOTE = {
+    human: 'Beads labelled human — the ones asking you something. This is the inbox.',
+    both: 'Questions first, then every bead that is open, claimed or blocked.',
+    agent: 'Only what the agents are on: every live bead that is not a question.',
+  };
+
+  function paintScope() {
+    for (const btn of scopeDlg.querySelectorAll('[data-scope]')) {
+      const on = btn.dataset.scope === state.scope;
+      btn.classList.toggle('on', on);
+      btn.setAttribute('aria-pressed', String(on));
+    }
+    $('#scope-note').textContent = SCOPE_NOTE[state.scope];
+    // The gear carries the state, because the scope changes what every count on the
+    // screen means and the panel that set it is closed by the time you read them.
+    $('#settings').classList.toggle('wide', state.scope !== 'human');
+  }
+
+  $('#settings').addEventListener('click', () => {
+    paintScope();
+    scopeDlg.showModal();
+  });
+
+  scopeDlg.addEventListener('click', (ev) => {
+    const btn = ev.target.closest('[data-scope]');
+    if (!btn || btn.dataset.scope === state.scope) return;
+    state.scope = btn.dataset.scope;
+    localStorage.setItem('beadcause.scope', state.scope);
+    paintScope();
+    // The workspace filter was almost certainly pointing at the one workspace that
+    // had a question in it; keeping it would hide everything the widening just let in.
+    state.workspace = 'all';
+    schedulePoll();
+    state.questions = [];
+    listEl.innerHTML = '<div class="empty">Asking bd…</div>';
+    load();
+  });
+
   /* ----------------------------------------------------------------- load */
 
   let loading = false;
+  let loadAgain = false;
+
   async function load() {
-    if (!state.token || loading) return;
+    if (!state.token) return;
+    // A scope switch made while a poll is in flight must not be dropped on the
+    // floor: the wider scopes take a couple of seconds, so "in flight" is the
+    // normal state when you tap, and swallowing it leaves the list on "Asking bd…"
+    // until the next tick a minute later.
+    if (loading) {
+      loadAgain = true;
+      return;
+    }
     loading = true;
     pulseEl.classList.add('busy');
     try {
-      const data = await api('/api/questions');
+      const asked = state.scope;
+      const data = await api(`/api/questions?scope=${encodeURIComponent(asked)}`);
+      // Changed under us while the request was out. These are rows from the list
+      // you just left; the re-run queued above is the one that counts.
+      if (asked !== state.scope) return;
       const openKeys = state.open;
       // Keep any already-fetched detail so an open card doesn't flicker.
       const prev = new Map(state.questions.map((q) => [q.key, q]));
-      state.questions = data.questions.map((q) => (prev.has(q.key) ? Object.assign(prev.get(q.key), q) : q));
+      state.questions = data.questions.map((q) => {
+        const before = prev.get(q.key);
+        if (!before) return q;
+        // `agent` has to be reset before the merge, not left to it: a question
+        // payload omits the field rather than sending false, so a bead that has
+        // just gained the `human` label would otherwise keep rendering as
+        // read-only agent work for as long as the tab stayed open.
+        return Object.assign(before, { agent: false }, q);
+      });
       state.spaces = data.spaces || [];
       // A space that has been renamed or removed in config would otherwise leave the
       // filter pinned to something that no longer exists, showing an empty list.
@@ -751,14 +946,33 @@
     } finally {
       loading = false;
       pulseEl.classList.remove('busy');
+      if (loadAgain) {
+        loadAgain = false;
+        load();
+      }
     }
   }
 
-  /** #workspace/id from an ntfy notification tap. */
+  /** #workspace/id from an ntfy notification tap, or the Android shell's deep link. */
   let hashHandled = '';
   async function focusHash() {
     const key = decodeURIComponent(location.hash.replace(/^#/, ''));
-    if (!key || key === hashHandled || !byKey(key)) return;
+    if (!key || key === hashHandled) return;
+    if (!byKey(key)) {
+      // A deep link always names a question, and `agent` is the one scope with no
+      // questions in it — so the tap would land on a list that silently ignored it.
+      // Widen instead of losing it. This does not await the reload: focusHash runs
+      // from inside load(), where a nested load() only queues itself, and the
+      // re-run calls back in here with the card present.
+      if (state.scope === 'agent') {
+        state.scope = 'both';
+        localStorage.setItem('beadcause.scope', state.scope);
+        paintScope();
+        schedulePoll();
+        load();
+      }
+      return;
+    }
     hashHandled = key;
     await expand(key);
     const el = listEl.querySelector(`.card[data-key="${CSS.escape(key)}"]`);
@@ -770,13 +984,27 @@
     hashHandled = '';
     focusHash();
   });
+  /**
+   * How often to re-ask. Scope decides, because the two scopes cost very different
+   * amounts: `human` is one `bd human list` per workspace and stays where it was,
+   * while the wider ones are a full `bd list` sweep — around 2.5s of `bd` across
+   * seven workspaces — so they back off rather than keeping seven CLI processes
+   * warm on the Mac for a list you are probably just glancing at.
+   */
+  const POLL_MS = { human: 25000, both: 60000, agent: 60000 };
+  let pollTimer = null;
+  function schedulePoll() {
+    clearInterval(pollTimer);
+    pollTimer = setInterval(() => {
+      if (!document.hidden) load();
+    }, POLL_MS[state.scope] || 25000);
+  }
+
   // These keep fetching; render() decides whether it's safe to repaint.
   document.addEventListener('visibilitychange', () => {
     if (!document.hidden) load();
   });
-  setInterval(() => {
-    if (!document.hidden) load();
-  }, 25000);
+  schedulePoll();
 
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
 
@@ -786,6 +1014,14 @@
   // in a textarea. render() still refuses to repaint mid-answer.
   window.beadcause = { refresh: load };
 
+  /** The scope survives a reload — it is a preference, not a session detail. */
+  function bootScope() {
+    const saved = localStorage.getItem('beadcause.scope');
+    if (SCOPES.includes(saved)) state.scope = saved;
+    paintScope();
+  }
+
   bootToken();
+  bootScope();
   load();
 })();

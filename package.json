@@ -6,13 +6,15 @@
   "private": true,
   "license": "ISC",
   "bin": {
-    "beadcause": "bin/beadcause.js"
+    "beadcause": "bin/beadcause.js",
+    "beadcause-monitor": "bin/monitor.js"
   },
   "scripts": {
     "start": "node bin/beadcause.js",
     "qr": "node bin/beadcause.js --qr",
     "vendor": "node scripts/vendor.js",
     "postinstall": "node scripts/vendor.js",
+    "monitor": "node bin/monitor.js",
     "demo": "node scripts/demo-question.js",
     "configure": "node scripts/configure.js",
     "install-service": "bash scripts/install.sh",

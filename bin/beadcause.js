@@ -10,12 +10,45 @@ if (process.argv.includes('--url')) {
   process.exit(0);
 }
 
-// Pairing a device means getting a 60-character URL onto a phone. Scan it.
+/**
+ * Both of the URLs that have to get from this Mac onto a phone, as codes you can
+ * point a camera at. Typing a tailnet IP, a port and a path on a phone keyboard is
+ * the worst part of every reinstall, and there is a fresh APK after every build.
+ *
+ * The APK code only appears when there is an APK to install — offering a QR for a
+ * 404 wastes the one scan somebody makes while standing there holding the phone.
+ */
 if (process.argv.includes('--qr')) {
   const qr = (await import('qrcode-terminal')).default;
-  console.log('\nScan with the phone camera, then Share > Add to Home Screen:\n');
-  qr.generate(setupUrl, { small: true }, (art) => console.log(art));
-  console.log(`  ${setupUrl}\n`);
+  const fs = await import('node:fs');
+  const path = await import('node:path');
+  const { fileURLToPath } = await import('node:url');
+
+  const show = (label, url) =>
+    new Promise((resolve) => {
+      console.log(`\n${label}\n`);
+      qr.generate(url, { small: true }, (art) => {
+        console.log(art);
+        console.log(`  ${url}\n`);
+        resolve();
+      });
+    });
+
+  await show('Pair the app — scan, then Share > Add to Home Screen:', setupUrl);
+
+  const apk = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'public', 'beadcause.apk');
+  try {
+    const stat = fs.statSync(apk);
+    const mb = (stat.size / 1024 / 1024).toFixed(0);
+    // Local time, not toISOString(): a build made at 09:04 reported as 12:04 reads
+    // like yesterday's APK, which is exactly the doubt this line exists to remove.
+    const p2 = (n) => String(n).padStart(2, '0');
+    const m = stat.mtime;
+    const built = `${m.getFullYear()}-${p2(m.getMonth() + 1)}-${p2(m.getDate())} ${p2(m.getHours())}:${p2(m.getMinutes())}`;
+    await show(`Install the Android app — ${mb}MB, built ${built}:`, `${cfg.baseUrl}/beadcause.apk`);
+  } catch {
+    console.log('  (no APK published yet — npm run android)\n');
+  }
   process.exit(0);
 }
 

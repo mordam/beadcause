@@ -1,6 +1,6 @@
 /* Cache the shell so the inbox opens instantly and the 3.5 MB mermaid bundle is
    fetched once. API traffic is never cached — an answered question must vanish. */
-const CACHE = 'beadcause-v5';
+const CACHE = 'beadcause-v7';
 const SHELL = [
   '/',
   '/index.html',
@@ -10,6 +10,11 @@ const SHELL = [
   '/doc.js',
   '/graph.html',
   '/graph.js',
+  // Both paths for the current-sessions page: '/work' is what the phone's home
+  // screen and the Android shell's history still point at.
+  '/sessions',
+  '/work.html',
+  '/work.js',
   '/icon.svg',
   '/vendor/marked.js',
   '/vendor/purify.js',

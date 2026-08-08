@@ -27,10 +27,19 @@
         android:theme="@style/Theme.Beadcause"
         android:networkSecurityConfig="@xml/network_security_config">
 
+        <!--
+          configChanges is what makes rotating the phone survivable. Without it a
+          rotation destroys and recreates the activity, which reloads the WebView:
+          scroll position gone, open card closed, and a half-typed answer only
+          rescued by the draft in localStorage. Handling it ourselves keeps the
+          same WebView and simply re-lays it out — which is also what lets the
+          landscape rules in style.css be worth having.
+        -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
             android:launchMode="singleTask"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -43,10 +52,13 @@
             android:exported="false"
             android:label="@string/pair_title" />
 
-        <!-- The reader tab. A doc opens on top of the list so your place is kept. -->
+        <!-- The reader tab. A doc opens on top of the list so your place is kept.
+             Same rotation reasoning as above: rotating a doc to read a wide table is
+             the whole point, and a reload would throw away where you had read to. -->
         <activity
             android:name=".DocActivity"
             android:exported="false"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden"
             android:label="@string/doc_title" />
 
         <activity

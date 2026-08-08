@@ -1,6 +1,5 @@
 package m4m.beadcause
 
-import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.view.View
@@ -46,10 +45,11 @@ class DocActivity : AppCompatActivity() {
         val host = Uri.parse(Prefs.baseUrl(this).orEmpty()).host
         binding.webView.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
-                // A doc can link onward. Stay in the reader for our own pages, hand
-                // anything else to the browser.
+                // A doc can link onward. Stay in the reader for our own pages, and
+                // send anything else out the same way a brief's links go — a Custom
+                // Tab on top of this one, not a trip to another app.
                 if (request.url.host == host) return false
-                startActivity(Intent(Intent.ACTION_VIEW, request.url).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                Links.open(this@DocActivity, request.url)
                 return true
             }
 

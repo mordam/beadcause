@@ -6,7 +6,6 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
-import android.util.Log
 import android.view.View
 import android.webkit.JavascriptInterface
 import android.webkit.WebResourceError
@@ -37,7 +36,6 @@ class MainActivity : AppCompatActivity() {
 
     companion object {
         const val EXTRA_KEY = "key"
-        private const val TAG = "Beadcause"
     }
 
     private lateinit var binding: ActivityMainBinding
@@ -98,8 +96,8 @@ class MainActivity : AppCompatActivity() {
         useWideViewPort = true
         mediaPlaybackRequiresUserGesture = false
         // Links open via shouldOverrideUrlLoading instead of spawning WebViews we'd
-        // have to manage; the PWA's target=_blank links become DocActivity or the
-        // browser, which is what a phone user expects anyway.
+        // have to manage; the PWA's target=_blank links become DocActivity or a
+        // Custom Tab, both of which sit on top of this one and hand it back intact.
         setSupportMultipleWindows(false)
         javaScriptCanOpenWindowsAutomatically = false
         cacheMode = WebSettings.LOAD_DEFAULT
@@ -124,14 +122,11 @@ class MainActivity : AppCompatActivity() {
                     true
                 }
                 isOurs -> false
-                // Anything off the server is a link out of a brief; hand it to the
-                // browser rather than trapping it in a chromeless WebView.
-                url.scheme == "http" || url.scheme == "https" -> {
-                    openExternally(url)
-                    true
-                }
+                // Anything off the server is a link out of a brief. `Links` keeps
+                // web pages inside the app in a Custom Tab — signed in, and back
+                // returns you to this card — and lets the system have the rest.
                 else -> {
-                    openExternally(url)
+                    Links.open(this@MainActivity, url)
                     true
                 }
             }
@@ -149,14 +144,6 @@ class MainActivity : AppCompatActivity() {
             // rather than surfacing a WebView error code.
             binding.banner.text = getString(R.string.cannot_reach_server, Prefs.baseUrl(this@MainActivity).orEmpty())
             binding.banner.visibility = View.VISIBLE
-        }
-    }
-
-    private fun openExternally(url: Uri) {
-        try {
-            startActivity(Intent(Intent.ACTION_VIEW, url).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-        } catch (e: Exception) {
-            Log.w(TAG, "nothing can open $url: ${e.message}")
         }
     }
 

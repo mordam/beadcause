@@ -13,7 +13,9 @@ set -euo pipefail
 LABEL="m4m.beadcause"
 LEGACY_LABELS=("com.neadamthal.beadcause" "com.beadcause" "n8l.beadcause")
 
-for label in "$LABEL" "${LEGACY_LABELS[@]}"; do
+# The monitor agent goes first: it is a child of this install, and leaving it loaded
+# would open a window at every login for a daemon that is no longer there.
+for label in "$LABEL.monitor" "$LABEL" "${LEGACY_LABELS[@]}"; do
   plist="$HOME/Library/LaunchAgents/$label.plist"
   if launchctl list 2>/dev/null | grep -q "$label"; then
     echo "==> stopping $label"

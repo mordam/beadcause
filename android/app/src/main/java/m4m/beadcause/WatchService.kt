@@ -167,7 +167,7 @@ class WatchService : Service() {
         // its sequence went backwards. Either way the event stream can't be trusted,
         // so reconcile against the question list instead of replaying.
         if (poll.resync && poll.questions != null) {
-            dropStaleNotifications(byKey.values.map { it.notificationId }.toSet())
+            dropStaleNotifications(byKey.keys.toSet())
             showing.retainAll(byKey.keys)
             return
         }
@@ -207,13 +207,8 @@ class WatchService : Service() {
      * is exactly when a stale notification is most likely to be sitting there with
      * buttons that would answer an already-closed bead.
      */
-    private fun dropStaleNotifications(liveIds: Set<Int>) {
-        val mgr = getSystemService(android.app.NotificationManager::class.java) ?: return
-        val active = runCatching { mgr.activeNotifications }.getOrNull() ?: return
-        for (sbn in active) {
-            if (sbn.id == Notifications.SERVICE_NOTIFICATION_ID) continue
-            if (sbn.id !in liveIds) mgr.cancel(sbn.id)
-        }
+    private fun dropStaleNotifications(liveKeys: Set<String>) {
+        Tray.retain(this, liveKeys)
     }
 
     private fun stopSelfSafely() {

@@ -6,4 +6,8 @@
     <color name="error">#DC2626</color>
     <color name="banner">#7F1D1D</color>
     <color name="on_banner">#FEF2F2</color>
+    <!-- The Custom Tab toolbar. Lifted from the page background style.css paints in
+         each scheme, so a link out of a brief opens under the colour the list had. -->
+    <color name="tab_light">#F6F7F9</color>
+    <color name="tab_dark">#0B0F14</color>
 </resources>

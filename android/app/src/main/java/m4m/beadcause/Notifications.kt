@@ -4,8 +4,10 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
+import android.content.ContentResolver
 import android.content.Context
 import android.content.Intent
+import android.media.AudioAttributes
 import android.net.Uri
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
@@ -29,11 +31,27 @@ import androidx.core.app.RemoteInput
  */
 object Notifications {
 
-    const val CHANNEL_QUESTIONS = "questions"
-    const val CHANNEL_REPLIES = "replies"
+    /**
+     * **A channel's sound and vibration are immutable once created.** Android takes
+     * the settings from the first `createNotificationChannel` and ignores every one
+     * after it, forever — the user owns them from that moment. So changing either
+     * means publishing a *new id* and deleting the old one, which is what the `_v2`
+     * suffix is; the alternative is asking every existing install to fix it by hand
+     * in system settings.
+     */
+    const val CHANNEL_QUESTIONS = "questions_v2"
+    const val CHANNEL_REPLIES = "replies_v2"
     const val CHANNEL_SERVICE = "service"
 
+    private val RETIRED_CHANNELS = listOf("questions", "replies")
+
+    /** One short shake. `longArrayOf(0, 40)` is wait 0ms, buzz 40ms, stop. */
+    private val ONE_SHAKE = longArrayOf(0, 40)
+
     const val SERVICE_NOTIFICATION_ID = 1
+
+    /** The one card everything that isn't the service notification lands in. */
+    private const val TRAY_NOTIFICATION_ID = 3
     const val REPLY_RESULT_KEY = "beadcause.reply.text"
 
     /** Notification actions are one tap, unlike the app's two-tap confirm. */
@@ -41,15 +59,34 @@ object Notifications {
 
     fun ensureChannels(ctx: Context) {
         val mgr = ctx.getSystemService(NotificationManager::class.java) ?: return
+
+        // A 75ms pip (res/raw/blip.wav) rather than the system default, which on this
+        // phone is a second and a half of chime for a one-line question.
+        val blip = Uri.parse("${ContentResolver.SCHEME_ANDROID_RESOURCE}://${ctx.packageName}/${R.raw.blip}")
+        val audio = AudioAttributes.Builder()
+            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+            .setUsage(AudioAttributes.USAGE_NOTIFICATION)
+            .build()
+
+        RETIRED_CHANNELS.forEach(mgr::deleteNotificationChannel)
+
         mgr.createNotificationChannel(
+            // Still IMPORTANCE_HIGH: a question waiting on you has earned the peek.
+            // What it has not earned is the noise, so the peek keeps a pip and a
+            // single shake instead of the default chime and three-pulse pattern.
             NotificationChannel(CHANNEL_QUESTIONS, "Decisions", NotificationManager.IMPORTANCE_HIGH).apply {
                 description = "A question is waiting on you"
+                setSound(blip, audio)
                 enableVibration(true)
+                vibrationPattern = ONE_SHAKE
             }
         )
         mgr.createNotificationChannel(
+            // A reply is news, not a summons: same pip, no buzz at all.
             NotificationChannel(CHANNEL_REPLIES, "Agent replies", NotificationManager.IMPORTANCE_DEFAULT).apply {
                 description = "An agent answered a thread you commented on"
+                setSound(blip, audio)
+                enableVibration(false)
             }
         )
         mgr.createNotificationChannel(
@@ -111,7 +148,6 @@ object Notifications {
     /* ---------------------------------------------------------- notifications */
 
     fun question(ctx: Context, q: Question) {
-        val options = q.options.take(MAX_OPTION_ACTIONS)
         val body = buildString {
             if (q.title.isNotBlank() && q.title != q.question) append(q.title).append("\n\n")
             if (q.options.size > MAX_OPTION_ACTIONS) {
@@ -121,43 +157,17 @@ object Notifications {
             }
         }.trim()
 
-        val builder = NotificationCompat.Builder(ctx, CHANNEL_QUESTIONS)
-            .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle(q.question.ifBlank { q.title })
-            .setContentText(if (body.isNotBlank()) body.lineSequence().first() else q.workspace)
-            .setSubText("${q.workspace}${q.priority?.let { " · P$it" } ?: ""}")
-            .setStyle(NotificationCompat.BigTextStyle().bigText(body.ifBlank { q.question }))
-            .setCategory(NotificationCompat.CATEGORY_MESSAGE)
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setContentIntent(openIntent(ctx, q.key))
-            .setAutoCancel(true)
-            // It's a decision, not a headline — leave it in the shade until it's made.
-            .setOngoing(false)
-
-        options.forEachIndexed { index, option ->
-            val intent = actionIntent(ctx, q, index) {
-                putExtra(ActionReceiver.EXTRA_RESPONSE, option.response)
-                putExtra(ActionReceiver.EXTRA_CLOSE, true)
-            }
-            builder.addAction(
-                NotificationCompat.Action.Builder(
-                    R.drawable.ic_check,
-                    option.label,
-                    broadcast(ctx, intent, q.key.hashCode() * 8 + index, mutable = false),
-                ).build()
-            )
-        }
-
-        if (q.allowFreeText) {
-            if (options.isEmpty()) {
-                builder.addAction(typedAction(ctx, q, slot = 5, label = "Answer & close", close = true))
-                builder.addAction(typedAction(ctx, q, slot = 6, label = "Comment", close = false))
-            } else {
-                builder.addAction(typedAction(ctx, q, slot = 5, label = "Answer…", close = true))
-            }
-        }
-
-        NotificationManagerCompat.from(ctx).notifySafely(q.notificationId, builder.build())
+        Tray.add(
+            ctx,
+            Tray.Entry(
+                key = q.key,
+                line = q.question.ifBlank { q.title },
+                subtitle = "${q.workspace}${q.priority?.let { " · P$it" } ?: ""}",
+                big = body.ifBlank { q.question },
+                question = q,
+                isReply = false,
+            ),
+        )
     }
 
     /** An agent answered a thread you commented on. */
@@ -174,18 +184,109 @@ object Notifications {
             allowFreeText = true,
             awaitingAgent = false,
         )
-        val builder = NotificationCompat.Builder(ctx, CHANNEL_REPLIES)
-            .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle(event.author?.let { "$it replied" } ?: "An agent replied")
-            .setContentText(event.text.orEmpty().lineSequence().firstOrNull().orEmpty())
-            .setSubText(key)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(event.text.orEmpty()))
-            .setCategory(NotificationCompat.CATEGORY_MESSAGE)
-            .setContentIntent(openIntent(ctx, key))
-            .setAutoCancel(true)
-            .addAction(typedAction(ctx, q, slot = 7, label = "Reply", close = false))
+        Tray.add(
+            ctx,
+            Tray.Entry(
+                key = key,
+                line = "${event.author ?: "An agent"} replied: ${event.text.orEmpty().lineSequence().firstOrNull().orEmpty()}",
+                subtitle = key,
+                big = event.text.orEmpty(),
+                question = q,
+                isReply = true,
+            ),
+        )
+    }
 
-        NotificationManagerCompat.from(ctx).notifySafely(key.hashCode(), builder.build())
+    /**
+     * The whole tray, as one notification.
+     *
+     * One entry renders as the card it always was — a question with its buttons, or
+     * a reply with a typed "Reply". More than one collapses into `InboxStyle`: a
+     * count in the title, the entries as lines newest-first, and the buttons still
+     * bound to the newest question with its key in the subtext so the target is
+     * never a guess.
+     */
+    fun renderTray(ctx: Context, entries: List<Tray.Entry>) {
+        val mgr = NotificationManagerCompat.from(ctx)
+        if (entries.isEmpty()) {
+            mgr.cancel(TRAY_NOTIFICATION_ID)
+            return
+        }
+
+        val newest = entries.first()
+        val target = entries.firstOrNull { !it.isReply }?.question
+        val questions = entries.count { !it.isReply }
+
+        val builder = NotificationCompat.Builder(ctx, if (questions == 0) CHANNEL_REPLIES else CHANNEL_QUESTIONS)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+            .setContentIntent(openIntent(ctx, newest.key))
+            .setAutoCancel(true)
+            .setOngoing(false)
+            // Only the arrival that caused this render should make a sound; a
+            // re-render after answering one of four must not buzz for the other three.
+            .setOnlyAlertOnce(false)
+
+        if (entries.size == 1) {
+            builder
+                .setContentTitle(newest.line)
+                .setContentText(newest.big.lineSequence().firstOrNull().orEmpty().ifBlank { newest.subtitle })
+                .setSubText(newest.subtitle)
+                .setStyle(NotificationCompat.BigTextStyle().bigText(newest.big.ifBlank { newest.line }))
+        } else {
+            val style = NotificationCompat.InboxStyle().setBigContentTitle(summary(entries))
+            entries.forEach { style.addLine(it.line) }
+            builder
+                .setContentTitle(summary(entries))
+                .setContentText(newest.line)
+                .setSubText(target?.let { "buttons answer ${it.key}" } ?: newest.subtitle)
+                .setStyle(style)
+                .setNumber(entries.size)
+        }
+
+        if (newest.isReply && entries.size == 1) {
+            builder.addAction(typedAction(ctx, newest.question!!, slot = 7, label = "Reply", close = false))
+        } else if (target != null) {
+            addQuestionActions(ctx, builder, target)
+        }
+
+        mgr.notifySafely(TRAY_NOTIFICATION_ID, builder.build())
+    }
+
+    private fun summary(entries: List<Tray.Entry>): String {
+        val questions = entries.count { !it.isReply }
+        val replies = entries.size - questions
+        val parts = buildList {
+            if (questions > 0) add("$questions question" + if (questions == 1) "" else "s")
+            if (replies > 0) add("$replies repl" + if (replies == 1) "y" else "ies")
+        }
+        return parts.joinToString(" · ") + " waiting"
+    }
+
+    /** The three-action budget, spent on one question — see the note at the top. */
+    private fun addQuestionActions(ctx: Context, builder: NotificationCompat.Builder, q: Question) {
+        q.options.take(MAX_OPTION_ACTIONS).forEachIndexed { index, option ->
+            val intent = actionIntent(ctx, q, index) {
+                putExtra(ActionReceiver.EXTRA_RESPONSE, option.response)
+                putExtra(ActionReceiver.EXTRA_CLOSE, true)
+            }
+            builder.addAction(
+                NotificationCompat.Action.Builder(
+                    R.drawable.ic_check,
+                    option.label,
+                    broadcast(ctx, intent, q.key.hashCode() * 8 + index, mutable = false),
+                ).build()
+            )
+        }
+
+        if (q.allowFreeText) {
+            if (q.options.isEmpty()) {
+                builder.addAction(typedAction(ctx, q, slot = 5, label = "Answer & close", close = true))
+                builder.addAction(typedAction(ctx, q, slot = 6, label = "Comment", close = false))
+            } else {
+                builder.addAction(typedAction(ctx, q, slot = 5, label = "Answer…", close = true))
+            }
+        }
     }
 
     /**
@@ -205,7 +306,7 @@ object Notifications {
             .setAutoCancel(true)
             .addAction(typedAction(ctx, q, slot = 5, label = "Try again", close = true))
 
-        NotificationManagerCompat.from(ctx).notifySafely(q.notificationId, builder.build())
+        NotificationManagerCompat.from(ctx).notifySafely(TRAY_NOTIFICATION_ID, builder.build())
     }
 
     /**
@@ -222,6 +323,12 @@ object Notifications {
      * SystemUI restores, it restores *this*.
      */
     fun acknowledged(ctx: Context, key: String, text: String, closed: Boolean) {
+        // Drop the answered line first. If anything is still waiting, the re-rendered
+        // tray IS the confirmation — and whatever SystemUI restores afterwards is a
+        // card whose buttons belong to a question that is still open, which is safe.
+        Tray.remove(ctx, key)
+        if (Tray.snapshot().isNotEmpty()) return
+
         val notification = NotificationCompat.Builder(ctx, CHANNEL_QUESTIONS)
             .setSmallIcon(R.drawable.ic_check)
             .setContentTitle(if (closed) "Answered" else "Comment added")
@@ -233,7 +340,7 @@ object Notifications {
             .setOnlyAlertOnce(true)
             .setTimeoutAfter(6_000)
             .build()
-        NotificationManagerCompat.from(ctx).notifySafely(key.hashCode(), notification)
+        NotificationManagerCompat.from(ctx).notifySafely(TRAY_NOTIFICATION_ID, notification)
     }
 
     /**
@@ -266,7 +373,8 @@ object Notifications {
 
     const val REPAIR_NOTIFICATION_ID = 2
 
-    fun cancel(ctx: Context, key: String) = NotificationManagerCompat.from(ctx).cancel(key.hashCode())
+    /** Answered, commented, or gone: drop its line and re-render what's left. */
+    fun cancel(ctx: Context, key: String) = Tray.remove(ctx, key)
 
     /** The ongoing row the platform demands in exchange for staying alive. */
     fun service(ctx: Context, text: String): Notification =

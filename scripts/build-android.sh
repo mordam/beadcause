@@ -52,6 +52,14 @@ BASE_URL=$(node "$ROOT/bin/beadcause.js" --url 2>/dev/null | sed 's|/?t=.*||')
 echo "==> published $SIZE"
 echo "    install on the phone: ${BASE_URL:-http://<tailnet-ip>:4318}/beadcause.apk"
 
+# A build ends where the install begins: on the phone. Nobody should have to type
+# a tailnet IP, a port and a path with their thumbs to pick up what was just built.
+node -e '
+  const url = process.argv[1];
+  if (!url.startsWith("http")) process.exit(0);
+  require("qrcode-terminal").generate(url, { small: true }, (art) => console.log("\n" + art));
+' "${BASE_URL:-none}/beadcause.apk" 2>/dev/null || true
+
 if [ "${1:-}" = "--install" ]; then
   echo "==> adb install"
   "$ANDROID_HOME/platform-tools/adb" install -r "$PUBLIC_APK"

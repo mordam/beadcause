@@ -39,12 +39,14 @@ QR. It's re-runnable — run it again after pulling.
 The questions, all with a safe default on Enter: which workspaces are **shared with
 other people** (those get a contentless push and no unattended agents), where your
 **code lives** (so a question can show you files from it), whether your shell
-**derives `BEADS_DIR` from the working directory**, whether to use **ntfy**, and
-whether commenting should **spawn an agent** to answer you. Re-run them any time
+**derives `BEADS_DIR` from the working directory**, whether to use **ntfy**,
+whether commenting should **spawn an agent** to answer you, and whether to open the
+**[activity monitor](#the-monitor--what-it-is-doing-right-now)** at login. Re-run them any time
 with `npm run configure`; nothing is written until the last answer, so Ctrl+C is
 always safe.
 
 ```bash
+npm run monitor              # live view of what the daemon is doing
 npm run uninstall-service    # remove the service (keeps your config and token)
 tail -f ~/Library/Logs/beadcause.log
 launchctl kickstart -k gui/$(id -u)/m4m.beadcause   # restart after changing lib/ or bin/
@@ -61,7 +63,11 @@ otherwise its poller would keep firing notifications with no listener behind the
 1. **Both devices on the tailnet.** `tailscale status` should list them both.
 2. **Scan the QR** from `npm run qr` (or `node bin/beadcause.js --url` for the same
    link as text). It carries the token, which is captured into localStorage and
-   stripped from the address bar on first load. Every device needs this once — a
+   stripped from the address bar on first load. `npm run qr` prints **two** codes —
+   the pairing link, then the APK with its size and build time, whenever one has
+   been published; `npm run android` ends with the same install code, because a
+   build ends where the install begins and nobody should thumb a tailnet IP, a port
+   and a path into a phone. Every device needs this once — a
    notification opened on an unpaired phone lands on the token prompt, which is the
    tell.
 3. **Share → Add to Home Screen**, and it installs as a standalone app. Android
@@ -231,6 +237,48 @@ closes with reason "Answered via Beadcause".
   autolink, and local paths become reader-tab links, all opening in a new tab.
   Comments from an agent are marked with an accent bar.
 
+## ⚙ What the inbox shows
+
+The inbox is `bd human list` filtered to open, and that is the app's whole premise:
+a bead reaches your phone because it is *asking you something*. The cost of that
+premise is that a workspace with no `human` beads reads as completely idle — the
+Climative space chip said **0** while 54 beads were open in it and five were being
+worked on. Arithmetically correct, and indistinguishable from a broken app.
+
+So the **gear at the top left** carries one setting, in three positions:
+
+| | shows | costs |
+|---|---|---|
+| **Human** (default) | beads labelled `human` — the questions | one `bd human list` per workspace |
+| **Both** | questions first, then every live bead | both sweeps, in parallel |
+| **Agent** | only what is *not* a question | one `bd list` per workspace |
+
+"Live" is `open`, `in_progress` or `blocked`; deferred and closed are out, because
+neither is anything an agent is on. **Every count on the screen follows the scope** —
+that is the point of it, and why the gear takes an accent border once it leaves
+`Human`: with the panel closed it is the only thing on screen saying why "Climative
+59" is not a count of questions.
+
+Three things make this safe to widen:
+
+- **The default never moved.** `/api/questions` treats an absent or unrecognised
+  `scope` as `human`, so the poller, the pushes and the Android shell see exactly
+  what they always saw. Only the phone's own list changes.
+- **Agent beads are read-only.** There is no decision block to answer, so the card has
+  no options and deliberately no **Answer & close** — that path comments "Answered via
+  Beadcause" and closes the bead, which on another session's in-progress work would be
+  vandalism rather than an answer. What you get is what the bead is, who has it, its
+  description and notes, and the two ways in: the graph, or a session on the Mac.
+- **The rows are slim.** `bd list --json` returns the full description *and* notes of
+  every row — climative alone is 88KB of it — so the list carries only what a card
+  draws and `/api/bead` fetches the body when you actually open one. `--limit 0`
+  overrides bd's default of 50, or a busy workspace would report its first fifty beads
+  as the whole truth.
+
+The wider scopes poll at 60s rather than the inbox's 25s: they are a full `bd list`
+sweep, about 2.5s of `bd` across seven workspaces, and that does not want to run four
+times a minute for a list you are glancing at.
+
 ## What a question is blocking
 
 A question whose answer nothing is waiting on is just a question. One that blocks
@@ -240,25 +288,128 @@ dependency graph. It appears with the details rather than on the collapsed card,
 because `bd human list` doesn't return a dependent count and `bd show` does — the
 same reason `commentCount` is 0 until you open a question.
 
-There is nothing hand-drawn here: `bd graph --html` already emits a complete
-interactive D3 page, and beadcause serves it through `/api/graph` behind the same
-token as everything else, in a tab with a scope switch — *this bead* or the *whole
-workspace* (every open issue, grouped by connected component). Nodes are coloured
-by status, drag to rearrange, pinch to zoom, tap for detail.
+The graph itself is at `/graph?ws=<workspace>` with an optional `&id=<bead>`, and a
+scope switch between *this bead* and the *whole workspace*.
 
-Three things are rewritten on the way out, all in `lib/graph.js`, because bd builds
-that page for a desktop browser with an internet connection:
+### It grows, five beads at a time
 
-- **D3 comes from `/vendor/d3.js`**, not `d3js.org` — the app has to work on a
-  tailnet with no internet route. If `npm install` hasn't vendored it, the CDN tag
-  is left alone: a graph that needs the internet beats a blank screen.
-- **A viewport meta is added.** Without one a phone lays the page out at 980px and
-  shrinks it to a postage stamp.
-- **`svg { width: 100vw; height: 100vh }` is scoped to the canvas.** bd means that
-  rule for the graph, but it also hits the two 30×10 line swatches in the legend —
-  CSS beats the `width` attribute — so each one inflates to a full screen and the
-  legend becomes a 1900px box with a single stray word visible. That's bd's own
-  bug, and it misdraws in a desktop browser too; one override puts it right.
+beadcause used to frame `bd graph --html` directly. It was free, and it was wrong on
+a phone in three ways — all of which came from the same thing: the page is built to
+be opened on a desktop, once, by somebody who will wait.
+
+- **Nothing happened for five seconds, then everything did.** deluvia is 108 beads
+  and 140 edges; `bd` takes ~4s to walk it, and the page draws the lot in one frame.
+  A blank screen for five seconds reads as broken.
+- **Every title was truncated.** bd's nodes are 130x40, so each one is an ellipsis.
+- **A node was a dead end.** Tapping told you nothing you didn't already see.
+
+So the server now hands over `{nodes, links}` and the phone draws it (`lib/graph.js`,
+`public/graph.js`). Beads arrive in batches of **five, every 130ms**, ordered by bd's
+computed layer — so the graph grows the way the work does, things that can start now
+first — and a counter reads `35 of 108` while it fills, with a **Pause**. The view
+re-frames itself as it grows and once the layout settles, never zooming past 1:1.
+
+The numbers still come out of `bd graph --html`, parsed server-side, rather than from
+`bd graph --all --json`: that page embeds exactly the render model we want — id,
+title, status, priority, type, layer, typed edges — where `--json` returns entire
+issue descriptions we would throw away.
+
+### Tap a bead, then open it
+
+Tapping a node raises a **card** with the whole title, its status, priority and type,
+and two buttons. **Details** opens the bead itself in a sheet — description rendered
+as markdown, the thread, who owns it, what it blocks and what it waits on — served by
+`/api/bead`, which is `bd show` plus comments rather than `/api/question`'s
+decision shape (every node is an ordinary issue; only some are questions). The sheet
+takes 72% of the screen, and **⤢** takes the rest of it.
+
+Three bugs found building this, all worth knowing because they're the kind that look
+like something else:
+
+- **`hidden` loses to `display`.** `#empty` is an absolutely-positioned overlay across
+  the whole canvas; giving it `display: grid` silently beat the UA's `[hidden]` rule,
+  so an invisible box sat over the graph eating every tap. The graph looked drawn and
+  completely dead. Every overlay here now carries its own `[hidden] { display: none }`.
+- **d3-drag suppresses the click after any movement.** Its `clickDistance` defaults to
+  0, so a tap that slides one pixel — which is every tap made by a finger — is a drag,
+  and the click never fires. `.clickDistance(8)` fixes it.
+- **d3 transitions share a default name.** The nodes' fade-in and the auto-fit's zoom
+  transition kept cancelling each other, leaving every node stuck at opacity 0.0004 —
+  a fully drawn, entirely invisible graph. The fade is a CSS animation now.
+
+## Current sessions — who is working, and on what
+
+The inbox answers *what needs me*. It is `bd human list`, so a bead only appears if
+it carries the `human` label — which means everything the sessions on the Mac are
+actually doing was invisible from the phone. Nine beads claimed in sophab five
+minutes ago showed up nowhere at all.
+
+**🤖 in the inbox's top bar** opens `/sessions`: one card per workspace, busiest
+first. (`/work`, what this used to be called, still resolves to the same page.)
+
+```
+climative                        5 on a bead · 5 sessions
+  ◗ pipeline-service: client built without retry…      11h
+    cl-1jw  adam.morgan
+  ◗ TECH-5989 fanout: downmerge 25 service repos       17h
+    cl-wyv  adam.morgan
+  CLAUDE SESSIONS  Which of these is on which bead is not recorded.
+  ● Climative - newrelic v14 override fix              11h
+    dms-client-retry-4e7 · pid 90310 · idle
+  54 open · 51 ready · 3 blocked            [ Graph → ]
+
+deluvia                                       2 sessions
+  CLAUDE SESSIONS  Nothing claimed in the tracker yet.
+  ● Deluvia - apply canon audit fixes                   3m
+    canon-audit-apply-b7e · pid 44124 · busy
+  123 open · 87 ready · 36 blocked          [ Graph → ]
+```
+
+A session reaches this page through **either of two independent signals**, and the
+page keeps them apart on purpose.
+
+**A claimed bead — `status = in_progress`.** That is the one signal every session
+already emits, because claiming work *is* `bd update --claim` — no hook, no
+cooperation from the agent, no beadcause-specific convention. Live phase and detail
+(✍️ drafting, 🔍 researching — from `status.json` and `agent:<phase>` labels) are
+layered on where they exist; their absence is normal rather than a gap, because most
+sessions never post one. The age beside each row is time since it was claimed, and
+it is the number that tells you something is stuck. This is the half that says
+**which bead**, so the id is a pill on the row and the row links into that bead in
+the graph.
+
+**A live `claude` process.** Claude Code writes one record per running session to
+`~/.claude/sessions/<pid>.json` — pid, cwd, the `<project> - <task>` name the session
+gave itself, and busy/idle. That is the only place a session which has *claimed
+nothing* shows up at all, which is the common state at the start of a session and
+precisely when you want to know it exists. Records are not removed when a session
+exits, so every one is liveness-checked (`kill(pid, 0)`) before it is reported. A
+directory is mapped to a workspace with the same rule the shell uses, so a worktree
+files under its parent repo — see `beadsDirFor` in `lib/session.js`. Turn it off with
+`claudeSessions: false`, or point it elsewhere with `claudeSessionsDir`; with no such
+directory the page is just beads, as it was before.
+
+**The two are never paired up.** Nothing on the Mac records which bead a given
+process is on, so a session and a claimed bead in the same workspace are *probably*
+the same work — and reporting that as fact would invent a link the machine does not
+have. So the card says which case it is (*"Which of these is on which bead is not
+recorded"* against *"Nothing claimed in the tracker yet"*) and lets you draw the
+line. The state worth acting on is a session with nothing claimed, and that is
+exactly the one a guess would have hidden.
+
+Every card has a **Graph →** into the whole workspace — which is also the answer to
+"how do I see what another session just created", since the graph draws every open
+issue rather than only the questions.
+
+Two `bd` calls per workspace (`status --json` for the counts, `list
+--status=in_progress --limit 0 --json` for the beads — `--limit 0` because bd's own
+default is 50, and a silently truncated list here would read as the whole truth),
+run in parallel across all of them:
+about two seconds for six. It refreshes every 45s and on ⟳, deliberately not on the
+inbox's 30s cycle — the inbox is polled by every client all day, and this is opened
+when you want it. A workspace that fails reports its error in place rather than
+vanishing from the list; a missing row would read as "nothing happening there",
+which is the one thing it doesn't mean.
 
 ## The Android app
 
@@ -300,6 +451,13 @@ sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
 
 ### What it costs you to know
 
+- **A channel's sound and vibration are immutable once created.** Android takes them
+  from the first `createNotificationChannel` and ignores every later one, forever —
+  they belong to the user from that moment. Changing either means publishing a new
+  channel id and deleting the old, which is why the ids carry a `_v2`. Decisions get
+  a bundled 75ms pip (`res/raw/blip.wav`) and one 40ms shake; replies get the pip and
+  no vibration; the Watching row stays silent. Anything finer is the phone's own
+  per-channel settings, which now win over all of it.
 - **Android renders at most 3 notification actions.** Going native does *not* lift
   ntfy's three-button cap. The budget is spent as: two option buttons plus a typed
   "Answer…", or — when a question has no options — "Answer & close" and "Comment",
@@ -434,6 +592,61 @@ shows up.
 Your own writes get progress too: submitting shows "Recording your answer…" while
 `bd` retries through the Dolt lock, instead of a dimmed card and no explanation.
 
+## The monitor — what it is doing right now
+
+The daemon works invisibly: polling five workspaces, deciding whether a space is
+allowed to interrupt, dispatching agents at your comments. `npm run monitor` is the
+window onto that.
+
+```
+┌─ Beadcause ───────────────────────────────────── 127.0.0.1:4318  ● live ─┐
+│ Personal  4 open                                              🔔 push on │
+│ Work      1 open                              🔇 quiet until Mon 09:00   │
+├─ questions (5) ──────────────────────────────────────────────────────────┤
+│ climative/cl-8f2  P1  Deploy to staging before the demo?              2d │
+│    ✍️ drafting · comparing both fee models  auto-dispatch            12m │
+│ sophab/sp-1a9     P2  Which palette for the pricing page?             4h │
+│    ⏳ waiting on an agent                                                │
+├─ events ─────────────────────────────────────────────────────────────────┤
+│ 13:02:11  reply      deluvia/dv-5i2.39  from claude-session              │
+│ 13:01:48  activity   climative/cl-8f2   drafting · comparing fee models  │
+│ 12:58:02  question   sophab/sp-1a9      Which palette?  (quiet — not pu… │
+└─ q quit · r refresh ────────────────────────────────── seq 1482 · 13:02 ─┘
+```
+
+`q` quits, `r` forces a full refresh. It reads `GET /api/poll` — the same long-poll
+feed the phone lives on — so it is a **consumer, not new instrumentation**: a
+monitor that is closed, wedged or never started cannot cost the daemon a question.
+Agent progress is read straight from `status.json` as well as from the feed,
+because `lib/dispatch.js` writes there without raising an event, and a monitor that
+sat still while an agent was visibly working would be worse than none.
+
+Quiet state is recomputed locally every second rather than trusted from the poll —
+it turns over on a clock, and "why didn't my phone buzz" is the question this is
+going to be asked.
+
+**Starting it at login.** Answer `y` to the last `npm run configure` question and
+`npm run install-service` generates a second LaunchAgent, `m4m.beadcause.monitor`,
+that opens the monitor in its own iTerm2 window when you log in. It is off by
+default, because nobody installing this for the first time should find a terminal
+window opening itself.
+
+launchd cannot draw a window — a LaunchAgent is headless — so the agent runs
+`scripts/open-monitor.sh`, which drives iTerm2 through the same
+`scripts/open-session.applescript` the "discuss on the Mac" button uses. macOS will
+ask once for permission to control iTerm; if it is refused, the log says so and
+what to click. The agent fires once and exits; the window it opened outlives it.
+
+```bash
+npm run monitor                  # foreground, any terminal, no install needed
+node bin/monitor.js --once       # one frame and exit
+node bin/monitor.js --url http://100.x.y.z:4318   # watch another machine's daemon
+launchctl kickstart -k gui/$(id -u)/m4m.beadcause.monitor   # reopen the window now
+```
+
+Piped rather than shown on a terminal, it drops the box and prints one line per
+event instead, so `node bin/monitor.js >> somewhere.log` does something sensible.
+
 ## HTTP API
 
 Auth on everything under `/api/` except `/api/health`: header
@@ -442,7 +655,7 @@ Auth on everything under `/api/` except `/api/health`: header
 | Method | Path | Body / params | Returns |
 |---|---|---|---|
 | GET | `/api/health` | — | `{ok, workspaces[]}` · **no token** |
-| GET | `/api/questions` | — | `{questions[], workspaces[]}` |
+| GET | `/api/questions` | `?scope=human\|both\|agent` | `{questions[], workspaces[], spaces[], scope}` — `scope` defaults to `human`, and an unrecognised value falls back to it rather than erroring |
 | GET | `/api/question` | `?workspace=&id=` | one question **plus `comments[]`** |
 | GET | `/api/poll` | `?since=<seq>&wait=<s>` | long-poll: `{seq, resync, events[], questions, workspaces[]}` |
 | POST | `/api/respond` | `{workspace, id, response}` | comments, then closes the bead |
@@ -452,13 +665,21 @@ Auth on everything under `/api/` except `/api/health`: header
 | POST | `/api/status` | `{workspace, id, phase, detail, actor}` | agent progress |
 | GET | `/api/asset` | `?p=<abs path>` | image/doc bytes, restricted to `assetRoots` |
 | GET | `/doc` | `?p=<abs path>` | the HTML reader page |
-| GET | `/api/graph` | `?workspace=&id=` | `bd graph --html` as a page — the whole workspace with no `id` |
+| GET | `/api/graph` | `?workspace=&id=` | `{nodes, links}` — the whole workspace with no `id` |
+| GET | `/api/bead` | `?workspace=&id=` | one issue in full, plus `comments[]` — for the graph's detail sheet |
+| GET | `/api/work` | — | `{workspaces[], elsewhere[]}` — per workspace: claimed beads, live `claude` sessions, counts, errors |
+| GET | `/sessions`, `/work` | — | the current-sessions page (same page, two paths) |
 | GET | `/graph` | `?ws=&id=` | the HTML graph page |
 
 Two things that bite: `commentCount` is **0 from `/api/questions`** and only correct
 from `/api/question`, because `bd human list` doesn't return it. And a question
 filed through `/api/ask` is **not** pushed — you filed it yourself and are looking
 at the screen — though it does raise a `created` event so other clients refresh.
+
+A row from `scope=agent` is **not** a question: it carries `agent: true`, has no
+`decision`, and its `description` is deliberately absent — fetch that from
+`/api/bead`. `/api/question` is the wrong endpoint for one, because it parses the
+decision block and only means anything for a `human` bead.
 
 ## Config — `~/.config/beadcause/config.json`
 
@@ -474,8 +695,11 @@ at the screen — though it does raise a `created` event so other clients refres
 | `autoDispatchExclude` | workspaces that never auto-dispatch — put shared trackers here |
 | `autoDispatchTimeoutMs` | kill a dispatched agent after this long (default 10 min) |
 | `spaces` | groups of workspaces sharing a notification policy — see [Spaces](#spaces--keeping-work-out-of-your-evening) |
+| `claudeSessions` | `false` to stop reading `~/.claude/sessions` for the current-sessions page (default on; absent directory is not an error) |
+| `claudeSessionsDir` | where those per-process records live, if not `$CLAUDE_CONFIG_DIR/sessions` or `~/.claude/sessions` |
 | `assetRoots` | the only directories `/api/asset` will read images from |
 | `pollSeconds` | how often new `human` beads are looked for (default 30) |
+| `monitor.enabled` | generate the LaunchAgent that opens the [activity monitor](#the-monitor--what-it-is-doing-right-now) at login (default `false`; `npm run monitor` works either way) |
 | `sharedServer` | leave `false` — see the note below |
 | `mirrorStateToBeads` | write `agent:<phase>` state labels into beads too (off — see Progress) |
 | `ntfy.detail` | `full` = question + option buttons in the notification; `minimal` = contentless nudge |

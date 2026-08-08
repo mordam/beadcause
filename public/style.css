@@ -75,6 +75,10 @@ body {
 }
 
 .icon-btn {
+  /* Some of these are <a> now (the work view, the inbox's link to it), and an
+     inline anchor ignores height and refuses to centre its glyph. */
+  display: inline-flex; align-items: center; justify-content: center;
+  text-decoration: none;
   min-width: 40px; height: 40px;
   border: 1px solid var(--line);
   border-radius: 11px;
@@ -83,6 +87,10 @@ body {
   font-size: 18px;
   cursor: pointer;
 }
+
+/* The gear wears the scope. Once the panel is closed, this is the only thing on
+   screen that says why "Climative 59" is not a count of questions. */
+.icon-btn.wide { border-color: var(--accent); color: var(--accent); }
 
 /*
   Two stacked rows now — spaces, then the workspaces within the chosen space — so
@@ -185,7 +193,27 @@ body {
   color: var(--muted);
   font: inherit; font-size: 14px; font-weight: 550;
   cursor: pointer;
+  /* Some of these are anchors now — the agent card's way into the graph — and an
+     inline <a> ignores min-height and refuses to centre its own label. */
+  display: inline-flex; align-items: center; justify-content: center;
+  text-decoration: none;
 }
+
+/*
+  An agent bead: a bead nobody is asking you about.
+
+  There can be two hundred of these against a dozen questions, so the type comes
+  down and the card loses the accent it never earned. A question shouts; this is a
+  list you scan.
+*/
+.agent-card .q { font-size: 15.5px; font-weight: 570; line-height: 1.35; margin-bottom: 3px; }
+.agent-card .subtitle { margin-bottom: 10px; }
+.agent-card .card-head { padding: 12px 14px 0; }
+.agent-card .actions { padding: 0 14px 12px; }
+/* Only `claimed` is coloured: it is the one status that means somebody is on it
+   this minute, and colouring all three would make the list a rainbow of nothing. */
+.pill.st-in_progress { background: color-mix(in srgb, var(--accent) 20%, transparent); color: var(--accent); }
+.pill.st-blocked { background: color-mix(in srgb, var(--danger) 18%, transparent); color: var(--danger); }
 
 .brief { border-top: 1px solid var(--line); padding: 0 15px; }
 .brief[hidden] { display: none; }
@@ -421,7 +449,8 @@ body {
   border-radius: 50%;
   background: var(--muted);
 }
-.activity.live .spark, .sending .spark { background: var(--accent); animation: breathe 1.3s ease-in-out infinite; }
+/* A busy session breathes; an idle one is a hollow ring drawn as text. */
+.activity.live .spark, .sending .spark, .session-row .spark { background: var(--accent); animation: breathe 1.3s ease-in-out infinite; }
 @keyframes breathe {
   0%, 100% { opacity: 1; transform: scale(1); }
   50% { opacity: 0.35; transform: scale(0.7); }
@@ -442,12 +471,131 @@ body {
 .doc { padding: 16px 16px 40px; max-width: 780px; margin: 0 auto; }
 .doc pre { white-space: pre-wrap; }
 .doc .pdf { width: 100%; height: calc(100vh - 140px); border: 1px solid var(--line); border-radius: 10px; }
-/* The graph tab. The framed page sizes itself in vw/vh, so it gets a real box to
-   fill rather than the reader's scrolling column. */
+/* The work view: one card per workspace, its claimed beads, a way into its graph. */
+.work { padding: 12px 16px 40px; max-width: 780px; margin: 0 auto; display: flex; flex-direction: column; gap: 12px; }
+.work-card { padding: 12px 14px; }
+.work-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
+.work-head h2 { margin: 0; font-size: 16px; font-weight: 650; }
+.work-count { font-size: 12px; font-weight: 600; color: var(--muted); }
+.work-count.on { color: var(--accent); }
+.work-row {
+  display: flex; align-items: center; gap: 10px;
+  min-height: var(--tap);
+  padding: 7px 2px;
+  border-top: 1px solid var(--line);
+  color: var(--text); text-decoration: none;
+}
+.work-phase { font-size: 15px; width: 20px; text-align: center; flex: none; color: var(--muted); }
+.work-main { flex: 1; min-width: 0; }
+.work-title { display: block; font-size: 14.5px; font-weight: 550; line-height: 1.3; }
+.work-sub {
+  display: block; margin-top: 2px;
+  font-size: 11.5px; color: var(--muted);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.work-row time { flex: none; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+/* Divides the beads a workspace has claimed from the processes running in it. The
+   note beside it carries the whole point: whether the two can be connected at all. */
+.session-label {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px;
+  font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--muted);
+  margin: 12px 0 4px; padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+.session-label span { font-size: 11.5px; font-weight: 450; letter-spacing: 0; text-transform: none; }
+/* Not a link — there is nowhere honest to send you — so it must not look like one. */
+.session-row { cursor: default; }
+/* `.spark` is a bare span sized in px, so it needs a flex parent to be laid out at
+   all — everywhere else it already has one. Without this the busy dot is invisible
+   and a working session looks the same as an idle one. */
+.session-row .work-phase { display: flex; align-items: center; justify-content: center; }
+.session-row .work-title { font-weight: 500; }
+.work-sub .pill.id { margin-right: 5px; }
+
+.work-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
+.work-foot .meta { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; }
+.work-graph {
+  flex: none; min-height: 36px; display: inline-flex; align-items: center;
+  padding: 6px 12px;
+  border: 1px solid var(--line); border-radius: 999px;
+  color: var(--text); text-decoration: none; font-size: 13px; font-weight: 550;
+}
+
+/* The graph tab. The canvas fills what's left under the topbar; the card and the
+   sheet float over it, so neither of them can push the graph around. */
 .graph-body { overflow: hidden; height: 100dvh; display: flex; flex-direction: column; }
-.graph-main { flex: 1; min-height: 0; display: flex; }
-.graph-frame { flex: 1; width: 100%; border: 0; background: #1a1a2e; }
-.graph-main .empty { margin: auto; }
+.graph-main { flex: 1; min-height: 0; position: relative; }
+#canvas { width: 100%; height: 100%; display: block; touch-action: none; }
+/* `display: grid` beats the UA's [hidden] rule, and this one covers the whole
+   canvas — without the guard the empty state stays invisible but keeps eating
+   every tap, and no node in the graph can be selected. */
+.graph-main .empty[hidden] { display: none; }
+.graph-main .empty { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; }
+.gn.on .gn-box { stroke-width: 3; }
+/* Each batch of five fades in on arrival. A CSS animation, deliberately: a d3
+   transition shares its default name with the auto-fit's and got restarted to a
+   standstill. */
+.arrive { animation: arrive 420ms ease-out both; }
+@keyframes arrive { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .arrive { animation: none; } }
+
+/* Growth counter — the loading state and the progress readout are the same thing,
+   because a blank screen is the bug this whole view exists to fix. */
+.growth {
+  position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 10px;
+  padding: 6px 12px;
+  border: 1px solid var(--line); border-radius: 999px;
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  backdrop-filter: blur(8px);
+  font-size: 12.5px; font-weight: 550; color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.growth[hidden] { display: none; }
+.growth-btn {
+  min-height: 26px; padding: 2px 10px;
+  border: 1px solid var(--line); border-radius: 999px;
+  background: transparent; color: var(--text); font: inherit; font-size: 12px;
+}
+
+/* The tapped bead. Positioned against its node by placeCard(). */
+.node-card {
+  position: absolute; z-index: 15; width: min(300px, calc(100vw - 24px));
+  padding: 12px 14px;
+  border: 1px solid var(--line); border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: 0 12px 32px rgb(0 0 0 / 0.38);
+}
+.node-card[hidden] { display: none; }
+.node-card-meta { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 7px; }
+.node-card-title { margin: 0 0 4px; font-size: 15px; font-weight: 600; line-height: 1.35; }
+.node-card-deps { margin: 0 0 10px; font-size: 12px; color: var(--muted); text-transform: capitalize; }
+.node-card-row { display: flex; gap: 8px; }
+.node-card-row button { flex: 1; min-height: 40px; border-radius: 10px; font-size: 14px; }
+
+/* Details: a sheet by default, the whole screen on ⤢. */
+.sheet {
+  position: fixed; z-index: 30; left: 0; right: 0; bottom: 0;
+  height: 72dvh;
+  display: flex; flex-direction: column;
+  border-top: 1px solid var(--line);
+  border-radius: 18px 18px 0 0;
+  background: var(--surface);
+  box-shadow: 0 -14px 40px rgb(0 0 0 / 0.45);
+  transform: translateY(100%);
+  transition: transform 0.24s ease, height 0.24s ease, border-radius 0.24s ease;
+}
+.sheet[hidden] { display: none; }
+.sheet.open { transform: translateY(0); }
+.sheet.full { height: 100dvh; border-radius: 0; }
+.sheet-grip { width: 38px; height: 4px; border-radius: 2px; background: var(--line); margin: 8px auto 4px; }
+.sheet-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 4px 14px 8px; border-bottom: 1px solid var(--line); }
+.sheet-actions { display: flex; gap: 4px; }
+.sheet-body { flex: 1; overflow-y: auto; padding: 14px 16px calc(env(safe-area-inset-bottom) + 28px); }
+.sheet-title { margin: 0 0 10px; font-size: 18px; line-height: 1.3; }
+.sheet-body .meta { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+
 /* `display: flex` beats the UA's [hidden] rule — see .brief[hidden]. */
 .scope[hidden] { display: none; }
 .scope { position: relative; z-index: 20; display: flex; gap: 8px; padding: 8px 16px 10px; border-bottom: 1px solid var(--line); background: var(--bg); }
@@ -525,10 +673,96 @@ body {
 .setup::backdrop { background: rgb(0 0 0 / 0.55); }
 .setup h2 { margin: 0 0 8px; font-size: 17px; }
 .setup p { color: var(--muted); font-size: 14px; margin: 0 0 12px; }
+/*
+  The scope switch inside the settings dialog.
+
+  `.scope` is the graph tab's page-level switch — sticky, full-bleed, with a rule
+  under it. In a dialog none of that chrome applies, so it is undone here rather
+  than a second near-identical component being written.
+*/
+.setup .scope {
+  padding: 4px 0 12px;
+  border-bottom: 0;
+  background: transparent;
+  position: static;
+}
+.setup .scope-btn { flex: 1; }
+#scope-note { min-height: 40px; }
+
 .setup input {
   width: 100%; min-height: var(--tap);
   padding: 0 12px; margin-bottom: 12px;
   border-radius: 11px; border: 1px solid var(--line);
   background: var(--surface-2); color: var(--text);
   font: inherit; font-size: 16px;
+}
+
+/*
+  Landscape.
+
+  There is one reason to turn the phone: a brief has a table, a diagram or a long
+  code block in it and portrait is too narrow to read it. So landscape spends the
+  new width on the brief, and hands back some of the vertical space the chrome was
+  using — height is the scarce axis once the phone is on its side.
+
+  Any of this is only reachable because MainActivity declares `configChanges`;
+  without that a rotation recreates the activity and reloads the page, and these
+  rules would appear to do nothing.
+*/
+@media (orientation: landscape) {
+  .topbar { padding: calc(env(safe-area-inset-top) + 6px) 16px 6px; }
+  .filters { padding: 8px 16px 2px; }
+  .list { padding: 10px 12px 0; }
+  /* 62vh of a landscape screen is nearly all of it. */
+  .md img, .brief img { max-height: 80vh; }
+}
+
+/*
+  Wide enough for two real columns. An *open* card splits: the question and its
+  option buttons stay pinned on the left while the brief scrolls on the right, so
+  answering never means scrolling back up past a diagram and a thread first. A
+  collapsed card is still a plain full-width row — the list still reads as a list.
+
+  `:has()` is how an open card is detected. Where it isn't supported nothing
+  matches and every card stays stacked, which is exactly the portrait behaviour.
+*/
+@media (orientation: landscape) and (min-width: 720px) {
+  .card:has(> .brief:not([hidden])) {
+    display: grid;
+    grid-template-columns: minmax(240px, 33%) 1fr;
+    /*
+      The trailing 1fr is a spacer that swallows the slack when the brief is the
+      taller side — without it the three left-hand rows stretch apart to meet it.
+    */
+    grid-template-rows: auto auto auto 1fr;
+  }
+
+  .card:has(> .brief:not([hidden])) > .card-head,
+  .card:has(> .brief:not([hidden])) > .options,
+  .card:has(> .brief:not([hidden])) > .actions { grid-column: 1; }
+
+  .card:has(> .brief:not([hidden])) > .brief {
+    grid-column: 2;
+    grid-row: 1 / -1;
+    /*
+      The height budget goes here rather than on the card. Capping the card
+      squeezed the left-hand rows, so a long question ran under its own options
+      and the options ran under "Hide details" — the question and the way to
+      answer it are the two things that must never be clipped. Bounding only the
+      brief keeps the left column at its natural height and lets the side that
+      actually has a scroll's worth of content do the scrolling.
+    */
+    max-height: 78dvh;
+    overflow-y: auto;
+    /* Hitting the end of a brief should stop, not start scrolling the list. */
+    overscroll-behavior: contain;
+    /* The divider runs down the split now instead of across the card. */
+    border-top: none;
+    border-left: 1px solid var(--line);
+    padding: 0 16px 0 18px;
+  }
+
+  /* "Recording your answer…" is appended to the card, so it lands in an implicit
+     row beneath both panes; give it the full width there. */
+  .card:has(> .brief:not([hidden])) > .sending { grid-column: 1 / -1; }
 }

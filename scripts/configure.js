@@ -56,6 +56,7 @@ function summary(c) {
     `  session dirs      : ${c.projectRoot ? `${c.projectRoot}/<workspace>` : '~/beads/<workspace>'}`,
     `  ntfy              : ${c.ntfy?.enabled ? c.ntfy.topic : 'disabled'}`,
     `  auto-dispatch     : ${c.autoDispatch === false ? 'off' : 'on'}`,
+    `  monitor at login  : ${c.monitor?.enabled ? 'yes' : 'no (npm run monitor)'}`,
   ].join('\n');
 }
 
@@ -257,6 +258,23 @@ console.log(
   )
 );
 cfg.autoDispatch = await yes('   auto-dispatch? (y/n)', cfg.autoDispatch === false ? 'n' : 'y');
+
+/* -------------------------------------------------------------------- monitor */
+
+console.log(`\n${bold('7. Open a live activity monitor at login?')}`);
+console.log(
+  dim(
+    '   A terminal window showing what the daemon is doing: open questions per space,\n' +
+      '   what each dispatched agent is up to, and every event as it happens. Answer n\n' +
+      '   and nothing auto-starts — you can still run it whenever you want with\n' +
+      '   `npm run monitor`. Needs iTerm2, and macOS will ask once for permission to\n' +
+      '   control it.'
+  )
+);
+cfg.monitor = {
+  ...(cfg.monitor || {}),
+  enabled: await yes('   open the monitor at login? (y/n)', cfg.monitor?.enabled ? 'y' : 'n'),
+};
 
 /* ---------------------------------------------------------------------- write */
 

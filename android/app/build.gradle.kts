@@ -83,6 +83,11 @@ dependencies {
     implementation("com.google.android.material:material:1.12.0")
     implementation("androidx.constraintlayout:constraintlayout:2.2.0")
     implementation("androidx.activity:activity-ktx:1.9.3")
+
+    // Chrome Custom Tabs. A link in a brief is usually a signed-in page — a GitHub
+    // PR, a claude.ai artifact — and a Custom Tab borrows Chrome's cookie jar, so
+    // it opens the way it does in Chrome. Our own WebView would be logged out.
+    implementation("androidx.browser:browser:1.8.0")
     implementation("androidx.lifecycle:lifecycle-service:2.8.7")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
 

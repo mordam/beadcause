@@ -17,14 +17,55 @@
     </div>
     <button id="graph-close" class="icon-btn" aria-label="Close tab">✕</button>
   </header>
+
   <nav class="scope" id="scope" hidden>
     <button data-scope="bead" class="scope-btn">This bead</button>
     <button data-scope="all" class="scope-btn">Whole workspace</button>
   </nav>
+
   <main id="graph-main" class="graph-main">
-    <div class="empty">Loading…</div>
+    <svg id="canvas" aria-label="Dependency graph"></svg>
+
+    <!-- Growth counter. Doubles as the loading line, so the screen is never blank. -->
+    <div id="growth" class="growth" hidden>
+      <span id="growth-text">asking bd for the graph…</span>
+      <button id="growth-pause" class="growth-btn" hidden>Pause</button>
+    </div>
+
+    <div id="empty" class="empty" hidden></div>
+
+    <!-- The tapped bead, big enough to read. -->
+    <div id="card" class="node-card" hidden>
+      <div class="node-card-meta">
+        <span class="pill id" id="card-id"></span>
+        <span class="pill" id="card-status"></span>
+        <span class="pill" id="card-priority"></span>
+      </div>
+      <p class="node-card-title" id="card-title"></p>
+      <p class="node-card-deps" id="card-deps"></p>
+      <div class="node-card-row">
+        <button class="primary" id="card-details">Details</button>
+        <button class="secondary" id="card-dismiss">Dismiss</button>
+      </div>
+    </div>
   </main>
 
+  <!-- Detail drawer: a sheet by default, full screen on ⤢. -->
+  <section id="sheet" class="sheet" hidden aria-label="Bead details">
+    <div class="sheet-grip"></div>
+    <header class="sheet-head">
+      <span class="pill id" id="sheet-id"></span>
+      <div class="sheet-actions">
+        <button id="sheet-expand" class="icon-btn" aria-label="Full screen">⤢</button>
+        <button id="sheet-close" class="icon-btn" aria-label="Close details">✕</button>
+      </div>
+    </header>
+    <div class="sheet-body" id="sheet-body"></div>
+  </section>
+
+  <script src="/vendor/d3.js"></script>
+  <script src="/vendor/marked.js"></script>
+  <script src="/vendor/purify.js"></script>
   <script src="/graph.js"></script>
 </body>
 </html>
