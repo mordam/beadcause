@@ -555,6 +555,33 @@ body {
 .session-row .work-title { font-weight: 500; }
 .work-sub .pill.id { margin-right: 5px; }
 
+/* The advocate block on a workspace card. It sits above the claimed beads because
+   it is the only part of the card about what happens next; everything below it is
+   a report of what already has. */
+.adv .session-label { margin-top: 4px; }
+.adv .session-label span.bad { color: var(--danger); }
+.adv-actions { margin-left: auto; display: flex; gap: 6px; }
+.adv-btn {
+  min-height: 32px;
+  padding: 4px 12px;
+  border: 1px solid var(--line); border-radius: 999px;
+  background: none; color: var(--text);
+  font: inherit; font-size: 12.5px; font-weight: 550;
+  letter-spacing: 0; text-transform: none;
+  cursor: pointer;
+}
+.adv-btn:disabled { opacity: 0.5; }
+/* A window we opened, not a process we can see — dotted while it is only that, solid
+   once the session claimed the bead and the tracker can confirm it. */
+.adv-worker .work-phase { display: flex; align-items: center; justify-content: center; color: var(--accent); }
+.adv-next, .adv-note {
+  font-size: 11.5px; color: var(--muted);
+  padding: 6px 2px 2px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.adv-next .pill.id { margin-right: 4px; }
+.adv-note.bad { color: var(--danger); white-space: normal; }
+
 .work-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
 .work-foot .meta { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; }
 .work-graph {

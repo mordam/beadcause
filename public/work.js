@@ -86,7 +86,87 @@
     </div>`;
   }
 
-  function workspaceHtml(w) {
+  /**
+   * The repo's advocate.
+   *
+   * Three things, in the order you need them: what it is doing right now, which
+   * beads it has windows open on, and what it will take next. The last one is what
+   * makes the block worth having — everything else on this page is a report of the
+   * past, and this is the one line that says what is about to happen without you.
+   *
+   * A paused or quiet advocate is drawn, not hidden. An advocate you cannot see is
+   * indistinguishable from a repo with nothing left to do, which is the exact
+   * confusion the whole feature exists to end.
+   */
+  function advocateHtml(a) {
+    if (!a) return '';
+
+    const ready = a.queue ? ` · ${plural(a.queue, 'bead')} ready` : '';
+    const state = a.error
+      ? `⚠ ${esc(a.error)}`
+      : a.paused
+        ? `paused${ready}`
+        : a.quiet
+          ? `quiet${ready} — watching, not launching`
+          : a.surveying
+            ? 'surveying for work to propose'
+            : a.workers.length
+              ? `${a.workers.length} of ${a.limit} session${a.limit === 1 ? '' : 's'}${ready}`
+              : a.queue
+                ? `${plural(a.queue, 'bead')} ready`
+                : 'clear';
+    // The note explains what the state doesn't. When it merely repeats it — which
+    // is the common case, because both are generated from the same tick — it is
+    // dropped rather than printed twice.
+    const note = a.note && !state.toLowerCase().includes(a.note.toLowerCase().split(/[ ·—]/)[0]) ? a.note : '';
+
+    // A worker is a window we opened, not a process we can see. So the row says
+    // what we actually know — the bead, when we opened it, whether it was ever
+    // claimed — and names the pid only where the session took the bead id into its
+    // own name, which is the only honest way the two are ever connected.
+    const workers = a.workers
+      .map(
+        (w) => `<a class="work-row adv-worker" href="${esc(graphUrl(a.workspace, w.id))}">
+          <span class="work-phase">${w.claimed ? '<span class="spark"></span>' : '◔'}</span>
+          <span class="work-main">
+            <span class="work-title">${esc(w.title || w.id)}</span>
+            <span class="work-sub"><span class="pill id">${esc(w.id)}</span>${
+              w.claimed ? 'claimed' : 'opened, not claimed yet'
+            }${w.pid ? ` · pid ${esc(w.pid)}` : ''}${w.attempt > 1 ? ` · attempt ${esc(w.attempt)}` : ''}</span>
+          </span>
+          <time>${esc(age(w.at))}</time>
+        </a>`
+      )
+      .join('');
+
+    const next =
+      !a.workers.length && a.next?.length
+        ? `<div class="adv-next">next: ${a.next.map((b) => `<span class="pill id">${esc(b.id)}</span> ${esc(b.title)}`).join(' · ')}</div>`
+        : '';
+
+    const buttons = [
+      `<button class="adv-btn" data-adv="${a.paused ? 'resume' : 'pause'}" data-ws="${esc(a.workspace)}">${
+        a.paused ? 'Resume' : 'Pause'
+      }</button>`,
+      // "I closed those windows myself" — the sessions belong to iTerm, so nothing
+      // here can see them go, and without this the slots stay held until they lapse.
+      a.workers.length
+        ? `<button class="adv-btn" data-adv="release" data-ws="${esc(a.workspace)}">Free slots</button>`
+        : '',
+    ]
+      .filter(Boolean)
+      .join('');
+
+    return `<div class="adv">
+      <div class="session-label">Advocate <span class="${a.error ? 'bad' : ''}">${state}</span>
+        <span class="adv-actions">${buttons}</span>
+      </div>
+      ${workers}${next}
+      ${note && !a.error ? `<div class="adv-note">${esc(note)}</div>` : ''}
+    </div>`;
+  }
+
+  function workspaceHtml(w, advocate) {
     const counts = w.counts || {};
     const sessions = w.sessions || [];
     const pills = [
@@ -100,6 +180,9 @@
     const summary = [
       w.working.length ? `${w.working.length} on a bead` : '',
       sessions.length ? plural(sessions.length, 'session') : '',
+      // Only when it is holding something back: an advocate quietly working is
+      // already visible in the two numbers beside it.
+      advocate?.paused ? 'advocate paused' : '',
     ].filter(Boolean);
 
     const head = `<div class="work-head">
@@ -112,12 +195,16 @@
     if (w.error) {
       // The sessions come off the filesystem rather than from bd, so they survive a
       // workspace whose database is mid-write and are still worth showing.
+      // The advocate's own state comes from memory, not from bd, so it survives a
+      // workspace whose database is mid-write — and an advocate that cannot read
+      // its tracker is precisely what you want to see here.
       return `<article class="card work-card">${head}
         <p class="subtitle bad">⚠ ${esc(w.error)}</p>
-        ${sessions.map(sessionRow).join('')}
+        ${advocateHtml(advocate)}${sessions.map(sessionRow).join('')}
       </article>`;
     }
 
+    const adv = advocateHtml(advocate);
     const beads = w.working.map((x) => beadRow(w.name, x)).join('');
 
     let sessionBlock = '';
@@ -133,10 +220,12 @@
     }
 
     const nothing =
-      !beads && !sessions.length ? '<p class="subtitle">No claimed beads, and no session open here.</p>' : '';
+      !beads && !sessions.length && !adv
+        ? '<p class="subtitle">No claimed beads, and no session open here.</p>'
+        : '';
 
     return `<article class="card work-card">${head}
-      ${beads}${sessionBlock}${nothing}
+      ${adv}${beads}${sessionBlock}${nothing}
       <div class="work-foot">
         <div class="meta">${pills.join('')}</div>
         <a class="work-graph" href="${esc(graphUrl(w.name))}">Graph →</a>
@@ -171,7 +260,10 @@
         throw new Error(body.error || `HTTP ${res.status}`);
       }
       const data = await res.json();
-      const cards = (data.workspaces || []).map(workspaceHtml).join('') + elsewhereHtml(data.elsewhere || []);
+      const advocates = new Map((data.advocates || []).map((a) => [a.workspace, a]));
+      const cards =
+        (data.workspaces || []).map((w) => workspaceHtml(w, advocates.get(w.name))).join('') +
+        elsewhereHtml(data.elsewhere || []);
       out.innerHTML = cards || '<div class="empty">No workspaces configured.</div>';
     } catch (err) {
       out.innerHTML = `<div class="empty"><strong>Can't reach the server</strong>${esc(err.message)}</div>`;
@@ -179,6 +271,39 @@
       pulse.classList.remove('busy');
     }
   }
+
+  /**
+   * Pause, resume, or free an advocate's slots.
+   *
+   * The failure is written into the button rather than thrown away: this is the
+   * one control on the page that changes what the Mac will do next, and a tap that
+   * silently did nothing would leave you unsure whether the advocate is stopped.
+   */
+  async function control(ws, action, btn) {
+    const was = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = '…';
+    try {
+      const res = await fetch('/api/advocate', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-beadcause-token': token },
+        body: JSON.stringify({ workspace: ws, action }),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `HTTP ${res.status}`);
+      await load();
+    } catch (err) {
+      btn.textContent = was;
+      btn.disabled = false;
+      btn.closest('.adv')?.insertAdjacentHTML('beforeend', `<div class="adv-note bad">${esc(err.message)}</div>`);
+    }
+  }
+
+  out.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-adv]');
+    if (!btn) return;
+    e.preventDefault();
+    control(btn.dataset.ws, btn.dataset.adv, btn);
+  });
 
   document.getElementById('work-refresh').addEventListener('click', load);
   // Cheap enough to keep current, expensive enough not to poll like the inbox:
