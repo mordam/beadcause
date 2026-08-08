@@ -23,6 +23,12 @@
     open: new Set(),
     armed: null, // key of the option awaiting its confirm tap
     armedTimer: null,
+    // Which cards have their agent log showing, and the text last fetched for each.
+    // Kept out of the question objects so a list refresh can't wipe a pane you are
+    // reading mid-run.
+    logs: new Set(),
+    logText: new Map(),
+    logTimer: null,
   };
 
   /* ---------------------------------------------------------------- token */
@@ -312,7 +318,12 @@
     const brief = open ? briefHtml(q) : '';
     const draft = getDraft(q.key);
 
-    return `<article class="card" id="card-${cardId(q.key)}" data-key="${esc(q.key)}">
+    // `open` takes the card full screen — see .card.open in style.css. A question is
+    // read one at a time, and on a phone an inline accordion meant the brief, the
+    // thread and the answer box all competed with the list around them.
+    return `<article class="card${open ? ' open' : ''}${q.awaitingAgent ? ' replied' : ''}" id="card-${cardId(
+      q.key
+    )}" data-key="${esc(q.key)}">
       <div class="card-head">
         <div class="meta">
           <span class="pill">${esc(q.workspace)}</span>
@@ -332,7 +343,19 @@
         <button class="linkish" data-act="toggle" data-key="${esc(q.key)}">
           ${open ? 'Hide details' : draft ? 'Resume your answer' : hasBrief ? 'Show details' : 'Write an answer'}
         </button>
+        ${
+          q.awaitingAgent
+            ? `<button class="linkish log-btn" data-act="log" data-key="${esc(q.key)}">${
+                state.logs.has(q.key) ? 'Hide session log' : 'Session log'
+              }</button>`
+            : ''
+        }
       </div>
+      ${
+        state.logs.has(q.key)
+          ? `<pre class="agent-log" data-log="${esc(q.key)}">${esc(state.logText.get(q.key) || 'opening the log…')}</pre>`
+          : ''
+      }
       <div class="brief"${open ? '' : ' hidden'}>${brief}</div>
     </article>`;
   }
@@ -597,6 +620,42 @@
    * thrown away. While a card is being answered, defer instead; the flush
    * happens on blur, or when the answer is submitted.
    */
+  /**
+   * Tail the agent's log into the open panes.
+   *
+   * Written straight into the `<pre>` rather than through render(): a repaint would
+   * scroll the pane back to the top every two seconds, and the list around it does
+   * not change just because an agent typed another line.
+   */
+  async function pollLogs(only = null) {
+    const keys = only ? [only] : [...state.logs];
+    for (const key of keys) {
+      if (!state.logs.has(key)) continue;
+      const [workspace, id] = [key.slice(0, key.indexOf('/')), key.slice(key.indexOf('/') + 1)];
+      try {
+        const data = await api(`/api/agent-log?workspace=${encodeURIComponent(workspace)}&id=${encodeURIComponent(id)}`);
+        const text = (data.lines || []).join('\n') || 'No output yet — the agent is starting.';
+        state.logText.set(key, text);
+        const pre = listEl.querySelector(`[data-log="${CSS.escape(key)}"]`);
+        if (pre) {
+          const atBottom = pre.scrollHeight - pre.scrollTop - pre.clientHeight < 40;
+          pre.textContent = text;
+          // Follow the tail only if you were already at the bottom, so scrolling
+          // back to read something isn't yanked away by the next line.
+          if (atBottom) pre.scrollTop = pre.scrollHeight;
+        }
+      } catch {
+        /* the next tick tries again */
+      }
+    }
+  }
+
+  // One timer for every open pane. It costs a file read per pane per two seconds,
+  // and only ever runs while at least one is open.
+  setInterval(() => {
+    if (state.logs.size) pollLogs();
+  }, 2000);
+
   function render(force = false) {
     if (!force && isAnswering()) {
       pendingRender = true;
@@ -621,7 +680,13 @@
       const where = state.workspace !== 'all' ? state.workspace : state.space !== 'all' ? state.space : '';
       listEl.innerHTML = `<div class="empty">Nothing waiting${where ? ` in ${esc(where)}` : ''}.${gearNudge()}</div>`;
     } else {
-      listEl.innerHTML = visible.map(cardHtml).join('');
+      // Anything you've already replied to sinks to the bottom. It is not waiting on
+      // you any more — an agent has it — so it must not sit between you and the
+      // questions that are. Order within each group is left exactly as the server
+      // sent it (priority, then age).
+      const waiting = visible.filter((q) => !q.awaitingAgent);
+      const replied = visible.filter((q) => q.awaitingAgent);
+      listEl.innerHTML = [...waiting, ...replied].map(cardHtml).join('');
     }
 
     renderFilters(inSpace);
@@ -688,7 +753,12 @@
         // Reflect the awaiting-agent flag the server just set, without waiting
         // for the next poll.
         q.awaitingAgent = true;
-        await expand(key, true);
+        // Collapse and let it sink. You have said your piece; keeping the card open
+        // in front of you implies there is something left for you to do with it,
+        // when the next move belongs to the agent. It comes back up when it replies.
+        state.open.delete(key);
+        clearDraft(key);
+        render(true);
       }
     } catch (err) {
       card?.classList.remove('answering');
@@ -811,6 +881,18 @@
         btn.disabled = false;
         btn.innerHTML = label;
       }
+      return;
+    }
+
+    if (act === 'log') {
+      if (state.logs.has(key)) {
+        state.logs.delete(key);
+        state.logText.delete(key);
+      } else {
+        state.logs.add(key);
+        pollLogs(key);
+      }
+      render(true);
       return;
     }
 

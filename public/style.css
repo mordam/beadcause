@@ -140,6 +140,48 @@ body {
 }
 .empty strong { display: block; color: var(--text); font-size: 18px; margin-bottom: 6px; }
 
+/* An open card takes the screen. A question is read one at a time, and inline the
+   brief, the thread and the answer box all competed with the list around them. */
+.card.open {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  margin: 0;
+  border-radius: 0;
+  border-left: 0;
+  border-right: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-top: calc(env(safe-area-inset-top) + 12px);
+  padding-bottom: calc(env(safe-area-inset-bottom) + 24px);
+}
+
+/* Replied and sunk to the bottom: still there, visibly not yours any more. */
+.card.replied { opacity: 0.72; }
+.card.replied.open { opacity: 1; }
+
+/* The agent's log, as the CLI would have shown it. 80 columns is the width the
+   output is written for, so the pane is sized in `ch` and scrolls sideways rather
+   than reflowing lines that were laid out by something that counted characters. */
+.agent-log {
+  margin: 10px 0 0;
+  padding: 10px 12px;
+  max-height: 46vh;
+  overflow: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--bg);
+  color: var(--prose);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 9.5px;
+  line-height: 1.45;
+  white-space: pre;
+  min-width: 0;
+  tab-size: 2;
+}
+.log-btn { margin-left: auto; }
+
 .card {
   background: var(--surface);
   border: 1px solid var(--line);
