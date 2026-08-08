@@ -347,22 +347,27 @@ minutes ago showed up nowhere at all.
 **🤖 in the inbox's top bar** opens `/sessions`: one card per workspace, busiest
 first. (`/work`, what this used to be called, still resolves to the same page.)
 
+**The cards are an accordion — one open at a time.** Six workspaces of beads and
+sessions is several screens on a phone, and the whole page had to be paged through to
+reach the one repo you opened it for. Collapsed, a heading still carries its own
+summary, so the scan happens in one screen and only the card you want unfolds. The
+busiest card (the first one) opens itself on arrival, because six closed headings
+would charge you a tap on every visit for nothing.
+
 ```
-climative                        5 on a bead · 5 sessions
+climative                        5 on a bead · 5 sessions ⌄
   ◗ pipeline-service: client built without retry…      11h
     cl-1jw  adam.morgan
   ◗ TECH-5989 fanout: downmerge 25 service repos       17h
     cl-wyv  adam.morgan
   CLAUDE SESSIONS  Which of these is on which bead is not recorded.
-  ● Climative - newrelic v14 override fix              11h
+  ● Climative - newrelic v14 override fix           11h  ›
     dms-client-retry-4e7 · pid 90310 · idle
   54 open · 51 ready · 3 blocked            [ Graph → ]
 
-deluvia                                       2 sessions
-  CLAUDE SESSIONS  Nothing claimed in the tracker yet.
-  ● Deluvia - apply canon audit fixes                   3m
-    canon-audit-apply-b7e · pid 44124 · busy
-  123 open · 87 ready · 36 blocked          [ Graph → ]
+deluvia                                     2 sessions ›
+sophab                                      1 session  ›
+ehatt                                              idle ›
 ```
 
 A session reaches this page through **either of two independent signals**, and the
@@ -396,6 +401,72 @@ have. So the card says which case it is (*"Which of these is on which bead is no
 recorded"* against *"Nothing claimed in the tracker yet"*) and lets you draw the
 line. The state worth acting on is a session with nothing claimed, and that is
 exactly the one a guess would have hidden.
+
+### Tap a session to see what it is actually doing
+
+A session row used to be a dead end. It said a name, a pid and the word "busy" — and
+"busy" reads exactly the same for a session mid-thought as for one that has been sat
+on a permission prompt for an hour. The pid was on screen precisely because there was
+nothing better to show.
+
+Tapping one now unfolds what the process record knows — its full directory, its
+workspace, when it started, when it last spoke — and under that, **its own Claude Code
+transcript, tailed live**:
+
+```
+  ● Beadcause - bc-76c Sessions tab: accordion cards    22m ⌄
+    sessions-accordion-log-5f7 · pid 30342 · busy
+      WHERE      /Users/…/beadcause/.claude/worktrees/sessions-accordion-log-5f7
+      WORKSPACE  beadcause
+      PROCESS    pid 30342 · interactive · busy
+      STARTED    Aug 8, 12:03 PM · 22m ago
+      ACTIVE     Aug 8, 12:03 PM · 22m ago
+      SESSION    a60224c4
+    TRANSCRIPT  Its own log, as the terminal showed it.
+    ┌──────────────────────────────────────────────────────────┐
+    │ ❯ run whatever this repo calls its tests                 │
+    │ ✻ thinking                                               │
+    │   > Bash node --check lib/transcript.js                  │
+    │     check=0                                              │
+    └──────────────────────────────────────────────────────────┘
+```
+
+Claude Code already writes the whole conversation to
+`~/.claude/projects/<slug>/<session-id>.jsonl`, one JSON object per line, appended as
+it happens — so this reads that file (`GET /api/session-log?pid=`). **Nothing is
+instrumented and nothing is asked of the session**, which is the point: a session
+started by hand, that beadcause has never heard of, is as visible as one the daemon
+dispatched itself. It is rendered into the same line grammar as the dispatched-agent
+log, server-side, so the phone only ever receives text.
+
+Four things worth knowing:
+
+- **Addressed by pid, never by a path.** The pid is matched against the sessions the
+  page itself just reported, and the file is resolved from the record Claude Code
+  wrote — so a request cannot name a file of its own choosing. A pid that has gone
+  says so, because "it finished" is a different fact from "it has done nothing".
+- **The tail grows until there is something to read.** One transcript line is a whole
+  message, and a `tool_result` carrying a 200 kB file is ordinary, so bytes are a
+  terrible proxy for lines: measured on a real session, 256 kB of recent transcript
+  was ten lines, six of which rendered. It widens the window — bounded at 2 MB — until
+  it has a screenful of what it will actually show.
+- **It looks in every config directory.** One Mac can run two Claude Code accounts out
+  of `~/.claude` and, say, `~/.claude-personal`, chosen per shell with
+  `CLAUDE_CONFIG_DIR`; the daemon runs under launchd where that variable is not set.
+  Honouring it alone would find only the sessions sharing the daemon's environment.
+  `claudeProjectsDir` overrides the search and takes a list.
+- **A transcript is not redacted.** It holds every prompt and every byte of tool output
+  from that session, which for a work repo can include things you would not put in a
+  chat. It travels the same token-authenticated, tailnet-only path as the rest of
+  `/api/` and no further — but it is the most sensitive thing this daemon serves, and
+  `claudeSessions: false` turns it off along with the rest of the session reading.
+
+Only one session is open at a time, and folding a card closes the session inside it —
+a pane left open behind a fold would reappear on its own when you came back. The pane
+polls every two seconds while it is open and never otherwise, and it keeps its scroll
+position across the card refresh: following the tail is only right if you were already
+at the bottom, and a pane that jumped to the end every 45 seconds would make reading
+back through a run impossible.
 
 Every card has a **Graph →** into the whole workspace — which is also the answer to
 "how do I see what another session just created", since the graph draws every open
@@ -668,6 +739,7 @@ Auth on everything under `/api/` except `/api/health`: header
 | GET | `/api/graph` | `?workspace=&id=` | `{nodes, links}` — the whole workspace with no `id` |
 | GET | `/api/bead` | `?workspace=&id=` | one issue in full, plus `comments[]` — for the graph's detail sheet |
 | GET | `/api/work` | — | `{workspaces[], elsewhere[]}` — per workspace: claimed beads, live `claude` sessions, counts, errors |
+| GET | `/api/session-log` | `?pid=` | `{pid, sessionId, status, file, lines[]}` — the tail of that live session's own transcript. 404 for a pid that is not running |
 | GET | `/sessions`, `/work` | — | the current-sessions page (same page, two paths) |
 | GET | `/graph` | `?ws=&id=` | the HTML graph page |
 
@@ -697,6 +769,7 @@ decision block and only means anything for a `human` bead.
 | `spaces` | groups of workspaces sharing a notification policy — see [Spaces](#spaces--keeping-work-out-of-your-evening) |
 | `claudeSessions` | `false` to stop reading `~/.claude/sessions` for the current-sessions page (default on; absent directory is not an error) |
 | `claudeSessionsDir` | where those per-process records live, if not `$CLAUDE_CONFIG_DIR/sessions` or `~/.claude/sessions` |
+| `claudeProjectsDir` | where session transcripts live, if not the `projects` folder of every `~/.claude…` directory. Takes a list. Governed by `claudeSessions` — off there means no transcripts either |
 | `assetRoots` | the only directories `/api/asset` will read images from |
 | `pollSeconds` | how often new `human` beads are looked for (default 30) |
 | `monitor.enabled` | generate the LaunchAgent that opens the [activity monitor](#the-monitor--what-it-is-doing-right-now) at login (default `false`; `npm run monitor` works either way) |

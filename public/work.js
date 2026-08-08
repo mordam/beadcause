@@ -1,4 +1,4 @@
-/* Current sessions: who is working, on which bead, and the way into each repo's graph.
+/* Current sessions: who is working, on which bead, and what they are doing right now.
  *
  * The inbox answers "what needs me". This is the other half — a bead only reaches
  * the inbox if it is labelled `human`, so everything the sessions on the Mac are
@@ -16,6 +16,20 @@
  * paired up here. A workspace with a session and no claimed bead is a real thing to
  * see — it is usually the thing you most want to see — and a guess would have hidden
  * it behind a confident wrong answer.
+ *
+ * Two things about the shape of the page:
+ *
+ * **The cards are an accordion, one open at a time.** Six workspaces of beads and
+ * sessions is several screens on a phone, and the whole page had to be paged through
+ * to reach the one repo you opened it for. Collapsed, every heading still carries its
+ * own summary — "5 on a bead · 5 sessions" — so the scan happens in one screen and
+ * only the card you want unfolds.
+ *
+ * **Tapping a session opens what it is doing.** The row used to be a dead end: a
+ * name, a pid and the word "busy", which reads the same for a session mid-thought as
+ * for one wedged an hour ago on a permission prompt. Its detail tails the session's
+ * own Claude Code transcript (`/api/session-log`), so the answer to "is this moving"
+ * is the last thing it actually said.
  */
 (() => {
   'use strict';
@@ -24,6 +38,24 @@
   const out = document.getElementById('work');
   const pulse = document.getElementById('pulse');
   const REFRESH_MS = 45000;
+  // The transcript is a file read on the Mac, so this is cheap — and it is the number
+  // that decides whether the pane feels live. Only ever runs while a pane is open.
+  const LOG_MS = 2000;
+
+  /* A card key no workspace can collide with: workspace names are directory names
+     under ~/beads, which never contain a space. */
+  const ELSEWHERE = 'sessions elsewhere';
+
+  const state = {
+    data: null,
+    /** Which card is unfolded. At most one — that is what makes it an accordion. */
+    card: null,
+    /** The pid of the session whose detail is open, if any. */
+    session: null,
+    /** Its transcript, kept out here so a repaint doesn't blank the pane. */
+    logText: '',
+    first: true,
+  };
 
   const esc = (s) =>
     String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -38,6 +70,21 @@
     if (hrs < 24) return `${hrs}h`;
     return `${Math.round(hrs / 24)}d`;
   }
+
+  /** "just now" already reads as a phrase; everything else wants the "ago". */
+  const ago = (iso) => {
+    const a = age(iso);
+    return !a || a === 'just now' ? a : `${a} ago`;
+  };
+
+  /** The clock time, for the detail view — "17h" doesn't say whether it spanned lunch. */
+  const clock = (iso) => {
+    if (!iso) return '';
+    const d = new Date(iso);
+    return Number.isNaN(d.getTime())
+      ? ''
+      : d.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  };
 
   const graphUrl = (ws, id) =>
     `/graph?ws=${encodeURIComponent(ws)}${id ? `&id=${encodeURIComponent(id)}` : ''}`;
@@ -67,14 +114,46 @@
   }
 
   /**
+   * What one live session is, and what it is saying.
+   *
+   * Every fact here comes off the process record — no bead, because nothing on this
+   * machine records which bead a process is on. The pane below is the honest answer
+   * to the question the row used to raise and leave hanging.
+   */
+  function sessionDetail(s) {
+    // Short labels on purpose: the column is a fixed width so the values line up, and
+    // on a 390px screen every character spent on the label is one taken off a path
+    // that is already going to wrap.
+    const facts = [
+      ['where', s.cwd || 'not recorded'],
+      ['workspace', s.workspace || 'not in a configured workspace'],
+      ['process', `pid ${s.pid}${s.kind ? ` · ${s.kind}` : ''}${s.status ? ` · ${s.status}` : ''}`],
+      ['started', s.startedAt ? `${clock(s.startedAt)} · ${ago(s.startedAt)}` : 'not recorded'],
+      ['active', s.at ? `${clock(s.at)} · ${ago(s.at)}` : 'not recorded'],
+      // Eight characters is what identifies a session in Claude Code's own output,
+      // and the rest of the uuid is no more useful on a phone.
+      ['session', s.sessionId ? s.sessionId.slice(0, 8) : 'not recorded'],
+    ];
+    return `<div class="session-detail">
+      <dl class="session-facts">${facts
+        .map(([k, v]) => `<div><dt>${esc(k)}</dt><dd>${esc(v)}</dd></div>`)
+        .join('')}</dl>
+      <div class="session-label">Transcript <span>Its own log, as the terminal showed it.</span></div>
+      <pre class="agent-log" data-session-log="${esc(s.pid)}">${esc(state.logText || 'opening the transcript…')}</pre>
+    </div>`;
+  }
+
+  /**
    * One live `claude` process.
    *
-   * A div, not a link: there is nowhere honest to send you. The bead it might be on
-   * is unknown, and the workspace graph is already one tap away in the card foot.
+   * A button now, not a div: it used to be inert because there was nowhere honest to
+   * send you — the bead it might be on is unknown — but its own transcript is
+   * somewhere honest, and it is the thing you opened this page to find out.
    */
   function sessionRow(s) {
     const busy = s.status === 'busy';
-    return `<div class="work-row session-row">
+    const open = state.session === s.pid;
+    return `<button class="work-row session-row" type="button" data-session="${esc(s.pid)}" aria-expanded="${open}">
       <span class="work-phase">${busy ? '<span class="spark"></span>' : '○'}</span>
       <span class="work-main">
         <span class="work-title">${esc(s.name || '(unnamed session)')}</span>
@@ -83,7 +162,29 @@
         }</span>
       </span>
       <time>${esc(age(s.at))}</time>
-    </div>`;
+      <span class="chev" aria-hidden="true">›</span>
+    </button>${open ? sessionDetail(s) : ''}`;
+  }
+
+  /**
+   * The accordion shell: a heading that is always readable, and a body that folds.
+   *
+   * The summary lives in the heading rather than the body on purpose — collapsed, the
+   * heading is all that is left, and "climative" on its own would make the fold cost
+   * you the very thing you were scanning for.
+   */
+  function cardHtml(key, title, summary, on, body) {
+    const open = state.card === key;
+    return `<article class="card work-card${open ? ' open' : ''}">
+      <h2 class="work-head">
+        <button class="work-toggle" type="button" data-card="${esc(key)}" aria-expanded="${open}">
+          <span class="work-name">${esc(title)}</span>
+          <span class="work-count${on ? ' on' : ''}">${esc(summary)}</span>
+          <span class="chev" aria-hidden="true">›</span>
+        </button>
+      </h2>
+      <div class="work-body"${open ? '' : ' hidden'}>${body}</div>
+    </article>`;
   }
 
   function workspaceHtml(w) {
@@ -102,20 +203,13 @@
       sessions.length ? plural(sessions.length, 'session') : '',
     ].filter(Boolean);
 
-    const head = `<div class="work-head">
-      <h2>${esc(w.name)}</h2>
-      <span class="work-count${summary.length ? ' on' : ''}">${
-        summary.length ? esc(summary.join(' · ')) : 'idle'
-      }</span>
-    </div>`;
-
     if (w.error) {
       // The sessions come off the filesystem rather than from bd, so they survive a
-      // workspace whose database is mid-write and are still worth showing.
-      return `<article class="card work-card">${head}
-        <p class="subtitle bad">⚠ ${esc(w.error)}</p>
-        ${sessions.map(sessionRow).join('')}
-      </article>`;
+      // workspace whose database is mid-write and are still worth showing. The
+      // heading says "error" when there is nothing else to count, because a fold
+      // must never hide the fact that a workspace could not be read.
+      const body = `<p class="subtitle bad">⚠ ${esc(w.error)}</p>${sessions.map(sessionRow).join('')}`;
+      return cardHtml(w.name, w.name, summary.length ? `${summary.join(' · ')} · error` : 'error', true, body);
     }
 
     const beads = w.working.map((x) => beadRow(w.name, x)).join('');
@@ -135,13 +229,13 @@
     const nothing =
       !beads && !sessions.length ? '<p class="subtitle">No claimed beads, and no session open here.</p>' : '';
 
-    return `<article class="card work-card">${head}
-      ${beads}${sessionBlock}${nothing}
+    const body = `${beads}${sessionBlock}${nothing}
       <div class="work-foot">
         <div class="meta">${pills.join('')}</div>
         <a class="work-graph" href="${esc(graphUrl(w.name))}">Graph →</a>
-      </div>
-    </article>`;
+      </div>`;
+
+    return cardHtml(w.name, w.name, summary.length ? summary.join(' · ') : 'idle', Boolean(summary.length), body);
   }
 
   /**
@@ -152,15 +246,102 @@
    */
   function elsewhereHtml(sessions) {
     if (!sessions.length) return '';
-    return `<article class="card work-card">
-      <div class="work-head">
-        <h2>Elsewhere</h2>
-        <span class="work-count on">${esc(plural(sessions.length, 'session'))}</span>
-      </div>
-      <div class="session-label">Claude sessions <span>Not in any configured workspace.</span></div>
-      ${sessions.map(sessionRow).join('')}
-    </article>`;
+    const body = `<div class="session-label">Claude sessions <span>Not in any configured workspace.</span></div>
+      ${sessions.map(sessionRow).join('')}`;
+    return cardHtml(ELSEWHERE, 'Elsewhere', plural(sessions.length, 'session'), true, body);
   }
+
+  /**
+   * Repaint from `state`, keeping the two things a repaint destroys.
+   *
+   * The page's own scroll, and the transcript pane's — the cards refresh every 45
+   * seconds, and a pane that jumped to the tail each time would make reading back
+   * through a run impossible. Following the tail is only right if you were already
+   * at the bottom.
+   */
+  function render() {
+    if (!state.data) return;
+    const scrollY = window.scrollY;
+    const pre = out.querySelector('[data-session-log]');
+    const pane = pre
+      ? { top: pre.scrollTop, atBottom: pre.scrollHeight - pre.scrollTop - pre.clientHeight < 40 }
+      : null;
+
+    const cards =
+      (state.data.workspaces || []).map(workspaceHtml).join('') + elsewhereHtml(state.data.elsewhere || []);
+    out.innerHTML = cards || '<div class="empty">No workspaces configured.</div>';
+
+    const next = out.querySelector('[data-session-log]');
+    if (next) {
+      next.scrollTop = !pane || pane.atBottom ? next.scrollHeight : pane.top;
+    } else if (state.session != null) {
+      // The session you were watching has exited, and its row went with it. Stop
+      // tailing a pane that is no longer on the page.
+      state.session = null;
+      state.logText = '';
+    }
+    window.scrollTo(0, scrollY);
+  }
+
+  /**
+   * Tail the open session's transcript.
+   *
+   * Written straight into the `<pre>` rather than through render(): the cards have
+   * not changed just because a session typed another line, and rebuilding them twice
+   * a second to find out would be absurd.
+   */
+  async function pollLog() {
+    const pid = state.session;
+    if (pid == null) return;
+    let text;
+    try {
+      const res = await fetch(`/api/session-log?pid=${encodeURIComponent(pid)}`, {
+        headers: { 'x-beadcause-token': token },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+      text =
+        (data.lines || []).join('\n') ||
+        // Where it looked, so an empty pane says why it is empty rather than
+        // implying the session has done nothing.
+        (data.file ? `Nothing to show yet.\n${data.file}` : 'No transcript file for this session.');
+    } catch (err) {
+      text = `⚠ ${err.message}`;
+    }
+    // You closed it, or opened another, while this was in flight.
+    if (state.session !== pid) return;
+    state.logText = text;
+    const pre = out.querySelector(`[data-session-log="${CSS.escape(String(pid))}"]`);
+    if (!pre) return;
+    const atBottom = pre.scrollHeight - pre.scrollTop - pre.clientHeight < 40;
+    pre.textContent = text;
+    // Follow the tail only if you were already at the bottom, so scrolling back to
+    // read something isn't yanked away by the next line.
+    if (atBottom) pre.scrollTop = pre.scrollHeight;
+  }
+
+  /* One card, one session. Folding a card closes the session inside it: its pane
+     belongs to a row that is about to be hidden, and a pane left "open" behind a
+     fold would reappear on its own when you came back. */
+  out.addEventListener('click', (ev) => {
+    const toggle = ev.target.closest('[data-card]');
+    if (toggle) {
+      const key = toggle.dataset.card;
+      state.card = state.card === key ? null : key;
+      state.session = null;
+      state.logText = '';
+      return render();
+    }
+    const row = ev.target.closest('[data-session]');
+    if (row) {
+      const pid = Number(row.dataset.session);
+      state.session = state.session === pid ? null : pid;
+      state.logText = '';
+      render();
+      // Don't make you wait two seconds for the first line.
+      if (state.session != null) pollLog();
+    }
+  });
 
   async function load() {
     pulse.classList.add('busy');
@@ -170,9 +351,15 @@
         const body = await res.json().catch(() => ({}));
         throw new Error(body.error || `HTTP ${res.status}`);
       }
-      const data = await res.json();
-      const cards = (data.workspaces || []).map(workspaceHtml).join('') + elsewhereHtml(data.elsewhere || []);
-      out.innerHTML = cards || '<div class="empty">No workspaces configured.</div>';
+      state.data = await res.json();
+      if (state.first) {
+        state.first = false;
+        // Unfold the busiest card, which is the first one — arriving at six closed
+        // headings would make the fold cost a tap on every visit for no reason.
+        state.card =
+          (state.data.workspaces || []).find((w) => w.working.length || (w.sessions || []).length)?.name || null;
+      }
+      render();
     } catch (err) {
       out.innerHTML = `<div class="empty"><strong>Can't reach the server</strong>${esc(err.message)}</div>`;
     } finally {
@@ -184,6 +371,9 @@
   // Cheap enough to keep current, expensive enough not to poll like the inbox:
   // two `bd` calls per workspace, about two seconds for six.
   setInterval(load, REFRESH_MS);
+  setInterval(() => {
+    if (state.session != null) pollLog();
+  }, LOG_MS);
 
   if (!token) {
     out.innerHTML = '<div class="empty"><strong>This device is not paired</strong>Open the inbox first.</div>';
