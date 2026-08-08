@@ -411,6 +411,159 @@ when you want it. A workspace that fails reports its error in place rather than
 vanishing from the list; a missing row would read as "nothing happening there",
 which is the one thing it doesn't mean.
 
+## Advocates — an agent per repo, whose job is the queue reaching zero
+
+Everything above is a **channel**. A question reaches your phone, an answer reaches
+the bead, a comment reaches an agent. None of it ever cared whether the work got
+done — so a repo could sit on nine ready beads for a fortnight, and the daemon that
+knew about all nine would say nothing, because none of them was labelled `human` and
+nobody had asked.
+
+An advocate is the missing party: one per repo, interested in nothing except *that*
+repo's queue reaching zero.
+
+```
+poll tick ──► bd ready (minus human, minus P4)
+                 │
+                 ├── something ready, a slot free ──► iTerm2 + claude on the bead
+                 │                                        │
+                 │                                   bd close ──► slot frees
+                 └── nothing ready ──► survey agent ──► "create these 3?" ──► your phone
+                                                                  │
+                                                     you tap create ──► bd create ×3
+```
+
+Turn them on by naming repos — the list is empty out of the box, because something
+that opens Claude sessions on your Mac unprompted should never be a surprise:
+
+```json
+"advocates": {
+  "workspaces": ["sophab", "beadcause"],
+  "maxWorkers": 1,
+  "maxWorkersLimit": 3,
+  "globalMaxWorkers": 3,
+  "perWorkspace": { "sophab": { "maxWorkers": 2 } }
+}
+```
+
+### It has no clock
+
+There is no schedule and no interval to tune. The daemon is already asking every
+workspace what is ready every `pollSeconds`, and *a bead becoming actionable* is the
+event worth waking for — so the advocates run on that same tick. Adding a timer would
+only mean two answers that can disagree. The tick runs **after** the pushes, so a slow
+`bd ready` across six workspaces can never delay a question reaching your phone.
+
+### What counts as work
+
+`bd ready`, which is already blocker-aware: it excludes `in_progress`, `blocked`,
+`deferred` and hooked issues, so an advocate never pushes at something only another
+bead can move. On top of that, two exclusions of our own:
+
+- **`human` beads are yours.** A question is not work an agent can do.
+- **P4 is a backlog** — a list of things deliberately not being done. Without this
+  the queue can never reach zero and "clear" stops meaning anything. Move the line
+  with `minPriority`.
+
+When that set is empty the advocate says **clear** and stops. That is the whole of
+"done".
+
+### One to three sessions, and never silently fewer
+
+`maxWorkers` is how many sessions one advocate may have open at once; it is clamped
+to `maxWorkersLimit` (default 3, and a config asking for six gets three *and a log
+line*, rather than failing to start). `globalMaxWorkers` caps every advocate
+together, so four repos each allowed 3 cannot open twelve windows.
+
+Whenever a cap is what stopped a launch, it says so — on the card and in the log —
+because a slot limit that quietly drops a launch reads exactly like an advocate that
+has decided there is nothing to do.
+
+Each session opens the same way the **Discuss** button does: a real iTerm2 window
+running `claude --permission-mode auto` in the repo, which means you can watch it,
+steer it, or close it. Its brief tells it to claim the bead first, to read and obey
+the repo's own `CLAUDE.md` (worktrees, tests, deploy — the daemon has no business
+knowing those), and to end in one of exactly two ways: closed, or handed back to you
+with the `human` label and a decision block. A session with no honest exit invents
+one, and the one it invents is "close it and hope".
+
+### It will not create beads
+
+Opening a session on a bead you filed needs no permission — you filed it. Filing a
+bead *for* you is a different act: it makes you answerable for something an agent
+thought of, and a tracker full of an agent's opinions is worse than an empty one.
+
+So when a repo runs out of ready work, the advocate spawns a **read-only** survey
+agent (`bd`, `git log`, read, grep — nothing that can write) which reads the recent
+closes, the blocked beads, the `## Discovered` notes sessions leave in comments, and
+the repo's own docs. If it finds nothing worth filing it says so and the advocate
+goes idle, which is a perfectly good outcome and one the prompt asks for explicitly.
+
+If it does find something, you get **one ordinary question in the inbox** carrying
+the entire text of every bead it wants — title, type, priority, the full
+description, what done looks like, and how it found it. Nothing is created until you
+press the button. Approving runs `bd create` for each, labelled `advocate`, and the
+answer comes back with the new ids in it.
+
+Consent is checked against the approval option's own response text (it starts with
+`CREATE:`), not against a button id — the phone and an ntfy action button both send
+back only text. So free text can never create a bead by accident: *"yeah go on then"*
+is a comment, which is exactly what it looks like. One open proposal per repo at a
+time, and at most one every `proposeCooldownHours`.
+
+### What you see, and where
+
+- **The sessions page** (🤖 in the inbox) grows an **Advocate** block on each repo's
+  card: what it is doing, the beads it has windows open on, what it will pick up
+  next, and **Pause** / **Free slots**. *Free slots* is for "I closed those windows
+  myself" — the sessions belong to iTerm, so nothing here can see them go.
+- **The monitor** (`npm run monitor`) has an advocates pane above the questions, and
+  every launch, close, lapse and proposal appears in its event log.
+- **The launchd log** (`~/Library/Logs/beadcause.log`) carries the same events as
+  `[advocate] <repo>: …` lines, and the startup banner names every repo that has one
+  with the number of sessions it may open.
+
+### How a session ends, and the parts that stay guesses
+
+The command is typed into an interactive shell, so when `claude` exits you get a
+prompt back and the window sits there forever — fine for the one you opened to talk
+something through, useless for an advocate that will open dozens. So a **work**
+session's command ends with two extra things: its exit status written to
+`~/.config/beadcause/workers/<repo>-<bead>.done`, and `exit`, which ends the shell
+and lets iTerm close the window behind it.
+
+The file is the more valuable half. Without it the daemon can only *infer* that a
+session finished; with it, three endings stop looking alike:
+
+| the file appears and… | reading |
+|---|---|
+| the bead is closed | **done** — the slot frees, the attempt counter resets |
+| the bead carries `human` | **handed back to you** — a documented ending, so it costs no attempt |
+| neither | **exited unfinished** — costs an attempt, and the exit code is logged |
+
+Everything else really is inference, and is treated as such. Nothing on the Mac
+records which process is on which bead; an advocate knows it *opened a window* for
+a bead, and that is all it knows. So:
+
+- The bead is the evidence. Claimed means started; closed means done.
+- A window closed by hand kills its shell with a SIGHUP before it can write
+  anything, so the guess is kept as a fallback: a bead never claimed, with nothing
+  running in that repo, is treated as closed-by-hand after `lapseMinutes` — the slot
+  frees and the bead costs an attempt. After `maxAttemptsPerBead` the advocate
+  leaves it alone rather than reopening the same window forever.
+- A pid is shown only where the session took the bead id into its own name, which
+  the brief asks it to do. Where it didn't, the row says when the window was opened
+  and nothing more.
+
+### Stopping it
+
+Pause from the phone, per repo. `advocates.enabled: false` stops all of them.
+Removing a repo from `workspaces` stops that one. A space with `"advocate": false`
+vetoes every workspace in it, the same way it can veto auto-dispatch — which is the
+setting that keeps applying as you add repos to a shared space, instead of being
+forgotten. A quiet space's advocate **watches without launching**: the same asymmetry
+as the notifications, where quiet means "not into my evening", never "hidden".
+
 ## The Android app
 
 A native shell around the same PWA, in `android/`. It exists for the four things a
@@ -667,7 +820,10 @@ Auth on everything under `/api/` except `/api/health`: header
 | GET | `/doc` | `?p=<abs path>` | the HTML reader page |
 | GET | `/api/graph` | `?workspace=&id=` | `{nodes, links}` — the whole workspace with no `id` |
 | GET | `/api/bead` | `?workspace=&id=` | one issue in full, plus `comments[]` — for the graph's detail sheet |
-| GET | `/api/work` | — | `{workspaces[], elsewhere[]}` — per workspace: claimed beads, live `claude` sessions, counts, errors |
+| GET | `/api/work` | — | `{workspaces[], elsewhere[], advocates[]}` — per workspace: claimed beads, live `claude` sessions, counts, errors |
+| GET | `/api/advocates` | — | `{advocates[]}` — per repo: queue, open sessions, note, error |
+| POST | `/api/advocate` | `{workspace, action}` | `pause` · `resume` · `release` (free the slots) · `forget` (clear attempt counters) |
+| GET | `/api/advocate-log` | `?workspace=` | the survey agent's transcript, as the CLI would have shown it |
 | GET | `/sessions`, `/work` | — | the current-sessions page (same page, two paths) |
 | GET | `/graph` | `?ws=&id=` | the HTML graph page |
 
@@ -694,6 +850,17 @@ decision block and only means anything for a `human` bead.
 | `autoDispatch` | commenting spawns an unattended agent to reply (default `true`) |
 | `autoDispatchExclude` | workspaces that never auto-dispatch — put shared trackers here |
 | `autoDispatchTimeoutMs` | kill a dispatched agent after this long (default 10 min) |
+| `advocates.workspaces` | which repos get an [advocate](#advocates--an-agent-per-repo-whose-job-is-the-queue-reaching-zero). **Empty by default**; `["*"]` for every one |
+| `advocates.maxWorkers` | sessions one advocate may have open at once (default 1), clamped to `maxWorkersLimit` |
+| `advocates.maxWorkersLimit` | the ceiling that clamps it (default 3). A larger `maxWorkers` is clamped **and logged**, never silently applied |
+| `advocates.globalMaxWorkers` | across every advocate (default 3), so four repos can't open twelve windows |
+| `advocates.perWorkspace` | per-repo overrides, e.g. `{"sophab": {"maxWorkers": 2}}` |
+| `advocates.minPriority` | beads above this priority aren't work (default 3 — P4 is a backlog) |
+| `advocates.propose` | ask to create beads when the queue empties (default `true`; **nothing is ever created without your approval**) |
+| `advocates.proposeCooldownHours` | at most one ask per repo per this many hours (default 12) |
+| `advocates.settleSeconds` | how long a new bead sits before a session opens on it (default 60) |
+| `advocates.lapseMinutes`, `advocates.maxAttemptsPerBead` | when an unclaimed window is treated as gone, and how many times one bead may be retried |
+| `advocates.respectQuietHours` | a quiet space's advocate watches without launching (default `true`) |
 | `spaces` | groups of workspaces sharing a notification policy — see [Spaces](#spaces--keeping-work-out-of-your-evening) |
 | `claudeSessions` | `false` to stop reading `~/.claude/sessions` for the current-sessions page (default on; absent directory is not an error) |
 | `claudeSessionsDir` | where those per-process records live, if not `$CLAUDE_CONFIG_DIR/sessions` or `~/.claude/sessions` |

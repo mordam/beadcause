@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { loadConfig, CONFIG_PATH } from '../lib/config.js';
 import { createApp, startPoller, listen } from '../lib/server.js';
+import { advocatedWorkspaces, workerLimit } from '../lib/advocate.js';
 
 const cfg = loadConfig();
 const setupUrl = `${cfg.baseUrl}/?t=${cfg.token}`;
@@ -63,6 +64,15 @@ const poller = startPoller(cfg, app);
 
 console.log(`[beadcause] config      ${CONFIG_PATH}`);
 console.log(`[beadcause] workspaces  ${cfg.workspaces.map((w) => w.name).join(', ')}`);
+// Say it at startup, in the log launchd keeps: an advocate opens Claude sessions
+// on this Mac without being asked, so which repos have one — and how many windows
+// each may open — is the first thing anyone reading this log wants to know.
+const advocated = advocatedWorkspaces(cfg).map((w) => `${w.name}\u00d7${workerLimit(cfg, w.name).limit}`);
+console.log(
+  `[beadcause] advocates   ${
+    advocated.length ? `${advocated.join(', ')} (max ${cfg.advocates?.globalMaxWorkers ?? 3} sessions in total)` : '(none — advocates.workspaces is empty)'
+  }`
+);
 console.log(`[beadcause] ntfy topic  ${cfg.ntfy.enabled ? cfg.ntfy.topic : '(disabled)'}`);
 console.log(`[beadcause] phone URL   ${cfg.baseUrl}/?t=${cfg.token}`);
 
