@@ -330,7 +330,14 @@ try {
   );
   if (L.up) {
     check('room for three across', L.fitsAcross >= 3, `${L.fitsAcross} bead widths across the glass`);
-    check('reticle names a bead', !!L.label, L.label || 'nothing under the glass');
+    // A gap in the layout can legitimately land under the reticle, and then the
+    // HUD says so — which is a non-empty label naming nothing. Assert only when
+    // there is actually something under the glass to name.
+    check(
+      'reticle names a bead',
+      L.inGlass === 0 || L.reticled,
+      L.reticled ? L.label : `nothing under the glass (${L.inGlass} beads inside it, none within reach of the reticle)`
+    );
   }
   if (ID) check('opened onto that bead', (L.label || '').startsWith(ID), L.label ? `glass holds ${L.label.slice(0, 40)}` : 'nothing under the glass');
 
@@ -358,7 +365,10 @@ try {
   // nobody is looking at, and would select the wrong bead.
   const spot = await evalJs(s, `(() => {
     const scene = document.querySelector('#scene');
-    const ret = document.querySelector('g.gn.reticled') || document.querySelector('g.gn');
+    // The bead the brackets are on, or failing that the one nearest the middle
+    // that is genuinely inside the glass. Tapping a bead outside it would be
+    // aiming at something the magnification does not apply to.
+    const ret = document.querySelector('g.gn.reticled');
     if (!ret) return null;
     const box = document.getElementById('graph-main').getBoundingClientRect();
     const t = scene.getAttribute('transform') || '';
@@ -382,6 +392,8 @@ try {
     await tap(s, spot[0], spot[1]);
     const tapped = await evalJs(s, PROBE);
     check('tap raises the card', !tapped.cardHidden, tapped.cardHidden ? 'card stayed hidden' : `"${(tapped.cardTitle || '').slice(0, 34)}"`);
+  } else {
+    console.log('  --   tap raises the card        skipped: no bead under the reticle to tap');
   }
 
   console.log(failures ? `\n${failures} check${failures === 1 ? '' : 's'} failed.\n` : '\nAll checks passed.\n');
