@@ -402,29 +402,80 @@ body {
 .primary:disabled, .secondary:disabled { opacity: 0.45; }
 
 /*
-  "Discuss in a Claude session" — deliberately not styled like the two above it.
-  Those write to the bead; this one just opens a terminal on the Mac and changes
-  nothing here, so it reads as a quieter, dashed affordance rather than a third
-  answer button competing for the same tap.
+  An open card's corner controls, hard right in both corners: the ⋮ and, beside it,
+  the way out. Right because that is the side a thumb reaches on a phone, and the
+  same side in both corners so collapsing is one habit rather than two.
 */
-.discuss {
-  display: flex; align-items: center; justify-content: center; gap: 8px;
-  width: 100%; min-height: var(--tap);
-  border: 1px dashed var(--line); border-radius: 11px;
+.card-top { display: flex; justify-content: flex-end; align-items: center; gap: 8px; padding: 12px 15px 0; }
+/* The head brings its own top padding; with a row above it that reads as a gap. */
+.card-top + .card-head { padding-top: 6px; }
+.agent-card .card-top { padding: 10px 14px 0; }
+
+.kebab {
+  flex: none;
+  width: var(--tap); min-height: var(--tap);
+  border: 1px solid var(--line); border-radius: 999px;
   background: transparent; color: var(--muted);
-  font: inherit; font-weight: 550; font-size: 14px;
+  font: inherit; font-size: 18px; line-height: 1;
   cursor: pointer;
 }
-.discuss .glyph {
+.kebab.on { background: var(--surface-2); color: var(--text); }
+
+/*
+  Everything that is neither reading nor answering. "Discuss in a Claude session"
+  opens a terminal on the Mac and writes nothing here, so it never belonged beside
+  Answer & close — as a full-width button under the answer box it read as a third
+  way to answer. Behind the ⋮ it is one tap further away and says what it is.
+*/
+.menu-wrap { position: relative; }
+.menu {
+  position: absolute; top: calc(100% + 6px); right: 0; z-index: 50;
+  min-width: max-content; max-width: min(78vw, 340px);
+  padding: 5px;
+  border: 1px solid var(--line); border-radius: 12px;
+  background: var(--surface);
+  box-shadow: 0 10px 28px rgb(0 0 0 / 0.28);
+}
+.menu-item {
+  display: flex; align-items: center; gap: 8px;
+  width: 100%; min-height: var(--tap);
+  padding: 0 12px;
+  border: 0; border-radius: 9px;
+  background: transparent; color: var(--text);
+  font: inherit; font-weight: 550; font-size: 14px;
+  text-align: left; white-space: nowrap;
+  cursor: pointer;
+}
+.menu-item:active { background: var(--surface-2); }
+.menu-item:disabled { opacity: 0.55; }
+.menu-item .glyph {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-weight: 700; letter-spacing: -0.5px;
   color: var(--accent);
 }
-.discuss:disabled { opacity: 0.55; }
+
+/*
+  The head's identifying line, said again at the foot: workspace, id, priority,
+  what is blocked, and the question. Same facts, quieter — a caption under a long
+  brief rather than a second headline competing with the real one at the top.
+*/
+.card-foot {
+  margin: 20px 0 4px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+.card-foot .meta { margin-bottom: 6px; }
+.card-foot .q {
+  font-size: 15px; font-weight: 570; line-height: 1.35;
+  color: var(--prose);
+  margin: 0;
+}
+.card-foot .subtitle { margin: 3px 0 0; font-size: 12.5px; }
 
 /* The way out at the foot of a long brief. A pill, not a full-width bar, so it
-   doesn't read as a third action competing with Answer / Comment above it. */
-.collapse-row { display: flex; justify-content: center; margin: 2px 0 4px; }
+   doesn't read as a third action competing with Answer / Comment above it — and
+   right-aligned, under the one in the top corner. */
+.collapse-row { display: flex; justify-content: flex-end; margin: 2px 0 8px; }
 .collapse {
   min-height: var(--tap);
   padding: 0 20px;
@@ -774,11 +825,12 @@ body {
     grid-template-columns: minmax(240px, 33%) 1fr;
     /*
       The trailing 1fr is a spacer that swallows the slack when the brief is the
-      taller side — without it the three left-hand rows stretch apart to meet it.
+      taller side — without it the left-hand rows stretch apart to meet it.
     */
-    grid-template-rows: auto auto auto 1fr;
+    grid-template-rows: auto auto auto auto 1fr;
   }
 
+  .card:has(> .brief:not([hidden])) > .card-top,
   .card:has(> .brief:not([hidden])) > .card-head,
   .card:has(> .brief:not([hidden])) > .options,
   .card:has(> .brief:not([hidden])) > .actions { grid-column: 1; }

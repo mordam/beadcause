@@ -29,6 +29,9 @@
     logs: new Set(),
     logText: new Map(),
     logTimer: null,
+    // Key of the card whose ⋮ menu is showing. At most one, and it is deliberately
+    // opened and closed by DOM surgery rather than render() — see closeMenu().
+    menu: null,
   };
 
   /* ---------------------------------------------------------------- token */
@@ -292,6 +295,70 @@
     </div>`;
   }
 
+  /**
+   * The corner controls an open card carries: the kebab, and collapse — hard right.
+   *
+   * A card only grows these once it is open, because closed it is a row in a list
+   * and has nothing to collapse. Both corners get a way out: the top one is where
+   * your thumb already is when the card opens, the bottom one is where you land
+   * after reading a brief with a diagram and a thread in it.
+   *
+   * Everything that is neither reading nor answering lives behind the kebab — the
+   * card is a question, and a third full-width button under the answer box read as
+   * a third way to answer it.
+   */
+  function cardTopHtml(q) {
+    const on = state.menu === q.key;
+    return `<div class="card-top">
+      <div class="menu-wrap">
+        <button class="kebab${on ? ' on' : ''}" data-act="menu" data-key="${esc(q.key)}"
+          aria-haspopup="true" aria-expanded="${on}" aria-label="More actions">⋮</button>
+        ${on ? menuHtml(q.key) : ''}
+      </div>
+      <button class="collapse" data-act="collapse" data-key="${esc(q.key)}">↑ Collapse</button>
+    </div>`;
+  }
+
+  /**
+   * The same identifying line the card opens with, repeated at its foot.
+   *
+   * A brief can run several screens — a diagram, a spec, a thread — and by the time
+   * you reach the answer box the workspace, the id and the question itself are far
+   * above you. Answering the wrong bead is the expensive mistake here, so the foot
+   * says which one this is rather than making you scroll up to check.
+   *
+   * Quieter than the head on purpose: the same facts, second time, as a caption.
+   */
+  function cardFootHtml(q) {
+    const time = q.agent ? q.since : q.createdAt;
+    const sub = q.agent
+      ? [q.type, q.actor].filter(Boolean).map(esc).join(' · ')
+      : q.question && q.title !== q.question
+        ? esc(q.title)
+        : '';
+    return `<div class="card-foot">
+      <div class="meta">
+        <span class="pill">${esc(q.workspace)}</span>
+        <span class="pill id">${esc(q.id)}</span>
+        ${q.priority != null ? `<span class="pill p${q.priority}">P${q.priority}</span>` : ''}
+        ${q.agent ? `<span class="pill st-${esc(q.status)}">${esc(STATUS_LABEL[q.status] || q.status)}</span>` : ''}
+        ${q.dependentCount ? `<span class="pill">blocks ${q.dependentCount}</span>` : ''}
+        <time>${esc(relTime(time))}</time>
+      </div>
+      <p class="q">${esc(q.question || q.title)}</p>
+      ${sub ? `<p class="subtitle">${sub}</p>` : ''}
+    </div>`;
+  }
+
+  /** What is behind the kebab. One item today; it is the menu that is the point. */
+  function menuHtml(key) {
+    return `<div class="menu" role="menu">
+      <button class="menu-item" role="menuitem" data-act="discuss" data-key="${esc(key)}">
+        <span class="glyph">&gt;_</span> Discuss in a Claude session on the Mac
+      </button>
+    </div>`;
+  }
+
   function cardHtml(q) {
     if (q.agent) return agentCardHtml(q);
     const d = q.decision;
@@ -324,6 +391,7 @@
     return `<article class="card${open ? ' open' : ''}${q.awaitingAgent ? ' replied' : ''}" id="card-${cardId(
       q.key
     )}" data-key="${esc(q.key)}">
+      ${open ? cardTopHtml(q) : ''}
       <div class="card-head">
         <div class="meta">
           <span class="pill">${esc(q.workspace)}</span>
@@ -378,6 +446,7 @@
   function agentCardHtml(q) {
     const open = state.open.has(q.key);
     return `<article class="card agent-card" id="card-${cardId(q.key)}" data-key="${esc(q.key)}">
+      ${open ? cardTopHtml(q) : ''}
       <div class="card-head">
         <div class="meta">
           <span class="pill">${esc(q.workspace)}</span>
@@ -421,13 +490,10 @@
       parts.push(`<div class="comments">${q.comments.map(commentHtml).join('')}</div>`);
     }
 
-    // The one action. Nothing on this card writes to the bead, so the way to act on
-    // it is a session that can.
-    parts.push(`<div class="freeform">
-      <button class="discuss" data-act="discuss" data-key="${esc(q.key)}">
-        <span class="glyph">&gt;_</span> Discuss in a Claude session on the Mac
-      </button>
-    </div>`);
+    // Nothing on this card writes to the bead, so the way to act on it is a session
+    // that can — and that lives behind the kebab in the corner, with everything else
+    // that isn't reading.
+    parts.push(cardFootHtml(q));
 
     parts.push(`<div class="collapse-row">
       <button class="collapse" data-act="collapse" data-key="${esc(q.key)}">↑ Collapse</button>
@@ -508,14 +574,13 @@
         <button class="primary" data-act="answer" data-key="${esc(q.key)}">Answer &amp; close</button>
         <button class="secondary" data-act="note" data-key="${esc(q.key)}">Comment only</button>
       </div>
-      <button class="discuss" data-act="discuss" data-key="${esc(q.key)}">
-        <span class="glyph">&gt;_</span> Discuss in a Claude session on the Mac
-      </button>
     </div>`);
 
-    // A second way out, at the end of the brief. The toggle in the card head is the
-    // only one otherwise, and after reading a long brief with diagrams and a thread
-    // it is several screens above you.
+    parts.push(cardFootHtml(q));
+
+    // A second way out, at the end of the brief — under the one in the top corner,
+    // which after a long brief with diagrams and a thread is several screens above
+    // you. Both sit hard right, so collapsing is the same corner either way.
     parts.push(`<div class="collapse-row">
       <button class="collapse" data-act="collapse" data-key="${esc(q.key)}">↑ Collapse</button>
     </div>`);
@@ -806,13 +871,48 @@
     render(true);
   }
 
+  /**
+   * Shut the ⋮ menu without a render().
+   *
+   * The menu can be open over a half-typed answer — that is the whole reason
+   * `discuss` never re-renders — so opening and closing it is DOM surgery on the
+   * one popover, not a rebuild of the list. `state.menu` still exists so that a
+   * refresh landing while the menu is open paints it back.
+   */
+  function closeMenu() {
+    state.menu = null;
+    for (const m of listEl.querySelectorAll('.menu')) m.remove();
+    for (const k of listEl.querySelectorAll('.kebab.on')) {
+      k.classList.remove('on');
+      k.setAttribute('aria-expanded', 'false');
+    }
+  }
+
+  // A tap anywhere that isn't the menu or its button dismisses it. This runs after
+  // the list's own handler below, so opening the menu doesn't immediately close it.
+  document.addEventListener('click', (ev) => {
+    if (state.menu && !ev.target.closest('.menu-wrap')) closeMenu();
+  });
+
   listEl.addEventListener('click', async (ev) => {
     const btn = ev.target.closest('[data-act]');
     if (!btn) return;
     const key = btn.dataset.key;
     const act = btn.dataset.act;
 
+    if (act === 'menu') {
+      const wasOpen = state.menu === key;
+      closeMenu();
+      if (wasOpen) return;
+      state.menu = key;
+      btn.classList.add('on');
+      btn.setAttribute('aria-expanded', 'true');
+      btn.parentElement.insertAdjacentHTML('beforeend', menuHtml(key));
+      return;
+    }
+
     if (act === 'toggle') {
+      closeMenu();
       disarm();
       paintArmed();
       if (state.open.has(key)) {
@@ -829,6 +929,7 @@
     // from above you and leaves the scroll position pointing at whatever card
     // happens to have slid up into it.
     if (act === 'collapse') {
+      closeMenu();
       disarm();
       paintArmed();
       state.open.delete(key);
@@ -880,6 +981,7 @@
       } finally {
         btn.disabled = false;
         btn.innerHTML = label;
+        closeMenu();
       }
       return;
     }
