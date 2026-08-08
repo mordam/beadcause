@@ -10,6 +10,16 @@
  * - **A node is a way in, not a label.** bd's 130x40 boxes truncate every title.
  *   Tapping one here opens a card you can actually read, and that card opens the
  *   whole bead in a sheet.
+ *
+ * The third thing, and the reason for the marks below: a graph where every node is
+ * drawn the same way can only tell you what exists. Three channels separate what is
+ * happening from that, and they are deliberately three different channels so none of
+ * them can be mistaken for another:
+ *
+ * - **colour** is status, as it always was — the outline and the left bar.
+ * - **motion** is now: a claimed bead pulses, and nothing else on the page moves.
+ * - **contrast** is recency: what moved inside this session stays bright and carries
+ *   a bar under its top edge, and the rest fades back.
  */
 (() => {
   'use strict';
@@ -60,6 +70,33 @@
 
   const esc = (s) =>
     String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+
+  /* ------------------------------------------------------------------ ages */
+
+  // Every age on this page is measured from the *server's* clock, sent with the
+  // graph. The `moved` marks were decided server-side against the same instant, so
+  // a phone a few minutes fast would otherwise print "2m" beside a bead the server
+  // had already ruled too old to mark — the label and the mark disagreeing about
+  // the same bead.
+  let now = Date.now();
+  // How far back "moved" was measured, as an age. Printed alongside the count,
+  // because the count alone is not interpretable: "28 moved" reads as alarming or as
+  // nothing at all depending on whether the window was ten minutes or a day, and a
+  // session left open overnight makes the second one entirely possible.
+  let movedWindow = '';
+
+  /** Compact age. The badge on a node has room for three characters, not "3 hours ago". */
+  const ago = (iso) => {
+    const t = Date.parse(iso || '');
+    if (!Number.isFinite(t)) return '';
+    const m = Math.round((now - t) / 60000);
+    if (m < 1) return '<1m';
+    if (m < 60) return `${m}m`;
+    const h = Math.round(m / 60);
+    if (h < 24) return `${h}h`;
+    const d = Math.round(h / 24);
+    return d < 7 ? `${d}d` : `${Math.round(d / 7)}w`;
+  };
 
   /* ----------------------------------------------------------------- api */
 
@@ -170,7 +207,12 @@
     const entered = node
       .enter()
       .append('g')
-      .attr('class', 'gn arrive')
+      // `now` is a bead an agent has claimed, `moved` one touched inside this
+      // session. Both are styled in style.css rather than here, so a node's state is
+      // one class instead of a pile of attributes to keep in sync — and so the
+      // pulse can be a CSS animation, which the arrive animation already proved is
+      // the only kind that survives on this page.
+      .attr('class', (d) => `gn arrive${d.status === 'in_progress' ? ' now' : ''}${d.moved ? ' moved' : ''}`)
       .style('cursor', 'pointer')
       .on('click', (e, d) => {
         e.stopPropagation();
@@ -238,6 +280,38 @@
       .attr('font-family', 'ui-monospace, SFMono-Regular, Menlo, monospace')
       .text((d) => d.id);
 
+    // Touched inside this session: a bar under the top edge, clear of every glyph on
+    // the node. Drawn in `--text` rather than an accent because every colour here
+    // already means a status, and `--text` is the one bright value that means none of
+    // them — so it can't be misread as one.
+    //
+    // *Inside* the box rather than riding the edge: a claimed bead's outline swells to
+    // 4px as it pulses, and a bar sitting on the edge spent half of every cycle
+    // underneath it. The 3px inset clears the widest the stroke ever gets.
+    entered
+      .filter((d) => d.moved)
+      .append('rect')
+      .attr('class', 'gn-moved')
+      .attr('x', -NODE_W / 2 + 10)
+      .attr('y', -NODE_H / 2 + 3)
+      .attr('width', NODE_W - 20)
+      .attr('height', 2.5)
+      .attr('rx', 1.5)
+      .attr('fill', css('--text', '#e6edf5'));
+
+    // Bottom right: who is on it while someone is, how stale it is the rest of the
+    // time. The pulse already says "now", so spending the only spare room on the node
+    // repeating that would buy nothing — where "claimed six hours ago by whom" and
+    // "untouched for three weeks" are both things you can only learn here.
+    entered
+      .append('text')
+      .attr('class', 'gn-badge')
+      .attr('x', NODE_W / 2 - 8)
+      .attr('y', 12)
+      .attr('text-anchor', 'end')
+      .attr('fill', (d) => (d.status === 'in_progress' ? statusColor(d.status) : css('--muted', '#8ba0b6')))
+      .attr('font-size', 8.5)
+      .text((d) => (d.status === 'in_progress' ? clip(d.actor || 'claimed', 10) : ago(d.updated_at)));
   }
 
   const clip = (s, n) => (String(s).length > n ? String(s).slice(0, n - 1) + '…' : String(s));
@@ -249,6 +323,23 @@
     timer = null;
   }
 
+  /** Is any of this live? Decides whether the summary is worth keeping on screen. */
+  const inFlight = (all) => all.some((n) => n.status === 'in_progress' || n.moved);
+
+  /**
+   * The one line this view exists to produce: how big the graph is, and how much of
+   * it is actually moving. It replaces the growth counter in place, because by the
+   * time the count stops being interesting this is what you wanted from it.
+   */
+  function summarise(all) {
+    const working = all.filter((n) => n.status === 'in_progress').length;
+    const moved = all.filter((n) => n.moved).length;
+    const bits = [`${all.length} bead${all.length === 1 ? '' : 's'}`];
+    if (working) bits.push(`${working} being worked`);
+    if (moved) bits.push(movedWindow ? `${moved} moved in ${movedWindow}` : `${moved} moved`);
+    return bits.join(' · ');
+  }
+
   /**
    * Reveal the graph five beads at a time.
    *
@@ -258,6 +349,10 @@
    * otherwise d3 would throw on a missing node id.
    */
   function grow(all, allLinks) {
+    // Fading the untouched is only meaningful when something *was* touched, so the
+    // switch for it goes on the container and the rule that dims is scoped to it.
+    gNodes.classed('has-moved', all.some((n) => n.moved));
+
     const queue = all
       .slice()
       .sort((a, b) => (a.layer ?? 0) - (b.layer ?? 0) || (a.priority ?? 9) - (b.priority ?? 9) || a.id.localeCompare(b.id));
@@ -315,8 +410,11 @@
       if (!queue.length) {
         stop();
         growthPause.hidden = true;
-        growthText.textContent = `${all.length} bead${all.length === 1 ? '' : 's'}`;
-        setTimeout(() => (growth.hidden = true), 1600);
+        growthText.textContent = summarise(all);
+        // The counter was only ever a loading state and got out of the way. The
+        // summary is an answer, so it stays — but a graph with nothing live in it has
+        // no answer to keep, and the old behaviour is right for that one.
+        if (!inFlight(all)) setTimeout(() => (growth.hidden = true), 1600);
       }
     };
 
@@ -343,7 +441,35 @@
     p.textContent = d.priority != null ? `P${d.priority}` : '';
     p.hidden = d.priority == null;
     $('card-title').textContent = d.title || '';
-    $('card-deps').textContent = d.type ? d.type.replace('_', ' ') : '';
+
+    // The live line — who, for how long, doing what, and whether it moved inside this
+    // session. Every part is optional and a bead nobody is on shows none of them: an
+    // empty row of labels would take up the space and say less than nothing.
+    const live = [];
+    if (d.status === 'in_progress') {
+      const who = d.actor ? `${d.actor} on it` : 'claimed';
+      live.push(d.started_at ? `▸ ${who} for ${ago(d.started_at)}` : `▸ ${who}`);
+    }
+    if (d.phase) live.push(`${d.icon || '•'} ${d.phase.replace('_', ' ')}${d.detail ? ` — ${clip(d.detail, 44)}` : ''}`);
+    if (d.moved) {
+      const a = ago(d.updated_at);
+      live.push(a === '<1m' ? 'moved just now' : `moved ${a} ago`);
+    }
+    const liveEl = $('card-live');
+    liveEl.textContent = live.join(' · ');
+    liveEl.hidden = !live.length;
+
+    // The shape line: what kind of bead, what it holds up, and how long it has been
+    // waiting. `blocks 3` on something nobody has touched in a month is the case this
+    // is here to make visible.
+    const meta = [];
+    if (d.type) meta.push(d.type.replace('_', ' ').replace(/^./, (c) => c.toUpperCase()));
+    if (d.blocks) meta.push(`blocks ${d.blocks}`);
+    if (d.waits) meta.push(`waits on ${d.waits}`);
+    if (d.comments) meta.push(`${d.comments} comment${d.comments === 1 ? '' : 's'}`);
+    if (d.created_at) meta.push(`${ago(d.created_at)} old`);
+    $('card-deps').textContent = meta.join(' · ');
+
     card.hidden = false;
     placeCard();
   }
@@ -473,6 +599,17 @@
       emptyEl.innerHTML = `<strong>Nothing open here</strong>${esc(workspace)} has no open issues to draw.`;
       return;
     }
+
+    now = Date.parse(data.now) || Date.now();
+    movedWindow = ago(data.since);
+    // Where that window came from. The server picks the cut-off and says how it chose,
+    // because "this session" and "recently" are different claims and only one of them
+    // is true at a time.
+    growth.title =
+      data.sinceKind === 'session'
+        ? `Moved = touched since the oldest live session in this workspace started, ${movedWindow} ago`
+        : `Moved = touched in the last ${movedWindow} — no session is running here`;
+
     grow(data.nodes, data.links);
   }
 
