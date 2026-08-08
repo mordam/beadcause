@@ -897,6 +897,34 @@ bead that already exists (`dependsOn: [bc-7rx]`), which is how "this waits on th
 we started from" is written; those are checked against the tracker before anything is
 written, so a made-up id costs a warning rather than a half-created proposal.
 
+### A console ends when the beads exist
+
+A console is a conversation with one purpose, and pressing **Create** achieves it. So
+accepting closes it and drops you back to the list — there is nothing left to say to
+a conversation whose whole subject is now three rows in the tracker, and a list where
+every finished one stays open is a list you read past to find the one that isn't.
+
+Closing is **soft**. The transcript stays on disk, the id keeps working, and saying
+anything to a closed console reopens it — "one more thing" is a normal thought to
+have five minutes later, and a dead end you can navigate to and not use is worse than
+a row you close twice. The unspent draft *is* dropped, because cards left on screen
+after a close are an invitation to create them twice.
+
+- **✕ on any row** in the list closes it by hand — for the conversations that end by
+  going nowhere rather than by filing anything. The ✕ and the row are siblings, not
+  nested, so closing a console can never also open it.
+- **Closed rows sink** below the live ones, dimmed, with a `closed` pill.
+- **Warnings keep it open.** A create that reports one — a parent that does not
+  exist, a dependency it could not resolve — leaves you on the screen that produced
+  it. Dropping to the list would take the warning away before it was read.
+- **Refused mid-turn**, with a `409` that says so: a console that is `thinking` has an
+  agent streaming into it, and a reply arriving into something the list calls
+  finished is worse than closing it twice.
+
+Both the close and the reopen appear in the scrollback as quiet divider lines. They
+belong in the history, but rendering them in an assistant bubble would read as
+something the agent said.
+
 ### What it costs you to know
 
 - **The agent cannot write to the tracker.** Its allowlist is read-only `bd` plus
@@ -1183,7 +1211,8 @@ Auth on everything under `/api/` except `/api/health`: header
 | GET | `/api/session-archive` | `?workspace=&commit=&file=` | one archived `session.log`, `meta.json` or `transcript.jsonl` |
 | GET | `/sessions`, `/work` | — | the current-sessions page (same page, two paths) |
 | GET | `/graph` | `?ws=&id=` | the HTML graph page |
-| GET | `/api/consoles` | — | `{consoles[], workspaces[]}` — every bead console, newest first |
+| GET | `/api/consoles` | — | `{consoles[], workspaces[]}` — every bead console, newest first; `closedAt` set on the finished ones |
+| POST | `/api/console/close` | `{id}` | soft-closes it and returns the new list. `409` mid-turn; saying anything to it reopens it |
 | POST | `/api/console` | `{workspace, seed?}` | `{id, console}` — opens one; a `seed` bead auto-starts the first turn |
 | GET | `/api/console` | `?id=` | the whole console: messages, draft, created beads |
 | POST | `/api/console/message` | `{id, text}` | starts a turn and returns — follow it on `/api/console/poll` |
