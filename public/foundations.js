@@ -171,7 +171,7 @@
   async function loadAgent() {
     const q = new URLSearchParams({ id: state.id });
     if (state.workspace) q.set('workspace', state.workspace);
-    const data = await api(`/api/agent?${q}`);
+    const data = await api(`/api/foundation?${q}`);
     state.agent = data.agent;
     state.workspace = data.workspace;
     renderDetail();
@@ -184,7 +184,7 @@
     $('#title').textContent = a.title;
     $('#ws-btn').hidden = false;
     $('#ws-btn').textContent = `📁 ${state.workspace}`;
-    $('#back').setAttribute('href', '/agents');
+    $('#back').setAttribute('href', '/foundations');
 
     for (const t of document.querySelectorAll('.tab')) {
       const on = t.dataset.tab === state.tab;
@@ -319,7 +319,7 @@
         const why = $('#save-why').value.trim();
         if (!why) return toast('A justification is required — that is the point of the history.', true);
         try {
-          const out = await api('/api/agent/foundation', {
+          const out = await api('/api/foundation/amend', {
             method: 'POST',
             body: JSON.stringify({ id: state.agent.id, workspace: state.workspace, set: state.edits, justification: why }),
           });
@@ -558,7 +558,7 @@
   async function start() {
     try {
       const q = state.workspace ? `?workspace=${encodeURIComponent(state.workspace)}` : '';
-      const data = await api(`/api/agents${q}`);
+      const data = await api(`/api/foundations${q}`);
       state.agents = data.agents;
       state.workspace = data.workspace;
       state.workspaces = data.workspaces || [];

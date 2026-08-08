@@ -2,6 +2,8 @@
 import { loadConfig, CONFIG_PATH } from '../lib/config.js';
 import { createApp, startPoller, listen } from '../lib/server.js';
 import { advocatedWorkspaces, workerLimit } from '../lib/advocate.js';
+import { attachTerminalSocket } from '../lib/termsocket.js';
+import { shutdownTerminals, startTerminalReaper, terminalsEnabled } from '../lib/terminal.js';
 
 const cfg = loadConfig();
 const setupUrl = `${cfg.baseUrl}/?t=${cfg.token}`;
@@ -61,6 +63,11 @@ if (!cfg.workspaces.length) {
 const app = createApp(cfg);
 const servers = listen(cfg, app.handler);
 const poller = startPoller(cfg, app);
+// The in-app terminal rides the same servers, on the HTTP upgrade path. Awaited
+// because `ws` is imported dynamically — an install that hasn't run `npm install`
+// since this landed loses the terminal and keeps everything else.
+await attachTerminalSocket(cfg, servers);
+const reaper = terminalsEnabled(cfg) ? startTerminalReaper(cfg) : null;
 
 console.log(`[beadcause] config      ${CONFIG_PATH}`);
 console.log(`[beadcause] workspaces  ${cfg.workspaces.map((w) => w.name).join(', ')}`);
@@ -78,6 +85,11 @@ console.log(`[beadcause] phone URL   ${cfg.baseUrl}/?t=${cfg.token}`);
 
 const shutdown = () => {
   clearInterval(poller);
+  if (reaper) clearInterval(reaper);
+  // A pty that outlived the daemon has nothing left to relay it anywhere, and it
+  // holds a Claude session open against the tracker. Outliving a *socket* is the
+  // point; outliving the process that owns the registry is just a leak.
+  shutdownTerminals();
   servers.forEach((s) => s.close());
   process.exit(0);
 };

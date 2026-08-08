@@ -27,10 +27,16 @@
            for it and nothing here can go stale with the view. -->
       <!-- The only way into the app that adds work rather than acting on it. -->
       <a href="/console" class="icon-btn" aria-label="Bead console — work out what to file next">🧾</a>
+      <!-- The only way in that lets you *drive* an agent rather than read one.
+           The variation selector is load-bearing: bare U+2328 renders text-style,
+           which beside 🧾 and 🤖 reads as a broken glyph rather than an icon. -->
+      <a href="/terminal" class="icon-btn" aria-label="Terminal — drive a Claude session from here">⌨️</a>
       <a href="/sessions" class="icon-btn" aria-label="Current sessions — what every agent is on">🤖</a>
       <!-- Next to /sessions on purpose: that one is what the agents are doing right
            now, this one is what they are. Two halves of the same question. -->
-      <a href="/agents" class="icon-btn" aria-label="Agents — what each one is, and what it may do">⚖️</a>
+      <a href="/foundations" class="icon-btn" aria-label="Foundations — what each agent kind is, and what it may do">⚖️</a>
+      <!-- The advocates: what each repo's advocate is doing, and what it wants to file. -->
+      <a href="/monitor" class="icon-btn" aria-label="Advocates — what each repo's advocate is doing">📣</a>
       <button id="refresh" class="icon-btn" aria-label="Refresh">⟳</button>
     </div>
   </header>

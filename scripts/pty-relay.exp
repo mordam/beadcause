@@ -1,0 +1,68 @@
+#!/usr/bin/env expect
+#
+# Give a command a real terminal, and relay it over plain pipes.
+#
+# The one thing beadcause cannot do from Node alone is allocate a pty: there is no
+# openpty(3) binding in the standard library, and node-pty is a native module
+# ABI-locked to whichever Node the launchd plist pins. So the pty comes from a
+# system binary instead — and on macOS 15 that binary cannot be script(1), which is
+# the obvious candidate and the one this feature was first designed around.
+#
+# Why not script(1): it calls tcgetattr() on ITS OWN stdin before allocating
+# anything, and only tolerates the failure when errno is ENOTTY. A pipe or a
+# socketpair — which is what a spawned child's stdin is — gives ENOTSUP, and it
+# exits 1 with "tcgetattr/ioctl: Operation not supported on socket". Redirecting
+# from /dev/null gets past that (ENOTTY), but then there is no way to send a
+# keystroke, which is the entire point. Verified on 15.1 (24B2083) both ways, and
+# a FIFO does not help — that is a socket to tcgetattr too.
+#
+# expect has none of that. It is in the base system, needs no Command Line Tools,
+# no Homebrew and no npm, it relays raw bytes in both directions over ordinary
+# pipes, and control characters survive intact — ^C arrives at the child as a byte
+# on the pty, so the child's own SIGINT handling is the real one.
+#
+# It also buys back the limitation script(1) would have forced. Because the slave
+# device name is written out at startup, the daemon can resize the pty from outside
+# with `stty rows R cols C < <slave>`, and the kernel raises SIGWINCH in the
+# foreground process group. That is what makes rotating the phone reflow the TUI
+# instead of leaving it drawn at the width it started with.
+#
+# usage: pty-relay.exp <slave-name-file> <command> [args...]
+#   LINES / COLUMNS in the environment set the initial window size.
+
+if {$argc < 2} {
+    puts stderr "usage: pty-relay.exp <slave-name-file> <command> \[args...\]"
+    exit 2
+}
+
+set slavefile [lindex $argv 0]
+set cmd [lrange $argv 1 end]
+
+# Applied to the pty as it is created, so the child is never briefly 0x0 — an Ink
+# app that samples its width once at startup would otherwise draw itself wrong and
+# only recover on the first resize.
+set rows 24
+set cols 80
+if {[info exists env(LINES)]   && [string is integer -strict $env(LINES)]}   { set rows $env(LINES) }
+if {[info exists env(COLUMNS)] && [string is integer -strict $env(COLUMNS)]} { set cols $env(COLUMNS) }
+set stty_init "rows $rows cols $cols"
+
+# No timeout: this process lives as long as the session does, which is measured in
+# hours, and expect's 10-second default would tear it down on the first pause.
+set timeout -1
+log_user 1
+
+# {*} rather than `eval spawn`: the command words are passed through as a list, so
+# a prompt containing quotes, backslashes or $ is never re-parsed as Tcl.
+spawn -noecho {*}$cmd
+
+# Written after the spawn, because that is when the slave name exists. The daemon
+# polls for this file; an empty or missing one just means resize is not available
+# yet, never an error.
+set fh [open $slavefile w]
+puts $fh $spawn_out(slave,name)
+close $fh
+
+# Full-duplex relay until the child exits. `interact` returns then, and expect
+# leaves with the child's own exit status.
+interact

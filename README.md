@@ -210,6 +210,91 @@ set.
 Either way the answer lands as a comment authored by `beadcause` and the bead
 closes with reason "Answered via Beadcause".
 
+## Who you are talking to
+
+Commenting dispatches an agent to reply — and you choose which one. Above the
+comment box is a row of chips; the one you pick answers, and the foundation it
+answers from is printed underneath, because an agent whose brief you cannot read is
+a name you are guessing at.
+
+Four are built in, and they are the four shapes a comment on a decision actually
+takes:
+
+| | for |
+|---|---|
+| 💬 **Answerer** | do the thing the comment asks. The default, and what this used to be |
+| 🔍 **Researcher** | answer from evidence in the repo — real paths, quoted lines, and the cases where the evidence contradicts the question |
+| 🧨 **Critic** | argue the strongest case against whatever is being proposed, with the one condition that would change its mind |
+| 📋 **Summariser** | hand back the decision still left in a thread that has gone on too long |
+
+**＋ makes a new one from a name and a foundation** — a paragraph that goes in front
+of the standard thread instructions. That is the whole definition: everything else is
+shared. It is saved to `agents` in the config, so it survives restarts and can be
+edited by hand later.
+
+### Allow tools — for one comment, and only that one
+
+An agent can be given more than the read-only allowlist, and it takes two separate
+acts by design: **defining** the reach, and **using** it.
+
+**Defining** it is a config-file edit, and only that. Give the agent a `tools`
+string:
+
+```json
+"agents": [
+  { "id": "critic", "tools": "Bash(bd show:*) Bash(bd comment:*) Bash(git log:*) Read Grep Glob Edit" }
+]
+```
+
+An entry that names a built-in only overrides the fields it sets, so the line above
+is the whole of giving the Critic edit rights — its name and foundation stay where
+they are. Nothing in the app can write this string; there is no endpoint that accepts
+one. A form on a lock screen is the wrong place to hand out edit rights.
+
+**Using** it is a checkbox under the agent chips, and it is spent by the comment it
+rides on:
+
+- **Off every time.** Arming applies to the **next reply only** and is dropped the
+  moment the dispatch goes. Want tools on the comment after that? Tick it again.
+  Nothing about it is persisted; restarting the daemon disarms everything.
+- **A warning the first time, per agent.** The dialog names the tools verbatim —
+  a warning that won't say what is being granted is theatre — and the acknowledgement
+  is recorded per agent in `agentToolsAcknowledged`, because the content of the
+  warning is *what this particular agent may now do*.
+- **Not while it is answering.** Arming is refused with a 409 naming the bead:
+  changing what a running agent may do is either meaningless or an attempt to widen
+  it mid-flight.
+- **Loud in the log.** Both the arming and the dispatch print the whole tools string
+  to `~/Library/Logs/beadcause.log`, which is what makes an elevated run findable
+  after the fact.
+
+The elevated run is also told, in its prompt, that it is elevated deliberately for
+one reply and should say in its comment exactly what it did with the reach.
+
+### What a reply agent may do — and the four verbs it used to have by accident
+
+The allowlist was `Bash(bd *)`, which is one pattern and four verbs too many: it
+allowed `bd create`, `bd close`, `bd delete` and `bd label`. So the agent you chat
+with could file beads without asking — the exact thing the [proposal
+flow](#it-will-not-create-beads) exists to prevent — and could close the very
+question it was answering. It is now named subcommand by subcommand:
+
+```
+Bash(bd show:*) Bash(bd comments:*) Bash(bd comment:*) Bash(bd list:*)
+Bash(bd ready:*) Bash(bd blocked:*) Bash(bd search:*) Bash(bd stats:*)
+Bash(bd memories:*) Bash(bd dep:*) Read Grep Glob
+```
+
+Adding a verb there should feel like a decision, which is why they are listed rather
+than globbed. The prompt says the same thing in words — answer, never close, never
+create — but the allowlist is what makes it true.
+
+The agent's reply is authored as `--actor <agent-id>`, so the thread says which one
+answered, the phase chip says which one is thinking, and the reply poller still
+notifies you exactly as before (anything not authored `beadcause` is an agent
+talking back). A comment costs one model run: the Critic's reply on a real thread,
+which read four files and quoted line numbers, was **98s and $0.85**.
+
 ## The conversation, both ways
 
 *Comment only* is not a dead end — it starts a thread.
@@ -336,6 +421,66 @@ like something else:
 - **d3 transitions share a default name.** The nodes' fade-in and the auto-fit's zoom
   transition kept cancelling each other, leaving every node stuck at opacity 0.0004 —
   a fully drawn, entirely invisible graph. The fade is a CSS animation now.
+
+### The glass in the middle
+
+A phone can hold the whole graph or one readable bead, never both. deluvia's 128
+beads only fit a 393px screen by shrinking to a thirteenth, where a title measures
+**1.4 css px** — the fit was working perfectly and producing a field of coloured
+specks. Zooming in to read one is the obvious answer and the wrong one: you lose
+the shape of the work, which is the only reason to draw a graph at all.
+
+So the fitted view stays, and a **circle in the middle of it is magnified** — sized
+for three beads across and the rows above and below, at a scale that never passes
+1:1. You pan the graph under the glass instead of zooming into it. A `[ ]` reticle
+frames whichever bead is under it and a pill underneath names it in full, because
+a node clips its title at twenty characters and that is the one thing magnifying
+cannot fix. Open the graph for a particular bead — the **What this is blocking**
+link — and once the layout settles that bead slides under the glass on its own.
+
+The magnification needs no layout maths at all. Holding the centre of the screen
+fixed and scaling about it by `m` is, in screen space, exactly
+`translate(c(1-m)) scale(m)` — so the loupe is a `<use>` of the scene carrying that
+transform, clipped to a circle. There is no second layout and nothing to keep in
+sync: the force simulation ticks the original and the copy follows.
+
+Two things that are not obvious:
+
+- **The copy takes no pointer events, so taps have to be re-aimed.** Inside the
+  circle you are looking at the magnified copy while your finger lands on the
+  shrunken original underneath — without intercepting the tap and mapping it back
+  through the magnification, tapping a bead you can read selects a different bead
+  you cannot. It is a capture-phase listener, so it runs before the nodes' own.
+- **The glass is down until the graph has finished arriving**, and hides itself
+  whenever it would magnify by less than 1.1 — at that point it is a ring drawn
+  around what the screen already shows.
+
+On a workspace as large as deluvia the glass is about as wide as the whole fitted
+graph, so the overview it is supposed to sit inside has very little left to show.
+That is the layout's fault rather than the loupe's: the force spreads by dependency
+layer along **x**, so a portrait phone fits to width and leaves 59% of the screen
+empty above and below. Rotating that axis is still open — see `bc-z7s`.
+
+### Checking it on a phone
+
+The graph is the one screen that was only ever verified in a desktop browser, which
+is the one place it is never used. `node scripts/phone-check.mjs <workspace>` opens
+it the way a phone does — headless Chrome emulating an iPhone 14 Pro at 393x852 and
+3x, mobile user agent, real two-finger touch events — and asserts the four things
+that only break on a phone: every bead ends up on screen, a pinch zooms, the view it
+opened on is still reachable afterwards, and a tap raises the card. It needs the
+daemon running; `--base=http://127.0.0.1:PORT` points it at a checkout instead, and
+`--out=DIR` saves a screenshot. No dependency — it drives Chrome over the DevTools
+protocol on Node's built-in `WebSocket`.
+
+Run it with the window hidden and it will still be honest: Chrome throttles an
+occluded renderer to about one frame a second, the force layout never settles, and
+every measurement becomes a measurement of the throttling — so the script disables
+that explicitly. That is also the answer if the numbers ever look impossible.
+
+It also prints what the glass is doing — how much it magnifies, how big a title is
+inside it, how many beads it has room for — and `--id=<bead>` opens the graph the
+way **What this is blocking** does and asserts that bead ends up under it.
 
 ## Current sessions — who is working, and on what
 
@@ -812,6 +957,34 @@ bead that already exists (`dependsOn: [bc-7rx]`), which is how "this waits on th
 we started from" is written; those are checked against the tracker before anything is
 written, so a made-up id costs a warning rather than a half-created proposal.
 
+### A console ends when the beads exist
+
+A console is a conversation with one purpose, and pressing **Create** achieves it. So
+accepting closes it and drops you back to the list — there is nothing left to say to
+a conversation whose whole subject is now three rows in the tracker, and a list where
+every finished one stays open is a list you read past to find the one that isn't.
+
+Closing is **soft**. The transcript stays on disk, the id keeps working, and saying
+anything to a closed console reopens it — "one more thing" is a normal thought to
+have five minutes later, and a dead end you can navigate to and not use is worse than
+a row you close twice. The unspent draft *is* dropped, because cards left on screen
+after a close are an invitation to create them twice.
+
+- **✕ on any row** in the list closes it by hand — for the conversations that end by
+  going nowhere rather than by filing anything. The ✕ and the row are siblings, not
+  nested, so closing a console can never also open it.
+- **Closed rows sink** below the live ones, dimmed, with a `closed` pill.
+- **Warnings keep it open.** A create that reports one — a parent that does not
+  exist, a dependency it could not resolve — leaves you on the screen that produced
+  it. Dropping to the list would take the warning away before it was read.
+- **Refused mid-turn**, with a `409` that says so: a console that is `thinking` has an
+  agent streaming into it, and a reply arriving into something the list calls
+  finished is worse than closing it twice.
+
+Both the close and the reopen appear in the scrollback as quiet divider lines. They
+belong in the history, but rendering them in an assistant bubble would read as
+something the agent said.
+
 ### What it costs you to know
 
 - **The agent cannot write to the tracker.** Its allowlist is read-only `bd` plus
@@ -905,6 +1078,87 @@ Two notes:
   controlling iTerm", approve it once in System Settings → Privacy & Security →
   Automation.
 
+## The terminal — driving a session from the phone
+
+That button needs you to walk to the Mac. **⌨️** in the top bar, or **Drive a session
+on it from here** in a card's ⋮ menu, opens the same thing on the screen you are
+already holding: the real Claude Code TUI, on a pty, over a WebSocket. Everywhere else
+in beadcause you answer an agent; this is the one place you steer one.
+
+Seeded from a card it opens on that bead with the same *talk it through, don't answer
+for me* brief. Opened cold it asks which workspace, and starts there.
+
+### It keeps running when your screen locks
+
+This is the whole design, not a nicety. A phone that locks drops the socket within
+seconds and iOS kills it the moment the tab is backgrounded — so a terminal whose
+process died with its connection would lose the conversation every single time the
+screen went dark, which is worse than not having one.
+
+So the pty belongs to the daemon, not to the connection. Sockets attach and detach;
+output keeps accumulating into a scrollback ring while nobody is watching; coming back
+replays it into a cleared screen. Reconnecting is automatic and backs off, and the page
+drops its own socket when you background the tab rather than waiting for the OS to.
+What ends a terminal is quitting `claude`, pressing **⏹**, or the idle reaper — never
+a dropped connection.
+
+### The keys a phone doesn't have
+
+Claude Code is driven by esc, ^C and shift-tab, and an Android soft keyboard offers
+none of the three. The row above the keyboard is therefore the feature and not the
+trim: **esc · tab · ⇧tab · ^C · arrows · ⏎**, plus **⌨** to bring the keyboard back
+after a tap on one of them stole focus. They send real bytes, so ^C is a real SIGINT
+handled by `claude` itself.
+
+Rotating the phone reflows properly. The pty is resized for real — `stty` against the
+slave device, which makes the kernel raise SIGWINCH in the foreground process group —
+rather than the TUI being left drawn at the width it started at.
+
+### What it costs you to know
+
+- **The pty comes from `expect`, and could not have come from `script(1)`.** There is
+  no `openpty(3)` in Node's standard library, and `node-pty` is a native module
+  ABI-locked to the Node the launchd plist pins. `script(1)` is the obvious substitute
+  and does not work: it calls `tcgetattr()` on its own stdin before allocating
+  anything and only tolerates `ENOTTY`, while a spawned child's stdin is a socket and
+  gives `ENOTSUP`. Redirecting from `/dev/null` gets past that and then there is no way
+  to send a keystroke, which is the entire point. `expect` is in the base system, needs
+  no Homebrew and no npm, relays raw bytes both ways over ordinary pipes, and writes
+  out the slave device name — which is what buys back the resize. See the long note at
+  the top of `scripts/pty-relay.exp`.
+- **It starts in the workspace's session directory**, by `resolveSessionDir` and
+  nothing else — the same rule the "discuss on the Mac" button and the bead console
+  follow, so `~/.zshenv` points `BEADS_DIR`, `BEADS_ACTOR` and `CLAUDE_CONFIG_DIR`
+  (which tracker, and which account is billed) at the right tree.
+- **The token rides as a WebSocket subprotocol**, `new WebSocket(url, [proto, tok])`,
+  never in the URL. A browser cannot set a header on a handshake, and the query string
+  is the one place a secret must not go — it is what ends up in history and in every
+  log between here and there. The same token as everything else; the same tailnet.
+- **Permission prompts are left on.** `terminalPermissionMode` defaults to `null` —
+  inherit whatever your settings do — unlike `sessionPermissionMode`, which is `auto`
+  precisely because nobody is watching. Here you are watching; the prompts are the
+  point. The brief asks the agent to batch what it needs approved, because every
+  prompt is a tap on a keyboard you can barely hit.
+- **Idle terminals are reaped.** After `terminalIdleMinutes` (default 30) with no
+  socket attached, a terminal is closed. The clock only runs while nobody is watching:
+  a session you have open is never reaped for being quiet, because quiet is exactly
+  what one looks like while it reads a repo. At most `terminalMax` (default 4) at once,
+  and the daemon kills them all on shutdown — outliving a *socket* is the point,
+  outliving the process that owns them is a leak.
+- **Scrollback is bytes, not lines** — `terminalScrollbackBytes`, 256 kB by default —
+  and it is kept as raw chunks, never decoded on the way in. A pty splits UTF-8
+  sequences across chunk boundaries constantly, and decoding per chunk would put
+  replacement characters in the scrollback permanently. When the ring overflows you get
+  a one-off "scrollback was trimmed" toast.
+- **This is a bigger escalation than `POST /api/session`** — arbitrary interaction with
+  an agent rather than one fixed command — so it has its own switch: `terminal: false`.
+  It is on by default, on the grounds that what gates it (tailnet plus token) already
+  gates a button that starts an *unattended* agent on the same Mac.
+- **`script(1)`'s limitation is gone, but `ws` is a dependency.** If the daemon starts
+  without it installed the terminal switches itself off with a warning and nothing else
+  is affected — an install that pulls this update and restarts before `npm install`
+  loses one page, not the inbox.
+
 ## Progress: what an agent is doing right now
 
 An agent working on a question can say so, and it shows on the card — a breathing
@@ -997,7 +1251,7 @@ Auth on everything under `/api/` except `/api/health`: header
 | GET | `/api/question` | `?workspace=&id=` | one question **plus `comments[]`** |
 | GET | `/api/poll` | `?since=<seq>&wait=<s>` | long-poll: `{seq, resync, events[], questions, workspaces[]}` |
 | POST | `/api/respond` | `{workspace, id, response, create?}` | comments, then closes the bead. `create` is the 1-based indices of an advocate proposal's beads to file; without it, `CREATE:` in the text means all and `CREATE: 1,3` means those |
-| POST | `/api/comment` | `{workspace, id, text}` | comments, sets `human-replied` |
+| POST | `/api/comment` | `{workspace, id, text, agent?}` | comments, sets `human-replied`, dispatches that agent to reply (default when absent or unknown) |
 | POST | `/api/ask` | `{workspace, title, body, priority}` | `{id, key}` — files a new `human` bead |
 | POST | `/api/session` | `{workspace, id}` | `{dir}` — opens iTerm2 + `claude` on that bead |
 | POST | `/api/status` | `{workspace, id, phase, detail, actor}` | agent progress |
@@ -1006,6 +1260,10 @@ Auth on everything under `/api/` except `/api/health`: header
 | GET | `/api/graph` | `?workspace=&id=` | `{nodes, links}` — the whole workspace with no `id` |
 | GET | `/api/bead` | `?workspace=&id=` | one issue in full, plus `comments[]` — for the graph's detail sheet |
 | GET | `/api/work` | — | `{workspaces[], elsewhere[], advocates[]}` — per workspace: claimed beads, live `claude` sessions, counts, errors |
+| GET | `/api/agents` | — | `{agents[], default}` — the roster you can address a comment to |
+| POST | `/api/agents` | `{name, description}` | creates one and returns the new roster. `tools` is never accepted here |
+| POST | `/api/agent-arm` | `{id, acknowledge?, disarm?}` | arms that agent's configured tools override for **one** reply. `428` the first time, carrying the warning to show; `409` while it is answering; `400` if it has no override |
+| DELETE | `/api/agents` | `?id=` | removes one of yours; built-ins refuse |
 | GET | `/api/advocates` | — | `{advocates[]}` — per repo: queue, open sessions, note, error |
 | POST | `/api/advocate` | `{workspace, action}` | `pause` · `resume` · `release` (free the slots) · `forget` (clear attempt counters) |
 | GET | `/api/advocate-log` | `?workspace=` | the survey agent's transcript, as the CLI would have shown it |
@@ -1013,7 +1271,8 @@ Auth on everything under `/api/` except `/api/health`: header
 | GET | `/api/session-archive` | `?workspace=&commit=&file=` | one archived `session.log`, `meta.json` or `transcript.jsonl` |
 | GET | `/sessions`, `/work` | — | the current-sessions page (same page, two paths) |
 | GET | `/graph` | `?ws=&id=` | the HTML graph page |
-| GET | `/api/consoles` | — | `{consoles[], workspaces[]}` — every bead console, newest first |
+| GET | `/api/consoles` | — | `{consoles[], workspaces[]}` — every bead console, newest first; `closedAt` set on the finished ones |
+| POST | `/api/console/close` | `{id}` | soft-closes it and returns the new list. `409` mid-turn; saying anything to it reopens it |
 | POST | `/api/console` | `{workspace, seed?}` | `{id, console}` — opens one; a `seed` bead auto-starts the first turn |
 | GET | `/api/console` | `?id=` | the whole console: messages, draft, created beads |
 | POST | `/api/console/message` | `{id, text}` | starts a turn and returns — follow it on `/api/console/poll` |
@@ -1021,6 +1280,12 @@ Auth on everything under `/api/` except `/api/health`: header
 | POST | `/api/console/draft` | `{id, draft}` | the cards as you edited them; re-normalised on the way in |
 | POST | `/api/console/create` | `{id, draft?}` | `{created[], warnings[]}` — **the only writer in the console** |
 | GET | `/console` | `?id=` or `?ws=&seed=` | the bead console page |
+| GET | `/api/terminals` | — | `{terminals[], workspaces[], enabled}` — every terminal, newest first |
+| POST | `/api/terminal` | `{workspace, id?, cols?, rows?}` | `{terminal}` — opens one; an `id` seeds it on that bead |
+| GET | `/api/terminal` | `?id=` | `{terminal}` — one, without its bytes |
+| POST | `/api/terminal/close` | `{id}` | ends it (SIGTERM, then SIGKILL after 5s) |
+| WS | `/ws/terminal` | `?id=`, subprotocols `beadcause.term.v1` + `tok.<token>` | binary frames both ways are pty bytes; JSON carries `hello` · `ready` · `exit` in, `input` · `resize` · `close` out |
+| GET | `/terminal` | `?id=` or `?ws=&seed=` | the terminal page |
 
 Two things that bite: `commentCount` is **0 from `/api/questions`** and only correct
 from `/api/question`, because `bd human list` doesn't return it. And a question
@@ -1045,6 +1310,11 @@ decision block and only means anything for a `human` bead.
 | `beadConsole` | allow the [bead console](#the-bead-console--deciding-what-to-file) to open conversations and create beads (default `true`) |
 | `consoleModel` | model for a console turn (default `null` — whatever `claude` uses on its own; `"sonnet"` for a cheaper conversation) |
 | `consoleTimeoutMs` | kill a console turn that has been going this long (default 15 min) |
+| `terminal` | allow the [in-app terminal](#the-terminal--driving-a-session-from-the-phone) to open a real Claude Code session over a WebSocket (default `true`) |
+| `terminalPermissionMode` | `--permission-mode` for a terminal (default `null` — inherit your settings; unlike `sessionPermissionMode`, you are sitting in front of this one) |
+| `terminalIdleMinutes` | close a terminal nobody has been watching for this long (default 30; the clock only runs with no socket attached) |
+| `terminalScrollbackBytes` | replayed on reconnect, so a locked screen misses nothing (default 256 kB) |
+| `terminalMax` | how many terminals may be open at once (default 4) |
 | `autoDispatch` | commenting spawns an unattended agent to reply (default `true`) |
 | `autoDispatchExclude` | workspaces that never auto-dispatch — put shared trackers here |
 | `autoDispatchTimeoutMs` | kill a dispatched agent after this long (default 10 min) |
@@ -1063,6 +1333,10 @@ decision block and only means anything for a `human` bead.
 | `advocates.tidyIntervalMinutes` | how often it sweeps when nothing has just finished (default 15) |
 | `advocates.sessionLog` | archive each finished session to `refs/beadcause/sessions/<bead>` and note its commits (default `true`) |
 | `advocates.sessionTranscripts` | also store the raw Claude Code transcript — megabytes, and it carries paths and tool output (default `false`; set per repo in `perWorkspace`) |
+| `agents` | extra reply agents beyond the four built in — `{id, name, emoji, description}`, plus `tools`/`model` if you set them by hand |
+| `defaultAgent` | which one answers when you haven't picked (default `answerer`) |
+| `agents[].tools` | the allowlist that agent may be *armed* with, for one reply at a time. Config-file only — see [Allow tools](#allow-tools--for-one-comment-and-only-that-one) |
+| `agentToolsAcknowledged` | agents whose extended-tools warning you have accepted; written when you accept it |
 | `spaces` | groups of workspaces sharing a notification policy — see [Spaces](#spaces--keeping-work-out-of-your-evening) |
 | `claudeSessions` | `false` to stop reading `~/.claude/sessions` for the current-sessions page (default on; absent directory is not an error) |
 | `claudeSessionsDir` | where those per-process records live, if not `$CLAUDE_CONFIG_DIR/sessions` or `~/.claude/sessions` |
