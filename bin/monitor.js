@@ -18,6 +18,18 @@
  *
  * No dependencies, and no TUI library: the project has none, and a live view of
  * five workspaces is not worth acquiring one for.
+ *
+ * **This is no longer the console that opens at login.** `/monitor`
+ * (public/monitor.js) is, and it is the richer one: it shows the whole of
+ * `advocates.snapshot()` per repo — the queue, the survey transcript, the proposals,
+ * the archived sessions — where `advocateRows()` below has room for one line. The
+ * m4m.beadcause.monitor LaunchAgent now opens that page in a browser instead of
+ * asking iTerm2 to draw this.
+ *
+ * Kept, and kept working, because a terminal is sometimes where you already are —
+ * `npm run monitor` over ssh, or `--once` to diff one frame. It is deliberately the
+ * smaller view rather than a second attempt at the same thing, so there is nothing
+ * here for the two to drift apart over.
  */
 import fs from 'node:fs';
 import path from 'node:path';

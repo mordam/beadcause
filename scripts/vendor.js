@@ -17,6 +17,12 @@ const files = [
   ['mermaid/dist/mermaid.min.js', 'mermaid.js'],
   // What `bd graph --html` loads from d3js.org — see lib/graph.js.
   ['d3/dist/d3.min.js', 'd3.js'],
+  // The in-app terminal. The CSS is not optional decoration: without it xterm.js
+  // renders its rows stacked with no positioning at all, which looks like a broken
+  // page rather than a missing stylesheet.
+  ['@xterm/xterm/lib/xterm.js', 'xterm.js'],
+  ['@xterm/xterm/css/xterm.css', 'xterm.css'],
+  ['@xterm/addon-fit/lib/addon-fit.js', 'xterm-addon-fit.js'],
 ];
 
 let copied = 0;

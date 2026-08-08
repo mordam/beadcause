@@ -32,6 +32,12 @@
     // Key of the card whose ⋮ menu is showing. At most one, and it is deliberately
     // opened and closed by DOM surgery rather than render() — see closeMenu().
     menu: null,
+    // The roster you can put a comment to, and which one is selected. The choice is
+    // global rather than per card: "who am I talking to" is a mode you are in, not a
+    // property of one question.
+    agents: [],
+    agent: localStorage.getItem('beadcause.agent') || '',
+    agentForm: false,
     // Per-bead decisions on an advocate's proposal: key → Map(1-based index →
     // 'yes' | 'no'). Held here rather than on the question so a background refresh
     // cannot wipe a half-made decision, the same reason drafts live outside it.
@@ -78,7 +84,9 @@
       throw new Error('token rejected');
     }
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+    // The body travels with the error: a 428 asking for an acknowledgement carries
+    // the whole warning to show, and a message string alone would throw it away.
+    if (!res.ok) throw Object.assign(new Error(data.error || `HTTP ${res.status}`), { status: res.status, body: data });
     return data;
   }
 
@@ -355,12 +363,13 @@
   }
 
   /**
-   * What is behind the kebab: the two ways out of a card that aren't reading it.
+   * What is behind the kebab: the three ways out of a card that aren't reading it.
    *
-   * The first acts *on* this bead. The second goes the other way — what work comes
-   * off the back of it — and is an anchor rather than a button, because the console
-   * page opens the conversation itself from `?ws=&seed=` (see public/console.js) and
-   * so needs nothing from this one.
+   * The first two act *on* this bead and differ only in which screen the session
+   * lands on — the Mac's, or this one. The third goes the other way: what work
+   * comes off the back of it. All but the first are anchors rather than buttons,
+   * because both of those pages open from `?ws=&seed=` on their own (see
+   * public/term.js and public/console.js) and so need nothing from this one.
    *
    * The key is `workspace/id`; a workspace name never contains a slash, so the first
    * one splits it.
@@ -373,6 +382,10 @@
       <button class="menu-item" role="menuitem" data-act="discuss" data-key="${esc(key)}">
         <span class="glyph">&gt;_</span> Discuss in a Claude session on the Mac
       </button>
+      <a class="menu-item" role="menuitem"
+        href="/terminal?ws=${encodeURIComponent(ws)}&amp;seed=${encodeURIComponent(id)}">
+        <span class="glyph">⌨️</span> Drive a session on it from here
+      </a>
       <a class="menu-item" role="menuitem"
         href="/console?ws=${encodeURIComponent(ws)}&amp;seed=${encodeURIComponent(id)}">
         <span class="glyph">🧾</span> Work out the next beads from this
@@ -492,6 +505,138 @@
       go.textContent = propGoLabel(approved, beads.length, armed);
       go.classList.toggle('confirm', armed);
       go.disabled = !(approved || undecided === 0);
+    }
+  }
+
+  /** The selected agent, falling back to the first one the server offered. */
+  const currentAgent = () => state.agents.find((a) => a.id === state.agent) || state.agents[0] || null;
+
+  /**
+   * Who answers when you comment.
+   *
+   * Commenting has always dispatched an agent; there was just only one of it, and
+   * its brief was hard-coded. Half the time what a thread needs is not an answer but
+   * the counter-argument, or the three paths that settle it — different briefs, not
+   * different phrasings of one.
+   *
+   * The chips are a mode, not a per-card setting, and the foundation of the selected
+   * one is printed underneath: an agent whose brief you cannot read is a name you
+   * are guessing at. Creating one needs only a name and that paragraph — never
+   * tools, which is why this form cannot widen what any agent may do.
+   */
+  function agentsHtml() {
+    if (!state.agents.length) return '';
+    const chosen = currentAgent();
+    const chips = state.agents
+      .map(
+        (a) => `<button class="chip agent-chip" data-act="agent" data-agent="${esc(a.id)}"
+          aria-pressed="${a.id === chosen?.id}">${esc(a.emoji || '🤖')} ${esc(a.name)}</button>`
+      )
+      .join('');
+
+    return `<div class="section-label">Reply from <span>the agent that picks up your comment</span></div>
+      <div class="chip-row agent-row">
+        ${chips}
+        <button class="chip agent-add" data-act="agent-new" aria-label="New agent">＋</button>
+      </div>
+      <p class="agent-desc">${esc(chosen?.description || '')}</p>
+      ${allowToolsHtml(chosen)}
+      <div class="agent-form" ${state.agentForm ? '' : 'hidden'}>
+        <input data-role="agent-name" placeholder="Name — e.g. Pricing hawk" maxlength="40">
+        <textarea data-role="agent-desc" rows="4"
+          placeholder="Its foundation: what this agent is for, and how it should answer. This goes in front of every reply it writes."></textarea>
+        <div class="row">
+          <button class="primary" data-act="agent-create">Create agent</button>
+          <button class="secondary" data-act="agent-cancel">Cancel</button>
+        </div>
+      </div>`;
+  }
+
+  /**
+   * "Allow tools" — off by every time.
+   *
+   * A checkbox rather than a setting, because it is spent by the comment it rides
+   * on: the server arms the agent's configured override for exactly one reply and
+   * drops it the moment the dispatch goes. So this is re-ticked for every comment
+   * you want it for, which is the point — an elevation you set once and forget is an
+   * elevation nobody remembers granting.
+   *
+   * Only drawn for an agent that HAS an override in the config file. Nothing here
+   * can write one; this decides whether it is used, never what it says.
+   */
+  function allowToolsHtml(agent) {
+    if (!agent?.tools) return '';
+    const busy = agent.busyOn;
+    return `<label class="allow-tools${agent.armed ? ' on' : ''}${busy ? ' busy' : ''}">
+      <input type="checkbox" data-act="allow-tools" data-agent="${esc(agent.id)}" ${agent.armed ? 'checked' : ''} ${
+        busy ? 'disabled' : ''
+      }>
+      <span class="allow-label">⚠ Allow tools for this comment</span>
+      <span class="allow-note">${
+        busy
+          ? `${esc(agent.name)} is answering ${esc(busy)} — not while it is running`
+          : agent.armed
+            ? 'armed · spent when you send'
+            : esc(agent.tools)
+      }</span>
+    </label>`;
+  }
+
+  /**
+   * The warning, the first time an agent is given its extra reach.
+   *
+   * The text comes from the server so every client warns in the same words about the
+   * same tools — and it names them verbatim, because a warning that will not say
+   * what is being granted is theatre.
+   */
+  function confirmTools(disclaimer) {
+    return new Promise((resolve) => {
+      const wrap = document.createElement('div');
+      wrap.className = 'dialog-wrap';
+      wrap.innerHTML = `<div class="dialog" role="dialog" aria-modal="true" aria-label="${esc(disclaimer.title)}">
+        <h2>${esc(disclaimer.title)}</h2>
+        <pre class="dialog-tools">${esc(disclaimer.tools)}</pre>
+        <ul>${disclaimer.points.map((p) => `<li>${esc(p)}</li>`).join('')}</ul>
+        <div class="row">
+          <button class="primary" data-yes>I understand — allow for this comment</button>
+          <button class="secondary" data-no>Cancel</button>
+        </div>
+      </div>`;
+      const done = (v) => {
+        wrap.remove();
+        resolve(v);
+      };
+      wrap.addEventListener('click', (ev) => {
+        if (ev.target.closest('[data-yes]')) return done(true);
+        // The backdrop cancels, like every other dismissable thing here — but a tap
+        // inside the panel must not, or reading it would close it.
+        if (ev.target.closest('[data-no]') || !ev.target.closest('.dialog')) return done(false);
+      });
+      document.body.appendChild(wrap);
+    });
+  }
+
+  /**
+   * Repaint the chooser in place.
+   *
+   * Never through render(): the comment box sits directly beneath it, and rebuilding
+   * the card to change which chip is pressed would drop a half-written comment —
+   * which is the exact failure the draft machinery elsewhere exists to prevent.
+   */
+  function paintAgents() {
+    for (const block of listEl.querySelectorAll('.agents')) block.innerHTML = agentsHtml();
+  }
+
+  async function loadAgents() {
+    try {
+      const data = await api('/api/agents');
+      state.agents = data.agents || [];
+      if (!state.agents.some((a) => a.id === state.agent)) state.agent = data.default || state.agents[0]?.id || '';
+      paintAgents();
+    } catch {
+      // A roster that won't load must not stop you commenting: with no chips, the
+      // server falls back to the default agent exactly as it did before this existed.
+      state.agents = [];
     }
   }
 
@@ -707,6 +852,8 @@
         }</div>`
       );
     }
+
+    parts.push(`<div class="agents">${agentsHtml()}</div>`);
 
     parts.push(`<div class="freeform">
       <textarea data-role="answer" placeholder="Answer in your own words…" rows="3">${esc(getDraft(q.key))}</textarea>
@@ -933,7 +1080,7 @@
     sending.innerHTML = `<span class="spark"></span>${close ? 'Recording your answer…' : 'Adding your comment…'}`;
     card?.appendChild(sending);
     try {
-      await api(close ? '/api/respond' : '/api/comment', {
+      const res = await api(close ? '/api/respond' : '/api/comment', {
         method: 'POST',
         body: JSON.stringify(
           close
@@ -945,7 +1092,9 @@
                 // out of the sentence: the text is for you, the array is for it.
                 ...(create ? { create } : {}),
               }
-            : { workspace: q.workspace, id: q.id, text }
+            : // Which agent picks this up. Absent or unknown resolves to the
+              // default server-side, so an old phone still gets an answer.
+              { workspace: q.workspace, id: q.id, text, agent: state.agent || undefined }
         ),
       });
       clearDraft(key);
@@ -961,7 +1110,11 @@
         // so a deferred render would never fire and the card would linger.
         render(true);
       } else {
-        toast(`Comment added — an agent will be told`);
+        toast(res?.elevated ? 'Comment added — running with tools, this once' : 'Comment added — an agent will be told');
+        // The server has spent the arm on this dispatch, so the box must come back
+        // off. Re-read rather than assume: if the dispatch was refused the arm is
+        // still there, and a tick that lied either way would be the worst outcome.
+        loadAgents();
         card?.classList.remove('answering');
         sending.remove();
         // Reflect the awaiting-agent flag the server just set, without waiting
@@ -1086,6 +1239,74 @@
       listEl
         .querySelector(`.card[data-key="${CSS.escape(key)}"]`)
         ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      return;
+    }
+
+    if (act === 'agent') {
+      state.agent = btn.dataset.agent;
+      localStorage.setItem('beadcause.agent', state.agent);
+      state.agentForm = false;
+      paintAgents();
+      return;
+    }
+
+    if (act === 'allow-tools') {
+      const id = btn.dataset.agent;
+      // The box is painted from the server's answer, never from the tap: an arm that
+      // was refused must not leave a tick behind suggesting it was granted.
+      const wanted = btn.checked;
+      btn.checked = !wanted;
+      try {
+        const send = (extra = {}) =>
+          api('/api/agent-arm', { method: 'POST', body: JSON.stringify({ id, ...extra }) });
+        if (!wanted) {
+          state.agents = (await send({ disarm: true })).agents || state.agents;
+        } else {
+          let data;
+          try {
+            data = await send();
+          } catch (err) {
+            if (!err.body?.needsAcknowledgement) throw err;
+            if (!(await confirmTools(err.body.disclaimer))) return paintAgents();
+            data = await send({ acknowledge: true });
+          }
+          state.agents = data.agents || state.agents;
+          toast('Allowed for this comment only');
+        }
+      } catch (err) {
+        toast(err.message, true);
+      }
+      paintAgents();
+      return;
+    }
+
+    if (act === 'agent-new' || act === 'agent-cancel') {
+      state.agentForm = act === 'agent-new';
+      paintAgents();
+      // Focus after the repaint, or there is nothing yet to focus.
+      if (state.agentForm) listEl.querySelector('[data-role="agent-name"]')?.focus();
+      return;
+    }
+
+    if (act === 'agent-create') {
+      const block = btn.closest('.agents');
+      const name = block?.querySelector('[data-role="agent-name"]')?.value.trim() || '';
+      const description = block?.querySelector('[data-role="agent-desc"]')?.value.trim() || '';
+      if (!name) return toast('Give it a name', true);
+      if (description.length < 20) return toast('Give it a foundation — a sentence or two', true);
+      btn.disabled = true;
+      try {
+        const data = await api('/api/agents', { method: 'POST', body: JSON.stringify({ name, description }) });
+        state.agents = data.agents || state.agents;
+        state.agent = data.agent.id;
+        localStorage.setItem('beadcause.agent', state.agent);
+        state.agentForm = false;
+        paintAgents();
+        toast(`${data.agent.name} is ready`);
+      } catch (err) {
+        btn.disabled = false;
+        toast(err.message, true);
+      }
       return;
     }
 
@@ -1407,4 +1628,7 @@
   bootToken();
   bootScope();
   load();
+  // After the list, and never blocking it: the chooser only appears inside an open
+  // card, so there is nothing on screen waiting for this.
+  loadAgents();
 })();

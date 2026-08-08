@@ -65,7 +65,7 @@ function summary(c) {
           } in total`
         : 'off'
     }`,
-    `  monitor at login  : ${c.monitor?.enabled ? 'yes' : 'no (npm run monitor)'}`,
+    `  console at login  : ${c.monitor?.enabled ? 'yes' : 'no (open /monitor yourself)'}`,
   ].join('\n');
 }
 
@@ -270,19 +270,19 @@ cfg.autoDispatch = await yes('   auto-dispatch? (y/n)', cfg.autoDispatch === fal
 
 /* -------------------------------------------------------------------- monitor */
 
-console.log(`\n${bold('7. Open a live activity monitor at login?')}`);
+console.log(`\n${bold('7. Open the advocate console at login?')}`);
 console.log(
   dim(
-    '   A terminal window showing what the daemon is doing: open questions per space,\n' +
-      '   what each dispatched agent is up to, and every event as it happens. Answer n\n' +
-      '   and nothing auto-starts — you can still run it whenever you want with\n' +
-      '   `npm run monitor`. Needs iTerm2, and macOS will ask once for permission to\n' +
-      '   control it.'
+    '   A browser window on /monitor: what each repo\'s advocate is working on, what it\n' +
+      '   will pick up next, its survey agent thinking out loud, the beads it wants to\n' +
+      '   file, and what its finished sessions archived. Answer n and nothing auto-opens\n' +
+      '   — the page is always there at /monitor, and `npm run monitor` still gives you\n' +
+      '   the smaller terminal view.'
   )
 );
 cfg.monitor = {
   ...(cfg.monitor || {}),
-  enabled: await yes('   open the monitor at login? (y/n)', cfg.monitor?.enabled ? 'y' : 'n'),
+  enabled: await yes('   open the console at login? (y/n)', cfg.monitor?.enabled ? 'y' : 'n'),
 };
 
 /* ------------------------------------------------------------------ advocates */

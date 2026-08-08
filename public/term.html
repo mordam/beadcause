@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <!-- `maximum-scale=1` and `user-scalable=no`: a terminal is a grid the fit addon
+       already sizes to the viewport, and a double-tap zoom leaves you looking at a
+       quarter of the screen with no obvious way back. The keyboard row below is
+       what replaces pinch-to-reach. -->
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#0b0f14" media="(prefers-color-scheme: dark)">
+  <meta name="theme-color" content="#f6f7f9" media="(prefers-color-scheme: light)">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <title>Beadcause · terminal</title>
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/vendor/xterm.css">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body class="term-body">
+  <header class="topbar">
+    <div class="brand">
+      <a href="/" class="icon-btn" aria-label="Back to the inbox">‹</a>
+      <span class="dot" id="pulse"></span>
+      <h1 id="title">Terminal</h1>
+    </div>
+    <div class="sheet-actions">
+      <button id="end" class="icon-btn" hidden aria-label="End this session">⏹</button>
+      <a href="/" class="icon-btn" aria-label="Close">✕</a>
+    </div>
+  </header>
+
+  <!-- No terminal id in the URL: pick a workspace, or rejoin one that is still running. -->
+  <main id="launcher" class="launcher" hidden>
+    <p class="lede">A real Claude Code session, on this Mac, that you drive from here.
+      It keeps running when the screen locks — come back and it is where you left it.</p>
+    <h2 class="section-label">Open one in</h2>
+    <div id="ws-row" class="chip-row"></div>
+    <h2 class="section-label" id="live-label" hidden>Still running</h2>
+    <div id="live" class="recent"></div>
+    <p id="disabled-note" class="lede" hidden><strong>The terminal is switched off.</strong>
+      Set <code>"terminal": true</code> in <code>~/.config/beadcause/config.json</code>
+      and restart the daemon.</p>
+  </main>
+
+  <!--
+    The screen, and the keys a phone keyboard does not have. The row is not a
+    convenience: the Claude Code TUI is driven by esc, ctrl-c and shift-tab, and an
+    Android soft keyboard offers none of the three.
+  -->
+  <div id="screen-wrap" class="screen-wrap" hidden>
+    <!-- The status pill is positioned against this, not against the whole column:
+         anchored to the column it would sit on top of the key row, which is the
+         one thing on the page you need to reach while it is showing. -->
+    <div class="screen-area">
+      <div id="screen" class="screen"></div>
+      <div id="status" class="term-status" hidden></div>
+    </div>
+    <nav class="keyrow" id="keyrow" aria-label="Keys the soft keyboard doesn't have">
+      <button data-seq="\x1b" class="key">esc</button>
+      <button data-seq="\t" class="key">tab</button>
+      <button data-seq="\x1b[Z" class="key">⇧tab</button>
+      <button data-seq="\x03" class="key danger">^C</button>
+      <button data-seq="\x1b[A" class="key">↑</button>
+      <button data-seq="\x1b[B" class="key">↓</button>
+      <button data-seq="\x1b[D" class="key">←</button>
+      <button data-seq="\x1b[C" class="key">→</button>
+      <button data-seq="\r" class="key wide">⏎</button>
+      <button id="kb" class="key" aria-label="Show the keyboard">⌨</button>
+    </nav>
+  </div>
+
+  <div id="toast" class="toast" role="status" hidden></div>
+
+  <dialog id="setup" class="setup">
+    <form method="dialog">
+      <h2>Access token</h2>
+      <p>Open this app from the link the server printed, or paste the token from
+        <code>~/.config/beadcause/config.json</code>.</p>
+      <input id="token-input" type="password" autocomplete="off" placeholder="token" inputmode="text">
+      <button value="save" class="primary">Save</button>
+    </form>
+  </dialog>
+
+  <script src="/vendor/xterm.js"></script>
+  <script src="/vendor/xterm-addon-fit.js"></script>
+  <script src="/term.js"></script>
+</body>
+</html>
