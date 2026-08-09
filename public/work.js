@@ -311,6 +311,9 @@
     control(btn.dataset.ws, btn.dataset.adv, btn);
   });
 
+  // The sessions view has no selection to publish — being here is the whole report.
+  window.beadcause?.presence?.report({ view: 'sessions' });
+
   document.getElementById('work-refresh').addEventListener('click', load);
   // Cheap enough to keep current, expensive enough not to poll like the inbox:
   // two `bd` calls per workspace, about two seconds for six.

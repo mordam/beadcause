@@ -1512,3 +1512,121 @@ a.menu-item { text-decoration: none; color: var(--text); }
 .key.wide { min-width: 62px; }
 
 .term-body .toast { bottom: calc(env(safe-area-inset-bottom) + 64px); }
+
+/* ------------------------------------------------------- the monitor's tabs */
+
+/* Two panes over one page. The bar borrows .chip so a tab and a filter chip are
+   the same object to a thumb — this page is opened on the Mac, but the phone
+   reaches it through the same pairing and the same hands. */
+.tabs {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  padding: 8px 14px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--line);
+}
+.tabs .chip { position: relative; }
+
+/* The `hidden` attribute is a `display: none` that any later `display` beats, and
+   `.work` sets `display: flex` — so the pane behind the tab you are not on kept
+   drawing, and the advocates list sat stacked above the mirror. */
+.work[hidden] { display: none; }
+.tab-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-left: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  vertical-align: middle;
+}
+
+/* ------------------------------------------------------------------ mirror */
+
+/* Nothing here sets a width: the pane inherits .work, so the mirror is the same
+   column as everything else on the page and a card that reads well in the inbox
+   reads the same way when it is being followed. */
+.mir-devices { padding: 12px 14px 4px; }
+.mir-devices .chip { flex-direction: column; align-items: flex-start; gap: 1px; line-height: 1.25; }
+.mir-chip-sub { display: block; font-size: 11px; font-weight: 500; opacity: 0.75; }
+.mir-head { padding: 4px 14px 0; }
+.mir-head .subtitle { margin-bottom: 8px; }
+
+.mir-card { padding: 14px 15px; margin: 0 0 12px; }
+.mir-card h2 { margin: 4px 0 10px; font-size: 19px; line-height: 1.3; }
+.mir-card h3 { margin: 0 0 8px; font-size: 13px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+.mir-meta { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.mir-block { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); }
+.mir-sub { font-size: 12.5px; color: var(--muted); }
+.mir-plain { white-space: pre-wrap; font: inherit; color: var(--prose); margin: 0 0 14px; }
+
+/* An option is a whole answer, so it is drawn as a target rather than a word:
+   the label is what gets recorded, and pressing one closes the question. */
+.mir-options { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0 0; }
+.mir-opt {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-height: var(--tap);
+  padding: 8px 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+.mir-opt:hover { border-color: var(--accent); }
+.mir-opt small { font-weight: 500; color: var(--muted); }
+
+.mir-comment { padding: 10px 0; border-top: 1px solid var(--line); }
+.mir-comment:first-of-type { border-top: none; padding-top: 0; }
+.mir-comment-head { font-size: 12.5px; font-weight: 600; color: var(--muted); margin-bottom: 4px; }
+.mir-comment-head time { font-weight: 500; opacity: 0.85; }
+
+.mir-prop { padding: 10px 0; border-top: 1px dashed var(--line); }
+.mir-prop-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px; }
+.mir-rank { font-size: 12px; font-weight: 700; color: var(--muted); }
+
+/* Held to a screenful: the transcript is the tallest thing this page can draw,
+   and the composer under it must stay reachable without scrolling past it. */
+.mir-thread { max-height: 52vh; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; padding-right: 2px; }
+.mir-sys { font-size: 13px; color: var(--muted); font-style: italic; }
+
+.mir-composer { margin-top: 14px; }
+.mir-input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  resize: vertical;
+}
+.mir-input:focus { outline: none; border-color: var(--accent); }
+.mir-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.mir-btn {
+  min-height: 40px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.mir-btn:disabled { opacity: 0.45; cursor: default; }
+.mir-btn.primary:not(:disabled) { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+
+.mir-row { width: 100%; background: none; border: none; text-align: left; font: inherit; color: inherit; cursor: pointer; }
+.mir-row:hover { background: var(--surface-2); }
+
+.mir-links { margin-top: 14px; display: flex; flex-wrap: wrap; gap: 14px; }
+.mir-links a { color: var(--accent); font-size: 13.5px; font-weight: 600; text-decoration: none; }
