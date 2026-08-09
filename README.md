@@ -1596,6 +1596,15 @@ The retirement note says which answered: `retired by beadcause after #42` and `r
 by beadcause after a1b2c3d` are different stories, and only one of them is findable
 later.
 
+**The session log's landing note had the same blind spot**, and it is worth naming
+separately because it fails more quietly. `refs/notes/beadcause` records which commit
+finally brought a session's branch into main, and it found that commit by walking the
+ancestry — so after a squash merge it would never find one, the note would never be
+written, and the entry waiting to write it would sit in the pending list being retried
+on every sweep for good. GitHub knows the answer exactly: `mergeCommit` **is** the
+squash commit, which is a better anchor than the ancestry walk could produce. Same
+rule as the sweep — asked only after the local test says no.
+
 ### Checking it
 
 `npm test` covers the two libraries — `test/pr.mjs` drives `lib/pr.js` against a fake
