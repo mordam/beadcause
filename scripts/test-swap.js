@@ -165,6 +165,7 @@ try {
 
   const state1 = JSON.parse((await get(port, `/internal/router/state?t=${TOKEN}`)).body);
   check(state1.active?.role === 'active', 'the backend is active, so exactly one poller is running', `role: ${state1.active?.role}`);
+  check(state1.active?.reaping === true, 'and one terminal reaper, on the active backend', `reaping: ${state1.active?.reaping}`);
   check(state1.retiring.length === 0, 'nothing is draining yet');
   check(state1.stale === false, 'the router agrees the running build matches disk');
 
@@ -242,6 +243,7 @@ try {
   const state2 = JSON.parse((await get(port, `/internal/router/state?t=${TOKEN}`)).body);
   check(state2.active?.pid === pid2, 'the router is serving the new backend', `active pid ${state2.active?.pid}`);
   check(state2.active?.role === 'active', 'which has been promoted, so a poller is running again');
+  check(state2.active?.reaping === true, 'and is sweeping terminals again', `reaping: ${state2.active?.reaping}`);
   check(state2.retiring.length === 0, 'and nothing is left draining', JSON.stringify(state2.retiring));
   check(state2.stale === false, 'the running build matches disk again');
 
@@ -256,6 +258,44 @@ try {
 
   const statusOut = await run([path.join(ROOT, 'bin', 'router.js'), '--status'], env);
   check(statusOut.code === 0 && /active\s+pid/.test(statusOut.out), '`router.js --status` reports what is running', statusOut.out);
+
+  // ------------------------------------------------ a standby sweeps nothing
+
+  // Driven directly rather than through the router, because the window where a
+  // standby exists during a real swap is measured in milliseconds and this is not
+  // a race worth reproducing. The invariant is what matters: a standby has no
+  // poller *and* no terminal reaper. The reaper is the sharper of the two —
+  // `reapTerminals` calls `closeTerminal` on any terminal past the idle window
+  // with nobody attached, and on a `resumable` one that writes `exited` to the
+  // record on disk. A standby sees no clients on anything, ever, because the
+  // router sends it no traffic, so a standby left sweeping would eventually mark
+  // the active backend's live terminals as ended in a file they both write.
+  //
+  // Nothing here can be caught by waiting: the idle window is 30 minutes.
+  const standbyPort = await freePort();
+  const standby = spawn(
+    process.execPath,
+    [path.join(ROOT, 'bin', 'beadcause.js'), '--port', String(standbyPort), '--standby'],
+    { cwd: ROOT, env, stdio: ['ignore', 'ignore', 'ignore'] }
+  );
+  spawned.add(standby.pid);
+
+  const standbyState = await waitFor('the standby backend to answer', async () => {
+    const res = await get(standbyPort, `/internal/state?t=${TOKEN}`, { timeout: 2000 });
+    return res.status === 200 ? JSON.parse(res.body) : null;
+  }, 15000);
+  check(standbyState.role === 'standby', 'a --standby backend starts as the understudy', `role: ${standbyState.role}`);
+  check(standbyState.reaping === false, 'and sweeps no terminals while it waits', `reaping: ${standbyState.reaping}`);
+
+  const promoted = JSON.parse((await get(standbyPort, `/internal/activate?t=${TOKEN}`, { timeout: 5000 })).body);
+  check(promoted.role === 'active', 'promoting it makes it active', `role: ${promoted.role}`);
+  const afterPromote = JSON.parse((await get(standbyPort, `/internal/state?t=${TOKEN}`, { timeout: 2000 })).body);
+  check(afterPromote.reaping === true, 'and starts the reaper it was withholding', `reaping: ${afterPromote.reaping}`);
+
+  await get(standbyPort, `/internal/standby?t=${TOKEN}`, { timeout: 5000 });
+  const afterStandDown = JSON.parse((await get(standbyPort, `/internal/state?t=${TOKEN}`, { timeout: 2000 })).body);
+  check(afterStandDown.reaping === false, 'standing it down again stops the reaper', `reaping: ${afterStandDown.reaping}`);
+  standby.kill('SIGKILL');
 
   // --------------------------------------------------------- it survives a crash
 

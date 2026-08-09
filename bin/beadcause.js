@@ -122,18 +122,24 @@ const control = (req, res) => {
   switch (url.pathname) {
     case '/internal/state':
       // `inflight - 1` excludes this very request, which is counted like any other.
-      return reply({ role, build, startedAt, pid: process.pid, inflight: inflight - 1 });
+      // `reaping` is reported because the invariant it stands for — exactly one
+      // process sweeping terminals — has a 30-minute idle window before it can be
+      // observed going wrong, which is far too long for any test to wait out.
+      return reply({ role, build, startedAt, pid: process.pid, inflight: inflight - 1, reaping: reaper !== null });
     case '/internal/activate':
       if (!poller) poller = startPoller(cfg, app);
+      if (!reaper && terminalsEnabled(cfg)) reaper = startTerminalReaper(cfg);
       if (role !== 'active') console.log('[beadcause] promoted to active — polling');
       role = 'active';
-      return reply({ ok: true, role });
+      return reply({ ok: true, role, reaping: reaper !== null });
     case '/internal/standby':
       if (poller) clearInterval(poller);
       poller = null;
+      if (reaper) clearInterval(reaper);
+      reaper = null;
       if (role !== 'standby') console.log('[beadcause] stood down — poller stopped');
       role = 'standby';
-      return reply({ ok: true, role });
+      return reply({ ok: true, role, reaping: reaper !== null });
     default:
       res.writeHead(404, { 'content-type': 'application/json' });
       return res.end('{"error":"no such control"}');
@@ -163,7 +169,20 @@ await attachTerminalSocket(cfg, servers);
 // here — they come back as offers to resume, and the first attach is what starts a
 // process. Before the reaper, so a restore is subject to the same idle clock.
 if (terminalsEnabled(cfg)) restoreTerminals(cfg);
-const reaper = terminalsEnabled(cfg) ? startTerminalReaper(cfg) : null;
+/**
+ * The reaper is the active backend's alone — a standby must never run it.
+ *
+ * It is not a timer that merely thinks: `reapTerminals` calls `closeTerminal` on any
+ * terminal past the idle window with no clients attached, and `closeTerminal` on a
+ * `resumable` one writes `status: 'exited'` to the record on disk. A standby has
+ * restored those same records and sees zero clients on every one of them forever,
+ * because the router sends it no traffic — so left running, its reaper would mark
+ * the *active* process's live terminals as ended, in a file they both write.
+ *
+ * Started on promotion and stopped on stand-down, so exactly one process is ever
+ * sweeping, the same way exactly one is ever polling.
+ */
+let reaper = !startStandby && terminalsEnabled(cfg) ? startTerminalReaper(cfg) : null;
 
 /**
  * The orphan guard: an active backend nobody is steering shuts itself down.

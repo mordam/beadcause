@@ -141,7 +141,7 @@ async function spawnBackend() {
     env: process.env,
   });
 
-  const be = { port, child, pid: child.pid, build: null, startedAt: Date.now(), role: 'starting', inflight: 0 };
+  const be = { port, child, pid: child.pid, build: null, startedAt: Date.now(), role: 'starting', reaping: null, inflight: 0 };
   child.on('exit', (code, signal) => onBackendExit(be, code, signal));
 
   const deadline = Date.now() + HEALTH_TIMEOUT_MS;
@@ -151,6 +151,7 @@ async function spawnBackend() {
       const state = await localJson(port, '/internal/state', { timeout: 2000 });
       be.build = state.build;
       be.role = state.role;
+      be.reaping = state.reaping;
       return be;
     } catch (err) {
       if (Date.now() > deadline) {
@@ -239,15 +240,21 @@ async function bringUp(reason) {
     // the next tick picks up whatever appeared.
     if (active) {
       try {
-        await localJson(active.port, '/internal/standby', { method: 'POST' });
+        const down = await localJson(active.port, '/internal/standby', { method: 'POST' });
+        if (down && 'reaping' in down) active.reaping = down.reaping;
       } catch (err) {
         // Unreachable means it is not polling either, which is all we needed.
         warn(`old backend pid ${active.pid} would not stand down (${err.message}) — continuing`);
       }
     }
 
-    await localJson(next.port, '/internal/activate', { method: 'POST' });
-    next.role = 'active';
+    // Take the role and the reaper flag from the promotion's own reply rather than
+    // waiting up to WATCH_MS for the next poll to notice. `--status` and the swap
+    // test both read this immediately after a swap, and a stale `reaping: false`
+    // there reads as "nobody is sweeping terminals" when one just started.
+    const promoted = await localJson(next.port, '/internal/activate', { method: 'POST' });
+    next.role = promoted?.role ?? 'active';
+    if (promoted && 'reaping' in promoted) next.reaping = promoted.reaping;
 
     const previous = active;
     active = next;
@@ -328,6 +335,7 @@ function heartbeat() {
         .then((state) => {
           be.role = state.role;
           be.build = state.build;
+          be.reaping = state.reaping;
         })
         .catch((err) => {
           if (be === active) warn(`active backend pid ${be.pid} is not answering — ${err.message}`);
@@ -384,6 +392,8 @@ function describe(be) {
     port: be.port,
     build: be.build,
     role: be.role,
+    // Whether this backend is sweeping terminals. Exactly one should be, ever.
+    reaping: be.reaping,
     inflight: be.inflight,
     upSeconds: Math.round((Date.now() - be.startedAt) / 1000),
   };
