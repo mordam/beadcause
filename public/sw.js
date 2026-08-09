@@ -1,11 +1,15 @@
 /* Cache the shell so the inbox opens instantly and the 3.5 MB mermaid bundle is
    fetched once. API traffic is never cached — an answered question must vanish. */
-const CACHE = 'beadcause-v13';
+const CACHE = 'beadcause-v14';
 const SHELL = [
   '/',
   '/index.html',
   '/style.css',
   '/app.js',
+  // The answer's flight to the mark. In the shell rather than left to network-first
+  // because it is loaded on the tap that answers a question — the one moment the
+  // link is least likely to be there and most likely to be slow.
+  '/absorb.js',
   // The bottom tab bar, on all four standing views. Every one of them is useless
   // without it now — it is the only way off a page — so it belongs in the shell
   // rather than being fetched four times over a phone link.
