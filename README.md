@@ -1023,6 +1023,40 @@ Both the close and the reopen appear in the scrollback as quiet divider lines. T
 belong in the history, but rendering them in an assistant bubble would read as
 something the agent said.
 
+### An old proposal says what became of it
+
+A reply that proposed beads keeps its `🧾 proposed 3 beads — review` line for the life
+of the transcript. The draft it pointed at does not: creating spends it, the next turn
+replaces it, closing drops it. So by the time you scroll back up, that button is a
+control whose target is gone — and what it used to do then was nothing, silently.
+
+The line stays, because it is part of what the conversation said. What it *offers*
+depends on what happened after it, read off the transcript rather than stored on the
+message — the first thing below it that either consumed that draft or put another one
+in its place:
+
+- **✓ filed 2 beads** — it became beads. Tapping walks you down to the `✓ Created`
+  note that consumed it and flashes it, because that note already lists the ids and
+  each one opens the bead. It deliberately does not reopen the editor: those beads
+  exist, and an editor over them is an offer to file them twice.
+- **🧾 proposed 3 beads — revised since; open the current draft** — a later turn
+  replaced it. Tapping opens the sheet, which is the honest thing to say about it:
+  what is in there is the *newer* draft, not what this message proposed. Saying
+  "review" and then showing something else is the quiet lie this replaced.
+- **🧾 proposed 2 beads — draft discarded** — visibly disabled. The draft went away
+  without becoming anything, which is what closing a console does to unspent cards.
+  There is nothing to look at, and the only useful thing left to say is that.
+- **🧾 proposed 1 bead — review** — the newest live proposal, unchanged. Opens the
+  sheet, exactly as before.
+
+`node scripts/console-check.mjs` holds the rule: the real `public/console.js` in a
+headless Chrome at phone size, against a fixture console served by the script itself,
+so it never talks to the daemon. It taps every proposal line in the thread and
+requires the screen to answer — the sheet opens, the page moves, something lights up,
+or it says why not. `--baseline` serves `HEAD:public/console.js` instead, which is how
+you tell a real failure from a flaky one: baseline must fail the filed and revised
+cases and the inert tap, the working copy must pass all of them.
+
 ### What it costs you to know
 
 - **The agent cannot write to the tracker.** Its allowlist is read-only `bd` plus
