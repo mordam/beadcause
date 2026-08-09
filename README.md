@@ -1596,6 +1596,25 @@ The retirement note says which answered: `retired by beadcause after #42` and `r
 by beadcause after a1b2c3d` are different stories, and only one of them is findable
 later.
 
+### Checking it
+
+`npm test` covers the two libraries — `test/pr.mjs` drives `lib/pr.js` against a fake
+`gh` on `PATH`, keyed off a JSON world file and a call log, so *"it never shelled out"*
+is an assertion rather than a hope; `test/delivery.mjs` covers the block, the markers
+and the split. Neither touches the network, a bead, or a repo.
+
+`node scripts/delivery-check.mjs` is the other half: the real `public/app.js` in a
+headless Chrome the size of a phone, against a fixture built by `lib/delivery.js` and
+parsed back by `lib/decision.js`, with `/api/pr` stubbed through its four states. It
+asserts the things only a browser can answer — that a failing check is named and still
+leaves merge pressable, that a conflict disables it and says why, that one tap arms
+and two send, that typed prose leaves with `CHANGES:` and can never leave with
+`MERGE:`, and that adjusting a row survives a background poll and rides out with the
+create. `--out=<dir>` writes a screenshot; `--keep` leaves it served so you can open it
+yourself. It needs `npm run vendor` to have run — a fresh worktree has no
+`public/vendor`, and without it the app throws on its first markdown render and the
+list never appears, which looks exactly like a bug in whatever you just changed.
+
 ## The Android app
 
 A native shell around the same PWA, in `android/`. It exists for the four things a

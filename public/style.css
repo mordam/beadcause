@@ -473,6 +473,21 @@ body {
 .pr-num { flex: none; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-weight: 700; color: var(--accent); }
 .pr-title { flex: 1; min-width: 0; font-size: 14px; font-weight: 590; line-height: 1.35; }
 .pr-branch { font-size: 12px; color: var(--muted); }
+/* The session's own account of what it did, on the card rather than behind
+   "Show details" — merge is two taps from here, so what you would want to have read
+   before those two taps has to be above them. */
+.pr-summary { display: flex; flex-direction: column; gap: 9px; }
+.pr-summary .md { font-size: 13px; line-height: 1.55; }
+.pr-summary .md p, .pr-summary .md ul, .pr-summary .md ol { margin: 0 0 8px; }
+.pr-summary .md ul, .pr-summary .md ol { padding-left: 18px; }
+.pr-summary .md li { margin-bottom: 3px; }
+.pr-summary .md > *:last-child { margin-bottom: 0; }
+.pr-summary.is-collapsed {
+  max-height: 148px; overflow: hidden;
+  -webkit-mask-image: linear-gradient(180deg, #000 60%, transparent 100%);
+  mask-image: linear-gradient(180deg, #000 60%, transparent 100%);
+}
+.delivery .prop-more { margin-left: 0; }
 .pr-branch code { font-size: 11.5px; }
 .pr-stats { display: flex; flex-wrap: wrap; gap: 6px; }
 .pr-chip {

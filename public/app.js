@@ -751,6 +751,7 @@
         <span class="pr-title">${esc(d.title || d.branch)}</span>
       </a>
       <div class="pr-branch"><code>${esc(d.branch)}</code> → <code>${esc(d.base)}</code></div>
+      ${prSummaryHtml(q, d)}
       <div class="pr-stats">${prStatsHtml(live)}</div>
       <div class="pr-actions">
         <button class="primary pr-merge${armed ? ' confirm' : ''}" data-act="pr-merge" data-key="${esc(q.key)}"
@@ -763,6 +764,49 @@
         </button>
       </div>
     </div>`;
+  }
+
+  /**
+   * What the session said about its own work — on the card, not in the brief.
+   *
+   * Everywhere else in the inbox, context lives behind *Show details*, because a
+   * question is a sentence and the brief is the argument for it. A delivery is the
+   * other way round: the question is always the same four words, and the argument is
+   * the entire content. Merge is two taps from the collapsed card, so anything you
+   * would want to have read before those two taps has to be above them.
+   *
+   * Folded when it is long, by the same machinery and for the same reason as a
+   * proposal row: three deliveries should still fit on the screen you are deciding
+   * from, and a fold beats a clamp because a clamp cuts a list mid-item.
+   */
+  function prSummaryHtml(q, d) {
+    const parts = [];
+    if (d.summary) parts.push(`<div class="md">${renderMarkdown(d.summary, FROM_BD)}</div>`);
+    for (const [label, value] of [
+      ['Tests', d.tests],
+      ['Worth knowing', d.risk],
+      ['Left undone', d.left],
+    ]) {
+      if (value) {
+        parts.push(
+          `<div class="prop-field"><span class="prop-label">${label}</span><div class="md">${renderMarkdown(
+            value,
+            FROM_BD
+          )}</div></div>`
+        );
+      }
+    }
+    if (!parts.length) return '';
+
+    const prose = [d.summary, d.tests, d.risk, d.left].filter(Boolean).join('\n');
+    const long = prose.split('\n').reduce((n, l) => n + Math.max(1, Math.ceil(l.length / PHONE_COLS)), 0) > COLLAPSE_AT;
+    const collapsed = long && !state.propOpen.has(`${q.key}|pr`);
+    return `<div class="pr-summary${collapsed ? ' is-collapsed' : ''}">${parts.join('')}</div>${
+      long
+        ? `<button class="prop-more" data-act="prop-more" data-key="${esc(q.key)}" data-idx="pr"
+            aria-expanded="${!collapsed}">${collapsed ? 'Show the rest' : 'Show less'}</button>`
+        : ''
+    }`;
   }
 
   /** What the primary button promises, which must never overstate what it will do. */
@@ -1971,12 +2015,14 @@
     // the same reason paintPicks exists: rebuilding the card under a decision you
     // are halfway through making loses the decision.
     if (act === 'prop-more') {
-      const row = btn.closest('.prop-row');
+      // A proposal row folds its `.prop-body`; a delivery folds its `.pr-summary`
+      // and has no row around it. Same button, same state, whichever it found.
+      const fold = btn.closest('.prop-row') || btn.previousElementSibling;
       const token = `${key}|${btn.dataset.idx}`;
       const open = !state.propOpen.has(token);
       if (open) state.propOpen.add(token);
       else state.propOpen.delete(token);
-      row?.classList.toggle('is-collapsed', !open);
+      fold?.classList.toggle('is-collapsed', !open);
       btn.setAttribute('aria-expanded', String(open));
       btn.textContent = open ? 'Show less' : 'Show the rest';
       return;
@@ -2263,6 +2309,42 @@
     }
     if (Object.keys(patch).length) editsFor(key).set(n, patch);
     else editsFor(key).delete(n);
+    paintAdjusted(key, n);
+  }
+
+  /**
+   * The heading over an open editor, repainted in place as you type.
+   *
+   * The row keeps its title above the fields, and while you are rewriting that title
+   * the two disagree — so the heading has to follow. In place rather than through
+   * render(), for the obvious reason: a re-render on every keystroke would take the
+   * field out from under the caret, which is the one thing this whole editor must
+   * never do.
+   *
+   * The **adjusted** flag matters more than the heading. It appears the moment a
+   * field differs and goes again when it matches, so the word is a fact about the row
+   * rather than a memory of having once tapped ✎.
+   */
+  function paintAdjusted(key, n) {
+    const row = listEl.querySelector(`.prop-row[data-key="${CSS.escape(key)}"][data-idx="${n}"]`);
+    const q = byKey(key);
+    const original = q?.proposal?.beads?.[n - 1];
+    if (!row || !original) return;
+
+    const b = beadAt(key, original, n);
+    const title = row.querySelector('.prop-title');
+    if (title && title.textContent !== b.title) title.textContent = b.title;
+
+    const head = row.querySelector('.prop-head');
+    const flag = head?.querySelector('.pill.adjusted');
+    if (isAdjusted(key, n) && !flag && head) {
+      const pill = document.createElement('span');
+      pill.className = 'pill adjusted';
+      pill.textContent = 'adjusted';
+      head.appendChild(pill);
+    } else if (!isAdjusted(key, n) && flag) {
+      flag.remove();
+    }
   }
 
   // Focus left an empty box: nothing is in flight, so let any deferred refresh in.
