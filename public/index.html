@@ -2,7 +2,15 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <!--
+    interactive-widget=resizes-content is what keeps the pinned answer box above the
+    on-screen keyboard. An open card is `position: fixed; inset: 0` with the composer
+    as its last row, so the composer sits on the bottom of the *layout* viewport —
+    and a browser's default (resizes-visual) leaves that viewport at full height and
+    slides the keyboard over it. The Android app never had the problem: its activity
+    is windowSoftInputMode="adjustResize", which is the same bargain natively.
+  -->
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
   <meta name="theme-color" content="#0b0f14" media="(prefers-color-scheme: dark)">
   <meta name="theme-color" content="#f6f7f9" media="(prefers-color-scheme: light)">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -33,7 +41,7 @@
       <button id="waiting" class="waiting" hidden></button>
     </div>
     <div class="sheet-actions">
-      <!-- The console, the sessions and the advocates used to hang here. They are
+      <!-- The chat session, the sessions and the advocates used to hang here. They are
            tabs now — the bar at the foot of every page owns them, so they are one
            tap from anywhere rather than one tap from the inbox. What is left is
            what acts on *this* view (⟳) or is not a standing view of its own.
@@ -99,6 +107,11 @@
   <script src="/vendor/purify.js"></script>
   <script src="/presence.js"></script>
   <script src="/tabbar.js"></script>
+  <!-- The answer collapsing into beads and the beads going into the mark. Before
+       app.js because submit() reaches for it on the tap; it registers itself on
+       `beadcause` and touches nothing else, so a page that drops it still answers
+       questions — just without the flight. -->
+  <script src="/absorb.js"></script>
   <script src="/app.js"></script>
   <!-- Graph and doc links open over this tab instead of navigating away from it.
        Last, and needing nothing from app.js: it works on the anchors, not the app. -->

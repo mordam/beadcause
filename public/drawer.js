@@ -8,7 +8,7 @@
  *
  * One file, loaded by both sides of the drawer, picking its half at load:
  *
- *   - **the tab** (inbox, sessions, advocates, console) intercepts clicks on
+ *   - **the tab** (inbox, sessions, advocates, chat session) intercepts clicks on
  *     `/graph?` and `/doc?` links and loads the page that already exists into an
  *     iframe inside the panel. The iframe is the point: it keeps d3 out of the
  *     inbox's bundle and marked out of the graph's, and no page had to learn how to

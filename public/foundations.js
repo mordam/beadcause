@@ -17,7 +17,7 @@
  *     reason beats hiding them — "why can I not change this" is a question the
  *     screen should answer, not raise.
  *
- * The chat is the bead console's conversation record with a different agent on the
+ * The chat is the chat session's conversation record with a different agent on the
  * other end, so it streams, resumes and survives a daemon restart identically. Only
  * the rendering is reimplemented here, and deliberately only the rendering: the
  * proposal sheet is the complicated half of console.js and a chat has no proposal.
@@ -36,7 +36,7 @@
     agent: null,
     tab: new URLSearchParams(location.search).get('tab') || 'foundation',
     // The foundation as edited on screen, authoritative over the server's copy
-    // while the tab is open — same rule as the console's draft sheet.
+    // while the tab is open — same rule as the chat session's draft sheet.
     edits: {},
     chat: null,
     chatSeq: 0,

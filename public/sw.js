@@ -1,11 +1,15 @@
 /* Cache the shell so the inbox opens instantly and the 3.5 MB mermaid bundle is
    fetched once. API traffic is never cached — an answered question must vanish. */
-const CACHE = 'beadcause-v12';
+const CACHE = 'beadcause-v14';
 const SHELL = [
   '/',
   '/index.html',
   '/style.css',
   '/app.js',
+  // The answer's flight to the mark. In the shell rather than left to network-first
+  // because it is loaded on the tap that answers a question — the one moment the
+  // link is least likely to be there and most likely to be slow.
+  '/absorb.js',
   // The bottom tab bar, on all four standing views. Every one of them is useless
   // without it now — it is the only way off a page — so it belongs in the shell
   // rather than being fetched four times over a phone link.
@@ -28,6 +32,13 @@ const SHELL = [
   '/monitor',
   '/monitor.html',
   '/monitor.js',
+  // Pause all / resume all. In the shell for the reason the terminal is: you open
+  // it because something needs stopping now, and that is often the moment the link
+  // is worst. The page is useless without the daemon — but it says so instantly
+  // rather than after a timeout on a blank screen.
+  '/admin',
+  '/admin.html',
+  '/admin.js',
   // The in-app terminal. Worth pre-caching rather than leaving to network-first:
   // it is the one page you open *because* something needs steering right now, and
   // 490 kB of xterm.js over a phone link is a long time to look at nothing.

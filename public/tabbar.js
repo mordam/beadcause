@@ -1,11 +1,12 @@
 /*
   The bar along the bottom of every standing view.
 
-  These four pages — the inbox, the console, the sessions and the advocates — are
-  separate documents, and each one used to end in an ✕ that hard-navigated to `/`.
-  That made the inbox a hallway: console → advocates was two taps through a page
-  you did not want. The ad-hoc cross-links that grew to paper over it (sessions →
-  advocates, advocates → sessions) were the same complaint, admitting itself.
+  These four pages — the inbox, the chat session, the sessions and the advocates —
+  are separate documents, and each one used to end in an ✕ that hard-navigated to
+  `/`. That made the inbox a hallway: chat session → advocates was two taps through
+  a page you did not want. The ad-hoc cross-links that grew to paper over it
+  (sessions → advocates, advocates → sessions) were the same complaint, admitting
+  itself.
 
   So: one bar, the same on all four, fixed to the bottom where a thumb already is.
   Any view is one tap from any other, and nothing closes any more.
@@ -30,9 +31,24 @@
     // home screen still holds the old ones, so a tab has to recognise all of them
     // or the bar shows nothing as current on a page you are plainly looking at.
     { id: 'inbox', href: '/', icon: '📥', label: 'Inbox', paths: ['/', '/index.html'] },
-    { id: 'console', href: '/console', icon: '🧾', label: 'Console', paths: ['/console', '/console.html'] },
+    // Everywhere else this is a "chat session" — the page title, the <h1>, the
+    // foundation, the README. Here it is one word, and the bar is why: five tabs
+    // give each label 72px at 360px, and "Chat session" measures 68px *unwrapped*,
+    // so it takes two lines while its four neighbours take one and its icon rides
+    // higher than theirs. 360px is the common Android width and the app is a WebView
+    // shell, so that is the ordinary case, not the edge. The word it might be
+    // confused with — the agent chats on /foundations — is not a tab, so nothing
+    // here is ambiguous; "Sessions" beside it is the one that would be, and it is
+    // the label this one drops.
+    // The id and the href stay `console`: they live in stored conversation records
+    // and on the phone's home screen.
+    { id: 'console', href: '/console', icon: '🧾', label: 'Chat', paths: ['/console', '/console.html'] },
     { id: 'sessions', href: '/sessions', icon: '🤖', label: 'Sessions', paths: ['/sessions', '/work', '/work.html'] },
     { id: 'advocates', href: '/monitor', icon: '📣', label: 'Advocates', paths: ['/monitor', '/advocates', '/monitor.html'] },
+    // The fifth tab this file's header left room for. Pause all / resume all lives
+    // on its own page, and it has to be reachable from wherever you noticed you
+    // wanted it — which is the point of the bar.
+    { id: 'admin', href: '/admin', icon: '⏸', label: 'Admin', paths: ['/admin', '/admin.html'] },
   ];
 
   const here = location.pathname.replace(/\/+$/, '') || '/';

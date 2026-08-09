@@ -73,6 +73,30 @@ const WORK = {
   elsewhere: [],
 };
 
+/* Two scopes, both with something to stop, so /admin draws its full height — the
+   kill button included, since clearing the bar is the thing being measured. */
+const ADMIN = {
+  reopenIsFresh: false,
+  at: null,
+  scopes: [
+    {
+      id: '*',
+      label: 'Everything',
+      workspaces: ['demo', 'other'],
+      advocates: { total: 2, pausedCount: 0, ours: 0, workers: 2 },
+      terminals: { live: 1, closed: 0 },
+    },
+    {
+      id: 'Work',
+      label: 'Work',
+      workspaces: ['demo'],
+      advocates: { total: 1, pausedCount: 1, ours: 1, workers: 1 },
+      terminals: { live: 0, closed: 1 },
+    },
+  ],
+  closed: [{ workspace: 'demo', bead: null, cols: 80, rows: 24 }],
+};
+
 const TYPES = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
@@ -102,12 +126,14 @@ function serve() {
       });
     if (p === '/api/work') return json(WORK);
     if (p === '/api/consoles') return json({ consoles: [], workspaces: ['demo', 'other'] });
+    if (p === '/api/admin') return json(ADMIN);
     if (p.startsWith('/api/')) return json({});
     // The same aliases the real server maps onto one page.
     let rel = p;
     if (rel === '/sessions' || rel === '/work') rel = '/work.html';
     if (rel === '/console') rel = '/console.html';
     if (rel === '/monitor' || rel === '/advocates') rel = '/monitor.html';
+    if (rel === '/admin') rel = '/admin.html';
     const file = path.join(PUBLIC, rel === '/' ? 'index.html' : rel.replace(/^\/+/, ''));
     if (!file.startsWith(PUBLIC) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) {
       res.writeHead(404).end('no');
@@ -269,13 +295,34 @@ const CLEAR = {
     const bar = document.querySelector('.tabbar').getBoundingClientRect();
     return { what: 'last advocate card', bottom: Math.round(r.bottom), barTop: Math.round(bar.top), n: cards.length };
   })()`,
+  // The kill button is the last thing on the last scope's card, and it is the one
+  // control on this page you must never press by accident. A bar sitting over it
+  // would put "stop every running session" exactly where a thumb reaches for the
+  // tab it meant to tap.
+  '/admin': `(() => {
+    const cards = [...document.querySelectorAll('#admin .admin-card')];
+    const last = cards[cards.length - 1];
+    if (!last) return { what: 'last scope card', missing: true };
+    document.scrollingElement.scrollTop = document.scrollingElement.scrollHeight;
+    const r = last.getBoundingClientRect();
+    const bar = document.querySelector('.tabbar').getBoundingClientRect();
+    return { what: 'last scope card', bottom: Math.round(r.bottom), barTop: Math.round(bar.top), n: cards.length };
+  })()`,
 };
+
+/* Every standing view, in bar order. The count is asserted from this list rather
+   than written out as a number, so adding a sixth tab is one line here and not a
+   test that fails with "four tabs: <five of them>". */
+const TABS = ['inbox', 'console', 'sessions', 'advocates', 'admin'];
 
 const PAGES = [
   { url: '/', tab: 'inbox', name: 'inbox' },
   { url: '/console', tab: 'console', name: 'console' },
   { url: '/sessions', tab: 'sessions', name: 'sessions' },
   { url: '/monitor', tab: 'advocates', name: 'advocates' },
+  // Pause all / resume all. Nothing on it is reachable any other way, so a bar that
+  // failed here would strand the one control that stops everything.
+  { url: '/admin', tab: 'admin', name: 'admin' },
 ];
 
 let failures = 0;
@@ -346,7 +393,7 @@ try {
         continue;
       }
       ok(true, `the bar is on the page — ${p.items.length} tabs, ${p.height}px tall`);
-      ok(p.items.length === 4, `four tabs: ${p.items.map((i) => i.label).join(', ')}`);
+      ok(p.items.length === TABS.length, `${TABS.length} tabs: ${p.items.map((i) => i.label).join(', ')}`);
       ok(p.bottom === p.vh, `pinned to the bottom — bar bottom ${p.bottom}, viewport ${p.vh}`);
       if (insets) ok(p.inner === BOTTOM_INSET, `clears the home indicator — ${p.inner}px of safe-area padding`);
       const cur = p.items.filter((i) => i.current);
@@ -398,22 +445,30 @@ try {
         const card = await evalJs(
           s,
           `(() => {
-            document.querySelector('.card [data-act="toggle"]').click();
+            // Null-safe on purpose: this selector has drifted out of the inbox's
+            // markup before, and a probe that throws takes the whole run with it —
+            // every page after this one goes unchecked, which is how a broken bar
+            // on /admin could hide behind a stale selector on /.
+            const toggle = document.querySelector('.card [data-act="toggle"]');
+            if (!toggle) return { open: false, why: 'no .card [data-act="toggle"] on the page' };
+            toggle.click();
             const open = document.querySelector('.card.open');
-            if (!open) return { open: false };
+            if (!open) return { open: false, why: 'clicking the toggle did not open a card' };
             const bar = document.querySelector('.tabbar').getBoundingClientRect();
             const at = document.elementFromPoint(innerWidth / 2, bar.top + bar.height / 2);
             return { open: true, over: !!at.closest('.card.open'), covers: open.getBoundingClientRect().bottom >= innerHeight };
           })()`
         );
-        ok(card.open, 'a card opens');
-        ok(card.over && card.covers, 'an open card takes the whole screen, tab bar included');
-        await evalJs(s, `document.querySelector('.card.open [data-act="toggle"]').click()`);
-        await sleep(200);
-        ok(
-          await evalJs(s, `!!document.elementFromPoint(innerWidth / 2, innerHeight - 20)?.closest('.tabbar')`),
-          'closing it gives the bar back'
-        );
+        ok(card.open, `a card opens${card.why ? ` — ${card.why}` : ''}`);
+        if (card.open) {
+          ok(card.over && card.covers, 'an open card takes the whole screen, tab bar included');
+          await evalJs(s, `document.querySelector('.card.open [data-act="toggle"]')?.click()`);
+          await sleep(200);
+          ok(
+            await evalJs(s, `!!document.elementFromPoint(innerWidth / 2, innerHeight - 20)?.closest('.tabbar')`),
+            'closing it gives the bar back'
+          );
+        }
       }
 
       if (outDir) {
