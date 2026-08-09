@@ -1,14 +1,14 @@
 /*
   The bar along the bottom of every standing view.
 
-  These four pages — the inbox, the chat session, the sessions and the advocates —
-  are separate documents, and each one used to end in an ✕ that hard-navigated to
-  `/`. That made the inbox a hallway: chat session → advocates was two taps through
-  a page you did not want. The ad-hoc cross-links that grew to paper over it
-  (sessions → advocates, advocates → sessions) were the same complaint, admitting
-  itself.
+  These pages — it started as four: the inbox, the chat session, the sessions and the
+  advocates — are separate documents, and each one used to end in an ✕ that
+  hard-navigated to `/`. That made the inbox a hallway: chat session → advocates was
+  two taps through a page you did not want. The ad-hoc cross-links that grew to paper
+  over it (sessions → advocates, advocates → sessions) were the same complaint,
+  admitting itself.
 
-  So: one bar, the same on all four, fixed to the bottom where a thumb already is.
+  So: one bar, the same on all of them, fixed to the bottom where a thumb already is.
   Any view is one tap from any other, and nothing closes any more.
 
   It is built here rather than pasted into four <head>-alike blocks of HTML because
@@ -44,6 +44,10 @@
     // and on the phone's home screen.
     { id: 'console', href: '/console', icon: '🧾', label: 'Chat', paths: ['/console', '/console.html'] },
     { id: 'sessions', href: '/sessions', icon: '🤖', label: 'Sessions', paths: ['/sessions', '/work', '/work.html'] },
+    // Sixth, and next to Sessions on purpose: this is where the work those sessions
+    // finished goes, and the two are read one after the other. "PRs" rather than
+    // "Pull requests" for the reason the tab beside it is called Chat — see above.
+    { id: 'prs', href: '/prs', icon: '🔀', label: 'PRs', paths: ['/prs', '/pulls', '/prs.html'] },
     { id: 'advocates', href: '/monitor', icon: '📣', label: 'Advocates', paths: ['/monitor', '/advocates', '/monitor.html'] },
     // The fifth tab this file's header left room for. Pause all / resume all lives
     // on its own page, and it has to be reachable from wherever you noticed you

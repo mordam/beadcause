@@ -1331,6 +1331,97 @@ button.work-row {
   color: var(--text); text-decoration: none; font-size: 13px; font-weight: 550;
 }
 
+/* ------------------------------------------------------- the pull request board */
+
+/* One card per repo, one row per pull request, and three lamps on every row. It
+   borrows the whole work-view shell — `.work`, `.work-card`, `.work-row` — because it
+   is the same kind of screen doing the same thing to a different list, and a second
+   set of card styles would drift from the first within a month. What is here is only
+   the part that is genuinely new: the lamps, and the buttons under an open row.
+
+   The lamps are why the page exists. Merged, Pushed, Deployed — three facts that go
+   true at three different times, drawn on every row rather than behind the fold,
+   because "which of these has not shipped" is a question you answer by scanning. */
+
+.board-lamps { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 5px; }
+.lamp {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 11px; font-weight: 600; letter-spacing: 0.02em;
+  color: var(--muted);
+}
+.lamp-dot { width: 8px; height: 8px; border-radius: 50%; border: 1.5px solid currentColor; }
+/* Filled and accented: it happened. */
+.lamp.on { color: var(--accent); }
+.lamp.on .lamp-dot { background: currentColor; }
+/* Empty and dim: it has not happened yet. Deliberately quiet — an open PR has three
+   of these and none of them is a problem. */
+.lamp.off { color: var(--muted); opacity: 0.65; }
+/* Neither. This Mac has never fetched that commit, or the repo has no deploy this
+   daemon can see. A dashed ring, because "nobody has looked" must not read as "no" —
+   see the header of public/prs.js. */
+.lamp.unknown { color: var(--warn); }
+.lamp.unknown .lamp-dot { border-style: dashed; background: none; }
+
+.board-row { align-items: flex-start; }
+.board-row .work-sub { display: flex; align-items: center; gap: 8px; }
+.board-num { color: var(--muted); font-variant-numeric: tabular-nums; }
+.board-nobead { font-style: italic; opacity: 0.8; }
+.board-facts { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
+.diffstat ins { color: var(--bead-made); text-decoration: none; }
+.diffstat del { color: var(--danger); text-decoration: none; }
+.board-checks.passing { color: var(--bead-made); }
+.board-checks.pending { color: var(--warn); }
+.board-checks.failing { color: var(--danger); }
+
+/* What is behind a row: why it is stuck, where it came from, and the three buttons. */
+.board-open { padding: 4px 2px 12px; }
+.board-note { margin: 2px 0 8px; font-size: 13px; color: var(--prose); }
+.board-where { font-size: 11.5px; color: var(--muted); margin-bottom: 10px; overflow-wrap: anywhere; }
+.board-where code { font-size: 11px; }
+.board-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.board-btn {
+  min-height: 40px; display: inline-flex; align-items: center; justify-content: center;
+  padding: 6px 14px;
+  border: 1px solid var(--line); border-radius: 999px;
+  background: var(--surface-2); color: var(--text);
+  font: inherit; font-size: 13.5px; font-weight: 600;
+  text-decoration: none; cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.board-btn.merge { border-color: transparent; background: var(--accent); color: var(--accent-ink); }
+/* Armed. The consequence is written into the button between the two taps, which is
+   the same trade /admin makes for its destructive control: a `confirm()` on a phone
+   is a system sheet you dismiss by reflex, and that is the opposite of a second
+   thought. */
+.board-btn.merge.armed { background: var(--warn); color: var(--accent-ink); }
+.board-btn.ship { border-color: color-mix(in srgb, var(--accent) 55%, transparent); }
+.board-btn.link { color: var(--muted); background: none; }
+.board-btn[disabled] { opacity: 0.5; }
+
+.board-say { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.board-say textarea {
+  width: 100%; padding: 8px 10px;
+  border: 1px solid var(--line); border-radius: 10px;
+  background: var(--surface-2); color: var(--text);
+  font: inherit; font-size: 14px; resize: vertical;
+}
+.board-say .send { align-self: flex-start; }
+
+/* What the last press actually did, pinned under the row it acted on rather than
+   toasted away — these change what has happened to real work, and "did that go
+   through?" must not be a question you answer by opening GitHub. */
+.board-said { margin-top: 10px; font-size: 13px; color: var(--accent); }
+.board-said.bad { color: var(--danger); }
+.board-foot, .board-build { font-size: 11.5px; color: var(--muted); margin: 10px 0 0; }
+.board-build, .board-quiet { max-width: 780px; margin: 0 auto; padding: 0 16px; text-align: center; }
+
+/* For the state a lamp says with colour and shape only. */
+.sr-only {
+  position: absolute; width: 1px; height: 1px;
+  margin: -1px; padding: 0; border: 0;
+  clip-path: inset(50%); overflow: hidden; white-space: nowrap;
+}
+
 /* The graph tab. The canvas fills what's left under the topbar; the card and the
    sheet float over it, so neither of them can push the graph around. */
 .graph-body { overflow: hidden; height: 100dvh; display: flex; flex-direction: column; }
@@ -2663,7 +2754,7 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
 
 /* ── The tab bar ──────────────────────────────────────────────────────────────
 
-   Four standing views, one bar, on all four of them — see public/tabbar.js for
+   The standing views, one bar, on every one of them — see public/tabbar.js for
    why. It sits at the bottom because that is where a thumb is, and the safe-area
    padding is its own rather than the body's: it is `position: fixed`, so it is
    laid out against the viewport and the body's inset padding never reaches it.
@@ -2704,6 +2795,13 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
 }
 .tab-icon { font-size: 19px; line-height: 1.1; position: relative; }
 .tab-label { line-height: 1; }
+
+/* Six tabs is 60px each at 360px — the common Android width — and "Advocates" does
+   not fit that at 10.5px. Rather than shorten a label that is already one word, the
+   type steps down when there is a sixth item to make room for. Keyed off the bar's
+   own contents so adding or removing a tab needs nothing here. */
+.tabbar:has(.tab-item:nth-child(6)) .tab-item { font-size: 9.5px; letter-spacing: 0; padding-inline: 1px; }
+.tabbar:has(.tab-item:nth-child(6)) .tab-icon { font-size: 18px; }
 
 /* How many agents are running, and how many advocates are waiting — on the tabs
    that answer them, so the number and the way to act on it are one tap target.

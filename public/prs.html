@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0b0f14" media="(prefers-color-scheme: dark)">
+  <meta name="theme-color" content="#f6f7f9" media="(prefers-color-scheme: light)">
+  <title>Beadcause · pull requests</title>
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body class="doc-body">
+  <header class="topbar">
+    <div class="brand">
+      <span class="dot" id="pulse"></span>
+      <h1>Pull requests</h1>
+      <!-- Only on an observer instance — see OBSERVING in lib/config.js. An observer
+           can still merge, because merging happens at GitHub; it cannot ship, because
+           shipping opens a window on the Mac this daemon is not running on. -->
+      <span class="observing" id="observing" hidden>⦿ observing</span>
+    </div>
+    <div class="sheet-actions">
+      <button id="prs-refresh" class="icon-btn" aria-label="Refresh">⟳</button>
+    </div>
+  </header>
+
+  <main id="prs" class="work">
+    <div class="empty">Asking every repo…</div>
+  </main>
+
+  <script src="/presence.js"></script>
+  <script src="/tabbar.js"></script>
+  <script src="/prs.js"></script>
+  <!-- Every bead pill here is a link into the graph; the drawer keeps them over this list. -->
+  <script src="/drawer.js"></script>
+</body>
+</html>

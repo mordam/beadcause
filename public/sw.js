@@ -1,6 +1,6 @@
 /* Cache the shell so the inbox opens instantly and the 3.5 MB mermaid bundle is
    fetched once. API traffic is never cached — an answered question must vanish. */
-const CACHE = 'beadcause-v14';
+const CACHE = 'beadcause-v15';
 const SHELL = [
   '/',
   '/index.html',
@@ -10,7 +10,7 @@ const SHELL = [
   // because it is loaded on the tap that answers a question — the one moment the
   // link is least likely to be there and most likely to be slow.
   '/absorb.js',
-  // The bottom tab bar, on all four standing views. Every one of them is useless
+  // The bottom tab bar, on every standing view. Every one of them is useless
   // without it now — it is the only way off a page — so it belongs in the shell
   // rather than being fetched four times over a phone link.
   '/tabbar.js',
@@ -25,6 +25,12 @@ const SHELL = [
   '/sessions',
   '/work.html',
   '/work.js',
+  // The pull request board. Both paths, the same way /work and /sessions are: /pulls
+  // is what you type when GitHub's own word for the tab is the one in your head.
+  '/prs',
+  '/pulls',
+  '/prs.html',
+  '/prs.js',
   '/console.html',
   '/console.js',
   // console.js does not merely use the send queue, it is built on it — the composer
