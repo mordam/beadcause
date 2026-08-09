@@ -334,6 +334,15 @@
     const label = t.bead ? `${t.bead.id} · ${t.workspace}` : t.workspace || 'Terminal';
     $('#title').textContent = label;
     document.title = `${label} · Beadcause`;
+    // Reported from the hello rather than from boot: until the socket says what this
+    // terminal is, all we have is an opaque id, and the mirror would name it that.
+    window.beadcause?.presence?.report({
+      view: 'terminal',
+      id: state.id,
+      workspace: t.workspace || '',
+      key: t.bead?.id ? `${t.workspace}/${t.bead.id}` : '',
+      detail: label,
+    });
     $('#end').hidden = t.status !== 'live';
     if (msg.truncated) toast('Scrollback was trimmed — the oldest output is gone.');
   }

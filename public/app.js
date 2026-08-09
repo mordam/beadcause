@@ -1391,6 +1391,33 @@
     // Puts the caret and the scroll position back — immediately, and again as the
     // diagrams and images size themselves afterwards.
     settlePlace(place, drawDiagrams(listEl));
+    publishView(visible);
+  }
+
+  /**
+   * Tell the daemon which card is up, so the monitor can show it in full.
+   *
+   * Called from render() rather than from each place that opens or closes a card:
+   * every one of those ends in a render, and presence.js drops a report identical to
+   * the last one, so the cheap call in one place beats six correct ones.
+   *
+   * `state.open` is a Set and Sets keep insertion order, so its last entry is the
+   * card opened most recently — which is the one being read when more than one is
+   * expanded.
+   */
+  function publishView(visible) {
+    const p = window.beadcause?.presence;
+    if (!p) return;
+    const q = byKey([...state.open].pop() || '');
+    p.report({
+      view: q ? 'card' : 'inbox',
+      workspace: q ? q.workspace : state.workspace === 'all' ? '' : state.workspace,
+      id: q?.id || '',
+      key: q?.key || '',
+      scope: state.scope,
+      space: state.space,
+      detail: q ? q.title : `${visible.length} waiting`,
+    });
   }
 
   /* --------------------------------------------------------------- actions */
@@ -2006,11 +2033,17 @@
 
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
 
-  // The one thing the page exposes to its host. The Android shell calls this when
-  // you come back from the notification shade or a document, so the list is fresh
+  // What the page exposes to its host. The Android shell calls `refresh` when you
+  // come back from the notification shade or a document, so the list is fresh
   // without a reload — a reload would discard scroll position and any draft sitting
   // in a textarea. render() still refuses to repaint mid-answer.
-  window.beadcause = { refresh: load };
+  //
+  // Merged rather than assigned: presence.js is loaded before this and hangs its own
+  // handle here, and replacing the object wholesale silently unhooks it — the page
+  // then works perfectly while telling the monitor nothing, which is the hardest
+  // possible version of this bug to see.
+  window.beadcause = window.beadcause || {};
+  window.beadcause.refresh = load;
 
   /** The scope survives a reload — it is a preference, not a session detail. */
   function bootScope() {

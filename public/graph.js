@@ -548,8 +548,28 @@
 
   /* ---------------------------------------------------------- the card */
 
+  /**
+   * Which bead the glass is over, for the monitor's mirror.
+   *
+   * The graph is the one view where what you are looking at is not what you
+   * navigated to: the page is a workspace, the thing being read is whichever node
+   * was last tapped. Both are published — the workspace so the mirror can draw the
+   * same graph, the id so it can put that bead's full text beside it.
+   */
+  function publishView(d) {
+    window.beadcause?.presence?.report({
+      view: 'graph',
+      workspace,
+      id: d?.id || (scope === 'bead' ? bead : ''),
+      key: d ? `${workspace}/${d.id}` : '',
+      scope,
+      detail: d?.title || '',
+    });
+  }
+
   function select(d) {
     selected = d;
+    publishView(d);
     gNodes.selectAll('g.gn').classed('on', (n) => n === d);
     $('card-id').textContent = d.id;
     $('card-status').textContent = String(d.status || '').replace('_', ' ');
@@ -591,6 +611,7 @@
 
   function dismissCard() {
     selected = null;
+    publishView(null);
     card.hidden = true;
     if (gNodes) gNodes.selectAll('g.gn').classed('on', false);
   }
@@ -708,6 +729,7 @@
 
     const label = scope === 'bead' && bead ? bead : workspace;
     titleEl.textContent = label;
+    publishView(null);
     document.title = `${label} · graph`;
     for (const btn of scopeEl.querySelectorAll('.scope-btn')) btn.classList.toggle('on', btn.dataset.scope === scope);
 

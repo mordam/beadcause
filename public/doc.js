@@ -13,6 +13,7 @@
   const ext = (name.match(/\.([^.]+)$/) || [, ''])[1].toLowerCase();
   titleEl.textContent = name;
   document.title = `${name} · Beadcause`;
+  window.beadcause?.presence?.report({ view: 'doc', id: filePath, detail: name });
 
   document.getElementById('doc-close').addEventListener('click', () => {
     // Opened via target=_blank, so this usually closes; if the browser refuses,

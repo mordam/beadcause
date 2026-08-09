@@ -25,11 +25,25 @@
     </div>
   </header>
 
+  <nav class="chip-row tabs" id="mon-tabs" aria-label="Views">
+    <button class="chip" data-tab="advocates" aria-pressed="true">Advocates</button>
+    <button class="chip" data-tab="mirror" aria-pressed="false">Mirror<span class="tab-dot" id="mirror-dot" hidden></span></button>
+  </nav>
+
   <main id="mon" class="work">
     <div class="empty">Asking every workspace…</div>
   </main>
 
+  <section id="mirror" class="work" hidden>
+    <div class="empty">Looking for a device…</div>
+  </section>
+
   <script src="/tabbar.js"></script>
+  <script src="/vendor/marked.js"></script>
+  <script src="/vendor/purify.js"></script>
   <script src="/monitor.js"></script>
+  <script src="/mirror.js"></script>
+  <!-- The advocates' rows all point into the graph; the drawer keeps them here. -->
+  <script src="/drawer.js"></script>
 </body>
 </html>
