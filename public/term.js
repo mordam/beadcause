@@ -139,18 +139,23 @@
       btn.addEventListener('click', () => openNew(btn.dataset.ws));
     }
 
-    // Only the live ones are offered to rejoin. An exited terminal is still listed
-    // by the API for a few minutes so a reconnect can show you its last screen, but
-    // offering it here as something to "open" would be a lie.
-    const live = (data.terminals || []).filter((t) => t.status === 'live');
+    // Live and resumable ones are offered to rejoin. An exited terminal is still
+    // listed by the API for a few minutes so a reconnect can show you its last
+    // screen, but offering it here as something to "open" would be a lie.
+    //
+    // A resumable one is a conversation the daemon was restarted out from under: no
+    // process right now, and tapping it starts one with `claude --resume`. It says so
+    // rather than sitting in the list looking like every other running session.
+    const live = (data.terminals || []).filter((t) => t.status === 'live' || t.status === 'resumable');
     $('#live-label').hidden = !live.length;
     $('#live').innerHTML = live
       .map((t) => {
+        const sleeping = t.status === 'resumable';
         const bits = [t.workspace];
         if (t.bead) bits.push(t.bead.id);
-        bits.push(t.clients ? `${t.clients} watching` : 'nobody watching');
+        bits.push(sleeping ? 'resumable — the daemon restarted' : t.clients ? `${t.clients} watching` : 'nobody watching');
         return `<a class="work-row" href="/terminal?id=${encodeURIComponent(t.id)}">
-          <span class="work-phase">▶</span>
+          <span class="work-phase">${sleeping ? '↻' : '▶'}</span>
           <span class="work-main">
             <span class="work-title">${esc(t.bead?.title || t.dir)}</span>
             <span class="work-sub">${esc(bits.join(' · '))}</span>
@@ -344,6 +349,10 @@
       detail: label,
     });
     $('#end').hidden = t.status !== 'live';
+    // Said once, on the attach that did the resuming — see the note in lib/termsocket.js.
+    // The pane is about to fill with a redraw that looks like an ordinary session, and
+    // the missing scrollback needs an explanation that is not "something broke".
+    if (msg.resumed) toast('The daemon restarted — this session was resumed. The screen before it is gone.');
     if (msg.truncated) toast('Scrollback was trimmed — the oldest output is gone.');
   }
 

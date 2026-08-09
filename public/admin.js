@@ -176,22 +176,22 @@
       <div class="admin-row-head">
         <span class="admin-what">In-app terminals</span>
         <span class="admin-state ${t.closed ? 'held' : t.live ? 'live' : 'dim'}">${
-          t.closed ? `${plural(t.closed, 'closed')} by you` : t.live ? `${plural(t.live, 'open')}` : 'none open'
+          t.closed ? `${plural(t.closed, 'paused')}` : t.live ? `${plural(t.live, 'open')}` : 'none open'
         }</span>
       </div>
       <p class="admin-detail">${
         t.closed
-          ? `${plural(t.closed, 'terminal')} this page closed, waiting to be reopened`
+          ? `${plural(t.closed, 'terminal')} paused — resuming continues the same conversation`
           : t.live
-            ? 'The ptys on your phone. Closing them ends nothing on the Mac.'
-            : 'Nothing to close, nothing waiting to come back.'
+            ? 'The ptys on your phone. Pausing them ends nothing on the Mac.'
+            : 'Nothing to pause, nothing waiting to come back.'
       }</p>
       ${
         t.live || t.closed
           ? `<div class="admin-btns">
         ${
           t.closed
-            ? `<button class="primary" data-do="resume" data-what="terminals" data-scope="${esc(s.id)}">Reopen ${plural(
+            ? `<button class="primary" data-do="resume" data-what="terminals" data-scope="${esc(s.id)}">Resume ${plural(
                 t.closed,
                 'terminal'
               )}</button>`
@@ -201,7 +201,7 @@
           t.live
             ? `<button class="secondary" data-do="pause" data-what="terminals" data-scope="${esc(
                 s.id
-              )}">Close ${plural(t.live, 'terminal')}</button>`
+              )}">Pause ${plural(t.live, 'terminal')}</button>`
             : ''
         }
       </div>`
@@ -210,7 +210,7 @@
       ${
         t.closed && state?.reopenIsFresh
           ? `<p class="admin-warn">Reopening starts a <strong>new</strong> conversation in the same
-             directory — the one you were talking to is not resumed (bc-4zz).</p>`
+             directory — the one you were talking to is not resumed.</p>`
           : ''
       }
     </div>`;
@@ -294,9 +294,12 @@
     if (did.paused?.length) bits.push(`paused ${plural(did.paused.length, 'advocate')}`);
     if (did.resumed?.length) bits.push(`resumed ${plural(did.resumed.length, 'advocate')}`);
     if (did.killed?.length) bits.push(`stopped ${plural(did.killed.length, 'session')}`);
-    if (did.closed?.length) bits.push(`closed ${plural(did.closed.length, 'terminal')}`);
-    if (did.opened?.length) bits.push(`reopened ${plural(did.opened.length, 'terminal')}`);
-    if (did.failed?.length) bits.push(`${did.failed.length} could not reopen — ${did.failed[0].error}`);
+    if (did.closed?.length) bits.push(`paused ${plural(did.closed.length, 'terminal')}`);
+    if (did.opened?.length) bits.push(`resumed ${plural(did.opened.length, 'terminal')}`);
+    // Worth saying out loud and separately: these came back as new conversations
+    // because their records were gone, not as the sessions you were talking to.
+    if (did.fresh?.length) bits.push(`${plural(did.fresh.length, 'terminal')} came back fresh`);
+    if (did.failed?.length) bits.push(`${did.failed.length} could not come back — ${did.failed[0].error}`);
     if (!bits.length) bits.push('nothing to do');
 
     said.textContent = bits.join(' · ');

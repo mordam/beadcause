@@ -1761,6 +1761,40 @@ drops its own socket when you background the tab rather than waiting for the OS 
 What ends a terminal is quitting `claude`, pressing **⏹**, or the idle reaper — never
 a dropped connection.
 
+### And it survives the daemon, too
+
+Restarting the daemon still kills every pty — one relaying to a registry that no longer
+exists is a leak. What it no longer does is lose the *conversation*.
+
+The terminal picks the claude session id itself, before the process exists, and passes
+`--session-id` on the first start; a record per terminal lands beside the consoles in
+`~/.config/beadcause/terminals/`, written at lifecycle boundaries only — open, resume,
+exit, shutdown — never per chunk. On the next boot the registry is rebuilt from those
+records and each one comes back **`resumable`**: listed on the terminal page with a ↻
+and "resumable — the daemon restarted", holding no process at all. Attaching is what
+starts one, with `claude --resume <id>`, and the first thing in the pane says so.
+
+Three things about that are deliberate:
+
+- **Nothing is spawned at boot.** A daemon that respawned four `claude` processes on
+  startup would be resurrecting sessions nobody asked for, before anyone was watching.
+  The phone attaching is the signal that the conversation is still wanted.
+- **A session you ended stays ended.** The record stores `live` (meaning "this did not
+  end") or `exited`, and only the first becomes an offer. Getting that backwards would
+  reopen finished work on every restart. `shutdownTerminals()` writes each record down
+  *before* it kills the pty, and a flag stops the exit handler that follows from
+  overwriting it — otherwise the daemon would record, on its way out, that everything
+  you had open ended at 4am.
+- **The scrollback does not come back, and the pane says so.** It is up to 256 kB of raw
+  pty output per terminal, it would have to be written continuously to be worth
+  anything, and replaying a dead session's bytes into a freshly resumed TUI draws a
+  screen that is half history and half live. `claude --resume` redraws the conversation
+  itself, which is the honest version of the same thing.
+
+If the transcript has been pruned since, `claude` says `No conversation found with
+session ID: …` and exits — the terminal ends the way any other ended session does,
+rather than silently starting a different conversation under the same name.
+
 ### The keys a phone doesn't have
 
 Claude Code is driven by esc, ^C and shift-tab, and an Android soft keyboard offers
@@ -1803,7 +1837,8 @@ rather than the TUI being left drawn at the width it started at.
   a session you have open is never reaped for being quiet, because quiet is exactly
   what one looks like while it reads a repo. At most `terminalMax` (default 4) at once,
   and the daemon kills them all on shutdown — outliving a *socket* is the point,
-  outliving the process that owns them is a leak.
+  outliving the process that owns them is a leak. A resumable one (below) counts
+  against the cap and ages out on the same clock.
 - **Scrollback is bytes, not lines** — `terminalScrollbackBytes`, 256 kB by default —
   and it is kept as raw chunks, never decoded on the way in. A pty splits UTF-8
   sequences across chunk boundaries constantly, and decoding per chunk would put
@@ -1939,7 +1974,7 @@ Auth on everything under `/api/` except `/api/health`: header
 | POST | `/api/console/draft` | `{id, draft}` | the cards as you edited them; re-normalised on the way in |
 | POST | `/api/console/create` | `{id, draft?}` | `{created[], warnings[]}` — **the only writer in the console** |
 | GET | `/console` | `?id=` or `?ws=&seed=` | the bead console page |
-| GET | `/api/terminals` | — | `{terminals[], workspaces[], enabled}` — every terminal, newest first |
+| GET | `/api/terminals` | — | `{terminals[], workspaces[], enabled}` — every terminal, newest first. `status` is `live` · `resumable` (was running when the daemon restarted; attaching resumes it) · `exited` |
 | POST | `/api/terminal` | `{workspace, id?, cols?, rows?}` | `{terminal}` — opens one; an `id` seeds it on that bead |
 | GET | `/api/terminal` | `?id=` | `{terminal}` — one, without its bytes |
 | POST | `/api/terminal/close` | `{id}` | ends it (SIGTERM, then SIGKILL after 5s) |
@@ -2178,8 +2213,8 @@ controls.
 
 ### `npm test`
 
-Five suites: `scripts/selftest.mjs`, then `test/observe.mjs`, `test/atomic.mjs`,
-`test/memory.mjs` and `test/summary.mjs`. What they have in common is that each covers something whose
+Six suites: `scripts/selftest.mjs`, then `test/observe.mjs`, `test/atomic.mjs`,
+`test/memory.mjs`, `test/summary.mjs` and `test/terminal.mjs`. What they have in common is that each covers something whose
 failure is *silent* — a flag that does nothing, a state file that comes back empty,
 a message that was never written. The loud failures are still covered by
 `node --check` on changed files and by booting an observer instance and driving it.
@@ -2207,6 +2242,15 @@ by accident fails here rather than turning up as a slower inbox months later. Th
 the badge empties in a scope that sweeps no questions. And that the response stopped
 being additive — every field an older client reads is asserted still present and
 unchanged.
+
+`test/terminal.mjs` covers what a terminal remembers across a restart, at the record
+layer and nothing below it: that one which was running comes back `resumable` with the
+session id that makes resuming possible, that one which *ended* stays ended, that a
+record from before this existed or a half-written one is dropped rather than offered as
+something that cannot be delivered, and that the flags are `--session-id` first and
+`--resume` after. The pty itself is a named `skip` — `expect` and `claude` both being on
+PATH is not something a test should assume, and a test that opened one would leave a
+Claude session running in a temp directory.
 
 ## Notes on bd
 

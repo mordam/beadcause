@@ -78,26 +78,51 @@ function stubAdvocates(init) {
   };
 }
 
+/**
+ * The terminals, as lib/terminal.js hands them over.
+ *
+ * `suspend` models the real thing exactly: the record stays in the registry as
+ * `resumable` rather than leaving it, which is what makes resuming-by-id the same
+ * conversation. `forget` is how a test says "this one was reaped while you had it
+ * paused", which is the only case that falls back to a fresh open.
+ */
 function stubTerminals(init) {
-  let live = init.map((t) => ({ status: 'live', cols: 80, rows: 24, bead: null, ...t }));
+  let all = init.map((t) => ({ status: 'live', cols: 80, rows: 24, bead: null, ...t }));
   const opened = [];
+  const resumed = [];
   let cap = 99;
   return {
     opened,
+    resumed,
     setCap: (n) => {
       cap = n;
     },
-    list: () => live.map((t) => ({ ...t })),
-    close: (id) => {
-      live = live.filter((t) => t.id !== id);
+    forget: (id) => {
+      all = all.filter((t) => t.id !== id);
+    },
+    list: () => all.map((t) => ({ ...t })),
+    suspend: (id) => {
+      const t = all.find((x) => x.id === id);
+      if (!t) return false;
+      t.status = 'resumable';
+      return true;
+    },
+    resume: (id) => {
+      const t = all.find((x) => x.id === id);
+      if (!t || t.status !== 'resumable') return false;
+      if (opened.length + resumed.length >= cap) {
+        throw Object.assign(new Error('terminals are already open (terminalMax) — close one first'), { status: 429 });
+      }
+      t.status = 'live';
+      resumed.push(id);
       return true;
     },
     open: (record) => {
-      if (opened.length >= cap) {
+      if (opened.length + resumed.length >= cap) {
         throw Object.assign(new Error('terminals are already open (terminalMax) — close one first'), { status: 429 });
       }
       opened.push(record);
-      live.push({ id: `re-${opened.length}`, workspace: record.workspace, status: 'live', cols: 80, rows: 24, bead: record.bead });
+      all.push({ id: `re-${opened.length}`, workspace: record.workspace, status: 'live', cols: 80, rows: 24, bead: record.bead });
       return { id: `re-${opened.length}` };
     },
   };
@@ -157,13 +182,39 @@ await check('a space naming a workspace that is not configured does not invent o
   assert.deepEqual(s[1].workspaces, ['alpha'], 'ghost is not served, so it is not in reach');
 });
 
-await check('pause-all pauses every advocate and closes every terminal', () => {
+await check('pause-all pauses every advocate and suspends every terminal', () => {
   const { admin, adv, term } = build();
   const { did } = admin.control({ action: 'pause', scope: GLOBAL });
   assert.deepEqual(did.paused, ['alpha', 'beta', 'loner']);
   assert.deepEqual(did.closed.map((c) => c.workspace), ['alpha', 'beta']);
-  assert.equal(term.list().length, 0, 'no terminal is left open');
+  assert.equal(term.list().filter((t) => t.status === 'live').length, 0, 'no terminal is left running');
   assert.ok(adv.snapshot().every((a) => a.paused));
+});
+
+await check('a paused terminal is suspended, not closed — it comes back as itself', () => {
+  const { admin, term } = build();
+  admin.control({ action: 'pause', what: 'terminals', scope: GLOBAL });
+  assert.ok(
+    term.list().every((t) => t.status === 'resumable'),
+    'suspending leaves the conversation resumable rather than ended'
+  );
+
+  const { did } = admin.control({ action: 'resume', what: 'terminals', scope: GLOBAL });
+  assert.deepEqual(term.resumed, ['t1', 't2'], 'the same two terminals, by id');
+  assert.equal(did.opened.length, 2);
+  assert.equal(did.fresh?.length ?? 0, 0, 'and none of them came back as a new conversation');
+  assert.equal(term.opened.length, 0, 'nothing was opened from scratch');
+});
+
+await check('a terminal reaped while paused falls back to a fresh one, and says so', () => {
+  const { admin, term } = build();
+  admin.control({ action: 'pause', what: 'terminals', scope: GLOBAL });
+  term.forget('t1'); // Gone: reaped, or its record deleted.
+
+  const { did } = admin.control({ action: 'resume', what: 'terminals', scope: GLOBAL });
+  assert.deepEqual(did.opened.map((r) => r.id), ['t2'], 't2 is the conversation you were having');
+  assert.deepEqual(did.fresh.map((r) => r.id), ['t1'], 't1 could only come back as a new one');
+  assert.equal(term.opened.length, 1, 'and it did come back rather than being dropped');
 });
 
 await check('drain is the default and signals nobody', () => {
@@ -243,7 +294,11 @@ await check('pausing one space leaves the other running', () => {
   admin.control({ action: 'pause', scope: 'Work' });
   const paused = adv.snapshot().filter((a) => a.paused).map((a) => a.workspace);
   assert.deepEqual(paused, ['alpha'], 'only the Work space stopped');
-  assert.deepEqual(term.list().map((t) => t.id), ['t2'], "Personal's terminal is untouched");
+  assert.deepEqual(
+    term.list().filter((t) => t.status === 'live').map((t) => t.id),
+    ['t2'],
+    "Personal's terminal is untouched"
+  );
 });
 
 await check('a workspace in no space is reachable only from global', () => {
@@ -258,7 +313,7 @@ await check('a workspace in no space is reachable only from global', () => {
 await check('advocates and terminals pause separately', () => {
   const { admin, adv, term } = build();
   admin.control({ action: 'pause', what: 'terminals', scope: GLOBAL });
-  assert.equal(term.list().length, 0, 'the terminals are closed');
+  assert.equal(term.list().filter((t) => t.status === 'live').length, 0, 'the terminals are suspended');
   assert.ok(adv.snapshot().every((a) => !a.paused), 'and no advocate was touched');
 
   const st = admin.status();
@@ -297,7 +352,7 @@ await check('`ours` counts only what this page paused, never a hand-paused advoc
   assert.equal(scopeOf(admin.status(), 'Work').advocates.ours, 0, 'alpha was already paused when we got there');
 });
 
-await check('resume reopens exactly the terminals it closed, seeded the same way', () => {
+await check('the fallback reopen is seeded the same way the terminal was', () => {
   const { admin, term } = build({
     terminals: [
       { id: 't1', workspace: 'alpha', bead: { id: 'a-7', title: 'Something' }, cols: 100, rows: 40 },
@@ -305,13 +360,14 @@ await check('resume reopens exactly the terminals it closed, seeded the same way
     ],
   });
   admin.control({ action: 'pause', what: 'terminals', scope: GLOBAL });
+  term.forget('t1');
   const { did } = admin.control({ action: 'resume', what: 'terminals', scope: GLOBAL });
-  assert.equal(did.opened.length, 2);
+  assert.equal(did.fresh.length, 1);
   assert.deepEqual(term.opened[0].bead, { id: 'a-7', title: 'Something' }, 'the bead it was seeded on comes back');
   assert.equal(term.opened[0].cols, 100, 'and the size it was at');
 });
 
-await check('a terminal that will not reopen keeps its record rather than vanishing', () => {
+await check('a terminal that will not come back keeps its record rather than vanishing', () => {
   const { admin, term } = build();
   admin.control({ action: 'pause', what: 'terminals', scope: GLOBAL });
   term.setCap(1); // The cap is full after one: you opened others by hand meanwhile.
@@ -319,7 +375,7 @@ await check('a terminal that will not reopen keeps its record rather than vanish
   assert.equal(did.opened.length, 1);
   assert.equal(did.failed.length, 1, 'the one that did not fit is reported, not swallowed');
   assert.match(did.failed[0].error, /terminalMax/);
-  assert.equal(status.closed.length, 1, 'and is still reopenable once a slot frees');
+  assert.equal(status.closed.length, 1, 'and is still resumable once a slot frees');
 });
 
 await check('the status counts what a press would affect, per scope', () => {
@@ -330,7 +386,9 @@ await check('the status counts what a press would affect, per scope', () => {
   assert.equal(work.advocates.workers, 1, 'the number the red button acts on');
   assert.equal(work.terminals.live, 1);
   assert.equal(scopeOf(st, GLOBAL).advocates.workers, 1);
-  assert.equal(st.reopenIsFresh, true, 'until bc-4zz lands, the screen must say a reopen is a new conversation');
+  // bc-4zz landed: a resumed terminal is the session you were talking to, so the
+  // screen must stop warning that it is a new one.
+  assert.equal(st.reopenIsFresh, false, 'resuming continues the conversation now');
 });
 
 await check('bad input is refused rather than half-applied', () => {
