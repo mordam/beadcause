@@ -25,6 +25,7 @@ import { DEFAULT_TOOLS } from '../lib/agents.js';
 import { toQuestion } from '../lib/decision.js';
 import { splitChannels } from '../lib/server.js';
 import * as notify from '../lib/notify.js';
+import { OBSERVING } from '../lib/config.js';
 
 let failures = 0;
 let ran = 0;
@@ -39,6 +40,11 @@ async function check(name, fn) {
     console.log(`  FAIL ${name}`);
     console.log(`       ${String(err.message).split('\n').slice(0, 6).join('\n       ')}`);
   }
+}
+
+/** Counted and named, never silently absent — a check that did not run is not a pass. */
+function skip(name) {
+  console.log(`  skip ${name}`);
 }
 
 /** A real git repo in a temp directory. The foundation store is git, so mocking it would test nothing. */
@@ -438,6 +444,17 @@ await check('a request whose block did not parse still lands in the channel', ()
   assert.equal(requests.length, 1);
 });
 
+/*
+ * The notification checks below assert that something *is* published, so they are a
+ * lie in an observer shell — `OBSERVING` short-circuits every push, by design. Said
+ * out loud rather than worked around: test/observe.mjs owns that flag and spawns
+ * children to test both values of it, and a second copy of that machinery here would
+ * be two answers to one question.
+ */
+if (OBSERVING) {
+  console.log('  --   the notification checks need a non-observer shell (BEADCAUSE_OBSERVE is set)');
+}
+
 /** Capture what would have been POSTed to ntfy, without posting it. */
 async function captureNtfy(fn) {
   const real = globalThis.fetch;
@@ -460,7 +477,7 @@ const NTFY_CFG = {
   ntfy: { enabled: true, topic: 'topic', server: 'https://ntfy.sh', actionButtons: true },
 };
 
-await check('a request notifies down its own path, not the question one', async () => {
+await (OBSERVING ? skip : check)('a request notifies down its own path, not the question one', async () => {
   const dir = tempRepo();
   const request = amendment.parseAmendment(REQUEST);
   const f = await foundation.effective(dir, 'dispatch');
@@ -487,7 +504,7 @@ await check('a request notifies down its own path, not the question one', async 
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
-await check('approve and decline are both one tap from the shade', async () => {
+await (OBSERVING ? skip : check)('approve and decline are both one tap from the shade', async () => {
   const dir = tempRepo();
   const request = amendment.parseAmendment(REQUEST);
   const f = await foundation.effective(dir, 'dispatch');
@@ -508,7 +525,7 @@ await check('approve and decline are both one tap from the shade', async () => {
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
-await check('a reply about a request carries no buttons', async () => {
+await (OBSERVING ? skip : check)('a reply about a request carries no buttons', async () => {
   const sent = await captureNtfy(() =>
     notify.pushFoundationReply(NTFY_CFG, { key: 'beadcause/bc-1', workspace: 'beadcause' }, {
       author: 'dispatch',
