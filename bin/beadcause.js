@@ -4,7 +4,7 @@ import { createApp, startPoller, listen } from '../lib/server.js';
 import { advocatedWorkspaces, workerLimit } from '../lib/advocate.js';
 import { attachTerminalSocket } from '../lib/termsocket.js';
 import { flush } from '../lib/commonrepo.js';
-import { shutdownTerminals, startTerminalReaper, terminalsEnabled } from '../lib/terminal.js';
+import { restoreTerminals, shutdownTerminals, startTerminalReaper, terminalsEnabled } from '../lib/terminal.js';
 
 const cfg = loadConfig();
 const setupUrl = `${cfg.baseUrl}/?t=${cfg.token}`;
@@ -68,6 +68,10 @@ const poller = startPoller(cfg, app);
 // because `ws` is imported dynamically — an install that hasn't run `npm install`
 // since this landed loses the terminal and keeps everything else.
 await attachTerminalSocket(cfg, servers);
+// Terminals that were running when the last daemon went away. Nothing is spawned
+// here — they come back as offers to resume, and the first attach is what starts a
+// process. Before the reaper, so a restore is subject to the same idle clock.
+if (terminalsEnabled(cfg)) restoreTerminals(cfg);
 const reaper = terminalsEnabled(cfg) ? startTerminalReaper(cfg) : null;
 
 console.log(`[beadcause] config      ${CONFIG_PATH}`);

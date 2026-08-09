@@ -1,8 +1,9 @@
 /**
- * The two counts /api/questions carries for the inbox's top bar.
+ * The three counts /api/questions carries for the inbox's top bar.
  *
- * The bar draws "agents running" and "advocate proposals waiting" beside the app
- * mark, and it draws them off the poll every client already makes — which is the
+ * The bar draws "beads waiting on you" where the wordmark used to be, and "agents
+ * running" and "advocate proposals waiting" as badges on the tabs that answer
+ * them. All three come off the poll every client already makes — which is the
  * only reason they are on this endpoint and not on /api/work. So the things worth
  * being sure about are not the arithmetic; they are the three ways this could be
  * quietly wrong:
@@ -83,7 +84,13 @@ const ROWS = {
     agent: [bead('a-9', 'Some work nobody is asking about', { labels: [] })],
   },
   [WS[1].dir]: {
-    human: [proposal('b-1', 'beta', 'File something in beta')],
+    human: [
+      proposal('b-1', 'beta', 'File something in beta'),
+      // The other channel. It arrives on the same `bd human list` and is split out
+      // of it — and it has a badge of its own on the ⚖️ in the bar, which is why
+      // the waiting count must not also claim it.
+      bead('b-2', 'An agent asking to be different', { labels: ['human', 'foundation'] }),
+    ],
     agent: [],
   },
 };
@@ -205,6 +212,15 @@ try {
     assert.equal(human.summary.proposals, 2, 'two repos are waiting on an answer, not three beads');
   });
 
+  await check('counts the beads asking you something, and not the other channel', () => {
+    assert.equal(human.summary.questions, 4, 'four questions are waiting — the foundation bead is not one');
+    assert.equal(
+      human.summary.questions,
+      human.questions.length,
+      'in the scope that sweeps them, the count and the list must agree'
+    );
+  });
+
   await check('adds no bd call to the poll', () => {
     const before = calls();
     assert.equal(before.length, WS.length, `the sweep is one call per workspace, got ${before.length}`);
@@ -221,7 +237,7 @@ try {
     assert.equal(human.scope, 'human');
     assert.deepEqual(human.workspaces, ['alpha', 'beta']);
     assert.equal(human.questions.length, 4, 'every human bead should still be in the list');
-    assert.deepEqual(human.requests, [], 'no agent is asking to be different in this fixture');
+    assert.equal(human.requests.length, 1, 'the foundation bead belongs to the other channel');
     // The summary is its own object rather than fields spread across the top level,
     // so a client reading the response by key cannot collide with it.
     assert.equal(typeof human.summary, 'object');
@@ -235,12 +251,18 @@ try {
     );
     assert.equal(agent.summary.proposals, 2, 'the badge must not empty out when you switch tabs');
     assert.equal(agent.summary.sessions, 2, 'sessions come off the filesystem, so every scope has them');
+    assert.equal(
+      agent.summary.questions,
+      4,
+      'the waiting count is held from the last sweep — a zero here would read as "nothing is asking you"'
+    );
   });
 
   await check('an unknown scope still gets the summary', async () => {
     const old = await get('?scope=nonsense');
     assert.equal(old.scope, 'human', 'an unrecognised scope falls back rather than failing');
     assert.equal(old.summary.proposals, 2);
+    assert.equal(old.summary.questions, 4);
   });
 } finally {
   for (const s of servers) s.close();

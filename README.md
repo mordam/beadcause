@@ -256,6 +256,36 @@ card's head. `--baseline` serves `HEAD:public/app.js` instead of the working cop
 which is how you tell a real failure from a flaky one: baseline must fail the scroll
 cases, the working copy must pass all of them.
 
+### One open at a time, and where you are in the list
+
+Opening a question **collapses whichever one was open before it**. An open card is a
+fixed full-screen layer, so before this a second one just stacked on the first — tap a
+notification while reading, close what it opened, and you were looking at a brief you
+had already finished with rather than the list. Left to accumulate they also made the
+list unscrollable in the only sense that matters: you could not find your place in it.
+
+**Collapsing is never suppressed, not even for an unsent draft.** The alternative — a
+card that refuses to close because you started typing in it — trades a small surprise
+for a bigger one. Instead the card comes back **marked in orange down its left edge**,
+so a question you have half answered is legible from the list while you scroll past it.
+Same `--warn` as the "draft saved" flag it sits beside, deliberately: one orange, one
+meaning. It is a solid edge where the P0/P1 pill is a 22% tint of the same colour, so
+*high priority* and *unfinished* can't be mistaken for each other. The mark comes off
+where the draft does — on **Comment only**, which is the one path that clears a draft
+and leaves the card in the list.
+
+Scrolling raises a **"5 of 9"** against the right edge, with a rail whose thumb is
+sized by how much of the list is on screen: how many above, how many below, how many
+in total, which several open questions otherwise give you no sense of at all. It fades
+out 1.6s after you stop, because it is a navigation aid and not a permanent fixture
+sitting on top of a card's buttons. It counts what the space and workspace chips have
+left in the list rather than what the server sent, and it is hidden entirely while a
+card is open — that card scrolls itself, and a count of the list underneath would be
+describing something you can't see.
+
+Both are painted the way `paintArmed()` is — a class toggled on the card in place, not
+a `render()` — so nothing here can rebuild the list under a half-typed answer.
+
 ### Reading a paragraph bd folded at 78 columns
 
 bd hard-wraps what it stores. A phone is narrower than 78 columns, so every one of
@@ -278,10 +308,38 @@ one item, and a three-line comment still has its two breaks. `--baseline` serves
 
 ## Who you are talking to
 
-Commenting dispatches an agent to reply — and you choose which one. Above the
-comment box is a row of chips; the one you pick answers, and the foundation it
-answers from is printed underneath, because an agent whose brief you cannot read is
-a name you are guessing at.
+Commenting dispatches an agent to reply — and you choose which one. The answer box
+says which, on a strip along its top edge: **Comment only → 💬 Answerer replies**. It
+names the button as well as the agent, because the choice governs exactly one of the
+two: a comment dispatches, and **Answer & close** spawns nobody.
+
+The roster itself is behind the **⋯ at that strip's right-hand end** — chips for
+every agent, ＋ to make one, the foundation of the one selected, and the allow-tools
+checkbox. It used to be drawn in full every time a bead opened, which on a phone was
+several centimetres of a control nearly every comment leaves alone, sitting between
+the thread you had just read and the box you were about to type in. Folded, but not
+hidden: which agent replies stays on the strip, and so does an armed tools override —
+[that one is spent the moment you send](#allow-tools--for-one-comment-and-only-that-one),
+so a shut panel must never leave the box looking ordinary. Choosing a chip repaints
+the panel and nothing else, so it cannot eat a half-written comment. Escape closes
+it and leaves the caret where it was.
+
+The foundation of the selected agent is printed in the panel rather than left to the
+name, because an agent whose brief you cannot read is a name you are guessing at.
+
+`node scripts/agent-chooser-check.mjs` checks the fold and, more to the point, what
+the fold must not hide: headless Chrome at phone size driving the real
+`public/app.js` against a roster built by `lib/agents.js` and a question parsed by
+`lib/decision.js`, so it never touches a bead. It asserts the thread runs into the
+box with no chooser in between, that the ⋯ sits on the box's top-right corner and
+says which agent replies without being opened, that the panel holds everything the
+old block drew, that choosing a chip or arming tools keeps a half-typed comment and
+leaves the panel open, that an armed override shows with the panel shut, and that
+the trigger is labelled, `aria-expanded` flips, Escape closes it and the caret stays
+in the box. `--baseline` serves `HEAD:public/app.js` and `HEAD:public/style.css`
+instead of the working copy, which is how you tell a real failure from a flaky one —
+baseline has no ⋯ at all, so it must fail. `--out=<dir>` writes a screenshot of the
+box shut, the panel open and the armed state.
 
 Four are built in, and they are the four shapes a comment on a decision actually
 takes:
@@ -317,8 +375,8 @@ is the whole of giving the Critic edit rights — its name and foundation stay w
 they are. Nothing in the app can write this string; there is no endpoint that accepts
 one. A form on a lock screen is the wrong place to hand out edit rights.
 
-**Using** it is a checkbox under the agent chips, and it is spent by the comment it
-rides on:
+**Using** it is a checkbox under the agent chips in the ⋯ panel, and it is spent by
+the comment it rides on:
 
 - **Off every time.** Arming applies to the **next reply only** and is dropped the
   moment the dispatch goes. Want tools on the comment after that? Tick it again.
@@ -333,6 +391,9 @@ rides on:
 - **Loud in the log.** Both the arming and the dispatch print the whole tools string
   to `~/Library/Logs/beadcause.log`, which is what makes an elevated run findable
   after the fact.
+- **Visible with the panel shut.** An armed box says so on its strip — *⚠ with
+  tools, this once* — and rings the ⋯ in the same amber, so pressing **Comment only**
+  is never an elevation you had forgotten granting.
 
 The elevated run is also told, in its prompt, that it is elevated deliberately for
 one reply and should say in its comment exactly what it did with the reach.
@@ -637,6 +698,92 @@ advocate cycle rewrites `advocates.json` three or four times in a second and tho
 are one event to whoever reads the history back. `status.json`, `logs/` and the
 check PNGs are ignored — churn, and not the thing you want a history of.
 
+## What an agent can see — a picture of the running app
+
+Almost everything in flight in this repo is visual. How the graph fits a phone,
+where a card lands after its prose reflows, whether the kebab collapses, what the
+console pane does at 390px — and every one of those shipped from an agent that had
+read the source and never seen the screen. It would write the CSS, run the tests,
+and hand over a change it was in no position to have an opinion about.
+
+```
+node scripts/shot.mjs [path] [--desktop] [--full] [--wait SEL] [--settle MS]
+                      [--out FILE] [--base URL] [--strict]
+```
+
+It renders a page of the running daemon to a PNG under `.claude/shots/` and prints
+the path. The agent then `Read`s the PNG, which is a thing it could already do — the
+missing half was never the looking, it was having something to look at.
+
+```
+$ node scripts/shot.mjs /graph?ws=beadcause --wait svg
+.claude/shots/graph-ws-beadcause-20260809-150650.png
+  http://127.0.0.1:4318/graph?ws=beadcause - 390x844 @3x mobile - 141 KB
+
+what the page complained about
+  http: 404 /api/presence
+```
+
+**The phone is the default**, 390×844 at 3× with touch and a mobile user agent —
+the same device `phone-check.mjs` emulates, so a shot and a check describe the same
+pixels. A 1280px screenshot is a picture of the one layout nobody uses, and it hides
+exactly the failures worth catching. `--desktop` when the bug really is a
+wide-window one.
+
+**The token never touches the command line.** It comes from `loadConfig()` and goes
+into `localStorage` through an init script that runs before any of the page's own
+code, so the app finds itself already paired and never draws the setup dialog over
+the thing you came to photograph. Agent shell commands get echoed into transcripts,
+quoted into beads and read on a phone; a secret that reaches the screen once needs
+rotating. `?t=` would have put it in the URL bar, which is to say in the screenshot.
+
+**It waits for `load`, never for an idle network.** The app holds a WebSocket open
+for live updates, so the network is never idle — an idle-wait would have timed out
+on every page that rendered perfectly. `load` then a settle, and `--wait SEL` for a
+page that fans out over every workspace before it has anything to draw.
+
+**The console errors are output, not decoration.** A screenshot shows you a blank
+panel. It does not show you the 401 behind it, and that is precisely the case where
+a picture on its own actively misleads. `console.error`, uncaught exceptions, failed
+requests and any response ≥ 400 are collected, deduped and printed under the path.
+The 404 in the example above is real, and nothing else in the repo was going to
+mention it.
+
+Exit code is 1 when the page never loaded — Chrome renders its own error page in
+that case and reports no error at all, so without it a shot of "this site can't be
+reached" would read as a page that rendered. `--strict` widens that to any complaint
+at all. Either way it still writes the PNG: a run that produces nothing sends the
+agent back to guessing from source, and the error state is usually the single most
+informative frame there is.
+
+Two shots taken a week apart differ only where the app does — `prefers-color-scheme`
+is pinned dark and `prefers-reduced-motion` to `reduce`, because an animation caught
+mid-flight is a diff every single time.
+
+It drives headless Chrome over the DevTools protocol on Node's global `WebSocket`,
+the same way `scroll-check.mjs` and its five siblings already do, so it adds no
+dependency and downloads no browser. Chrome is looked up in the usual places and
+`CHROME_PATH` points it somewhere else.
+
+`node scripts/shot-check.mjs` is what keeps it honest, because every way this breaks
+is silent — a picture always arrives. Pairing stops working and it photographs the
+setup dialog, which reads to an agent as "the app is broken". The error capture stops
+working and a 401 behind a blank panel comes back looking fine. So: a fixture page
+served from the check's own process, with its own throwaway config and a token this
+file knows, shot for real by the real script. Fifteen assertions, including that the
+token never reached the output and that the page itself agrees about the viewport and
+the pinned media. It needs no daemon and no beads, so it can never photograph, or
+leak, anything of yours. Like the other headless-Chrome checks it is not in
+`npm test` — that suite stays pure Node.
+
+**The advocate gets exactly this and nothing more.** `Bash(node scripts/shot.mjs:*)`
+is in its `allowedTools` baseline — one command, not `Bash(node:*)`. The point is to
+let it look, not to let it run arbitrary JavaScript, and `writes: false` would mean
+very little standing next to a general `node`. Worker sessions needed no change at
+all: `allowedTools` is `null` there, so the moment the script existed they could run
+it. And `.claude/shots/` is gitignored, because every PNG is a picture of real
+beads.
+
 ## The conversation, both ways
 
 *Comment only* is not a dead end — it starts a thread.
@@ -705,6 +852,35 @@ Three things make this safe to widen:
 The wider scopes poll at 60s rather than the inbox's 25s: they are a full `bd list`
 sweep, about 2.5s of `bd` across seven workspaces, and that does not want to run four
 times a minute for a list you are glancing at.
+
+### The top bar says who is asking, not what the app is called
+
+The widest part of the bar used to be the word **Beadcause** — on a screen you
+reached by tapping an icon labelled Beadcause, in an app whose title bar says
+Beadcause. It is the app mark now, the same artwork as the home-screen icon, still
+inside the `<h1>` with the name as the image's `alt` so the header is labelled and a
+reader still hears which app this is.
+
+What the reclaimed width is spent on is the premise itself:
+
+```
+  ⚙  ●  ◔  ( 8 waiting )                    ⌨️  ⚖️  ⟳
+```
+
+**8 waiting** is how many beads are asking you something, and tapping it is the way
+back to the `human` scope — the count *is* the filter. It is hidden at zero, because
+an empty inbox should look empty rather than report itself, and under 360px the word
+drops and the number stays.
+
+The other two numbers in that picture — agents running, advocates waiting — are
+**badges on the tabs that answer them**, not chips up here: the number and the way to
+act on it end up as the same tap target. See [the tab bar](#getting-around--the-tab-bar).
+
+The count is drawn from the rows on screen whenever the scope actually swept them, so
+answering a question drops it on the tap rather than on the next poll. In the `agent`
+scope — which sweeps no questions at all — it falls back to the count the server
+holds from the last sweep, for the same reason the advocate badge does: a zero there
+would read as "nothing is asking you anything" when the truth is "you did not ask".
 
 ## What a question is blocking
 
@@ -851,6 +1027,15 @@ So all four carry the same bar along the bottom, where a thumb already is:
  Inbox   Console   Sessions   Advocates
  ▔▔▔▔▔
 ```
+
+Sessions and Advocates carry a **badge** when there is something behind them — how
+many agents are running, how many advocates are waiting on an answer. Both numbers
+ride the inbox's own poll (`/api/questions` carries them; see [the three counts on
+the poll](#the-three-counts-on-the-poll)), so they are live while you are on the
+inbox and simply absent on a page that has no way to refresh them — which beats a
+stale number that looks live. Zero shows nothing. The badge sits inside the tab's
+`aria-hidden` icon, so the tab takes an `aria-label` saying what the number counts:
+"2" read out after "Sessions" says nothing about two of what.
 
 Any view is one tap from any other, and nothing closes any more. The current tab is
 a `<span>` rather than a link — tapping where you already are should do nothing, not
@@ -2001,6 +2186,40 @@ drops its own socket when you background the tab rather than waiting for the OS 
 What ends a terminal is quitting `claude`, pressing **⏹**, or the idle reaper — never
 a dropped connection.
 
+### And it survives the daemon, too
+
+Restarting the daemon still kills every pty — one relaying to a registry that no longer
+exists is a leak. What it no longer does is lose the *conversation*.
+
+The terminal picks the claude session id itself, before the process exists, and passes
+`--session-id` on the first start; a record per terminal lands beside the consoles in
+`~/.config/beadcause/terminals/`, written at lifecycle boundaries only — open, resume,
+exit, shutdown — never per chunk. On the next boot the registry is rebuilt from those
+records and each one comes back **`resumable`**: listed on the terminal page with a ↻
+and "resumable — the daemon restarted", holding no process at all. Attaching is what
+starts one, with `claude --resume <id>`, and the first thing in the pane says so.
+
+Three things about that are deliberate:
+
+- **Nothing is spawned at boot.** A daemon that respawned four `claude` processes on
+  startup would be resurrecting sessions nobody asked for, before anyone was watching.
+  The phone attaching is the signal that the conversation is still wanted.
+- **A session you ended stays ended.** The record stores `live` (meaning "this did not
+  end") or `exited`, and only the first becomes an offer. Getting that backwards would
+  reopen finished work on every restart. `shutdownTerminals()` writes each record down
+  *before* it kills the pty, and a flag stops the exit handler that follows from
+  overwriting it — otherwise the daemon would record, on its way out, that everything
+  you had open ended at 4am.
+- **The scrollback does not come back, and the pane says so.** It is up to 256 kB of raw
+  pty output per terminal, it would have to be written continuously to be worth
+  anything, and replaying a dead session's bytes into a freshly resumed TUI draws a
+  screen that is half history and half live. `claude --resume` redraws the conversation
+  itself, which is the honest version of the same thing.
+
+If the transcript has been pruned since, `claude` says `No conversation found with
+session ID: …` and exits — the terminal ends the way any other ended session does,
+rather than silently starting a different conversation under the same name.
+
 ### The keys a phone doesn't have
 
 Claude Code is driven by esc, ^C and shift-tab, and an Android soft keyboard offers
@@ -2043,7 +2262,8 @@ rather than the TUI being left drawn at the width it started at.
   a session you have open is never reaped for being quiet, because quiet is exactly
   what one looks like while it reads a repo. At most `terminalMax` (default 4) at once,
   and the daemon kills them all on shutdown — outliving a *socket* is the point,
-  outliving the process that owns them is a leak.
+  outliving the process that owns them is a leak. A resumable one (below) counts
+  against the cap and ages out on the same clock.
 - **Scrollback is bytes, not lines** — `terminalScrollbackBytes`, 256 kB by default —
   and it is kept as raw chunks, never decoded on the way in. A pty splits UTF-8
   sequences across chunk boundaries constantly, and decoding per chunk would put
@@ -2146,7 +2366,7 @@ Auth on everything under `/api/` except `/api/health`: header
 | Method | Path | Body / params | Returns |
 |---|---|---|---|
 | GET | `/api/health` | — | `{ok, workspaces[]}` · **no token** |
-| GET | `/api/questions` | `?scope=human\|both\|agent` | `{questions[], workspaces[], spaces[], summary, scope}` — `scope` defaults to `human`, and an unrecognised value falls back to it rather than erroring. `summary` is `{sessions, proposals}`, the two counts the inbox's bar draws |
+| GET | `/api/questions` | `?scope=human\|both\|agent` | `{questions[], workspaces[], spaces[], summary, scope}` — `scope` defaults to `human`, and an unrecognised value falls back to it rather than erroring. `summary` is `{sessions, proposals, questions}`, the three counts the inbox's chrome draws |
 | GET | `/api/question` | `?workspace=&id=` | one question **plus `comments[]`** |
 | GET | `/api/poll` | `?since=<seq>&wait=<s>` | long-poll: `{seq, resync, events[], questions, workspaces[]}` |
 | POST | `/api/respond` | `{workspace, id, response, create?, edits?}` | comments, then closes the bead. `create` is the 1-based indices of a proposal's beads to file; without it, `CREATE:` in the text means all and `CREATE: 1,3` means those. `edits` is `{n: {title, type, priority, description, acceptance}}` keyed by the same numbers, applied before creating. A `MERGE:` / `CHANGES:` / `DECLINE:` response on a delivery question acts on its pull request first — see [Landing work](#landing-work--a-branch-a-pull-request-and-your-tap) |
@@ -2180,7 +2400,7 @@ Auth on everything under `/api/` except `/api/health`: header
 | POST | `/api/console/draft` | `{id, draft}` | the cards as you edited them; re-normalised on the way in |
 | POST | `/api/console/create` | `{id, draft?}` | `{created[], warnings[]}` — **the only writer in the console** |
 | GET | `/console` | `?id=` or `?ws=&seed=` | the bead console page |
-| GET | `/api/terminals` | — | `{terminals[], workspaces[], enabled}` — every terminal, newest first |
+| GET | `/api/terminals` | — | `{terminals[], workspaces[], enabled}` — every terminal, newest first. `status` is `live` · `resumable` (was running when the daemon restarted; attaching resumes it) · `exited` |
 | POST | `/api/terminal` | `{workspace, id?, cols?, rows?}` | `{terminal}` — opens one; an `id` seeds it on that bead |
 | GET | `/api/terminal` | `?id=` | `{terminal}` — one, without its bytes |
 | POST | `/api/terminal/close` | `{id}` | ends it (SIGTERM, then SIGKILL after 5s) |
@@ -2197,26 +2417,33 @@ A row from `scope=agent` is **not** a question: it carries `agent: true`, has no
 `/api/bead`. `/api/question` is the wrong endpoint for one, because it parses the
 decision block and only means anything for a `human` bead.
 
-### The two counts on the poll
+### The three counts on the poll
 
-`/api/questions` carries a `summary` — `{sessions, proposals}` — because the top bar
-of the inbox wants to say how many agents are running and how many advocates are
-waiting on an answer, and the bar is on screen whenever the inbox is. Everything else
-in that picture is on `/api/work`, which is two `bd` calls per workspace and about a
-second for six: fine when you open it, not fine every thirty seconds on a phone.
+`/api/questions` carries a `summary` — `{sessions, proposals, questions}` — because
+the chrome of the inbox wants to say how many beads are asking you something, how
+many agents are running and how many advocates are waiting on an answer, and it is on
+screen whenever the inbox is. Everything else in that picture is on `/api/work`,
+which is two `bd` calls per workspace and about a second for six: fine when you open
+it, not fine every thirty seconds on a phone.
 
-These two are the exception because neither costs a `bd` call. `sessions` is a
+These three are the exception because none of them costs a `bd` call. `sessions` is a
 readdir of `~/.claude/sessions` plus a JSON parse per record — every live session on
 the Mac, including ones in no configured workspace, which is exactly the set the
 sessions page lists. `proposals` counts **advocates**, not beads: one open ask per
 advocate is the rule `propose()` enforces, so a repo with two proposal-shaped beads
 in it is still one repo waiting on you.
 
-`proposals` is held from the last `human` sweep rather than counted out of the
-response, and that is deliberate. The `agent` scope runs no `human` sweep at all, so
-counting the rows would empty the badge the moment you switched tabs — which reads as
-"answered" rather than as "not fetched". The poller sweeps every thirty seconds
-whatever any client asked for, so the number is at worst one poll old in any scope.
+`questions` is the inbox's own count — the beads asking you something — and it is the
+questions channel only: a [foundation request](#a-channel-of-its-own-on-every-surface)
+has the ⚖️ badge in the bar already, and counting it in both places would make the two
+disagree about the same bead.
+
+`proposals` and `questions` are both held from the last `human` sweep rather than
+counted out of the response, and that is deliberate. The `agent` scope runs no
+`human` sweep at all, so counting the rows would empty them the moment you switched
+tabs — which reads as "answered" rather than as "not fetched". The poller sweeps every
+thirty seconds whatever any client asked for, so the numbers are at worst one poll old
+in any scope.
 
 The field is additive and its own object: a client that has never heard of it — the
 installed Android build, a service worker still serving last week's `app.js` — reads
@@ -2423,8 +2650,8 @@ controls.
 
 ### `npm test`
 
-Five suites: `scripts/selftest.mjs`, then `test/observe.mjs`, `test/atomic.mjs`,
-`test/memory.mjs` and `test/summary.mjs`. What they have in common is that each covers something whose
+Six suites: `scripts/selftest.mjs`, then `test/observe.mjs`, `test/atomic.mjs`,
+`test/memory.mjs`, `test/summary.mjs` and `test/terminal.mjs`. What they have in common is that each covers something whose
 failure is *silent* — a flag that does nothing, a state file that comes back empty,
 a message that was never written. The loud failures are still covered by
 `node --check` on changed files and by booting an observer instance and driving it.
@@ -2444,14 +2671,25 @@ really open a window?" can only be answered by opening one. That is the incident
 this flag exists because of, so the suite proves the guards are *conditional* and
 stops there.
 
-`test/summary.mjs` covers the two counts on `/api/questions`, against a stub `bd`
+`test/summary.mjs` covers the three counts on `/api/questions`, against a stub `bd`
 that logs every invocation and a temp `~/.claude/sessions`. The arithmetic is not the
-risk; three quieter things are. That the counts start costing a `bd` call — the log
+risk; four quieter things are. That the counts start costing a `bd` call — the log
 is asserted to be one `human list` per workspace and nothing else, so a sweep added
-by accident fails here rather than turning up as a slower inbox months later. That
-the badge empties in a scope that sweeps no questions. And that the response stopped
+by accident fails here rather than turning up as a slower inbox months later. That a
+count empties in a scope that sweeps no questions. That the waiting count claims the
+other channel's beads as well as its own — the fixture holds a `foundation` bead, and
+it is asserted into `requests` and out of the count. And that the response stopped
 being additive — every field an older client reads is asserted still present and
 unchanged.
+
+`test/terminal.mjs` covers what a terminal remembers across a restart, at the record
+layer and nothing below it: that one which was running comes back `resumable` with the
+session id that makes resuming possible, that one which *ended* stays ended, that a
+record from before this existed or a half-written one is dropped rather than offered as
+something that cannot be delivered, and that the flags are `--session-id` first and
+`--resume` after. The pty itself is a named `skip` — `expect` and `claude` both being on
+PATH is not something a test should assume, and a test that opened one would leave a
+Claude session running in a temp directory.
 
 ## Notes on bd
 

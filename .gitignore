@@ -7,6 +7,11 @@ public/vendor/
 # which is exactly what you don't want in a repo you hand to someone else.
 .claude/handoffs/
 
+# Screenshots from `node scripts/shot.mjs`, written for an agent to Read and then
+# forget. Every one of them is a picture of real beads — titles, workspaces, whatever
+# was on screen — so they belong to the machine that took them and nowhere else.
+.claude/shots/
+
 # Built and published by `npm run android` — 28 MB, and rebuilt from source.
 public/beadcause.apk
 
