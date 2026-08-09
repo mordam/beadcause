@@ -303,6 +303,10 @@ const state = {
   status: {}, // status.json, merged over each question's activity
   conn: 'connecting',
   connDetail: '',
+  // Whether the daemon on the other end is in observer mode. False until it says
+  // otherwise: claiming "observing" at a daemon that is in fact acting would be the
+  // one wrong answer that matters.
+  observing: false,
 };
 
 let statusMtime = null;
@@ -501,7 +505,11 @@ function frame() {
   const head = [
     rule(
       'top',
-      seg().add('Beadcause', C.bold),
+      // The badge goes beside the name, not with the connection state: it says which
+      // daemon is on the other end of this socket, and a console pointed at an
+      // observer instance is otherwise indistinguishable from one pointed at the
+      // live one. See OBSERVING in lib/config.js.
+      state.observing ? seg().add('Beadcause', C.bold).add('  ⦿ observing', C.yellow) : seg().add('Beadcause', C.bold),
       seg().add(BASE.replace(/^https?:\/\//, ''), C.dim).add('  ').add(conn.ansi())
     ),
     ...spaceRows(now),
@@ -596,6 +604,9 @@ function apply(data) {
   // moving — a session it opened finishes, a slot frees — and a pane that only
   // updated when the inbox did would sit on a stale picture for hours.
   if (data.advocates) state.advocates = data.advocates;
+  // Which daemon this console is pointed at. Sent on every poll, so it survives a
+  // restart of either side onto a different instance.
+  if (typeof data.observing === 'boolean') state.observing = data.observing;
 
   const arrived = [];
   if (data.resync) arrived.push({ type: 'resync', at: new Date().toISOString(), key: '' });

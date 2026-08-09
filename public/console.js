@@ -135,7 +135,13 @@
     return hrs < 24 ? `${hrs}h ago` : `${Math.round(hrs / 24)}d ago`;
   };
 
+  // `id` only scopes the graph — it does not open anything. `open` adds the second
+  // half: the graph page raises that bead's sheet once it has drawn. Anywhere the id
+  // is the whole reason for the link (a bead you just filed, the one this console
+  // started from) wants beadUrl; a link that means "show me the neighbourhood" wants
+  // graphUrl.
   const graphUrl = (ws, id) => `/graph?ws=${encodeURIComponent(ws)}&id=${encodeURIComponent(id)}`;
+  const beadUrl = (ws, id) => `${graphUrl(ws, id)}&open=1`;
 
   /* --------------------------------------------------------------- launcher */
 
@@ -317,11 +323,16 @@
     if (m.role === 'user') return `<div class="msg you">${esc(m.text)}</div>`;
 
     if (m.role === 'system' && m.kind === 'created') {
+      // Pill and title in one anchor, not a linked id sitting beside inert text. The
+      // title is the big thing on the row and it looked tappable long before it was;
+      // the id pill on its own is a 40px-wide target on a phone.
       const pills = (m.created || [])
         .map(
           (x) =>
-            `<a class="pill id created" href="${esc(graphUrl(state.console.workspace, x.id))}" target="_blank" rel="noopener">${esc(x.id)}</a>
-             <span class="created-title">${esc(x.title)}</span>`
+            `<a class="created-row" href="${esc(beadUrl(state.console.workspace, x.id))}" target="_blank" rel="noopener">
+               <span class="pill id created">${esc(x.id)}</span>
+               <span class="created-title">${esc(x.title)}</span>
+             </a>`
         )
         .join('');
       const warn = (m.warnings || []).length
@@ -365,7 +376,7 @@
     const pin = atBottom();
 
     const head = c.seed
-      ? `<div class="seed-note">Starting from <a class="pill id" href="${esc(graphUrl(c.workspace, c.seed.id))}" target="_blank" rel="noopener">${esc(c.seed.id)}</a> ${esc(c.seed.title)}</div>`
+      ? `<div class="seed-note">Starting from <a class="seed-link" href="${esc(beadUrl(c.workspace, c.seed.id))}" target="_blank" rel="noopener"><span class="pill id">${esc(c.seed.id)}</span> <span class="seed-title">${esc(c.seed.title)}</span></a></div>`
       : '';
 
     const msgs = c.messages.map(messageHtml).filter(Boolean).join('');
