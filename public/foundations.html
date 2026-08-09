@@ -56,6 +56,9 @@
     -->
     <section id="tab-chat" class="tab-panel chat-panel" role="tabpanel" hidden>
       <div id="chat-thread" class="thread" aria-live="polite"></div>
+      <!-- Said while the agent was working. Same behaviour as the bead console's,
+           because it is literally the same queue — see /sendqueue.js. -->
+      <div id="chat-queued" class="queued" aria-live="polite" hidden></div>
       <form id="chat-composer" class="composer">
         <textarea id="chat-say" rows="1" placeholder="Ask this agent something…"
           enterkeyhint="send" autocomplete="off"></textarea>
@@ -95,6 +98,7 @@
 
   <script src="/vendor/marked.js"></script>
   <script src="/vendor/purify.js"></script>
+  <script src="/sendqueue.js"></script>
   <script src="/foundations.js"></script>
 </body>
 </html>

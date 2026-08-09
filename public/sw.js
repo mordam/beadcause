@@ -1,6 +1,6 @@
 /* Cache the shell so the inbox opens instantly and the 3.5 MB mermaid bundle is
    fetched once. API traffic is never cached — an answered question must vanish. */
-const CACHE = 'beadcause-v12';
+const CACHE = 'beadcause-v13';
 const SHELL = [
   '/',
   '/index.html',
@@ -23,6 +23,11 @@ const SHELL = [
   '/work.js',
   '/console.html',
   '/console.js',
+  // console.js does not merely use the send queue, it is built on it — the composer
+  // takes its words from it. A cached console.html that could not fetch this would
+  // be a blank screen rather than a degraded one, which is why it is in the shell
+  // and not left to network-first.
+  '/sendqueue.js',
   // The advocate console. Two paths for one page, the same way /work and /sessions
   // are: launchd opens '/monitor', and '/advocates' is what you guess when typing.
   '/monitor',

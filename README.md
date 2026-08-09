@@ -1648,6 +1648,64 @@ Both the close and the reopen appear in the scrollback as quiet divider lines. T
 belong in the history, but rendering them in an assistant bubble would read as
 something the agent said.
 
+### Keep typing while it is working
+
+Both chat surfaces used to treat a running turn as a reason to shut the composer
+down. The bead console disabled the box and the send button and swapped the
+placeholder for `working…`, which on a phone means the keyboard drops and there is
+nothing to type into; the agent chat let you type but refused to send, so what you
+wrote came back into the box behind a red toast. On the CLI you can type — and queue
+— the whole time an agent is working, and losing that on the phone is worse rather
+than better, because a turn that spends ninety seconds reading files is ninety
+seconds of a thought you have to hold in your head.
+
+So the composer stays live for the whole turn, on both screens, and what a running
+turn changes is only where the words go:
+
+- **Sending mid-turn queues.** The message appears above the composer as its own
+  dashed line, in your own words, so it reads as said-but-not-yet-delivered rather
+  than as part of the conversation or as lost.
+- **The queue flushes when the turn lands**, as the next turn, automatically.
+- **Everything said during one turn arrives as one turn.** Two queued messages
+  concatenate with a blank line between them. Firing them as two `claude -p` runs
+  back to back would answer the first without knowing the second exists.
+- **A queued message is editable and removable until it goes.** Tapping the line puts
+  it back in the composer — above whatever is half-typed there, so taking a message
+  back to fix a word cannot cost the sentence you were in the middle of. The ✕ drops
+  it.
+- **Nothing pushes through the server's refusal.** `sendTurn` still answers `409`
+  while a console is mid-turn, and that stays the truth: this is the side that waits.
+  A delivery refused in a genuine race puts the words back and retries, rather than
+  reporting a red toast about a feature working as designed.
+
+Delivering a message *into* the turn already running is deliberately not this. That
+needs a persistent `--input-format stream-json` process instead of the one-shot
+`claude -p --resume` per turn, and is its own piece of work.
+
+The queue lives in the page, like the half-typed text in the composer beside it: a
+reload loses what has not gone yet. Everything that *has* gone is on the server and in
+the transcript, which is the line worth keeping — a message is either visibly waiting
+on your screen or really sent, and never both or neither.
+
+The queue itself is `public/sendqueue.js`, shared by both callers rather than written
+twice — including the pending strip, which `queue.attach({ el, box })` draws and wires
+back into the composer. The two screens still render a *conversation* their own way,
+which is the line: a message that has not gone yet is not part of one, and two
+hand-written copies of the same strip would drift. Each caller keeps its own
+optimistic bubble, though, and that is deliberate too: the round trip is a process
+spawn, and words that vanish for a second read as having been eaten, so the message
+is drawn in the thread the moment it goes and taken back out again if the send fails.
+
+`test/queue.mjs` (in `npm test`) covers the queue: queued mid-turn, delivered on the
+turn ending, two arriving as one, a refusal that keeps the words and does not spin,
+and an idle repaint that re-sends nothing. `node scripts/queue-check.mjs` covers the
+half a unit test cannot see — the real `console.js` and `foundations.js` in headless
+Chrome at phone size, against a fixture server that answers a mid-turn message with
+the same `409` the daemon does: the textarea is enabled, the send button is tappable,
+the placeholder is unchanged, the box keeps focus, and both messages land as one turn
+with the fixture never once having been pushed through. `--baseline` serves the
+committed copies of both files, which fail it.
+
 ### An old proposal says what became of it
 
 A reply that proposed beads keeps its `🧾 proposed 3 beads — review` line for the life
@@ -2258,8 +2316,8 @@ controls.
 
 ### `npm test`
 
-Six suites: `scripts/selftest.mjs`, then `test/observe.mjs`, `test/atomic.mjs`,
-`test/memory.mjs`, `test/summary.mjs` and `test/terminal.mjs`. What they have in common is that each covers something whose
+Seven suites: `scripts/selftest.mjs`, then `test/observe.mjs`, `test/atomic.mjs`,
+`test/memory.mjs`, `test/summary.mjs`, `test/terminal.mjs` and `test/queue.mjs`. What they have in common is that each covers something whose
 failure is *silent* — a flag that does nothing, a state file that comes back empty,
 a message that was never written. The loud failures are still covered by
 `node --check` on changed files and by booting an observer instance and driving it.
@@ -2298,6 +2356,17 @@ something that cannot be delivered, and that the flags are `--session-id` first 
 `--resume` after. The pty itself is a named `skip` — `expect` and `claude` both being on
 PATH is not something a test should assume, and a test that opened one would leave a
 Claude session running in a temp directory.
+
+`test/queue.mjs` covers what happens to words typed while a turn is running, because
+every way that breaks is silent from the outside: a message queued and never sent
+looks exactly like one you forgot to type, and one sent twice looks like the agent
+repeating itself. It loads the real `public/sendqueue.js` in a `vm` context with
+nothing in it but a `window` — a copy of the logic rewritten as a module would pass
+while the page shipped something else — and holds five rules: mid-turn queues,
+turn-ending delivers, two queued messages become one turn, a refused delivery keeps
+the words and gives up rather than spinning, and an idle repaint re-sends nothing.
+The browser half is `scripts/queue-check.mjs`, named as a `skip` at the end of the
+suite so what it does *not* cover is on the screen rather than in a comment.
 
 ## Notes on bd
 
