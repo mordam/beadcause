@@ -343,6 +343,13 @@
         <div class="created-list">${pills}</div>${warn}</div>`;
     }
 
+    // What beadcause did to the agent between turns. Its own row rather than an
+    // assistant bubble: the console did not say this, and a note about the console
+    // being restarted is the last thing that should look like the agent talking.
+    if (m.role === 'system' && m.kind === 'reseeded') {
+      return `<div class="msg reseed-note"><strong>↻ Foundation changed</strong>${esc(m.text)}</div>`;
+    }
+
     // A quiet divider rather than a message. The console being closed or picked back
     // up belongs in the scrollback, but rendering it in an assistant bubble would
     // read as something the agent said.
