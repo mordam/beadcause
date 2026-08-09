@@ -95,10 +95,13 @@ cat > "$PLIST" <<PLIST_EOF
   <key>Label</key>
   <string>$LABEL</string>
 
+  <!-- The router, not the server. It owns the port and supervises a backend on an
+       internal one, so an edit to lib/ is picked up by swapping the backend rather
+       than by you remembering to restart. See bin/router.js. -->
   <key>ProgramArguments</key>
   <array>
     <string>$NODE</string>
-    <string>$ROOT/bin/beadcause.js</string>
+    <string>$ROOT/bin/router.js</string>
   </array>
 
   <key>WorkingDirectory</key>
@@ -217,7 +220,14 @@ Useful from here:
   tail -f $LOG
   open http://127.0.0.1:4318/monitor             # the advocate console
   npm run monitor                                # the same thing in a terminal, roughly
-  launchctl kickstart -k gui/$(id -u)/$LABEL     # restart after changing lib/ or bin/
+  npm run swap:status                            # which build is actually answering
+  npm run swap                                   # swap now, without waiting
+  launchctl kickstart -k gui/$(id -u)/$LABEL     # only needed for bin/router.js itself
+
+Editing lib/ no longer needs a restart: the router notices within a few seconds and
+swaps the backend under the port, draining the old one. The exception is
+bin/router.js, which cannot replace itself — it says so in the log when it changes.
+
   npm run uninstall-service                      # remove it again
 
 Config (token, ntfy topic, workspaces) lives in ~/.config/beadcause/config.json.
