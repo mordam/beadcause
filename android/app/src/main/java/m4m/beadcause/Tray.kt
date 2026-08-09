@@ -31,6 +31,20 @@ object Tray {
     /** Android's inbox template renders about five lines; four leaves a summary line. */
     private const val MAX_LINES = 4
 
+    /**
+     * Which card an entry lands in — and there are two, deliberately.
+     *
+     * [WORK] is the tray as it was: questions and agent replies, stacked into one
+     * glanceable card. [FOUNDATION] is an agent asking to change what it is, and it
+     * gets a card of its own for the same reason it gets a pane of its own in the
+     * app: it is not a question about work, it does not compete with one, and it must
+     * not be the fourth line of an inbox summary about something else.
+     *
+     * Two cards is the ceiling, not a pattern to extend. Beyond about three the shade
+     * stops being glanceable, which is the whole reason [Tray] exists.
+     */
+    enum class Chan { WORK, FOUNDATION }
+
     data class Entry(
         val key: String,
         val line: String,
@@ -39,44 +53,58 @@ object Tray {
         val big: String,
         val question: Question?,
         val isReply: Boolean,
+        val chan: Chan = Chan.WORK,
     )
 
-    private val entries = ArrayDeque<Entry>()
+    private val decks = mapOf(
+        Chan.WORK to ArrayDeque<Entry>(),
+        Chan.FOUNDATION to ArrayDeque<Entry>(),
+    )
+
+    private fun deck(chan: Chan) = decks.getValue(chan)
 
     @Synchronized
     fun add(ctx: Context, entry: Entry) {
         // Same bead twice means the newer render wins and keeps its place at the
-        // top, rather than the card listing one question twice.
-        entries.removeAll { it.key == entry.key }
-        entries.addFirst(entry)
-        while (entries.size > MAX_LINES) entries.removeLast()
-        render(ctx)
+        // top, rather than the card listing one question twice. Swept from *both*
+        // decks: a bead that gained the foundation label after it was first seen
+        // would otherwise sit in the shade twice, in two different cards.
+        val moved = decks.keys.count { it != entry.chan && deck(it).removeAll { e -> e.key == entry.key } }
+        val d = deck(entry.chan)
+        d.removeAll { it.key == entry.key }
+        d.addFirst(entry)
+        while (d.size > MAX_LINES) d.removeLast()
+        render(ctx, entry.chan)
+        if (moved > 0) decks.keys.filter { it != entry.chan }.forEach { render(ctx, it) }
     }
 
     @Synchronized
     fun remove(ctx: Context, key: String) {
-        if (entries.removeAll { it.key == key }) render(ctx)
+        for (chan in decks.keys) if (deck(chan).removeAll { it.key == key }) render(ctx, chan)
     }
 
     /**
      * Keep only what the server still says is open.
      *
      * The old sweep cancelled every notification id it did not recognise, which with
-     * a single tray card would have cancelled the tray on every poll.
+     * a single tray card would have cancelled the tray on every poll. The live set
+     * spans both channels, so it is passed whole rather than per card.
      */
     @Synchronized
     fun retain(ctx: Context, liveKeys: Set<String>) {
-        if (entries.removeAll { it.key !in liveKeys }) render(ctx)
+        for (chan in decks.keys) if (deck(chan).removeAll { it.key !in liveKeys }) render(ctx, chan)
     }
 
     @Synchronized
     fun clear(ctx: Context) {
-        entries.clear()
-        render(ctx)
+        for (chan in decks.keys) {
+            deck(chan).clear()
+            render(ctx, chan)
+        }
     }
 
     @Synchronized
-    fun snapshot(): List<Entry> = entries.toList()
+    fun snapshot(): List<Entry> = decks.values.flatten()
 
-    private fun render(ctx: Context) = Notifications.renderTray(ctx, entries.toList())
+    private fun render(ctx: Context, chan: Chan) = Notifications.renderTray(ctx, chan, deck(chan).toList())
 }

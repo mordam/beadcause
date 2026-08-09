@@ -132,6 +132,58 @@ body {
 
 .list { padding: 12px 12px 0; display: flex; flex-direction: column; gap: 12px; }
 
+/*
+  The foundation channel — agents asking to change what they are.
+
+  It has to read as a different *kind* of thing from the list under it, not as an
+  important question. So: no red, no priority colour, nothing that says "urgent".
+  The accent hairline and the tinted ground say "this is elsewhere", which is what
+  the separation is actually claiming. A request is pending, not late.
+
+  Its cards are ordinary `.card`s, deliberately — the answer path must not fork —
+  and `.card.open` still goes fullscreen out of here, because it is `position:
+  fixed` against the viewport rather than against this section.
+*/
+.channel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--accent) 7%, var(--surface));
+}
+.channel-head { display: flex; gap: 11px; align-items: flex-start; }
+.channel-icon { font-size: 21px; line-height: 1.25; }
+.channel-head h2 {
+  margin: 0;
+  font-size: 15.5px;
+  line-height: 1.3;
+  color: var(--text);
+}
+.channel-head p {
+  margin: 4px 0 0;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+/* How many are waiting, on the ⚖️ in the header — the channel's only presence in
+   the chrome, since a request is never in the list below. */
+.icon-btn { position: relative; }
+.icon-btn .badge {
+  position: absolute;
+  top: -5px; right: -5px;
+  min-width: 17px; height: 17px;
+  padding: 0 4px;
+  border-radius: 9px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-size: 10.5px; font-weight: 700; line-height: 17px;
+  text-align: center;
+}
+.icon-btn .badge[hidden] { display: none; }
+
 .empty {
   padding: 56px 24px;
   text-align: center;
@@ -1160,6 +1212,12 @@ body {
 .created-row .pill.id { flex: none; text-decoration: none; }
 .created-row:active { background: color-mix(in srgb, var(--accent) 14%, transparent); }
 .created-title { font-size: 13.5px; color: var(--prose); }
+
+.reseed-note {
+  border: 1px dashed var(--line); border-radius: 12px; padding: 10px 13px;
+  font-size: 13px; color: var(--prose);
+}
+.reseed-note strong { display: block; font-size: 13.5px; color: var(--text); margin-bottom: 4px; }
 
 .warnings { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
 .warnings span { font-size: 12.5px; color: var(--warn); }
