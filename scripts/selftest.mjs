@@ -23,6 +23,8 @@ import * as foundation from '../lib/foundation.js';
 import * as amendment from '../lib/amendment.js';
 import { DEFAULT_TOOLS } from '../lib/agents.js';
 import { toQuestion } from '../lib/decision.js';
+import { splitChannels } from '../lib/server.js';
+import * as notify from '../lib/notify.js';
 
 let failures = 0;
 let ran = 0;
@@ -409,6 +411,119 @@ await check('with no history it still tells the agent what it is', () => {
   const text = amendment.reflectionPrompt(foundation.baseline('advocate'), []);
   assert.ok(!text.includes('Do not ask these again'));
   assert.match(text, /Most runs should ask for nothing/);
+});
+
+console.log('the separate channel');
+
+await check('a foundation request is not in the questions feed', () => {
+  const rows = [
+    { key: 'cl/1', priority: 0 },
+    { key: 'bc/2', foundation: true },
+    { key: 'cl/3', priority: 2 },
+  ];
+  const { questions, requests } = splitChannels(rows);
+  assert.deepEqual(questions.map((q) => q.key), ['cl/1', 'cl/3']);
+  assert.deepEqual(requests.map((q) => q.key), ['bc/2']);
+  // The point of the split, stated as an assertion: a P0 question and a request
+  // never sort against each other, because they are never in the same list.
+  assert.ok(!questions.some((q) => q.foundation), 'a request reached the work feed');
+});
+
+await check('a request whose block did not parse still lands in the channel', () => {
+  // `foundation` comes off the bead's label, not off a successful parse. A request
+  // that fell back into the questions feed because its YAML was wrong would be the
+  // one nobody is looking for and nobody finds.
+  const { questions, requests } = splitChannels([{ key: 'bc/9', foundation: true, amendment: null, errors: ['bad'] }]);
+  assert.equal(questions.length, 0);
+  assert.equal(requests.length, 1);
+});
+
+/** Capture what would have been POSTed to ntfy, without posting it. */
+async function captureNtfy(fn) {
+  const real = globalThis.fetch;
+  let sent = null;
+  globalThis.fetch = async (_url, opts) => {
+    sent = JSON.parse(opts.body);
+    return { ok: true, status: 200, text: async () => '' };
+  };
+  try {
+    await fn();
+  } finally {
+    globalThis.fetch = real;
+  }
+  return sent;
+}
+
+const NTFY_CFG = {
+  baseUrl: 'http://beadcause.ts.net',
+  token: 'tok',
+  ntfy: { enabled: true, topic: 'topic', server: 'https://ntfy.sh', actionButtons: true },
+};
+
+await check('a request notifies down its own path, not the question one', async () => {
+  const dir = tempRepo();
+  const request = amendment.parseAmendment(REQUEST);
+  const f = await foundation.effective(dir, 'dispatch');
+  const q = toQuestion('beadcause', {
+    id: 'bc-1',
+    title: 'x',
+    priority: 0,
+    description: amendment.amendmentBody(request, f, { workspace: 'beadcause' }),
+  });
+
+  const asked = await captureNtfy(() => notify.pushFoundationRequest(NTFY_CFG, q));
+  const work = await captureNtfy(() => notify.pushQuestion(NTFY_CFG, { ...q, foundation: false }));
+
+  assert.match(asked.title, /asks to change what it is/);
+  assert.notEqual(asked.title, work.title);
+  assert.deepEqual(asked.tags, ['scales']);
+  assert.notDeepEqual(asked.tags, work.tags);
+  // A P0 bead: the question shouts, the request does not. There is no such thing as
+  // a constitutional change that should interrupt harder.
+  assert.equal(work.priority, 5);
+  assert.equal(asked.priority, 3);
+  // The scope leads, because it is what decides most of these.
+  assert.match(asked.message, /^reading git history/);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+await check('approve and decline are both one tap from the shade', async () => {
+  const dir = tempRepo();
+  const request = amendment.parseAmendment(REQUEST);
+  const f = await foundation.effective(dir, 'dispatch');
+  const q = toQuestion('beadcause', {
+    id: 'bc-1',
+    title: 'x',
+    description: amendment.amendmentBody(request, f, { workspace: 'beadcause' }),
+  });
+
+  const sent = await captureNtfy(() => notify.pushFoundationRequest(NTFY_CFG, q));
+  assert.equal(sent.actions.length, 2, 'both options must fit inside ntfy’s three');
+  const approve = sent.actions.find((a) => JSON.parse(a.body).response.startsWith(amendment.APPROVE_MARKER));
+  assert.ok(approve, 'no button actually consents');
+  assert.equal(JSON.parse(approve.body).id, 'bc-1');
+  // And the body still opens the thread — the Q and A is a conversation, and a
+  // notification cannot be one.
+  assert.match(sent.click, /#beadcause%2Fbc-1$/);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+await check('a reply about a request carries no buttons', async () => {
+  const sent = await captureNtfy(() =>
+    notify.pushFoundationReply(NTFY_CFG, { key: 'beadcause/bc-1', workspace: 'beadcause' }, {
+      author: 'dispatch',
+      text: 'The narrowest version is read-only git log in this repo.',
+    })
+  );
+  assert.equal(sent.actions, undefined, 'a reply is something to read, not a second decision');
+  assert.match(sent.title, /on its own request/);
+  assert.match(sent.click, /#beadcause%2Fbc-1$/);
+});
+
+await check('a silent ntfy is reported as skipped, not as sent', async () => {
+  const off = { ...NTFY_CFG, ntfy: { enabled: false } };
+  assert.deepEqual(await notify.pushFoundationRequest(off, { key: 'a/1' }), { skipped: true });
+  assert.deepEqual(await notify.pushFoundationReply(off, { key: 'a/1' }, {}), { skipped: true });
 });
 
 console.log('');

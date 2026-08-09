@@ -17,6 +17,11 @@
     token: '',
     scope: 'human',
     questions: [],
+    // The other channel: agents asking to change what they are. Its own array, never
+    // merged into `questions`, because everything that reads `questions` — the
+    // filters, the counts, the empty state, the order — is about work, and a
+    // constitutional decision is not work. See `requestsHtml`.
+    requests: [],
     spaces: [],
     space: 'all',
     workspace: 'all',
@@ -885,6 +890,13 @@
   const gearNudge = () => (state.scope === 'human' ? ' Tap ⚙ to include the work agents are on.' : '');
 
   function emptyHtml() {
+    // "Nothing to decide" printed directly under a pane saying an agent is asking to
+    // be changed is the app contradicting itself. The empty state is about the
+    // questions feed, so when the other channel has something in it, say which
+    // emptiness this is.
+    if ((state.requests || []).length) {
+      return `<div class="empty">Nothing about work is waiting.${gearNudge()}</div>`;
+    }
     if (state.scope === 'agent') {
       return `<div class="empty"><strong>Nothing live</strong>No open, claimed or blocked beads in any workspace.</div>`;
     }
@@ -892,6 +904,52 @@
       return `<div class="empty"><strong>Nothing live</strong>No questions, and no bead open anywhere.</div>`;
     }
     return `<div class="empty"><strong>Nothing to decide</strong>No open questions labelled <code>human</code>.${gearNudge()}</div>`;
+  }
+
+  /**
+   * The foundation channel: agents asking to change what they are.
+   *
+   * A pane of its own, above the list and outside every filter on it. The reasoning,
+   * because it looks like a styling choice and is not:
+   *
+   * - **It is not filtered by space or workspace.** Those answer "which of my lives
+   *   is this about", and an agent's definition is not in one of them — it is the
+   *   same console whichever repo it was working in when it hit the wall.
+   * - **It is not sorted with the questions, or counted with them.** A P0 question
+   *   is urgent; a request to change what an agent is is *pending*, indefinitely, and
+   *   letting the two compete for the top of the screen would mean either the urgent
+   *   thing sinks or the constitutional one is never seen.
+   * - **It is drawn inside `#list` all the same**, as its own section. Every handler
+   *   on this page is delegated from that element, so a card in a sibling container
+   *   would render perfectly and answer nothing.
+   *
+   * Cards are `cardHtml` unchanged — the request is answered exactly the way a
+   * question is, and a second card renderer would be a second place for the approve
+   * path to drift.
+   */
+  function requestsHtml() {
+    const rows = state.requests || [];
+    if (!rows.length) return '';
+    const many = rows.length > 1;
+    return `<section class="channel foundation-channel" aria-label="Foundation requests">
+      <header class="channel-head">
+        <span class="channel-icon" aria-hidden="true">⚖️</span>
+        <div>
+          <h2>${many ? `${rows.length} agents are` : 'An agent is'} asking to change what ${many ? 'they are' : 'it is'}</h2>
+          <p>Not a question about work. Approving writes one commit and re-seeds the agent.</p>
+        </div>
+      </header>
+      ${rows.map(cardHtml).join('')}
+    </section>`;
+  }
+
+  /** How many requests are waiting, on the ⚖️ in the header. */
+  function paintRequestBadge() {
+    const badge = $('#req-badge');
+    if (!badge) return;
+    const n = (state.requests || []).length;
+    badge.textContent = n > 9 ? '9+' : String(n);
+    badge.hidden = !n;
   }
 
   /** Repaint the armed option in place. Cheap, and never touches the textarea. */
@@ -1216,11 +1274,17 @@
     const visible =
       state.workspace === 'all' ? inSpace : inSpace.filter((q) => q.workspace === state.workspace);
 
+    // The other channel, always first and never filtered. It is rare enough that
+    // putting it at the top costs nothing on the days there is nothing in it, and on
+    // the day there is, it is the one thing that must not be scrolled past.
+    const channel = requestsHtml();
+
     if (!state.questions.length) {
-      listEl.innerHTML = emptyHtml();
+      listEl.innerHTML = channel + emptyHtml();
     } else if (!visible.length) {
       const where = state.workspace !== 'all' ? state.workspace : state.space !== 'all' ? state.space : '';
-      listEl.innerHTML = `<div class="empty">Nothing waiting${where ? ` in ${esc(where)}` : ''}.${gearNudge()}</div>`;
+      listEl.innerHTML =
+        channel + `<div class="empty">Nothing waiting${where ? ` in ${esc(where)}` : ''}.${gearNudge()}</div>`;
     } else {
       // Anything you've already replied to sinks to the bottom. It is not waiting on
       // you any more — an agent has it — so it must not sit between you and the
@@ -1228,9 +1292,10 @@
       // sent it (priority, then age).
       const waiting = visible.filter((q) => !q.awaitingAgent);
       const replied = visible.filter((q) => q.awaitingAgent);
-      listEl.innerHTML = [...waiting, ...replied].map(cardHtml).join('');
+      listEl.innerHTML = channel + [...waiting, ...replied].map(cardHtml).join('');
     }
 
+    paintRequestBadge();
     renderFilters(inSpace);
 
     openLinksInNewTab(listEl);
@@ -1249,7 +1314,16 @@
     toast._t = setTimeout(() => (toastEl.hidden = true), bad ? 5000 : 2600);
   }
 
-  const byKey = (key) => state.questions.find((q) => q.key === key);
+  /**
+   * A card by key, from either channel.
+   *
+   * Every interaction on this page — open, answer, comment, the ⋮ menu, the deep
+   * link from a notification — goes through here, which is why the two channels can
+   * be two arrays without two of everything else. Requests first: there are at most
+   * a handful, and it makes the lookup that matters the cheap one.
+   */
+  const byKey = (key) =>
+    (state.requests || []).find((q) => q.key === key) || state.questions.find((q) => q.key === key);
 
   function disarm() {
     state.armed = null;
@@ -1288,6 +1362,10 @@
       clearDraft(key);
       if (close) {
         state.questions = state.questions.filter((x) => x.key !== key);
+        // And out of the other channel, on the same tap. An answered request that
+        // stayed in the pane would still be showing its approve button — for a bead
+        // that has already been closed on the answer you just gave.
+        state.requests = (state.requests || []).filter((x) => x.key !== key);
         state.open.delete(key);
         // Inside the Android shell, drop the notification for this question now.
         // Otherwise it sits in the shade with buttons that would answer a bead that
@@ -1687,8 +1765,12 @@
     // had a question in it; keeping it would hide everything the widening just let in.
     state.workspace = 'all';
     schedulePoll();
+    // Only the questions. The scope is a setting about which slice of *work* the
+    // list is, and the other channel is not a slice of it — clearing the pane here
+    // would blank a pending constitutional request for a couple of seconds because
+    // you tapped a filter that has nothing to do with it.
     state.questions = [];
-    listEl.innerHTML = '<div class="empty">Asking bd…</div>';
+    listEl.innerHTML = requestsHtml() + '<div class="empty">Asking bd…</div>';
     load();
   });
 
@@ -1716,22 +1798,30 @@
       // you just left; the re-run queued above is the one that counts.
       if (asked !== state.scope) return;
       const openKeys = state.open;
-      // Keep any already-fetched detail so an open card doesn't flicker.
-      const prev = new Map(state.questions.map((q) => [q.key, q]));
-      state.questions = data.questions.map((q) => {
+      // Keep any already-fetched detail so an open card doesn't flicker. Both
+      // channels are merged against the same map: a bead moves between them only by
+      // gaining or losing a label, and when it does the fresh row is what is right.
+      const prev = new Map([...state.questions, ...(state.requests || [])].map((q) => [q.key, q]));
+      // `agent` has to be reset before the merge, not left to it: a question payload
+      // omits the field rather than sending false, so a bead that has just gained the
+      // `human` label would otherwise keep rendering as read-only agent work for as
+      // long as the tab stayed open.
+      const merge = (q) => {
         const before = prev.get(q.key);
-        if (!before) return q;
-        // `agent` has to be reset before the merge, not left to it: a question
-        // payload omits the field rather than sending false, so a bead that has
-        // just gained the `human` label would otherwise keep rendering as
-        // read-only agent work for as long as the tab stayed open.
-        return Object.assign(before, { agent: false }, q);
-      });
+        return before ? Object.assign(before, { agent: false }, q) : q;
+      };
+      // Absent rather than empty means an old server that predates the channel — keep
+      // whatever is on screen instead of silently emptying the pane.
+      state.requests = Array.isArray(data.requests) ? data.requests.map(merge) : state.requests;
+      state.questions = data.questions.map(merge);
       state.spaces = data.spaces || [];
       // A space that has been renamed or removed in config would otherwise leave the
       // filter pinned to something that no longer exists, showing an empty list.
       if (state.space !== 'all' && !state.spaces.some((s) => s.name === state.space)) state.space = 'all';
-      state.open = new Set([...openKeys].filter((k) => state.questions.some((q) => q.key === k)));
+      // Kept open across a refresh only if the bead is still somewhere — in either
+      // channel. Checking only `questions` would collapse an open request every 25
+      // seconds, mid-read.
+      state.open = new Set([...openKeys].filter((k) => Boolean(byKey(k))));
       render();
       focusHash();
     } catch (err) {

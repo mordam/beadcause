@@ -470,6 +470,50 @@ exception — a turn is a fresh `claude -p` resumed by session id — so an appr
 amendment restarts it on a new session, keeps the conversation on screen, and says so
 in the transcript.
 
+### A channel of its own, on every surface
+
+A request to change what an agent is arrives as an ordinary `human` bead — the
+decision block, the thread, the answer-and-close path are all the machinery a question
+already has, and forking that would be two of everything for no gain. What is *not*
+shared is the place it lands. "Should the console be allowed to run `git log`" is not
+a question about work: it does not compete with one for priority, it should not be
+counted with them, and it must never be the row that pushes a P0 off a phone screen.
+
+So the split happens once, server-side, in `splitChannels` — and everything downstream
+is handed two lists rather than one list it has to filter correctly:
+
+| | Questions | Foundation requests |
+|---|---|---|
+| **Event** | `question`, `reply` | `foundation-request`, `foundation-reply`, `amended` |
+| **Route** | `/api/questions`, `/api/poll` → `questions` | the same two → `requests`, plus **`/api/foundation`** on its own |
+| **ntfy** | `pushQuestion` — bead priority, 💭 | `pushFoundationRequest` — always priority 3, ⚖️, leads with the *scope* |
+| **Android** | channel `questions_v2`, tray card 3 | channel `foundation_v1`, tray card 4 |
+| **PWA** | the list, under the space and workspace filters | a pane above it, outside every filter, badged on ⚖️ |
+| **Terminal** | the `questions` pane | its own `foundation requests` pane, in the head |
+
+Three things are deliberate in there:
+
+- **`/api/foundation` exists even though the data is already in the other two.** It is
+  the caller that wants the channel without the inbox — the agent scope, a badge, or
+  `curl` — and it costs one `bd list --label` per workspace instead of a full sweep.
+- **A request never inherits the bead's priority.** A question is urgent when the work
+  is; an amendment is important and never urgent, so it is fixed at 3 and the Android
+  channel is `IMPORTANCE_DEFAULT`. It arrives; it does not shout.
+- **Approve and decline both fit in ntfy's three buttons**, so this is one of the few
+  notifications that can genuinely be answered from the shade — but a reply *about* a
+  request carries no buttons at all. The Q and A is a thread, and a notification
+  cannot be one; tapping opens it where the whole argument is.
+
+The Android channel is the part that is worth more than it looks. A channel is the
+unit *you* control: you can set foundation requests to silent, or off for a fortnight,
+without touching whether a question about work can reach you. A tag on a shared
+channel would have looked identical in the shade and given you nothing to hold.
+
+**Which channel a bead is in comes from its label, not from whether its block
+parsed.** A malformed request still arrives in the foundation channel carrying its
+error, rather than falling back into the work feed where nobody is looking for a
+constitutional decision.
+
 ## The conversation, both ways
 
 *Comment only* is not a dead end — it starts a thread.
