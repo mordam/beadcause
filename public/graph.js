@@ -632,6 +632,20 @@
     ].filter(Boolean);
     parts.push(`<div class="meta">${meta.join('')}</div>`);
     if (b.description) parts.push(`<div class="md">${md(b.description)}</div>`);
+    // The rest of the row, in the order bd itself prints it. `/api/bead` has always
+    // returned all of it; the sheet just stopped reading after `description`, so the
+    // acceptance criteria — the one part you close a bead against — were readable
+    // only from a terminal. Description stays unlabelled, the way it is on the card,
+    // so a bead carrying none of these looks exactly as it did before.
+    for (const [label, text] of [
+      ['acceptance', b.acceptance_criteria],
+      ['design', b.design],
+      ['notes', b.notes],
+    ]) {
+      if (!String(text || '').trim()) continue;
+      parts.push(`<div class="section-label">${label}</div>`);
+      parts.push(`<div class="md">${md(text)}</div>`);
+    }
     if (b.comments?.length) {
       parts.push('<div class="section-label">Thread</div>');
       parts.push(
