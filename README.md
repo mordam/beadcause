@@ -308,10 +308,38 @@ one item, and a three-line comment still has its two breaks. `--baseline` serves
 
 ## Who you are talking to
 
-Commenting dispatches an agent to reply — and you choose which one. Above the
-comment box is a row of chips; the one you pick answers, and the foundation it
-answers from is printed underneath, because an agent whose brief you cannot read is
-a name you are guessing at.
+Commenting dispatches an agent to reply — and you choose which one. The answer box
+says which, on a strip along its top edge: **Comment only → 💬 Answerer replies**. It
+names the button as well as the agent, because the choice governs exactly one of the
+two: a comment dispatches, and **Answer & close** spawns nobody.
+
+The roster itself is behind the **⋯ at that strip's right-hand end** — chips for
+every agent, ＋ to make one, the foundation of the one selected, and the allow-tools
+checkbox. It used to be drawn in full every time a bead opened, which on a phone was
+several centimetres of a control nearly every comment leaves alone, sitting between
+the thread you had just read and the box you were about to type in. Folded, but not
+hidden: which agent replies stays on the strip, and so does an armed tools override —
+[that one is spent the moment you send](#allow-tools--for-one-comment-and-only-that-one),
+so a shut panel must never leave the box looking ordinary. Choosing a chip repaints
+the panel and nothing else, so it cannot eat a half-written comment. Escape closes
+it and leaves the caret where it was.
+
+The foundation of the selected agent is printed in the panel rather than left to the
+name, because an agent whose brief you cannot read is a name you are guessing at.
+
+`node scripts/agent-chooser-check.mjs` checks the fold and, more to the point, what
+the fold must not hide: headless Chrome at phone size driving the real
+`public/app.js` against a roster built by `lib/agents.js` and a question parsed by
+`lib/decision.js`, so it never touches a bead. It asserts the thread runs into the
+box with no chooser in between, that the ⋯ sits on the box's top-right corner and
+says which agent replies without being opened, that the panel holds everything the
+old block drew, that choosing a chip or arming tools keeps a half-typed comment and
+leaves the panel open, that an armed override shows with the panel shut, and that
+the trigger is labelled, `aria-expanded` flips, Escape closes it and the caret stays
+in the box. `--baseline` serves `HEAD:public/app.js` and `HEAD:public/style.css`
+instead of the working copy, which is how you tell a real failure from a flaky one —
+baseline has no ⋯ at all, so it must fail. `--out=<dir>` writes a screenshot of the
+box shut, the panel open and the armed state.
 
 Four are built in, and they are the four shapes a comment on a decision actually
 takes:
@@ -347,8 +375,8 @@ is the whole of giving the Critic edit rights — its name and foundation stay w
 they are. Nothing in the app can write this string; there is no endpoint that accepts
 one. A form on a lock screen is the wrong place to hand out edit rights.
 
-**Using** it is a checkbox under the agent chips, and it is spent by the comment it
-rides on:
+**Using** it is a checkbox under the agent chips in the ⋯ panel, and it is spent by
+the comment it rides on:
 
 - **Off every time.** Arming applies to the **next reply only** and is dropped the
   moment the dispatch goes. Want tools on the comment after that? Tick it again.
@@ -363,6 +391,9 @@ rides on:
 - **Loud in the log.** Both the arming and the dispatch print the whole tools string
   to `~/Library/Logs/beadcause.log`, which is what makes an elevated run findable
   after the fact.
+- **Visible with the panel shut.** An armed box says so on its strip — *⚠ with
+  tools, this once* — and rings the ⋯ in the same amber, so pressing **Comment only**
+  is never an elevation you had forgotten granting.
 
 The elevated run is also told, in its prompt, that it is elevated deliberately for
 one reply and should say in its comment exactly what it did with the reach.

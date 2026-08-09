@@ -49,6 +49,10 @@
     agents: [],
     agent: localStorage.getItem('beadcause.agent') || '',
     agentForm: false,
+    // Which card has the ⋯ roster open, for the same reason as `menu`: the panel
+    // hangs over a half-written comment, so it is shown and hidden by hand, and
+    // this is what paints it back when a poll rebuilds the list underneath it.
+    agentMenu: null,
     // Per-bead decisions on an advocate's proposal: key → Map(1-based index →
     // 'yes' | 'no'). Held here rather than on the question so a background refresh
     // cannot wipe a half-made decision, the same reason drafts live outside it.
@@ -623,6 +627,12 @@
    * one is printed underneath: an agent whose brief you cannot read is a name you
    * are guessing at. Creating one needs only a name and that paragraph — never
    * tools, which is why this form cannot widen what any agent may do.
+   *
+   * All of it now lives behind the ⋯ on the answer box (see replyBarHtml). Nearly
+   * every comment goes to the default agent, and this was several centimetres of
+   * chooser between the thread you just read and the box you were about to type in.
+   * The panel is the same markup in a different place — nothing here decides which
+   * agents exist, what any of them may do, or how the dispatch is sent.
    */
   function agentsHtml() {
     if (!state.agents.length) return '';
@@ -634,7 +644,7 @@
       )
       .join('');
 
-    return `<div class="section-label">Reply from <span>the agent that picks up your comment</span></div>
+    return `<div class="section-label">Who replies <span>to your comment</span></div>
       <div class="chip-row agent-row">
         ${chips}
         <button class="chip agent-add" data-act="agent-new" aria-label="New agent">＋</button>
@@ -717,14 +727,81 @@
   }
 
   /**
+   * Which agent replies, said with the panel shut.
+   *
+   * Collapsing the roster to a bare ⋯ would make every comment a guess, so the
+   * answer stays on screen and the roster is one tap away. It names the button as
+   * well as the agent, because the chooser governs exactly one of the two: a
+   * comment dispatches (server.js), and "Answer & close" spawns nobody. The old
+   * label — "the agent that picks up your comment" — described a mailbox that
+   * nothing has watched since dispatch started launching the reply itself.
+   */
+  function replyLineHtml(chosen) {
+    if (!chosen) return '';
+    // An armed override is spent on send, so it cannot only live inside the panel:
+    // shut, the box would look ordinary at the moment you press the button.
+    return `<b>Comment only</b> → ${esc(chosen.emoji || '🤖')} ${esc(chosen.name)} replies${
+      chosen.armed ? ' <span class="reply-armed">· ⚠ with tools, this once</span>' : ''
+    }`;
+  }
+
+  const dotsLabel = (chosen) =>
+    chosen
+      ? `Choose who replies — now ${chosen.name}${chosen.armed ? ', tools allowed for this comment' : ''}`
+      : 'Choose who replies';
+
+  /**
+   * The strip along the top of the answer box: who replies, and the ⋯ that opens
+   * the roster.
+   *
+   * Attached to the textarea rather than floating above it, so the ⋯ reads as that
+   * box's own corner — this chooses who answers *this*, and nothing else on the
+   * card. The panel is rendered with the card and only shown or hidden, which is
+   * what lets paintAgents keep repainting it in place while it is open.
+   */
+  function replyBarHtml(key) {
+    const chosen = currentAgent();
+    const on = state.agentMenu === key;
+    return `<div class="reply-bar"${state.agents.length ? '' : ' hidden'}>
+      <span class="reply-who">${replyLineHtml(chosen)}</span>
+      <div class="agent-wrap">
+        <button class="agent-dots${chosen?.armed ? ' armed' : ''}${on ? ' on' : ''}" data-act="agent-menu"
+          data-key="${esc(key)}" aria-haspopup="true" aria-expanded="${on}"
+          aria-label="${esc(dotsLabel(chosen))}"><span class="dots-emoji">${esc(
+            chosen?.emoji || '🤖'
+          )}</span>⋯</button>
+        <div class="agents agent-panel" role="group" aria-label="Who replies to your comment"${
+          on ? '' : ' hidden'
+        }>${agentsHtml()}</div>
+      </div>
+    </div>`;
+  }
+
+  /**
    * Repaint the chooser in place.
    *
    * Never through render(): the comment box sits directly beneath it, and rebuilding
    * the card to change which chip is pressed would drop a half-written comment —
-   * which is the exact failure the draft machinery elsewhere exists to prevent.
+   * which is the exact failure the draft machinery elsewhere exists to prevent. The
+   * same rule reaches the strip outside the panel: its text is rewritten, but the ⋯
+   * element itself is left alone so an open panel does not close under the repaint.
    */
   function paintAgents() {
+    const chosen = currentAgent();
     for (const block of listEl.querySelectorAll('.agents')) block.innerHTML = agentsHtml();
+    for (const bar of listEl.querySelectorAll('.reply-bar')) {
+      // A roster that never loaded leaves no strip at all — the server falls back to
+      // its default agent exactly as it did before any of this existed.
+      bar.hidden = !state.agents.length;
+      const who = bar.querySelector('.reply-who');
+      if (who) who.innerHTML = replyLineHtml(chosen);
+      const dots = bar.querySelector('.agent-dots');
+      if (!dots) continue;
+      dots.classList.toggle('armed', !!chosen?.armed);
+      dots.setAttribute('aria-label', dotsLabel(chosen));
+      const emoji = dots.querySelector('.dots-emoji');
+      if (emoji) emoji.textContent = chosen?.emoji || '🤖';
+    }
   }
 
   async function loadAgents() {
@@ -954,9 +1031,10 @@
       );
     }
 
-    parts.push(`<div class="agents">${agentsHtml()}</div>`);
-
+    // The thread runs straight into the box you answer it in; who replies is a line
+    // on the box's own top edge, and the roster is behind the ⋯ on that line.
     parts.push(`<div class="freeform">
+      ${replyBarHtml(q.key)}
       <textarea data-role="answer" placeholder="Answer in your own words…" rows="3">${esc(getDraft(q.key))}</textarea>
       <div class="row">
         <button class="primary" data-act="answer" data-key="${esc(q.key)}">Answer &amp; close</button>
@@ -1747,10 +1825,54 @@
     }
   }
 
+  /**
+   * Shut the ⋯ roster the same way: by hand, never through render().
+   *
+   * Focus goes back to the ⋯ only when it was inside the panel. Escape pressed
+   * while you are typing must close the panel and leave the caret in the box —
+   * pulling it out to a button is how you lose your place in a comment.
+   */
+  function closeAgentMenu() {
+    state.agentMenu = null;
+    for (const panel of listEl.querySelectorAll('.agent-panel')) {
+      const had = panel.contains(document.activeElement);
+      panel.hidden = true;
+      const dots = panel.closest('.agent-wrap')?.querySelector('.agent-dots');
+      if (!dots) continue;
+      dots.classList.remove('on');
+      dots.setAttribute('aria-expanded', 'false');
+      if (had) dots.focus();
+    }
+  }
+
   // A tap anywhere that isn't the menu or its button dismisses it. This runs after
   // the list's own handler below, so opening the menu doesn't immediately close it.
   document.addEventListener('click', (ev) => {
     if (state.menu && !ev.target.closest('.menu-wrap')) closeMenu();
+    // The panel is the one popover whose own contents repaint under the tap — every
+    // chip and checkbox in it ends in paintAgents(). By the time this runs the
+    // tapped node has been thrown away, and a detached node has no ancestors, so
+    // closest() would call every tap inside the panel a tap outside it. The path is
+    // taken at dispatch and still remembers where the tap actually was.
+    //
+    // The tools disclaimer counts as inside for the same reason it exists: it is a
+    // modal on document.body, so arming is outside the panel by geometry and inside
+    // it by intent, and must not shut the roster out from under the checkbox that
+    // asked.
+    const inPanel = (ev.composedPath?.() || []).some(
+      (n) => n?.classList?.contains('agent-wrap') || n?.classList?.contains('dialog-wrap')
+    );
+    if (state.agentMenu && !inPanel) closeAgentMenu();
+  });
+
+  document.addEventListener('keydown', (ev) => {
+    if (ev.key !== 'Escape') return;
+    // With the tools warning up, Escape is the modal's business — closing the panel
+    // out from under it would leave the dialog answering for a chooser that is no
+    // longer on screen.
+    if (document.querySelector('.dialog-wrap')) return;
+    if (state.agentMenu) closeAgentMenu();
+    if (state.menu) closeMenu();
   });
 
   listEl.addEventListener('click', async (ev) => {
@@ -1759,9 +1881,28 @@
     const key = btn.dataset.key;
     const act = btn.dataset.act;
 
+    if (act === 'agent-menu') {
+      const wasOpen = state.agentMenu === key;
+      closeMenu();
+      closeAgentMenu();
+      if (wasOpen) return;
+      state.agentMenu = key;
+      btn.classList.add('on');
+      btn.setAttribute('aria-expanded', 'true');
+      const panel = btn.parentElement.querySelector('.agent-panel');
+      if (panel) {
+        panel.hidden = false;
+        // On a wide screen the brief is its own scroll column, so a panel opened at
+        // the foot of it can land below that column's fold.
+        panel.scrollIntoView({ block: 'nearest' });
+      }
+      return;
+    }
+
     if (act === 'menu') {
       const wasOpen = state.menu === key;
       closeMenu();
+      closeAgentMenu();
       if (wasOpen) return;
       state.menu = key;
       btn.classList.add('on');
@@ -1772,6 +1913,7 @@
 
     if (act === 'toggle') {
       closeMenu();
+      closeAgentMenu();
       disarm();
       paintArmed();
       if (state.open.has(key)) {
@@ -1789,6 +1931,7 @@
     // happens to have slid up into it.
     if (act === 'collapse') {
       closeMenu();
+      closeAgentMenu();
       disarm();
       paintArmed();
       state.open.delete(key);

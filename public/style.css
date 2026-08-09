@@ -358,15 +358,74 @@ body {
 }
 .row-x:disabled { opacity: 0.4; }
 
-/* Who answers when you comment. A mode rather than a per-card setting, so it sits
-   directly above the box it changes the behaviour of. */
-.agents { padding: 0 15px 2px; }
-.agents .section-label { margin-bottom: 6px; }
-.agent-row { padding: 0 0 6px; gap: 6px; }
+/*
+  Who answers when you comment — a strip along the top edge of the box it governs,
+  and the roster behind the ⋯ at its corner.
+
+  It used to be the whole block: a label, the chips, the selected agent's
+  foundation and the tools checkbox, drawn in full every time a bead opened. On a
+  phone that was several centimetres of a control nearly every comment leaves
+  alone, sitting between the thread you just read and the box you were about to
+  type in. What stays outside the panel is what you cannot answer without: which
+  agent replies, and whether it has been armed.
+*/
+.reply-bar {
+  display: flex; align-items: center; gap: 8px;
+  padding: 4px 4px 4px 12px;
+  border: 1px solid var(--line); border-bottom: 0;
+  border-radius: 11px 11px 0 0;
+  /* The box's own colour, so the strip and the textarea read as one control with a
+     ⋯ in its corner rather than as a caption sitting on a lid. */
+  background: var(--surface-2);
+}
+.reply-bar[hidden] { display: none; }
+/* Joined to the textarea, so the ⋯ reads as that box's own corner rather than as
+   another control floating above it. The gap belongs to .freeform, so it is closed
+   here rather than by dropping the gap for everything in the block. */
+.reply-bar + textarea { margin-top: -8px; border-top-left-radius: 0; border-top-right-radius: 0; }
+.reply-who { flex: 1; min-width: 0; font-size: 12px; line-height: 1.45; color: var(--muted); }
+.reply-who b { font-weight: 650; color: var(--text); }
+/* An elevation that is spent the moment you press the button under it does not get
+   to be invisible while the panel is shut. */
+.reply-armed { color: var(--warn); font-weight: 600; }
+.agent-wrap { position: relative; }
+.agent-dots {
+  flex: none;
+  display: flex; align-items: center; gap: 4px;
+  min-width: var(--tap); min-height: 40px; padding: 0 11px;
+  border: 1px solid var(--line); border-radius: 999px;
+  background: var(--surface); color: var(--muted);
+  font: inherit; font-size: 15px; line-height: 1;
+  cursor: pointer;
+}
+.agent-dots .dots-emoji { font-size: 14px; }
+.agent-dots.on { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+.agent-dots.armed {
+  border-color: var(--warn); color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 14%, transparent);
+}
+/* Anchored to the ⋯ and shaped like the kebab's menu, because it is the same kind
+   of thing: a popover over content you are in the middle of, closed by a tap
+   outside or by Escape. It scrolls itself rather than growing past the fold — a
+   long roster with a create form under it is taller than a phone. */
+.agent-panel {
+  position: absolute; top: calc(100% + 6px); right: 0; z-index: 50;
+  width: min(86vw, 340px); max-height: 62dvh; overflow-y: auto; overscroll-behavior: contain;
+  padding: 12px 12px 2px;
+  border: 1px solid var(--line); border-radius: 12px;
+  background: var(--surface);
+  box-shadow: 0 10px 28px rgb(0 0 0 / 0.28);
+}
+.agent-panel[hidden] { display: none; }
+.agent-panel .section-label { margin: 0 0 9px; padding-top: 0; border-top: 0; }
+/* Wrapped rather than scrolled sideways: in a 340px panel a hidden chip is an agent
+   you do not know you have. */
+.agent-row { flex-wrap: wrap; overflow: visible; padding: 0 0 8px; gap: 6px; }
 .agent-chip { font-size: 13px; }
 .agent-add { font-size: 16px; font-weight: 700; padding: 0 14px; }
-/* The foundation of the selected agent, printed rather than hidden behind a tap:
-   an agent whose brief you cannot read is a name you are guessing at. */
+/* The foundation of the selected agent, printed in the panel rather than left to
+   the name: an agent whose brief you cannot read is a name you are guessing at.
+   One tap in is the price of the fold; a tap deeper still would not be. */
 .agent-desc {
   margin: 0 0 10px; font-size: 12.5px; line-height: 1.5; color: var(--muted);
   display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden;
