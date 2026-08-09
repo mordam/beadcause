@@ -76,7 +76,7 @@ const WORK = {
 /* Two scopes, both with something to stop, so /admin draws its full height — the
    kill button included, since clearing the bar is the thing being measured. */
 const ADMIN = {
-  reopenIsFresh: true,
+  reopenIsFresh: false,
   at: null,
   scopes: [
     {
