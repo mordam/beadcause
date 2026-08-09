@@ -141,6 +141,13 @@ images:
 - A block that isn't valid YAML shows the parse error on the card rather than
   silently dropping to free-text. Quote markdown links: bare `- [x](y)` is a YAML
   flow sequence (beadcause repairs that one case, but quoting is clearer).
+- **Write the prose as paragraphs; the hard wrap doesn't survive.** bd stores a
+  description, notes, design or acceptance hard-wrapped at about 78 columns, and
+  on a phone each of those lines wraps again — so anything that came out of bd
+  renders with markdown's `breaks` off and reflows into real paragraphs and real
+  lists. A blank line is what makes a new paragraph, there as anywhere. Comments
+  are the other way round: someone typed those on a phone, meaning every newline,
+  so a comment keeps the line breaks it was written with.
 
 From an agent session, piping the body avoids shell-quoting hell:
 
@@ -248,6 +255,26 @@ card's head. `--baseline` serves `HEAD:public/app.js` instead of the working cop
 which is how you tell a real failure from a flaky one: baseline must fail the scroll
 cases, the working copy must pass all of them.
 
+### Reading a paragraph bd folded at 78 columns
+
+bd hard-wraps what it stores. A phone is narrower than 78 columns, so every one of
+those stored lines wraps again on its own — and rendering markdown with `breaks` on
+puts a `<br>` at each fold as well, which draws a paragraph as a staircase and a
+folded list item as two lines of loose prose. Turning `breaks` off everywhere is not
+the fix either: a comment is typed on the phone, by a person, who means the newlines
+they put in.
+
+So `renderMarkdown` takes the flag rather than assuming it, and the caller decides.
+Description, notes, design, acceptance and the decision block's own context came out
+of bd and reflow; comments and console chat were typed and keep their breaks. The
+graph's detail sheet follows the same split.
+
+`node scripts/wrap-check.mjs` checks both halves, in the same headless-Chrome-on-
+fixtures way as the scroll check, over the inbox card and the graph sheet: a folded
+paragraph comes back as one sentence with no break in it, a folded list item stays
+one item, and a three-line comment still has its two breaks. `--baseline` serves
+`HEAD:public/app.js` and `HEAD:public/graph.js`, where the bd-prose cases must fail.
+
 ## Who you are talking to
 
 Commenting dispatches an agent to reply — and you choose which one. Above the
@@ -332,6 +359,187 @@ answered, the phase chip says which one is thinking, and the reply poller still
 notifies you exactly as before (anything not authored `beadcause` is an agent
 talking back). A comment costs one model run: the Critic's reply on a real thread,
 which read four files and quoted line numbers, was **98s and $0.85**.
+
+## What an agent is — and how it asks to be different
+
+An agent's definition used to be spread across four places that had nothing to do
+with each other: a system prompt as a template literal in `lib/console.js`, an
+allowlist as a bare string in `lib/dispatch.js`, a model buried in a config key, and
+an environment derived implicitly from whichever directory the process was spawned
+in. That was fine while the only reader was the code doing the spawning. It stops
+working the moment an agent is allowed to *ask* to be different, because you cannot
+request a change to something with no single form.
+
+So `lib/foundation.js`: **one foundation per agent kind**, for all four of them —
+the console, the comment answerer, the repo advocate, and the worker session opened
+in iTerm. Read it to know what an agent may do; commit a change to it to change what
+the agent is.
+
+The line it draws is the important part. A foundation is what the agent is on **every**
+run. The prompt handed to one invocation — this bead, this comment, this survey — is
+what it was *asked* this time, and stays in the module that composes it. Only the
+former is amendable: an agent that could rewrite the brief it was given for a task
+could decide it had been asked something else.
+
+**Two layers, and neither can clobber the other.**
+
+- The **baseline** is in code, shipping with the release. Normal development edits it
+  freely.
+- **Amendments** live on `refs/beadcause/foundations` — a commit per amendment, a tree
+  of `<agent>.json` overlays, the justification in the message. Written with the same
+  plumbing as the session log (`lib/gitref.js`), so nothing touches the working tree
+  and a human mid-edit in the same checkout never sees it.
+
+Effective = baseline ⊕ overlay, resolved at spawn. Editing a prompt in a release
+therefore cannot silently revert an approved amendment, and an approved amendment
+cannot freeze a copy of a prompt development has since moved past.
+
+Because every amendment is a commit, the history reads as what each agent was
+allowed to become:
+
+```
+git log --format='%aI %s' refs/beadcause/foundations
+git cat-file -p refs/beadcause/foundations:console.json
+```
+
+### What may never be amended
+
+`id`, `protocolOwner` and `writes`. Not distrust of the approval — these are the
+fields whose wrongness is invisible at approval time. "Let the console call `bd
+create`" reads as a one-line convenience and silently deletes the review step; a
+changed output contract reads as a formatting preference and breaks the parser three
+turns later, in a way that looks like the agent being unhelpful. Those change by
+editing the file in a release, which is a human writing code.
+
+Amendable: `purpose`, `role`, `model`, `tools`, `allowedTools`, `env`, `timeoutMs`,
+`permissionMode`. A request naming anything else is **rejected, not filtered** —
+silently dropping half a request would apply an amendment you did not approve.
+
+### The loop
+
+1. **It reflects.** After the task — answering a comment, running a survey — the agent
+   is asked one question: was there something you could not do? Its own foundation is
+   printed for it, along with every request of its that has already been refused.
+2. **It writes a block.** Not a bead. `lib/amendment.js` parses an `amendment` block
+   off the end of its output; the agent never files anything and never writes a
+   foundation. Both of those are beadcause's, and that separation is the whole safety
+   property.
+3. **beadcause files one question.** An ordinary `human` bead, labelled `foundation`,
+   carrying what it wants, what it is now, the scope, the argument, and what actually
+   happened. One at a time, per agent.
+4. **You answer it from your phone.** Approve, decline, or ask — commenting starts a
+   thread the way any other question does.
+5. **Approval is a commit**, and the agent starts its next session on the new
+   definition.
+
+```amendment
+agent: dispatch
+kind: prohibited
+scope: reading git history in the repo I am already reading; no writes
+justification: |
+  The comment asked which commit introduced the bug. I can read the files but not
+  the history, so I answered with a guess at the file instead of the commit.
+evidence: |
+  Bash(git log --oneline -20) was denied.
+add:
+  allowedTools:
+    - Bash(git log:*)
+```
+
+**Scope is mandatory.** A request without it is thrown away before it can become a
+bead. "Give me Write" is not a decision anyone can make on a phone; "give me Write
+under my own directory, because X" is. So is a justification — a phrase does not
+clear the bar, and a request re-arguing something already refused never reaches you
+at all.
+
+**`add`/`remove`, not a rewritten list.** A model asked to restate a thirteen-entry
+allowlist in order to append one line to it will eventually drop an entry, and that
+would read as an approved amendment quietly *removing* a tool nobody discussed. The
+agent names the delta; beadcause computes the result against the effective
+foundation, so two amendments in sequence compose instead of the second reverting the
+first.
+
+### Prohibition and omission are not symmetric
+
+A prohibition is observable: the agent asked for a tool and was denied, and the
+denial is in the transcript. beadcause **reads it off the stream** rather than taking
+the agent's word for it, and puts it on the card under "what actually happened" — so
+a denial the agent forgot to mention still reaches you, and an account of a denial
+that never happened is catchable.
+
+An omission is not observable at all. The agent cannot see what it was never given,
+so those requests are speculative by construction. Both are allowed; `kind` says
+which it is, and the justification bar is what keeps the speculative half honest.
+
+### A "no" is remembered
+
+Declining writes a commit too, with your words as the reason, and every future
+reflection is seeded with it verbatim. Without that the same argument arrives every
+session forever — reasoned to from the same starting point by an agent with no memory
+of having lost it — and the one channel you read for constitutional questions fills
+with arguments you have already had.
+
+### Who answers a question about a request
+
+The agent that made it. Commenting on an ordinary question dispatches whichever agent
+you picked from the roster; commenting on an amendment request instead re-seeds the
+*requesting* agent with its own foundation and its own argument, because a Critic
+explaining why the console wants a tool is a stranger guessing at someone else's
+motive. It is told, in as many words, that withdrawing the request is a better
+outcome than defending it.
+
+### Where it takes effect
+
+Three of the four agent kinds re-seed themselves for free: dispatch, the advocate
+survey and a worker session are each one `claude` process that exits, so the next
+spawn reads the amended foundation and *is* the new session. The console is the
+exception — a turn is a fresh `claude -p` resumed by session id — so an approved
+amendment restarts it on a new session, keeps the conversation on screen, and says so
+in the transcript.
+
+### A channel of its own, on every surface
+
+A request to change what an agent is arrives as an ordinary `human` bead — the
+decision block, the thread, the answer-and-close path are all the machinery a question
+already has, and forking that would be two of everything for no gain. What is *not*
+shared is the place it lands. "Should the console be allowed to run `git log`" is not
+a question about work: it does not compete with one for priority, it should not be
+counted with them, and it must never be the row that pushes a P0 off a phone screen.
+
+So the split happens once, server-side, in `splitChannels` — and everything downstream
+is handed two lists rather than one list it has to filter correctly:
+
+| | Questions | Foundation requests |
+|---|---|---|
+| **Event** | `question`, `reply` | `foundation-request`, `foundation-reply`, `amended` |
+| **Route** | `/api/questions`, `/api/poll` → `questions` | the same two → `requests`, plus **`/api/foundation`** on its own |
+| **ntfy** | `pushQuestion` — bead priority, 💭 | `pushFoundationRequest` — always priority 3, ⚖️, leads with the *scope* |
+| **Android** | channel `questions_v2`, tray card 3 | channel `foundation_v1`, tray card 4 |
+| **PWA** | the list, under the space and workspace filters | a pane above it, outside every filter, badged on ⚖️ |
+| **Terminal** | the `questions` pane | its own `foundation requests` pane, in the head |
+
+Three things are deliberate in there:
+
+- **`/api/foundation` exists even though the data is already in the other two.** It is
+  the caller that wants the channel without the inbox — the agent scope, a badge, or
+  `curl` — and it costs one `bd list --label` per workspace instead of a full sweep.
+- **A request never inherits the bead's priority.** A question is urgent when the work
+  is; an amendment is important and never urgent, so it is fixed at 3 and the Android
+  channel is `IMPORTANCE_DEFAULT`. It arrives; it does not shout.
+- **Approve and decline both fit in ntfy's three buttons**, so this is one of the few
+  notifications that can genuinely be answered from the shade — but a reply *about* a
+  request carries no buttons at all. The Q and A is a thread, and a notification
+  cannot be one; tapping opens it where the whole argument is.
+
+The Android channel is the part that is worth more than it looks. A channel is the
+unit *you* control: you can set foundation requests to silent, or off for a fortnight,
+without touching whether a question about work can reach you. A tag on a shared
+channel would have looked identical in the shade and given you nothing to hold.
+
+**Which channel a bead is in comes from its label, not from whether its block
+parsed.** A malformed request still arrives in the foundation channel carrying its
+error, rather than falling back into the work feed where nobody is looking for a
+constitutional decision.
 
 ## The conversation, both ways
 
@@ -440,11 +648,20 @@ issue descriptions we would throw away.
 ### Tap a bead, then open it
 
 Tapping a node raises a **card** with the whole title, its status, priority and type,
-and two buttons. **Details** opens the bead itself in a sheet — description rendered
-as markdown, the thread, who owns it, what it blocks and what it waits on — served by
-`/api/bead`, which is `bd show` plus comments rather than `/api/question`'s
-decision shape (every node is an ordinary issue; only some are questions). The sheet
-takes 72% of the screen, and **⤢** takes the rest of it.
+and two buttons. **Details** opens the bead itself in a sheet — who owns it, what it
+blocks and what it waits on, then the whole body: description, **acceptance**,
+**design**, **notes** and the thread, each rendered as markdown under its own label,
+in the order `bd` itself prints them. Served by `/api/bead`, which is `bd show` plus
+comments rather than `/api/question`'s decision shape (every node is an ordinary
+issue; only some are questions). The sheet takes 72% of the screen, and **⤢** takes
+the rest of it.
+
+This is the only general-purpose bead reader in the app — the inbox card only ever
+shows beads carrying the `human` or agent labels — so anything the sheet leaves out
+is readable nowhere but a terminal. It used to stop after the description, which
+meant the acceptance criteria, the one part you close a bead against, were exactly
+that. The description alone stays unlabelled, the way it is on the card, so a bead
+carrying none of the other three looks precisely as it did.
 
 Three bugs found building this, all worth knowing because they're the kind that look
 like something else:
@@ -1020,6 +1237,25 @@ bead that already exists (`dependsOn: [bc-7rx]`), which is how "this waits on th
 we started from" is written; those are checked against the tracker before anything is
 written, so a made-up id costs a warning rather than a half-created proposal.
 
+### What you just filed, one tap away
+
+Creating leaves a **✓ Created N beads** note in the scrollback, one row per bead. That
+row is the one link in beadcause you tap while still holding the thought that made the
+bead, so it goes straight to the bead: `?open=1` on the graph page raises that bead's
+detail sheet as soon as the graph has drawn, and the text you just wrote is on screen
+without finding a node in a force layout mid-animation. Dismissing the sheet leaves you
+on the graph, scoped to that bead, which is where the link used to stop.
+
+The whole row is the target — pill *and* title in one anchor, 40px tall. The title was
+the big wrapping thing beside a 40px-wide pill, and it looked tappable long before it
+was. Same for the **Starting from** line at the head of a seeded console.
+
+`node scripts/created-link-check.mjs` checks all of it in headless Chrome at phone
+size, against fixtures rather than the daemon, and aims `elementFromPoint` at the
+middle of the *title* rather than trusting the markup. `--baseline` serves the
+committed `console.js`/`graph.js`/`style.css` instead: it must fail the five link and
+target cases and pass the two that describe what already worked.
+
 ### A console ends when the beads exist
 
 A console is a conversation with one purpose, and pressing **Create** achieves it. So
@@ -1047,6 +1283,40 @@ after a close are an invitation to create them twice.
 Both the close and the reopen appear in the scrollback as quiet divider lines. They
 belong in the history, but rendering them in an assistant bubble would read as
 something the agent said.
+
+### An old proposal says what became of it
+
+A reply that proposed beads keeps its `🧾 proposed 3 beads — review` line for the life
+of the transcript. The draft it pointed at does not: creating spends it, the next turn
+replaces it, closing drops it. So by the time you scroll back up, that button is a
+control whose target is gone — and what it used to do then was nothing, silently.
+
+The line stays, because it is part of what the conversation said. What it *offers*
+depends on what happened after it, read off the transcript rather than stored on the
+message — the first thing below it that either consumed that draft or put another one
+in its place:
+
+- **✓ filed 2 beads** — it became beads. Tapping walks you down to the `✓ Created`
+  note that consumed it and flashes it, because that note already lists the ids and
+  each one opens the bead. It deliberately does not reopen the editor: those beads
+  exist, and an editor over them is an offer to file them twice.
+- **🧾 proposed 3 beads — revised since; open the current draft** — a later turn
+  replaced it. Tapping opens the sheet, which is the honest thing to say about it:
+  what is in there is the *newer* draft, not what this message proposed. Saying
+  "review" and then showing something else is the quiet lie this replaced.
+- **🧾 proposed 2 beads — draft discarded** — visibly disabled. The draft went away
+  without becoming anything, which is what closing a console does to unspent cards.
+  There is nothing to look at, and the only useful thing left to say is that.
+- **🧾 proposed 1 bead — review** — the newest live proposal, unchanged. Opens the
+  sheet, exactly as before.
+
+`node scripts/console-check.mjs` holds the rule: the real `public/console.js` in a
+headless Chrome at phone size, against a fixture console served by the script itself,
+so it never talks to the daemon. It taps every proposal line in the thread and
+requires the screen to answer — the sheet opens, the page moves, something lights up,
+or it says why not. `--baseline` serves `HEAD:public/console.js` instead, which is how
+you tell a real failure from a flaky one: baseline must fail the filed and revised
+cases and the inert tap, the working copy must pass all of them.
 
 ### What it costs you to know
 
@@ -1414,6 +1684,48 @@ decision block and only means anything for a `human` bead.
 `host` falls back to `127.0.0.1` if Tailscale was down when the config was
 written — fix the IP in the file if the phone can't connect.
 
+### Environment
+
+| variable | meaning |
+|---|---|
+| `BEADCAUSE_CONFIG_DIR` | where the config, state and tokens live (default `~/.config/beadcause`). Isolates **only those** — see [observer mode](#a-second-instance--observer-mode) before booting a second instance |
+| `BEADCAUSE_OBSERVE` | watch and never act: no sessions, proposals, sweeps, session logs, reply agents or pushes. `BEADCAUSE_READONLY` is the same flag |
+| `BEADCAUSE_NODE` | the `node` the LaunchAgent runs (`scripts/install.sh`, `scripts/open-monitor.sh`) |
+| `BEADCAUSE_BROWSER` | which browser `scripts/open-monitor.sh` opens the console in |
+
+### Every state file is replaced, never overwritten
+
+Everything beadcause remembers between restarts is a small JSON file in that
+directory: `config.json`, `state.json` (what has been pushed), `status.json` (what
+each agent is doing), `advocates.json`, and one file per console under
+`consoles/`. All of them used to be written with a bare `fs.writeFileSync`, which
+truncates the file to zero and *then* writes — so a crash, a `kill -9`, a full
+disk or a lid closing inside that window did not cost you the last change, it cost
+you the whole file.
+
+Worse, it cost it quietly. Every reader here treats an unparseable state file as
+an absent one, because that is the right thing to do the first time you run:
+`loadState` returns `{ notified: [] }`, `readAll` returns `{}`. So a torn file
+does not raise anything. It just means every question is unread again, every
+cooldown has reset, and the consoles you had open are gone — and nothing in the
+log says why.
+
+`lib/atomic.js` writes to a temp file beside the target, `fsync`s it, and renames
+it over the top. `rename(2)` is atomic within a filesystem, so a reader sees the
+whole old file or the whole new one and there is never an instant where the name
+does not resolve. The `fsync` before the rename is the half that is easy to skip:
+without it the rename can reach disk ahead of the data it points at, which turns a
+power cut into a correctly-named empty file — intact-looking, and therefore worse.
+
+`npm test` proves it — `test/atomic.mjs` SIGKILLs a child that is writing in a
+loop and asserts the survivor is always a whole version. Run
+`node test/atomic.mjs --baseline` to watch the plain `writeFileSync` it replaced
+lose the file outright; that run is what makes a pass mean anything.
+
+The temp prompt files handed to `claude` are deliberately left alone: they are
+born, read once and deleted, so a torn one is a failed spawn rather than lost
+state.
+
 ### Privacy of the push
 
 An ntfy.sh topic is readable by anyone who guesses its name. The topic is random,
@@ -1427,6 +1739,104 @@ the exception: they must send the token as a header to authenticate the POST. So
 a `full` push on a public server does place the token on ntfy.sh. It's useless
 without tailnet access, but if that bothers you, either self-host ntfy or set
 `ntfy.actionButtons: false` and answer by tapping through to the app.
+
+## A second instance — observer mode
+
+Sooner or later you want to look at a change to the UI without restarting the live
+daemon on `:4318`, so you boot a second one on a spare port with its own config
+directory. **Do not do that without `BEADCAUSE_OBSERVE=1`.**
+
+`BEADCAUSE_CONFIG_DIR` isolates the config, the state file and the token. That is
+*all* it isolates. The tracker, the repos and `.claude/worktrees/` belong to the
+machine, so a second daemon is a second **fully live** daemon: it has its own
+advocates, its own poll loop, and no idea the first one exists. Booted from a copy
+of your real config, its first tick — thirty seconds in — opened two Claude sessions
+in two repos and retired a worktree in the shared checkout. Nothing malfunctioned.
+It did exactly what the live one does, twice.
+
+So:
+
+```sh
+mkdir -p /tmp/bc
+jq '.port=4372 | .baseUrl="http://127.0.0.1:4372" | .host="127.0.0.1"' \
+  ~/.config/beadcause/config.json > /tmp/bc/config.json
+
+BEADCAUSE_CONFIG_DIR=/tmp/bc BEADCAUSE_OBSERVE=1 node bin/beadcause.js
+```
+
+Reach it at `http://127.0.0.1:4372/?t=<token from that config>`. Pick the port
+yourself and check it's free — `4319` is taken by something unrelated on this Mac.
+
+It says so at startup, unmissably, because the way this flag fails is you believing
+you set it:
+
+```
+[beadcause] ─────────────────────────────────────────────────────
+[beadcause] OBSERVING — this instance watches and never acts.
+[beadcause]   no sessions · no proposals · no worktree sweeps
+[beadcause]   no session logs · no reply agents · no ntfy push
+[beadcause]   the terminal, the bead console and answering still work
+[beadcause] ─────────────────────────────────────────────────────
+```
+
+**What it switches off** — everything the daemon would do on its own:
+
+| off | otherwise |
+|---|---|
+| advocates opening sessions | a real Claude window per ready bead, in the shared checkout |
+| bead proposals | a survey agent, and a question in your inbox from an instance you booted to look at CSS |
+| worktree sweeps | `.claude/worktrees/` retired out from under sibling sessions — the one act that reaches outside the config directory to move somebody else's work |
+| session logs | `refs/beadcause/sessions/*` and git notes written into repos this instance is only visiting |
+| reply agents | two daemons dispatching two agents at the same comment |
+| ntfy push | two notifications per question, whose buttons answer on two different ports |
+| `POST /api/session` | the one button whose consequence is an hour of unattended agent |
+
+Advocates still **survey**, so the ready queue and what each would pick up next are
+on screen — that is usually the thing you booted a second instance to look at. Each
+card reads `observing — this instance never acts on its own · N ready`.
+
+**Which daemon am I looking at?** An amber `⦿ OBSERVING` badge sits beside the page
+title on `/monitor` and `/work`, and beside the name in the terminal monitor. The
+advocate cards say it too, but an instance with *no* advocates configured would
+otherwise look identical to the live one — and believing you are in observer mode
+when you are not is the whole failure this mode exists to prevent. The signal is one
+field, `observing`, on `/api/work` and `/api/poll`; it is `false` on the live
+instance rather than absent, so a console can never paint the badge over a daemon
+that is in fact opening windows.
+
+**What still works** is everything you sit in front of: the terminal, the bead
+console, answering and commenting on questions. A mode that broke those would be a
+mode nobody uses. Note the tracker is shared regardless — a bead you create from the
+console of an observer instance is a real bead, and an answer is a real answer.
+
+Nothing is written to the config file: your switches stay as you set them, and the
+mode is asked about at each point where the daemon would otherwise act. That also
+means it cannot leak into the live instance. `BEADCAUSE_READONLY=1` is accepted as
+the same flag — not for elegance, but because the one failure worth engineering
+against here is typing the name slightly wrong and getting silence.
+
+**This is not the sandbox for testing the advocates themselves.** It stops them
+acting; it does not give them a private tracker or a private checkout. To watch an
+advocate actually launch something, use the live instance and its pause/resume
+controls.
+
+### `npm test`
+
+The repo has one test file, `test/observe.mjs`, and it is about this flag only —
+because this is the only switch here that fails *silently*. Turn off the terminal
+and the terminal is gone; get this one subtly wrong and everything looks fine until
+there are two Claude windows open on repos you weren't working in. It checks that
+the flag reads the way this section says (both spellings, and `0`/`false`/empty
+meaning off), that an armed advocate with a full queue surveys and launches nothing,
+that no reply agent or push goes out, that `/api/work` and `/api/poll` carry the
+`observing` field the badge is drawn from — and, as the control, that with the flag
+off all of that goes down the ordinary path and the field reads `false`.
+
+The mirror-image test is deliberately absent: "with the flag off, does an advocate
+really open a window?" can only be answered by opening one. That is the incident
+this flag exists because of, so the suite proves the guards are *conditional* and
+stops there. Everything else is still gated by `node --check` on changed files and
+by booting an observer instance and driving it.
 
 ## Notes on bd
 
