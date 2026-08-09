@@ -9,8 +9,9 @@
 
     Everything lives inside the maskable safe zone — the centre 80%, a circle of radius
     205 about (256,256) — because icon-512.png is declared "any maskable" and Android
-    crops to that circle. The farthest corner is the z's bottom right at (414,378),
-    which is 199 out, so a circular mask takes the rounding and nothing else.
+    crops to that circle. The farthest ink is the z's bottom right: the centreline turns
+    at (399,363), 179 out, and the round cap adds its 15 radially rather than to a
+    corner, for 194. So a circular mask takes the rounding and nothing else.
   -->
   <rect width="512" height="512" rx="112" fill="#0b0f14"/>
   <g fill="none" stroke="#5eead4" stroke-width="30" stroke-linecap="round" stroke-linejoin="round">
