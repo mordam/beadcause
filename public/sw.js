@@ -1,6 +1,6 @@
 /* Cache the shell so the inbox opens instantly and the 3.5 MB mermaid bundle is
    fetched once. API traffic is never cached — an answered question must vanish. */
-const CACHE = 'beadcause-v15';
+const CACHE = 'beadcause-v16';
 const SHELL = [
   '/',
   '/index.html',

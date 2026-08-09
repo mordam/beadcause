@@ -237,11 +237,33 @@ set.
   reset scroll, which reads exactly like the answer being thrown away. Repaints
   are deferred until the box is empty and unfocused; the armed-option state is
   painted in place instead.
+- **Or dismiss it**, under the two buttons: the question you are never going to
+  answer, closed with nothing written on it. Two taps like everything else that
+  closes a bead, and the second one spells out what it is about to do — *Tap again —
+  closes bc-7qo unanswered*. Anything already in the box rides along as the reason,
+  and the label says so before you commit rather than after. It closes the question
+  and **nothing else**: no proposal is created, no amendment committed, no pull
+  request merged or declined — "I am never going to answer this" is not consent to
+  any of them, so a dismissed delivery leaves its PR open on GitHub. The one thing
+  it does record is a refusal, when the question was an agent asking to be changed;
+  without that the request is not refused but unheard, and it comes back next week.
 - **From the notification**, when a question has ≤3 options: ntfy's action buttons
   POST the answer straight to the daemon over the tailnet.
 
 Either way the answer lands as a comment authored by `beadcause` and the bead
-closes with reason "Answered via Beadcause".
+closes with reason "Answered via Beadcause" — or "Dismissed via Beadcause", with
+your note after it, for the one that was never answered. Both write the line as a
+comment *and* as the close reason, because `bd show` prints the reason months later
+and an agent watching the thread only ever sees comments.
+
+`node scripts/dismiss-check.mjs` holds the dismissal to all of that in headless
+Chrome at phone size: that one tap writes nothing, that the arm expires and any
+other armed control steals it, that the note reaches the wire as a `reason` and
+never as a `response` — a dismissal read as an answer would be read for markers,
+and `MERGE:` in the box would merge a pull request you meant to walk away from.
+`node test/dismiss.mjs` is the other end: the argv `bd` actually receives, pinned
+because `bd human dismiss` — the subcommand this obviously wants — is broken in bd
+1.1.2 the same way `bd human respond` is.
 
 ### Where the answer goes
 

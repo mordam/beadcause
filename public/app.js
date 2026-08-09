@@ -1306,8 +1306,37 @@
     }" data-key="${esc(q.key)}">${boxLabel}</button>
         <button class="secondary" data-act="note" data-key="${esc(q.key)}">Comment only</button>
       </div>
+      ${declining ? '' : dismissHtml(q)}
     </div>`;
   }
+
+  /**
+   * The third thing you can do with a question: decide it is not one.
+   *
+   * Under the two buttons rather than beside them, and quiet. Three equal buttons in
+   * one row on a 360px phone leaves "Answer & close" too narrow to fit its own label,
+   * and the ranking is real anyway — this is the rare one, and it is the one that
+   * closes a bead with nothing written on it. Same reasoning as the decline link on a
+   * delivery: last, centred, and never where a thumb lands by accident.
+   *
+   * Two taps, like every other button here that closes a bead. What the second tap
+   * says is the point: the label spells out that the question closes *unanswered*,
+   * because that is the part no icon or colour can convey — and if you have typed
+   * something, it says so instead, since anything in the box rides along as the
+   * reason rather than being thrown away.
+   */
+  function dismissHtml(q) {
+    const armed = state.armed === `${q.key}|dismiss`;
+    return `<button class="linkish danger dismiss${armed ? ' confirm' : ''}" data-act="dismiss"
+      data-key="${esc(q.key)}" data-id="${esc(q.id)}">${esc(dismissLabel(q.key, q.id, armed))}</button>`;
+  }
+
+  /** What the dismiss button says, given the draft under it and whether it is armed. */
+  const dismissLabel = (key, id, armed) => {
+    const noted = Boolean(getDraft(key).trim());
+    if (armed) return `Tap again — closes ${id} ${noted ? 'with your note' : 'unanswered'}`;
+    return noted ? 'Dismiss with this note' : 'Dismiss without answering';
+  };
 
   const STATUS_LABEL = { in_progress: 'claimed', blocked: 'blocked', open: 'open' };
 
@@ -1584,13 +1613,25 @@
     badge('advocates', proposals, `Advocates — ${proposals} proposal${proposals === 1 ? '' : 's'} waiting`);
   }
 
-  /** Repaint the armed option in place. Cheap, and never touches the textarea. */
+  /**
+   * Repaint the armed option in place. Cheap, and never touches the textarea.
+   *
+   * Every armable control on the list is painted here, not just the one that was
+   * tapped — arming any of them disarms the others, and a dismiss button left
+   * reading "Tap again" after an option stole the arm would be a lie about what the
+   * next tap does.
+   */
   function paintArmed() {
     for (const btn of listEl.querySelectorAll('.option')) {
       const armed = state.armed === `${btn.dataset.key}|${btn.dataset.opt}`;
       btn.classList.toggle('confirm', armed);
       const label = btn.querySelector('.label');
       if (label) label.textContent = (armed ? 'Tap again to confirm · ' : '') + btn.dataset.label;
+    }
+    for (const btn of listEl.querySelectorAll('.dismiss')) {
+      const armed = state.armed === `${btn.dataset.key}|dismiss`;
+      btn.classList.toggle('confirm', armed);
+      btn.textContent = dismissLabel(btn.dataset.key, btn.dataset.id, armed);
     }
   }
 
@@ -2149,8 +2190,13 @@
    * `onRestore` is for state submit() cannot see — the proposal's per-bead picks are
    * cleared by the caller before it gets here, and a card that came back with every
    * decision wiped would be a worse outcome than the failed write.
+   *
+   * `dismiss` rides on `close` rather than replacing it: a dismissal closes the bead
+   * and takes the card out of the list in exactly the same way, so every piece of the
+   * optimistic dance above — the flight, the removal, the restore on failure — is the
+   * same code. All that differs is which route it goes to and what the toast says.
    */
-  async function submit(key, text, { close, create = null, edits = null, onRestore = null }) {
+  async function submit(key, text, { close, dismiss = false, create = null, edits = null, onRestore = null }) {
     const q = byKey(key);
     if (!q) return;
     const card = listEl.querySelector(`.card[data-key="${CSS.escape(key)}"]`);
@@ -2198,10 +2244,15 @@
     };
 
     try {
-      const res = await api(close ? '/api/respond' : '/api/comment', {
+      const res = await api(dismiss ? '/api/dismiss' : close ? '/api/respond' : '/api/comment', {
         method: 'POST',
         body: JSON.stringify(
-          close
+          dismiss
+            ? // Whatever was in the box, if anything. Sent as `reason` rather than as
+              // `response` so it can never be mistaken for an answer by a route that
+              // reads markers out of one — a dismissal must not merge a pull request.
+              { workspace: q.workspace, id: q.id, reason: text }
+            : close
             ? {
                 workspace: q.workspace,
                 id: q.id,
@@ -2236,7 +2287,7 @@
         // Otherwise it sits in the shade with buttons that would answer a bead that
         // is already closed.
         window.BeadcauseNative?.answered?.(key);
-        toast(`Answered ${q.id}`);
+        toast(dismiss ? `Dismissed ${q.id}` : `Answered ${q.id}`);
         render(true);
         // The tracker took it, so it may be swallowed. Awaited rather than fired and
         // forgotten so a caller that answers two questions in a row cannot have the
@@ -2798,6 +2849,32 @@
       return;
     }
 
+    /**
+     * Dismiss: close the question, answer nothing.
+     *
+     * Two taps, on the same six-second arm as an option — a card sitting open in a
+     * pocket must not be binned by a stray thumb. Nothing here validates the box:
+     * an empty dismissal is the ordinary case, and anything typed goes with it as
+     * the reason, which is what the armed label has just promised.
+     */
+    if (act === 'dismiss') {
+      const token = `${key}|dismiss`;
+      if (state.armed !== token) {
+        state.armed = token;
+        clearTimeout(state.armedTimer);
+        state.armedTimer = setTimeout(() => {
+          disarm();
+          paintArmed();
+        }, 6000);
+        paintArmed();
+        return;
+      }
+      disarm();
+      const box = btn.closest('.card')?.querySelector('[data-role="answer"]');
+      await submit(key, (box?.value || '').trim(), { close: true, dismiss: true });
+      return;
+    }
+
     if (act === 'answer' || act === 'note') {
       const card = btn.closest('.card');
       const box = card.querySelector('[data-role="answer"]');
@@ -2838,6 +2915,10 @@
     // Keep the incomplete mark honest from the first character, so the card is
     // already carrying it by the time the accordion collapses it.
     paintDraftMark(key);
+    // And the dismiss button, which changes its mind about what it would do with
+    // the box the moment there is anything in it. In place for the same reason the
+    // mark is: a render() here would rebuild the card under the keystroke.
+    paintArmed();
   });
 
   listEl.addEventListener('change', (ev) => {

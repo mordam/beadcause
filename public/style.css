@@ -961,6 +961,32 @@ body {
 }
 .primary:disabled, .secondary:disabled { opacity: 0.45; }
 
+/* Binning a question, under the two buttons that act on it rather than in the row
+   with them: three tap targets across a phone leaves none of them able to hold its
+   own label, and this one is the rare one anyway. Borderless until it is armed, so
+   the row above stays the only thing that looks like a pair of buttons — and short,
+   because the answer box is pinned to the bottom of an open card and every pixel
+   here is one the brief above does not get. */
+.freeform .dismiss {
+  align-self: center;
+  flex: 0 0 auto;
+  min-height: 34px;
+  padding: 0 14px;
+  border-color: transparent;
+  /* Warm, but pulled back toward the muted text around it. Full-strength danger at
+     rest made the quietest control on the card the loudest thing on it — under a
+     mint "Answer & close" that is what you are actually meant to press. */
+  color: color-mix(in srgb, var(--danger) 62%, var(--muted));
+  font-size: 13px; font-weight: 550;
+}
+/* Armed, it grows a frame and a wash — the same language as every other second-tap
+   in the app, and the only state in which this button is one tap from closing a bead. */
+.freeform .dismiss.confirm {
+  border-color: color-mix(in srgb, var(--danger) 45%, transparent);
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+  color: var(--danger);
+}
+
 /*
   An open card's corner controls, hard right in both corners: the ⋮ and, beside it,
   the way out. Right because that is the side a thumb reaches on a phone, and the
