@@ -47,6 +47,10 @@
     // 'yes' | 'no'). Held here rather than on the question so a background refresh
     // cannot wipe a half-made decision, the same reason drafts live outside it.
     picks: new Map(),
+    // Which proposal rows you have unfolded, as `${key}|${n}`. Out here with the
+    // picks for the same reason: a background refresh must not fold a row back up
+    // while you are reading it.
+    propOpen: new Set(),
   };
 
   /* ---------------------------------------------------------------- token */
@@ -418,6 +422,62 @@
     beads.map((_, i) => i + 1).filter((n) => picksFor(key).get(n) === 'yes');
 
   /**
+   * The fields a proposed bead would be created with, in the order proposalBody
+   * prints them (lib/proposal.js) — the row and the question body it came from
+   * should read the same way round. Rationale is deliberately absent here: it is an
+   * argument for the bead rather than part of it, so the row prints it last.
+   */
+  const PROP_FIELDS = [
+    // The description needs no label: it is what a bead obviously is, and a row with
+    // one short line in it should not carry a heading saying so.
+    { key: 'description', label: '' },
+    { key: 'acceptance', label: 'Done when' },
+    { key: 'design', label: 'Design' },
+    { key: 'notes', label: 'Notes' },
+    { key: 'labels', label: 'Labels', pills: true },
+    { key: 'deps', label: 'Depends on', pills: 'id' },
+  ];
+
+  /**
+   * Everything that would end up on the bead, each under a quiet label.
+   *
+   * Prose goes through the markdown renderer rather than out as escaped text: an
+   * advocate writes a description as a bulleted list, and a list rendered as one
+   * run-on line is a list you skip — which is the whole failure this row had.
+   */
+  function propFieldsHtml(b) {
+    return PROP_FIELDS.map((f) => {
+      const v = b[f.key];
+      const body = f.pills
+        ? (Array.isArray(v) ? v : [])
+            .map((x) => `<span class="pill${f.pills === 'id' ? ' id' : ''}">${esc(x)}</span>`)
+            .join('')
+        : v
+        ? `<div class="md">${renderMarkdown(v, FROM_BD)}</div>`
+        : '';
+      if (!body) return '';
+      const label = f.label ? `<span class="prop-label">${f.label}</span>` : '';
+      return `<div class="prop-field${f.pills ? ' pills' : ''}">${label}${body}</div>`;
+    }).join('');
+  }
+
+  // A phone column fits about this many characters, and this many lines of one row
+  // is as much as can sit above the next proposal and still leave it scannable.
+  const PHONE_COLS = 42;
+  const COLLAPSE_AT = 9;
+
+  /**
+   * Roughly how tall a row's prose will be. Cheap on purpose: the alternative is
+   * measuring after layout, and this only has to be right about "is this a wall of
+   * text", which counting wrapped lines settles well enough.
+   */
+  function propLines(b) {
+    const prose = [b.description, b.acceptance, b.design, b.notes, b.rationale].filter(Boolean).join('\n');
+    if (!prose) return 0;
+    return prose.split('\n').reduce((n, line) => n + Math.max(1, Math.ceil(line.length / PHONE_COLS)), 0);
+  }
+
+  /**
    * An advocate asking to create beads.
    *
    * Every other question in the inbox is one decision, which is why the rest of this
@@ -443,15 +503,34 @@
       .map((b, i) => {
         const n = i + 1;
         const choice = picks.get(n) || '';
-        return `<div class="prop-row ${choice ? `pick-${choice}` : ''}" data-idx="${n}" data-key="${esc(q.key)}">
+        // Long rows start folded so three proposals still fit on the screen you are
+        // deciding from. A fold and not the old three-line clamp, because a clamp
+        // cuts markdown mid-list-item and leaves no way at all to see the rest.
+        const long = propLines(b) > COLLAPSE_AT;
+        const collapsed = long && !state.propOpen.has(`${q.key}|${n}`);
+        return `<div class="prop-row ${choice ? `pick-${choice}` : ''}${collapsed ? ' is-collapsed' : ''}" data-idx="${n}" data-key="${esc(q.key)}">
           <div class="prop-main">
-            <span class="prop-title"><span class="prop-n">${n}</span>${esc(b.title)}</span>
-            <span class="prop-meta">
-              <span class="pill">${esc(b.type)}</span><span class="pill p${b.priority}">P${b.priority}</span>
-              ${b.acceptance ? `<span class="prop-acc">${esc(b.acceptance)}</span>` : ''}
-            </span>
-            ${b.description ? `<span class="prop-desc">${esc(b.description)}</span>` : ''}
-            ${b.rationale ? `<span class="prop-why">${esc(b.rationale)}</span>` : ''}
+            <div class="prop-head"><span class="prop-n">${n}</span><span class="prop-title">${esc(b.title)}</span></div>
+            <div class="prop-body">
+              <div class="prop-meta">
+                <span class="pill">${esc(b.type)}</span><span class="pill p${b.priority}">P${b.priority}</span>
+              </div>
+              ${propFieldsHtml(b)}
+              ${
+                b.rationale
+                  ? `<div class="prop-why"><span class="prop-label">Why</span><div class="md">${renderMarkdown(
+                      b.rationale,
+                      FROM_BD
+                    )}</div></div>`
+                  : ''
+              }
+            </div>
+            ${
+              long
+                ? `<button class="prop-more" data-act="prop-more" data-key="${esc(q.key)}" data-idx="${n}"
+                    aria-expanded="${!collapsed}">${collapsed ? 'Show the rest' : 'Show less'}</button>`
+                : ''
+            }
           </div>
           <div class="prop-choice">
             <button class="prop-btn yes" data-act="pick" data-key="${esc(q.key)}" data-idx="${n}" data-pick="yes"
@@ -1589,6 +1668,21 @@
       return;
     }
 
+    // Unfolds one row, by touching that row only. Emphatically not a render(), for
+    // the same reason paintPicks exists: rebuilding the card under a decision you
+    // are halfway through making loses the decision.
+    if (act === 'prop-more') {
+      const row = btn.closest('.prop-row');
+      const token = `${key}|${btn.dataset.idx}`;
+      const open = !state.propOpen.has(token);
+      if (open) state.propOpen.add(token);
+      else state.propOpen.delete(token);
+      row?.classList.toggle('is-collapsed', !open);
+      btn.setAttribute('aria-expanded', String(open));
+      btn.textContent = open ? 'Show less' : 'Show the rest';
+      return;
+    }
+
     if (act === 'pick') {
       const n = Number(btn.dataset.idx);
       const picks = picksFor(key);
@@ -1629,6 +1723,7 @@
       }
       disarm();
       state.picks.delete(key);
+      for (const t of [...state.propOpen]) if (t.startsWith(`${key}|`)) state.propOpen.delete(t);
       const declined = beads.length - approved.length;
       const text = approved.length
         ? `CREATE: ${approved.join(',')} — filing ${approved.length} of ${beads.length} proposed bead${
