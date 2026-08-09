@@ -939,7 +939,9 @@ table or code block scrolls sideways, so a swipe that starts on one of those is 
 to it rather than stolen.
 
 **Full width on a phone, inset on a wide screen** — with the tab still visible
-around it, because there it reads as detail rather than as a new page.
+around it, because there it reads as detail rather than as a new page. It covers the
+[tab bar](#getting-around--the-tab-bar) while it is up, deliberately: the drawer is
+one gesture deep, and the way out of it is back, not a fifth destination.
 
 The Android shell needed one line for this. `shouldOverrideUrlLoading` fires for
 subframe navigations too, so the WebView was intercepting the drawer's own iframe
