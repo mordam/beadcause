@@ -12,6 +12,12 @@ public/vendor/
 # was on screen — so they belong to the machine that took them and nowhere else.
 .claude/shots/
 
+# Soft-deleted worktrees, kept on disk so a finished session stays resumable, plus a
+# .note saying what was retired and when. Local scratch like the two above — and the
+# reason to ignore rather than merely leave untracked is that each one is a whole
+# checkout, so a stray `git add .` in the main repo commits dozens of them at once.
+.claude/worktrees-retired/
+
 # Built and published by `npm run android` — 28 MB, and rebuilt from source.
 public/beadcause.apk
 
