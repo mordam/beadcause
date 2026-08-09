@@ -61,6 +61,10 @@
     graph: 'the graph',
     console: 'a chat session',
     sessions: 'the sessions view',
+    // No richer pane behind it here — the mirror falls through to its own "nowhere
+    // richer than this" line, which is the honest answer. Named anyway, so the header
+    // reads "has the pull requests open" rather than the raw view id.
+    prs: 'the pull requests',
     terminal: 'a terminal',
     doc: 'a document',
     other: 'somewhere else',
