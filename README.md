@@ -243,6 +243,54 @@ set.
 Either way the answer lands as a comment authored by `beadcause` and the bead
 closes with reason "Answered via Beadcause".
 
+### When bd will not close the bead
+
+*Answer & close* is two writes, and only the second one has a gate on it. bd
+refuses to close a bead **blocked by open dependencies**, and refuses to close an
+**epic with open children** — both with a sentence and a `--force` you are not
+being offered here.
+
+That used to arrive as a failure. The comment went in first, the close threw, and
+the whole answer came back to the phone as a red toast over a question that had in
+fact been answered. The card stayed in the inbox looking untouched, so it got
+answered again — five beads across two workspaces ended up carrying the same
+answer two and three times over, and one of them says *"Do your best"* four times.
+
+So the refusal happens **before anything is written**. The server asks the two
+questions bd would ask — the `blocks` dependencies that are still open, and, for
+an epic only, the children that are still open — and answers with a `409` carrying
+the reason and the beads behind it. Nothing is commented, nothing is created, and
+the question is exactly as answerable as it was a moment ago.
+
+What you get is not an error. The card comes back with the reason on it, the
+blockers named and linked into the graph, and the offer: **Save as a comment**,
+which is the half that was always going to work. Three things about it are
+deliberate:
+
+- **The note lives on the card, not in a toast.** A toast is gone in three
+  seconds, and the one conclusion that must never be reached here is *the answer
+  was lost*. Your draft is still in the box underneath for the same reason.
+- **It is amber, not red** — the same `--warn` as the unfinished mark down a
+  card's edge. Something is incomplete and waiting on you; nothing went wrong.
+- **Saving goes down the ordinary comment path** — same endpoint, same
+  `human-replied` label, same agent dispatched. What you typed is a reply on a
+  thread, and the only thing the tracker refused was the closing of the bead.
+
+There is deliberately **no force-close**. "Close this epic over its 24 open
+children" is not a decision to take from a lock screen, and a `force` flag that
+skipped the check would only reach the same refusal from bd a moment later, since
+`respond` does not pass `--force` either.
+
+`node test/closegate.mjs` is the gate itself, in the `npm test` suite: the two
+refusals, and — the expensive half — the six cases that must **not** be refused,
+because a question bd would close happily becoming unanswerable from the phone is
+a worse bug than the one this fixes, and a silent one. `node scripts/gate-check.mjs`
+is what it looks like in your hand: headless Chrome at phone size driving the real
+`public/app.js` against a fixture that answers `/api/respond` with a 409, asserting
+mostly what must *not* happen — no error toast, no write, the draft still in the
+box. `--baseline` serves the committed `app.js`/`style.css`, where a 409 is just an
+error; `--out=<dir>` writes the note.
+
 ### Where the answer goes
 
 Answering used to end in a dead pause. The card dimmed to half opacity, a

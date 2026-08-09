@@ -1299,12 +1299,52 @@
       : 'Answer &amp; close';
     return `<div class="freeform${declining ? ' declining' : ''}">
       ${replyBarHtml(q.key)}
+      ${gateNoteHtml(q)}
       <textarea data-role="answer" placeholder="${boxPlaceholder}" rows="3">${esc(getDraft(q.key))}</textarea>
       <div class="row">
         <button class="primary${declining ? ' danger' : ''}" data-act="${
       declining ? 'pr-decline-go' : 'answer'
     }" data-key="${esc(q.key)}">${boxLabel}</button>
         <button class="secondary" data-act="note" data-key="${esc(q.key)}">Comment only</button>
+      </div>
+    </div>`;
+  }
+
+  /**
+   * bd will not close this bead — said on the card, over the box you typed in.
+   *
+   * The two gates are the tracker's, not beadcause's: a bead blocked by open
+   * dependencies, and an epic with open children. Neither is a fault and neither
+   * is anything you can fix from a phone, so this is not an error — it is the
+   * screen saying which half of *Answer & close* is available and offering it.
+   *
+   * It has to live on the card rather than in a toast. A toast is gone in three
+   * seconds, and the one thing that must not happen here is you concluding the
+   * answer was lost and typing it again — which is exactly how five beads ended up
+   * carrying the same answer three times over. Your draft is still in the box
+   * underneath, untouched, for the same reason.
+   *
+   * The beads behind it are named and linked, because "blocked by open issues" with
+   * no ids is a dead end, and the fix — close those first — starts with reading them.
+   */
+  function gateNoteHtml(q) {
+    const gate = q.closeGate;
+    if (!gate) return '';
+    const blockers = (gate.blockers || [])
+      .map(
+        (b) =>
+          `<a class="pill id" href="${esc(graphUrl({ workspace: q.workspace, id: b.id }))}&amp;open=1"
+            target="_blank" rel="noopener" title="${esc(b.title || '')}">${esc(b.id)}</a>`
+      )
+      .join(' ');
+    return `<div class="gate-note">
+      <strong>${esc(q.id)} cannot be closed — ${esc(gate.reason)}</strong>
+      <p>Nothing has been written. Save what you typed as a comment and it stays on the
+        thread; the bead stays open until ${gate.kind === 'epic' ? 'its children are' : 'its blockers are'} closed.</p>
+      ${blockers ? `<div class="gate-blockers">${blockers}</div>` : ''}
+      <div class="row">
+        <button class="primary" data-act="gate-comment" data-key="${esc(q.key)}">Save as a comment</button>
+        <button class="secondary" data-act="gate-dismiss" data-key="${esc(q.key)}">Not now</button>
       </div>
     </div>`;
   }
@@ -2261,11 +2301,21 @@
         await flight?.land();
       }
     } catch (err) {
-      toast(err.message, true);
+      // The tracker refusing to *close* the bead is not the answer failing, and it
+      // must not read like one. The server wrote nothing and said why, so the card
+      // comes back carrying the reason and the offer — and the draft stays in the
+      // box, because the failure mode this whole path exists to stop is you deciding
+      // the answer was lost and typing it in again.
+      const gate = err.status === 409 && err.body?.gate ? err.body.gate : null;
+      if (gate) q.closeGate = gate;
+      else toast(err.message, true);
       // Reverse the travel first, then re-open the card underneath where the beads
       // came down. A tracker that refused the answer must not be shown swallowing it.
       await flight?.recall();
       restoreCard();
+      // The card is rebuilt by restoreCard, so the note is on screen; put the caret
+      // back where it was rather than making you find the box again.
+      if (gate) openOnly(key);
     }
   }
 
@@ -2794,6 +2844,37 @@
         state.logsDone.delete(key);
         pollLogs(key);
       }
+      render(true);
+      return;
+    }
+
+    /**
+     * The offer under a refused close: keep the answer, leave the bead open.
+     *
+     * It goes down the ordinary comment path — same endpoint, same `human-replied`
+     * label, same agent dispatched. That is deliberate rather than a shortcut: what
+     * you typed is a reply on a thread, and the only thing the tracker refused was
+     * the closing of the bead. Routing it anywhere else would make a comment that
+     * looks like every other comment behave differently from every other comment.
+     */
+    if (act === 'gate-comment') {
+      const q = byKey(key);
+      const card = btn.closest('.card');
+      const box = card.querySelector('[data-role="answer"]');
+      const text = (box?.value || getDraft(key)).trim();
+      if (!text) return toast('Write something first', true);
+      if (q) q.closeGate = null;
+      await submit(key, text, { close: false });
+      if (box) box.value = '';
+      return;
+    }
+
+    // Taken back without writing anything. The draft stays: dismissing the note is
+    // not abandoning the answer, and the commonest next move is closing a blocker
+    // in another tab and pressing Answer & close again.
+    if (act === 'gate-dismiss') {
+      const q = byKey(key);
+      if (q) q.closeGate = null;
       render(true);
       return;
     }

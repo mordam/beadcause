@@ -943,6 +943,29 @@ body {
   resize: vertical;
 }
 .freeform .row { display: flex; gap: 8px; }
+
+/*
+  bd would not close this bead. Amber, not red: the same --warn as the unfinished
+  mark down a card's edge and the "draft saved" flag, because this is the same
+  category of thing — something is incomplete and waiting on you, not something
+  that went wrong. Red here would read as the answer having failed, which is the
+  one conclusion this note exists to prevent.
+
+  It sits above the box rather than below the buttons so it is between you and
+  pressing Answer & close a second time.
+*/
+.gate-note {
+  padding: 11px 12px;
+  border: 1px solid var(--warn);
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--warn) 10%, transparent);
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+.gate-note strong { display: block; color: var(--text); font-size: 14.5px; margin-bottom: 4px; }
+.gate-note p { margin: 0 0 8px; color: var(--muted); }
+.gate-blockers { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 9px; }
+.gate-note .row { display: flex; gap: 8px; }
 .primary {
   flex: 1;
   min-height: var(--tap);
