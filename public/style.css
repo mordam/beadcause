@@ -227,6 +227,26 @@ body {
 
 .actions { display: flex; gap: 8px; padding: 0 15px 14px; }
 
+.note-line {
+  align-self: center; max-width: 100%;
+  padding: 4px 12px; margin: 2px 0;
+  font-size: 12px; color: var(--muted);
+}
+
+/* A row in the console list, plus the ✕ that ends it. The link and the button are
+   siblings rather than nested, so closing a console can never also open it. */
+.console-row { display: flex; align-items: center; gap: 4px; }
+.console-row .work-row { flex: 1; min-width: 0; }
+.console-row.closed { opacity: 0.55; }
+.console-row.closed .work-title { font-weight: 500; }
+.row-x {
+  flex: none; width: 40px; height: 40px;
+  border: 1px solid var(--line); border-radius: 10px;
+  background: none; color: var(--muted);
+  font-size: 14px; line-height: 1; cursor: pointer;
+}
+.row-x:disabled { opacity: 0.4; }
+
 /* Who answers when you comment. A mode rather than a per-card setting, so it sits
    directly above the box it changes the behaviour of. */
 .agents { padding: 0 15px 2px; }
@@ -240,6 +260,48 @@ body {
   margin: 0 0 10px; font-size: 12.5px; line-height: 1.5; color: var(--muted);
   display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden;
 }
+/* "Allow tools" — deliberately not styled as a settled preference. It is spent by
+   the comment it rides on, so it looks like a thing you are doing now. */
+.allow-tools {
+  display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; align-items: center;
+  padding: 9px 11px; margin: 0 0 10px;
+  border: 1px solid var(--line); border-radius: 10px;
+}
+.allow-tools.on { border-color: var(--warn); background: color-mix(in srgb, var(--warn) 12%, transparent); }
+.allow-tools.busy { opacity: 0.55; }
+.allow-tools input { width: 20px; height: 20px; accent-color: var(--warn); margin: 0; }
+.allow-label { font-size: 13.5px; font-weight: 600; }
+.allow-note {
+  grid-column: 2; font-size: 11.5px; color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.allow-tools.on .allow-note { font-family: inherit; color: var(--warn); }
+
+/* The first-time warning. A real modal, because it is the one thing here that
+   grants an agent reach it did not have — it should not be dismissable by scrolling
+   past it. */
+.dialog-wrap {
+  position: fixed; inset: 0; z-index: 60;
+  display: grid; place-items: center; padding: 18px;
+  background: rgba(0, 0, 0, 0.55); backdrop-filter: blur(3px);
+}
+.dialog {
+  width: 100%; max-width: 460px; max-height: 86dvh; overflow: auto;
+  padding: 18px 18px 16px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+}
+.dialog h2 { margin: 0 0 12px; font-size: 18px; font-weight: 650; }
+.dialog-tools {
+  margin: 0 0 14px; padding: 10px 12px;
+  background: var(--bg); border: 1px solid var(--line); border-radius: 10px;
+  font-size: 12px; line-height: 1.6; white-space: pre-wrap; word-break: break-word;
+  color: var(--warn);
+}
+.dialog ul { margin: 0 0 16px; padding-left: 20px; }
+.dialog li { font-size: 13.5px; line-height: 1.55; color: var(--prose); margin-bottom: 9px; }
+.dialog .row { display: flex; flex-direction: column; gap: 8px; }
+
 .agent-form { display: flex; flex-direction: column; gap: 8px; margin: 0 0 12px; }
 .agent-form[hidden] { display: none; }
 .agent-form input, .agent-form textarea {
@@ -721,6 +783,39 @@ body {
 .graph-main .empty[hidden] { display: none; }
 .graph-main .empty { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; }
 .gn.on .gn-box { stroke-width: 3; }
+.gn.reticled .gn-box { stroke-width: 2.5; }
+
+/* The loupe. A circle in the middle of the fitted view, magnified enough to read
+   three beads across — because a phone can hold the whole graph or one readable
+   bead, never both. `.loupe-back` is opaque so the magnified copy never blends
+   into the shrunken original showing through from underneath. */
+.loupe-back { fill: var(--bg); }
+.loupe-rim {
+  fill: none;
+  stroke: color-mix(in srgb, var(--accent) 45%, transparent);
+  stroke-width: 1.5;
+}
+.reticle path { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linecap: round; }
+
+/* Names the bead in the brackets — the node itself clips its title at twenty
+   characters, which is the thing the glass cannot fix. */
+.reticle-label[hidden] { display: none; }
+.reticle-label {
+  position: absolute; left: 50%; transform: translateX(-50%);
+  z-index: 12; pointer-events: none;
+  display: flex; align-items: center; gap: 8px;
+  max-width: calc(100% - 24px);
+  padding: 5px 11px;
+  border: 1px solid var(--line); border-radius: 999px;
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  backdrop-filter: blur(8px);
+  font-size: 12.5px;
+}
+/* The id is the short half and must never be the part that wraps — without this
+   flex squeezes it to two lines and the title gets the room. */
+.reticle-label .pill { flex: none; white-space: nowrap; }
+.reticle-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.reticle-hint { color: var(--muted); }
 /* Each batch of five fades in on arrival. A CSS animation, deliberately: a d3
    transition shares its default name with the auto-fit's and got restarted to a
    standstill. */
@@ -1173,6 +1268,113 @@ a.menu-item { text-decoration: none; color: var(--text); }
    them off with an ellipsis rather than slicing mid-word in JS. */
 .field .chip { max-width: 46vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+/* ------------------------------------------------------------------ agents */
+
+/* Tabs, not a segmented control: four destinations is one too many for a
+   segmented control on a phone, and these are places you go rather than modes
+   you toggle. Sticky, because the Foundation tab is long enough to scroll past
+   the point of forgetting which agent you are looking at. */
+.tabs {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  gap: 2px;
+  margin: -18px -16px 14px;
+  padding: 6px 12px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--line);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.tabs::-webkit-scrollbar { display: none; }
+.tab {
+  flex: 1;
+  min-height: 40px;
+  padding: 0 12px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 560;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.tab[aria-selected="true"] { background: var(--surface-2); color: var(--text); }
+
+.tab-panel[hidden] { display: none; }
+/* Clear the sticky save bar. Without it the last field sits under the buttons and
+   looks like the page ended early. */
+#tab-foundation { padding-bottom: 96px; }
+
+/* One editable field. The hint sits under the input rather than beside it — at
+   phone width a hint beside a field is a hint nobody reads. */
+.f-row { margin-bottom: 18px; }
+.f-label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+.f-input {
+  width: 100%;
+  padding: 11px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 14.5px;
+  line-height: 1.5;
+  resize: vertical;
+}
+textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
+.f-input:focus { outline: none; border-color: var(--accent); }
+.f-unit { font-size: 12px; color: var(--muted); margin-left: 8px; }
+.f-hint { font-size: 12.5px; color: var(--muted); margin: 6px 2px 0; line-height: 1.45; }
+
+/* Locked fields are shown, not hidden. "Why can I not change this" is a question
+   the screen should answer rather than raise. */
+.f-row.locked .f-locked {
+  padding: 11px 12px;
+  border: 1px dashed var(--line);
+  border-radius: 10px;
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+}
+
+.f-actions {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  gap: 8px;
+  padding: 12px 0 calc(env(safe-area-inset-bottom) + 12px);
+  background: linear-gradient(to bottom, transparent, var(--bg) 22%);
+}
+.f-actions .primary { flex: 2; }
+.f-actions .secondary { flex: 1; }
+
+.card.hist .q { font-size: 15px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.card.hist .md { font-size: 13.5px; }
+.card.hist.declined { opacity: 0.75; border-left: 3px solid var(--danger); }
+
+/* The chat tab owns the rest of the viewport so the composer pins to the bottom,
+   the same way it does on the console. */
+.chat-panel { display: flex; flex-direction: column; min-height: 60vh; }
+.chat-panel .thread { flex: 1; }
+.chat-panel .composer { position: sticky; bottom: 0; }
+
+#save-dialog textarea {
+  width: 100%;
+  padding: 10px 12px;
 /* ------------------------------------------------------------ the advocate console
 
    /monitor. One card per repo, and inside it the whole of `advocates.snapshot()` —
@@ -1421,6 +1623,10 @@ a.menu-item { text-decoration: none; color: var(--text); }
   background: var(--surface-2);
   color: var(--text);
   font: inherit;
+  font-size: 14.5px;
+  margin-bottom: 12px;
+  resize: vertical;
+}
   font-size: 14px;
   font-weight: 600;
   /* No selection and no callout: these get held down and mashed, and a long-press

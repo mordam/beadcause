@@ -86,7 +86,9 @@ test('observing:withholds', async () => {
   };
   const q = { key: 'w/x-1', workspace: 'w', id: 'x-1', question: 'x', decision: { options: [] } };
 
-  const d = dispatchReply(cfg, { name: 'w', dir: '/nonexistent/.beads' }, 'x-1', 'x');
+  // Awaited: dispatchReply became async when foundations landed, and an un-awaited
+  // promise has no `.dispatched` — it would pass this test by being undefined.
+  const d = await dispatchReply(cfg, { name: 'w', dir: '/nonexistent/.beads' }, 'x-1', 'x');
   assert.equal(d.dispatched, false, 'no reply agent may be dispatched');
   assert.match(d.reason, /observing/, `the refusal should name the mode, got: ${d.reason}`);
 
@@ -164,7 +166,7 @@ test('off:acts-normally', async () => {
   assert.equal(OBSERVING, false, 'this case must run with the flag off');
 
   // Refused one check further down, so nothing is spawned.
-  const d = dispatchReply(
+  const d = await dispatchReply(
     { autoDispatch: false, spaces: [], agents: [], defaultAgent: 'answerer' },
     { name: 'w', dir: '/nonexistent/.beads' },
     'x-1',

@@ -162,22 +162,66 @@
 
     const recent = data.consoles || [];
     $('#recent-label').hidden = !recent.length;
-    $('#recent').innerHTML = recent
-      .map((c) => {
-        const bits = [];
-        if (c.beadCount) bits.push(`${c.beadCount} proposed`);
-        if (c.created?.length) bits.push(`${c.created.length} created`);
-        if (c.seed) bits.push(`from ${c.seed.id}`);
-        return `<a class="work-row" href="/console?id=${encodeURIComponent(c.id)}">
-          <span class="work-phase">${c.status === 'thinking' ? '<span class="spark"></span>' : '💬'}</span>
-          <span class="work-main">
-            <span class="work-title">${esc(c.title || 'Untitled')}</span>
-            <span class="work-sub"><span class="pill">${esc(c.workspace)}</span>${bits.length ? ` ${esc(bits.join(' · '))}` : ''}</span>
-          </span>
-          <time>${esc(relTime(c.updatedAt))}</time>
-        </a>`;
-      })
-      .join('');
+    // Live conversations first, finished ones under them. A console is over when the
+    // beads exist, and a list where everything sorts by recency puts the one thing
+    // you have already dealt with at the top.
+    const live = recent.filter((c) => !c.closedAt);
+    const closed = recent.filter((c) => c.closedAt);
+    $('#recent').innerHTML = [...live, ...closed].map(consoleRowHtml).join('');
+
+    for (const btn of $('#recent').querySelectorAll('[data-close]')) {
+      btn.addEventListener('click', (ev) => {
+        // The row is a link. Closing it must not also open it.
+        ev.preventDefault();
+        ev.stopPropagation();
+        closeConsole(btn.dataset.close, btn);
+      });
+    }
+  }
+
+  function consoleRowHtml(c) {
+    const bits = [];
+    if (c.beadCount) bits.push(`${c.beadCount} proposed`);
+    if (c.created?.length) bits.push(`${c.created.length} created`);
+    if (c.seed) bits.push(`from ${c.seed.id}`);
+    const done = Boolean(c.closedAt);
+    return `<div class="console-row${done ? ' closed' : ''}">
+      <a class="work-row" href="/console?id=${encodeURIComponent(c.id)}">
+        <span class="work-phase">${c.status === 'thinking' ? '<span class="spark"></span>' : done ? '✓' : '💬'}</span>
+        <span class="work-main">
+          <span class="work-title">${esc(c.title || 'Untitled')}</span>
+          <span class="work-sub"><span class="pill">${esc(c.workspace)}</span>${
+            done ? '<span class="pill">closed</span>' : ''
+          }${bits.length ? ` ${esc(bits.join(' · '))}` : ''}</span>
+        </span>
+        <time>${esc(relTime(c.updatedAt))}</time>
+      </a>
+      ${
+        done
+          ? // Nothing to close, and no "reopen" button either: saying anything to a
+            // closed console reopens it, so the way back in is the row itself.
+            ''
+          : `<button class="row-x" data-close="${esc(c.id)}" aria-label="Close this console">✕</button>`
+      }
+    </div>`;
+  }
+
+  /**
+   * Close one from the list.
+   *
+   * Soft — the transcript stays and the id keeps working — so this needs no
+   * confirmation. Refused mid-turn by the server, which is the one case worth
+   * hearing about.
+   */
+  async function closeConsole(id, btn) {
+    if (btn) btn.disabled = true;
+    try {
+      await api('/api/console/close', { method: 'POST', body: JSON.stringify({ id }) });
+      showLauncher();
+    } catch (err) {
+      if (btn) btn.disabled = false;
+      if (err.message !== 'token rejected') toast(err.message, true);
+    }
   }
 
   /** Open a console: on a workspace, or on a workspace seeded with one bead. */
@@ -232,6 +276,13 @@
       return `<div class="msg created-note">
         <strong>✓ Created ${m.created.length} bead${m.created.length === 1 ? '' : 's'}</strong>
         <div class="created-list">${pills}</div>${warn}</div>`;
+    }
+
+    // A quiet divider rather than a message. The console being closed or picked back
+    // up belongs in the scrollback, but rendering it in an assistant bubble would
+    // read as something the agent said.
+    if (m.role === 'system' && (m.kind === 'closed' || m.kind === 'reopened')) {
+      return `<div class="note-line">${m.kind === 'closed' ? '✓' : '↻'} ${esc(m.text || '')}</div>`;
     }
 
     // Assistant. A pending turn shows what it is doing; a finished one shows what
@@ -699,7 +750,7 @@
     try {
       const out = await api('/api/console/create', {
         method: 'POST',
-        body: JSON.stringify({ id: state.id, draft: { beads: state.draft.beads } }),
+        body: JSON.stringify({ id: state.id, draft: { beads: state.draft.beads }, close: true }),
       });
       state.draft = null;
       state.baseDraft = 'null';
@@ -707,6 +758,17 @@
       toast(`created ${out.created.length} bead${out.created.length === 1 ? '' : 's'}`);
       closeSheet();
       for (const w of out.warnings || []) toast(w, true);
+      // Accepting ends the conversation: the beads exist and the console that argued
+      // them into shape is done, so it closes itself and drops you back to the list.
+      // Unless there were warnings — those have to be read on the screen that
+      // produced them, and this leaves you there to read them.
+      if (out.closed) {
+        history.replaceState(null, '', '/console');
+        state.id = '';
+        state.console = null;
+        state.seq = 0;
+        showLauncher();
+      }
     } catch (err) {
       if (err.message !== 'token rejected') toast(err.message, true);
     } finally {
