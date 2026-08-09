@@ -520,6 +520,45 @@ It also prints what the glass is doing — how much it magnifies, how big a titl
 inside it, how many beads it has room for — and `--id=<bead>` opens the graph the
 way **What this is blocking** does and asserts that bead ends up under it.
 
+## Getting around — the tab bar
+
+There are four standing views: the **inbox**, the **console**, the **sessions** and
+the **advocates**. They are four separate pages, and each one used to end in an ✕ in
+the top right that hard-navigated back to `/`. That made the inbox a hallway —
+console to advocates was two taps through a page you did not want — and the ad-hoc
+cross-links that grew to paper over it (sessions → advocates, advocates → sessions)
+were the same complaint, admitting itself.
+
+So all four carry the same bar along the bottom, where a thumb already is:
+
+```
+  📥        🧾         🤖          📣
+ Inbox   Console   Sessions   Advocates
+ ▔▔▔▔▔
+```
+
+Any view is one tap from any other, and nothing closes any more. The current tab is
+a `<span>` rather than a link — tapping where you already are should do nothing, not
+throw away the list, the conversation and your scroll position to rebuild the same
+screen — and it is marked twice over, by the accent colour and by the rule above it,
+because colour alone is not a mark. The bar pads itself past the home indicator.
+
+⚙ and ⟳ stay in the top bar of the views that have them: they act on the view you
+are looking at rather than taking you off it. ⌨️ (the terminal) and ⚖️ (the
+foundations) stay in the inbox's top bar too — they are places you go for one thing
+and come back from, not views you live in.
+
+An **open question is the exception**: a card you have opened takes the whole screen,
+tab bar included, because the answer buttons at its foot must not sit under anything.
+Collapsing it gives the bar back.
+
+`node scripts/tabbar-check.mjs` checks it, headless at phone size against fixtures
+the script serves itself: the bar is on all four pages and pinned to the bottom,
+exactly one tab is current and it is the right one, the current tab is not a link,
+and the last row of the list, the console's composer and the last advocate card all
+clear it — in both colour schemes. `--fake-inset` re-runs the safe-area sums with a
+notch substituted in, for the Chromes with no `Emulation.setSafeAreaInsets`.
+
 ## Current sessions — who is working, and on what
 
 The inbox answers *what needs me*. It is `bd human list`, so a bead only appears if
@@ -527,7 +566,7 @@ it carries the `human` label — which means everything the sessions on the Mac 
 actually doing was invisible from the phone. Nine beads claimed in sophab five
 minutes ago showed up nowhere at all.
 
-**🤖 in the inbox's top bar** opens `/sessions`: one card per workspace, busiest
+**🤖 Sessions in the tab bar** opens `/sessions`: one card per workspace, busiest
 first. (`/work`, what this used to be called, still resolves to the same page.)
 
 ```
@@ -712,7 +751,7 @@ and at most one every `proposeCooldownHours`.
 
 ### What you see, and where
 
-- **The sessions page** (🤖 in the inbox) grows an **Advocate** block on each repo's
+- **The sessions page** (🤖 in the tab bar) grows an **Advocate** block on each repo's
   card: what it is doing, the beads it has windows open on, what it will pick up
   next, and **Pause** / **Free slots**. *Free slots* is for "I closed those windows
   myself" — the sessions belong to iTerm, so nothing here can see them go.
@@ -943,7 +982,7 @@ Everything above acts on beads that already exist. The console is upstream of th
 a chat where you work out *what the next bead should be*, and beadcause creates it
 only once you have read the proposal and pressed the button.
 
-**🧾 in the inbox's top bar** opens it. Pick a workspace and start talking — or open
+**🧾 Console in the tab bar** opens it. Pick a workspace and start talking — or open
 one **on an existing bead**, from *Work out the next beads from this* at the foot of
 any card, which starts the conversation with that bead already read.
 

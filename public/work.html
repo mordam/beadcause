@@ -16,9 +16,10 @@
       <h1>Current sessions</h1>
     </div>
     <div class="sheet-actions">
+      <!-- ⟳ acts on this view, so it stays. The link to the advocates and the ✕
+           back to the inbox were both this page apologising for not being part of
+           anything; the tab bar is where you go now. -->
       <button id="work-refresh" class="icon-btn" aria-label="Refresh">⟳</button>
-      <a href="/monitor" class="icon-btn" aria-label="Advocates — the full console">📣</a>
-      <a href="/" class="icon-btn" aria-label="Back to the inbox">✕</a>
     </div>
   </header>
 
@@ -26,6 +27,7 @@
     <div class="empty">Asking every workspace…</div>
   </main>
 
+  <script src="/tabbar.js"></script>
   <script src="/work.js"></script>
 </body>
 </html>
