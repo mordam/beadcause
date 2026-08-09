@@ -89,7 +89,9 @@
       throw new Error('token rejected');
     }
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+    // The code as well as the message: a message queued mid-turn is refused with a
+    // 409, and that is the one failure the send queue waits out rather than reports.
+    if (!res.ok) throw Object.assign(new Error(data.error || `HTTP ${res.status}`), { status: res.status });
     return data;
   }
 
@@ -402,9 +404,10 @@
 
     $('#title').textContent = c.seed ? `From ${c.seed.id}` : c.workspace;
     $('#pulse').classList.toggle('busy', c.status === 'thinking');
-    $('#say').disabled = c.status === 'thinking';
-    $('#send').disabled = c.status === 'thinking';
-    $('#say').placeholder = c.status === 'thinking' ? 'working…' : 'What should the next bead be?';
+    // The composer is deliberately untouched here. It stays live for the whole turn
+    // — never disabled, placeholder unchanged, keyboard never dismissed — and what a
+    // running turn changes is only where the words go: see `queue`.
+    queue.sync(c.status === 'thinking');
 
     const count = c.draft?.beads?.length || 0;
     $('#draft-btn').hidden = !count;
@@ -472,24 +475,58 @@
     state.polling = false;
   }
 
-  async function send(text) {
-    const body = text.trim();
-    if (!body || state.console?.status === 'thinking') return;
-    $('#say').value = '';
-    autoGrow($('#say'));
-    // Show it immediately: the round trip is a spawn, and a message that vanishes
-    // for a second reads as having been eaten.
-    state.console.messages.push({ role: 'user', text: body, at: new Date().toISOString() });
+  /* ------------------------------------------------------------------ saying */
+
+  /**
+   * Send one turn's worth of words, whether one message or several queued ones.
+   *
+   * The optimistic bubble is the point of doing this here rather than in the queue:
+   * the round trip is a process spawn, and a message that vanishes for a second
+   * reads as having been eaten. If the send fails the bubble comes back out again —
+   * the queue still holds the words, and showing them in the thread *and* above the
+   * composer would read as having said the same thing twice.
+   */
+  async function deliver(text) {
+    const msg = { role: 'user', text, at: new Date().toISOString() };
+    state.console.messages.push(msg);
     state.console.status = 'thinking';
     renderThread();
     scrollDown(true);
     try {
-      await api('/api/console/message', { method: 'POST', body: JSON.stringify({ id: state.id, text: body }) });
+      await api('/api/console/message', { method: 'POST', body: JSON.stringify({ id: state.id, text }) });
     } catch (err) {
-      if (err.message !== 'token rejected') toast(err.message, true);
+      const i = state.console.messages.indexOf(msg);
+      if (i >= 0) state.console.messages.splice(i, 1);
       state.console.status = 'idle';
       renderThread();
+      throw err;
     }
+  }
+
+  /**
+   * The queue is what lets the composer stay open: say something mid-turn and it
+   * waits here, visibly, until the turn lands. Nothing here pushes past the server's
+   * refusal — the 409 stands, and this is the side that waits.
+   */
+  const queue = window.beadcause.sendQueue.create({
+    deliver,
+    onError: (err, { willRetry }) => {
+      if (err.message === 'token rejected') return; // the dialog is already up
+      // A 409 is the console saying "not yet", which is exactly what the queue is
+      // for; saying so in a red toast would be reporting the feature as a fault.
+      if (err.status === 409 || willRetry) return;
+      toast(`${err.message} — tap the message above the box to get it back`, true);
+    },
+  });
+  // The pending strip above the composer: drawn by the queue, because it is the same
+  // strip on the agents screen and two copies of it would drift.
+  queue.attach({ el: '#queued', box: '#say', onRestore: autoGrow });
+
+  function send(text) {
+    if (!String(text || '').trim() || !state.console) return;
+    $('#say').value = '';
+    autoGrow($('#say'));
+    queue.say(text);
   }
 
   /* ------------------------------------------------------------------ sheet */

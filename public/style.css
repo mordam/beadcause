@@ -1867,6 +1867,30 @@ button.work-row {
 
 /* ── Composer ─────────────────────────────────────────────────────────────── */
 
+/* Said, not yet delivered. Sits between the thread and the composer because that is
+   what it is: no longer something you are typing, not yet part of the conversation.
+   Dashed and quiet so it cannot be mistaken for a message that has landed, and every
+   line is a target — tap the words to get them back, tap the ✕ to drop them. */
+.queued {
+  flex: none;
+  display: flex; flex-direction: column; gap: 4px;
+  padding: 8px 12px 0;
+  max-width: 780px; margin: 0 auto; width: 100%;
+}
+.queued[hidden] { display: none; }
+.queued-note { font-size: 12px; color: var(--muted); }
+.queued-row { display: flex; align-items: flex-start; gap: 6px; }
+.queued-text {
+  flex: 1; min-height: 38px; text-align: left;
+  padding: 8px 12px;
+  border: 1px dashed var(--line); border-radius: 12px 12px 4px 12px;
+  background: none; color: var(--muted);
+  font: inherit; font-size: 14.5px; line-height: 1.45;
+  white-space: pre-wrap; overflow-wrap: anywhere;
+  cursor: pointer;
+}
+.queued-text:active { border-style: solid; color: var(--text); }
+
 .composer {
   flex: none;
   display: flex; gap: 8px; align-items: flex-end;

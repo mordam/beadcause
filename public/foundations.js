@@ -41,7 +41,6 @@
     chat: null,
     chatSeq: 0,
     polling: false,
-    sending: false,
   };
 
   /* ---------------------------------------------------------------- plumbing */
@@ -85,7 +84,9 @@
       throw new Error('token rejected');
     }
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+    // The code as well as the message: a message sent mid-turn is refused with a
+    // 409, and that is the one failure the send queue waits out rather than reports.
+    if (!res.ok) throw Object.assign(new Error(data.error || `HTTP ${res.status}`), { status: res.status });
     return data;
   }
 
@@ -458,6 +459,9 @@
   function renderChat() {
     const c = state.chat;
     const thread = $('#chat-thread');
+    // The composer is never disabled here either: what a running turn changes is
+    // where the words go, not whether you may write them.
+    queue.sync(c?.status === 'thinking');
     if (!c || !c.messages?.length) {
       thread.innerHTML = `
         <div class="empty"><strong>Talk to the ${esc(state.agent.id)}</strong>
@@ -501,25 +505,57 @@
     }
   }
 
-  async function sendChat(e) {
+  /**
+   * Send one turn's worth — one message, or every message queued during the last
+   * turn, as a single turn.
+   *
+   * The optimistic bubble is here rather than in the queue for the same reason as the
+   * bead console's: opening a chat spawns a process, and words that disappear for a
+   * second while that happens read as having been eaten. A failure takes the bubble
+   * back out, because the queue is holding the words and drawing them in both places
+   * would look like the message went twice.
+   */
+  async function deliver(text) {
+    const c = await ensureChat();
+    const msg = { role: 'user', text, at: new Date().toISOString() };
+    state.chat.messages = [...(state.chat.messages || []), msg];
+    state.chat.status = 'thinking';
+    renderChat();
+    try {
+      await api('/api/console/message', { method: 'POST', body: JSON.stringify({ id: c.id, text }) });
+    } catch (err) {
+      state.chat.messages = (state.chat.messages || []).filter((m) => m !== msg);
+      state.chat.status = 'idle';
+      renderChat();
+      throw err;
+    }
+    state.chat = await api(`/api/console?id=${encodeURIComponent(c.id)}`);
+    renderChat();
+    pollChat();
+  }
+
+  /**
+   * The same queue the bead console uses, drawing the same strip above this
+   * composer. Only the *conversation* is rendered separately on this screen — a
+   * message that has not gone yet is not part of one.
+   */
+  const queue = window.beadcause.sendQueue.create({
+    deliver,
+    onError: (err, { willRetry }) => {
+      if (err.message === 'token rejected') return;
+      if (err.status === 409 || willRetry) return;
+      toast(`${err.message} — tap the message above the box to get it back`, true);
+    },
+  });
+  queue.attach({ el: '#chat-queued', box: '#chat-say' });
+
+  function sendChat(e) {
     e.preventDefault();
     const box = $('#chat-say');
     const text = box.value.trim();
-    if (!text || state.sending) return;
-    state.sending = true;
+    if (!text) return;
     box.value = '';
-    try {
-      const c = await ensureChat();
-      await api('/api/console/message', { method: 'POST', body: JSON.stringify({ id: c.id, text }) });
-      state.chat = await api(`/api/console?id=${encodeURIComponent(c.id)}`);
-      renderChat();
-      pollChat();
-    } catch (err) {
-      box.value = text; // never swallow what was typed
-      toast(err.message, true);
-    } finally {
-      state.sending = false;
-    }
+    queue.say(text);
   }
 
   /* ------------------------------------------------------------------- boot */

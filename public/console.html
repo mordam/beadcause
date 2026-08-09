@@ -41,6 +41,13 @@
     <div class="empty">Loading…</div>
   </main>
 
+  <!--
+    Said while the agent was working, waiting for the turn to land. Above the
+    composer rather than in the thread: it is not part of the conversation yet, and
+    everything here is still editable — tapping one puts it back in the box.
+  -->
+  <div id="queued" class="queued" aria-live="polite" hidden></div>
+
   <form id="composer" class="composer" hidden>
     <textarea id="say" rows="1" placeholder="What should the next bead be?"
       enterkeyhint="send" autocomplete="off"></textarea>
@@ -84,6 +91,9 @@
   <script src="/vendor/purify.js"></script>
   <script src="/presence.js"></script>
   <script src="/tabbar.js"></script>
+  <!-- What happens when you say something while a turn is running. Shared with the
+       agent chat on /foundations, which does exactly the same thing. -->
+  <script src="/sendqueue.js"></script>
   <script src="/console.js"></script>
   <!-- A bead you just filed, or a document in the conversation, opens over the
        chat session rather than throwing away the conversation to show you one. -->
