@@ -1634,6 +1634,39 @@ written — fix the IP in the file if the phone can't connect.
 | `BEADCAUSE_NODE` | the `node` the LaunchAgent runs (`scripts/install.sh`, `scripts/open-monitor.sh`) |
 | `BEADCAUSE_BROWSER` | which browser `scripts/open-monitor.sh` opens the console in |
 
+### Every state file is replaced, never overwritten
+
+Everything beadcause remembers between restarts is a small JSON file in that
+directory: `config.json`, `state.json` (what has been pushed), `status.json` (what
+each agent is doing), `advocates.json`, and one file per console under
+`consoles/`. All of them used to be written with a bare `fs.writeFileSync`, which
+truncates the file to zero and *then* writes — so a crash, a `kill -9`, a full
+disk or a lid closing inside that window did not cost you the last change, it cost
+you the whole file.
+
+Worse, it cost it quietly. Every reader here treats an unparseable state file as
+an absent one, because that is the right thing to do the first time you run:
+`loadState` returns `{ notified: [] }`, `readAll` returns `{}`. So a torn file
+does not raise anything. It just means every question is unread again, every
+cooldown has reset, and the consoles you had open are gone — and nothing in the
+log says why.
+
+`lib/atomic.js` writes to a temp file beside the target, `fsync`s it, and renames
+it over the top. `rename(2)` is atomic within a filesystem, so a reader sees the
+whole old file or the whole new one and there is never an instant where the name
+does not resolve. The `fsync` before the rename is the half that is easy to skip:
+without it the rename can reach disk ahead of the data it points at, which turns a
+power cut into a correctly-named empty file — intact-looking, and therefore worse.
+
+`npm test` proves it — `test/atomic.mjs` SIGKILLs a child that is writing in a
+loop and asserts the survivor is always a whole version. Run
+`node test/atomic.mjs --baseline` to watch the plain `writeFileSync` it replaced
+lose the file outright; that run is what makes a pass mean anything.
+
+The temp prompt files handed to `claude` are deliberately left alone: they are
+born, read once and deleted, so a torn one is a failed spawn rather than lost
+state.
+
 ### Privacy of the push
 
 An ntfy.sh topic is readable by anyone who guesses its name. The topic is random,
