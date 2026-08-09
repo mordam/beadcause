@@ -287,10 +287,43 @@ try {
   check(standbyState.role === 'standby', 'a --standby backend starts as the understudy', `role: ${standbyState.role}`);
   check(standbyState.reaping === false, 'and sweeps no terminals while it waits', `reaping: ${standbyState.reaping}`);
 
+  // A terminal record that appears *after* this backend read the directory, which
+  // is the whole case for restoring again at promotion: a standby can wait a long
+  // time, and everything the outgoing backend did to a terminal in that window is
+  // invisible to a list read at startup.
+  const terminalsDir = path.join(dir, 'terminals');
+  fs.mkdirSync(terminalsDir, { recursive: true });
+  const lateId = 'bbbbbbbbbbbbbbb1';
+  fs.writeFileSync(
+    path.join(terminalsDir, `${lateId}.json`),
+    JSON.stringify({
+      id: lateId,
+      workspace: 'beadcause',
+      dir: '/tmp/late',
+      bead: { id: 'bc-late', title: 'Written while the standby waited' },
+      cols: 100,
+      rows: 30,
+      claudeSessionId: '11111111-2222-3333-4444-555555555555',
+      status: 'live',
+      startedAt: new Date(Date.now() - 60000).toISOString(),
+      endedAt: null,
+      exitCode: null,
+      exitSignal: null,
+      resumedAt: null,
+      savedAt: new Date().toISOString(),
+    })
+  );
+
+  const beforePromote = JSON.parse((await get(standbyPort, `/api/terminals?t=${TOKEN}`, { timeout: 5000 })).body);
+  const listed = (payload) => (payload.terminals ?? payload).some?.((t) => t.id === lateId) ?? false;
+  check(!listed(beforePromote), 'a record written while it waits is not in the standby list yet', JSON.stringify(beforePromote).slice(0, 120));
+
   const promoted = JSON.parse((await get(standbyPort, `/internal/activate?t=${TOKEN}`, { timeout: 5000 })).body);
   check(promoted.role === 'active', 'promoting it makes it active', `role: ${promoted.role}`);
   const afterPromote = JSON.parse((await get(standbyPort, `/internal/state?t=${TOKEN}`, { timeout: 2000 })).body);
   check(afterPromote.reaping === true, 'and starts the reaper it was withholding', `reaping: ${afterPromote.reaping}`);
+  const afterList = JSON.parse((await get(standbyPort, `/api/terminals?t=${TOKEN}`, { timeout: 5000 })).body);
+  check(listed(afterList), 'and re-reads the terminal directory, so the late record is offered', JSON.stringify(afterList).slice(0, 160));
 
   await get(standbyPort, `/internal/standby?t=${TOKEN}`, { timeout: 5000 });
   const afterStandDown = JSON.parse((await get(standbyPort, `/internal/state?t=${TOKEN}`, { timeout: 2000 })).body);
