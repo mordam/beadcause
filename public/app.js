@@ -2914,6 +2914,26 @@
     if (pendingRender && !isAnswering()) render();
   });
 
+  /**
+   * How many filter writes are in flight, so a poll that overlaps one does not undo
+   * it. A counter and not a boolean: tapping two chips quickly starts a second write
+   * before the first has answered, and a boolean would clear on the first reply and
+   * leave the second still exposed.
+   *
+   * The render is not waiting on the network — the chip moves immediately and the
+   * write follows. A failed write therefore costs the persistence, not the filtering,
+   * which is the right way round: the next poll puts the stored value back.
+   */
+  let filterWrites = 0;
+  function persistFilter() {
+    filterWrites += 1;
+    api('/api/filter', { method: 'POST', body: JSON.stringify({ space: state.space, workspace: state.workspace }) })
+      .catch(() => {})
+      .finally(() => {
+        filterWrites -= 1;
+      });
+  }
+
   filtersEl.addEventListener('click', (ev) => {
     const spaceChip = ev.target.closest('[data-space]');
     if (spaceChip) {
@@ -2922,12 +2942,14 @@
       // usually leave you staring at an empty list.
       state.workspace = 'all';
       render(true);
+      persistFilter();
       return;
     }
     const chip = ev.target.closest('[data-ws]');
     if (!chip) return;
     state.workspace = chip.dataset.ws;
     render(true);
+    persistFilter();
   });
 
   /* ------------------------------------------------------------- settings */
@@ -3042,9 +3064,24 @@
       // Absent means a server that predates the counts — keep the last ones rather
       // than blanking the chrome, exactly as the requests pane does above.
       if (data.summary) state.summary = data.summary;
+      // The filter is the server's, so every load adopts it — that is what makes a
+      // change on the phone show up on the laptop. The exception is a write of our
+      // own still in flight: this payload was assembled before it landed, so applying
+      // it would snap the chip back to the value the tap just replaced.
+      if (data.filter && !filterWrites) {
+        state.space = data.filter.space || 'all';
+        state.workspace = data.filter.workspace || 'all';
+      }
       // A space that has been renamed or removed in config would otherwise leave the
       // filter pinned to something that no longer exists, showing an empty list.
       if (state.space !== 'all' && !state.spaces.some((s) => s.name === state.space)) state.space = 'all';
+      // The same for a workspace, which now outlives the page and so can name one that
+      // has since left the config. Checked against the configured list rather than the
+      // beads on screen: a workspace that exists but has nothing in this space is
+      // legitimately an empty list, not a stale filter to silently reset.
+      if (state.workspace !== 'all' && Array.isArray(data.workspaces) && !data.workspaces.includes(state.workspace)) {
+        state.workspace = 'all';
+      }
       // Kept open across a refresh only if the bead is still somewhere — in either
       // channel. Checking only `questions` would collapse an open request every 25
       // seconds, mid-read.
