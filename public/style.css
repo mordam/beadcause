@@ -232,7 +232,11 @@ body {
 .empty strong { display: block; color: var(--text); font-size: 18px; margin-bottom: 6px; }
 
 /* An open card takes the screen. A question is read one at a time, and inline the
-   brief, the thread and the answer box all competed with the list around them. */
+   brief, the thread and the answer box all competed with the list around them.
+
+   One scroller for the whole card: the shape this had before the composer was
+   pinned, and still what a viewport too short to spare the room falls back to. See
+   the @media (min-height) block below. */
 .card.open {
   position: fixed;
   inset: 0;
@@ -245,6 +249,125 @@ body {
   overscroll-behavior: contain;
   padding-top: calc(env(safe-area-inset-top) + 12px);
   padding-bottom: calc(env(safe-area-inset-bottom) + 24px);
+}
+
+/* The answer box is a child of the card now rather than of the brief, so it has to
+   bring the brief's side padding with it. */
+.card.open > .freeform { padding: 0 15px; }
+
+/*
+  The answer box, pinned.
+
+  The same three-part shape the bead console has always used (.console-body): a head
+  that stays, a body that scrolls on its own, and a composer at the bottom that never
+  leaves. On a bead with a real description the box used to be several screens below
+  the fold — you read down the brief, scrolled back to reply, and every glance back
+  at the details lost the box again.
+
+  The composer needs no position of its own. The card is already the fixed layer, so
+  once the card stops being the scroller the last row of it *is* the bottom of the
+  screen. The safe-area gap moves off the card and onto the composer with it, and the
+  keyboard is handled a level up: the Android activity is `adjustResize` and the
+  viewport meta asks a browser for `interactive-widget=resizes-content`, so both
+  shrink the layout viewport rather than sliding the keyboard over a fixed layer.
+
+  Gated on height rather than width or orientation, because height is the only thing
+  it actually needs — and the threshold is 440px for one specific reason: **the
+  keyboard has to stay on the same side of it**. Resizing the layout viewport is what
+  keeps the composer above the keyboard, but it also takes a third of the screen away,
+  and a phone that dropped out of this layout on focus would unpin the box at the
+  exact moment you were typing into it. A phone with the keyboard up is still ~500px;
+  a phone on its side is ~390px, and that one really does want the old shape back,
+  because head, options and composer are the better part of 400px between them.
+
+  Between those two the layout does not switch, it *shrinks*: the rows above the brief
+  give up height and scroll within what is left, in the order they can most afford to.
+  See the min-height/flex declarations below — every one of them is load-bearing for
+  the keyboard case, not just for the pathological card.
+*/
+@media (min-height: 440px) {
+  .card.open {
+    display: flex;
+    flex-direction: column;
+    /* The brief scrolls now, not the card. */
+    overflow: hidden;
+    /* Spent by the composer instead. */
+    padding-bottom: 0;
+  }
+
+  .card.open > .brief {
+    /* Basis 0, so the brief takes the room left over rather than bidding for its
+       content's height and shrinking back from it. */
+    flex: 1 1 0;
+    /* Not `auto`, which for a flex item means "never below your content" and would
+       quietly put the card back to scrolling as a whole — the one line it all rests
+       on. A floor rather than 0, so that when the keyboard is up and everything is
+       fighting for room there is still a strip of the brief to glance at, which is
+       the whole reason the box was pinned in the first place. */
+    min-height: 80px;
+    overflow-y: auto;
+    /* Reaching the end of a brief should stop, not start scrolling the list under. */
+    overscroll-behavior: contain;
+  }
+
+  /* An agent bead has no answer box — it is read-only, deliberately — so on that one
+     card the brief *is* the last row, and the home-indicator gap the composer was
+     carrying has to come back here or the last line of a description sits under it. */
+  .card.open > .brief:last-child { padding-bottom: env(safe-area-inset-bottom); }
+
+  /*
+    The rows that give way, and the bounds they give way within. A six-option
+    decision, a ten-line question and an open session log could take the whole screen
+    between them on a card that is nowhere near pathological — and with the keyboard
+    up there is a third less screen to take. `min-height: 0` is what lets them shrink
+    at all; the caps are what stops any one of them doing it at the others' expense.
+    Each scrolls inside its own share instead of pushing the brief and the box off.
+  */
+  .card.open > .card-head,
+  .card.open > .options,
+  .card.open > .agent-log { min-height: 0; overflow-y: auto; }
+  .card.open > .card-head { max-height: 30dvh; }
+  .card.open > .options { max-height: 34dvh; }
+  .card.open > .agent-log { max-height: 30dvh; }
+
+  /* The rows that don't. Two icon buttons and a link each — there is nothing in them
+     to give, and shrinking them would only clip a tap target. */
+  .card.open > .card-top,
+  .card.open > .actions { flex: none; }
+
+  .card.open > .freeform {
+    flex: none;
+    margin: 0;
+    padding: 10px 15px calc(env(safe-area-inset-bottom) + 10px);
+    border-top: 1px solid var(--line);
+    /* Opaque: the brief scrolls under this edge, and a translucent composer over
+       moving text is unreadable exactly when you are trying to type into it. */
+    background: var(--surface);
+  }
+
+  /*
+    The roster opens *upward* here, and it has to.
+
+    It hangs off the ⋯ on the reply bar, which is the top edge of the box — and the
+    box is now the bottom of the screen. Dropping it down from there put a 62dvh
+    panel into the ~140px below it: clipped by the card, which stopped being a
+    scroller, and mostly off the screen besides. Above the bar there is the whole
+    brief's worth of room, and it is the same tap either way.
+  */
+  .card.open > .freeform .agent-panel {
+    top: auto;
+    bottom: calc(100% + 6px);
+  }
+  /*
+    Shorter at rest than it was in the brief. Every pixel this row keeps is a pixel
+    the brief above it does not get, and three empty rows of textarea are three rows
+    of nothing — the box only has to be visibly a box you can type into. It scrolls
+    its own text past that, and the drag handle is still there.
+
+    Capped, too: it is a fixed row now, and dragged tall enough it would push its own
+    buttons off the bottom of the screen.
+  */
+  .card.open > .freeform textarea { height: 64px; min-height: 64px; max-height: 34dvh; }
 }
 
 /* Replied and sunk to the bottom: still there, visibly not yours any more. */
@@ -1370,6 +1493,13 @@ body {
 
   `:has()` is how an open card is detected. Where it isn't supported nothing
   matches and every card stays stacked, which is exactly the portrait behaviour.
+
+  The pinned composer is undone here, and deliberately: this split already keeps the
+  answer box on screen, because the left column does not scroll. Pinning it as well
+  would take a row off the bottom of a layout that has room to spare, and would fix
+  the card's height on the one shape where a tall left column still needs to be able
+  to scroll. So the card goes back to being the scroller, and the box goes back to
+  being an ordinary block at the foot of the left column.
 */
 @media (orientation: landscape) and (min-width: 720px) {
   .card:has(> .brief:not([hidden])) {
@@ -1382,10 +1512,45 @@ body {
     grid-template-rows: auto auto auto auto 1fr;
   }
 
+  .card.open {
+    overflow-y: auto;
+    padding-bottom: calc(env(safe-area-inset-bottom) + 24px);
+  }
+
   .card:has(> .brief:not([hidden])) > .card-top,
   .card:has(> .brief:not([hidden])) > .card-head,
   .card:has(> .brief:not([hidden])) > .options,
   .card:has(> .brief:not([hidden])) > .actions { grid-column: 1; }
+
+  /* The last of the left-hand rows. `align-self: start` keeps it its own height in
+     the trailing 1fr spacer instead of stretching to fill it. */
+  .card:has(> .brief:not([hidden])) > .freeform {
+    grid-column: 1;
+    align-self: start;
+    margin: 14px 0 16px;
+    padding: 0 15px;
+    border-top: 0;
+    background: none;
+  }
+  /* Its full three rows back, and no cap: nothing below it to be pushed off. */
+  .card:has(> .brief:not([hidden])) > .freeform textarea {
+    height: auto;
+    min-height: 84px;
+    max-height: none;
+  }
+  /* And the roster drops down again, the way it does everywhere the box is not the
+     bottom of the screen — here it is a row in the middle of a column that scrolls. */
+  .card:has(> .brief:not([hidden])) > .freeform .agent-panel {
+    top: calc(100% + 6px);
+    bottom: auto;
+  }
+
+  /* The bounds the pinned layout put on the rows above the brief are its own: here
+     the card scrolls, so a long question, a sixth option or an open session log
+     costs a scroll rather than a share of a screen it is not competing for. */
+  .card.open > .card-head,
+  .card.open > .options { max-height: none; overflow-y: visible; }
+  .card.open > .agent-log { max-height: 46vh; }
 
   .card:has(> .brief:not([hidden])) > .brief {
     grid-column: 2;
@@ -2479,3 +2644,59 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
   .drawer,
   .drawer-backdrop { transition: none; }
 }
+
+/* -------------------------------------------------------------------- admin
+
+   /admin. Pause all / resume all, one card per scope. The layout has one job the
+   other pages do not: make the safe control and the destructive one look nothing
+   alike. So the drain button is an ordinary .secondary in the row, and the kill
+   button sits below it, outlined in red, with the sentence explaining the
+   difference underneath — separated by space rather than sitting in the same row
+   where a thumb aiming for one could land on the other.
+*/
+.admin-lede {
+  margin: 0 0 14px;
+  font-size: 13.5px; line-height: 1.55; color: var(--muted);
+}
+.admin-lede strong { color: var(--text); font-weight: 650; }
+
+/* The result of the last press. Accent rather than red or amber: it reports, it
+   does not warn — the warning was on the button before you pressed it. */
+.admin-said {
+  margin: 0 0 12px; padding: 9px 12px;
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--line));
+  border-radius: 10px;
+  font-size: 13px; color: var(--accent);
+}
+
+.admin-card { padding: 14px 15px; margin-bottom: 12px; }
+.admin-card.plain { opacity: 0.7; }
+.admin-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 4px; }
+.admin-head h2 { margin: 0; font-size: 16px; font-weight: 680; }
+.admin-reach { display: flex; gap: 4px; flex-wrap: wrap; font-size: 11px; color: var(--muted); }
+
+/* Each pausable thing. The rule between rows is what stops "Advocates" and
+   "In-app terminals" reading as one control with four buttons. */
+.admin-row { border-top: 1px solid var(--line); padding: 12px 0 4px; }
+.admin-row-head { display: flex; align-items: center; gap: 8px; }
+.admin-what { font-size: 12px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; }
+.admin-state { font-size: 12.5px; font-weight: 600; color: var(--muted); }
+.admin-state.live { color: var(--accent); }
+.admin-state.held { color: var(--warn); }
+.admin-state.dim { opacity: 0.7; }
+.admin-detail { margin: 5px 0 10px; font-size: 13px; color: var(--muted); }
+
+.admin-btns { display: flex; gap: 8px; flex-wrap: wrap; }
+.admin-btns .primary, .admin-btns .secondary { flex: 1 1 190px; }
+
+.admin-kill { width: 100%; margin-top: 10px; }
+/* Armed: the second press is the one that acts, so it stops being an outline and
+   becomes solid — the same change the eye reads as "this is live now". */
+.admin-kill.armed {
+  background: var(--danger);
+  color: var(--accent-ink);
+  border-color: var(--danger);
+  font-weight: 650;
+}
+.admin-warn { margin: 7px 0 4px; font-size: 12.5px; line-height: 1.5; color: var(--warn); }
+.admin-warn strong { font-weight: 700; }
