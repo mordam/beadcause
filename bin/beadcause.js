@@ -1,8 +1,25 @@
 #!/usr/bin/env node
 import { loadConfig, CONFIG_PATH } from '../lib/config.js';
 import { createApp, startPoller, listen } from '../lib/server.js';
+import { buildStamp } from '../lib/build.js';
 
 const cfg = loadConfig();
+
+/**
+ * Blue/green: this process may be the one the phone talks to, or the understudy.
+ *
+ * `--port` puts it on an internal port behind bin/router.js, and `--standby` starts
+ * it **without its poller**. That second flag is the whole safety property: two live
+ * pollers would both see a new question and both push it, so exactly one process is
+ * ever active, and the router promotes the new one only after the old one has stood
+ * down. See bin/router.js for the sequence.
+ */
+const flagValue = (name) => {
+  const i = process.argv.indexOf(name);
+  return i >= 0 ? process.argv[i + 1] : null;
+};
+const internalPort = Number(flagValue('--port') || process.env.BEADCAUSE_PORT || 0) || null;
+const startStandby = process.argv.includes('--standby');
 const setupUrl = `${cfg.baseUrl}/?t=${cfg.token}`;
 
 if (process.argv.includes('--url')) {
@@ -58,16 +75,77 @@ if (!cfg.workspaces.length) {
 }
 
 const app = createApp(cfg);
-const servers = listen(cfg, app.handler);
-const poller = startPoller(cfg, app);
+
+const startedAt = new Date().toISOString();
+const build = buildStamp();
+let role = startStandby ? 'standby' : 'active';
+let poller = startStandby ? null : startPoller(cfg, app);
+// What draining waits on: a long poll parks for up to 55 seconds, and killing the
+// process under it is the difference between a seamless swap and the phone deciding
+// it is offline.
+let inflight = 0;
+
+/**
+ * The control plane, wrapped around the app rather than added to lib/server.js.
+ *
+ * Keeping it here means the swap machinery touches no file another session is likely
+ * to be editing, and the router's calls can never collide with a real route: these
+ * paths are under `/internal/`, refused off loopback, and still require the token.
+ */
+const handler = (req, res) => {
+  inflight++;
+  res.on('close', () => inflight--);
+
+  if (req.url.startsWith('/internal/')) {
+    const url = new URL(req.url, 'http://localhost');
+    const local = req.socket.remoteAddress === '127.0.0.1' || req.socket.remoteAddress === '::1';
+    const authed = (req.headers['x-beadcause-token'] || url.searchParams.get('t')) === cfg.token;
+    if (!local || !authed) {
+      res.writeHead(403, { 'content-type': 'application/json' });
+      return res.end('{"error":"internal"}');
+    }
+    if (url.pathname === '/internal/state') {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      return res.end(JSON.stringify({ role, build, startedAt, inflight: inflight - 1, pid: process.pid }));
+    }
+    if (url.pathname === '/internal/activate') {
+      if (!poller) poller = startPoller(cfg, app);
+      role = 'active';
+      console.log('[beadcause] promoted to active');
+      res.writeHead(200, { 'content-type': 'application/json' });
+      return res.end('{"ok":true,"role":"active"}');
+    }
+    if (url.pathname === '/internal/standby') {
+      if (poller) clearInterval(poller);
+      poller = null;
+      role = 'standby';
+      console.log('[beadcause] stood down — poller stopped');
+      res.writeHead(200, { 'content-type': 'application/json' });
+      return res.end('{"ok":true,"role":"standby"}');
+    }
+    res.writeHead(404, { 'content-type': 'application/json' });
+    return res.end('{"error":"no such control"}');
+  }
+
+  return app.handler(req, res);
+};
+
+const servers = listen(
+  // Behind the router this binds loopback only: the tailnet reaches the router, and
+  // an internal backend that also bound the tailnet IP would be answerable directly,
+  // skipping every cutover guarantee the router exists to provide.
+  internalPort ? { ...cfg, port: internalPort, host: '127.0.0.1' } : cfg,
+  handler
+);
 
 console.log(`[beadcause] config      ${CONFIG_PATH}`);
 console.log(`[beadcause] workspaces  ${cfg.workspaces.map((w) => w.name).join(', ')}`);
 console.log(`[beadcause] ntfy topic  ${cfg.ntfy.enabled ? cfg.ntfy.topic : '(disabled)'}`);
 console.log(`[beadcause] phone URL   ${cfg.baseUrl}/?t=${cfg.token}`);
+console.log(`[beadcause] build       ${build} (${role}${internalPort ? `, internal :${internalPort}` : ''})`);
 
 const shutdown = () => {
-  clearInterval(poller);
+  if (poller) clearInterval(poller);
   servers.forEach((s) => s.close());
   process.exit(0);
 };
