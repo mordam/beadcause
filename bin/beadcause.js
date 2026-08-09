@@ -84,7 +84,7 @@ if (OBSERVING) {
   console.log('[beadcause] OBSERVING — this instance watches and never acts.');
   console.log('[beadcause]   no sessions · no proposals · no worktree sweeps');
   console.log('[beadcause]   no session logs · no reply agents · no ntfy push');
-  console.log('[beadcause]   the terminal, the bead console and answering still work');
+  console.log('[beadcause]   the terminal, the chat session and answering still work');
   console.log('[beadcause] ─────────────────────────────────────────────────────');
 }
 // Say it at startup, in the log launchd keeps: an advocate opens Claude sessions

@@ -3,7 +3,7 @@
  * The phone is a good place to be *told* something and a poor place to read it: a
  * question's brief is scrolled a paragraph at a time, its thread is behind a tap, and
  * the bead it depends on is a page away. This tab follows the phone — the same card,
- * the same console, the same list — and draws the version that would not fit: the
+ * the same chat session, the same list — and draws the version that would not fit: the
  * whole body, every comment, the options as buttons you can actually press.
  *
  * Three things make it a mirror rather than a second inbox:
@@ -15,7 +15,7 @@
  *     `/api/poll`, so a card opening in a hand shows up here as fast as the network
  *     allows, and nothing is polled in between.
  *   - **Every button here is an endpoint that already existed.** Answering, commenting
- *     and talking to a console are the phone's own writes; this page has no privilege
+ *     and talking to a chat session are the phone's own writes; this page has no privilege
  *     of its own and adds no state to the daemon.
  */
 (() => {
@@ -27,7 +27,7 @@
   const tabsEl = document.getElementById('mon-tabs');
   const dot = document.getElementById('mirror-dot');
 
-  /* A console is in-memory on the daemon, so following one closely costs a map
+  /* A chat session is in-memory on the daemon, so following one closely costs a map
      lookup. Everything else behind this view costs `bd`, and is fetched on a move. */
   const CONSOLE_MS = 1500;
   const RETRY_MS = 3000;
@@ -59,7 +59,7 @@
     inbox: 'the inbox',
     card: 'a card',
     graph: 'the graph',
-    console: 'a console',
+    console: 'a chat session',
     sessions: 'the sessions view',
     terminal: 'a terminal',
     doc: 'a document',
@@ -354,7 +354,7 @@
   }
 
   function consoleHtml(t, c) {
-    if (!c) return `<div class="empty">That console is gone.</div>`;
+    if (!c) return `<div class="empty">That chat session is gone.</div>`;
     const msgs = (c.messages || [])
       .map((m) => {
         if (m.role === 'user') return `<div class="msg you">${esc(m.text)}</div>`;
@@ -370,7 +370,7 @@
       <div class="mir-meta">${c.workspace ? `<span class="pill">${esc(c.workspace)}</span>` : ''}${
         c.seed?.id ? `<span class="pill id">${esc(c.seed.id)}</span>` : ''
       }<span class="tag">${esc(c.status || '')}</span>${c.closedAt ? '<span class="tag warn">closed</span>' : ''}</div>
-      <h2>${esc(c.title || 'Console')}</h2>
+      <h2>${esc(c.title || 'Chat session')}</h2>
       <div class="mir-thread">${msgs || '<p class="subtitle">Nothing said yet.</p>'}</div>
       <div class="mir-composer">
         <textarea class="mir-input" data-draft="console:${esc(c.id)}" rows="3" placeholder="Say something to it…">${esc(draft)}</textarea>
@@ -478,7 +478,7 @@
         el.setSelectionRange(at, at);
       }
     }
-    // A live console is read from the bottom, like every other terminal.
+    // A live chat session is read from the bottom, like every other terminal.
     const thread = pane.querySelector('.mir-thread');
     if (thread) thread.scrollTop = thread.scrollHeight;
   }
@@ -622,7 +622,7 @@
     }
   }
 
-  // A console is the one view that changes without the phone moving and without a bus
+  // A chat session is the one view that changes without the phone moving and without a bus
   // event — the agent is mid-sentence. Cheap enough to follow closely: it is a read
   // out of the daemon's own memory.
   setInterval(() => {

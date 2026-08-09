@@ -421,7 +421,7 @@ they put in.
 
 So `renderMarkdown` takes the flag rather than assuming it, and the caller decides.
 Description, notes, design, acceptance and the decision block's own context came out
-of bd and reflow; comments and console chat were typed and keep their breaks. The
+of bd and reflow; comments and chat-session messages were typed and keep their breaks. The
 graph's detail sheet follows the same split.
 
 `node scripts/wrap-check.mjs` checks both halves, in the same headless-Chrome-on-
@@ -557,7 +557,7 @@ working the moment an agent is allowed to *ask* to be different, because you can
 request a change to something with no single form.
 
 So `lib/foundation.js`: **one foundation per agent kind**, for all four of them —
-the console, the comment answerer, the repo advocate, and the worker session opened
+the chat session, the comment answerer, the repo advocate, and the worker session opened
 in iTerm. Read it to know what an agent may do; commit a change to it to change what
 the agent is.
 
@@ -591,7 +591,7 @@ git cat-file -p refs/beadcause/foundations:console.json
 ### What may never be amended
 
 `id`, `protocolOwner` and `writes`. Not distrust of the approval — these are the
-fields whose wrongness is invisible at approval time. "Let the console call `bd
+fields whose wrongness is invisible at approval time. "Let the chat session call `bd
 create`" reads as a one-line convenience and silently deletes the review step; a
 changed output contract reads as a formatting preference and breaks the parser three
 turns later, in a way that looks like the agent being unhelpful. Those change by
@@ -670,7 +670,7 @@ with arguments you have already had.
 The agent that made it. Commenting on an ordinary question dispatches whichever agent
 you picked from the roster; commenting on an amendment request instead re-seeds the
 *requesting* agent with its own foundation and its own argument, because a Critic
-explaining why the console wants a tool is a stranger guessing at someone else's
+explaining why the chat session wants a tool is a stranger guessing at someone else's
 motive. It is told, in as many words, that withdrawing the request is a better
 outcome than defending it.
 
@@ -678,7 +678,7 @@ outcome than defending it.
 
 Three of the four agent kinds re-seed themselves for free: dispatch, the advocate
 survey and a worker session are each one `claude` process that exits, so the next
-spawn reads the amended foundation and *is* the new session. The console is the
+spawn reads the amended foundation and *is* the new session. The chat session is the
 exception — a turn is a fresh `claude -p` resumed by session id — so an approved
 amendment restarts it on a new session, keeps the conversation on screen, and says so
 in the transcript.
@@ -688,7 +688,7 @@ in the transcript.
 A request to change what an agent is arrives as an ordinary `human` bead — the
 decision block, the thread, the answer-and-close path are all the machinery a question
 already has, and forking that would be two of everything for no gain. What is *not*
-shared is the place it lands. "Should the console be allowed to run `git log`" is not
+shared is the place it lands. "Should the chat session be allowed to run `git log`" is not
 a question about work: it does not compete with one for priority, it should not be
 counted with them, and it must never be the row that pushes a P0 off a phone screen.
 
@@ -826,7 +826,7 @@ check PNGs are ignored — churn, and not the thing you want a history of.
 
 Almost everything in flight in this repo is visual. How the graph fits a phone,
 where a card lands after its prose reflows, whether the kebab collapses, what the
-console pane does at 390px — and every one of those shipped from an agent that had
+chat-session pane does at 390px — and every one of those shipped from an agent that had
 read the source and never seen the screen. It would write the CSS, run the tests,
 and hand over a change it was in no position to have an opinion about.
 
@@ -1137,18 +1137,19 @@ way **What this is blocking** does and asserts that bead ends up under it.
 
 ## Getting around — the tab bar
 
-There are four standing views: the **inbox**, the **console**, the **sessions** and
-the **advocates**. They are four separate pages, and each one used to end in an ✕ in
-the top right that hard-navigated back to `/`. That made the inbox a hallway —
-console to advocates was two taps through a page you did not want — and the ad-hoc
+There are four standing views: the **inbox**, the **chat session**, the **sessions**
+and the **advocates** — the bar labels the second one just **Chat**, because five
+tabs leave no room for two words at 360px. They are four separate pages, and each one used to end in an ✕
+in the top right that hard-navigated back to `/`. That made the inbox a hallway —
+chat session to advocates was two taps through a page you did not want — and the ad-hoc
 cross-links that grew to paper over it (sessions → advocates, advocates → sessions)
 were the same complaint, admitting itself.
 
 So all four carry the same bar along the bottom, where a thumb already is:
 
 ```
-  📥        🧾         🤖          📣
- Inbox   Console   Sessions   Advocates
+  📥       🧾        🤖          📣
+ Inbox   Chat   Sessions   Advocates
  ▔▔▔▔▔
 ```
 
@@ -1179,14 +1180,14 @@ Collapsing it gives the bar back.
 `node scripts/tabbar-check.mjs` checks it, headless at phone size against fixtures
 the script serves itself: the bar is on all four pages and pinned to the bottom,
 exactly one tab is current and it is the right one, the current tab is not a link,
-and the last row of the list, the console's composer and the last advocate card all
+and the last row of the list, the chat session's composer and the last advocate card all
 clear it — in both colour schemes. `--fake-inset` re-runs the safe-area sums with a
 notch substituted in, for the Chromes with no `Emulation.setSafeAreaInsets`.
 
 ## Detail opens over the tab, not instead of it
 
 The graph and the reader are linked from all four views — the inbox, current
-sessions, the advocates and the bead console — and both used to be a full-page
+sessions, the advocates and the chat session — and both used to be a full-page
 navigation. Looking at what a bead blocks therefore cost you your place in the list,
 your half-typed answer was behind a **✕ → inbox** you had to trust, and the back
 gesture landed on whatever the browser felt like. They are not destinations. They
@@ -2054,13 +2055,13 @@ service restart resumes rather than re-notifying — and a cold start (no `since
 reads current state with no backlog, the same way the daemon's own poller refuses to
 push the questions already waiting when it boots.
 
-## The bead console — deciding what to file
+## The chat session — deciding what to file
 
-Everything above acts on beads that already exist. The console is upstream of that:
+Everything above acts on beads that already exist. The chat session is upstream of that:
 a chat where you work out *what the next bead should be*, and beadcause creates it
 only once you have read the proposal and pressed the button.
 
-**🧾 Console in the tab bar** opens it. Pick a workspace and start talking — or open
+**🧾 Chat session in the tab bar** opens it. Pick a workspace and start talking — or open
 one **on an existing bead**, from *Work out the next beads from this* at the foot of
 any card, which starts the conversation with that bead already read.
 
@@ -2123,7 +2124,7 @@ on the graph, scoped to that bead, which is where the link used to stop.
 
 The whole row is the target — pill *and* title in one anchor, 40px tall. The title was
 the big wrapping thing beside a 40px-wide pill, and it looked tappable long before it
-was. Same for the **Starting from** line at the head of a seeded console.
+was. Same for the **Starting from** line at the head of a seeded chat session.
 
 `node scripts/created-link-check.mjs` checks all of it in headless Chrome at phone
 size, against fixtures rather than the daemon, and aims `elementFromPoint` at the
@@ -2131,27 +2132,27 @@ middle of the *title* rather than trusting the markup. `--baseline` serves the
 committed `console.js`/`graph.js`/`style.css` instead: it must fail the five link and
 target cases and pass the two that describe what already worked.
 
-### A console ends when the beads exist
+### A chat session ends when the beads exist
 
-A console is a conversation with one purpose, and pressing **Create** achieves it. So
+A chat session is a conversation with one purpose, and pressing **Create** achieves it. So
 accepting closes it and drops you back to the list — there is nothing left to say to
 a conversation whose whole subject is now three rows in the tracker, and a list where
 every finished one stays open is a list you read past to find the one that isn't.
 
 Closing is **soft**. The transcript stays on disk, the id keeps working, and saying
-anything to a closed console reopens it — "one more thing" is a normal thought to
+anything to a closed chat session reopens it — "one more thing" is a normal thought to
 have five minutes later, and a dead end you can navigate to and not use is worse than
 a row you close twice. The unspent draft *is* dropped, because cards left on screen
 after a close are an invitation to create them twice.
 
 - **✕ on any row** in the list closes it by hand — for the conversations that end by
   going nowhere rather than by filing anything. The ✕ and the row are siblings, not
-  nested, so closing a console can never also open it.
+  nested, so closing one can never also open it.
 - **Closed rows sink** below the live ones, dimmed, with a `closed` pill.
 - **Warnings keep it open.** A create that reports one — a parent that does not
   exist, a dependency it could not resolve — leaves you on the screen that produced
   it. Dropping to the list would take the warning away before it was read.
-- **Refused mid-turn**, with a `409` that says so: a console that is `thinking` has an
+- **Refused mid-turn**, with a `409` that says so: a chat session that is `thinking` has an
   agent streaming into it, and a reply arriving into something the list calls
   finished is worse than closing it twice.
 
@@ -2180,13 +2181,13 @@ in its place:
   what is in there is the *newer* draft, not what this message proposed. Saying
   "review" and then showing something else is the quiet lie this replaced.
 - **🧾 proposed 2 beads — draft discarded** — visibly disabled. The draft went away
-  without becoming anything, which is what closing a console does to unspent cards.
+  without becoming anything, which is what closing a chat session does to unspent cards.
   There is nothing to look at, and the only useful thing left to say is that.
 - **🧾 proposed 1 bead — review** — the newest live proposal, unchanged. Opens the
   sheet, exactly as before.
 
 `node scripts/console-check.mjs` holds the rule: the real `public/console.js` in a
-headless Chrome at phone size, against a fixture console served by the script itself,
+headless Chrome at phone size, against a fixture chat session served by the script itself,
 so it never talks to the daemon. It taps every proposal line in the thread and
 requires the screen to answer — the sheet opens, the page moves, something lights up,
 or it says why not. `--baseline` serves `HEAD:public/console.js` instead, which is how
@@ -2204,7 +2205,7 @@ cases and the inert tap, the working copy must pass all of them.
   across the minutes of silence in a phone conversation, where a laptop lid or a
   `launchctl kickstart` would take the conversation with it. `--session-id` on the
   first turn, `--resume` after, so Claude Code's own transcript is the durable copy and
-  a console survives a daemon restart.
+  a chat session survives a daemon restart.
 - **It starts in the workspace's session directory**, the same rule the "discuss on the
   Mac" button follows (`resolveSessionDir`), so `~/.zshenv` points `BEADS_DIR` and
   `CLAUDE_CONFIG_DIR` — which tracker, and which account is billed — at the right tree.
@@ -2215,7 +2216,8 @@ cases and the inert tap, the working copy must pass all of them.
   way a `decision` block is (`lib/proposal.js`). It replaces rather than appends, so a
   revision re-emits every bead — merging partial proposals would mean reconstructing
   what the agent meant from a diff it never wrote.
-- **Consoles live in `~/.config/beadcause/consoles/`** and are pruned after 30 days.
+- **Chat sessions live in `~/.config/beadcause/consoles/`** — the directory keeps the
+  old name, since it is where the records already are — and are pruned after 30 days.
 
 ## Discussing a question on the Mac
 
@@ -2316,7 +2318,7 @@ Restarting the daemon still kills every pty — one relaying to a registry that 
 exists is a leak. What it no longer does is lose the *conversation*.
 
 The terminal picks the claude session id itself, before the process exists, and passes
-`--session-id` on the first start; a record per terminal lands beside the consoles in
+`--session-id` on the first start; a record per terminal lands beside the chat sessions in
 `~/.config/beadcause/terminals/`, written at lifecycle boundaries only — open, resume,
 exit, shutdown — never per chunk. On the next boot the registry is rebuilt from those
 records and each one comes back **`resumable`**: listed on the terminal page with a ↻
@@ -2369,7 +2371,7 @@ rather than the TUI being left drawn at the width it started at.
   out the slave device name — which is what buys back the resize. See the long note at
   the top of `scripts/pty-relay.exp`.
 - **It starts in the workspace's session directory**, by `resolveSessionDir` and
-  nothing else — the same rule the "discuss on the Mac" button and the bead console
+  nothing else — the same rule the "discuss on the Mac" button and the chat session
   follow, so `~/.zshenv` points `BEADS_DIR`, `BEADS_ACTOR` and `CLAUDE_CONFIG_DIR`
   (which tracker, and which account is billed) at the right tree.
 - **The token rides as a WebSocket subprotocol**, `new WebSocket(url, [proto, tok])`,
@@ -2515,15 +2517,15 @@ Auth on everything under `/api/` except `/api/health`: header
 | GET | `/api/session-archive` | `?workspace=&commit=&file=` | one archived `session.log`, `meta.json` or `transcript.jsonl` |
 | GET | `/sessions`, `/work` | — | the current-sessions page (same page, two paths) |
 | GET | `/graph` | `?ws=&id=` | the HTML graph page |
-| GET | `/api/consoles` | — | `{consoles[], workspaces[]}` — every bead console, newest first; `closedAt` set on the finished ones |
+| GET | `/api/consoles` | — | `{consoles[], workspaces[]}` — every chat session, newest first; `closedAt` set on the finished ones |
 | POST | `/api/console/close` | `{id}` | soft-closes it and returns the new list. `409` mid-turn; saying anything to it reopens it |
 | POST | `/api/console` | `{workspace, seed?}` | `{id, console}` — opens one; a `seed` bead auto-starts the first turn |
-| GET | `/api/console` | `?id=` | the whole console: messages, draft, created beads |
+| GET | `/api/console` | `?id=` | the whole chat session: messages, draft, created beads |
 | POST | `/api/console/message` | `{id, text}` | starts a turn and returns — follow it on `/api/console/poll` |
-| GET | `/api/console/poll` | `?id=&since=&wait=` | long-poll: the whole console, once its `seq` moves |
+| GET | `/api/console/poll` | `?id=&since=&wait=` | long-poll: the whole chat session, once its `seq` moves |
 | POST | `/api/console/draft` | `{id, draft}` | the cards as you edited them; re-normalised on the way in |
-| POST | `/api/console/create` | `{id, draft?}` | `{created[], warnings[]}` — **the only writer in the console** |
-| GET | `/console` | `?id=` or `?ws=&seed=` | the bead console page |
+| POST | `/api/console/create` | `{id, draft?}` | `{created[], warnings[]}` — **the only writer in a chat session** |
+| GET | `/console` | `?id=` or `?ws=&seed=` | the chat session page |
 | GET | `/api/terminals` | — | `{terminals[], workspaces[], enabled}` — every terminal, newest first. `status` is `live` · `resumable` (was running when the daemon restarted; attaching resumes it) · `exited` |
 | POST | `/api/terminal` | `{workspace, id?, cols?, rows?}` | `{terminal}` — opens one; an `id` seeds it on that bead |
 | GET | `/api/terminal` | `?id=` | `{terminal}` — one, without its bytes |
@@ -2583,9 +2585,9 @@ the fields it always read and renders exactly as it did.
 | `openSessions` | allow `POST /api/session` to open a Claude session on the Mac (default `true`) |
 | `sessionDirs` | override where a workspace's session opens. Normally unnecessary — see Discussing a question on the Mac |
 | `sessionPermissionMode` | `--permission-mode` for an opened session (default `auto`; `null` to omit the flag) |
-| `beadConsole` | allow the [bead console](#the-bead-console--deciding-what-to-file) to open conversations and create beads (default `true`) |
-| `consoleModel` | model for a console turn (default `null` — whatever `claude` uses on its own; `"sonnet"` for a cheaper conversation) |
-| `consoleTimeoutMs` | kill a console turn that has been going this long (default 15 min) |
+| `beadConsole` | allow the [chat session](#the-chat-session--deciding-what-to-file) to open conversations and create beads (default `true`) |
+| `consoleModel` | model for a chat-session turn (default `null` — whatever `claude` uses on its own; `"sonnet"` for a cheaper conversation) |
+| `consoleTimeoutMs` | kill a chat-session turn that has been going this long (default 15 min) |
 | `terminal` | allow the [in-app terminal](#the-terminal--driving-a-session-from-the-phone) to open a real Claude Code session over a WebSocket (default `true`) |
 | `terminalPermissionMode` | `--permission-mode` for a terminal (default `null` — inherit your settings; unlike `sessionPermissionMode`, you are sitting in front of this one) |
 | `terminalIdleMinutes` | close a terminal nobody has been watching for this long (default 30; the clock only runs with no socket attached) |
@@ -2644,7 +2646,7 @@ written — fix the IP in the file if the phone can't connect.
 
 Everything beadcause remembers between restarts is a small JSON file in that
 directory: `config.json`, `state.json` (what has been pushed), `status.json` (what
-each agent is doing), `advocates.json`, and one file per console under
+each agent is doing), `advocates.json`, and one file per chat session under
 `consoles/`. All of them used to be written with a bare `fs.writeFileSync`, which
 truncates the file to zero and *then* writes — so a crash, a `kill -9`, a full
 disk or a lid closing inside that window did not cost you the last change, it cost
@@ -2654,7 +2656,7 @@ Worse, it cost it quietly. Every reader here treats an unparseable state file as
 an absent one, because that is the right thing to do the first time you run:
 `loadState` returns `{ notified: [] }`, `readAll` returns `{}`. So a torn file
 does not raise anything. It just means every question is unread again, every
-cooldown has reset, and the consoles you had open are gone — and nothing in the
+cooldown has reset, and the chat sessions you had open are gone — and nothing in the
 log says why.
 
 `lib/atomic.js` writes to a temp file beside the target, `fsync`s it, and renames
@@ -2727,7 +2729,7 @@ you set it:
 [beadcause] OBSERVING — this instance watches and never acts.
 [beadcause]   no sessions · no proposals · no worktree sweeps
 [beadcause]   no session logs · no reply agents · no ntfy push
-[beadcause]   the terminal, the bead console and answering still work
+[beadcause]   the terminal, the chat session and answering still work
 [beadcause] ─────────────────────────────────────────────────────
 ```
 
@@ -2753,13 +2755,13 @@ advocate cards say it too, but an instance with *no* advocates configured would
 otherwise look identical to the live one — and believing you are in observer mode
 when you are not is the whole failure this mode exists to prevent. The signal is one
 field, `observing`, on `/api/work` and `/api/poll`; it is `false` on the live
-instance rather than absent, so a console can never paint the badge over a daemon
+instance rather than absent, so a page can never paint the badge over a daemon
 that is in fact opening windows.
 
-**What still works** is everything you sit in front of: the terminal, the bead
-console, answering and commenting on questions. A mode that broke those would be a
+**What still works** is everything you sit in front of: the terminal, the chat
+session, answering and commenting on questions. A mode that broke those would be a
 mode nobody uses. Note the tracker is shared regardless — a bead you create from the
-console of an observer instance is a real bead, and an answer is a real answer.
+chat session of an observer instance is a real bead, and an answer is a real answer.
 
 Nothing is written to the config file: your switches stay as you set them, and the
 mode is asked about at each point where the daemon would otherwise act. That also
