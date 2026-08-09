@@ -1482,6 +1482,25 @@ a bead, and that is all it knows. So:
   the brief asks it to do. Where it didn't, the row says when the window was opened
   and nothing more.
 
+Those four endings are what the *daemon* can tell apart. What **you** read is the last
+line the session printed, and the brief asks for it in fixed words so it can be
+searched for across a wall of windows:
+
+    ** BEAD WORK DONE ** CAN BE MERGED, PUSHED, DEPLOYED **
+
+`** BEAD WORK DONE **` never varies. What follows names every step the work has not
+been through yet — `MERGED`, `PUSHED`, `DEPLOYED`, `REBUILT`, in that order — and
+`CAN BE CLOSED` on its own is the one line that means nothing is outstanding. In PR
+mode the only honest word is `CAN BE REVIEWED`: a delivering session never merges,
+pushes or deploys, so it can owe nothing but your answer.
+
+That line used to be `CAN BE CLOSED` unconditionally, which said the *window* had
+nothing left to do and said nothing about the work — and it is the sweep below that
+makes the difference expensive. An unmerged branch is never retired, so a session that
+stopped at a worktree commit left it sitting there indefinitely while reading as
+finished in every list. Nothing parses the marker; it is prose for a human, and
+`lib/session.js` is the only file that mentions it.
+
 ### Clearing up after it
 
 A session that obeys its repo's rules makes a git worktree before its first edit.
