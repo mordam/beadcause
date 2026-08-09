@@ -8,7 +8,9 @@
   "bin": {
     "beadcause": "bin/beadcause.js",
     "beadcause-monitor": "bin/monitor.js",
-    "beadcause-memory": "bin/beadcause-memory"
+    "beadcause-memory": "bin/beadcause-memory",
+    "beadcause-propose": "bin/propose.js",
+    "beadcause-deliver": "bin/deliver.js"
   },
   "scripts": {
     "start": "node bin/beadcause.js",
