@@ -17,6 +17,10 @@
 // composer, the last advocate card — clears it. Both colour schemes, and the
 // inbox's full-screen open card too, which is meant to win over the bar.
 //
+// The badges too, on the inbox: Sessions and Advocates carry the counts the poll
+// hands them, they stay inside their tab rather than spilling into the next one,
+// and a tab with nothing behind it draws nothing.
+//
 // `--fake-inset` restates the stylesheet's safe-area sums with 34px of home
 // indicator substituted in, for the Chromes that have no `Emulation.setSafeAreaInsets`.
 // `--out=DIR` writes a screenshot per page per scheme.
@@ -355,6 +359,33 @@ try {
       ok(p.items.every((i) => i.h >= 44), `every tab is a real tap target — ${p.items.map((i) => i.h).join('/')}px`);
       ok(String(p.atBarMiddle).includes('tab'), `the bar takes its own taps (hit test: ${p.atBarMiddle})`);
       ok(!/[✕‹]/.test(await evalJs(s, `document.querySelector('.topbar').textContent`)), 'no ✕ or ‹ in the top bar');
+
+      // The badges, where the numbers actually arrive. They ride the inbox's own
+      // poll, so this is the one page that has them — and a badge that overflowed
+      // its tab would land on the neighbouring one and count the wrong thing.
+      if (page.url === '/') {
+        const b = await evalJs(
+          s,
+          `(() => {
+            const of = (id) => {
+              const item = document.querySelector('.tab-item[data-tab="' + id + '"]');
+              const el = item.querySelector('.tab-badge');
+              const r = el.getBoundingClientRect();
+              const box = item.getBoundingClientRect();
+              return { text: el.hidden ? null : el.textContent, label: item.getAttribute('aria-label'),
+                       inside: r.left >= box.left && r.right <= box.right };
+            };
+            return { sessions: of('sessions'), advocates: of('advocates'), inbox: of('inbox'), console: of('console') };
+          })()`
+        );
+        ok(b.sessions.text === '2' && b.advocates.text === '1', `the counts are on their tabs — ${b.sessions.text} / ${b.advocates.text}`);
+        ok(
+          /agents? running/.test(b.sessions.label || '') && /proposals? waiting/.test(b.advocates.label || ''),
+          'each badge says what it counts, for a reader that cannot see it'
+        );
+        ok(b.sessions.inside && b.advocates.inside, 'a badge stays inside its own tab');
+        ok(b.inbox.text === null && b.console.text === null, 'a tab with nothing behind it has no badge');
+      }
 
       const c = await evalJs(s, CLEAR[page.url]);
       if (c.missing) ok(false, `${c.what} rendered`);
