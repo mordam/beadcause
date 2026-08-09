@@ -811,7 +811,31 @@
           : ''
       }
       <div class="brief"${open ? '' : ' hidden'}>${brief}</div>
+      ${open ? freeformHtml(q) : ''}
     </article>`;
+  }
+
+  /**
+   * The answer box, and the two things you can do with what is in it.
+   *
+   * A sibling of `.brief`, not the last thing inside it. That is the whole point: an
+   * open card is a fixed head, a brief that scrolls on its own, and this pinned to
+   * the bottom (see .card.open in style.css, and .console-body, which is the same
+   * three-part shape). Inside the brief it was several screens below the fold on any
+   * bead with a real description — you read down, scrolled back to reply, and every
+   * glance back at the details lost the box again.
+   *
+   * Only rendered for an open card, which is also what the landscape split keys off:
+   * `.card:has(> .brief:not([hidden]))`.
+   */
+  function freeformHtml(q) {
+    return `<div class="freeform">
+      <textarea data-role="answer" placeholder="Answer in your own words…" rows="3">${esc(getDraft(q.key))}</textarea>
+      <div class="row">
+        <button class="primary" data-act="answer" data-key="${esc(q.key)}">Answer &amp; close</button>
+        <button class="secondary" data-act="note" data-key="${esc(q.key)}">Comment only</button>
+      </div>
+    </div>`;
   }
 
   const STATUS_LABEL = { in_progress: 'claimed', blocked: 'blocked', open: 'open' };
@@ -954,15 +978,10 @@
       );
     }
 
+    // The answer box used to come next, at the very end of this brief. It is a
+    // sibling of the brief now, pinned to the bottom of the card — see
+    // freeformHtml() — so what follows here is the tail of the scrolling body only.
     parts.push(`<div class="agents">${agentsHtml()}</div>`);
-
-    parts.push(`<div class="freeform">
-      <textarea data-role="answer" placeholder="Answer in your own words…" rows="3">${esc(getDraft(q.key))}</textarea>
-      <div class="row">
-        <button class="primary" data-act="answer" data-key="${esc(q.key)}">Answer &amp; close</button>
-        <button class="secondary" data-act="note" data-key="${esc(q.key)}">Comment only</button>
-      </div>
-    </div>`);
 
     parts.push(cardFootHtml(q));
 
@@ -1227,9 +1246,10 @@
    * rather than as a scroll offset — and applied to the element that actually
    * scrolls, which is usually not the window.
    *
-   * An open card is `position: fixed; inset: 0; overflow-y: auto` (see .card.open):
-   * it takes the whole screen and scrolls its own contents, so `window.scrollY` is
-   * 0 the entire time a brief is being read. Rebuilding the list with innerHTML
+   * An open card is `position: fixed; inset: 0` (see .card.open): it takes the whole
+   * screen and scrolls its own contents — its `.brief`, once the answer box was
+   * pinned below it, or the card itself on a viewport too short for that — so
+   * `window.scrollY` is 0 the entire time a brief is being read. Rebuilding the list
    * throws that card away and builds a new one at scrollTop 0 — which is the jump
    * back to the top of the card, and why putting `window.scrollY` back never helped a
    * reader with a brief open: it was restoring a number that was zero all along.
@@ -1262,19 +1282,34 @@
   }
 
   /**
-   * Does this element scroll its own contents? An open card does — it is fixed to
-   * the screen with `overflow-y: auto` — and asking rather than assuming is what
-   * keeps this honest if the card ever lays out inline on a wider screen.
+   * Does this element scroll its own contents? Asking rather than assuming is what
+   * keeps this honest across the three shapes a card can take: the fixed layer whose
+   * brief scrolls, the same layer scrolling whole on a short viewport, and a plain
+   * row in the list that scrolls with the page.
    */
   const scrolls = (el) =>
     el.scrollHeight > el.clientHeight + 1 && /(auto|scroll)/.test(getComputedStyle(el).overflowY);
+
+  /**
+   * Which part of a card is the scroller, named rather than measured.
+   *
+   * Named, because the answer is needed twice: once before the rebuild, where the
+   * card is fully laid out and can be measured, and once after, where it is at its
+   * shortest and would measure as scrolling nothing. Capture decides, restore obeys.
+   */
+  const SCROLLER_IN = { card: (card) => card, brief: (card) => card.querySelector(':scope > .brief') };
+  const scrollerOf = (card) => {
+    if (scrolls(card)) return 'card';
+    const brief = SCROLLER_IN.brief(card);
+    return brief && scrolls(brief) ? 'brief' : null;
+  };
 
   function capturePlace() {
     const place = {
       gen: ++placeGen,
       docTop: docScroller().scrollTop,
       key: null,
-      self: false,
+      self: null,
       scrollTop: 0,
       top: 0,
       path: [],
@@ -1298,8 +1333,8 @@
     // Decided here rather than at restore time: straight after the rebuild the card
     // is at its shortest, so it may not look like a scroller even though it is one,
     // and mistaking it for the page would write a card offset onto the document.
-    place.self = scrolls(anchor);
-    const scroller = place.self ? anchor : docScroller();
+    place.self = scrollerOf(anchor);
+    const scroller = place.self ? SCROLLER_IN[place.self](anchor) : docScroller();
     place.key = anchor.dataset.key;
     place.scrollTop = scroller.scrollTop;
     place.top = anchor.getBoundingClientRect().top;
@@ -1309,7 +1344,11 @@
     // diagram inside it and above where you are reading grows after the repaint,
     // and everything under it — the paragraph you were on included — slides down by
     // that diagram's height while the card's own top never moves.
-    const fold = (place.self ? place.top : 0) + ANCHOR_SLOP;
+    //
+    // Measured from the top of the *scroller*, which is no longer the top of the
+    // card: with the head fixed and only the brief scrolling, a fold at the card's
+    // top matches the head every time and the descent never reaches the brief at all.
+    const fold = (place.self ? scroller.getBoundingClientRect().top : 0) + ANCHOR_SLOP;
     let node = anchor;
     while (!node.matches(OPAQUE)) {
       const kids = node.children;
@@ -1349,7 +1388,12 @@
     // is all that is left to go on.
     if (!card) return;
 
-    const scroller = place.self ? card : docScroller();
+    // The rebuilt card may no longer have the part that was scrolling — a brief
+    // collapsed since the capture. A card offset written onto the document would
+    // scroll the list to somewhere nobody asked for, so leave the page where the
+    // docTop above put it.
+    const scroller = place.self ? SCROLLER_IN[place.self](card) : docScroller();
+    if (!scroller) return;
     // Absolute, not incremental: every call starts from the recorded offset and
     // then corrects, so running again after the diagrams land refines the answer
     // instead of compounding the last one.

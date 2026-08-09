@@ -218,11 +218,48 @@ set.
 Either way the answer lands as a comment authored by `beadcause` and the bead
 closes with reason "Answered via Beadcause".
 
+### The answer box does not scroll away
+
+An open card is the same three-part shape the bead console uses: a **head that
+stays** — workspace, id, the question, its option buttons — a **brief that scrolls
+on its own**, and the **answer box pinned to the bottom of the screen**. Before
+this the card was one long scroller, so on a bead with a real description the box
+sat several screens below the fold: you read down, scrolled back to reply, and
+every glance back at the details lost the box again.
+
+The composer needs no position of its own. The card is already a fixed full-screen
+layer, so once the card stops being the scroller its last row *is* the bottom of
+the screen. The keyboard is handled a level up — the Android activity is
+`windowSoftInputMode="adjustResize"` and the page asks a browser for
+`interactive-widget=resizes-content` — so both shrink the layout viewport rather
+than sliding the keyboard over a fixed layer, and the box comes up with it.
+
+Resizing the viewport is also what makes the keyboard the hard case, because it
+takes a third of the screen away at the moment you most need the box. So the rows
+above the brief **shrink rather than push**: the question, the options and an open
+session log each get a share of what is left and scroll within it, in the order
+they can most afford to, and the brief keeps a floor of 80px so there is still a
+strip of the details to glance at while you type. Nothing switches layout on
+focus — a card that unpinned the box the moment you tapped it would be worse than
+one that never pinned it.
+
+Below **440px** of viewport it does switch: the card goes back to being one long
+scroller. That threshold has the keyboard on the right side of it deliberately — a
+phone with the keyboard up is still around 500px, a phone on its side is around
+390px, and only the second one genuinely wants the old shape back, because head,
+options and composer are the better part of 400px between them.
+
+**Landscape with two real columns undoes the pin**, deliberately. There the
+question and its options are already pinned on the left while the brief scrolls on
+the right, so the answer box just sits at the foot of the left column — visible
+without pinning, and the card can scroll as a whole if that column runs long.
+
 ### Keeping your place in a long brief
 
 Deferring the repaint covers the case where you are typing. It does not cover the
-much commoner one: reading. An open card is `position: fixed; inset: 0;
-overflow-y: auto` — it takes the whole screen and **scrolls its own contents** — so
+much commoner one: reading. An open card is `position: fixed; inset: 0` — it takes
+the whole screen and **scrolls its own contents**, its `.brief` in the shape above
+or the card itself on a viewport too short for it — so
 `window.scrollY` is 0 for the entire time a brief is on screen, and the list's
 `innerHTML` rebuild throws that card away and builds a new one at `scrollTop` 0.
 That is the jump back to the top of the card, and it is why putting `window.scrollY`
@@ -239,7 +276,13 @@ above where you were by exactly the height of the diagrams above you.
 So what is stored is an *element* — the card by its key, then the way down into it
 by child index to the deepest thing still starting above the fold — and it is
 re-measured every time the layout changes: immediately, on the next frame, as each
-image decodes, and when the diagrams finish. Each restore is absolute rather than
+image decodes, and when the diagrams finish. **Which part of the card was scrolling
+is stored by name, not measured twice**: straight after a rebuild the card is at its
+shortest and would measure as scrolling nothing at all, so capture decides — the
+brief, the card, or the page — and restore obeys. The fold the descent measures
+against is the top of *that* scroller rather than the top of the card, or with the
+head fixed it would match the head every time and never reach the brief. Each
+restore is absolute rather than
 incremental, so a later one refines the answer instead of compounding the last.
 Anything deliberate that moves the page — your thumb, a wheel, an arrow key, or the
 scroll that **↑ Collapse** does to put you back on the card's head — ends the

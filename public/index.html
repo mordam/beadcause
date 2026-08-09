@@ -2,7 +2,15 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <!--
+    interactive-widget=resizes-content is what keeps the pinned answer box above the
+    on-screen keyboard. An open card is `position: fixed; inset: 0` with the composer
+    as its last row, so the composer sits on the bottom of the *layout* viewport —
+    and a browser's default (resizes-visual) leaves that viewport at full height and
+    slides the keyboard over it. The Android app never had the problem: its activity
+    is windowSoftInputMode="adjustResize", which is the same bargain natively.
+  -->
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
   <meta name="theme-color" content="#0b0f14" media="(prefers-color-scheme: dark)">
   <meta name="theme-color" content="#f6f7f9" media="(prefers-color-scheme: light)">
   <meta name="apple-mobile-web-app-capable" content="yes">
