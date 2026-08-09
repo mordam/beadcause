@@ -27,6 +27,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { loadConfig } from '../lib/config.js';
+import { ownerName } from '../lib/owner.js';
 import { deliveryBody, deliveryTitle, DELIVERY_LABEL } from '../lib/delivery.js';
 import * as pr from '../lib/pr.js';
 
@@ -45,6 +46,8 @@ const die = (msg, code = 1) => {
 };
 
 const cfg = loadConfig();
+// What the pull request body and the argument errors call whoever is reviewing this.
+const owner = ownerName(cfg);
 const wsName = arg('--workspace', '-w');
 const beadId = arg('--bead', '-b');
 const base = arg('--base') || 'main';
@@ -110,7 +113,7 @@ try {
 if (!bead) die(`no bead ${beadId} in the ${ws.name} workspace`);
 
 const summary = summaryFile ? fs.readFileSync(summaryFile, 'utf8') : fs.readFileSync(0, 'utf8').trim();
-if (!summary) die('a summary is required — it is the whole of what Adam reads before merging', 2);
+if (!summary) die(`a summary is required — it is the whole of what ${owner} reads before merging`, 2);
 
 const title = titleArg || `${beadId}: ${bead.title || branch}`;
 
@@ -136,7 +139,7 @@ const prBody = [
   left ? `\n**Left undone:** ${left}` : '',
   '',
   '---',
-  `_Opened by a beadcause worker session on ${beadId}. It is not merged until Adam answers the question in his inbox._`,
+  `_Opened by a beadcause worker session on ${beadId}. It is not merged until ${owner} answers the question in their inbox._`,
 ]
   .filter((l) => l !== '')
   .join('\n');
