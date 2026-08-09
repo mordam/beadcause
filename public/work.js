@@ -176,7 +176,13 @@
    */
   function cardHtml(key, title, summary, on, body) {
     const open = state.card === key;
-    return `<article class="card work-card${open ? ' open' : ''}">
+    // `unfolded`, not `open`: `.card.open` is the inbox's full-screen sheet —
+    // `position: fixed; inset: 0; z-index: 40` — which is right for a question you
+    // read one at a time and wrong for an accordion. Here it took the unfolded
+    // workspace over the top bar, over the tab bar and over every other card, on a
+    // page whose first load unfolds one by default. Nothing keys off the class name;
+    // the fold is the `hidden` below, which is what did the work all along.
+    return `<article class="card work-card${open ? ' unfolded' : ''}">
       <h2 class="work-head">
         <button class="work-toggle" type="button" data-card="${esc(key)}" aria-expanded="${open}">
           <span class="work-name">${esc(title)}</span>

@@ -63,7 +63,16 @@ const QUESTIONS = Array.from({ length: 8 }, (_, i) => ({ ...toQuestion('demo', i
 
 const WORK = {
   workspaces: [
-    { name: 'demo', working: [], sessions: [], counts: { open: 5, ready: 2 } },
+    // A claimed bead, so the sessions page unfolds its first card the way it does on
+    // a real Mac. An empty fixture folded every card, which is how an unfolded card
+    // taking the whole viewport — `.card.open`, over the bar this file exists to
+    // check — went unnoticed here for as long as it did.
+    {
+      name: 'demo',
+      working: [{ id: 'de-1', title: 'a claimed bead', actor: 'x', since: '2026-08-01T09:00:00Z' }],
+      sessions: [],
+      counts: { open: 5, ready: 2 },
+    },
     { name: 'other', working: [], sessions: [], counts: { open: 1 } },
   ],
   advocates: [
@@ -97,6 +106,81 @@ const ADMIN = {
   closed: [{ workspace: 'demo', bead: null, cols: 80, rows: 24 }],
 };
 
+/* One repo, one row per stage, so the PR board draws its full height — the open row
+   that carries the merge button included, since clearing the bar is what is measured. */
+const PRS = {
+  unavailable: null,
+  build: { dir: '/Users/x/repos/demo', commit: 'a'.repeat(40), short: 'aaaaaaa', at: '2026-08-09T09:00:00Z' },
+  counts: { open: 1, merged: 1, pushed: 1, deployed: 1, closed: 0, owed: 2 },
+  repos: [
+    {
+      workspace: 'demo',
+      repo: 'acme/demo',
+      base: 'main',
+      error: null,
+      deployTracked: true,
+      prs: [
+        {
+          key: 'demo#4',
+          workspace: 'demo',
+          number: 4,
+          url: 'https://example.invalid/pull/4',
+          title: 'Still open, waiting on a decision',
+          state: 'OPEN',
+          draft: false,
+          branch: 'worktree-open-a1b',
+          base: 'main',
+          author: 'someone',
+          updatedAt: '2026-08-09T08:00:00Z',
+          mergedAt: null,
+          mergeCommit: null,
+          additions: 120,
+          deletions: 4,
+          files: 3,
+          checks: { state: 'passing', passing: 2, failing: 0, pending: 0, failed: [], total: 2 },
+          mergeable: 'MERGEABLE',
+          beads: [{ id: 'de-a1b', title: 'a bead', status: 'open' }],
+          merged: false,
+          pushed: false,
+          local: false,
+          deployed: false,
+          deployTracked: true,
+          stage: 'open',
+          note: '',
+        },
+        {
+          key: 'demo#3',
+          workspace: 'demo',
+          number: 3,
+          url: 'https://example.invalid/pull/3',
+          title: 'Merged and pushed, not shipped',
+          state: 'MERGED',
+          draft: false,
+          branch: 'worktree-owed-c3d',
+          base: 'main',
+          author: 'someone',
+          updatedAt: '2026-08-09T07:00:00Z',
+          mergedAt: '2026-08-09T07:00:00Z',
+          mergeCommit: 'b'.repeat(40),
+          additions: 40,
+          deletions: 40,
+          files: 2,
+          checks: { state: 'none', passing: 0, failing: 0, pending: 0, failed: [], total: 0 },
+          mergeable: 'MERGEABLE',
+          beads: [{ id: 'de-c3d', title: 'another bead', status: 'closed' }],
+          merged: true,
+          pushed: true,
+          local: true,
+          deployed: false,
+          deployTracked: true,
+          stage: 'pushed',
+          note: 'Merged and pushed — but not in the build that is running. Ship it.',
+        },
+      ],
+    },
+  ],
+};
+
 const TYPES = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
@@ -127,11 +211,13 @@ function serve() {
     if (p === '/api/work') return json(WORK);
     if (p === '/api/consoles') return json({ consoles: [], workspaces: ['demo', 'other'] });
     if (p === '/api/admin') return json(ADMIN);
+    if (p === '/api/prs') return json(PRS);
     if (p.startsWith('/api/')) return json({});
     // The same aliases the real server maps onto one page.
     let rel = p;
     if (rel === '/sessions' || rel === '/work') rel = '/work.html';
     if (rel === '/console') rel = '/console.html';
+    if (rel === '/prs' || rel === '/pulls') rel = '/prs.html';
     if (rel === '/monitor' || rel === '/advocates') rel = '/monitor.html';
     if (rel === '/admin') rel = '/admin.html';
     const file = path.join(PUBLIC, rel === '/' ? 'index.html' : rel.replace(/^\/+/, ''));
@@ -286,6 +372,18 @@ const CLEAR = {
     const bar = document.querySelector('.tabbar').getBoundingClientRect();
     return { what: 'last session card', bottom: Math.round(r.bottom), barTop: Math.round(bar.top), n: cards.length };
   })()`,
+  // The last row's buttons — Merge & push, Ship, Comment. A bar over those is a
+  // merge where a thumb reaches for a tab, which is the one mis-tap on this page
+  // that cannot be taken back.
+  '/prs': `(() => {
+    const cards = [...document.querySelectorAll('#prs .card')];
+    const last = cards[cards.length - 1];
+    if (!last) return { what: 'last repo card', missing: true };
+    document.scrollingElement.scrollTop = document.scrollingElement.scrollHeight;
+    const r = last.getBoundingClientRect();
+    const bar = document.querySelector('.tabbar').getBoundingClientRect();
+    return { what: 'last repo card', bottom: Math.round(r.bottom), barTop: Math.round(bar.top), n: cards.length };
+  })()`,
   '/monitor': `(() => {
     const cards = [...document.querySelectorAll('#mon .card, #mon .mon-card')];
     const last = cards[cards.length - 1];
@@ -313,12 +411,17 @@ const CLEAR = {
 /* Every standing view, in bar order. The count is asserted from this list rather
    than written out as a number, so adding a sixth tab is one line here and not a
    test that fails with "four tabs: <five of them>". */
-const TABS = ['inbox', 'console', 'sessions', 'advocates', 'admin'];
+const TABS = ['inbox', 'console', 'sessions', 'prs', 'advocates', 'admin'];
 
 const PAGES = [
   { url: '/', tab: 'inbox', name: 'inbox' },
   { url: '/console', tab: 'console', name: 'console' },
   { url: '/sessions', tab: 'sessions', name: 'sessions' },
+  // The sixth tab, and the one that made the bar tight: six labels share 393px here
+  // and 360px on the common Android width, which is what the `:has(:nth-child(6))`
+  // step-down in the stylesheet is for. The label-fits assertion below is the check
+  // on that, and it is why this page is in the list rather than trusted.
+  { url: '/prs', tab: 'prs', name: 'prs' },
   { url: '/monitor', tab: 'advocates', name: 'advocates' },
   // Pause all / resume all. Nothing on it is reachable any other way, so a bar that
   // failed here would strand the one control that stops everything.
