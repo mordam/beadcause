@@ -1315,6 +1315,25 @@ body {
 @keyframes arrive { from { opacity: 0; } to { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .arrive { animation: none; } }
 
+/* A claimed bead pulses. Colour on a node already means status, so "an agent is on
+   this right now" gets the one channel nothing else on the page uses — motion. */
+.gn.now .gn-box { animation: gnPulse 1.9s ease-in-out infinite; }
+@keyframes gnPulse { 0%, 100% { stroke-width: 1.5; } 50% { stroke-width: 4; } }
+/* Fade what hasn't moved — but only when something has, which is what `.has-moved`
+   gates. A graph where nothing moved must not render entirely dim; that reads as a
+   failure rather than as calm.
+
+   The opacity goes on the *children*: `.arrive` animates the group's own opacity with
+   fill-mode `both`, and an animated value beats a declared one, so dimming the group
+   itself would silently do nothing at all. */
+.nodes.has-moved .gn:not(.moved) > * { opacity: 0.4; }
+/* Never the one you tapped — you asked for that bead specifically. */
+.nodes.has-moved .gn.on > * { opacity: 1; }
+@media (prefers-reduced-motion: reduce) {
+  /* Still marked, just not moving: a static heavier outline says the same thing. */
+  .gn.now .gn-box { animation: none; stroke-width: 3.5; }
+}
+
 /* Growth counter — the loading state and the progress readout are the same thing,
    because a blank screen is the bug this whole view exists to fix. */
 .growth {
@@ -1345,7 +1364,13 @@ body {
 .node-card[hidden] { display: none; }
 .node-card-meta { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 7px; }
 .node-card-title { margin: 0 0 4px; font-size: 15px; font-weight: 600; line-height: 1.35; }
-.node-card-deps { margin: 0 0 10px; font-size: 12px; color: var(--muted); text-transform: capitalize; }
+/* The live line sits above the shape line and reads louder than it, because "someone
+   is on this" outranks "this is a task that blocks two things". */
+.node-card-live { margin: 0 0 4px; font-size: 12.5px; font-weight: 550; line-height: 1.4; color: var(--accent); }
+.node-card-live[hidden] { display: none; }
+/* No `text-transform` here any more: the line is assembled in JS now, and capitalising
+   every word turned "waits on 3" into "Waits On 3". */
+.node-card-deps { margin: 0 0 10px; font-size: 12px; color: var(--muted); }
 .node-card-row { display: flex; gap: 8px; }
 .node-card-row button { flex: 1; min-height: 40px; border-radius: 10px; font-size: 14px; }
 
