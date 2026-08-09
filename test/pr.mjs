@@ -1,0 +1,628 @@
+#!/usr/bin/env node
+/**
+ * lib/pr.js — the one file in beadcause that shells out to `gh`.
+ *
+ *     npm test
+ *     node test/pr.mjs
+ *
+ * Everything above this file asks it questions and never learns how a pull request
+ * is fetched, which is what makes it testable at all: swap the `gh` on PATH for a
+ * fake and the whole module is exercised without a network, a token, or a repo. That
+ * is what happens here — a real `gh`, if you have one, is never called.
+ *
+ * Three failures are worth this file, and they are not evenly weighted:
+ *
+ * 1. **The merge preflight going quiet.** `merge()` re-reads the PR and refuses,
+ *    with a sentence, on already-merged / closed / conflicting *before* it shells
+ *    out. If that check ever stops firing, the symptom is not an exception — it is
+ *    `gh` being asked to merge something it cannot, from a phone, in another room.
+ *    So the assertions here are not just "it threw": they read the call log to prove
+ *    `gh pr merge` was never reached.
+ * 2. **`rollup()` collapsing a distinction.** `pending` and `failing` mean opposite
+ *    things (wait vs. do not), and a PR with no CI at all must read `none` rather
+ *    than `passing` — otherwise the card claims green on a repo that has no checks.
+ *    Both of gh's check shapes are covered, because only one of them is the one you
+ *    happen to have in front of you when you write the code.
+ * 3. **`available()` turning a cached answer into traffic.** It is asked on every
+ *    poll and must ask `gh` once per process. The test asserts the *absence* of a
+ *    second call, which is the only way that regression is ever visible.
+ *
+ * Nothing here touches the network, spawns an agent, runs the real `gh`, or writes
+ * outside a temp directory.
+ */
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const LIB = path.join(HERE, '..', 'lib', 'pr.js');
+
+let failures = 0;
+const ok = (name) => console.log(`  ✓ ${name}`);
+const bad = (name, detail) => {
+  failures += 1;
+  console.log(`  ✗ ${name}\n      ${detail}`);
+};
+const check = (name, cond, detail = '') => (cond ? ok(name) : bad(name, detail));
+
+/** Run `fn` and hand back the error it threw, or null. Throwing is the assertion here. */
+const threw = async (fn) => {
+  try {
+    await fn();
+    return null;
+  } catch (err) {
+    return err;
+  }
+};
+
+/* --------------------------------------------------------------- the fake gh */
+
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'beadcause-pr-'));
+process.on('exit', () => fs.rmSync(tmp, { recursive: true, force: true }));
+
+const BIN = path.join(tmp, 'bin');
+const EMPTY = path.join(tmp, 'empty');
+const REPO = path.join(tmp, 'repo');
+for (const d of [BIN, EMPTY, REPO]) fs.mkdirSync(d, { recursive: true });
+
+const STATE = path.join(tmp, 'gh-state.json');
+const LOG = path.join(tmp, 'gh-calls.log');
+
+// Extensionless on purpose, so node runs it as CommonJS whatever this package's
+// "type" says. It answers from a JSON file the test rewrites between scenarios, and
+// appends every invocation to a log — the log is what turns "it never shelled out"
+// into an assertion rather than a hope.
+const FAKE_GH = `#!/usr/bin/env node
+const fs = require('node:fs');
+const statePath = process.env.GH_FAKE_STATE;
+const state = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+const args = process.argv.slice(2);
+fs.appendFileSync(state.log, JSON.stringify({ args: args, cwd: process.cwd() }) + '\\n');
+
+const save = () => fs.writeFileSync(statePath, JSON.stringify(state, null, 2));
+const out = (s) => { process.stdout.write(s); process.exit(0); };
+const fail = (msg) => {
+  // Real gh writes its complaint first and a usage hint under it; pr.js keeps the
+  // first line and puts the rest on .detail, so the fake needs a second line to drop.
+  process.stderr.write(msg + '\\nUsage: gh <command> <subcommand> [flags]\\n');
+  process.exit(1);
+};
+
+const a = args[0];
+const b = args[1];
+const rest = args.slice(2);
+
+if (a === 'auth' && b === 'status') {
+  if (state.auth && state.auth.ok) out('github.com\\n  Logged in to github.com\\n');
+  fail((state.auth && state.auth.stderr) || 'You are not logged into any GitHub hosts.');
+}
+
+if (a === 'repo' && b === 'view') {
+  if (!state.repo) fail('none of the git remotes configured for this repository point to a known GitHub host');
+  out(JSON.stringify(state.repo));
+}
+
+if (a === 'pr') {
+  const prs = state.prs || {};
+  const find = (ref) => {
+    if (prs[String(ref)]) return prs[String(ref)];
+    const keys = Object.keys(prs);
+    for (let i = 0; i < keys.length; i++) {
+      const p = prs[keys[i]];
+      if (p && p.headRefName === String(ref)) return p;
+    }
+    return null;
+  };
+
+  if (b === 'view') {
+    const found = find(rest[0]);
+    if (!found) fail('no pull requests found for branch "' + rest[0] + '"');
+    out(JSON.stringify(found));
+  }
+  if (b === 'create') {
+    if (state.create && state.create.stderr) fail(state.create.stderr);
+    out((state.create && state.create.stdout) || '');
+  }
+  if (b === 'merge') {
+    if (state.mergeRefusal) fail(state.mergeRefusal);
+    const found = find(rest[0]);
+    if (!found) fail('no pull requests found');
+    found.state = 'MERGED';
+    found.mergedAt = '2026-08-09T15:04:05Z';
+    found.mergeCommit = { oid: '0ff1ce0ff1ce' };
+    save();
+    out('Merged pull request #' + found.number + '\\n');
+  }
+  if (b === 'close') {
+    const found = find(rest[0]);
+    if (!found) fail('no pull requests found');
+    found.state = 'CLOSED';
+    save();
+    out('Closed pull request #' + found.number + '\\n');
+  }
+  if (b === 'comment') out('https://github.com/acme/widgets/pull/1#issuecomment-1\\n');
+}
+
+fail('unknown gh invocation: ' + args.join(' '));
+`;
+
+fs.writeFileSync(path.join(BIN, 'gh'), FAKE_GH, { mode: 0o755 });
+
+process.env.GH_FAKE_STATE = STATE;
+process.env.PATH = `${BIN}${path.delimiter}${process.env.PATH}`;
+
+const REAL_PATH = process.env.PATH;
+const REPO_REAL = fs.realpathSync(REPO);
+
+/** Replace the fake's whole world. Every scenario starts from a known one. */
+const world = (s = {}) => fs.writeFileSync(STATE, JSON.stringify({ log: LOG, auth: { ok: true }, ...s }, null, 2));
+const resetLog = () => fs.writeFileSync(LOG, '');
+const calls = () =>
+  fs
+    .readFileSync(LOG, 'utf8')
+    .split('\n')
+    .filter(Boolean)
+    .map((l) => JSON.parse(l));
+
+/** One PR as `gh pr view --json` hands it over, before pr.js folds it. */
+const rawPR = (over = {}) => ({
+  number: 42,
+  url: 'https://github.com/acme/widgets/pull/42',
+  title: 'Branch-and-PR delivery',
+  state: 'OPEN',
+  isDraft: false,
+  mergeable: 'MERGEABLE',
+  mergeStateStatus: 'CLEAN',
+  headRefName: 'worktree-pr-delivery-q7n',
+  baseRefName: 'main',
+  additions: 498,
+  deletions: 12,
+  changedFiles: 6,
+  statusCheckRollup: [],
+  reviewDecision: null,
+  mergedAt: null,
+  mergeCommit: null,
+  ...over,
+});
+
+world();
+resetLog();
+
+const pr = await import(LIB);
+
+/* ------------------------------------------------------------ is gh usable? */
+
+console.log('\nis there a usable gh');
+
+pr.forgetAvailability();
+resetLog();
+world({ auth: { ok: true } });
+
+const authed = await pr.available();
+check('an installed, authenticated gh is ok', authed.ok === true, JSON.stringify(authed));
+check('and says nothing, because there is nothing to say', authed.reason === '');
+
+await pr.available();
+await pr.available();
+const authCalls = calls().filter((c) => c.args[0] === 'auth').length;
+check('the answer is cached — three asks, one `gh auth status`', authCalls === 1, `${authCalls} calls`);
+
+pr.forgetAvailability();
+resetLog();
+const reasked = await pr.available();
+check(
+  'forgetAvailability() is what makes it ask again',
+  reasked.ok === true && calls().filter((c) => c.args[0] === 'auth').length === 1
+);
+
+world({ auth: { ok: false, stderr: 'You are not logged into any GitHub hosts. Run gh auth login to authenticate.' } });
+pr.forgetAvailability();
+const unauthed = await pr.available();
+check('an unauthenticated gh is not ok', unauthed.ok === false);
+check('and the reason names the command that fixes it', /gh auth login/.test(unauthed.reason), unauthed.reason);
+
+process.env.PATH = EMPTY;
+pr.forgetAvailability();
+const missing = await pr.available();
+process.env.PATH = REAL_PATH;
+check('a gh that is not installed at all is not ok', missing.ok === false);
+check(
+  'and the reason names the install, not the login',
+  /brew install gh/.test(missing.reason) && !/auth login/.test(missing.reason),
+  missing.reason
+);
+
+world();
+pr.forgetAvailability();
+
+/* ----------------------------------------------------------- owner/repo slug */
+
+console.log('\nwhich repo is this');
+
+world({ repo: { nameWithOwner: 'acme/widgets' } });
+check('reads owner/repo out of gh repo view', (await pr.slugFor(REPO)) === 'acme/widgets');
+
+resetLog();
+check('a directory that does not exist is null', (await pr.slugFor(path.join(tmp, 'nope'))) === null);
+check('and costs no gh call at all', calls().length === 0, JSON.stringify(calls()));
+check('so is no directory', (await pr.slugFor('')) === null && (await pr.slugFor(null)) === null);
+
+world({ repo: null });
+check(
+  'a checkout with no GitHub remote is null, not an error — that repo simply never gets a PR',
+  (await pr.slugFor(REPO)) === null
+);
+
+world({ repo: { nameWithOwner: '' } });
+check('an empty nameWithOwner is null too', (await pr.slugFor(REPO)) === null);
+
+/* ------------------------------------------------------------------- view */
+
+console.log('\nreading one pull request');
+
+world({
+  prs: {
+    42: rawPR({
+      isDraft: true,
+      mergeable: 'mergeable',
+      mergeStateStatus: 'blocked',
+      state: 'open',
+      reviewDecision: 'APPROVED',
+      mergeCommit: { oid: 'cafebabe' },
+    }),
+  },
+});
+
+const viewed = await pr.view(REPO, 42);
+check('number and url survive untouched', viewed.number === 42 && /\/pull\/42$/.test(viewed.url));
+check('state is uppercased whatever case gh sent', viewed.state === 'OPEN', viewed.state);
+check('mergeable is uppercased too', viewed.mergeable === 'MERGEABLE', viewed.mergeable);
+check('mergeStateStatus lands as mergeState', viewed.mergeState === 'BLOCKED', viewed.mergeState);
+check('isDraft becomes draft', viewed.draft === true);
+check(
+  'headRefName becomes branch, baseRefName becomes base',
+  viewed.branch === 'worktree-pr-delivery-q7n' && viewed.base === 'main'
+);
+check('changedFiles becomes files', viewed.files === 6);
+check('the diffstat comes through', viewed.additions === 498 && viewed.deletions === 12);
+check(
+  'mergeCommit is flattened to its oid, so no caller has to unwrap an object',
+  viewed.mergeCommit === 'cafebabe',
+  JSON.stringify(viewed.mergeCommit)
+);
+check('reviewDecision passes through', viewed.reviewDecision === 'APPROVED');
+check('gh ran in the directory it was handed', calls().at(-1).cwd === REPO_REAL, `${calls().at(-1).cwd} vs ${REPO_REAL}`);
+
+world({ prs: { 9: { number: 9, url: 'https://github.com/acme/widgets/pull/9' } } });
+const sparse = await pr.view(REPO, 9);
+check(
+  'a PR gh answered sparsely still renders — zeros and empties, never undefined',
+  sparse.additions === 0 &&
+    sparse.deletions === 0 &&
+    sparse.files === 0 &&
+    sparse.title === '' &&
+    sparse.branch === '' &&
+    sparse.base === '' &&
+    sparse.draft === false &&
+    sparse.mergeCommit === null,
+  JSON.stringify(sparse)
+);
+check('and an absent mergeable reads as UNKNOWN rather than blank', sparse.mergeable === 'UNKNOWN', sparse.mergeable);
+
+const gone = await threw(() => pr.view(REPO, 404));
+check('a PR that does not exist throws', gone !== null);
+check(
+  "and carries gh's own first line, not the usage dump under it",
+  gone && /no pull requests found/.test(gone.message) && !/Usage:/.test(gone.message),
+  gone && gone.message
+);
+check('with the rest kept on .detail, for the log', gone && /Usage:/.test(gone.detail || ''));
+
+/* ---------------------------------------------------------------- the rollup */
+
+console.log('\nfolding statusCheckRollup into something a phone can read');
+
+const checksFor = async (rollup) => {
+  world({ prs: { 7: rawPR({ number: 7, statusCheckRollup: rollup }) } });
+  return (await pr.view(REPO, 7)).checks;
+};
+
+const noCI = await checksFor([]);
+check(
+  'a repo with no CI at all is "none", not "passing" — the card must not claim a green it never saw',
+  noCI.state === 'none' && noCI.total === 0,
+  JSON.stringify(noCI)
+);
+check('a missing rollup is "none" as well', (await checksFor(null)).state === 'none');
+check('and so is one gh sent as something other than an array', (await checksFor({})).state === 'none');
+
+const bothShapes = await checksFor([
+  { __typename: 'CheckRun', name: 'build', status: 'COMPLETED', conclusion: 'SUCCESS' },
+  { __typename: 'StatusContext', context: 'ci/travis', state: 'SUCCESS' },
+]);
+check(
+  'both of gh’s check shapes count — CheckRun by conclusion, StatusContext by state',
+  bothShapes.passing === 2 && bothShapes.total === 2 && bothShapes.state === 'passing',
+  JSON.stringify(bothShapes)
+);
+
+const lenient = await checksFor([
+  { name: 'a', conclusion: 'SUCCESS' },
+  { name: 'b', conclusion: 'NEUTRAL' },
+  { name: 'c', conclusion: 'SKIPPED' },
+]);
+check(
+  'NEUTRAL and SKIPPED are not failures',
+  lenient.passing === 3 && lenient.state === 'passing',
+  JSON.stringify(lenient)
+);
+
+const waiting = await checksFor([
+  { name: 'a', status: 'QUEUED' },
+  { name: 'b', status: 'IN_PROGRESS' },
+  { name: 'c', state: 'PENDING' },
+  { name: 'd', state: 'WAITING' },
+  { name: 'e', state: 'REQUESTED' },
+]);
+check('every flavour of not-yet is pending', waiting.pending === 5 && waiting.state === 'pending', JSON.stringify(waiting));
+
+const mixed = await checksFor([
+  { name: 'unit', conclusion: 'SUCCESS' },
+  { name: 'lint', conclusion: 'FAILURE' },
+  { name: 'e2e', status: 'IN_PROGRESS' },
+]);
+check(
+  'pending and failing are counted apart, because they mean opposite things',
+  mixed.passing === 1 && mixed.failing === 1 && mixed.pending === 1,
+  JSON.stringify(mixed)
+);
+check('and one failure outranks anything still running', mixed.state === 'failing', mixed.state);
+check('the failing check is named, so the card can say which', mixed.failed.join() === 'lint', JSON.stringify(mixed.failed));
+
+const byContext = await checksFor([{ context: 'ci/circleci', state: 'FAILURE' }]);
+check(
+  'a StatusContext failure is named by its context',
+  byContext.failed.join() === 'ci/circleci',
+  JSON.stringify(byContext.failed)
+);
+
+const many = await checksFor(Array.from({ length: 8 }, (_, i) => ({ name: `job-${i}`, conclusion: 'FAILURE' })));
+check('all eight failures are counted', many.failing === 8 && many.total === 8, JSON.stringify(many));
+check('but only six are named — this is a phone card, not a log', many.failed.length === 6, JSON.stringify(many.failed));
+
+const nameless = await checksFor([{ conclusion: 'FAILURE' }]);
+check(
+  'a failure with no name still counts, it just cannot be listed',
+  nameless.failing === 1 && nameless.failed.length === 0,
+  JSON.stringify(nameless)
+);
+
+const unknown = await checksFor([{ name: 'mystery', conclusion: '', state: '', status: '' }]);
+check(
+  'a check in no state anyone recognises counts as failing — unknown means do not merge',
+  unknown.failing === 1 && unknown.state === 'failing',
+  JSON.stringify(unknown)
+);
+
+/* ------------------------------------------------------ the PR for a branch */
+
+console.log('\nthe PR for a branch, if there is one');
+
+world({ prs: { 42: rawPR() } });
+const forBranch = await pr.viewForBranch(REPO, 'worktree-pr-delivery-q7n');
+check('a branch with a PR gets it', forBranch && forBranch.number === 42, JSON.stringify(forBranch));
+
+const noneYet = await pr.viewForBranch(REPO, 'worktree-not-pushed-yet');
+check(
+  'a branch with no PR is null and does not throw — that is the ordinary state of work in progress',
+  noneYet === null,
+  JSON.stringify(noneYet)
+);
+check(
+  'while view() on the same branch still does throw, because there the caller asked for a PR',
+  (await threw(() => pr.view(REPO, 'worktree-not-pushed-yet'))) !== null
+);
+
+/* ------------------------------------------------------------------- create */
+
+console.log('\nopening one');
+
+world({
+  create: { stdout: 'Warning: 1 uncommitted change\nhttps://github.com/acme/widgets/pull/99\n' },
+  prs: { 99: rawPR({ number: 99, url: 'https://github.com/acme/widgets/pull/99', title: 'A new one' }) },
+});
+resetLog();
+
+const made = await pr.create(REPO, { head: 'worktree-thing-a1b', title: 'A new one', body: 'why' });
+check('the number is dug out of the url gh printed, past the noise', made.number === 99, JSON.stringify(made.number));
+check('and the PR comes back fully populated, not just as a url', made.title === 'A new one' && made.checks.state === 'none');
+
+const createArgs = calls().find((c) => c.args[1] === 'create').args;
+check('base defaults to main', createArgs[createArgs.indexOf('--base') + 1] === 'main');
+check('the head branch is passed when given', createArgs[createArgs.indexOf('--head') + 1] === 'worktree-thing-a1b');
+check(
+  'title and body go as arguments, never interpolated into a shell',
+  createArgs.includes('--title') && createArgs.includes('--body')
+);
+check('and it is not a draft unless asked', !createArgs.includes('--draft'));
+
+resetLog();
+await pr.create(REPO, { base: 'develop', title: 'draft one', draft: true });
+const draftArgs = calls().find((c) => c.args[1] === 'create').args;
+check('draft: true adds --draft', draftArgs.includes('--draft'));
+check('an explicit base is used instead of main', draftArgs[draftArgs.indexOf('--base') + 1] === 'develop');
+check('and no --head is sent when none was given', !draftArgs.includes('--head'));
+
+world({ create: { stdout: 'Creating pull request for a branch that is not pushed\n' }, prs: {} });
+const noUrl = await threw(() => pr.create(REPO, { title: 't' }));
+check('output with no PR url in it throws rather than parsing garbage', noUrl !== null);
+check('and quotes what gh actually said', noUrl && /not pushed/.test(noUrl.message), noUrl && noUrl.message);
+
+world({ create: { stderr: 'pull request create failed: GraphQL: No commits between main and feature' }, prs: {} });
+const refusedCreate = await threw(() => pr.create(REPO, { title: 't' }));
+check(
+  "a refusal from gh comes back as gh's own sentence",
+  refusedCreate && /No commits between/.test(refusedCreate.message),
+  refusedCreate && refusedCreate.message
+);
+
+/* -------------------------------------------------------------------- merge */
+
+console.log('\nmerging — the act the whole channel exists to gate');
+
+const mergeCalls = () => calls().filter((c) => c.args[0] === 'pr' && c.args[1] === 'merge');
+
+world({ prs: { 42: rawPR({ state: 'MERGED', mergedAt: '2026-08-09T15:04:05Z', mergeCommit: { oid: 'abc123' } }) } });
+resetLog();
+const already = await pr.merge(REPO, 42);
+check('an already-merged PR does not throw — answering twice is not an error', already.alreadyMerged === true);
+check('it reports the merge that happened', already.state === 'MERGED' && already.mergeCommit === 'abc123');
+check(
+  'and gh pr merge was never reached',
+  mergeCalls().length === 0,
+  JSON.stringify(calls().map((c) => c.args.slice(0, 2)))
+);
+
+world({ prs: { 42: rawPR({ state: 'CLOSED' }) } });
+resetLog();
+const closedErr = await threw(() => pr.merge(REPO, 42));
+check('a closed PR refuses', closedErr !== null);
+check(
+  'with 409, so the inbox can tell a refusal from a crash',
+  closedErr && closedErr.status === 409,
+  closedErr && String(closedErr.status)
+);
+check(
+  'and a sentence that says to reopen it',
+  closedErr && /closed/.test(closedErr.message) && /reopen/.test(closedErr.message),
+  closedErr && closedErr.message
+);
+check('without ever asking gh to merge it', mergeCalls().length === 0);
+
+world({ prs: { 42: rawPR({ mergeable: 'CONFLICTING' }) } });
+resetLog();
+const conflictErr = await threw(() => pr.merge(REPO, 42));
+check('a conflicting PR refuses', conflictErr !== null && conflictErr.status === 409);
+check(
+  'naming the base branch and the rebase that fixes it',
+  conflictErr && /main/.test(conflictErr.message) && /rebase/.test(conflictErr.message),
+  conflictErr && conflictErr.message
+);
+check('without ever asking gh to merge it', mergeCalls().length === 0);
+
+world({ prs: { 42: rawPR() } });
+resetLog();
+const merged = await pr.merge(REPO, 42);
+check(
+  'a mergeable PR merges',
+  merged.alreadyMerged === false && merged.state === 'MERGED',
+  JSON.stringify({ already: merged.alreadyMerged, state: merged.state })
+);
+check('and comes back re-read, with the merge commit gh recorded', merged.mergeCommit === '0ff1ce0ff1ce' && merged.mergedAt !== null);
+check('squash is the default', mergeCalls()[0].args.includes('--squash'));
+check('the branch is deleted by default', mergeCalls()[0].args.includes('--delete-branch'));
+check(
+  'and the merge is never queued with --auto — a tap on the phone is an act, not a promise',
+  !mergeCalls()[0].args.includes('--auto'),
+  JSON.stringify(mergeCalls()[0].args)
+);
+check(
+  'the PR is read before the merge and read again after',
+  calls().filter((c) => c.args[1] === 'view').length === 2,
+  JSON.stringify(calls().map((c) => c.args.slice(0, 2)))
+);
+
+for (const [method, flag] of [
+  ['rebase', '--rebase'],
+  ['merge', '--merge'],
+  ['squash', '--squash'],
+]) {
+  world({ prs: { 42: rawPR() } });
+  resetLog();
+  await pr.merge(REPO, 42, { method });
+  check(`method "${method}" becomes ${flag}`, mergeCalls()[0].args.includes(flag), JSON.stringify(mergeCalls()[0].args));
+}
+
+world({ prs: { 42: rawPR() } });
+resetLog();
+await pr.merge(REPO, 42, { method: 'fast-forward-if-you-please' });
+check(
+  'an unrecognised method falls back to squash rather than reaching the CLI as a usage error',
+  mergeCalls()[0].args.includes('--squash'),
+  JSON.stringify(mergeCalls()[0].args)
+);
+
+world({ prs: { 42: rawPR() } });
+resetLog();
+await pr.merge(REPO, 42, { deleteBranch: false });
+check('deleteBranch: false keeps the branch', !mergeCalls()[0].args.includes('--delete-branch'));
+
+world({
+  prs: { 42: rawPR() },
+  mergeRefusal: 'Pull request is not mergeable: the base branch policy prohibits the merge.',
+});
+resetLog();
+const refused = await threw(() => pr.merge(REPO, 42));
+check('a merge GitHub refuses comes back as 409', refused && refused.status === 409, refused && String(refused.status));
+check(
+  'carrying GitHub’s own reason, because "it did not merge" with nothing attached is the worst thing this could say',
+  refused && /base branch policy/.test(refused.message),
+  refused && refused.message
+);
+
+/* -------------------------------------------------------- close and comment */
+
+console.log('\nclosing one, and saying why');
+
+world({ prs: { 42: rawPR() } });
+resetLog();
+const shut = await pr.close(REPO, 42, { comment: 'superseded by #43' });
+check('close returns the PR, re-read', shut.number === 42 && shut.state === 'CLOSED', shut.state);
+const closeArgs = calls().find((c) => c.args[1] === 'close').args;
+check(
+  'the reason goes on the PR, so the tab is not a mystery later',
+  closeArgs.includes('--comment') && closeArgs.includes('superseded by #43')
+);
+check('and the branch survives unless deleting it was asked for', !closeArgs.includes('--delete-branch'));
+
+world({ prs: { 42: rawPR() } });
+resetLog();
+await pr.close(REPO, 42, { deleteBranch: true });
+const closeArgs2 = calls().find((c) => c.args[1] === 'close').args;
+check('deleteBranch: true deletes it', closeArgs2.includes('--delete-branch'));
+check('and no empty --comment is sent when there is nothing to say', !closeArgs2.includes('--comment'));
+
+world({ prs: { 42: rawPR() } });
+resetLog();
+await pr.comment(REPO, 42, 'Adam asked for changes: see the bead.');
+const commentArgs = calls().find((c) => c.args[1] === 'comment').args;
+check(
+  'a comment reaches the PR thread intact',
+  commentArgs.includes('--body') && commentArgs.includes('Adam asked for changes: see the bead.')
+);
+
+/* -------------------------------------------------------------- the one rule */
+
+console.log('\nthe rule the file is built around');
+
+const src = fs.readFileSync(LIB, 'utf8');
+check(
+  'nothing in lib/pr.js shells out to a push — a daemon that can push is one that can land work nobody approved',
+  !/['"]push['"]/.test(src),
+  (src.match(/.*['"]push['"].*/) || [])[0]
+);
+check(
+  'and nothing there writes to a branch behind the PR verbs',
+  !/['"](commit|reset|checkout|cherry-pick)['"]/.test(src),
+  (src.match(/.*['"](commit|reset|checkout|cherry-pick)['"].*/) || [])[0]
+);
+
+/* ------------------------------------------------------------------ verdict */
+
+console.log('');
+if (failures) {
+  console.log(`${failures} check${failures === 1 ? '' : 's'} failed`);
+  process.exit(1);
+}
+console.log('all checks passed');

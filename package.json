@@ -8,11 +8,13 @@
   "bin": {
     "beadcause": "bin/beadcause.js",
     "beadcause-monitor": "bin/monitor.js",
-    "beadcause-memory": "bin/beadcause-memory"
+    "beadcause-memory": "bin/beadcause-memory",
+    "beadcause-propose": "bin/propose.js",
+    "beadcause-deliver": "bin/deliver.js"
   },
   "scripts": {
     "start": "node bin/beadcause.js",
-    "test": "node scripts/selftest.mjs && node test/observe.mjs && node test/atomic.mjs && node test/memory.mjs && node test/summary.mjs && node test/terminal.mjs",
+    "test": "node scripts/selftest.mjs && node test/observe.mjs && node test/atomic.mjs && node test/memory.mjs && node test/summary.mjs && node test/terminal.mjs && node test/pr.mjs && node test/delivery.mjs && node test/admin.mjs",
     "qr": "node bin/beadcause.js --qr",
     "vendor": "node scripts/vendor.js",
     "postinstall": "node scripts/vendor.js",
