@@ -55,7 +55,7 @@ const {
   DELIVERY_LABEL,
   MERGE_MARKER,
   CHANGES_MARKER,
-  CLOSE_MARKER,
+  DECLINE_MARKER,
 } = await import(LIB);
 
 /** A delivery as a worker files it. */
@@ -83,8 +83,21 @@ console.log('\nwhat counts as consent');
 
 check('MERGE: merges', deliveryAction('MERGE: squash and merge #42.').action === 'merge');
 check('CHANGES: asks for changes', deliveryAction('CHANGES: not yet.').action === 'changes');
-check('DROP: closes it unmerged', deliveryAction('DROP: close #42 without merging.').action === 'close');
-check('and the exported markers are the ones it matches', MERGE_MARKER === 'MERGE:' && CHANGES_MARKER === 'CHANGES:' && CLOSE_MARKER === 'DROP:');
+check('DECLINE: declines it', deliveryAction('DECLINE: close #42 — not this approach.').action === 'decline');
+check('and the exported markers are the ones it matches', MERGE_MARKER === 'MERGE:' && CHANGES_MARKER === 'CHANGES:' && DECLINE_MARKER === 'DECLINE:');
+
+// The direction for the next attempt is the whole value of a decline, so it has to
+// survive verbatim — and an empty one is still a valid decline.
+check(
+  'a decline carries its direction verbatim',
+  deliveryAction('DECLINE: do it in the poller instead, not the router.').note === 'do it in the poller instead, not the router.',
+  deliveryAction('DECLINE: do it in the poller instead, not the router.').note
+);
+check(
+  'and a decline with no direction is still a decline',
+  deliveryAction('DECLINE:').action === 'decline' && deliveryAction('DECLINE:').note === '',
+  JSON.stringify(deliveryAction('DECLINE:'))
+);
 
 check(
   'a marker in the middle of a sentence is a comment, not a merge — this is the whole consent model',
@@ -222,7 +235,7 @@ check(
 
 check(
   'and the ```decision block is left completely alone — decision.js parses what is left, and a greedy fence would eat the options',
-  /```decision/.test(split.body) && /- id: merge/.test(split.body) && /- id: drop/.test(split.body),
+  /```decision/.test(split.body) && /- id: merge/.test(split.body) && /- id: decline/.test(split.body),
   split.body
 );
 check(

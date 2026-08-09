@@ -445,7 +445,7 @@ try {
   );
   check(
     'all three actions are offered',
-    ['pr-merge', 'pr-changes', 'pr-drop'].every((a) => v?.buttons.includes(a)),
+    ['pr-merge', 'pr-changes', 'pr-decline'].every((a) => v?.buttons.includes(a)),
     (v?.buttons || []).join(', ')
   );
   check('the block stays inside the phone', (v?.right ?? 999) <= VP.width, `right edge ${v?.right}px of ${VP.width}px`);
@@ -566,6 +566,84 @@ try {
     'no free-text answer can ever merge anything — that needs the button',
     !/^MERGE:/.test(posted[0]?.response || ''),
     'prose fails towards "not merged"'
+  );
+
+  /* ------------------------------------------- 4b. declining, with direction */
+
+  console.log('\ndeclining is two steps, and the direction is optional\n');
+
+  v = await reload('clean');
+  posted.length = 0;
+  await evalJs(s, `${DELIV}.querySelector('[data-act="pr-decline"]').click()`);
+  await sleep(600);
+
+  check(
+    'the first tap sends nothing — it opens the panel instead',
+    posted.length === 0 && (await evalJs(s, `!!document.querySelector('.pr-decline')`)),
+    `${posted.length} request(s) sent`
+  );
+  check(
+    'and the panel says what declining does that requesting changes does not',
+    /back in the queue/.test(await evalJs(s, `document.querySelector('.pr-decline').textContent`)) &&
+      /abandoned/.test(await evalJs(s, `document.querySelector('.pr-decline').textContent`)),
+    'names the abandoned branch and the requeued bead'
+  );
+  check(
+    'the three ordinary buttons are gone while you are declining',
+    !(await evalJs(s, `!!${DELIV}.querySelector('[data-act="pr-merge"]')`)),
+    'merge is not reachable mid-decline'
+  );
+  check(
+    'the box below is relabelled for the direction, and says it is optional',
+    /Optional/.test(await evalJs(s, `document.querySelector('.card.open [data-role="answer"]').placeholder`)),
+    await evalJs(s, `document.querySelector('.card.open [data-role="answer"]').placeholder`)
+  );
+
+  // Cancel has to actually cancel — a decline you backed out of must leave merge
+  // exactly where it was.
+  await evalJs(s, `document.querySelector('[data-act="pr-decline-cancel"]').click()`);
+  await sleep(400);
+  check(
+    'cancelling puts the three buttons back and sends nothing',
+    posted.length === 0 && (await evalJs(s, `!!${DELIV}.querySelector('[data-act="pr-merge"]')`)),
+    `${posted.length} request(s) sent`
+  );
+
+  // With direction.
+  await evalJs(s, `${DELIV}.querySelector('[data-act="pr-decline"]').click()`);
+  await sleep(500);
+  await evalJs(
+    s,
+    `(() => {
+      const box = document.querySelector('.card.open [data-role="answer"]');
+      box.value = 'Do it in the poller, not the router — the router cannot see the workspace.';
+      box.dispatchEvent(new Event('input', { bubbles: true }));
+      document.querySelector('.pr-decline [data-act="pr-decline-go"]').click();
+    })()`
+  );
+  await sleep(700);
+  check(
+    'confirming sends the DECLINE: marker',
+    /^DECLINE: /.test(posted[0]?.response || ''),
+    JSON.stringify(posted[0]?.response || '').slice(0, 90)
+  );
+  check(
+    'and carries the direction verbatim, which is the whole point of it',
+    /poller, not the router/.test(posted[0]?.response || ''),
+    posted[0]?.response?.slice(0, 80)
+  );
+
+  // Without direction — an empty box is a complete answer here, unlike changes.
+  v = await reload('clean');
+  posted.length = 0;
+  await evalJs(s, `${DELIV}.querySelector('[data-act="pr-decline"]').click()`);
+  await sleep(500);
+  await evalJs(s, `document.querySelector('.pr-decline [data-act="pr-decline-go"]').click()`);
+  await sleep(700);
+  check(
+    'a decline with an empty box still goes — the direction is optional',
+    /^DECLINE: /.test(posted[0]?.response || ''),
+    posted[0]?.response
   );
 
   /* ------------------------------------------------------------ 5. adjusting */

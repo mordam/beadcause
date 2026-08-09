@@ -1381,9 +1381,9 @@ session finishes ──► pushes its branch ──► gh pr create
                                                │
               ┌────────────────────────────────┼────────────────────────┐
               ▼                                ▼                        ▼
-        Merge #42                      Request changes            Close unmerged
-   gh pr merge --squash          note → the PR and the bead      gh pr close
-   bead closes: it landed        bead reopens: try again         bead stays open
+        Merge #42                      Request changes               Decline it
+   gh pr merge --squash          note → the PR and the bead      gh pr close + direction
+   bead closes: it landed        same branch, push more          fresh branch, start again
 ```
 
 Three things follow from that, and they are the whole of the change:
@@ -1445,6 +1445,40 @@ marker. Note which way that fails. No wording of a typed answer can merge anythi
 merging needs `MERGE:`, and only the button writes it. Prose is safe in the one
 direction where safety matters.
 
+### Decline is the other one, and it is not a stronger no
+
+*Request changes* and *decline* look adjacent on a phone and are not the same act.
+Choosing wrong costs a whole session, so the difference is the first thing the panel
+says:
+
+|  | request changes | decline |
+|---|---|---|
+| what was wrong | something **on** the branch | the **approach** |
+| the pull request | stays open | closes |
+| the branch | stays, push more commits to it | abandoned |
+| the bead | back in the queue | back in the queue |
+| the next session | continues the same attempt | starts again, fresh branch |
+
+Declining takes two steps rather than a timed double-tap, because the second step has
+a box in it. **The direction is optional and it is the most valuable sentence in this
+whole channel** — a decline with nothing attached tells the next session only that its
+predecessor was wrong, which is exactly enough information to do the same thing again.
+So what you type goes onto the bead under a *This approach was declined* heading,
+along with the closed PR's number and the name of the branch not to touch. Where you
+left nothing, the bead says so plainly rather than pretending there was guidance:
+*"No direction was given. Read the closed PR before starting again."*
+
+What is **not** declined is the work. The bead is reopened and unclaimed, never
+closed — deciding against an attempt is not deciding against the thing it attempted,
+and closing the bead would quietly make it so. The unclaim is the part that actually
+matters: the bead was claimed by the session that built the branch, and a claimed bead
+never comes back through `bd ready`, so without it the work would sit open forever,
+held by a process that exited hours ago.
+
+Both buttons that can finish a decline — the one in the panel, and the primary under
+the box you may have scrolled down to type in — send the same thing. They are far
+apart on a long card, and either should be able to finish the job.
+
 ### Consent is a marker, because two of the three paths carry only text
 
 The same discipline as an advocate's proposal, for the same reason: the phone sends
@@ -1456,7 +1490,7 @@ is treated as consent.
 |---|---|
 | `MERGE:` | `gh pr merge --squash --delete-branch`, then closes the work bead with the PR number in its reason |
 | `CHANGES:` | comments on the PR and the bead, reopens the bead, leaves the branch alone |
-| `DROP:` | closes the PR unmerged, with your reason on it — the bead stays open |
+| `DECLINE:` | closes the PR unmerged, abandons the branch, reopens the bead — and writes whatever direction you gave onto it |
 
 "Looks good to me" is a comment, which is exactly what it looks like. So is *"I think
 we should MERGE: it"* — the marker only counts at the start.
@@ -2115,7 +2149,7 @@ Auth on everything under `/api/` except `/api/health`: header
 | GET | `/api/questions` | `?scope=human\|both\|agent` | `{questions[], workspaces[], spaces[], summary, scope}` — `scope` defaults to `human`, and an unrecognised value falls back to it rather than erroring. `summary` is `{sessions, proposals}`, the two counts the inbox's bar draws |
 | GET | `/api/question` | `?workspace=&id=` | one question **plus `comments[]`** |
 | GET | `/api/poll` | `?since=<seq>&wait=<s>` | long-poll: `{seq, resync, events[], questions, workspaces[]}` |
-| POST | `/api/respond` | `{workspace, id, response, create?, edits?}` | comments, then closes the bead. `create` is the 1-based indices of a proposal's beads to file; without it, `CREATE:` in the text means all and `CREATE: 1,3` means those. `edits` is `{n: {title, type, priority, description, acceptance}}` keyed by the same numbers, applied before creating. A `MERGE:` / `CHANGES:` / `DROP:` response on a delivery question acts on its pull request first — see [Landing work](#landing-work--a-branch-a-pull-request-and-your-tap) |
+| POST | `/api/respond` | `{workspace, id, response, create?, edits?}` | comments, then closes the bead. `create` is the 1-based indices of a proposal's beads to file; without it, `CREATE:` in the text means all and `CREATE: 1,3` means those. `edits` is `{n: {title, type, priority, description, acceptance}}` keyed by the same numbers, applied before creating. A `MERGE:` / `CHANGES:` / `DECLINE:` response on a delivery question acts on its pull request first — see [Landing work](#landing-work--a-branch-a-pull-request-and-your-tap) |
 | GET | `/api/pr` | `?workspace=&id=` | `{delivery, pr, unavailable}` — the live diffstat, check rollup and mergeability of a delivery question's PR. Every failure is an answer rather than a 500: no `gh`, no remote, GitHub unreachable all come back with `pr: null` and a sentence in `unavailable` |
 | POST | `/api/comment` | `{workspace, id, text, agent?}` | comments, sets `human-replied`, dispatches that agent to reply (default when absent or unknown) |
 | POST | `/api/ask` | `{workspace, title, body, priority}` | `{id, key}` — files a new `human` bead |

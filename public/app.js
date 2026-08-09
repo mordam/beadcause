@@ -64,6 +64,10 @@
     // pushes to the branch — and the number you are looking at when you press merge
     // is the one that has to be right. Fetched once per card, never on the poll.
     prs: new Map(),
+    // Which delivery cards you have started declining. A mode rather than an armed
+    // button, because a decline can carry direction for the next attempt and typing
+    // a paragraph would outlive any arm timer — see declineHtml.
+    prDecline: new Set(),
   };
 
   /* ---------------------------------------------------------------- token */
@@ -742,7 +746,6 @@
     if (!d) return '';
     const live = state.prs.get(q.key);
     const armed = state.armed === `${q.key}|merge`;
-    const dropArmed = state.armed === `${q.key}|drop`;
 
     return `<div class="delivery" data-key="${esc(q.key)}">
       <div class="section-label">Pull request <span>nothing merges until you say so</span></div>
@@ -753,15 +756,46 @@
       <div class="pr-branch"><code>${esc(d.branch)}</code> → <code>${esc(d.base)}</code></div>
       ${prSummaryHtml(q, d)}
       <div class="pr-stats">${prStatsHtml(live)}</div>
-      <div class="pr-actions">
+      ${
+        state.prDecline.has(q.key)
+          ? declineHtml(q, d)
+          : `<div class="pr-actions">
         <button class="primary pr-merge${armed ? ' confirm' : ''}" data-act="pr-merge" data-key="${esc(q.key)}"
           ${live?.pr && !canMerge(live.pr) ? 'disabled' : ''}>
           ${armed ? 'Tap again to confirm · ' : ''}${esc(mergeLabel(d, live))}
         </button>
         <button class="secondary" data-act="pr-changes" data-key="${esc(q.key)}">Request changes</button>
-        <button class="linkish danger${dropArmed ? ' confirm' : ''}" data-act="pr-drop" data-key="${esc(q.key)}">
-          ${dropArmed ? 'Tap again · close it unmerged' : 'Close it unmerged'}
-        </button>
+        <button class="linkish danger" data-act="pr-decline" data-key="${esc(q.key)}">Decline it</button>
+      </div>`
+      }
+    </div>`;
+  }
+
+  /**
+   * Declining, once you have said you mean to.
+   *
+   * The three actions are not three shades of the same thing, and this panel exists
+   * to stop the two that look alike from being confused. **Request changes** says the
+   * branch is right and something on it is wrong: same PR, more commits. **Decline**
+   * says the approach is wrong: the PR closes, the branch is abandoned, and the bead
+   * goes back to the queue for a fresh start. Choosing the wrong one wastes a whole
+   * session, so the panel says which is which at the moment of choosing.
+   *
+   * It replaces the buttons rather than sitting under them, which is what makes this
+   * two deliberate steps without an arm timer to race — and a decline can carry a
+   * paragraph of direction, which no six-second timer would survive.
+   */
+  function declineHtml(q, d) {
+    return `<div class="pr-decline">
+      <p class="decline-head">Declining <strong>#${d.number}</strong></p>
+      <p class="decline-why">The pull request closes and <code>${esc(d.branch)}</code> is abandoned.
+        ${d.bead ? `<strong>${esc(d.bead)}</strong> goes back in the queue` : 'The work stays open'} for a fresh start —
+        declining this attempt is not declining the work.</p>
+      <p class="decline-why">Say what to do instead in the box below, if you know. It is optional, and it is the
+        difference between a session that starts again and a session that starts again the same way.</p>
+      <div class="pr-actions">
+        <button class="primary danger" data-act="pr-decline-go" data-key="${esc(q.key)}">Decline #${d.number}</button>
+        <button class="linkish" data-act="pr-decline-cancel" data-key="${esc(q.key)}">Cancel</button>
       </div>
     </div>`;
   }
@@ -880,6 +914,31 @@
       state.prs.set(q.key, { loading: false, pr: null, unavailable: err.message });
     }
     paintPr(q.key);
+  }
+
+  /**
+   * Send the decline, with whatever direction is in the box.
+   *
+   * One function, two buttons: the confirm in the panel where you tapped decline, and
+   * the primary under the box you may have scrolled down to type in. They are far
+   * apart on a long card and either one should finish the job, so neither may have
+   * its own idea of what gets sent.
+   *
+   * The note is optional by design and the wording says which happened, because
+   * "declined" and "declined, and here is what to do instead" are different messages
+   * to leave for the session that picks the bead up next.
+   */
+  async function declineNow(key) {
+    const q = byKey(key);
+    const d = q?.delivery;
+    if (!d) return;
+    const box = listEl.querySelector(`.card[data-key="${CSS.escape(key)}"] [data-role="answer"]`);
+    const note = (box?.value || '').trim();
+    state.prDecline.delete(key);
+    disarm();
+    await submit(key, note ? `DECLINE: ${note}` : `DECLINE: close #${d.number} — this approach is not the one.`, {
+      close: true,
+    });
   }
 
   /** Repaint one delivery's live half in place — never a render(), same as paintPicks. */
@@ -1249,17 +1308,26 @@
 
     parts.push(`<div class="agents">${agentsHtml()}</div>`);
 
-    // On a delivery the box has one job — saying what needs to change — so it says
-    // so. A button labelled "Answer & close" over a pull request invites a sentence
-    // that reads like approval and lands as a change request.
-    parts.push(`<div class="freeform">
-      <textarea data-role="answer" placeholder="${
-        q.delivery ? 'What needs changing before this can merge…' : 'Answer in your own words…'
-      }" rows="3">${esc(getDraft(q.key))}</textarea>
+    // On a delivery the box has one job, and which job depends on what you tapped to
+    // get here — so it says which. A button labelled "Answer & close" over a pull
+    // request invites a sentence that reads like approval and lands as a rejection.
+    const declining = q.delivery && state.prDecline.has(q.key);
+    const boxPlaceholder = declining
+      ? 'Optional — what should the next attempt do instead?'
+      : q.delivery
+      ? 'What needs changing before this can merge…'
+      : 'Answer in your own words…';
+    const boxLabel = declining
+      ? `Decline #${q.delivery.number} &amp; close`
+      : q.delivery
+      ? 'Request changes &amp; close'
+      : 'Answer &amp; close';
+    parts.push(`<div class="freeform${declining ? ' declining' : ''}">
+      <textarea data-role="answer" placeholder="${boxPlaceholder}" rows="3">${esc(getDraft(q.key))}</textarea>
       <div class="row">
-        <button class="primary" data-act="answer" data-key="${esc(q.key)}">${
-      q.delivery ? 'Request changes &amp; close' : 'Answer &amp; close'
-    }</button>
+        <button class="primary${declining ? ' danger' : ''}" data-act="${
+      declining ? 'pr-decline-go' : 'answer'
+    }" data-key="${esc(q.key)}">${boxLabel}</button>
         <button class="secondary" data-act="note" data-key="${esc(q.key)}">Comment only</button>
       </div>
     </div>`);
@@ -2163,23 +2231,34 @@
       return;
     }
 
-    if (act === 'pr-drop') {
-      const q = byKey(key);
-      const d = q?.delivery;
-      if (!d) return;
-      const token = `${key}|drop`;
-      if (state.armed !== token) {
-        state.armed = token;
-        clearTimeout(state.armedTimer);
-        state.armedTimer = setTimeout(() => {
-          disarm();
-          render(true);
-        }, 6000);
-        render(true);
-        return;
-      }
+    /**
+     * Step one of declining: say you mean to, and get somewhere to say why.
+     *
+     * Opens the card the same way "request changes" does, because the direction for
+     * the next attempt is typed in the same box — but unlike changes, an empty box is
+     * a complete answer here.
+     */
+    if (act === 'pr-decline') {
+      state.prDecline.add(key);
+      state.open.add(key);
       disarm();
-      await submit(key, `DROP: close #${d.number} without merging.`, { close: true });
+      render(true);
+      const box = listEl.querySelector(`.card[data-key="${CSS.escape(key)}"] [data-role="answer"]`);
+      if (box) {
+        box.focus();
+        box.setSelectionRange(box.value.length, box.value.length);
+      }
+      return;
+    }
+
+    if (act === 'pr-decline-cancel') {
+      state.prDecline.delete(key);
+      render(true);
+      return;
+    }
+
+    if (act === 'pr-decline-go') {
+      await declineNow(key);
       return;
     }
 

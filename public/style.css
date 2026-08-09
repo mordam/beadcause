@@ -508,10 +508,27 @@ body {
 .pr-merge.confirm { background: var(--warn); color: var(--accent-ink); }
 .pr-merge:disabled { opacity: 0.45; }
 .pr-actions .secondary { width: 100%; }
-/* Closing a PR unmerged is rare and slightly destructive: last, quiet, and never
-   the thing a thumb lands on by accident. */
+/* Declining is rare and throws a session's work away: last, quiet, and never the
+   thing a thumb lands on by accident. */
 .pr-actions .linkish.danger { align-self: center; color: var(--danger); }
-.pr-actions .linkish.danger.confirm { color: var(--warn); font-weight: 700; }
+
+/* Once you have said you mean it, the panel replaces the three buttons — two
+   deliberate steps, with room to say what the next attempt should do instead. */
+.pr-decline {
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 12px; margin-top: 2px;
+  border: 1px solid color-mix(in srgb, var(--danger) 45%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--danger) 8%, transparent);
+}
+.decline-head { margin: 0; font-size: 14px; font-weight: 600; color: var(--danger); }
+.decline-why { margin: 0; font-size: 12.5px; line-height: 1.5; color: var(--prose); }
+.decline-why code { font-size: 11.5px; }
+.pr-decline .pr-actions { padding-top: 4px; }
+.primary.danger { background: var(--danger); color: #fff; }
+/* The box you type the direction into belongs to the decline while that is what is
+   happening, so it is framed as part of it rather than as a general answer box. */
+.freeform.declining textarea { border-color: color-mix(in srgb, var(--danger) 45%, transparent); }
 .linkish {
   flex: 1;
   min-height: 40px;
