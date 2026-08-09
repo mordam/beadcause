@@ -995,6 +995,25 @@ bead that already exists (`dependsOn: [bc-7rx]`), which is how "this waits on th
 we started from" is written; those are checked against the tracker before anything is
 written, so a made-up id costs a warning rather than a half-created proposal.
 
+### What you just filed, one tap away
+
+Creating leaves a **✓ Created N beads** note in the scrollback, one row per bead. That
+row is the one link in beadcause you tap while still holding the thought that made the
+bead, so it goes straight to the bead: `?open=1` on the graph page raises that bead's
+detail sheet as soon as the graph has drawn, and the text you just wrote is on screen
+without finding a node in a force layout mid-animation. Dismissing the sheet leaves you
+on the graph, scoped to that bead, which is where the link used to stop.
+
+The whole row is the target — pill *and* title in one anchor, 40px tall. The title was
+the big wrapping thing beside a 40px-wide pill, and it looked tappable long before it
+was. Same for the **Starting from** line at the head of a seeded console.
+
+`node scripts/created-link-check.mjs` checks all of it in headless Chrome at phone
+size, against fixtures rather than the daemon, and aims `elementFromPoint` at the
+middle of the *title* rather than trusting the markup. `--baseline` serves the
+committed `console.js`/`graph.js`/`style.css` instead: it must fail the five link and
+target cases and pass the two that describe what already worked.
+
 ### A console ends when the beads exist
 
 A console is a conversation with one purpose, and pressing **Create** achieves it. So
