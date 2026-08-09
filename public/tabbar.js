@@ -31,10 +31,18 @@
     // home screen still holds the old ones, so a tab has to recognise all of them
     // or the bar shows nothing as current on a page you are plainly looking at.
     { id: 'inbox', href: '/', icon: '📥', label: 'Inbox', paths: ['/', '/index.html'] },
-    // "Chat session", not "Chat": the tab next to it is Sessions, and /foundations
-    // has agent chats of its own. The id and the href stay `console` — they live in
-    // stored conversation records and on the phone's home screen.
-    { id: 'console', href: '/console', icon: '🧾', label: 'Chat session', paths: ['/console', '/console.html'] },
+    // Everywhere else this is a "chat session" — the page title, the <h1>, the
+    // foundation, the README. Here it is one word, and the bar is why: five tabs
+    // give each label 72px at 360px, and "Chat session" measures 68px *unwrapped*,
+    // so it takes two lines while its four neighbours take one and its icon rides
+    // higher than theirs. 360px is the common Android width and the app is a WebView
+    // shell, so that is the ordinary case, not the edge. The word it might be
+    // confused with — the agent chats on /foundations — is not a tab, so nothing
+    // here is ambiguous; "Sessions" beside it is the one that would be, and it is
+    // the label this one drops.
+    // The id and the href stay `console`: they live in stored conversation records
+    // and on the phone's home screen.
+    { id: 'console', href: '/console', icon: '🧾', label: 'Chat', paths: ['/console', '/console.html'] },
     { id: 'sessions', href: '/sessions', icon: '🤖', label: 'Sessions', paths: ['/sessions', '/work', '/work.html'] },
     { id: 'advocates', href: '/monitor', icon: '📣', label: 'Advocates', paths: ['/monitor', '/advocates', '/monitor.html'] },
     // The fifth tab this file's header left room for. Pause all / resume all lives

@@ -1057,7 +1057,8 @@ way **What this is blocking** does and asserts that bead ends up under it.
 ## Getting around — the tab bar
 
 There are four standing views: the **inbox**, the **chat session**, the **sessions**
-and the **advocates**. They are four separate pages, and each one used to end in an ✕
+and the **advocates** — the bar labels the second one just **Chat**, because five
+tabs leave no room for two words at 360px. They are four separate pages, and each one used to end in an ✕
 in the top right that hard-navigated back to `/`. That made the inbox a hallway —
 chat session to advocates was two taps through a page you did not want — and the ad-hoc
 cross-links that grew to paper over it (sessions → advocates, advocates → sessions)
@@ -1066,8 +1067,8 @@ were the same complaint, admitting itself.
 So all four carry the same bar along the bottom, where a thumb already is:
 
 ```
-  📥            🧾            🤖          📣
- Inbox   Chat session   Sessions   Advocates
+  📥       🧾        🤖          📣
+ Inbox   Chat   Sessions   Advocates
  ▔▔▔▔▔
 ```
 
