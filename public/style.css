@@ -1851,3 +1851,86 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
   :root { --tabbar-h: 44px; }
   .tab-icon { font-size: 17px; }
 }
+
+/* ------------------------------------------------------------------- drawer */
+
+/* Detail over the tab you were on: the dependency graph, or a document a question
+   told you to read. See public/drawer.js — the panel holds an iframe of the page
+   that already exists, which is why there is nothing here about its contents.
+
+   Above .card.open (40) and the toast (40), below the token dialog (60 and a real
+   <dialog>, which lives in the top layer anyway): a drawer covers the brief you
+   were reading, and is covered by anything that has to be answered first. */
+.drawer-wrap {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+}
+.drawer-wrap[hidden] { display: none; }
+
+.drawer-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  opacity: 0;
+  transition: opacity 180ms ease;
+}
+.drawer-wrap.open .drawer-backdrop { opacity: 1; }
+
+.drawer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg);
+  border-left: 1px solid var(--line);
+  box-shadow: -18px 0 44px rgba(0, 0, 0, 0.45);
+  /* The page inside an iframe is told nothing about the notch — insets resolve to
+     zero in there — so the panel holds it off the hardware itself. */
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+  transform: translateX(100%);
+  transition: transform 220ms cubic-bezier(0.2, 0.7, 0.3, 1);
+}
+.drawer-wrap.open .drawer { transform: none; }
+.drawer:focus { outline: none; }
+
+.drawer-frame {
+  flex: 1;
+  width: 100%;
+  border: 0;
+  background: var(--bg);
+}
+
+/* The strip a swipe-to-dismiss starts from. Transparent and narrow, in front of the
+   iframe, because a touch that lands in an iframe is never seen out here. */
+.drawer-edge {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 18px;
+  z-index: 2;
+}
+
+/* Wide enough to have somewhere else to look: inset, so the tab underneath stays
+   visible and the drawer reads as detail rather than as a new page. */
+@media (min-width: 760px) {
+  .drawer {
+    top: 14px;
+    right: 14px;
+    bottom: 14px;
+    width: min(680px, 62vw);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .drawer,
+  .drawer-backdrop { transition: none; }
+}

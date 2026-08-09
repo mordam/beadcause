@@ -126,11 +126,12 @@ images:
   future agent can act on it without re-reading the question.
 - `diagram` is mermaid, rendered on the phone. ` ```mermaid ` fences in the prose
   render too.
-- `docs` are files on the Mac you need to read before answering. Each opens in a
-  **separate reader tab** (`/doc?p=…`): markdown is rendered, text/log/csv shown
-  as-is, PDFs embedded. Relative links inside a rendered markdown doc resolve
-  against that doc's directory, so a spec that links its sibling files stays
-  navigable. Servable extensions are images plus
+- `docs` are files on the Mac you need to read before answering. Each opens in the
+  **reader** (`/doc?p=…`) as a [drawer over the card you were
+  reading](#detail-opens-over-the-tab-not-instead-of-it): markdown is rendered,
+  text/log/csv shown as-is, PDFs embedded. Relative links inside a rendered markdown
+  doc resolve against that doc's directory, so a spec that links its sibling files
+  stays navigable — and follows into the same drawer. Servable extensions are images plus
   `.md .markdown .txt .log .csv .json .jsonl .yaml .yml .pdf` — source files are
   refused, deliberately.
 - **A local path written inline in the prose becomes a reader link too** —
@@ -620,7 +621,9 @@ because `bd human list` doesn't return a dependent count and `bd show` does — 
 same reason `commentCount` is 0 until you open a question.
 
 The graph itself is at `/graph?ws=<workspace>` with an optional `&id=<bead>`, and a
-scope switch between *this bead* and the *whole workspace*.
+scope switch between *this bead* and the *whole workspace*. Tapped from any view, it
+opens as a [drawer over that view](#detail-opens-over-the-tab-not-instead-of-it)
+rather than as a page you have to find your way back from.
 
 ### It grows, five beads at a time
 
@@ -775,6 +778,81 @@ exactly one tab is current and it is the right one, the current tab is not a lin
 and the last row of the list, the console's composer and the last advocate card all
 clear it — in both colour schemes. `--fake-inset` re-runs the safe-area sums with a
 notch substituted in, for the Chromes with no `Emulation.setSafeAreaInsets`.
+
+## Detail opens over the tab, not instead of it
+
+The graph and the reader are linked from all four views — the inbox, current
+sessions, the advocates and the bead console — and both used to be a full-page
+navigation. Looking at what a bead blocks therefore cost you your place in the list,
+your half-typed answer was behind a **✕ → inbox** you had to trust, and the back
+gesture landed on whatever the browser felt like. They are not destinations. They
+are detail about the thing you just tapped, so they **slide in from the right over
+the current tab** and dismiss back to it.
+
+`public/drawer.js` is one file loaded by both sides of it, picking its half at load:
+
+- **On a tab**, it intercepts clicks on `/graph?` and `/doc?` links and loads the
+  page that already exists into an iframe in the panel. The iframe is the whole
+  trick — it keeps d3 out of the inbox's bundle and marked out of the graph's, and
+  no page had to learn to render the other one. The anchors keep their real `href`,
+  so long-press → open in new tab still works, and a pasted `/graph?ws=…` or
+  `/doc?p=…` URL still loads the standalone page exactly as before. (A detail page
+  opened on its own installs nothing: no drawer over a drawer's worth of the same
+  thing.)
+- **Inside the drawer**, the page's own ✕ closes the drawer rather than calling
+  `window.close()` on a tab it does not own, and a link from one document to the next
+  retargets the drawer instead of escaping to a new tab.
+
+**The tab underneath is never navigated and its scroll is never touched.** That is
+the point of the change, and it is also why there is no scroll-restoring code
+anywhere in the drawer: the inbox's own anchoring (see [Keeping your place in a long
+brief](#keeping-your-place-in-a-long-brief)) keeps working behind the panel, and an
+open brief is on the same paragraph when the drawer goes.
+
+**One history entry, exactly.** The drawer pushes one, so Android's back button and
+iOS's back-swipe close it and land you on the tab you were reading. Exactly one is
+the fiddly part: an iframe's *initial* navigation adds no session-history entry and
+every one after it does, so a drawer that re-pointed its iframe by `src` would make
+back walk you through every document you had opened inside it before finally giving
+you the tab. In-drawer navigation goes through `location.replace()`, and a closed
+drawer drops its iframe so the next open is an initial load again — which also means
+a graph left open is not still polling behind the tab you went back to.
+
+Dismiss it with the ✕, with the backdrop, with a swipe right, or with back. The
+swipe needs saying: a touch inside an iframe is never seen by the page around it, so
+the drawer has a narrow transparent strip down its own left edge to start one from,
+and the page in the drawer forwards its own swipes out. The graph pans, and a wide
+table or code block scrolls sideways, so a swipe that starts on one of those is left
+to it rather than stolen.
+
+**Full width on a phone, inset on a wide screen** — with the tab still visible
+around it, because there it reads as detail rather than as a new page.
+
+The Android shell needed one line for this. `shouldOverrideUrlLoading` fires for
+subframe navigations too, so the WebView was intercepting the drawer's own iframe
+load and opening `DocActivity` on top of a drawer that stayed empty behind it. It now
+leaves anything that is not the main frame alone; a `/doc` link that *is* a main-frame
+navigation — a notification, a deep link — still opens the native reader.
+
+### Checking that it gives the tab back
+
+`node scripts/drawer-check.mjs` drives the real `public/*.js` in headless Chrome at
+phone size against fixtures served from the script, so it needs neither the daemon
+nor a real bead. It reads a brief a long way down, opens the spec it links to, and
+asserts the paragraph has not moved — then that the ✕ inside closes the drawer and
+not the tab, that a link inside a document retargets the drawer, that **one** back
+closes it however many documents were read in there, that the same module behaves on
+the sessions tab with a graph, that the panel is full width on a phone and inset with
+a working backdrop on a wide screen, and that a pasted `/graph` URL still loads the
+page itself.
+
+`--baseline` serves the committed copies instead of the working ones — and
+`drawer.js` does not exist at HEAD — which is how you check a failure here is a real
+one: baseline passes the pasted-URL case and fails all thirteen others. `--out=DIR`
+saves the two shots worth eyeballing, since how it *looks* is not something a number
+can say. Like the other browser checks it is not in `npm test`, because it needs
+Chrome; run it when you touch the drawer, the graph, the reader, or the links into
+either.
 
 ## Current sessions — who is working, and on what
 

@@ -115,6 +115,11 @@ class MainActivity : AppCompatActivity() {
             val url = request.url
             val isOurs = url.host != null && url.host == serverHost
             return when {
+                // The detail drawer loads /doc and /graph into an iframe over the tab
+                // you were on (public/drawer.js), and a subframe load arrives here
+                // exactly like a tap would. Left alone, or the reader below would open
+                // on top of a drawer that stayed empty behind it.
+                !request.isForMainFrame -> false
                 // The reader tab. Opening it on top keeps your place in the list —
                 // and any answer you'd started typing — exactly where it was.
                 isOurs && url.path?.startsWith("/doc") == true -> {
