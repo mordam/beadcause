@@ -453,7 +453,7 @@
             .map((x) => `<span class="pill${f.pills === 'id' ? ' id' : ''}">${esc(x)}</span>`)
             .join('')
         : v
-        ? `<div class="md">${renderMarkdown(v)}</div>`
+        ? `<div class="md">${renderMarkdown(v, FROM_BD)}</div>`
         : '';
       if (!body) return '';
       const label = f.label ? `<span class="prop-label">${f.label}</span>` : '';
@@ -519,7 +519,8 @@
               ${
                 b.rationale
                   ? `<div class="prop-why"><span class="prop-label">Why</span><div class="md">${renderMarkdown(
-                      b.rationale
+                      b.rationale,
+                      FROM_BD
                     )}</div></div>`
                   : ''
               }

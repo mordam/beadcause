@@ -55,7 +55,9 @@ const BEADS = [
     type: 'task',
     priority: 2,
     description: [
-      'The script tag carries no `?v=`, so a shipped change looks absent:',
+      'The script tag carries no `?v=`, so a shipped change looks absent, and the',
+      'paragraph saying so arrives hard-wrapped the way bd stores every field it',
+      'has — which must reflow here rather than take a forced break per line:',
       '',
       '- a browser that has the page cached keeps the old file',
       '- a hard reload is the only way anyone finds out',
@@ -252,6 +254,7 @@ const FIELD = (n, label) => `(() => {
     if (want ? l && l.textContent.trim().toLowerCase() === want.toLowerCase() : !l) {
       return {
         lists: f.querySelectorAll('ul, ol').length,
+        breaks: f.querySelectorAll('br').length,
         items: f.querySelectorAll('li').length,
         pills: f.querySelectorAll('.pill').length,
         text: f.textContent.replace(/\\s+/g, ' ').trim().slice(0, 120),
@@ -320,6 +323,11 @@ try {
     'a bulleted description renders as a list',
     !!desc && desc.lists >= 1 && desc.items === 3,
     desc ? `${desc.lists} list(s), ${desc.items} items` : 'no description field at all'
+  );
+  check(
+    'a hard-wrapped paragraph reflows instead of stepping down the screen',
+    !!desc && desc.breaks === 0,
+    desc ? `${desc.breaks} forced break(s)` : 'no description field at all'
   );
 
   /* 2. acceptance is its own labelled line, not a pill in among the others */
