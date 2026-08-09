@@ -361,7 +361,7 @@ try {
       return {
         onScreen: r.top < window.innerHeight && r.bottom > 0,
         flashed: note.classList.contains('flash'),
-        ids: [...note.querySelectorAll('a.pill.id')].map((a) => a.textContent.trim()),
+        ids: [...note.querySelectorAll('.pill.id')].map((a) => a.textContent.trim()),
       };
     })()`
   );
