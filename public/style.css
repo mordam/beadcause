@@ -344,6 +344,20 @@ body {
        moving text is unreadable exactly when you are trying to type into it. */
     background: var(--surface);
   }
+
+  /*
+    The roster opens *upward* here, and it has to.
+
+    It hangs off the ⋯ on the reply bar, which is the top edge of the box — and the
+    box is now the bottom of the screen. Dropping it down from there put a 62dvh
+    panel into the ~140px below it: clipped by the card, which stopped being a
+    scroller, and mostly off the screen besides. Above the bar there is the whole
+    brief's worth of room, and it is the same tap either way.
+  */
+  .card.open > .freeform .agent-panel {
+    top: auto;
+    bottom: calc(100% + 6px);
+  }
   /*
     Shorter at rest than it was in the brief. Every pixel this row keeps is a pixel
     the brief above it does not get, and three empty rows of textarea are three rows
@@ -467,16 +481,74 @@ body {
 }
 .row-x:disabled { opacity: 0.4; }
 
-/* Who answers when you comment. A mode rather than a per-card setting, so it sits
-   at the foot of the brief, in the scrolling body, above the pinned answer box whose
-   behaviour its choice changes. */
-.agents { padding: 0 15px 2px; }
-.agents .section-label { margin-bottom: 6px; }
-.agent-row { padding: 0 0 6px; gap: 6px; }
+/*
+  Who answers when you comment — a strip along the top edge of the box it governs,
+  and the roster behind the ⋯ at its corner.
+
+  It used to be the whole block: a label, the chips, the selected agent's
+  foundation and the tools checkbox, drawn in full every time a bead opened. On a
+  phone that was several centimetres of a control nearly every comment leaves
+  alone, sitting between the thread you just read and the box you were about to
+  type in. What stays outside the panel is what you cannot answer without: which
+  agent replies, and whether it has been armed.
+*/
+.reply-bar {
+  display: flex; align-items: center; gap: 8px;
+  padding: 4px 4px 4px 12px;
+  border: 1px solid var(--line); border-bottom: 0;
+  border-radius: 11px 11px 0 0;
+  /* The box's own colour, so the strip and the textarea read as one control with a
+     ⋯ in its corner rather than as a caption sitting on a lid. */
+  background: var(--surface-2);
+}
+.reply-bar[hidden] { display: none; }
+/* Joined to the textarea, so the ⋯ reads as that box's own corner rather than as
+   another control floating above it. The gap belongs to .freeform, so it is closed
+   here rather than by dropping the gap for everything in the block. */
+.reply-bar + textarea { margin-top: -8px; border-top-left-radius: 0; border-top-right-radius: 0; }
+.reply-who { flex: 1; min-width: 0; font-size: 12px; line-height: 1.45; color: var(--muted); }
+.reply-who b { font-weight: 650; color: var(--text); }
+/* An elevation that is spent the moment you press the button under it does not get
+   to be invisible while the panel is shut. */
+.reply-armed { color: var(--warn); font-weight: 600; }
+.agent-wrap { position: relative; }
+.agent-dots {
+  flex: none;
+  display: flex; align-items: center; gap: 4px;
+  min-width: var(--tap); min-height: 40px; padding: 0 11px;
+  border: 1px solid var(--line); border-radius: 999px;
+  background: var(--surface); color: var(--muted);
+  font: inherit; font-size: 15px; line-height: 1;
+  cursor: pointer;
+}
+.agent-dots .dots-emoji { font-size: 14px; }
+.agent-dots.on { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+.agent-dots.armed {
+  border-color: var(--warn); color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 14%, transparent);
+}
+/* Anchored to the ⋯ and shaped like the kebab's menu, because it is the same kind
+   of thing: a popover over content you are in the middle of, closed by a tap
+   outside or by Escape. It scrolls itself rather than growing past the fold — a
+   long roster with a create form under it is taller than a phone. */
+.agent-panel {
+  position: absolute; top: calc(100% + 6px); right: 0; z-index: 50;
+  width: min(86vw, 340px); max-height: 62dvh; overflow-y: auto; overscroll-behavior: contain;
+  padding: 12px 12px 2px;
+  border: 1px solid var(--line); border-radius: 12px;
+  background: var(--surface);
+  box-shadow: 0 10px 28px rgb(0 0 0 / 0.28);
+}
+.agent-panel[hidden] { display: none; }
+.agent-panel .section-label { margin: 0 0 9px; padding-top: 0; border-top: 0; }
+/* Wrapped rather than scrolled sideways: in a 340px panel a hidden chip is an agent
+   you do not know you have. */
+.agent-row { flex-wrap: wrap; overflow: visible; padding: 0 0 8px; gap: 6px; }
 .agent-chip { font-size: 13px; }
 .agent-add { font-size: 16px; font-weight: 700; padding: 0 14px; }
-/* The foundation of the selected agent, printed rather than hidden behind a tap:
-   an agent whose brief you cannot read is a name you are guessing at. */
+/* The foundation of the selected agent, printed in the panel rather than left to
+   the name: an agent whose brief you cannot read is a name you are guessing at.
+   One tap in is the price of the fold; a tap deeper still would not be. */
 .agent-desc {
   margin: 0 0 10px; font-size: 12.5px; line-height: 1.5; color: var(--muted);
   display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden;
@@ -602,10 +674,102 @@ body {
 .prop-row.pick-yes { border-left: 3px solid var(--accent); padding-left: 8px; }
 .prop-row.pick-no { opacity: 0.5; }
 .prop-row.pick-no .prop-title { text-decoration: line-through; }
+/* Adjust — the third verdict, between ✓ and ✕ because that is where it sits in
+   meaning as well as in use: it is an approval with a correction attached. */
+.prop-btn.edit.on { background: var(--warn); color: var(--accent-ink); border-color: transparent; }
+.pill.adjusted { background: var(--warn); color: var(--accent-ink); border-color: transparent; }
+.prop-row.is-editing { border-left: 3px solid var(--warn); padding-left: 8px; }
+/* An open editor is the widest thing on the card and never folded — you cannot edit
+   what is hidden — so it gets the same indent as the body it replaces and no more. */
+.prop-edit { display: flex; flex-direction: column; gap: 10px; padding-left: 22px; }
+.edit-field { display: flex; flex-direction: column; gap: 4px; }
+.edit-field input, .edit-field textarea, .edit-field select {
+  width: 100%; padding: 9px 10px;
+  border: 1px solid var(--line); border-radius: 10px;
+  background: var(--surface-2); color: var(--text);
+  font: inherit; font-size: 14px; line-height: 1.45;
+  /* 16px would be the iOS rule for "don't zoom on focus", but the card is already
+     at a fixed width here and the zoom does not fire on a field this size inside
+     it; 14px keeps a rewritten description the same setting as the one it replaces. */
+}
+.edit-field textarea { resize: vertical; min-height: 60px; }
+.edit-row { display: flex; gap: 10px; }
+.edit-row .edit-field.small { flex: 1; }
 .prop-bulk { display: flex; align-items: center; gap: 14px; padding: 10px 0 12px; border-top: 1px solid var(--line); }
 .prop-count { margin-left: auto; font-size: 12px; color: var(--warn); }
 .prop-go { width: 100%; }
 .prop-go.confirm { background: var(--warn); color: var(--accent-ink); }
+
+/* ---- delivery: a worker handing back a pull request -------------------- */
+
+.delivery { display: flex; flex-direction: column; gap: 9px; padding: 4px 0 2px; }
+/* The link is the escape hatch to the real diff, so it is a proper target rather
+   than a word in a sentence — this is read one-handed, in another room. */
+.pr-link {
+  display: flex; align-items: baseline; gap: 8px;
+  min-height: 44px; padding: 8px 10px;
+  border: 1px solid var(--line); border-radius: 10px;
+  background: var(--surface-2); color: var(--text); text-decoration: none;
+}
+.pr-num { flex: none; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-weight: 700; color: var(--accent); }
+.pr-title { flex: 1; min-width: 0; font-size: 14px; font-weight: 590; line-height: 1.35; }
+.pr-branch { font-size: 12px; color: var(--muted); }
+/* The session's own account of what it did, on the card rather than behind
+   "Show details" — merge is two taps from here, so what you would want to have read
+   before those two taps has to be above them. */
+.pr-summary { display: flex; flex-direction: column; gap: 9px; }
+.pr-summary .md { font-size: 13px; line-height: 1.55; }
+.pr-summary .md p, .pr-summary .md ul, .pr-summary .md ol { margin: 0 0 8px; }
+.pr-summary .md ul, .pr-summary .md ol { padding-left: 18px; }
+.pr-summary .md li { margin-bottom: 3px; }
+.pr-summary .md > *:last-child { margin-bottom: 0; }
+.pr-summary.is-collapsed {
+  max-height: 148px; overflow: hidden;
+  -webkit-mask-image: linear-gradient(180deg, #000 60%, transparent 100%);
+  mask-image: linear-gradient(180deg, #000 60%, transparent 100%);
+}
+.delivery .prop-more { margin-left: 0; }
+.pr-branch code { font-size: 11.5px; }
+.pr-stats { display: flex; flex-wrap: wrap; gap: 6px; }
+.pr-chip {
+  padding: 3px 8px; border-radius: 999px;
+  border: 1px solid var(--line);
+  font-size: 11.5px; line-height: 1.5; color: var(--muted);
+}
+/* Four states, four colours, and "no checks" is deliberately not green: a repo with
+   no CI has told you nothing, and a green tick there would be a claim nobody made. */
+.pr-chip.good { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
+.pr-chip.warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, transparent); }
+.pr-chip.bad { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 45%, transparent); }
+.pr-chip.quiet { opacity: 0.75; }
+.pr-chip .add { color: var(--accent); }
+.pr-chip .del { color: var(--danger); }
+.pr-actions { display: flex; flex-direction: column; gap: 8px; padding-top: 2px; }
+.pr-merge { width: 100%; }
+.pr-merge.confirm { background: var(--warn); color: var(--accent-ink); }
+.pr-merge:disabled { opacity: 0.45; }
+.pr-actions .secondary { width: 100%; }
+/* Declining is rare and throws a session's work away: last, quiet, and never the
+   thing a thumb lands on by accident. */
+.pr-actions .linkish.danger { align-self: center; color: var(--danger); }
+
+/* Once you have said you mean it, the panel replaces the three buttons — two
+   deliberate steps, with room to say what the next attempt should do instead. */
+.pr-decline {
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 12px; margin-top: 2px;
+  border: 1px solid color-mix(in srgb, var(--danger) 45%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--danger) 8%, transparent);
+}
+.decline-head { margin: 0; font-size: 14px; font-weight: 600; color: var(--danger); }
+.decline-why { margin: 0; font-size: 12.5px; line-height: 1.5; color: var(--prose); }
+.decline-why code { font-size: 11.5px; }
+.pr-decline .pr-actions { padding-top: 4px; }
+.primary.danger { background: var(--danger); color: #fff; }
+/* The box you type the direction into belongs to the decline while that is what is
+   happening, so it is framed as part of it rather than as a general answer box. */
+.freeform.declining textarea { border-color: color-mix(in srgb, var(--danger) 45%, transparent); }
 .linkish {
   flex: 1;
   min-height: 40px;
@@ -1373,6 +1537,12 @@ body {
     height: auto;
     min-height: 84px;
     max-height: none;
+  }
+  /* And the roster drops down again, the way it does everywhere the box is not the
+     bottom of the screen — here it is a row in the middle of a column that scrolls. */
+  .card:has(> .brief:not([hidden])) > .freeform .agent-panel {
+    top: calc(100% + 6px);
+    bottom: auto;
   }
 
   /* The bounds the pinned layout put on the rows above the brief are its own: here

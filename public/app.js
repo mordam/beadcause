@@ -49,6 +49,10 @@
     agents: [],
     agent: localStorage.getItem('beadcause.agent') || '',
     agentForm: false,
+    // Which card has the ⋯ roster open, for the same reason as `menu`: the panel
+    // hangs over a half-written comment, so it is shown and hidden by hand, and
+    // this is what paints it back when a poll rebuilds the list underneath it.
+    agentMenu: null,
     // Per-bead decisions on an advocate's proposal: key → Map(1-based index →
     // 'yes' | 'no'). Held here rather than on the question so a background refresh
     // cannot wipe a half-made decision, the same reason drafts live outside it.
@@ -57,6 +61,23 @@
     // picks for the same reason: a background refresh must not fold a row back up
     // while you are reading it.
     propOpen: new Set(),
+    // Which rows you are *adjusting*, as `${key}|${n}`, and what you have changed:
+    // key → Map(1-based index → patch). ✓ and ✕ are a verdict on someone else's
+    // sentence, and the common case is neither — the bead is worth filing but the
+    // title is wrong. Without a third option that lands as a decline, and the work
+    // comes back next week phrased exactly the same way.
+    propEdit: new Set(),
+    edits: new Map(),
+    // The live half of a delivery card: key → { loading, pr, unavailable }. The
+    // diffstat and the check rollup come from GitHub rather than from the bead,
+    // because a diffstat frozen when the session ended is wrong the moment anyone
+    // pushes to the branch — and the number you are looking at when you press merge
+    // is the one that has to be right. Fetched once per card, never on the poll.
+    prs: new Map(),
+    // Which delivery cards you have started declining. A mode rather than an armed
+    // button, because a decline can carry direction for the next attempt and typing
+    // a paragraph would outlive any arm timer — see declineHtml.
+    prDecline: new Set(),
   };
 
   /* ---------------------------------------------------------------- token */
@@ -197,8 +218,15 @@
   };
   const clearDraft = (key) => localStorage.removeItem(draftKey(key));
 
-  /** Don't yank the textarea out from under a thumb mid-sentence. */
-  const isTyping = () => !!document.activeElement?.matches?.('[data-role="answer"]');
+  /**
+   * Don't yank the textarea out from under a thumb mid-sentence.
+   *
+   * The adjust fields count too. They hold their value in `state.edits` rather than
+   * in the DOM, so a repaint would not *lose* anything — but it would drop focus and
+   * put the caret back at the end, which mid-word is the same insult.
+   */
+  const isTyping = () =>
+    !!document.activeElement?.matches?.('[data-role="answer"], [data-role="edit-field"]');
 
   /**
    * Answering means focused OR holding text. The second half matters: you tap a
@@ -427,6 +455,88 @@
   const approvedIndices = (key, beads) =>
     beads.map((_, i) => i + 1).filter((n) => picksFor(key).get(n) === 'yes');
 
+  /* ------------------------------------------------------------- adjusting */
+
+  /** What you have rewritten on this proposal so far: 1-based index → partial bead. */
+  const editsFor = (key) => {
+    if (!state.edits.has(key)) state.edits.set(key, new Map());
+    return state.edits.get(key);
+  };
+
+  /**
+   * A proposed bead as it stands: what the agent wrote, under whatever you changed.
+   *
+   * Every surface reads beads through this rather than off `q.proposal` — the row,
+   * the fold height, the primary button's count — so an adjusted bead looks adjusted
+   * everywhere, and there is never a moment where the card shows one title and the
+   * create sends another.
+   */
+  const beadAt = (key, b, n) => ({ ...b, ...(editsFor(key).get(n) || {}) });
+
+  /** Whether row `n` differs from what was proposed. Drives the "adjusted" flag. */
+  const isAdjusted = (key, n) => {
+    const patch = editsFor(key).get(n);
+    return !!patch && Object.keys(patch).length > 0;
+  };
+
+  /** The fields adjusting exposes, and nothing else. */
+  const EDIT_FIELDS = [
+    { key: 'title', label: 'Title', tag: 'input' },
+    { key: 'description', label: 'Description', tag: 'textarea', rows: 5 },
+    { key: 'acceptance', label: 'Done when', tag: 'textarea', rows: 2 },
+  ];
+
+  const TYPES = ['task', 'bug', 'feature', 'epic', 'chore', 'decision'];
+
+  /**
+   * The row, in edit mode.
+   *
+   * Deliberately the same five things the console lets you change — title, type,
+   * priority, description, acceptance — and deliberately not labels or dependencies.
+   * Those are structural, they are rarely what is wrong with a proposed bead, and a
+   * chip editor is not something to build on a card you are trying to keep short.
+   * What you do not adjust is created exactly as proposed.
+   *
+   * Values come out of `state.edits`, never out of the DOM, so a background poll
+   * that does manage to repaint cannot lose a word of it — the same discipline the
+   * answer box keeps with its draft.
+   */
+  function propEditHtml(key, b, n) {
+    const cur = beadAt(key, b, n);
+    const field = (f) => {
+      const v = esc(cur[f.key] || '');
+      const attrs = `data-role="edit-field" data-key="${esc(key)}" data-idx="${n}" data-field="${f.key}"`;
+      return `<label class="edit-field">
+        <span class="prop-label">${f.label}</span>
+        ${
+          f.tag === 'input'
+            ? `<input type="text" ${attrs} value="${v}">`
+            : `<textarea rows="${f.rows}" ${attrs}>${v}</textarea>`
+        }
+      </label>`;
+    };
+    return `<div class="prop-edit">
+      ${EDIT_FIELDS.map(field).join('')}
+      <div class="edit-row">
+        <label class="edit-field small">
+          <span class="prop-label">Type</span>
+          <select data-role="edit-field" data-key="${esc(key)}" data-idx="${n}" data-field="type">
+            ${TYPES.map((t) => `<option value="${t}"${t === cur.type ? ' selected' : ''}>${t}</option>`).join('')}
+          </select>
+        </label>
+        <label class="edit-field small">
+          <span class="prop-label">Priority</span>
+          <select data-role="edit-field" data-key="${esc(key)}" data-idx="${n}" data-field="priority">
+            ${[0, 1, 2, 3, 4]
+              .map((p) => `<option value="${p}"${p === Number(cur.priority) ? ' selected' : ''}>P${p}</option>`)
+              .join('')}
+          </select>
+        </label>
+      </div>
+      <button class="linkish" data-act="prop-edit" data-key="${esc(key)}" data-idx="${n}">Done adjusting</button>
+    </div>`;
+  }
+
   /**
    * The fields a proposed bead would be created with, in the order proposalBody
    * prints them (lib/proposal.js) — the row and the question body it came from
@@ -506,18 +616,32 @@
     const armed = state.armed === `${q.key}|proposal`;
 
     const rows = beads
-      .map((b, i) => {
+      .map((raw, i) => {
         const n = i + 1;
+        // Everything below reads the *adjusted* bead, so a row you have rewritten
+        // looks rewritten — there is never a moment where the card shows one title
+        // and pressing create sends another.
+        const b = beadAt(q.key, raw, n);
         const choice = picks.get(n) || '';
+        const editing = state.propEdit.has(`${q.key}|${n}`);
+        const adjusted = isAdjusted(q.key, n);
         // Long rows start folded so three proposals still fit on the screen you are
         // deciding from. A fold and not the old three-line clamp, because a clamp
         // cuts markdown mid-list-item and leaves no way at all to see the rest.
-        const long = propLines(b) > COLLAPSE_AT;
+        // A row being adjusted is never folded: you cannot edit what is hidden.
+        const long = propLines(b) > COLLAPSE_AT && !editing;
         const collapsed = long && !state.propOpen.has(`${q.key}|${n}`);
-        return `<div class="prop-row ${choice ? `pick-${choice}` : ''}${collapsed ? ' is-collapsed' : ''}" data-idx="${n}" data-key="${esc(q.key)}">
+        return `<div class="prop-row ${choice ? `pick-${choice}` : ''}${collapsed ? ' is-collapsed' : ''}${
+          editing ? ' is-editing' : ''
+        }" data-idx="${n}" data-key="${esc(q.key)}">
           <div class="prop-main">
-            <div class="prop-head"><span class="prop-n">${n}</span><span class="prop-title">${esc(b.title)}</span></div>
-            <div class="prop-body">
+            <div class="prop-head"><span class="prop-n">${n}</span><span class="prop-title">${esc(b.title)}</span>${
+          adjusted ? '<span class="pill adjusted">adjusted</span>' : ''
+        }</div>
+            ${
+              editing
+                ? propEditHtml(q.key, raw, n)
+                : `<div class="prop-body">
               <div class="prop-meta">
                 <span class="pill">${esc(b.type)}</span><span class="pill p${b.priority}">P${b.priority}</span>
               </div>
@@ -530,7 +654,8 @@
                     )}</div></div>`
                   : ''
               }
-            </div>
+            </div>`
+            }
             ${
               long
                 ? `<button class="prop-more" data-act="prop-more" data-key="${esc(q.key)}" data-idx="${n}"
@@ -541,6 +666,8 @@
           <div class="prop-choice">
             <button class="prop-btn yes" data-act="pick" data-key="${esc(q.key)}" data-idx="${n}" data-pick="yes"
               aria-label="Approve bead ${n}" aria-pressed="${choice === 'yes'}">✓</button>
+            <button class="prop-btn edit${editing ? ' on' : ''}" data-act="prop-edit" data-key="${esc(q.key)}" data-idx="${n}"
+              aria-label="Adjust bead ${n}" aria-pressed="${editing}">✎</button>
             <button class="prop-btn no" data-act="pick" data-key="${esc(q.key)}" data-idx="${n}" data-pick="no"
               aria-label="Decline bead ${n}" aria-pressed="${choice === 'no'}">✕</button>
           </div>
@@ -608,6 +735,239 @@
     }
   }
 
+  /* --------------------------------------------------------------- delivery */
+
+  /**
+   * A worker handing back finished work as a pull request.
+   *
+   * The one card in the inbox whose answer changes something outside this Mac, so it
+   * is built around making that judgeable *without* leaving for GitHub: what changed,
+   * how big it is, whether the tests went green, and — the part that has to be live —
+   * whether GitHub will actually take it right now.
+   *
+   * The live half arrives after the card does. Everything from the `beadpr` block
+   * draws immediately; the diffstat and the check rollup come from `/api/pr` and are
+   * painted in when they land. That order is deliberate: a card that waits on the
+   * network to draw anything is a card that shows a spinner in a tunnel, and the
+   * summary the session wrote is worth reading with no signal at all.
+   */
+  function deliveryHtml(q) {
+    const d = q.delivery;
+    if (!d) return '';
+    const live = state.prs.get(q.key);
+    const armed = state.armed === `${q.key}|merge`;
+
+    return `<div class="delivery" data-key="${esc(q.key)}">
+      <div class="section-label">Pull request <span>nothing merges until you say so</span></div>
+      <a class="pr-link" href="${esc(d.url)}" target="_blank" rel="noopener">
+        <span class="pr-num">#${d.number}</span>
+        <span class="pr-title">${esc(d.title || d.branch)}</span>
+      </a>
+      <div class="pr-branch"><code>${esc(d.branch)}</code> → <code>${esc(d.base)}</code></div>
+      ${prSummaryHtml(q, d)}
+      <div class="pr-stats">${prStatsHtml(live)}</div>
+      ${
+        state.prDecline.has(q.key)
+          ? declineHtml(q, d)
+          : `<div class="pr-actions">
+        <button class="primary pr-merge${armed ? ' confirm' : ''}" data-act="pr-merge" data-key="${esc(q.key)}"
+          ${live?.pr && !canMerge(live.pr) ? 'disabled' : ''}>
+          ${armed ? 'Tap again to confirm · ' : ''}${esc(mergeLabel(d, live))}
+        </button>
+        <button class="secondary" data-act="pr-changes" data-key="${esc(q.key)}">Request changes</button>
+        <button class="linkish danger" data-act="pr-decline" data-key="${esc(q.key)}">Decline it</button>
+      </div>`
+      }
+    </div>`;
+  }
+
+  /**
+   * Declining, once you have said you mean to.
+   *
+   * The three actions are not three shades of the same thing, and this panel exists
+   * to stop the two that look alike from being confused. **Request changes** says the
+   * branch is right and something on it is wrong: same PR, more commits. **Decline**
+   * says the approach is wrong: the PR closes, the branch is abandoned, and the bead
+   * goes back to the queue for a fresh start. Choosing the wrong one wastes a whole
+   * session, so the panel says which is which at the moment of choosing.
+   *
+   * It replaces the buttons rather than sitting under them, which is what makes this
+   * two deliberate steps without an arm timer to race — and a decline can carry a
+   * paragraph of direction, which no six-second timer would survive.
+   */
+  function declineHtml(q, d) {
+    return `<div class="pr-decline">
+      <p class="decline-head">Declining <strong>#${d.number}</strong></p>
+      <p class="decline-why">The pull request closes and <code>${esc(d.branch)}</code> is abandoned.
+        ${d.bead ? `<strong>${esc(d.bead)}</strong> goes back in the queue` : 'The work stays open'} for a fresh start —
+        declining this attempt is not declining the work.</p>
+      <p class="decline-why">Say what to do instead in the box below, if you know. It is optional, and it is the
+        difference between a session that starts again and a session that starts again the same way.</p>
+      <div class="pr-actions">
+        <button class="primary danger" data-act="pr-decline-go" data-key="${esc(q.key)}">Decline #${d.number}</button>
+        <button class="linkish" data-act="pr-decline-cancel" data-key="${esc(q.key)}">Cancel</button>
+      </div>
+    </div>`;
+  }
+
+  /**
+   * What the session said about its own work — on the card, not in the brief.
+   *
+   * Everywhere else in the inbox, context lives behind *Show details*, because a
+   * question is a sentence and the brief is the argument for it. A delivery is the
+   * other way round: the question is always the same four words, and the argument is
+   * the entire content. Merge is two taps from the collapsed card, so anything you
+   * would want to have read before those two taps has to be above them.
+   *
+   * Folded when it is long, by the same machinery and for the same reason as a
+   * proposal row: three deliveries should still fit on the screen you are deciding
+   * from, and a fold beats a clamp because a clamp cuts a list mid-item.
+   */
+  function prSummaryHtml(q, d) {
+    const parts = [];
+    if (d.summary) parts.push(`<div class="md">${renderMarkdown(d.summary, FROM_BD)}</div>`);
+    for (const [label, value] of [
+      ['Tests', d.tests],
+      ['Worth knowing', d.risk],
+      ['Left undone', d.left],
+    ]) {
+      if (value) {
+        parts.push(
+          `<div class="prop-field"><span class="prop-label">${label}</span><div class="md">${renderMarkdown(
+            value,
+            FROM_BD
+          )}</div></div>`
+        );
+      }
+    }
+    if (!parts.length) return '';
+
+    const prose = [d.summary, d.tests, d.risk, d.left].filter(Boolean).join('\n');
+    const long = prose.split('\n').reduce((n, l) => n + Math.max(1, Math.ceil(l.length / PHONE_COLS)), 0) > COLLAPSE_AT;
+    const collapsed = long && !state.propOpen.has(`${q.key}|pr`);
+    return `<div class="pr-summary${collapsed ? ' is-collapsed' : ''}">${parts.join('')}</div>${
+      long
+        ? `<button class="prop-more" data-act="prop-more" data-key="${esc(q.key)}" data-idx="pr"
+            aria-expanded="${!collapsed}">${collapsed ? 'Show the rest' : 'Show less'}</button>`
+        : ''
+    }`;
+  }
+
+  /** What the primary button promises, which must never overstate what it will do. */
+  function mergeLabel(d, live) {
+    if (live?.pr?.state === 'MERGED') return `#${d.number} is already merged`;
+    if (live?.pr?.state === 'CLOSED') return `#${d.number} is closed`;
+    if (live?.pr?.mergeable === 'CONFLICTING') return `#${d.number} conflicts with ${d.base}`;
+    return `${d.method === 'squash' ? 'Squash and merge' : `${d.method} and merge`} #${d.number}`;
+  }
+
+  /**
+   * Whether pressing merge could possibly work.
+   *
+   * Only ever *disables* on facts GitHub has already stated — merged, closed,
+   * conflicting. Failing checks deliberately do **not** disable it: a red check is
+   * sometimes a flake and the decision is Adam's, so it is shown loudly and left
+   * pressable. The server re-checks all of this anyway; this is courtesy, not a gate.
+   */
+  const canMerge = (pr) => pr.state === 'OPEN' && pr.mergeable !== 'CONFLICTING';
+
+  /** The live numbers, or an honest line about why there aren't any. */
+  function prStatsHtml(live) {
+    if (!live || live.loading) return '<span class="pr-chip quiet">reading GitHub…</span>';
+    if (live.unavailable) return `<span class="pr-chip warn">${esc(live.unavailable)}</span>`;
+    const pr = live.pr;
+    if (!pr) return '<span class="pr-chip quiet">no live state</span>';
+
+    const chips = [
+      `<span class="pr-chip">${pr.files} file${pr.files === 1 ? '' : 's'}</span>`,
+      `<span class="pr-chip diff"><span class="add">+${pr.additions}</span> <span class="del">−${pr.deletions}</span></span>`,
+    ];
+    // Four states and four sentences. "none" is not "passing": a repo with no CI has
+    // told you nothing, and dressing that up as a green tick is the one thing this
+    // chip must never do.
+    const c = pr.checks;
+    if (c.state === 'failing') {
+      chips.push(`<span class="pr-chip bad">${c.failing} check${c.failing === 1 ? '' : 's'} failing${
+        c.failed.length ? `: ${esc(c.failed.join(', '))}` : ''
+      }</span>`);
+    } else if (c.state === 'pending') {
+      chips.push(`<span class="pr-chip warn">${c.pending} check${c.pending === 1 ? '' : 's'} still running</span>`);
+    } else if (c.state === 'passing') {
+      chips.push(`<span class="pr-chip good">${c.passing} check${c.passing === 1 ? '' : 's'} passing</span>`);
+    } else {
+      chips.push('<span class="pr-chip quiet">no checks</span>');
+    }
+    if (pr.state === 'MERGED') chips.push('<span class="pr-chip good">merged</span>');
+    else if (pr.state === 'CLOSED') chips.push('<span class="pr-chip warn">closed</span>');
+    else if (pr.mergeable === 'CONFLICTING') chips.push('<span class="pr-chip bad">conflicts</span>');
+    if (pr.draft) chips.push('<span class="pr-chip warn">draft</span>');
+    return chips.join('');
+  }
+
+  /**
+   * Fetch the live half, once per card.
+   *
+   * Never on the poll: that would be a `gh` call per delivery every 25 seconds, for
+   * cards nobody is looking at, and `gh` is a network round trip through GitHub's
+   * API. The refresh you actually want is the one after you have been away, and
+   * re-opening the card is what asks for it.
+   */
+  async function ensurePr(q) {
+    if (!q.delivery || state.prs.has(q.key)) return;
+    state.prs.set(q.key, { loading: true, pr: null, unavailable: null });
+    try {
+      const res = await api(`/api/pr?workspace=${encodeURIComponent(q.workspace)}&id=${encodeURIComponent(q.id)}`);
+      state.prs.set(q.key, { loading: false, pr: res.pr, unavailable: res.unavailable });
+    } catch (err) {
+      // An unreachable daemon must not blank the card: everything from the block is
+      // still on screen and still true, and the link still works.
+      state.prs.set(q.key, { loading: false, pr: null, unavailable: err.message });
+    }
+    paintPr(q.key);
+  }
+
+  /**
+   * Send the decline, with whatever direction is in the box.
+   *
+   * One function, two buttons: the confirm in the panel where you tapped decline, and
+   * the primary under the box you may have scrolled down to type in. They are far
+   * apart on a long card and either one should finish the job, so neither may have
+   * its own idea of what gets sent.
+   *
+   * The note is optional by design and the wording says which happened, because
+   * "declined" and "declined, and here is what to do instead" are different messages
+   * to leave for the session that picks the bead up next.
+   */
+  async function declineNow(key) {
+    const q = byKey(key);
+    const d = q?.delivery;
+    if (!d) return;
+    const box = listEl.querySelector(`.card[data-key="${CSS.escape(key)}"] [data-role="answer"]`);
+    const note = (box?.value || '').trim();
+    state.prDecline.delete(key);
+    disarm();
+    await submit(key, note ? `DECLINE: ${note}` : `DECLINE: close #${d.number} — this approach is not the one.`, {
+      close: true,
+    });
+  }
+
+  /** Repaint one delivery's live half in place — never a render(), same as paintPicks. */
+  function paintPr(key) {
+    const q = byKey(key);
+    const block = listEl.querySelector(`.delivery[data-key="${CSS.escape(key)}"]`);
+    if (!block || !q?.delivery) return;
+    const live = state.prs.get(key);
+    const stats = block.querySelector('.pr-stats');
+    if (stats) stats.innerHTML = prStatsHtml(live);
+    const go = block.querySelector('.pr-merge');
+    if (go) {
+      go.disabled = Boolean(live?.pr && !canMerge(live.pr));
+      const armed = state.armed === `${key}|merge`;
+      go.textContent = `${armed ? 'Tap again to confirm · ' : ''}${mergeLabel(q.delivery, live)}`;
+      go.classList.toggle('confirm', armed);
+    }
+  }
+
   /** The selected agent, falling back to the first one the server offered. */
   const currentAgent = () => state.agents.find((a) => a.id === state.agent) || state.agents[0] || null;
 
@@ -623,6 +983,12 @@
    * one is printed underneath: an agent whose brief you cannot read is a name you
    * are guessing at. Creating one needs only a name and that paragraph — never
    * tools, which is why this form cannot widen what any agent may do.
+   *
+   * All of it now lives behind the ⋯ on the answer box (see replyBarHtml). Nearly
+   * every comment goes to the default agent, and this was several centimetres of
+   * chooser between the thread you just read and the box you were about to type in.
+   * The panel is the same markup in a different place — nothing here decides which
+   * agents exist, what any of them may do, or how the dispatch is sent.
    */
   function agentsHtml() {
     if (!state.agents.length) return '';
@@ -634,7 +1000,7 @@
       )
       .join('');
 
-    return `<div class="section-label">Reply from <span>the agent that picks up your comment</span></div>
+    return `<div class="section-label">Who replies <span>to your comment</span></div>
       <div class="chip-row agent-row">
         ${chips}
         <button class="chip agent-add" data-act="agent-new" aria-label="New agent">＋</button>
@@ -717,14 +1083,81 @@
   }
 
   /**
+   * Which agent replies, said with the panel shut.
+   *
+   * Collapsing the roster to a bare ⋯ would make every comment a guess, so the
+   * answer stays on screen and the roster is one tap away. It names the button as
+   * well as the agent, because the chooser governs exactly one of the two: a
+   * comment dispatches (server.js), and "Answer & close" spawns nobody. The old
+   * label — "the agent that picks up your comment" — described a mailbox that
+   * nothing has watched since dispatch started launching the reply itself.
+   */
+  function replyLineHtml(chosen) {
+    if (!chosen) return '';
+    // An armed override is spent on send, so it cannot only live inside the panel:
+    // shut, the box would look ordinary at the moment you press the button.
+    return `<b>Comment only</b> → ${esc(chosen.emoji || '🤖')} ${esc(chosen.name)} replies${
+      chosen.armed ? ' <span class="reply-armed">· ⚠ with tools, this once</span>' : ''
+    }`;
+  }
+
+  const dotsLabel = (chosen) =>
+    chosen
+      ? `Choose who replies — now ${chosen.name}${chosen.armed ? ', tools allowed for this comment' : ''}`
+      : 'Choose who replies';
+
+  /**
+   * The strip along the top of the answer box: who replies, and the ⋯ that opens
+   * the roster.
+   *
+   * Attached to the textarea rather than floating above it, so the ⋯ reads as that
+   * box's own corner — this chooses who answers *this*, and nothing else on the
+   * card. The panel is rendered with the card and only shown or hidden, which is
+   * what lets paintAgents keep repainting it in place while it is open.
+   */
+  function replyBarHtml(key) {
+    const chosen = currentAgent();
+    const on = state.agentMenu === key;
+    return `<div class="reply-bar"${state.agents.length ? '' : ' hidden'}>
+      <span class="reply-who">${replyLineHtml(chosen)}</span>
+      <div class="agent-wrap">
+        <button class="agent-dots${chosen?.armed ? ' armed' : ''}${on ? ' on' : ''}" data-act="agent-menu"
+          data-key="${esc(key)}" aria-haspopup="true" aria-expanded="${on}"
+          aria-label="${esc(dotsLabel(chosen))}"><span class="dots-emoji">${esc(
+            chosen?.emoji || '🤖'
+          )}</span>⋯</button>
+        <div class="agents agent-panel" role="group" aria-label="Who replies to your comment"${
+          on ? '' : ' hidden'
+        }>${agentsHtml()}</div>
+      </div>
+    </div>`;
+  }
+
+  /**
    * Repaint the chooser in place.
    *
    * Never through render(): the comment box sits directly beneath it, and rebuilding
    * the card to change which chip is pressed would drop a half-written comment —
-   * which is the exact failure the draft machinery elsewhere exists to prevent.
+   * which is the exact failure the draft machinery elsewhere exists to prevent. The
+   * same rule reaches the strip outside the panel: its text is rewritten, but the ⋯
+   * element itself is left alone so an open panel does not close under the repaint.
    */
   function paintAgents() {
+    const chosen = currentAgent();
     for (const block of listEl.querySelectorAll('.agents')) block.innerHTML = agentsHtml();
+    for (const bar of listEl.querySelectorAll('.reply-bar')) {
+      // A roster that never loaded leaves no strip at all — the server falls back to
+      // its default agent exactly as it did before any of this existed.
+      bar.hidden = !state.agents.length;
+      const who = bar.querySelector('.reply-who');
+      if (who) who.innerHTML = replyLineHtml(chosen);
+      const dots = bar.querySelector('.agent-dots');
+      if (!dots) continue;
+      dots.classList.toggle('armed', !!chosen?.armed);
+      dots.setAttribute('aria-label', dotsLabel(chosen));
+      const emoji = dots.querySelector('.dots-emoji');
+      if (emoji) emoji.textContent = chosen?.emoji || '🤖';
+    }
   }
 
   async function loadAgents() {
@@ -745,8 +1178,10 @@
     const d = q.decision;
     // A proposal draws its own controls, one pair per bead plus the two bulk ones.
     // Showing the decision block's "Create all / No" underneath as well would be two
-    // sets of buttons for the same choice, disagreeing about granularity.
-    const opts = q.proposal?.beads?.length ? [] : d?.options || [];
+    // sets of buttons for the same choice, disagreeing about granularity. A delivery
+    // draws its own three for the same reason — and because merge has to know
+    // whether GitHub will take it, which a generic option button cannot.
+    const opts = q.proposal?.beads?.length || q.delivery ? [] : d?.options || [];
     const open = state.open.has(q.key);
     const hasBrief = Boolean(
       d?.diagrams?.length || d?.links?.length || d?.docs?.length || d?.images?.length || q.sections.length || d?.context
@@ -792,6 +1227,7 @@
         ${(q.errors || []).map((e) => `<p class="subtitle bad">⚠ ${esc(e)}</p>`).join('')}
       </div>
       ${proposalHtml(q)}
+      ${deliveryHtml(q)}
       ${options ? `<div class="options">${options}</div>` : ''}
       <div class="actions">
         <button class="linkish" data-act="toggle" data-key="${esc(q.key)}">
@@ -816,7 +1252,7 @@
   }
 
   /**
-   * The answer box, and the two things you can do with what is in it.
+   * The answer box: who replies, what you type, and the two things you can do with it.
    *
    * A sibling of `.brief`, not the last thing inside it. That is the whole point: an
    * open card is a fixed head, a brief that scrolls on its own, and this pinned to
@@ -825,14 +1261,36 @@
    * bead with a real description — you read down, scrolled back to reply, and every
    * glance back at the details lost the box again.
    *
+   * The reply bar comes with it, and belongs with it: the ⋯ chooses who answers
+   * *this* box, so a strip on the box's own top edge is the one place it can be that
+   * stays true when the box stops scrolling with the thread above it.
+   *
+   * On a delivery the box has one job, which job depending on what you tapped to get
+   * here — so it says which. A button labelled "Answer & close" over a pull request
+   * invites a sentence that reads like approval and lands as a rejection.
+   *
    * Only rendered for an open card, which is also what the landscape split keys off:
    * `.card:has(> .brief:not([hidden]))`.
    */
   function freeformHtml(q) {
-    return `<div class="freeform">
-      <textarea data-role="answer" placeholder="Answer in your own words…" rows="3">${esc(getDraft(q.key))}</textarea>
+    const declining = q.delivery && state.prDecline.has(q.key);
+    const boxPlaceholder = declining
+      ? 'Optional — what should the next attempt do instead?'
+      : q.delivery
+      ? 'What needs changing before this can merge…'
+      : 'Answer in your own words…';
+    const boxLabel = declining
+      ? `Decline #${q.delivery.number} &amp; close`
+      : q.delivery
+      ? 'Request changes &amp; close'
+      : 'Answer &amp; close';
+    return `<div class="freeform${declining ? ' declining' : ''}">
+      ${replyBarHtml(q.key)}
+      <textarea data-role="answer" placeholder="${boxPlaceholder}" rows="3">${esc(getDraft(q.key))}</textarea>
       <div class="row">
-        <button class="primary" data-act="answer" data-key="${esc(q.key)}">Answer &amp; close</button>
+        <button class="primary${declining ? ' danger' : ''}" data-act="${
+      declining ? 'pr-decline-go' : 'answer'
+    }" data-key="${esc(q.key)}">${boxLabel}</button>
         <button class="secondary" data-act="note" data-key="${esc(q.key)}">Comment only</button>
       </div>
     </div>`;
@@ -978,10 +1436,11 @@
       );
     }
 
-    // The answer box used to come next, at the very end of this brief. It is a
-    // sibling of the brief now, pinned to the bottom of the card — see
-    // freeformHtml() — so what follows here is the tail of the scrolling body only.
-    parts.push(`<div class="agents">${agentsHtml()}</div>`);
+    // The answer box used to come next, at the very end of this brief — the thread
+    // running straight into the box you answer it in. It is a sibling of the brief
+    // now, pinned to the bottom of the card (see freeformHtml), so the thread runs
+    // into the *edge* of that box instead and the run-on is kept by position rather
+    // than by order. What follows here is the tail of the scrolling body only.
 
     parts.push(cardFootHtml(q));
 
@@ -1496,6 +1955,10 @@
     paintRequestBadge();
     paintSummary();
     renderFilters(inSpace);
+    // The live half of any delivery on screen. `ensurePr` is a no-op for a card it
+    // has already fetched, so this costs one GitHub round trip per pull request for
+    // the life of the tab, not one per render.
+    for (const q of visible) if (q.delivery) ensurePr(q);
 
     openLinksInNewTab(listEl);
     // Puts the caret and the scroll position back — immediately, and again as the
@@ -1640,7 +2103,7 @@
     clearTimeout(state.armedTimer);
   }
 
-  async function submit(key, text, { close, create = null }) {
+  async function submit(key, text, { close, create = null, edits = null }) {
     const q = byKey(key);
     if (!q) return;
     const card = listEl.querySelector(`.card[data-key="${CSS.escape(key)}"]`);
@@ -1663,6 +2126,11 @@
                 // Explicit, rather than leaving the server to read the numbers back
                 // out of the sentence: the text is for you, the array is for it.
                 ...(create ? { create } : {}),
+                // And your rewrites, keyed by the same numbers. The server puts each
+                // one back through the parser's own normaliser before anything is
+                // created, so a priority you typed into the wrong box is clamped
+                // there rather than failing at `bd create` with half the proposal filed.
+                ...(edits ? { edits } : {}),
               }
             : // Which agent picks this up. Absent or unknown resolves to the
               // default server-side, so an old phone still gets an answer.
@@ -1791,10 +2259,54 @@
     }
   }
 
+  /**
+   * Shut the ⋯ roster the same way: by hand, never through render().
+   *
+   * Focus goes back to the ⋯ only when it was inside the panel. Escape pressed
+   * while you are typing must close the panel and leave the caret in the box —
+   * pulling it out to a button is how you lose your place in a comment.
+   */
+  function closeAgentMenu() {
+    state.agentMenu = null;
+    for (const panel of listEl.querySelectorAll('.agent-panel')) {
+      const had = panel.contains(document.activeElement);
+      panel.hidden = true;
+      const dots = panel.closest('.agent-wrap')?.querySelector('.agent-dots');
+      if (!dots) continue;
+      dots.classList.remove('on');
+      dots.setAttribute('aria-expanded', 'false');
+      if (had) dots.focus();
+    }
+  }
+
   // A tap anywhere that isn't the menu or its button dismisses it. This runs after
   // the list's own handler below, so opening the menu doesn't immediately close it.
   document.addEventListener('click', (ev) => {
     if (state.menu && !ev.target.closest('.menu-wrap')) closeMenu();
+    // The panel is the one popover whose own contents repaint under the tap — every
+    // chip and checkbox in it ends in paintAgents(). By the time this runs the
+    // tapped node has been thrown away, and a detached node has no ancestors, so
+    // closest() would call every tap inside the panel a tap outside it. The path is
+    // taken at dispatch and still remembers where the tap actually was.
+    //
+    // The tools disclaimer counts as inside for the same reason it exists: it is a
+    // modal on document.body, so arming is outside the panel by geometry and inside
+    // it by intent, and must not shut the roster out from under the checkbox that
+    // asked.
+    const inPanel = (ev.composedPath?.() || []).some(
+      (n) => n?.classList?.contains('agent-wrap') || n?.classList?.contains('dialog-wrap')
+    );
+    if (state.agentMenu && !inPanel) closeAgentMenu();
+  });
+
+  document.addEventListener('keydown', (ev) => {
+    if (ev.key !== 'Escape') return;
+    // With the tools warning up, Escape is the modal's business — closing the panel
+    // out from under it would leave the dialog answering for a chooser that is no
+    // longer on screen.
+    if (document.querySelector('.dialog-wrap')) return;
+    if (state.agentMenu) closeAgentMenu();
+    if (state.menu) closeMenu();
   });
 
   listEl.addEventListener('click', async (ev) => {
@@ -1803,9 +2315,28 @@
     const key = btn.dataset.key;
     const act = btn.dataset.act;
 
+    if (act === 'agent-menu') {
+      const wasOpen = state.agentMenu === key;
+      closeMenu();
+      closeAgentMenu();
+      if (wasOpen) return;
+      state.agentMenu = key;
+      btn.classList.add('on');
+      btn.setAttribute('aria-expanded', 'true');
+      const panel = btn.parentElement.querySelector('.agent-panel');
+      if (panel) {
+        panel.hidden = false;
+        // On a wide screen the brief is its own scroll column, so a panel opened at
+        // the foot of it can land below that column's fold.
+        panel.scrollIntoView({ block: 'nearest' });
+      }
+      return;
+    }
+
     if (act === 'menu') {
       const wasOpen = state.menu === key;
       closeMenu();
+      closeAgentMenu();
       if (wasOpen) return;
       state.menu = key;
       btn.classList.add('on');
@@ -1816,6 +2347,7 @@
 
     if (act === 'toggle') {
       closeMenu();
+      closeAgentMenu();
       disarm();
       paintArmed();
       if (state.open.has(key)) {
@@ -1833,6 +2365,7 @@
     // happens to have slid up into it.
     if (act === 'collapse') {
       closeMenu();
+      closeAgentMenu();
       disarm();
       paintArmed();
       state.open.delete(key);
@@ -1918,12 +2451,14 @@
     // the same reason paintPicks exists: rebuilding the card under a decision you
     // are halfway through making loses the decision.
     if (act === 'prop-more') {
-      const row = btn.closest('.prop-row');
+      // A proposal row folds its `.prop-body`; a delivery folds its `.pr-summary`
+      // and has no row around it. Same button, same state, whichever it found.
+      const fold = btn.closest('.prop-row') || btn.previousElementSibling;
       const token = `${key}|${btn.dataset.idx}`;
       const open = !state.propOpen.has(token);
       if (open) state.propOpen.add(token);
       else state.propOpen.delete(token);
-      row?.classList.toggle('is-collapsed', !open);
+      fold?.classList.toggle('is-collapsed', !open);
       btn.setAttribute('aria-expanded', String(open));
       btn.textContent = open ? 'Show less' : 'Show the rest';
       return;
@@ -1938,6 +2473,27 @@
       else picks.set(n, btn.dataset.pick);
       disarm();
       paintPicks(key);
+      return;
+    }
+
+    /**
+     * Open or close the editor on one row.
+     *
+     * Opening it also approves the row, and that is not a shortcut — adjusting a
+     * bead is the strongest possible statement that you want it. Making you rewrite
+     * the title and *then* find the ✓ is how a considered edit turns into an
+     * accidental decline.
+     */
+    if (act === 'prop-edit') {
+      const n = Number(btn.dataset.idx);
+      const token = `${key}|${n}`;
+      if (state.propEdit.has(token)) state.propEdit.delete(token);
+      else {
+        state.propEdit.add(token);
+        picksFor(key).set(n, 'yes');
+      }
+      disarm();
+      render(true);
       return;
     }
 
@@ -1968,15 +2524,109 @@
         return;
       }
       disarm();
+      // Only the rows being created carry their edits: a bead you adjusted and then
+      // declined is a bead nobody filed, and sending the rewrite for it would put
+      // your words in the record of something that does not exist.
+      const edits = {};
+      for (const n of approved) {
+        const patch = editsFor(key).get(n);
+        if (patch && Object.keys(patch).length) edits[n] = patch;
+      }
+      const adjusted = Object.keys(edits).length;
+
       state.picks.delete(key);
+      state.edits.delete(key);
       for (const t of [...state.propOpen]) if (t.startsWith(`${key}|`)) state.propOpen.delete(t);
+      for (const t of [...state.propEdit]) if (t.startsWith(`${key}|`)) state.propEdit.delete(t);
       const declined = beads.length - approved.length;
       const text = approved.length
         ? `CREATE: ${approved.join(',')} — filing ${approved.length} of ${beads.length} proposed bead${
             beads.length === 1 ? '' : 's'
-          }${declined ? `, declining ${declined}` : ''}.`
+          }${declined ? `, declining ${declined}` : ''}${adjusted ? `, ${adjusted} adjusted` : ''}.`
         : `Not now — none of the ${beads.length} proposed beads.`;
-      await submit(key, text, { close: true, create: approved.length ? approved : null });
+      await submit(key, text, {
+        close: true,
+        create: approved.length ? approved : null,
+        edits: adjusted ? edits : null,
+      });
+      return;
+    }
+
+    /**
+     * Merge it. Two taps, like every other answer that closes a bead — except this
+     * one also lands code in main, which is the strongest argument for the second tap
+     * in the whole app.
+     */
+    if (act === 'pr-merge') {
+      const q = byKey(key);
+      const d = q?.delivery;
+      if (!d) return;
+      const token = `${key}|merge`;
+      if (state.armed !== token) {
+        state.armed = token;
+        clearTimeout(state.armedTimer);
+        state.armedTimer = setTimeout(() => {
+          disarm();
+          paintPr(key);
+        }, 6000);
+        paintPr(key);
+        return;
+      }
+      disarm();
+      // Built here rather than read out of the decision block's option: the server
+      // consents on the marker alone, and a card that has just re-read GitHub knows
+      // more about this PR than the block written when the session ended.
+      await submit(key, `MERGE: ${d.method} and merge #${d.number}${d.bead ? `, then close ${d.bead}` : ''}.`, { close: true });
+      return;
+    }
+
+    /**
+     * Ask for changes — which is a sentence, not a button, so this opens the card and
+     * puts you in the box rather than answering anything. "Changes requested" with no
+     * note is the least useful thing anyone could send a session that is about to try
+     * again, so there is deliberately no one-tap path to it.
+     */
+    if (act === 'pr-changes') {
+      state.open.add(key);
+      disarm();
+      render(true);
+      const box = listEl.querySelector(`.card[data-key="${CSS.escape(key)}"] [data-role="answer"]`);
+      if (box) {
+        box.focus();
+        box.setSelectionRange(box.value.length, box.value.length);
+      }
+      toast('Say what needs changing — it goes on the PR and back to the session');
+      return;
+    }
+
+    /**
+     * Step one of declining: say you mean to, and get somewhere to say why.
+     *
+     * Opens the card the same way "request changes" does, because the direction for
+     * the next attempt is typed in the same box — but unlike changes, an empty box is
+     * a complete answer here.
+     */
+    if (act === 'pr-decline') {
+      state.prDecline.add(key);
+      state.open.add(key);
+      disarm();
+      render(true);
+      const box = listEl.querySelector(`.card[data-key="${CSS.escape(key)}"] [data-role="answer"]`);
+      if (box) {
+        box.focus();
+        box.setSelectionRange(box.value.length, box.value.length);
+      }
+      return;
+    }
+
+    if (act === 'pr-decline-cancel') {
+      state.prDecline.delete(key);
+      render(true);
+      return;
+    }
+
+    if (act === 'pr-decline-go') {
+      await declineNow(key);
       return;
     }
 
@@ -2043,7 +2693,21 @@
       const box = card.querySelector('[data-role="answer"]');
       const text = box.value.trim();
       if (!text) return toast('Write something first', true);
-      await submit(key, text, { close: act === 'answer' });
+      /**
+       * On a delivery, typed prose that closes the question *is* a change request.
+       *
+       * The three things you can do to a pull request all have buttons; what the box
+       * is for here is the sentence that says what is wrong with it. So it is sent
+       * with the marker, and the button above says so rather than saying "Answer".
+       *
+       * Note which way this fails. The marker can only ever produce "not merged" —
+       * there is no wording of a free-text answer that merges anything, because
+       * merging needs `MERGE:` and only the button writes that. Prose is safe here in
+       * the one direction where safety matters.
+       */
+      const q = byKey(key);
+      const asChanges = act === 'answer' && q?.delivery;
+      await submit(key, asChanges ? `CHANGES: ${text}` : text, { close: act === 'answer' });
       if (act === 'note') box.value = '';
     }
   });
@@ -2051,6 +2715,11 @@
   // Every keystroke is kept, so collapsing the card, a background refresh, or
   // the phone killing the tab can't eat a half-written answer.
   listEl.addEventListener('input', (ev) => {
+    // A rewrite of a proposed bead, kept the same way and for the same reason.
+    // `change` as well as `input`, because the two `<select>`s only fire the former.
+    const field = ev.target.closest('[data-role="edit-field"]');
+    if (field) return recordEdit(field);
+
     const box = ev.target.closest('[data-role="answer"]');
     if (!box) return;
     const key = box.closest('.card')?.dataset.key;
@@ -2060,6 +2729,74 @@
     // already carrying it by the time the accordion collapses it.
     paintDraftMark(key);
   });
+
+  listEl.addEventListener('change', (ev) => {
+    const field = ev.target.closest('[data-role="edit-field"]');
+    if (field) recordEdit(field);
+  });
+
+  /**
+   * One field of one adjusted bead, into `state.edits`.
+   *
+   * A value equal to what the agent proposed is *removed* rather than stored, so
+   * typing a word and deleting it again leaves the row un-adjusted — the "adjusted"
+   * flag has to mean something, and a row that carries it because of a keystroke
+   * that was undone is a row that lies.
+   */
+  function recordEdit(el) {
+    const key = el.dataset.key;
+    const n = Number(el.dataset.idx);
+    const f = el.dataset.field;
+    const q = byKey(key);
+    const original = q?.proposal?.beads?.[n - 1];
+    if (!original) return;
+
+    const value = f === 'priority' ? Number(el.value) : el.value;
+    const patch = editsFor(key).get(n) || {};
+    if (value === original[f] || (typeof value === 'string' && value.trim() === String(original[f] ?? '').trim())) {
+      delete patch[f];
+    } else {
+      patch[f] = value;
+    }
+    if (Object.keys(patch).length) editsFor(key).set(n, patch);
+    else editsFor(key).delete(n);
+    paintAdjusted(key, n);
+  }
+
+  /**
+   * The heading over an open editor, repainted in place as you type.
+   *
+   * The row keeps its title above the fields, and while you are rewriting that title
+   * the two disagree — so the heading has to follow. In place rather than through
+   * render(), for the obvious reason: a re-render on every keystroke would take the
+   * field out from under the caret, which is the one thing this whole editor must
+   * never do.
+   *
+   * The **adjusted** flag matters more than the heading. It appears the moment a
+   * field differs and goes again when it matches, so the word is a fact about the row
+   * rather than a memory of having once tapped ✎.
+   */
+  function paintAdjusted(key, n) {
+    const row = listEl.querySelector(`.prop-row[data-key="${CSS.escape(key)}"][data-idx="${n}"]`);
+    const q = byKey(key);
+    const original = q?.proposal?.beads?.[n - 1];
+    if (!row || !original) return;
+
+    const b = beadAt(key, original, n);
+    const title = row.querySelector('.prop-title');
+    if (title && title.textContent !== b.title) title.textContent = b.title;
+
+    const head = row.querySelector('.prop-head');
+    const flag = head?.querySelector('.pill.adjusted');
+    if (isAdjusted(key, n) && !flag && head) {
+      const pill = document.createElement('span');
+      pill.className = 'pill adjusted';
+      pill.textContent = 'adjusted';
+      head.appendChild(pill);
+    } else if (!isAdjusted(key, n) && flag) {
+      flag.remove();
+    }
+  }
 
   // Focus left an empty box: nothing is in flight, so let any deferred refresh in.
   listEl.addEventListener('focusout', (ev) => {
