@@ -27,14 +27,31 @@
     </div>
   </header>
 
-  <!-- No chat session id in the URL: pick a workspace, or pick up where you left off. -->
+  <!--
+    No chat session id in the URL: the launcher.
+
+    The repo row is a *filter* now, not the start button it used to be — one tab
+    per repo over the one list of conversations, with All on the left. Starting is
+    the ＋ beside it, which is what let the row stop starting things: with enough
+    repos and enough sessions the list below is the thing you came to read, and in
+    one pile it never groups the way you think.
+  -->
   <main id="launcher" class="launcher" hidden>
     <p class="lede">Talk through what the next bead should be. Nothing is filed until
       you have read the proposal and pressed the button.</p>
-    <h2 class="section-label">Start one in</h2>
-    <div id="ws-row" class="chip-row"></div>
+    <div class="repo-tabs">
+      <div id="ws-row" class="chip-row" role="tablist" aria-label="Filter by repo"></div>
+      <button id="ws-new" class="icon-btn new-console" aria-label="Start a chat session">＋</button>
+    </div>
+    <!-- On All there is no repo to start in, so ＋ asks rather than going dead.
+         This is the row that used to sit under "Start one in", kept for exactly
+         the case the tabs cannot answer. -->
+    <div id="ws-pick" class="ws-pick" hidden>
+      <h2 class="section-label">Start one in</h2>
+      <div id="ws-pick-row" class="chip-row"></div>
+    </div>
     <h2 class="section-label" id="recent-label" hidden>Pick up again</h2>
-    <div id="recent" class="recent"></div>
+    <div id="recent" class="recent" role="tabpanel"></div>
   </main>
 
   <main id="thread" class="thread" aria-live="polite" hidden>

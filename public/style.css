@@ -1743,6 +1743,59 @@ button.work-row {
 .recent { display: flex; flex-direction: column; gap: 2px; }
 .recent .work-row { text-decoration: none; color: inherit; }
 
+/*
+  The repo tabs, and the ＋ that starts one.
+
+  The row scrolls sideways on its own and ＋ sits outside it, because the button
+  that starts a conversation must not be the thing you scroll a row of repos to
+  reach. Sticky for the same reason the foundations tabs are: the list under it is
+  long enough to lose which repo you are looking at.
+
+  The tabs borrow `.chip` deliberately — this row *is* the inbox's workspace
+  filter, doing the same job to a different list, and a thumb should not have to
+  learn two shapes for one idea. What is different is what they no longer do:
+  tapping one filters, and starting is the ＋.
+*/
+.repo-tabs {
+  position: sticky;
+  top: -18px;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 16px -16px 0;
+  padding: 6px 16px 8px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--line);
+}
+.repo-tabs .chip-row { flex: 1; min-width: 0; }
+/* Same paint as a pressed chip. A tab is selected, not pressed, so the attribute
+   differs and the rule has to say so — see `.chip[aria-pressed="true"]`. */
+.chip[aria-selected="true"] { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+.new-console {
+  flex: none;
+  border-color: var(--accent);
+  color: var(--accent);
+  font-size: 19px;
+  line-height: 1;
+}
+
+/* A section label draws its own rule, and the bar already drew one — so whichever
+   label lands directly under the bar drops it. Which one that is depends on
+   whether ＋ has been asked, and that is a state the selector can read. */
+.repo-tabs + .ws-pick:not([hidden]) > .section-label,
+.repo-tabs + .ws-pick[hidden] + .section-label {
+  margin-top: 16px;
+  padding-top: 0;
+  border-top: 0;
+}
+
+/* Only ever on the All tab, and only after ＋ is asked. */
+.ws-pick { margin-top: 4px; }
+.ws-pick[hidden] { display: none; }
+.ws-pick .section-label { margin-top: 12px; }
+.ws-pick .hint { color: var(--muted); font-size: 13px; }
+
 .thread {
   flex: 1;
   overflow-y: auto;

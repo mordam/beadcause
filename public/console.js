@@ -26,10 +26,24 @@
   const PRIORITIES = [0, 1, 2, 3, 4];
   /** How long a primed Create button stays primed. Same 6s as the inbox's answers. */
   const ARM_MS = 6000;
+  /** Which repo tab the launcher opens on. Beside the token, in the same store. */
+  const REPO_KEY = 'beadcause.console.repo';
+
+  const remembered = (key, fallback) => {
+    try {
+      return localStorage.getItem(key) || fallback;
+    } catch {
+      return fallback;
+    }
+  };
 
   const state = {
     token: '',
     id: new URLSearchParams(location.search).get('id') || '',
+    // The launcher: every workspace, every conversation, and which tab is on.
+    workspaces: [],
+    consoles: [],
+    repo: remembered(REPO_KEY, 'all'),
     console: null,
     seq: 0,
     // The cards as edited here. Authoritative over the server's copy while the
@@ -161,21 +175,98 @@
       return;
     }
 
-    $('#ws-row').innerHTML = data.workspaces
-      .map((w) => `<button class="chip" data-ws="${esc(w)}">${esc(w)}</button>`)
-      .join('');
-    for (const btn of $('#ws-row').querySelectorAll('[data-ws]')) {
-      btn.addEventListener('click', () => open(btn.dataset.ws));
-    }
+    state.workspaces = data.workspaces || [];
+    state.consoles = data.consoles || [];
+    // A repo you were last looking at that is no longer configured is not a
+    // filter, it is an empty screen with no way of knowing why — so it falls back
+    // to All rather than being remembered forever.
+    if (state.repo !== 'all' && !repoTabs().includes(state.repo)) setRepo('all', { render: false });
 
-    const recent = data.consoles || [];
-    $('#recent-label').hidden = !recent.length;
-    // Live conversations first, finished ones under them. A chat session is over when the
-    // beads exist, and a list where everything sorts by recency puts the one thing
-    // you have already dealt with at the top.
-    const live = recent.filter((c) => !c.closedAt);
-    const closed = recent.filter((c) => c.closedAt);
-    $('#recent').innerHTML = [...live, ...closed].map(consoleRowHtml).join('');
+    hidePicker();
+    renderRepoTabs();
+    renderRecent();
+  }
+
+  /**
+   * Every repo that gets a tab.
+   *
+   * The configured workspaces in the server's order, then any repo that only
+   * exists in the conversations — a workspace dropped from the config still has
+   * its transcripts, and a tab is the only thing that would reach them.
+   */
+  function repoTabs() {
+    const extra = [...new Set(state.consoles.map((c) => c.workspace))]
+      .filter((w) => w && !state.workspaces.includes(w))
+      .sort();
+    return [...state.workspaces, ...extra];
+  }
+
+  const inRepo = (c) => state.repo === 'all' || c.workspace === state.repo;
+
+  /**
+   * The tab bar: All, then one per repo, each carrying how many conversations it
+   * holds.
+   *
+   * A count is drawn only where there is one. Every repo gets a tab whether or
+   * not it has ever been talked to — the bar is also how you reach a repo to
+   * start in — and a row of zeroes would report emptiness rather than offering a
+   * place to begin.
+   */
+  function renderRepoTabs() {
+    const row = $('#ws-row');
+    const count = (ws) => state.consoles.filter((c) => c.workspace === ws).length;
+    const tab = (id, label, n) => {
+      const on = state.repo === id;
+      return `<button class="chip" role="tab" id="ws-tab-${esc(id)}" data-ws="${esc(id)}"
+        aria-selected="${on}" tabindex="${on ? 0 : -1}">${esc(label)}${n ? ` ${n}` : ''}</button>`;
+    };
+    row.innerHTML =
+      tab('all', 'All', state.consoles.length) +
+      repoTabs()
+        .map((ws) => tab(ws, ws, count(ws)))
+        .join('');
+    // The list is what the tab selects, so it is named by the tab that selected it.
+    $('#recent').setAttribute('aria-labelledby', `ws-tab-${state.repo}`);
+    // ＋ on All has no repo to start in; on a repo tab it starts there and says so.
+    $('#ws-new').setAttribute(
+      'aria-label',
+      state.repo === 'all' ? 'Start a chat session' : `Start a chat session in ${state.repo}`
+    );
+  }
+
+  /** Pick a repo. `render: false` is for the caller that is about to render anyway. */
+  function setRepo(repo, { render = true } = {}) {
+    state.repo = repo;
+    // Same store as the token, for the same reason: the launcher should open where
+    // you left it rather than making you re-pick on every visit.
+    try {
+      localStorage.setItem(REPO_KEY, repo);
+    } catch {
+      /* private mode, or a full store. Filtering still works for this visit. */
+    }
+    if (!render) return;
+    hidePicker();
+    renderRepoTabs();
+    renderRecent();
+  }
+
+  /**
+   * The conversations in the selected repo.
+   *
+   * Live ones first, finished ones under them. A chat session is over when the
+   * beads exist, and a list where everything sorts by recency puts the one thing
+   * you have already dealt with at the top.
+   */
+  function renderRecent() {
+    const rows = state.consoles.filter(inRepo);
+    const live = rows.filter((c) => !c.closedAt);
+    const closed = rows.filter((c) => c.closedAt);
+    $('#recent-label').hidden = !rows.length;
+    $('#recent').innerHTML = rows.length
+      ? [...live, ...closed].map(consoleRowHtml).join('')
+      : `<div class="empty"><strong>${
+          state.consoles.length ? `Nothing in ${esc(state.repo)} yet` : 'No conversations yet'
+        }</strong>＋ starts one${state.repo === 'all' ? '' : ` in ${esc(state.repo)}`}.</div>`;
 
     for (const btn of $('#recent').querySelectorAll('[data-close]')) {
       btn.addEventListener('click', (ev) => {
@@ -185,6 +276,33 @@
         closeConsole(btn.dataset.close, btn);
       });
     }
+  }
+
+  const pickerOpen = () => !$('#ws-pick').hidden;
+
+  function hidePicker() {
+    $('#ws-pick').hidden = true;
+    $('#ws-new').setAttribute('aria-expanded', 'false');
+  }
+
+  /**
+   * What ＋ does with no repo selected.
+   *
+   * The All tab is the one place the tabs cannot say where a new conversation
+   * belongs, so ＋ asks instead of going dead — a disabled button on the view the
+   * launcher opens in would take the primary action away from the default screen.
+   */
+  function showPicker() {
+    const row = $('#ws-pick-row');
+    // Only configured workspaces: a repo that survives here as transcripts alone
+    // is somewhere you can read, not somewhere you can start.
+    row.innerHTML = state.workspaces.map((w) => `<button class="chip" data-ws="${esc(w)}">${esc(w)}</button>`).join('');
+    if (!state.workspaces.length) {
+      row.innerHTML = `<span class="hint">No workspaces configured.</span>`;
+    }
+    $('#ws-pick').hidden = false;
+    $('#ws-new').setAttribute('aria-expanded', 'true');
+    row.querySelector('.chip')?.focus();
   }
 
   function consoleRowHtml(c) {
@@ -967,7 +1085,54 @@
     showLauncher();
   }
 
+  /**
+   * The launcher's controls, wired once.
+   *
+   * Delegated rather than re-bound on every paint: the tab bar and the list are
+   * rebuilt whenever a tab changes or a conversation closes, and listeners hung on
+   * the buttons themselves would have to be hung again each time.
+   */
+  function wireLauncher() {
+    $('#ws-row').addEventListener('click', (ev) => {
+      const btn = ev.target.closest('[data-ws]');
+      if (btn) setRepo(btn.dataset.ws);
+    });
+
+    // A tab bar answers to the arrow keys, and only one of its tabs is in the tab
+    // order — otherwise five repos are five stops on the way to the list.
+    $('#ws-row').addEventListener('keydown', (ev) => {
+      const step = ev.key === 'ArrowRight' ? 1 : ev.key === 'ArrowLeft' ? -1 : 0;
+      if (!step) return;
+      ev.preventDefault();
+      const tabs = [...$('#ws-row').querySelectorAll('[data-ws]')];
+      const at = tabs.findIndex((t) => t.dataset.ws === state.repo);
+      const next = tabs[(at + step + tabs.length) % tabs.length];
+      if (!next) return;
+      setRepo(next.dataset.ws);
+      $(`#ws-row [data-ws="${CSS.escape(next.dataset.ws)}"]`)?.focus();
+    });
+
+    $('#ws-new').addEventListener('click', () => {
+      if (state.repo !== 'all') return open(state.repo);
+      pickerOpen() ? hidePicker() : showPicker();
+    });
+
+    $('#ws-pick-row').addEventListener('click', (ev) => {
+      const btn = ev.target.closest('[data-ws]');
+      if (btn) open(btn.dataset.ws);
+    });
+
+    // Escape closes the picker without starting anything, the same way it closes
+    // the agent chooser on the inbox.
+    $('#launcher').addEventListener('keydown', (ev) => {
+      if (ev.key !== 'Escape' || !pickerOpen()) return;
+      hidePicker();
+      $('#ws-new').focus();
+    });
+  }
+
   function wire() {
+    wireLauncher();
     $('#composer').addEventListener('submit', (e) => {
       e.preventDefault();
       send($('#say').value);
