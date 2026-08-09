@@ -2939,10 +2939,20 @@
   // first one's echo must not land as an instruction on top of the second.
   let writingFilter = 0;
 
+  /**
+   * One comparable string for a space/workspace pair.
+   *
+   * JSON rather than the two names joined by a separator: a space is named by hand
+   * in config.json and "Halifax trip" is a perfectly ordinary name, so any separator
+   * you can type is one a name can contain — and two different filters that stamped
+   * identically would silently stop adopting.
+   */
+  const filterStamp = (f) => JSON.stringify([f.space, f.workspace]);
+
   /** Take the server's chips — but only when they are news. */
   function adoptFilter(filter) {
     if (!filter || writingFilter) return;
-    const stamp = `${filter.space} ${filter.workspace}`;
+    const stamp = filterStamp(filter);
     if (stamp === seenFilter) return;
     seenFilter = stamp;
     state.space = filter.space;
@@ -2955,7 +2965,7 @@
    */
   function saveFilter() {
     const filter = { space: state.space, workspace: state.workspace };
-    seenFilter = `${filter.space} ${filter.workspace}`;
+    seenFilter = filterStamp(filter);
     writingFilter += 1;
     api('/api/filter', { method: 'POST', body: JSON.stringify(filter) })
       // A write that failed is a filter that will be back to what it was on the next

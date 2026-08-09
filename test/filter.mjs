@@ -187,6 +187,27 @@ await check('a key its owner rewrote is replaced, not merged into', () => {
   assert.deepEqual(state.filter, { space: 'Personal', workspace: 'beta' }, 'the other owner is still untouched');
 });
 
+await check('no source file carries an invisible control byte', () => {
+  // Not really about the filter — it is here because writing this feature is what
+  // introduced one. A NUL inside a template literal is legal JavaScript and runs
+  // perfectly, and it turns the file binary: `grep` then finds *nothing* in it and
+  // says nothing about why, which is a bad half-hour for the next person and a
+  // silently wrong answer for an agent. Cheap to check, invisible in review.
+  const roots = ['lib', 'public'];
+  const bad = [];
+  for (const root of roots) {
+    const dir = path.join(HERE, '..', root);
+    for (const name of fs.readdirSync(dir)) {
+      if (!/\.(js|mjs)$/.test(name)) continue;
+      const buf = fs.readFileSync(path.join(dir, name));
+      // Everything below space except tab, newline and carriage return.
+      const at = buf.findIndex((b) => b < 32 && b !== 9 && b !== 10 && b !== 13);
+      if (at >= 0) bad.push(`${root}/${name} byte ${at} = 0x${buf[at].toString(16)}`);
+    }
+  }
+  assert.deepEqual(bad, [], `control bytes found: ${bad.join(', ')}`);
+});
+
 await check('nothing else writes state.json behind saveState', () => {
   // The merge above is the whole fix for four separate call sites, which only holds
   // while `saveState` is the only way in. A direct write would pass every test here
