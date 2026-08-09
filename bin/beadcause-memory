@@ -1,0 +1,134 @@
+#!/usr/bin/env node
+/**
+ * The memory API as something an agent can actually reach: a command.
+ *
+ * An agent here is a `claude -p` in a shell. It has Bash and an allowlist, and no
+ * way to `import` anything — so a JavaScript module is a library for the daemon and
+ * invisible to the agents it is for. This is the surface they get:
+ *
+ *   beadcause-memory remember <key> <value...>
+ *   beadcause-memory recall [<key>]
+ *   beadcause-memory post <topic> <message...>
+ *   beadcause-memory read <topic> [--since=N]
+ *   beadcause-memory topics
+ *   beadcause-memory agents
+ *
+ * **Who you are is not an argument.** `--agent` exists for a human debugging from a
+ * terminal, but an agent never passes it: the daemon exports `BEADCAUSE_AGENT` when
+ * it spawns one, and that is what both halves attribute to. An agent that named
+ * itself on the command line could name itself anything, and the first time one
+ * wrote into another's memory the mistake would be indistinguishable from the design.
+ *
+ * **No repo is named here either**, in any command or any flag — that is the whole
+ * point of the indirection in lib/memory.js, and a `--repo` flag would hand it
+ * straight back.
+ */
+import { remember, recall, recallDetail, post, read, topics, agents } from '../lib/memory.js';
+
+const argv = process.argv.slice(2);
+const flags = new Map();
+const args = [];
+for (const a of argv) {
+  const m = /^--([a-z-]+)(?:=(.*))?$/.exec(a);
+  if (m) flags.set(m[1], m[2] ?? true);
+  else args.push(a);
+}
+
+const asJson = flags.has('json');
+const who = String(flags.get('agent') || process.env.BEADCAUSE_AGENT || '');
+
+const USAGE = `beadcause-memory — what an agent knows, and what agents tell each other
+
+  remember <key> <value...>     store something worth knowing next session
+  recall [<key>]                read it back; no key lists everything
+  post <topic> <message...>     say something to whoever is listening
+  read <topic> [--since=N]      what has been said since message N
+  topics                        which topics exist
+  agents                        which agents have remembered anything
+
+  --agent=<id>   whose memory (default: $BEADCAUSE_AGENT)
+  --since=<n>    the seq of the last message you saw, or an ISO timestamp
+  --limit=<n>    how many messages at most (default 50)
+  --json         machine-readable output`;
+
+/** Identity is required for the halves that write in someone's name. */
+function me() {
+  if (!who) {
+    throw new Error('no agent — set BEADCAUSE_AGENT or pass --agent=<id>');
+  }
+  return who;
+}
+
+const out = (human, value) => console.log(asJson ? JSON.stringify(value, null, 2) : human);
+
+async function main() {
+  const [command, ...rest] = args;
+
+  switch (command) {
+    case 'remember': {
+      const [key, ...value] = rest;
+      if (!key || !value.length) throw new Error('usage: remember <key> <value...>');
+      const r = await remember(me(), key, value.join(' '));
+      return out(`remembered ${r.agent}.${r.key}`, r);
+    }
+
+    case 'recall': {
+      const [key] = rest;
+      if (key) {
+        const value = await recall(me(), key);
+        // Nothing on stdout and a non-zero exit for a miss, so `recall x || echo none`
+        // works in the shell an agent is actually using.
+        if (value === null) {
+          process.exitCode = 1;
+          return out('', null);
+        }
+        return out(typeof value === 'string' ? value : JSON.stringify(value, null, 2), value);
+      }
+      const all = await recallDetail(me());
+      const keys = Object.entries(all);
+      if (!keys.length) return out(`${me()} has remembered nothing yet`, {});
+      return out(
+        keys.map(([k, v]) => `${k}  ${typeof v.value === 'string' ? v.value : JSON.stringify(v.value)}  (${v.at})`).join('\n'),
+        Object.fromEntries(keys.map(([k, v]) => [k, v.value]))
+      );
+    }
+
+    case 'post': {
+      const [topic, ...message] = rest;
+      if (!topic || !message.length) throw new Error('usage: post <topic> <message...>');
+      const r = await post(topic, message.join(' '), { from: me() });
+      return out(`posted ${r.topic} #${r.seq}`, r);
+    }
+
+    case 'read': {
+      const [topic] = rest;
+      if (!topic) throw new Error('usage: read <topic> [--since=N]');
+      const rawSince = flags.get('since');
+      const since = rawSince === undefined ? 0 : /^\d+$/.test(String(rawSince)) ? Number(rawSince) : String(rawSince);
+      const limit = flags.has('limit') ? Number(flags.get('limit')) : 50;
+      const messages = await read(topic, since, { limit });
+      if (!messages.length) return out(`nothing new on ${topic}`, []);
+      return out(messages.map((m) => `#${m.seq} ${m.at} ${m.from}: ${m.message}`).join('\n'), messages);
+    }
+
+    case 'topics': {
+      const list = await topics();
+      return out(list.length ? list.join('\n') : 'no topics yet', list);
+    }
+
+    case 'agents': {
+      const list = await agents();
+      return out(list.length ? list.join('\n') : 'nobody has remembered anything yet', list);
+    }
+
+    default:
+      console.log(USAGE);
+      // Asking for help is not a failure; a typo'd subcommand is.
+      process.exitCode = command ? 2 : 0;
+  }
+}
+
+main().catch((err) => {
+  console.error(`beadcause-memory: ${err.message}`);
+  process.exit(1);
+});

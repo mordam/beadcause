@@ -542,6 +542,101 @@ parsed.** A malformed request still arrives in the foundation channel carrying i
 error, rather than falling back into the work feed where nobody is looking for a
 constitutional decision.
 
+## What an agent remembers, and how agents tell each other things
+
+A foundation is what an agent *is*. This is what it has *learned* — and it is the
+half that used to evaporate at the end of every run. Four calls, and an agent
+reaches all of them as a command:
+
+```
+beadcause-memory remember tone "evidence first, then the ask"
+beadcause-memory recall tone
+beadcause-memory post proposals "the graph work is blocked on a decision"
+beadcause-memory read proposals --since=4
+```
+
+`remember` / `recall` are one agent's own knowledge. `post` / `read` are a
+**blackboard**: an agent publishes what it believes and the others read it whenever
+they next look. Deliberately not a mailbox and not a conversation — there is no
+addressee and no delivery, because git has no notification to give. The nudge, when
+something needs one, is the event bus (`lib/events.js`), which is in-memory and
+un-persisted and is the exact complement of this: payload and durability here,
+wake-up there.
+
+**No call names a repo, a path or a ref, and none of them will take one.** That is
+the point of the indirection — the day this should be SQLite or a table in beads,
+the change is `lib/memory.js` and nothing else. An agent handed a path would have
+put that path into its own memory, its habits and its prompts.
+
+**Who you are is not an argument either.** The daemon exports `BEADCAUSE_AGENT`
+when it spawns an agent, and both halves attribute to that. An agent that could name
+itself on the command line could name itself `console`, and the first time one wrote
+into another's memory it would be indistinguishable from the other agent having
+written it. It is the *foundation's* id, so `answerer` and `critic` — who share the
+dispatch foundation — share what dispatch has learned. Memory belongs to the thing
+that has a definition, which is the same boundary the amendment loop draws.
+
+### Where it lives: `~/.config/beadcause` is a git repo
+
+Tier 1 put an agent's memory on a ref inside the codebase it was working on, which
+is right for knowledge *about that codebase* and is exactly why nothing could be
+shared: the beadcause advocate and the sophab advocate write into different
+checkouts and cannot see each other. So the config directory — the one place every
+agent on this Mac has in common — became a repo, and both halves ride on refs in it:
+
+```
+refs/beadcause/memory            one commit per write, tree = <agent>.json
+refs/beadcause/bus/<topic>       one commit per message, tree = message.json
+
+git -C ~/.config/beadcause log --format='%aI %s' refs/beadcause/memory
+git -C ~/.config/beadcause cat-file -p refs/beadcause/memory:advocate.json
+git -C ~/.config/beadcause log refs/beadcause/bus/proposals
+```
+
+Same trick as the session logs: a ref outside `refs/heads/*` and `refs/tags/*` has
+no working tree, so the daemon can commit one while something else is rewriting
+`config.json` beside it. Nothing here has a remote and nothing pushes.
+
+**The `.gitignore` is written before `git init`, and that ordering is the whole
+safety of it.** That directory holds `android-keystore.jks` — the release signing
+key for the Android app — and its password file next to it. A `git init && git add
+-A` there commits a signing key into a history that is then genuinely hard to
+remove. So the ignore file lands first, *and* every commit re-checks the staged list
+against a denylist and aborts rather than dropping the file quietly. An ignore rule
+is one `git add -f` away from not applying; the cost of being wrong once is a
+rotated key.
+
+### Two writers, and why it is a compare-and-swap
+
+Every write reads the ref tip, builds its value from it, and hands that tip back to
+`update-ref` as the expected old value. Git refuses if anyone landed first, and the
+whole operation retries against the new tip — not just the commit, because losing
+the race means the value you merged into is stale too.
+
+The interesting case is the *first* write to a ref, where every writer reads `null`
+at once and each believes it is creating it. `update-ref <ref> <new>` with the old
+value left off means "overwrite whatever is there"; the empty string means "and it
+must not exist". Omitting it made six concurrent posts to a new topic land as one
+surviving commit with five silently lost and no error anywhere. `lib/gitref.js` now
+always passes it, which also closes the same hole for foundations and session logs.
+
+`node test/memory.mjs` races six processes onto one topic and asserts the sequence
+1..6 is there exactly once — a compare-and-swap you have not raced is one you have
+not tested.
+
+### The state files get a history for free
+
+The same repo means `config.json`, `state.json`, `advocates.json` and the consoles
+are now committed after they change — which is what the `config.json.bak-20260808`
+and `config.json.bak-scope` sitting in that directory were: backups made by hand at
+moments somebody was nervous. `git -C ~/.config/beadcause log` answers "what did
+this say before the advocate rewrote it" without anyone having remembered to ask.
+
+Snapshots are debounced by two seconds and the reasons accumulate, because one
+advocate cycle rewrites `advocates.json` three or four times in a second and those
+are one event to whoever reads the history back. `status.json`, `logs/` and the
+check PNGs are ignored — churn, and not the thing you want a history of.
+
 ## The conversation, both ways
 
 *Comment only* is not a dead end — it starts a thread.
@@ -1869,6 +1964,11 @@ The temp prompt files handed to `claude` are deliberately left alone: they are
 born, read once and deleted, so a torn one is a failed spawn rather than lost
 state.
 
+That covers a file being *torn*. What it cannot cover is a file being rewritten
+with something you did not want — for which the directory is now a git repo and
+every one of these files is committed after it changes. See
+[the state files get a history for free](#the-state-files-get-a-history-for-free).
+
 ### Privacy of the push
 
 An ntfy.sh topic is readable by anyone who guesses its name. The topic is random,
@@ -1965,8 +2065,14 @@ controls.
 
 ### `npm test`
 
-The repo has one test file, `test/observe.mjs`, and it is about this flag only —
-because this is the only switch here that fails *silently*. Turn off the terminal
+Four suites: `scripts/selftest.mjs`, then `test/observe.mjs`, `test/atomic.mjs` and
+`test/memory.mjs`. What they have in common is that each covers something whose
+failure is *silent* — a flag that does nothing, a state file that comes back empty,
+a message that was never written. The loud failures are still covered by
+`node --check` on changed files and by booting an observer instance and driving it.
+
+`test/observe.mjs` is about observer mode only, and it is the oldest of them —
+because this is the switch here that fails most quietly. Turn off the terminal
 and the terminal is gone; get this one subtly wrong and everything looks fine until
 there are two Claude windows open on repos you weren't working in. It checks that
 the flag reads the way this section says (both spellings, and `0`/`false`/empty
@@ -1978,8 +2084,7 @@ off all of that goes down the ordinary path and the field reads `false`.
 The mirror-image test is deliberately absent: "with the flag off, does an advocate
 really open a window?" can only be answered by opening one. That is the incident
 this flag exists because of, so the suite proves the guards are *conditional* and
-stops there. Everything else is still gated by `node --check` on changed files and
-by booting an observer instance and driving it.
+stops there.
 
 ## Notes on bd
 
