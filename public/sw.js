@@ -1,11 +1,15 @@
 /* Cache the shell so the inbox opens instantly and the 3.5 MB mermaid bundle is
    fetched once. API traffic is never cached — an answered question must vanish. */
-const CACHE = 'beadcause-v10';
+const CACHE = 'beadcause-v11';
 const SHELL = [
   '/',
   '/index.html',
   '/style.css',
   '/app.js',
+  // The bottom tab bar, on all four standing views. Every one of them is useless
+  // without it now — it is the only way off a page — so it belongs in the shell
+  // rather than being fetched four times over a phone link.
+  '/tabbar.js',
   '/doc.html',
   '/doc.js',
   '/graph.html',

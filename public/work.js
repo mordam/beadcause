@@ -23,6 +23,7 @@
   const token = localStorage.getItem('beadcause.token') || '';
   const out = document.getElementById('work');
   const pulse = document.getElementById('pulse');
+  const observing = document.getElementById('observing');
   const REFRESH_MS = 45000;
 
   const esc = (s) =>
@@ -266,6 +267,10 @@
         throw new Error(body.error || `HTTP ${res.status}`);
       }
       const data = await res.json();
+      // Which daemon this is. The sessions listed below belong to the Mac, not to
+      // this instance, so without the badge an observer looks exactly like the one
+      // that opened them.
+      observing.hidden = !data.observing;
       const advocates = new Map((data.advocates || []).map((a) => [a.workspace, a]));
       const cards =
         (data.workspaces || []).map((w) => workspaceHtml(w, advocates.get(w.name))).join('') +

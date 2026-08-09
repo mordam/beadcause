@@ -7,10 +7,12 @@
   "license": "ISC",
   "bin": {
     "beadcause": "bin/beadcause.js",
-    "beadcause-monitor": "bin/monitor.js"
+    "beadcause-monitor": "bin/monitor.js",
+    "beadcause-memory": "bin/beadcause-memory"
   },
   "scripts": {
     "start": "node bin/beadcause.js",
+    "test": "node scripts/selftest.mjs && node test/observe.mjs && node test/atomic.mjs && node test/memory.mjs",
     "qr": "node bin/beadcause.js --qr",
     "vendor": "node scripts/vendor.js",
     "postinstall": "node scripts/vendor.js",

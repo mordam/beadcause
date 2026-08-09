@@ -14,12 +14,14 @@
     <div class="brand">
       <span class="dot" id="pulse"></span>
       <h1>Advocates</h1>
+      <!-- Filled in only on an observer instance — see OBSERVING in lib/config.js.
+           It sits next to the title rather than in the actions, because it is a fact
+           about which daemon this is, not a control. -->
+      <span class="observing" id="observing" hidden>⦿ observing</span>
     </div>
     <div class="sheet-actions">
       <span class="mon-tally" id="tally"></span>
       <button id="refresh" class="icon-btn" aria-label="Refresh">⟳</button>
-      <a href="/work" class="icon-btn" aria-label="Current sessions">◑</a>
-      <a href="/" class="icon-btn" aria-label="Back to the inbox">✕</a>
     </div>
   </header>
 
@@ -36,6 +38,7 @@
     <div class="empty">Looking for a device…</div>
   </section>
 
+  <script src="/tabbar.js"></script>
   <script src="/vendor/marked.js"></script>
   <script src="/vendor/purify.js"></script>
   <script src="/monitor.js"></script>

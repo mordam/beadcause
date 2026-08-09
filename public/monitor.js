@@ -52,6 +52,7 @@
   const out = document.getElementById('mon');
   const pulse = document.getElementById('pulse');
   const tally = document.getElementById('tally');
+  const observing = document.getElementById('observing');
 
   /* Two `bd` calls per workspace behind /api/work, so this refreshes on a timer
      rather than streaming. The transcript poll below is the fast one — a file read. */
@@ -567,6 +568,15 @@
   function render() {
     const data = state.work;
     if (!data) return;
+
+    // Which daemon am I looking at? Two consoles side by side are otherwise
+    // identical, and the one that acts is not the one you have been clicking.
+    // `hidden` rather than absent text: the live instance must show nothing at all,
+    // so a badge that failed to render can never be mistaken for "not observing".
+    observing.hidden = !data.observing;
+    observing.title = data.observing
+      ? 'This instance watches and never acts: no sessions, proposals, worktree sweeps, session logs, reply agents or pushes.'
+      : '';
     const advocates = new Map((data.advocates || []).map((a) => [a.workspace, a]));
     const spaces = data.workspaces || [];
 
