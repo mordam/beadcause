@@ -6,6 +6,10 @@ const SHELL = [
   '/index.html',
   '/style.css',
   '/app.js',
+  // The bottom tab bar, on all four standing views. Every one of them is useless
+  // without it now — it is the only way off a page — so it belongs in the shell
+  // rather than being fetched four times over a phone link.
+  '/tabbar.js',
   // On every page that can open a detail drawer, and on both pages that can be one.
   '/drawer.js',
   '/doc.html',

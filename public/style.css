@@ -376,18 +376,49 @@ body {
   padding: 10px 0;
   border-top: 1px solid var(--line);
 }
-.prop-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
-.prop-title { font-size: 14.5px; font-weight: 590; line-height: 1.35; }
+.prop-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.prop-head { display: flex; align-items: baseline; gap: 4px; }
+.prop-title { flex: 1; min-width: 0; font-size: 14.5px; font-weight: 590; line-height: 1.35; }
 /* The number is what a typed or notification answer refers to — "CREATE: 1,3" — so
-   it is part of the row rather than a list marker the renderer happens to draw. */
+   it is part of the row rather than a list marker the renderer happens to draw. The
+   body hangs off it at the same indent, which is what makes the column read as one. */
 .prop-n {
+  flex: none;
   display: inline-block; min-width: 18px;
   color: var(--muted); font-variant-numeric: tabular-nums; font-weight: 700;
 }
+.prop-body { display: flex; flex-direction: column; gap: 9px; padding-left: 22px; }
+/* Folded rather than clamped. Three lines of -webkit-line-clamp over markdown cuts a
+   list mid-item, and nothing on the row said there was more or offered it; this
+   fades out at a fixed height and puts a button under it. */
+.prop-row.is-collapsed .prop-body {
+  max-height: 148px; overflow: hidden;
+  -webkit-mask-image: linear-gradient(180deg, #000 60%, transparent 100%);
+  mask-image: linear-gradient(180deg, #000 60%, transparent 100%);
+}
+.prop-more {
+  align-self: flex-start; margin-left: 22px;
+  min-height: 34px; padding: 4px 0;
+  border: none; background: none; color: var(--accent);
+  font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer;
+}
 .prop-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
-.prop-acc, .prop-desc, .prop-why { font-size: 12.5px; color: var(--muted); line-height: 1.45; }
-.prop-desc { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
-.prop-why { font-style: italic; }
+/* Every field that would be written, under a label saying which it is — acceptance
+   criteria used to wrap in among the type and priority pills, unannounced. */
+.prop-field { display: flex; flex-direction: column; gap: 3px; }
+.prop-field.pills { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 6px; }
+.prop-label {
+  font-size: 10.5px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase;
+  color: var(--muted);
+}
+/* Prose in a row is a smaller setting of prose in a brief, not a different thing. */
+.prop-body .md { font-size: 13px; line-height: 1.55; }
+.prop-body .md p, .prop-body .md ul, .prop-body .md ol { margin: 0 0 8px; }
+.prop-body .md ul, .prop-body .md ol { padding-left: 18px; }
+.prop-body .md li { margin-bottom: 3px; }
+.prop-body .md > *:last-child { margin-bottom: 0; }
+/* Last and italic: the rationale argues for the bead, it is not part of it. */
+.prop-why .md { font-style: italic; color: var(--muted); }
 .prop-choice { flex: none; display: flex; gap: 6px; }
 .prop-btn {
   width: 40px; min-height: 40px;
@@ -1745,9 +1776,10 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
    told you to read. See public/drawer.js — the panel holds an iframe of the page
    that already exists, which is why there is nothing here about its contents.
 
-   Above .card.open (40) and the toast (40), below the token dialog (60 and a real
-   <dialog>, which lives in the top layer anyway): a drawer covers the brief you
-   were reading, and is covered by anything that has to be answered first. */
+   Above the tab bar (25), .card.open (40) and the toast (40), below the token
+   dialog (60 and a real <dialog>, which lives in the top layer anyway): a drawer
+   covers the brief you were reading — and the bar, since back is what dismisses it
+   — and is covered by anything that has to be answered first. */
 .drawer-wrap {
   position: fixed;
   inset: 0;
@@ -1820,4 +1852,86 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
 @media (prefers-reduced-motion: reduce) {
   .drawer,
   .drawer-backdrop { transition: none; }
+}
+
+/* ── The tab bar ──────────────────────────────────────────────────────────────
+
+   Four standing views, one bar, on all four of them — see public/tabbar.js for
+   why. It sits at the bottom because that is where a thumb is, and the safe-area
+   padding is its own rather than the body's: it is `position: fixed`, so it is
+   laid out against the viewport and the body's inset padding never reaches it.
+
+   `--tabbar-h` is the bar without that inset. Everything that has to sit clear of
+   the bar — the foot of a scrolling page, a toast — adds the inset back itself,
+   which is why it appears in the sums below and not in the variable. */
+
+:root { --tabbar-h: 54px; }
+
+.tabbar {
+  position: fixed;
+  z-index: 25;
+  left: 0; right: 0; bottom: 0;
+  display: flex;
+  padding: 0 env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  background: color-mix(in srgb, var(--bg) 92%, transparent);
+  backdrop-filter: blur(12px);
+  border-top: 1px solid var(--line);
+}
+
+.tab-item {
+  position: relative;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-height: var(--tabbar-h);
+  padding: 5px 2px;
+  color: var(--muted);
+  text-decoration: none;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  -webkit-tap-highlight-color: transparent;
+}
+.tab-icon { font-size: 19px; line-height: 1.1; }
+.tab-label { line-height: 1; }
+
+/* Current. Colour alone would be the only mark, and colour alone is not a mark —
+   so the accent is doubled by a rule along the top edge of the tab, which reads
+   in both schemes and without colour vision. */
+.tab-item[aria-current="page"] { color: var(--accent); }
+.tab-item[aria-current="page"]::before {
+  content: "";
+  position: absolute;
+  top: 0; left: 24%; right: 24%;
+  height: 2px;
+  border-radius: 0 0 2px 2px;
+  background: var(--accent);
+}
+
+/* Keep the foot of a scrolling page clear of the bar. Beats the plain `body` rule
+   at the top of this file, which reserved only the home indicator. */
+.has-tabbar { padding-bottom: calc(env(safe-area-inset-bottom) + var(--tabbar-h) + 16px); }
+
+/* The console is not a document that scrolls under a fixed bar — it is a fixed
+   column of bar, thread and composer, and a composer is the one thing that must
+   never be covered. So on that page the tab bar stops being fixed and becomes the
+   last row of the column, and the composer hands it the home-indicator gap it was
+   holding itself. */
+.console-body.has-tabbar { padding-bottom: 0; }
+.console-body .tabbar { position: static; flex: none; }
+.console-body.has-tabbar .composer { padding-bottom: 10px; }
+
+/* The toast is bottom-anchored, so every one of these lifts by the bar. The
+   console's already clears its composer; it now clears the bar under it too. */
+.has-tabbar .toast { bottom: calc(env(safe-area-inset-bottom) + var(--tabbar-h) + 18px); }
+.console-body.has-tabbar .toast { bottom: calc(env(safe-area-inset-bottom) + var(--tabbar-h) + 84px); }
+
+/* Height is the scarce axis on a phone on its side — the same reason the top bar
+   thins out up there. */
+@media (orientation: landscape) {
+  :root { --tabbar-h: 44px; }
+  .tab-icon { font-size: 17px; }
 }

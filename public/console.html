@@ -13,7 +13,6 @@
 <body class="console-body">
   <header class="topbar">
     <div class="brand">
-      <a href="/" class="icon-btn" aria-label="Back to the inbox">‹</a>
       <span class="dot" id="pulse"></span>
       <h1 id="title">Bead console</h1>
     </div>
@@ -25,7 +24,6 @@
         long enough that a proposal made four messages ago is off screen.
       -->
       <button id="draft-btn" class="icon-btn wide" hidden aria-label="The proposed beads">🧾 <span id="draft-count">0</span></button>
-      <a href="/" class="icon-btn" aria-label="Close">✕</a>
     </div>
   </header>
 
@@ -84,6 +82,7 @@
 
   <script src="/vendor/marked.js"></script>
   <script src="/vendor/purify.js"></script>
+  <script src="/tabbar.js"></script>
   <script src="/console.js"></script>
   <!-- A bead you just filed, or a document in the conversation, opens over the
        console rather than throwing away the conversation to show you one. -->
