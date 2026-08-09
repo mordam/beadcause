@@ -636,6 +636,92 @@ advocate cycle rewrites `advocates.json` three or four times in a second and tho
 are one event to whoever reads the history back. `status.json`, `logs/` and the
 check PNGs are ignored — churn, and not the thing you want a history of.
 
+## What an agent can see — a picture of the running app
+
+Almost everything in flight in this repo is visual. How the graph fits a phone,
+where a card lands after its prose reflows, whether the kebab collapses, what the
+console pane does at 390px — and every one of those shipped from an agent that had
+read the source and never seen the screen. It would write the CSS, run the tests,
+and hand over a change it was in no position to have an opinion about.
+
+```
+node scripts/shot.mjs [path] [--desktop] [--full] [--wait SEL] [--settle MS]
+                      [--out FILE] [--base URL] [--strict]
+```
+
+It renders a page of the running daemon to a PNG under `.claude/shots/` and prints
+the path. The agent then `Read`s the PNG, which is a thing it could already do — the
+missing half was never the looking, it was having something to look at.
+
+```
+$ node scripts/shot.mjs /graph?ws=beadcause --wait svg
+.claude/shots/graph-ws-beadcause-20260809-150650.png
+  http://127.0.0.1:4318/graph?ws=beadcause - 390x844 @3x mobile - 141 KB
+
+what the page complained about
+  http: 404 /api/presence
+```
+
+**The phone is the default**, 390×844 at 3× with touch and a mobile user agent —
+the same device `phone-check.mjs` emulates, so a shot and a check describe the same
+pixels. A 1280px screenshot is a picture of the one layout nobody uses, and it hides
+exactly the failures worth catching. `--desktop` when the bug really is a
+wide-window one.
+
+**The token never touches the command line.** It comes from `loadConfig()` and goes
+into `localStorage` through an init script that runs before any of the page's own
+code, so the app finds itself already paired and never draws the setup dialog over
+the thing you came to photograph. Agent shell commands get echoed into transcripts,
+quoted into beads and read on a phone; a secret that reaches the screen once needs
+rotating. `?t=` would have put it in the URL bar, which is to say in the screenshot.
+
+**It waits for `load`, never for an idle network.** The app holds a WebSocket open
+for live updates, so the network is never idle — an idle-wait would have timed out
+on every page that rendered perfectly. `load` then a settle, and `--wait SEL` for a
+page that fans out over every workspace before it has anything to draw.
+
+**The console errors are output, not decoration.** A screenshot shows you a blank
+panel. It does not show you the 401 behind it, and that is precisely the case where
+a picture on its own actively misleads. `console.error`, uncaught exceptions, failed
+requests and any response ≥ 400 are collected, deduped and printed under the path.
+The 404 in the example above is real, and nothing else in the repo was going to
+mention it.
+
+Exit code is 1 when the page never loaded — Chrome renders its own error page in
+that case and reports no error at all, so without it a shot of "this site can't be
+reached" would read as a page that rendered. `--strict` widens that to any complaint
+at all. Either way it still writes the PNG: a run that produces nothing sends the
+agent back to guessing from source, and the error state is usually the single most
+informative frame there is.
+
+Two shots taken a week apart differ only where the app does — `prefers-color-scheme`
+is pinned dark and `prefers-reduced-motion` to `reduce`, because an animation caught
+mid-flight is a diff every single time.
+
+It drives headless Chrome over the DevTools protocol on Node's global `WebSocket`,
+the same way `scroll-check.mjs` and its five siblings already do, so it adds no
+dependency and downloads no browser. Chrome is looked up in the usual places and
+`CHROME_PATH` points it somewhere else.
+
+`node scripts/shot-check.mjs` is what keeps it honest, because every way this breaks
+is silent — a picture always arrives. Pairing stops working and it photographs the
+setup dialog, which reads to an agent as "the app is broken". The error capture stops
+working and a 401 behind a blank panel comes back looking fine. So: a fixture page
+served from the check's own process, with its own throwaway config and a token this
+file knows, shot for real by the real script. Fifteen assertions, including that the
+token never reached the output and that the page itself agrees about the viewport and
+the pinned media. It needs no daemon and no beads, so it can never photograph, or
+leak, anything of yours. Like the other headless-Chrome checks it is not in
+`npm test` — that suite stays pure Node.
+
+**The advocate gets exactly this and nothing more.** `Bash(node scripts/shot.mjs:*)`
+is in its `allowedTools` baseline — one command, not `Bash(node:*)`. The point is to
+let it look, not to let it run arbitrary JavaScript, and `writes: false` would mean
+very little standing next to a general `node`. Worker sessions needed no change at
+all: `allowedTools` is `null` there, so the moment the script existed they could run
+it. And `.claude/shots/` is gitignored, because every PNG is a picture of real
+beads.
+
 ## The conversation, both ways
 
 *Comment only* is not a dead end — it starts a thread.
