@@ -36,7 +36,9 @@ things that can't be guessed**, generates a launchd plist for *your* home direct
 and node binary, starts the service, waits for it to answer, and prints the pairing
 QR. It's re-runnable — run it again after pulling.
 
-The questions, all with a safe default on Enter: which workspaces are **shared with
+The questions, all with a safe default on Enter: **what the agents should call you**
+(the name every prompt, pull request body and bead note uses — guessed from your git
+identity), which workspaces are **shared with
 other people** (those get a contentless push and no unattended agents), where your
 **code lives** (so a question can show you files from it), whether your shell
 **derives `BEADS_DIR` from the working directory**, whether to use **ntfy**,
@@ -2453,6 +2455,7 @@ the fields it always read and renders exactly as it did.
 
 | key | meaning |
 |---|---|
+| `owner` | what the agents call you. It goes into every agent prompt ("*<name>* is not at the keyboard", "*<name>* approves every bead before it exists"), the body of every pull request an agent opens, and the notes that land on a bead. Asked first by `npm run configure`; guessed from your git `user.name` (first word) when it has never been set |
 | `port`, `host` | listens on `127.0.0.1` **and** the Tailscale IP only — never the LAN |
 | `token` | required on every `/api/*` call; regenerate by deleting the file |
 | `workspaces` | auto-discovered from `~/beads/*/.beads`, and **reconciled on every start** — entries whose directory has gone are dropped and new ones picked up, both logged. Renaming a workspace directory used to leave a stale entry that failed on every poll tick, silently hiding that whole workspace from the phone |

@@ -20,6 +20,7 @@ import os from 'node:os';
 import path from 'node:path';
 import readline from 'node:readline/promises';
 import { loadConfig, saveConfig, CONFIG_PATH } from '../lib/config.js';
+import { ownerName } from '../lib/owner.js';
 
 const HOME = os.homedir();
 const tty = process.stdin.isTTY && process.stdout.isTTY;
@@ -41,6 +42,9 @@ function summary(c) {
     return bits.length ? ` [${bits.join(', ')}]` : '';
   };
   return [
+    // First line, because it is the one that is wrong on a fresh machine and the one
+    // nobody thinks to look for: every prompt an agent gets says this name.
+    `  agents call you   : ${ownerName(c)}`,
     `  workspaces        : ${workspaces.join(', ') || '(none)'}`,
     // Two separate lists govern this, and reporting only one made a workspace look
     // unprotected when it was actually covered by the other.
@@ -120,9 +124,34 @@ const yes = async (q, dflt = 'n') => /^y/i.test(await ask(q, dflt));
 console.log(`\n${bold('Beadcause setup')} — Enter accepts the default shown in brackets.`);
 console.log(`Workspaces found: ${workspaces.join(', ')}\n`);
 
+/* ------------------------------------------------------------------ your name */
+
+/**
+ * Asked first, because it is the one answer that changes what the agents *say*.
+ *
+ * Every unattended agent is told about a person by name: who is not at the keyboard,
+ * who approves a bead before it exists, whose pull request this is waiting on. That
+ * name used to be a literal in the source, which on any machine but the author's put
+ * a stranger in every prompt — and a model given the wrong name has no way to tell
+ * that the name is the mistake rather than the instruction.
+ *
+ * The default comes from your git `user.name`, first word only, because the value is
+ * read inline in prose. Anything you type is kept as typed.
+ */
+console.log(bold('1. What should the agents call you?'));
+console.log(
+  dim(
+    '   This name goes into every agent prompt, the body of every pull request an\n' +
+      '   agent opens, and the notes that land on a bead — "<name> is not at the\n' +
+      '   keyboard", "<name> approves every bead before it exists". A first name reads\n' +
+      '   best. Guessed from your git identity.'
+  )
+);
+cfg.owner = (await ask('   name:', ownerName(cfg))) || ownerName(cfg);
+
 /* ------------------------------------------------- shared vs private workspaces */
 
-console.log(bold('1. Which of these are shared with other people?'));
+console.log(bold('2. Which of these are shared with other people?'));
 console.log(
   dim(
     '   Shared workspaces are treated carefully in two ways: their questions push a\n' +
@@ -149,7 +178,7 @@ cfg.ntfy = { ...cfg.ntfy, minimalWorkspaces: shared };
 
 /* --------------------------------------------------------------------- spaces */
 
-console.log(`\n${bold('2. Group them into spaces?')}`);
+console.log(`\n${bold('3. Group them into spaces?')}`);
 console.log(
   dim(
     '   A space is a set of workspaces that share a notification policy — the point\n' +
@@ -197,7 +226,7 @@ if (await yes('   set up spaces? (y/n)', (cfg.spaces || []).length ? 'y' : 'n'))
 
 /* ---------------------------------------------------------------- asset roots */
 
-console.log(`\n${bold('3. Where does your code live?')}`);
+console.log(`\n${bold('4. Where does your code live?')}`);
 console.log(
   dim(
     '   A question can only show you an image or open a document that sits under one\n' +
@@ -218,7 +247,7 @@ cfg.assetRoots = [...assetRoots];
 
 /* ----------------------------------------------------------------- projectRoot */
 
-console.log(`\n${bold('4. Does your shell pick a beads workspace from the current directory?')}`);
+console.log(`\n${bold('5. Does your shell pick a beads workspace from the current directory?')}`);
 console.log(
   dim(
     '   Some setups have a chpwd hook mapping <root>/<repo> to ~/beads/<repo>, often\n' +
@@ -246,7 +275,7 @@ if (await yes('   shell-derived? (y/n)', 'n')) {
 
 /* ------------------------------------------------------------------------ push */
 
-console.log(`\n${bold('5. Push notifications')}`);
+console.log(`\n${bold('6. Push notifications')}`);
 console.log(
   dim(
     '   The Android app posts its own notifications over your tailnet and needs\n' +
@@ -258,7 +287,7 @@ cfg.ntfy = { ...cfg.ntfy, enabled: await yes('   use ntfy? (y/n)', cfg.ntfy?.ena
 
 /* --------------------------------------------------------------- unattended work */
 
-console.log(`\n${bold('6. Should commenting spawn an agent to answer you?')}`);
+console.log(`\n${bold('7. Should commenting spawn an agent to answer you?')}`);
 console.log(
   dim(
     '   Otherwise a comment just sets a label and waits for an agent session to come\n' +
@@ -270,7 +299,7 @@ cfg.autoDispatch = await yes('   auto-dispatch? (y/n)', cfg.autoDispatch === fal
 
 /* -------------------------------------------------------------------- monitor */
 
-console.log(`\n${bold('7. Open the advocate console at login?')}`);
+console.log(`\n${bold('8. Open the advocate console at login?')}`);
 console.log(
   dim(
     '   A browser window on /monitor: what each repo\'s advocate is working on, what it\n' +
@@ -287,7 +316,7 @@ cfg.monitor = {
 
 /* ------------------------------------------------------------------ advocates */
 
-console.log(`\n${bold('8. Which repos should have an advocate?')}`);
+console.log(`\n${bold('9. Which repos should have an advocate?')}`);
 console.log(
   dim(
     '   An advocate watches one repo\'s ready beads and opens a Claude session on each\n' +
