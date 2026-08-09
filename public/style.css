@@ -2644,3 +2644,59 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
   .drawer,
   .drawer-backdrop { transition: none; }
 }
+
+/* -------------------------------------------------------------------- admin
+
+   /admin. Pause all / resume all, one card per scope. The layout has one job the
+   other pages do not: make the safe control and the destructive one look nothing
+   alike. So the drain button is an ordinary .secondary in the row, and the kill
+   button sits below it, outlined in red, with the sentence explaining the
+   difference underneath — separated by space rather than sitting in the same row
+   where a thumb aiming for one could land on the other.
+*/
+.admin-lede {
+  margin: 0 0 14px;
+  font-size: 13.5px; line-height: 1.55; color: var(--muted);
+}
+.admin-lede strong { color: var(--text); font-weight: 650; }
+
+/* The result of the last press. Accent rather than red or amber: it reports, it
+   does not warn — the warning was on the button before you pressed it. */
+.admin-said {
+  margin: 0 0 12px; padding: 9px 12px;
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--line));
+  border-radius: 10px;
+  font-size: 13px; color: var(--accent);
+}
+
+.admin-card { padding: 14px 15px; margin-bottom: 12px; }
+.admin-card.plain { opacity: 0.7; }
+.admin-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 4px; }
+.admin-head h2 { margin: 0; font-size: 16px; font-weight: 680; }
+.admin-reach { display: flex; gap: 4px; flex-wrap: wrap; font-size: 11px; color: var(--muted); }
+
+/* Each pausable thing. The rule between rows is what stops "Advocates" and
+   "In-app terminals" reading as one control with four buttons. */
+.admin-row { border-top: 1px solid var(--line); padding: 12px 0 4px; }
+.admin-row-head { display: flex; align-items: center; gap: 8px; }
+.admin-what { font-size: 12px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; }
+.admin-state { font-size: 12.5px; font-weight: 600; color: var(--muted); }
+.admin-state.live { color: var(--accent); }
+.admin-state.held { color: var(--warn); }
+.admin-state.dim { opacity: 0.7; }
+.admin-detail { margin: 5px 0 10px; font-size: 13px; color: var(--muted); }
+
+.admin-btns { display: flex; gap: 8px; flex-wrap: wrap; }
+.admin-btns .primary, .admin-btns .secondary { flex: 1 1 190px; }
+
+.admin-kill { width: 100%; margin-top: 10px; }
+/* Armed: the second press is the one that acts, so it stops being an outline and
+   becomes solid — the same change the eye reads as "this is live now". */
+.admin-kill.armed {
+  background: var(--danger);
+  color: var(--accent-ink);
+  border-color: var(--danger);
+  font-weight: 650;
+}
+.admin-warn { margin: 7px 0 4px; font-size: 12.5px; line-height: 1.5; color: var(--warn); }
+.admin-warn strong { font-weight: 700; }
