@@ -1,11 +1,12 @@
 /*
   The bar along the bottom of every standing view.
 
-  These four pages — the inbox, the console, the sessions and the advocates — are
-  separate documents, and each one used to end in an ✕ that hard-navigated to `/`.
-  That made the inbox a hallway: console → advocates was two taps through a page
-  you did not want. The ad-hoc cross-links that grew to paper over it (sessions →
-  advocates, advocates → sessions) were the same complaint, admitting itself.
+  These four pages — the inbox, the chat session, the sessions and the advocates —
+  are separate documents, and each one used to end in an ✕ that hard-navigated to
+  `/`. That made the inbox a hallway: chat session → advocates was two taps through
+  a page you did not want. The ad-hoc cross-links that grew to paper over it
+  (sessions → advocates, advocates → sessions) were the same complaint, admitting
+  itself.
 
   So: one bar, the same on all four, fixed to the bottom where a thumb already is.
   Any view is one tap from any other, and nothing closes any more.
@@ -30,7 +31,10 @@
     // home screen still holds the old ones, so a tab has to recognise all of them
     // or the bar shows nothing as current on a page you are plainly looking at.
     { id: 'inbox', href: '/', icon: '📥', label: 'Inbox', paths: ['/', '/index.html'] },
-    { id: 'console', href: '/console', icon: '🧾', label: 'Console', paths: ['/console', '/console.html'] },
+    // "Chat session", not "Chat": the tab next to it is Sessions, and /foundations
+    // has agent chats of its own. The id and the href stay `console` — they live in
+    // stored conversation records and on the phone's home screen.
+    { id: 'console', href: '/console', icon: '🧾', label: 'Chat session', paths: ['/console', '/console.html'] },
     { id: 'sessions', href: '/sessions', icon: '🤖', label: 'Sessions', paths: ['/sessions', '/work', '/work.html'] },
     { id: 'advocates', href: '/monitor', icon: '📣', label: 'Advocates', paths: ['/monitor', '/advocates', '/monitor.html'] },
   ];

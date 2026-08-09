@@ -1,4 +1,4 @@
-/* The bead console — decide what to file, then file it.
+/* The chat session — decide what to file, then file it.
  *
  * Every other screen in beadcause acts on beads that already exist. This one is
  * upstream of that: you describe the thing however it comes out, an agent asks the
@@ -137,7 +137,7 @@
 
   // `id` only scopes the graph — it does not open anything. `open` adds the second
   // half: the graph page raises that bead's sheet once it has drawn. Anywhere the id
-  // is the whole reason for the link (a bead you just filed, the one this console
+  // is the whole reason for the link (a bead you just filed, the one this chat session
   // started from) wants beadUrl; a link that means "show me the neighbourhood" wants
   // graphUrl.
   const graphUrl = (ws, id) => `/graph?ws=${encodeURIComponent(ws)}&id=${encodeURIComponent(id)}`;
@@ -168,7 +168,7 @@
 
     const recent = data.consoles || [];
     $('#recent-label').hidden = !recent.length;
-    // Live conversations first, finished ones under them. A console is over when the
+    // Live conversations first, finished ones under them. A chat session is over when the
     // beads exist, and a list where everything sorts by recency puts the one thing
     // you have already dealt with at the top.
     const live = recent.filter((c) => !c.closedAt);
@@ -205,9 +205,9 @@
       ${
         done
           ? // Nothing to close, and no "reopen" button either: saying anything to a
-            // closed console reopens it, so the way back in is the row itself.
+            // closed chat session reopens it, so the way back in is the row itself.
             ''
-          : `<button class="row-x" data-close="${esc(c.id)}" aria-label="Close this console">✕</button>`
+          : `<button class="row-x" data-close="${esc(c.id)}" aria-label="Close this chat session">✕</button>`
       }
     </div>`;
   }
@@ -230,7 +230,7 @@
     }
   }
 
-  /** Open a console: on a workspace, or on a workspace seeded with one bead. */
+  /** Open a chat session: on a workspace, or on a workspace seeded with one bead. */
   async function open(workspace, seed) {
     try {
       const made = await api('/api/console', {
@@ -272,7 +272,7 @@
    * What became of a proposal — read off the transcript rather than stored on it.
    *
    * `proposed: N` is written into the message when the turn lands and stays there for
-   * the life of the console. The draft it pointed at does not: creating spends it,
+   * the life of the chat session. The draft it pointed at does not: creating spends it,
    * the next turn replaces it, closing drops it. So what the button means is decided
    * by the first thing *after* the message that either consumed that draft or put
    * another one in its place — and a button whose draft is gone must say so rather
@@ -344,13 +344,13 @@
     }
 
     // What beadcause did to the agent between turns. Its own row rather than an
-    // assistant bubble: the console did not say this, and a note about the console
+    // assistant bubble: the chat session did not say this, and a note about it
     // being restarted is the last thing that should look like the agent talking.
     if (m.role === 'system' && m.kind === 'reseeded') {
       return `<div class="msg reseed-note"><strong>↻ Foundation changed</strong>${esc(m.text)}</div>`;
     }
 
-    // A quiet divider rather than a message. The console being closed or picked back
+    // A quiet divider rather than a message. The chat session being closed or picked back
     // up belongs in the scrollback, but rendering it in an assistant bubble would
     // read as something the agent said.
     if (m.role === 'system' && (m.kind === 'closed' || m.kind === 'reopened')) {
@@ -414,7 +414,7 @@
   }
 
   /**
-   * Take a server console, keeping whatever is under the user's hands.
+   * Take a server chat session, keeping whatever is under the user's hands.
    *
    * The draft is the only contested field: it lives on the server so the agent can
    * see your edits, and on this screen so you can make them. A revision that lands
@@ -424,8 +424,8 @@
     state.console = c;
     state.seq = c.seq;
     // Every update to the thread comes through here, so this is the one place that
-    // knows both which console is open and what it has become — a title that changed
-    // when the agent named it, a console that has since been closed.
+    // knows both which chat session is open and what it has become — a title that changed
+    // when the agent named it, a chat session that has since been closed.
     window.beadcause?.presence?.report({
       view: 'console',
       id: c.id,
@@ -452,7 +452,7 @@
 
   /**
    * Follow the conversation. One long poll at a time, restarted as soon as it
-   * returns — the same feed the inbox lives on, scoped to this console, so a turn
+   * returns — the same feed the inbox lives on, scoped to this chat session, so a turn
    * that spends ninety seconds reading files is watched rather than waited on.
    */
   async function poll() {
@@ -856,7 +856,7 @@
       toast(`created ${out.created.length} bead${out.created.length === 1 ? '' : 's'}`);
       closeSheet();
       for (const w of out.warnings || []) toast(w, true);
-      // Accepting ends the conversation: the beads exist and the console that argued
+      // Accepting ends the conversation: the beads exist and the chat session that argued
       // them into shape is done, so it closes itself and drops you back to the list.
       // Unless there were warnings — those have to be read on the screen that
       // produced them, and this leaves you there to read them.
@@ -917,9 +917,9 @@
   }
 
   /**
-   * Three ways in, and they all end at a console id in the URL.
+   * Three ways in, and they all end at a chat session id in the URL.
    *
-   * `?ws=&seed=` is the one a card links to: it opens a console on that bead and
+   * `?ws=&seed=` is the one a card links to: it opens a chat session on that bead and
    * replaces itself with the real one, so a link on a bead card needs no JS of its
    * own and no POST from the page it sits on.
    */

@@ -491,7 +491,7 @@
   /**
    * The row, in edit mode.
    *
-   * Deliberately the same five things the console lets you change — title, type,
+   * Deliberately the same five things the chat session lets you change — title, type,
    * priority, description, acceptance — and deliberately not labels or dependencies.
    * Those are structural, they are rarely what is wrong with a proposed bead, and a
    * chip editor is not something to build on a card you are trying to keep short.
@@ -1464,7 +1464,7 @@
    *
    * - **It is not filtered by space or workspace.** Those answer "which of my lives
    *   is this about", and an agent's definition is not in one of them — it is the
-   *   same console whichever repo it was working in when it hit the wall.
+   *   same chat session whichever repo it was working in when it hit the wall.
    * - **It is not sorted with the questions, or counted with them.** A P0 question
    *   is urgent; a request to change what an agent is is *pending*, indefinitely, and
    *   letting the two compete for the top of the screen would mean either the urgent
