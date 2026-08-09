@@ -23,6 +23,12 @@
     // constitutional decision is not work. See `requestsHtml`.
     requests: [],
     spaces: [],
+    // The counts the chrome draws — beads asking you something, agents running,
+    // advocates waiting. Server-held rather than counted out of the rows above,
+    // because two of the three are about things that are not in this list at all
+    // and the third has to survive a scope that never fetched it. See summaryNow()
+    // in lib/server.js.
+    summary: {},
     space: 'all',
     workspace: 'all',
     open: new Set(),
@@ -43,6 +49,10 @@
     agents: [],
     agent: localStorage.getItem('beadcause.agent') || '',
     agentForm: false,
+    // Which card has the ⋯ roster open, for the same reason as `menu`: the panel
+    // hangs over a half-written comment, so it is shown and hidden by hand, and
+    // this is what paints it back when a poll rebuilds the list underneath it.
+    agentMenu: null,
     // Per-bead decisions on an advocate's proposal: key → Map(1-based index →
     // 'yes' | 'no'). Held here rather than on the question so a background refresh
     // cannot wipe a half-made decision, the same reason drafts live outside it.
@@ -617,6 +627,12 @@
    * one is printed underneath: an agent whose brief you cannot read is a name you
    * are guessing at. Creating one needs only a name and that paragraph — never
    * tools, which is why this form cannot widen what any agent may do.
+   *
+   * All of it now lives behind the ⋯ on the answer box (see replyBarHtml). Nearly
+   * every comment goes to the default agent, and this was several centimetres of
+   * chooser between the thread you just read and the box you were about to type in.
+   * The panel is the same markup in a different place — nothing here decides which
+   * agents exist, what any of them may do, or how the dispatch is sent.
    */
   function agentsHtml() {
     if (!state.agents.length) return '';
@@ -628,7 +644,7 @@
       )
       .join('');
 
-    return `<div class="section-label">Reply from <span>the agent that picks up your comment</span></div>
+    return `<div class="section-label">Who replies <span>to your comment</span></div>
       <div class="chip-row agent-row">
         ${chips}
         <button class="chip agent-add" data-act="agent-new" aria-label="New agent">＋</button>
@@ -711,14 +727,81 @@
   }
 
   /**
+   * Which agent replies, said with the panel shut.
+   *
+   * Collapsing the roster to a bare ⋯ would make every comment a guess, so the
+   * answer stays on screen and the roster is one tap away. It names the button as
+   * well as the agent, because the chooser governs exactly one of the two: a
+   * comment dispatches (server.js), and "Answer & close" spawns nobody. The old
+   * label — "the agent that picks up your comment" — described a mailbox that
+   * nothing has watched since dispatch started launching the reply itself.
+   */
+  function replyLineHtml(chosen) {
+    if (!chosen) return '';
+    // An armed override is spent on send, so it cannot only live inside the panel:
+    // shut, the box would look ordinary at the moment you press the button.
+    return `<b>Comment only</b> → ${esc(chosen.emoji || '🤖')} ${esc(chosen.name)} replies${
+      chosen.armed ? ' <span class="reply-armed">· ⚠ with tools, this once</span>' : ''
+    }`;
+  }
+
+  const dotsLabel = (chosen) =>
+    chosen
+      ? `Choose who replies — now ${chosen.name}${chosen.armed ? ', tools allowed for this comment' : ''}`
+      : 'Choose who replies';
+
+  /**
+   * The strip along the top of the answer box: who replies, and the ⋯ that opens
+   * the roster.
+   *
+   * Attached to the textarea rather than floating above it, so the ⋯ reads as that
+   * box's own corner — this chooses who answers *this*, and nothing else on the
+   * card. The panel is rendered with the card and only shown or hidden, which is
+   * what lets paintAgents keep repainting it in place while it is open.
+   */
+  function replyBarHtml(key) {
+    const chosen = currentAgent();
+    const on = state.agentMenu === key;
+    return `<div class="reply-bar"${state.agents.length ? '' : ' hidden'}>
+      <span class="reply-who">${replyLineHtml(chosen)}</span>
+      <div class="agent-wrap">
+        <button class="agent-dots${chosen?.armed ? ' armed' : ''}${on ? ' on' : ''}" data-act="agent-menu"
+          data-key="${esc(key)}" aria-haspopup="true" aria-expanded="${on}"
+          aria-label="${esc(dotsLabel(chosen))}"><span class="dots-emoji">${esc(
+            chosen?.emoji || '🤖'
+          )}</span>⋯</button>
+        <div class="agents agent-panel" role="group" aria-label="Who replies to your comment"${
+          on ? '' : ' hidden'
+        }>${agentsHtml()}</div>
+      </div>
+    </div>`;
+  }
+
+  /**
    * Repaint the chooser in place.
    *
    * Never through render(): the comment box sits directly beneath it, and rebuilding
    * the card to change which chip is pressed would drop a half-written comment —
-   * which is the exact failure the draft machinery elsewhere exists to prevent.
+   * which is the exact failure the draft machinery elsewhere exists to prevent. The
+   * same rule reaches the strip outside the panel: its text is rewritten, but the ⋯
+   * element itself is left alone so an open panel does not close under the repaint.
    */
   function paintAgents() {
+    const chosen = currentAgent();
     for (const block of listEl.querySelectorAll('.agents')) block.innerHTML = agentsHtml();
+    for (const bar of listEl.querySelectorAll('.reply-bar')) {
+      // A roster that never loaded leaves no strip at all — the server falls back to
+      // its default agent exactly as it did before any of this existed.
+      bar.hidden = !state.agents.length;
+      const who = bar.querySelector('.reply-who');
+      if (who) who.innerHTML = replyLineHtml(chosen);
+      const dots = bar.querySelector('.agent-dots');
+      if (!dots) continue;
+      dots.classList.toggle('armed', !!chosen?.armed);
+      dots.setAttribute('aria-label', dotsLabel(chosen));
+      const emoji = dots.querySelector('.dots-emoji');
+      if (emoji) emoji.textContent = chosen?.emoji || '🤖';
+    }
   }
 
   async function loadAgents() {
@@ -764,11 +847,12 @@
     const draft = getDraft(q.key);
 
     // `open` takes the card full screen — see .card.open in style.css. A question is
-    // read one at a time, and on a phone an inline accordion meant the brief, the
-    // thread and the answer box all competed with the list around them.
-    return `<article class="card${open ? ' open' : ''}${q.awaitingAgent ? ' replied' : ''}" id="card-${cardId(
-      q.key
-    )}" data-key="${esc(q.key)}">
+    // read one at a time, and on a phone expanding inline meant the brief, the thread
+    // and the answer box all competed with the list around them. openOnly() is what
+    // keeps "one at a time" true.
+    return `<article class="card${open ? ' open' : ''}${draft ? ' has-draft' : ''}${
+      q.awaitingAgent ? ' replied' : ''
+    }" id="card-${cardId(q.key)}" data-key="${esc(q.key)}">
       ${open ? cardTopHtml(q) : ''}
       <div class="card-head">
         <div class="meta">
@@ -947,9 +1031,10 @@
       );
     }
 
-    parts.push(`<div class="agents">${agentsHtml()}</div>`);
-
+    // The thread runs straight into the box you answer it in; who replies is a line
+    // on the box's own top edge, and the roster is behind the ⋯ on that line.
     parts.push(`<div class="freeform">
+      ${replyBarHtml(q.key)}
       <textarea data-role="answer" placeholder="Answer in your own words…" rows="3">${esc(getDraft(q.key))}</textarea>
       <div class="row">
         <button class="primary" data-act="answer" data-key="${esc(q.key)}">Answer &amp; close</button>
@@ -1041,6 +1126,51 @@
     badge.hidden = !n;
   }
 
+  /**
+   * The three counts in the chrome: what is waiting on you, and what is waiting
+   * elsewhere.
+   *
+   * Where each one goes is the whole argument. "Waiting on you" is the app's
+   * premise and has no icon of its own, so it takes the space the wordmark used
+   * to; the other two already have a tab apiece, so they become badges on those
+   * tabs rather than a second row of chips — the number and the way to act on it
+   * end up the same tap target.
+   *
+   * The waiting number is counted off the rows on screen whenever this scope
+   * actually swept them, so answering a question drops it on the tap rather than
+   * on the next poll. The `agent` scope sweeps no questions at all, and there the
+   * server's held count is the only honest answer — a zero would read as "nothing
+   * is asking you anything" when the truth is "you did not ask".
+   */
+  function paintSummary() {
+    const s = state.summary || {};
+    const swept = state.scope !== 'agent';
+    const held = Number(s.questions);
+    const waiting = swept || !Number.isFinite(held) ? state.questions.filter((q) => !q.agent).length : held;
+
+    const el = $('#waiting');
+    if (el) {
+      el.hidden = !waiting;
+      // The word is a separate element so a narrow phone can drop it and keep the
+      // number — see .waiting in style.css.
+      el.innerHTML = `${waiting}<span class="word">waiting</span>`;
+      el.setAttribute(
+        'aria-label',
+        `${waiting} bead${waiting === 1 ? '' : 's'} waiting on you${state.scope === 'human' ? '' : ' — show only these'}`
+      );
+    }
+
+    // Both tabs live at the foot of every page, but only this one has the numbers:
+    // they ride the inbox's poll. A page that never sets a badge shows none, which
+    // is better than a number it has no way to refresh.
+    const badge = window.beadcause?.tabBadge;
+    if (!badge) return;
+    const sessions = Number(s.sessions) || 0;
+    const proposals = Number(s.proposals) || 0;
+    badge('sessions', sessions, `Sessions — ${sessions} agent${sessions === 1 ? '' : 's'} running`);
+    badge('advocates', proposals, `Advocates — ${proposals} proposal${proposals === 1 ? '' : 's'} waiting`);
+  }
+
   /** Repaint the armed option in place. Cheap, and never touches the textarea. */
   function paintArmed() {
     for (const btn of listEl.querySelectorAll('.option')) {
@@ -1049,6 +1179,19 @@
       const label = btn.querySelector('.label');
       if (label) label.textContent = (armed ? 'Tap again to confirm · ' : '') + btn.dataset.label;
     }
+  }
+
+  /**
+   * Turn the unsent-draft mark on or off in place.
+   *
+   * Same rule as paintArmed(): a draft changes on every keystroke, and going through
+   * render() to show it would rebuild the list under the textarea the keystroke went
+   * into. The mark is an inset shadow rather than a border for the same reason —
+   * toggling it reflows nothing, so the line you are typing on does not move.
+   */
+  function paintDraftMark(key) {
+    const card = listEl.querySelector(`.card[data-key="${CSS.escape(key)}"]`);
+    card?.classList.toggle('has-draft', Boolean(getDraft(key)));
   }
 
   /** Which space a question belongs to. Unassigned workspaces collect under "Other". */
@@ -1385,12 +1528,16 @@
     }
 
     paintRequestBadge();
+    paintSummary();
     renderFilters(inSpace);
 
     openLinksInNewTab(listEl);
     // Puts the caret and the scroll position back — immediately, and again as the
     // diagrams and images size themselves afterwards.
     settlePlace(place, drawDiagrams(listEl));
+    // The list it describes has just been replaced, so its counts are stale — but a
+    // 25s poll must not make it flash on screen at someone who isn't scrolling.
+    paintScrollPos(false);
     publishView(visible);
   }
 
@@ -1401,9 +1548,10 @@
    * every one of those ends in a render, and presence.js drops a report identical to
    * the last one, so the cheap call in one place beats six correct ones.
    *
-   * `state.open` is a Set and Sets keep insertion order, so its last entry is the
-   * card opened most recently — which is the one being read when more than one is
-   * expanded.
+   * `state.open` holds at most one key — openOnly() is what keeps that true — so its
+   * last entry is the card being read. Written as a pop() off the Set rather than an
+   * assumption about its size, because load() rebuilds the Set by filtering and a
+   * cheap read costs nothing next to a wrong report.
    */
   function publishView(visible) {
     const p = window.beadcause?.presence;
@@ -1419,6 +1567,86 @@
       detail: q ? q.title : `${visible.length} waiting`,
     });
   }
+
+  /* ------------------------------------------ where you are in the list */
+
+  const scrollPosEl = $('#scrollpos');
+  const topbarEl = $('.topbar');
+  let scrollPosTimer = null;
+  let scrollPosFrame = 0;
+
+  /**
+   * Paint the scroll position indicator: which card the top of the screen is on, out
+   * of how many the current filters left in the list.
+   *
+   * Counted off the DOM rather than off state.questions, so it describes exactly what
+   * you can see — the space and workspace chips have already been applied by the time
+   * the cards exist, and an open card is excluded because it is a fixed full-screen
+   * layer with a scroll position of its own.
+   *
+   * `reveal` is what separates a scroll from a repaint. Scrolling fades it in and
+   * restarts the 1.6s fade-out; a render() only refreshes the numbers, so a background
+   * poll landing while you read can't flash a pill at you.
+   */
+  function paintScrollPos(reveal = true) {
+    if (!scrollPosEl) return;
+    const cards = [...listEl.querySelectorAll('.card:not(.open)')];
+    // Nothing to place yourself within: a single card, an empty list, or a card open
+    // over the top of it.
+    if (cards.length < 2 || listEl.querySelector('.card.open')) {
+      scrollPosEl.hidden = true;
+      scrollPosEl.classList.remove('on');
+      clearTimeout(scrollPosTimer);
+      return;
+    }
+
+    // Reading starts under whatever is covering the top of the viewport, not at the
+    // top of it. The topbar is sticky so it always is; the filter chips only are
+    // while you are near the top of the list, and once they have scrolled away their
+    // bottom edge is a long way above the screen — taking it unconditionally put
+    // every card below the line and pinned the count at "1 of 9".
+    const top = Math.max(
+      topbarEl.getBoundingClientRect().bottom,
+      filtersEl.hidden ? 0 : filtersEl.getBoundingClientRect().bottom
+    );
+    // The first card still showing below that line is the one you are on; the 4px is
+    // slack so a card whose last pixel is under the bar doesn't count as current.
+    let idx = cards.findIndex((c) => c.getBoundingClientRect().bottom > top + 4);
+    if (idx < 0) idx = cards.length - 1; // scrolled past the end of the list
+
+    if (!scrollPosEl.firstChild) {
+      scrollPosEl.innerHTML =
+        '<span><span class="n"></span> of <span class="total"></span></span><span class="rail"><i></i></span>';
+    }
+    scrollPosEl.querySelector('.n').textContent = String(idx + 1);
+    scrollPosEl.querySelector('.total').textContent = String(cards.length);
+    // The thumb is sized by how much of the list is on screen and placed by how far
+    // down it you are, so its gaps above and below read as the cards above and below.
+    const bar = scrollPosEl.querySelector('.rail i');
+    const height = Math.max(100 / cards.length, 12);
+    bar.style.height = `${height}%`;
+    bar.style.top = `${Math.min((100 * idx) / cards.length, 100 - height)}%`;
+
+    scrollPosEl.hidden = false;
+    if (!reveal) return;
+    scrollPosEl.classList.add('on');
+    clearTimeout(scrollPosTimer);
+    scrollPosTimer = setTimeout(() => scrollPosEl.classList.remove('on'), 1600);
+  }
+
+  // One paint per frame at most. Scroll fires far faster than the screen redraws, and
+  // every paint here reads geometry back out of the layout.
+  addEventListener(
+    'scroll',
+    () => {
+      if (scrollPosFrame) return;
+      scrollPosFrame = requestAnimationFrame(() => {
+        scrollPosFrame = 0;
+        paintScrollPos();
+      });
+    },
+    { passive: true }
+  );
 
   /* --------------------------------------------------------------- actions */
 
@@ -1551,8 +1779,33 @@
         q.comments = q.comments || [];
       }
     }
-    state.open.add(key);
+    openOnly(key);
     render(true);
+  }
+
+  /**
+   * Expand one card and collapse whatever was expanded before it — the accordion.
+   *
+   * `state.open` stays a Set because the rest of the file reads it with .has() and
+   * .delete(), and because load() rebuilds it by filtering; what changes is that
+   * nothing ever puts a second key in it. Two reasons it has to be one:
+   *
+   * • `.card.open` is a fixed full-screen layer (style.css), so a second open card
+   *   simply stacks on the first. Closing it revealed a brief you had already
+   *   finished with instead of the list — reachable today by tapping a notification
+   *   while a card is open, which deep-links straight into expand().
+   * • Left to accumulate, the list grows past the point where you can find your
+   *   place scrolling through it, which is the other half of this bead.
+   *
+   * A card being collapsed may be holding an unsent draft. That is allowed and is
+   * never suppressed — the draft survives in localStorage, the card comes back
+   * marked incomplete (see .card.has-draft), and its toggle reads "Resume your
+   * answer". Deleted in place rather than by reassigning the Set, because load()
+   * captures `state.open` by reference while a request is in flight.
+   */
+  function openOnly(key) {
+    for (const k of [...state.open]) if (k !== key) state.open.delete(k);
+    state.open.add(key);
   }
 
   /**
@@ -1572,10 +1825,54 @@
     }
   }
 
+  /**
+   * Shut the ⋯ roster the same way: by hand, never through render().
+   *
+   * Focus goes back to the ⋯ only when it was inside the panel. Escape pressed
+   * while you are typing must close the panel and leave the caret in the box —
+   * pulling it out to a button is how you lose your place in a comment.
+   */
+  function closeAgentMenu() {
+    state.agentMenu = null;
+    for (const panel of listEl.querySelectorAll('.agent-panel')) {
+      const had = panel.contains(document.activeElement);
+      panel.hidden = true;
+      const dots = panel.closest('.agent-wrap')?.querySelector('.agent-dots');
+      if (!dots) continue;
+      dots.classList.remove('on');
+      dots.setAttribute('aria-expanded', 'false');
+      if (had) dots.focus();
+    }
+  }
+
   // A tap anywhere that isn't the menu or its button dismisses it. This runs after
   // the list's own handler below, so opening the menu doesn't immediately close it.
   document.addEventListener('click', (ev) => {
     if (state.menu && !ev.target.closest('.menu-wrap')) closeMenu();
+    // The panel is the one popover whose own contents repaint under the tap — every
+    // chip and checkbox in it ends in paintAgents(). By the time this runs the
+    // tapped node has been thrown away, and a detached node has no ancestors, so
+    // closest() would call every tap inside the panel a tap outside it. The path is
+    // taken at dispatch and still remembers where the tap actually was.
+    //
+    // The tools disclaimer counts as inside for the same reason it exists: it is a
+    // modal on document.body, so arming is outside the panel by geometry and inside
+    // it by intent, and must not shut the roster out from under the checkbox that
+    // asked.
+    const inPanel = (ev.composedPath?.() || []).some(
+      (n) => n?.classList?.contains('agent-wrap') || n?.classList?.contains('dialog-wrap')
+    );
+    if (state.agentMenu && !inPanel) closeAgentMenu();
+  });
+
+  document.addEventListener('keydown', (ev) => {
+    if (ev.key !== 'Escape') return;
+    // With the tools warning up, Escape is the modal's business — closing the panel
+    // out from under it would leave the dialog answering for a chooser that is no
+    // longer on screen.
+    if (document.querySelector('.dialog-wrap')) return;
+    if (state.agentMenu) closeAgentMenu();
+    if (state.menu) closeMenu();
   });
 
   listEl.addEventListener('click', async (ev) => {
@@ -1584,9 +1881,28 @@
     const key = btn.dataset.key;
     const act = btn.dataset.act;
 
+    if (act === 'agent-menu') {
+      const wasOpen = state.agentMenu === key;
+      closeMenu();
+      closeAgentMenu();
+      if (wasOpen) return;
+      state.agentMenu = key;
+      btn.classList.add('on');
+      btn.setAttribute('aria-expanded', 'true');
+      const panel = btn.parentElement.querySelector('.agent-panel');
+      if (panel) {
+        panel.hidden = false;
+        // On a wide screen the brief is its own scroll column, so a panel opened at
+        // the foot of it can land below that column's fold.
+        panel.scrollIntoView({ block: 'nearest' });
+      }
+      return;
+    }
+
     if (act === 'menu') {
       const wasOpen = state.menu === key;
       closeMenu();
+      closeAgentMenu();
       if (wasOpen) return;
       state.menu = key;
       btn.classList.add('on');
@@ -1597,6 +1913,7 @@
 
     if (act === 'toggle') {
       closeMenu();
+      closeAgentMenu();
       disarm();
       paintArmed();
       if (state.open.has(key)) {
@@ -1614,6 +1931,7 @@
     // happens to have slid up into it.
     if (act === 'collapse') {
       closeMenu();
+      closeAgentMenu();
       disarm();
       paintArmed();
       state.open.delete(key);
@@ -1835,7 +2153,11 @@
     const box = ev.target.closest('[data-role="answer"]');
     if (!box) return;
     const key = box.closest('.card')?.dataset.key;
-    if (key) setDraft(key, box.value);
+    if (!key) return;
+    setDraft(key, box.value);
+    // Keep the incomplete mark honest from the first character, so the card is
+    // already carrying it by the time the accordion collapses it.
+    paintDraftMark(key);
   });
 
   // Focus left an empty box: nothing is in flight, so let any deferred refresh in.
@@ -1887,10 +2209,18 @@
     scopeDlg.showModal();
   });
 
-  scopeDlg.addEventListener('click', (ev) => {
-    const btn = ev.target.closest('[data-scope]');
-    if (!btn || btn.dataset.scope === state.scope) return;
-    state.scope = btn.dataset.scope;
+  /**
+   * Switch which slice of the tracker the list is.
+   *
+   * Out of the panel's click handler because the count in the top bar is the other
+   * way in: tapping "3 waiting" means "show me those three", which is this, and a
+   * second copy of it would be a second place for the reset-and-refetch to drift.
+   * Already-there is a no-op rather than a reload — the count you tapped is a
+   * count of what is already on screen.
+   */
+  function chooseScope(next) {
+    if (!SCOPES.includes(next) || next === state.scope) return;
+    state.scope = next;
     localStorage.setItem('beadcause.scope', state.scope);
     paintScope();
     // The workspace filter was almost certainly pointing at the one workspace that
@@ -1904,7 +2234,16 @@
     state.questions = [];
     listEl.innerHTML = requestsHtml() + '<div class="empty">Asking bd…</div>';
     load();
+  }
+
+  scopeDlg.addEventListener('click', (ev) => {
+    const btn = ev.target.closest('[data-scope]');
+    if (btn) chooseScope(btn.dataset.scope);
   });
+
+  // The count is a filter you can reach without opening the panel: it says how many
+  // beads are asking you something, so tapping it shows you exactly those.
+  $('#waiting')?.addEventListener('click', () => chooseScope('human'));
 
   /* ----------------------------------------------------------------- load */
 
@@ -1947,6 +2286,9 @@
       state.requests = Array.isArray(data.requests) ? data.requests.map(merge) : state.requests;
       state.questions = data.questions.map(merge);
       state.spaces = data.spaces || [];
+      // Absent means a server that predates the counts — keep the last ones rather
+      // than blanking the chrome, exactly as the requests pane does above.
+      if (data.summary) state.summary = data.summary;
       // A space that has been renamed or removed in config would otherwise leave the
       // filter pinned to something that no longer exists, showing an empty list.
       if (state.space !== 'all' && !state.spaces.some((s) => s.name === state.space)) state.space = 'all';

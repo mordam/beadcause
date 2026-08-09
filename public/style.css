@@ -60,8 +60,47 @@ body {
   border-bottom: 1px solid var(--line);
 }
 
-.brand { display: flex; align-items: center; gap: 9px; }
+.brand { display: flex; align-items: center; gap: 9px; min-width: 0; }
 .brand h1 { font-size: 17px; font-weight: 650; margin: 0; letter-spacing: -0.01em; }
+
+/* The app mark where the word used to be. The artwork carries its own dark
+   rounded tile — it is the home-screen icon — so it needs no plate under it and
+   reads the same in both schemes. `display: flex` on the h1 kills the inline
+   baseline gap that would otherwise push it a couple of pixels off the dot. */
+.brand h1.mark { display: flex; }
+.brand h1.mark img {
+  width: 26px; height: 26px; border-radius: 7px; display: block;
+  /* The artwork's own tile is #0b0f14, which in the dark scheme *is* the page —
+     without a hairline the mark reads as three loose dots beside the pulse dot,
+     which is itself a teal circle. The ring is what says "this is a tile". */
+  box-shadow: 0 0 0 1px var(--line);
+}
+
+/* What the reclaimed width is spent on: how many beads are asking you something.
+   A chip rather than a badge — it is a number with a word, and the word is what
+   makes "3" mean something. Tapping it narrows the list to those three. */
+.waiting {
+  display: inline-flex; align-items: baseline; gap: 5px;
+  flex: 0 1 auto; min-width: 0;
+  padding: 5px 10px;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent);
+  font: 650 13px/1 inherit;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.waiting[hidden] { display: none; }
+.waiting .word { font-weight: 600; opacity: 0.85; }
+
+/* Two icons, a dot, a chip and three more icons on a 320px phone is one thing too
+   many, and the number is the part that matters. Under 360px the word goes and the
+   count stays, which still reads as a count because of where it sits. */
+@media (max-width: 359px) {
+  .waiting .word { display: none; }
+  .waiting { padding: 5px 9px; }
+}
 
 .dot {
   width: 9px; height: 9px; border-radius: 50%;
@@ -242,6 +281,26 @@ body {
 }
 .card.answering { opacity: 0.5; pointer-events: none; }
 
+/*
+  An answer you started and did not send.
+
+  Opening another question collapses this one — that is the accordion, and it is
+  never suppressed for a draft — so the incompleteness has to be readable from the
+  list itself. The "draft saved" flag in the meta row says it once you are looking at
+  the card; the edge says it while you are scrolling past twenty of them.
+
+  Same --warn as that flag, deliberately: one orange, one meaning. But solid, where
+  the P0/P1 pill in the same meta row is a 22% tint of it, so a high-priority card
+  and an unfinished one can't be mistaken for each other.
+
+  An inset shadow rather than a border-left because paintDraftMark() toggles this
+  class on the first keystroke, and a border would shove the text sideways under the
+  cursor. It is clipped by the card's border-radius the way a border would be.
+  Suppressed when the card is open: .card.open is a full-screen layer with no side
+  edges, and you are looking at the draft, not for it.
+*/
+.card.has-draft:not(.open) { box-shadow: inset 3px 0 0 var(--warn); }
+
 .card-head { padding: 14px 15px 0; }
 
 .meta { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; margin-bottom: 8px; }
@@ -299,15 +358,74 @@ body {
 }
 .row-x:disabled { opacity: 0.4; }
 
-/* Who answers when you comment. A mode rather than a per-card setting, so it sits
-   directly above the box it changes the behaviour of. */
-.agents { padding: 0 15px 2px; }
-.agents .section-label { margin-bottom: 6px; }
-.agent-row { padding: 0 0 6px; gap: 6px; }
+/*
+  Who answers when you comment — a strip along the top edge of the box it governs,
+  and the roster behind the ⋯ at its corner.
+
+  It used to be the whole block: a label, the chips, the selected agent's
+  foundation and the tools checkbox, drawn in full every time a bead opened. On a
+  phone that was several centimetres of a control nearly every comment leaves
+  alone, sitting between the thread you just read and the box you were about to
+  type in. What stays outside the panel is what you cannot answer without: which
+  agent replies, and whether it has been armed.
+*/
+.reply-bar {
+  display: flex; align-items: center; gap: 8px;
+  padding: 4px 4px 4px 12px;
+  border: 1px solid var(--line); border-bottom: 0;
+  border-radius: 11px 11px 0 0;
+  /* The box's own colour, so the strip and the textarea read as one control with a
+     ⋯ in its corner rather than as a caption sitting on a lid. */
+  background: var(--surface-2);
+}
+.reply-bar[hidden] { display: none; }
+/* Joined to the textarea, so the ⋯ reads as that box's own corner rather than as
+   another control floating above it. The gap belongs to .freeform, so it is closed
+   here rather than by dropping the gap for everything in the block. */
+.reply-bar + textarea { margin-top: -8px; border-top-left-radius: 0; border-top-right-radius: 0; }
+.reply-who { flex: 1; min-width: 0; font-size: 12px; line-height: 1.45; color: var(--muted); }
+.reply-who b { font-weight: 650; color: var(--text); }
+/* An elevation that is spent the moment you press the button under it does not get
+   to be invisible while the panel is shut. */
+.reply-armed { color: var(--warn); font-weight: 600; }
+.agent-wrap { position: relative; }
+.agent-dots {
+  flex: none;
+  display: flex; align-items: center; gap: 4px;
+  min-width: var(--tap); min-height: 40px; padding: 0 11px;
+  border: 1px solid var(--line); border-radius: 999px;
+  background: var(--surface); color: var(--muted);
+  font: inherit; font-size: 15px; line-height: 1;
+  cursor: pointer;
+}
+.agent-dots .dots-emoji { font-size: 14px; }
+.agent-dots.on { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+.agent-dots.armed {
+  border-color: var(--warn); color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 14%, transparent);
+}
+/* Anchored to the ⋯ and shaped like the kebab's menu, because it is the same kind
+   of thing: a popover over content you are in the middle of, closed by a tap
+   outside or by Escape. It scrolls itself rather than growing past the fold — a
+   long roster with a create form under it is taller than a phone. */
+.agent-panel {
+  position: absolute; top: calc(100% + 6px); right: 0; z-index: 50;
+  width: min(86vw, 340px); max-height: 62dvh; overflow-y: auto; overscroll-behavior: contain;
+  padding: 12px 12px 2px;
+  border: 1px solid var(--line); border-radius: 12px;
+  background: var(--surface);
+  box-shadow: 0 10px 28px rgb(0 0 0 / 0.28);
+}
+.agent-panel[hidden] { display: none; }
+.agent-panel .section-label { margin: 0 0 9px; padding-top: 0; border-top: 0; }
+/* Wrapped rather than scrolled sideways: in a 340px panel a hidden chip is an agent
+   you do not know you have. */
+.agent-row { flex-wrap: wrap; overflow: visible; padding: 0 0 8px; gap: 6px; }
 .agent-chip { font-size: 13px; }
 .agent-add { font-size: 16px; font-weight: 700; padding: 0 14px; }
-/* The foundation of the selected agent, printed rather than hidden behind a tap:
-   an agent whose brief you cannot read is a name you are guessing at. */
+/* The foundation of the selected agent, printed in the panel rather than left to
+   the name: an agent whose brief you cannot read is a name you are guessing at.
+   One tap in is the price of the fold; a tap deeper still would not be. */
 .agent-desc {
   margin: 0 0 10px; font-size: 12.5px; line-height: 1.5; color: var(--muted);
   display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden;
@@ -1016,6 +1134,75 @@ body {
   letter-spacing: 0.03em;
   text-transform: uppercase;
   color: var(--warn);
+}
+
+/*
+  Where you are in the list.
+
+  With eleven questions every card looks like every other card from a thumb's height,
+  and there was no sense of how far in you had got or how much was left. "4 of 11"
+  answers above, below and total in one phrase; the rail beside it is the same fact
+  for a glance that doesn't stop to read, with the thumb sized by how much of the list
+  fits on screen the way a scrollbar's would be.
+
+  Right edge and vertically centred, which is where a scroll indicator is expected —
+  and, unlike the bottom, is nowhere near the toast. Taps pass straight through it to
+  the card underneath.
+
+  It fades in while you scroll and out 1.6s after you stop: this is a navigation aid,
+  and parked on top of a card for the whole session it would just be in the way. It is
+  hidden outright while a card is open, because .card.open is a full-screen layer that
+  scrolls on its own and the count below it would be describing a list you can't see.
+*/
+.scrollpos {
+  position: fixed;
+  right: calc(env(safe-area-inset-right) + 9px);
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px 8px 12px;
+  /* A rounded rect, not 999px: this box is taller than it is wide, so a pill radius
+     resolves to an ellipse whose sides bow inward past the rail sitting inside it. */
+  border-radius: 18px;
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--surface) 90%, transparent);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 6px 18px rgb(0 0 0 / 0.28);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 220ms ease;
+}
+.scrollpos[hidden] { display: none; }
+.scrollpos.on { opacity: 1; }
+.scrollpos .n { color: var(--text); font-weight: 700; }
+.scrollpos .rail {
+  position: relative;
+  width: 3px;
+  height: 76px;
+  border-radius: 3px;
+  /* --line is a border colour and disappears against the pill at 3px wide; the
+     track has to be visible or the thumb reads as a mark with nothing to be on. */
+  background: color-mix(in srgb, var(--muted) 32%, transparent);
+}
+.scrollpos .rail i {
+  position: absolute;
+  left: 0;
+  width: 100%;
+  min-height: 10px;
+  border-radius: 3px;
+  background: var(--accent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .scrollpos { transition: none; }
 }
 
 .toast {
@@ -2013,8 +2200,28 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
   letter-spacing: 0.01em;
   -webkit-tap-highlight-color: transparent;
 }
-.tab-icon { font-size: 19px; line-height: 1.1; }
+.tab-icon { font-size: 19px; line-height: 1.1; position: relative; }
 .tab-label { line-height: 1; }
+
+/* How many agents are running, and how many advocates are waiting — on the tabs
+   that answer them, so the number and the way to act on it are one tap target.
+   It hangs off the icon rather than the item so it lands on the glyph and not out
+   at the edge of a tab that is a quarter of the screen wide. */
+.tab-badge {
+  position: absolute;
+  top: -3px; left: 62%;
+  min-width: 16px; height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-size: 10px; font-weight: 700; line-height: 16px;
+  text-align: center;
+  /* The bar is translucent and the list scrolls under it; without this ring a badge
+     can sit on top of a card's own text and read as part of it. */
+  box-shadow: 0 0 0 2px var(--bg);
+}
+.tab-badge[hidden] { display: none; }
 
 /* Current. Colour alone would be the only mark, and colour alone is not a mark —
    so the accent is doubled by a rule along the top edge of the tab, which reads

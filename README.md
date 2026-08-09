@@ -256,6 +256,36 @@ card's head. `--baseline` serves `HEAD:public/app.js` instead of the working cop
 which is how you tell a real failure from a flaky one: baseline must fail the scroll
 cases, the working copy must pass all of them.
 
+### One open at a time, and where you are in the list
+
+Opening a question **collapses whichever one was open before it**. An open card is a
+fixed full-screen layer, so before this a second one just stacked on the first — tap a
+notification while reading, close what it opened, and you were looking at a brief you
+had already finished with rather than the list. Left to accumulate they also made the
+list unscrollable in the only sense that matters: you could not find your place in it.
+
+**Collapsing is never suppressed, not even for an unsent draft.** The alternative — a
+card that refuses to close because you started typing in it — trades a small surprise
+for a bigger one. Instead the card comes back **marked in orange down its left edge**,
+so a question you have half answered is legible from the list while you scroll past it.
+Same `--warn` as the "draft saved" flag it sits beside, deliberately: one orange, one
+meaning. It is a solid edge where the P0/P1 pill is a 22% tint of the same colour, so
+*high priority* and *unfinished* can't be mistaken for each other. The mark comes off
+where the draft does — on **Comment only**, which is the one path that clears a draft
+and leaves the card in the list.
+
+Scrolling raises a **"5 of 9"** against the right edge, with a rail whose thumb is
+sized by how much of the list is on screen: how many above, how many below, how many
+in total, which several open questions otherwise give you no sense of at all. It fades
+out 1.6s after you stop, because it is a navigation aid and not a permanent fixture
+sitting on top of a card's buttons. It counts what the space and workspace chips have
+left in the list rather than what the server sent, and it is hidden entirely while a
+card is open — that card scrolls itself, and a count of the list underneath would be
+describing something you can't see.
+
+Both are painted the way `paintArmed()` is — a class toggled on the card in place, not
+a `render()` — so nothing here can rebuild the list under a half-typed answer.
+
 ### Reading a paragraph bd folded at 78 columns
 
 bd hard-wraps what it stores. A phone is narrower than 78 columns, so every one of
@@ -278,10 +308,38 @@ one item, and a three-line comment still has its two breaks. `--baseline` serves
 
 ## Who you are talking to
 
-Commenting dispatches an agent to reply — and you choose which one. Above the
-comment box is a row of chips; the one you pick answers, and the foundation it
-answers from is printed underneath, because an agent whose brief you cannot read is
-a name you are guessing at.
+Commenting dispatches an agent to reply — and you choose which one. The answer box
+says which, on a strip along its top edge: **Comment only → 💬 Answerer replies**. It
+names the button as well as the agent, because the choice governs exactly one of the
+two: a comment dispatches, and **Answer & close** spawns nobody.
+
+The roster itself is behind the **⋯ at that strip's right-hand end** — chips for
+every agent, ＋ to make one, the foundation of the one selected, and the allow-tools
+checkbox. It used to be drawn in full every time a bead opened, which on a phone was
+several centimetres of a control nearly every comment leaves alone, sitting between
+the thread you had just read and the box you were about to type in. Folded, but not
+hidden: which agent replies stays on the strip, and so does an armed tools override —
+[that one is spent the moment you send](#allow-tools--for-one-comment-and-only-that-one),
+so a shut panel must never leave the box looking ordinary. Choosing a chip repaints
+the panel and nothing else, so it cannot eat a half-written comment. Escape closes
+it and leaves the caret where it was.
+
+The foundation of the selected agent is printed in the panel rather than left to the
+name, because an agent whose brief you cannot read is a name you are guessing at.
+
+`node scripts/agent-chooser-check.mjs` checks the fold and, more to the point, what
+the fold must not hide: headless Chrome at phone size driving the real
+`public/app.js` against a roster built by `lib/agents.js` and a question parsed by
+`lib/decision.js`, so it never touches a bead. It asserts the thread runs into the
+box with no chooser in between, that the ⋯ sits on the box's top-right corner and
+says which agent replies without being opened, that the panel holds everything the
+old block drew, that choosing a chip or arming tools keeps a half-typed comment and
+leaves the panel open, that an armed override shows with the panel shut, and that
+the trigger is labelled, `aria-expanded` flips, Escape closes it and the caret stays
+in the box. `--baseline` serves `HEAD:public/app.js` and `HEAD:public/style.css`
+instead of the working copy, which is how you tell a real failure from a flaky one —
+baseline has no ⋯ at all, so it must fail. `--out=<dir>` writes a screenshot of the
+box shut, the panel open and the armed state.
 
 Four are built in, and they are the four shapes a comment on a decision actually
 takes:
@@ -317,8 +375,8 @@ is the whole of giving the Critic edit rights — its name and foundation stay w
 they are. Nothing in the app can write this string; there is no endpoint that accepts
 one. A form on a lock screen is the wrong place to hand out edit rights.
 
-**Using** it is a checkbox under the agent chips, and it is spent by the comment it
-rides on:
+**Using** it is a checkbox under the agent chips in the ⋯ panel, and it is spent by
+the comment it rides on:
 
 - **Off every time.** Arming applies to the **next reply only** and is dropped the
   moment the dispatch goes. Want tools on the comment after that? Tick it again.
@@ -333,6 +391,9 @@ rides on:
 - **Loud in the log.** Both the arming and the dispatch print the whole tools string
   to `~/Library/Logs/beadcause.log`, which is what makes an elevated run findable
   after the fact.
+- **Visible with the panel shut.** An armed box says so on its strip — *⚠ with
+  tools, this once* — and rings the ⋯ in the same amber, so pressing **Comment only**
+  is never an elevation you had forgotten granting.
 
 The elevated run is also told, in its prompt, that it is elevated deliberately for
 one reply and should say in its comment exactly what it did with the reach.
@@ -792,6 +853,35 @@ The wider scopes poll at 60s rather than the inbox's 25s: they are a full `bd li
 sweep, about 2.5s of `bd` across seven workspaces, and that does not want to run four
 times a minute for a list you are glancing at.
 
+### The top bar says who is asking, not what the app is called
+
+The widest part of the bar used to be the word **Beadcause** — on a screen you
+reached by tapping an icon labelled Beadcause, in an app whose title bar says
+Beadcause. It is the app mark now, the same artwork as the home-screen icon, still
+inside the `<h1>` with the name as the image's `alt` so the header is labelled and a
+reader still hears which app this is.
+
+What the reclaimed width is spent on is the premise itself:
+
+```
+  ⚙  ●  ◔  ( 8 waiting )                    ⌨️  ⚖️  ⟳
+```
+
+**8 waiting** is how many beads are asking you something, and tapping it is the way
+back to the `human` scope — the count *is* the filter. It is hidden at zero, because
+an empty inbox should look empty rather than report itself, and under 360px the word
+drops and the number stays.
+
+The other two numbers in that picture — agents running, advocates waiting — are
+**badges on the tabs that answer them**, not chips up here: the number and the way to
+act on it end up as the same tap target. See [the tab bar](#getting-around--the-tab-bar).
+
+The count is drawn from the rows on screen whenever the scope actually swept them, so
+answering a question drops it on the tap rather than on the next poll. In the `agent`
+scope — which sweeps no questions at all — it falls back to the count the server
+holds from the last sweep, for the same reason the advocate badge does: a zero there
+would read as "nothing is asking you anything" when the truth is "you did not ask".
+
 ## What a question is blocking
 
 A question whose answer nothing is waiting on is just a question. One that blocks
@@ -937,6 +1027,15 @@ So all four carry the same bar along the bottom, where a thumb already is:
  Inbox   Console   Sessions   Advocates
  ▔▔▔▔▔
 ```
+
+Sessions and Advocates carry a **badge** when there is something behind them — how
+many agents are running, how many advocates are waiting on an answer. Both numbers
+ride the inbox's own poll (`/api/questions` carries them; see [the three counts on
+the poll](#the-three-counts-on-the-poll)), so they are live while you are on the
+inbox and simply absent on a page that has no way to refresh them — which beats a
+stale number that looks live. Zero shows nothing. The badge sits inside the tab's
+`aria-hidden` icon, so the tab takes an `aria-label` saying what the number counts:
+"2" read out after "Sessions" says nothing about two of what.
 
 Any view is one tap from any other, and nothing closes any more. The current tab is
 a `<span>` rather than a link — tapping where you already are should do nothing, not
@@ -1941,7 +2040,7 @@ Auth on everything under `/api/` except `/api/health`: header
 | Method | Path | Body / params | Returns |
 |---|---|---|---|
 | GET | `/api/health` | — | `{ok, workspaces[]}` · **no token** |
-| GET | `/api/questions` | `?scope=human\|both\|agent` | `{questions[], workspaces[], spaces[], summary, scope}` — `scope` defaults to `human`, and an unrecognised value falls back to it rather than erroring. `summary` is `{sessions, proposals}`, the two counts the inbox's bar draws |
+| GET | `/api/questions` | `?scope=human\|both\|agent` | `{questions[], workspaces[], spaces[], summary, scope}` — `scope` defaults to `human`, and an unrecognised value falls back to it rather than erroring. `summary` is `{sessions, proposals, questions}`, the three counts the inbox's chrome draws |
 | GET | `/api/question` | `?workspace=&id=` | one question **plus `comments[]`** |
 | GET | `/api/poll` | `?since=<seq>&wait=<s>` | long-poll: `{seq, resync, events[], questions, workspaces[]}` |
 | POST | `/api/respond` | `{workspace, id, response, create?}` | comments, then closes the bead. `create` is the 1-based indices of an advocate proposal's beads to file; without it, `CREATE:` in the text means all and `CREATE: 1,3` means those |
@@ -1991,26 +2090,33 @@ A row from `scope=agent` is **not** a question: it carries `agent: true`, has no
 `/api/bead`. `/api/question` is the wrong endpoint for one, because it parses the
 decision block and only means anything for a `human` bead.
 
-### The two counts on the poll
+### The three counts on the poll
 
-`/api/questions` carries a `summary` — `{sessions, proposals}` — because the top bar
-of the inbox wants to say how many agents are running and how many advocates are
-waiting on an answer, and the bar is on screen whenever the inbox is. Everything else
-in that picture is on `/api/work`, which is two `bd` calls per workspace and about a
-second for six: fine when you open it, not fine every thirty seconds on a phone.
+`/api/questions` carries a `summary` — `{sessions, proposals, questions}` — because
+the chrome of the inbox wants to say how many beads are asking you something, how
+many agents are running and how many advocates are waiting on an answer, and it is on
+screen whenever the inbox is. Everything else in that picture is on `/api/work`,
+which is two `bd` calls per workspace and about a second for six: fine when you open
+it, not fine every thirty seconds on a phone.
 
-These two are the exception because neither costs a `bd` call. `sessions` is a
+These three are the exception because none of them costs a `bd` call. `sessions` is a
 readdir of `~/.claude/sessions` plus a JSON parse per record — every live session on
 the Mac, including ones in no configured workspace, which is exactly the set the
 sessions page lists. `proposals` counts **advocates**, not beads: one open ask per
 advocate is the rule `propose()` enforces, so a repo with two proposal-shaped beads
 in it is still one repo waiting on you.
 
-`proposals` is held from the last `human` sweep rather than counted out of the
-response, and that is deliberate. The `agent` scope runs no `human` sweep at all, so
-counting the rows would empty the badge the moment you switched tabs — which reads as
-"answered" rather than as "not fetched". The poller sweeps every thirty seconds
-whatever any client asked for, so the number is at worst one poll old in any scope.
+`questions` is the inbox's own count — the beads asking you something — and it is the
+questions channel only: a [foundation request](#a-channel-of-its-own-on-every-surface)
+has the ⚖️ badge in the bar already, and counting it in both places would make the two
+disagree about the same bead.
+
+`proposals` and `questions` are both held from the last `human` sweep rather than
+counted out of the response, and that is deliberate. The `agent` scope runs no
+`human` sweep at all, so counting the rows would empty them the moment you switched
+tabs — which reads as "answered" rather than as "not fetched". The poller sweeps every
+thirty seconds whatever any client asked for, so the numbers are at worst one poll old
+in any scope.
 
 The field is additive and its own object: a client that has never heard of it — the
 installed Android build, a service worker still serving last week's `app.js` — reads
@@ -2234,12 +2340,14 @@ really open a window?" can only be answered by opening one. That is the incident
 this flag exists because of, so the suite proves the guards are *conditional* and
 stops there.
 
-`test/summary.mjs` covers the two counts on `/api/questions`, against a stub `bd`
+`test/summary.mjs` covers the three counts on `/api/questions`, against a stub `bd`
 that logs every invocation and a temp `~/.claude/sessions`. The arithmetic is not the
-risk; three quieter things are. That the counts start costing a `bd` call — the log
+risk; four quieter things are. That the counts start costing a `bd` call — the log
 is asserted to be one `human list` per workspace and nothing else, so a sweep added
-by accident fails here rather than turning up as a slower inbox months later. That
-the badge empties in a scope that sweeps no questions. And that the response stopped
+by accident fails here rather than turning up as a slower inbox months later. That a
+count empties in a scope that sweeps no questions. That the waiting count claims the
+other channel's beads as well as its own — the fixture holds a `foundation` bead, and
+it is asserted into `requests` and out of the count. And that the response stopped
 being additive — every field an older client reads is asserted still present and
 unchanged.
 

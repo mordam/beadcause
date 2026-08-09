@@ -379,8 +379,36 @@ try {
   check('a deep link to the open card does not move it', c1 !== null && Math.abs(c1 - c0.top) <= 4, `was ${c0.top}px, now ${c1}px`);
   check('a deep link to the open card keeps the caret', caret2.focused && caret2.start === 7, JSON.stringify(caret2));
 
-  /* 5. a forced repaint — opening another card — keeps the draft */
+  /* 5. a forced repaint — opening another card — collapses this one and keeps the draft
+     Opening a second question is the accordion: the card being read collapses, draft
+     or no draft. So "keeps the answer" cannot mean the textarea is still on screen —
+     it means the draft outlived the card that held it, is marked on the collapsed
+     card so you can see which question you left half-answered, and comes back in the
+     box when you open it again. */
   await evalJs(s, `document.querySelector('.card[data-key=${JSON.stringify(OTHER_KEY)}] [data-act="toggle"]').click()`);
+  await sleep(1500);
+  const accordion = await evalJs(
+    s,
+    `(() => {
+      const one = document.querySelector('.card[data-key=${JSON.stringify(KEY)}]');
+      const two = document.querySelector('.card[data-key=${JSON.stringify(OTHER_KEY)}]');
+      return {
+        collapsed: !one.classList.contains('open'),
+        marked: one.classList.contains('has-draft'),
+        other: two.classList.contains('open'),
+        openCards: document.querySelectorAll('.card.open').length,
+      };
+    })()`
+  );
+  check(
+    'opening another question collapses the one you were on',
+    accordion.collapsed && accordion.other && accordion.openCards === 1,
+    JSON.stringify(accordion)
+  );
+  check('and marks it as half-answered', accordion.marked, JSON.stringify(accordion.marked));
+
+  // Open it again: the draft has to be back in the box, not merely in localStorage.
+  await evalJs(s, `document.querySelector('.card[data-key=${JSON.stringify(KEY)}] [data-act="toggle"]').click()`);
   await sleep(1500);
   const draft = await evalJs(
     s,
