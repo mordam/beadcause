@@ -1,11 +1,30 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Beadcause">
+  <!--
+    "bdcoz" — bd, the tool, over coz, the cause. Stacked on two lines rather than set
+    across one: five letters spanning the icon would each be under 10px on a 60px home
+    screen, and two lines of two and three are roughly twice that. Nothing here is text:
+    the letters are drawn as strokes so they render identically whatever fonts a phone
+    has, and so the Android launcher vector (res/drawable/ic_launcher_foreground.xml)
+    can be the same geometry rather than a second drawing.
+
+    Everything lives inside the maskable safe zone — the centre 80%, a circle of radius
+    205 about (256,256) — because icon-512.png is declared "any maskable" and Android
+    crops to that circle. The farthest ink is the z's bottom right: the centreline turns
+    at (399,363), 179 out, and the round cap adds its 15 radially rather than to a
+    corner, for 194. So a circular mask takes the rounding and nothing else.
+  -->
   <rect width="512" height="512" rx="112" fill="#0b0f14"/>
-  <!-- a strand of beads, forking at a decision -->
-  <path d="M104 256 H208" stroke="#263140" stroke-width="16" stroke-linecap="round"/>
-  <path d="M208 256 C 268 256, 268 152, 328 152" stroke="#263140" stroke-width="16" stroke-linecap="round" fill="none"/>
-  <path d="M208 256 C 268 256, 268 360, 328 360" stroke="#263140" stroke-width="16" stroke-linecap="round" fill="none"/>
-  <circle cx="104" cy="256" r="34" fill="#5eead4"/>
-  <circle cx="208" cy="256" r="26" fill="#8ba0b6"/>
-  <circle cx="352" cy="152" r="42" fill="#5eead4"/>
-  <circle cx="352" cy="360" r="42" fill="#1c242e" stroke="#5eead4" stroke-width="12"/>
+  <g fill="none" stroke="#5eead4" stroke-width="30" stroke-linecap="round" stroke-linejoin="round">
+    <!-- bd: stem, bowl / bowl, stem — the two are mirrors of each other -->
+    <path d="M164 149 V253"/>
+    <circle cx="198" cy="219" r="34"/>
+    <circle cx="314" cy="219" r="34"/>
+    <path d="M348 149 V253"/>
+
+    <!-- coz. The c is an o with 110° taken out of its right side, so the two share a
+         radius and the word keeps one rhythm. -->
+    <path d="M166.5 301.15 A34 34 0 1 0 166.5 356.85"/>
+    <circle cx="263" cy="329" r="34"/>
+    <path d="M345 295 H399 L345 363 H399"/>
+  </g>
 </svg>

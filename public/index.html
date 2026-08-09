@@ -20,12 +20,30 @@
            list below means, so it reads first rather than last. -->
       <button id="settings" class="icon-btn" aria-label="Settings — what the inbox shows" aria-haspopup="dialog">⚙</button>
       <span class="dot" id="pulse"></span>
-      <h1>Beadcause</h1>
+      <!-- The mark, not the word. The phone already says "Beadcause" on the home
+           screen, in the PWA title and in the switcher; spelling it out a fourth time
+           spent the widest part of the bar on the one thing you cannot be unsure of.
+           It stays an <h1> with the name as the image's alt text, so the header is
+           still labelled and a reader still hears which app this is. -->
+      <h1 class="mark"><img src="/icon.svg" alt="Beadcause" width="26" height="26" decoding="async"></h1>
+      <!-- What the width bought: how many beads are asking you something. It sits in
+           the brand space because it *is* the app's premise and has no icon of its
+           own — the other two counts hang off the tabs that answer them. Hidden at
+           zero: an empty inbox should look empty, not report itself. -->
+      <button id="waiting" class="waiting" hidden></button>
     </div>
     <div class="sheet-actions">
-      <!-- A link, not a button: /sessions is its own page, so the inbox needs no JS
-           for it and nothing here can go stale with the view. -->
-      <a href="/sessions" class="icon-btn" aria-label="Current sessions — what every agent is on">🤖</a>
+      <!-- The console, the sessions and the advocates used to hang here. They are
+           tabs now — the bar at the foot of every page owns them, so they are one
+           tap from anywhere rather than one tap from the inbox. What is left is
+           what acts on *this* view (⟳) or is not a standing view of its own.
+           The variation selector on ⌨️ is load-bearing: bare U+2328 renders
+           text-style, which beside ⚖️ reads as a broken glyph rather than an icon. -->
+      <a href="/terminal" class="icon-btn" aria-label="Terminal — drive a Claude session from here">⌨️</a>
+      <!-- The badge is the channel's presence in the chrome: a request never appears
+           in the list below, so without this the only sign one is waiting would be a
+           notification you may have already swiped away. -->
+      <a href="/foundations" class="icon-btn" id="foundations-link" aria-label="Foundations — what each agent kind is, and what it may do">⚖️<span class="badge" id="req-badge" hidden></span></a>
       <button id="refresh" class="icon-btn" aria-label="Refresh">⟳</button>
     </div>
   </header>
@@ -35,6 +53,16 @@
   <main id="list" class="list" aria-live="polite">
     <div class="empty" id="loading">Loading questions…</div>
   </main>
+
+  <!--
+    Where you are in the list — "4 of 11" and a rail. Filled in by paintScrollPos()
+    in app.js, which is also what shows and hides it.
+
+    aria-hidden on purpose: a screen reader already walks the list item by item and
+    knows the position, and a live region re-announcing it on every scroll tick would
+    make the app unusable to listen to.
+  -->
+  <div id="scrollpos" class="scrollpos" hidden aria-hidden="true"></div>
 
   <div id="toast" class="toast" role="status" hidden></div>
 
@@ -69,6 +97,11 @@
 
   <script src="/vendor/marked.js"></script>
   <script src="/vendor/purify.js"></script>
+  <script src="/presence.js"></script>
+  <script src="/tabbar.js"></script>
   <script src="/app.js"></script>
+  <!-- Graph and doc links open over this tab instead of navigating away from it.
+       Last, and needing nothing from app.js: it works on the anchors, not the app. -->
+  <script src="/drawer.js"></script>
 </body>
 </html>

@@ -14,10 +14,14 @@
     <div class="brand">
       <span class="dot" id="pulse"></span>
       <h1>Current sessions</h1>
+      <!-- Only on an observer instance — see OBSERVING in lib/config.js. -->
+      <span class="observing" id="observing" hidden>⦿ observing</span>
     </div>
     <div class="sheet-actions">
+      <!-- ⟳ acts on this view, so it stays. The link to the advocates and the ✕
+           back to the inbox were both this page apologising for not being part of
+           anything; the tab bar is where you go now. -->
       <button id="work-refresh" class="icon-btn" aria-label="Refresh">⟳</button>
-      <a href="/" class="icon-btn" aria-label="Back to the inbox">✕</a>
     </div>
   </header>
 
@@ -25,6 +29,10 @@
     <div class="empty">Asking every workspace…</div>
   </main>
 
+  <script src="/presence.js"></script>
+  <script src="/tabbar.js"></script>
   <script src="/work.js"></script>
+  <!-- Every row here is a link into the graph; the drawer keeps them over this list. -->
+  <script src="/drawer.js"></script>
 </body>
 </html>

@@ -14,9 +14,9 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LABEL="m4m.beadcause"
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
-# A second agent, opt-in, that opens the activity monitor in an iTerm2 window at
+# A second agent, opt-in, that opens the advocate console in a browser window at
 # login. Separate from the daemon on purpose: the daemon must come up headless and
-# stay up, whereas this fires once, draws a window and exits.
+# stay up, whereas this fires once, opens a window and exits.
 MONITOR_LABEL="$LABEL.monitor"
 MONITOR_PLIST="$HOME/Library/LaunchAgents/$MONITOR_LABEL.plist"
 LOG="$HOME/Library/Logs/beadcause.log"
@@ -192,8 +192,8 @@ if [ "$MONITOR_ENABLED" = "1" ]; then
   <dict>
     <key>PATH</key>
     <string>$(dirname "$NODE"):/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
-    <!-- osascript runs the command in a login shell whose node may differ from
-         the one this was installed with. Pin it. -->
+    <!-- open-monitor.sh reads the port and token out of config.json with node,
+         and a login-time PATH may not have the one this was installed with. Pin it. -->
     <key>BEADCAUSE_NODE</key>
     <string>$NODE</string>
   </dict>
@@ -202,11 +202,12 @@ if [ "$MONITOR_ENABLED" = "1" ]; then
 MONITOR_EOF
 
   # RunAtLoad means bootstrap opens the window straight away, which is also the
-  # only honest way to prove the Automation permission is in place.
+  # only honest way to prove the whole path works — daemon up, token readable,
+  # browser willing.
   launchctl bootstrap "gui/$(id -u)" "$MONITOR_PLIST"
-  say "monitor window opens at login (and just opened — quit it with q)"
+  say "the advocate console opens at login (and just opened) — http://127.0.0.1:4318/monitor"
 else
-  say "monitor not installed — run 'npm run monitor' when you want it"
+  say "console not opened at login — visit /monitor when you want it"
 fi
 
 echo
@@ -217,7 +218,8 @@ cat <<NEXT
 
 Useful from here:
   tail -f $LOG
-  npm run monitor                                # live view of what it is doing
+  open http://127.0.0.1:4318/monitor             # the advocate console
+  npm run monitor                                # the same thing in a terminal, roughly
   npm run swap:status                            # which build is actually answering
   npm run swap                                   # swap now, without waiting
   launchctl kickstart -k gui/$(id -u)/$LABEL     # only needed for bin/router.js itself

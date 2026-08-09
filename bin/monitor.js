@@ -18,6 +18,18 @@
  *
  * No dependencies, and no TUI library: the project has none, and a live view of
  * five workspaces is not worth acquiring one for.
+ *
+ * **This is no longer the console that opens at login.** `/monitor`
+ * (public/monitor.js) is, and it is the richer one: it shows the whole of
+ * `advocates.snapshot()` per repo — the queue, the survey transcript, the proposals,
+ * the archived sessions — where `advocateRows()` below has room for one line. The
+ * m4m.beadcause.monitor LaunchAgent now opens that page in a browser instead of
+ * asking iTerm2 to draw this.
+ *
+ * Kept, and kept working, because a terminal is sometimes where you already are —
+ * `npm run monitor` over ssh, or `--once` to diff one frame. It is deliberately the
+ * smaller view rather than a second attempt at the same thing, so there is nothing
+ * here for the two to drift apart over.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -70,6 +82,7 @@ const C = {
   cyan: sgr(36),
   redBold: sgr('1;31'),
   cyanBold: sgr('1;36'),
+  magentaBold: sgr('1;35'),
 };
 
 /* ---------------------------------------------------------------------- width */
@@ -241,6 +254,12 @@ const priorityColour = (p) => (p === 0 ? C.redBold : p === 1 ? C.red : p === 2 ?
 const EVENT_COLOUR = {
   advocate: C.cyanBold,
   question: C.yellow,
+  // The foundation channel, in the one colour nothing else on this screen uses. An
+  // agent asking to be different should not be scanned past as one more question,
+  // and in a log of forty lines colour is the only thing that stops it being.
+  'foundation-request': C.magentaBold,
+  'foundation-reply': C.magenta,
+  amended: C.magentaBold,
   reply: C.green,
   commented: C.cyan,
   created: C.blue,
@@ -250,12 +269,35 @@ const EVENT_COLOUR = {
   monitor: C.dim,
 };
 
+/**
+ * What the type column says, when the event's own name is too long for it.
+ *
+ * The column is nine wide and everything to the right of it lines up on that, so a
+ * type like `foundation-request` would shear the whole log sideways for one row.
+ * Named rather than truncated: `foundatio` is not a word.
+ */
+const EVENT_NAME = {
+  'foundation-request': 'asks-you',
+  'foundation-reply': 'explains',
+  amended: 'AMENDED',
+};
+
 /** One line of context per event type — what you would want to read at a glance. */
 function eventDetail(e) {
   switch (e.type) {
     case 'question':
     case 'created':
       return `${e.title || ''}${e.quiet ? '  (quiet — not pushed)' : ''}`;
+    case 'foundation-request':
+      // The scope rather than the title, when there is one. The title says which
+      // fields it wants; the scope says how far, which is the half of the request
+      // that decides it.
+      return `${e.agent ? `${e.agent}: ` : ''}${e.scope || e.title || 'asking to change what it is'}${
+        e.quiet ? '  (quiet — not pushed)' : ''
+      }`;
+    case 'amended':
+      return `${e.agent || 'an agent'} may now differ in ${(e.fields || []).join(', ') || 'what it is'}`;
+    case 'foundation-reply':
     case 'reply':
       return `from ${e.author || 'someone'}${e.text ? ` · ${e.text.replace(/\s+/g, ' ')}` : ''}`;
     case 'activity':
@@ -284,6 +326,9 @@ function eventDetail(e) {
 const state = {
   since: null, // null means "cold start": ask for the full picture
   questions: [],
+  // The other channel: agents asking to change what they are. Kept apart here for
+  // the same reason the server sends it apart — see `requestRows`.
+  requests: [],
   spaces: [],
   advocates: [],
   workspaces: [],
@@ -291,6 +336,10 @@ const state = {
   status: {}, // status.json, merged over each question's activity
   conn: 'connecting',
   connDetail: '',
+  // Whether the daemon on the other end is in observer mode. False until it says
+  // otherwise: claiming "observing" at a daemon that is in fact acting would be the
+  // one wrong answer that matters.
+  observing: false,
 };
 
 let statusMtime = null;
@@ -439,6 +488,54 @@ function advocateRows(now) {
   ];
 }
 
+/**
+ * The foundation channel: agents asking to change what they are.
+ *
+ * Its own pane, with its own rule, above the questions. On a terminal there is no
+ * colour scheme to lean on and no room for a card, so the separation has to be
+ * structural: a request never appears in the questions pane, and the rule above it
+ * says what it is. Nothing when the channel is empty, which is almost always — a
+ * heading over nothing would train you to skip the place the request will appear.
+ *
+ * Two lines each, and the second is the scope. What decides one of these is how far
+ * it reaches, not which fields it names, and the title only ever says the fields.
+ */
+function requestRows(now) {
+  const rows = state.requests || [];
+  if (!rows.length) return [];
+
+  return [
+    rule('mid', seg().add(`foundation requests (${rows.length})`, C.magentaBold)),
+    ...rows.flatMap((q) => {
+      const a = q.amendment || null;
+      const lines = [
+        row(
+          seg()
+            .add(q.key, C.cyan)
+            .add('  ')
+            .add(a?.agent || 'agent', C.magentaBold)
+            .add('  ')
+            .add(q.question || q.title || q.id),
+          seg().add(ago(q.createdAt, now), C.dim)
+        ),
+      ];
+      // `kind` is the honesty marker: a prohibition was observed, an omission is the
+      // agent guessing at what it is missing. Worth a word, because it is most of
+      // how much weight the argument deserves.
+      const kindWord = a?.kind === 'prohibited' ? 'was denied' : a?.kind === 'omitted' ? 'never had it' : '';
+      const sub = seg().add('   ');
+      if (q.awaitingAgent) sub.add('⏳ ').add('waiting on its answer to you', C.yellow).add('  ');
+      if (kindWord) sub.add(kindWord, C.dim).add('  ');
+      // Not truncated here: `row` renders a segment to exactly the width it has and
+      // ellipsises what does not fit, so a long scope shortens itself.
+      if (a?.scope) sub.add(a.scope.replace(/\s+/g, ' '), C.dim);
+      else if (!kindWord && !q.awaitingAgent) sub.add('the block did not parse — open it to see why', C.red);
+      lines.push(row(sub, null));
+      return lines;
+    }),
+  ];
+}
+
 /** The lines a question gets: what it is, and what is happening about it. */
 function questionGroup(q, now) {
   const activity = state.status[q.key] || q.activity || null;
@@ -489,11 +586,20 @@ function frame() {
   const head = [
     rule(
       'top',
-      seg().add('Beadcause', C.bold),
+      // The badge goes beside the name, not with the connection state: it says which
+      // daemon is on the other end of this socket, and a console pointed at an
+      // observer instance is otherwise indistinguishable from one pointed at the
+      // live one. See OBSERVING in lib/config.js.
+      state.observing ? seg().add('Beadcause', C.bold).add('  ⦿ observing', C.yellow) : seg().add('Beadcause', C.bold),
       seg().add(BASE.replace(/^https?:\/\//, ''), C.dim).add('  ').add(conn.ansi())
     ),
     ...spaceRows(now),
     ...advocateRows(now),
+    // In the head, above the questions, and never squeezed by them. The questions
+    // pane is sized to what is left and drops to "… 6 more" when it runs out; a
+    // constitutional request must not be the row that falls off the bottom of a
+    // short terminal, and there is never more than one open per agent anyway.
+    ...requestRows(now),
   ];
 
   const groups = state.questions.map((q) => questionGroup(q, now));
@@ -503,7 +609,7 @@ function frame() {
       seg()
         .add(stamp(e.at), C.dim)
         .add('  ')
-        .add(String(e.type).padEnd(9), EVENT_COLOUR[e.type] || null)
+        .add(String(EVENT_NAME[e.type] || e.type).padEnd(9), EVENT_COLOUR[e.type] || null)
         .add(e.key || '', C.cyan)
         .add(detail ? '  ' : '')
         .add(detail, C.dim),
@@ -577,13 +683,19 @@ let refreshing = false;
 function apply(data) {
   if (typeof data.seq === 'number') state.since = data.seq;
   if (Array.isArray(data.workspaces)) state.workspaces = data.workspaces;
-  // Absent on a poll that timed out with nothing to say — keep what we have.
+  // Absent on a poll that timed out with nothing to say — keep what we have. The
+  // server sends null rather than [] for exactly this reason, so an empty channel
+  // and an uneventful minute stay distinguishable.
   if (data.questions) state.questions = data.questions;
+  if (data.requests) state.requests = data.requests;
   if (data.spaces) state.spaces = data.spaces;
   // Sent on every poll, changed or not: an advocate moves without any question
   // moving — a session it opened finishes, a slot frees — and a pane that only
   // updated when the inbox did would sit on a stale picture for hours.
   if (data.advocates) state.advocates = data.advocates;
+  // Which daemon this console is pointed at. Sent on every poll, so it survives a
+  // restart of either side onto a different instance.
+  if (typeof data.observing === 'boolean') state.observing = data.observing;
 
   const arrived = [];
   if (data.resync) arrived.push({ type: 'resync', at: new Date().toISOString(), key: '' });

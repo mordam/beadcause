@@ -7,14 +7,15 @@
   "license": "ISC",
   "bin": {
     "beadcause": "bin/beadcause.js",
-    "beadcause-monitor": "bin/monitor.js"
+    "beadcause-monitor": "bin/monitor.js",
+    "beadcause-memory": "bin/beadcause-memory"
   },
   "scripts": {
     "start": "node bin/router.js",
     "start:bare": "node bin/beadcause.js",
     "swap": "node bin/router.js --swap",
     "swap:status": "node bin/router.js --status",
-    "test": "node scripts/test-swap.js",
+    "test": "node scripts/selftest.mjs && node test/observe.mjs && node test/atomic.mjs && node test/memory.mjs && node test/summary.mjs && node test/terminal.mjs && node scripts/test-swap.js",
     "qr": "node bin/beadcause.js --qr",
     "vendor": "node scripts/vendor.js",
     "postinstall": "node scripts/vendor.js",
@@ -27,11 +28,14 @@
     "android:key": "bash scripts/android-keystore.sh"
   },
   "dependencies": {
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/xterm": "^6.0.0",
     "d3": "^7.9.0",
     "dompurify": "^3.4.13",
     "marked": "^18.0.9",
     "mermaid": "^11.16.1",
     "qrcode-terminal": "^0.12.0",
+    "ws": "^8.21.3",
     "yaml": "^2.9.0"
   }
 }

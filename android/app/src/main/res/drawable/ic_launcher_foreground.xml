@@ -1,13 +1,15 @@
 <!--
-  The Beadcause mark, ported from public/icon.svg so the app icon and the PWA are
-  the same thing: a strand of beads forking at a decision, one branch still hollow.
+  "bdcoz", ported from public/icon.svg so the app icon and the PWA are the same thing.
+  Kept on the source's 512 viewport, with the same coordinates and the same 30-wide
+  strokes, so the two can be diffed line for line rather than drifting apart.
 
-  Kept on the source's 512 viewport so the geometry can be diffed against the SVG
-  line for line. Two differences are forced by the format:
-    - vector drawables have no <circle>, so each bead is an arc pair;
-    - the launcher masks everything outside the central 72dp of 108dp, so the group
-      scales to 0.95 and shifts +24 in x to sit the artwork (which is off-centre in
-      the original, spanning x 70..394) inside that safe circle.
+  Two differences are forced by the format and the mask:
+    - vector drawables have no <circle>, so each bowl is an arc pair;
+    - the launcher only guarantees the central 66dp of 108dp — a circle of radius 156
+      on this viewport, tighter than the 205 the PWA's "maskable" purpose asks for.
+      The farthest ink is the z's bottom-right corner, 194 out, so the group scales to
+      0.80 about the centre and lands at 155. There is no translate, unlike the strand
+      this replaces: the lockup is drawn centred on (256,256) to begin with.
 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
@@ -17,42 +19,44 @@
     <group
         android:pivotX="256"
         android:pivotY="256"
-        android:scaleX="0.95"
-        android:scaleY="0.95"
-        android:translateX="24">
+        android:scaleX="0.80"
+        android:scaleY="0.80">
 
-        <!-- the strand -->
+        <!-- bd: stem, bowl / bowl, stem — the two are mirrors of each other -->
         <path
-            android:pathData="M104,256 H208"
-            android:strokeColor="#263140"
-            android:strokeWidth="16"
-            android:strokeLineCap="round" />
-        <path
-            android:pathData="M208,256 C268,256 268,152 328,152"
-            android:strokeColor="#263140"
-            android:strokeWidth="16"
-            android:strokeLineCap="round" />
-        <path
-            android:pathData="M208,256 C268,256 268,360 328,360"
-            android:strokeColor="#263140"
-            android:strokeWidth="16"
-            android:strokeLineCap="round" />
-
-        <!-- beads: tail, the junction where it forks, then the two outcomes -->
-        <path
-            android:pathData="M70,256 a34,34 0 1,0 68,0 a34,34 0 1,0 -68,0"
-            android:fillColor="#5eead4" />
-        <path
-            android:pathData="M182,256 a26,26 0 1,0 52,0 a26,26 0 1,0 -52,0"
-            android:fillColor="#8ba0b6" />
-        <path
-            android:pathData="M310,152 a42,42 0 1,0 84,0 a42,42 0 1,0 -84,0"
-            android:fillColor="#5eead4" />
-        <!-- hollow: the branch not taken yet -->
-        <path
-            android:pathData="M310,360 a42,42 0 1,0 84,0 a42,42 0 1,0 -84,0"
-            android:fillColor="#1c242e"
+            android:pathData="M164,149 L164,253"
             android:strokeColor="#5eead4"
-            android:strokeWidth="12" />
+            android:strokeWidth="30"
+            android:strokeLineCap="round" />
+        <path
+            android:pathData="M164,219 a34,34 0 1,0 68,0 a34,34 0 1,0 -68,0"
+            android:strokeColor="#5eead4"
+            android:strokeWidth="30" />
+        <path
+            android:pathData="M280,219 a34,34 0 1,0 68,0 a34,34 0 1,0 -68,0"
+            android:strokeColor="#5eead4"
+            android:strokeWidth="30" />
+        <path
+            android:pathData="M348,149 L348,253"
+            android:strokeColor="#5eead4"
+            android:strokeWidth="30"
+            android:strokeLineCap="round" />
+
+        <!-- coz. The c is the o with 110° taken out of its right side. -->
+        <path
+            android:pathData="M166.5,301.15 a34,34 0 1,0 0,55.7"
+            android:strokeColor="#5eead4"
+            android:strokeWidth="30"
+            android:strokeLineCap="round" />
+        <path
+            android:pathData="M229,329 a34,34 0 1,0 68,0 a34,34 0 1,0 -68,0"
+            android:strokeColor="#5eead4"
+            android:strokeWidth="30" />
+        <path
+            android:pathData="M345,295 L399,295 L345,363 L399,363"
+            android:strokeColor="#5eead4"
+            android:strokeWidth="30"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round" />
     </group>
 </vector>
