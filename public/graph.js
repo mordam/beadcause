@@ -638,6 +638,24 @@
     ].filter(Boolean);
     parts.push(`<div class="meta">${meta.join('')}</div>`);
     if (b.description) parts.push(`<div class="md">${md(b.description, FROM_BD)}</div>`);
+    // The rest of the row, in the order bd itself prints it. `/api/bead` has always
+    // returned all of it; the sheet just stopped reading after `description`, so the
+    // acceptance criteria — the one part you close a bead against — were readable
+    // only from a terminal. Description stays unlabelled, the way it is on the card,
+    // so a bead carrying none of these looks exactly as it did before.
+    //
+    // FROM_BD on every one of them, for the same reason the description has it:
+    // these are bd's own fields, hard-wrapped at ~78 columns, and honouring those
+    // newlines would break a paragraph into a ragged column.
+    for (const [label, text] of [
+      ['acceptance', b.acceptance_criteria],
+      ['design', b.design],
+      ['notes', b.notes],
+    ]) {
+      if (!String(text || '').trim()) continue;
+      parts.push(`<div class="section-label">${label}</div>`);
+      parts.push(`<div class="md">${md(text, FROM_BD)}</div>`);
+    }
     if (b.comments?.length) {
       parts.push('<div class="section-label">Thread</div>');
       parts.push(

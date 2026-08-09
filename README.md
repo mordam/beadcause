@@ -648,11 +648,20 @@ issue descriptions we would throw away.
 ### Tap a bead, then open it
 
 Tapping a node raises a **card** with the whole title, its status, priority and type,
-and two buttons. **Details** opens the bead itself in a sheet — description rendered
-as markdown, the thread, who owns it, what it blocks and what it waits on — served by
-`/api/bead`, which is `bd show` plus comments rather than `/api/question`'s
-decision shape (every node is an ordinary issue; only some are questions). The sheet
-takes 72% of the screen, and **⤢** takes the rest of it.
+and two buttons. **Details** opens the bead itself in a sheet — who owns it, what it
+blocks and what it waits on, then the whole body: description, **acceptance**,
+**design**, **notes** and the thread, each rendered as markdown under its own label,
+in the order `bd` itself prints them. Served by `/api/bead`, which is `bd show` plus
+comments rather than `/api/question`'s decision shape (every node is an ordinary
+issue; only some are questions). The sheet takes 72% of the screen, and **⤢** takes
+the rest of it.
+
+This is the only general-purpose bead reader in the app — the inbox card only ever
+shows beads carrying the `human` or agent labels — so anything the sheet leaves out
+is readable nowhere but a terminal. It used to stop after the description, which
+meant the acceptance criteria, the one part you close a bead against, were exactly
+that. The description alone stays unlabelled, the way it is on the card, so a bead
+carrying none of the other three looks precisely as it did.
 
 Three bugs found building this, all worth knowing because they're the kind that look
 like something else:
