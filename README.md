@@ -2082,9 +2082,9 @@ Everything above acts on beads that already exist. The chat session is upstream 
 a chat where you work out *what the next bead should be*, and beadcause creates it
 only once you have read the proposal and pressed the button.
 
-**🧾 Chat session in the tab bar** opens it. Pick a workspace and start talking — or open
-one **on an existing bead**, from *Work out the next beads from this* at the foot of
-any card, which starts the conversation with that bead already read.
+**🧾 Chat in the tab bar** opens it. Pick a repo and press **＋** — or open one **on an
+existing bead**, from *Work out the next beads from this* at the foot of any card,
+which starts the conversation with that bead already read.
 
 ```
 you: the install script never checks that iTerm2 is there before
@@ -2108,6 +2108,54 @@ It asks before it proposes, and it looks before it guesses: it can read the work
 tree and the tracker, so "does something already cover this?" is answered rather than
 assumed. A conversation that has not earned a proposal yet doesn't make one — an
 early half-guessed set of beads costs you more to read than one more question does.
+
+### The launcher is a tab per repo, and ＋ is what starts one
+
+The repo row used to be the start button: tapping `sophab` opened a new conversation
+in sophab, and underneath it every conversation from every repo sat in one pile. With
+enough repos and enough sessions that pile is the thing you actually have to read, and
+it never groups the way you think — the conversation you want is the third sophab one,
+three beadcause rows down.
+
+So the row is a **tab bar**. **All** on the left, one tab per repo, each carrying how
+many conversations it holds, and the list below shows only the selected repo's. The
+tab you leave on is the tab you come back to (`localStorage`, beside the token), so
+the launcher opens where you left it rather than making you re-pick every visit.
+
+Which means the row no longer starts anything, and starting moves to a **＋** beside
+it. On a repo tab it starts there, immediately, exactly as tapping the chip used to.
+**On All it asks** — a row of repos under *Start one in*, which is the control this
+screen already had, kept for the one case the tabs cannot answer. The alternative was
+a disabled ＋, and All is the tab the launcher opens on: a default screen with the
+primary action greyed out is a worse trade than one extra tap.
+
+Three smaller things that follow from it:
+
+- **Every repo gets a tab, whether or not it has ever been talked to** — the bar is
+  also how you reach a repo to start in. A repo with nothing in it shows no count
+  rather than a `0`, and its empty list says so and names ＋, because a blank panel
+  under a tab you just selected reads as a fault.
+- **A repo that only exists in the conversations still gets a tab**, so a workspace
+  dropped from the config does not take its transcripts out of reach. It gets no place
+  in the ＋ picker, though: it is somewhere you can read, not somewhere you can start.
+- **A remembered repo that is gone falls back to All.** Otherwise the launcher opens
+  on an empty screen for a filter you cannot see the name of.
+
+The tabs borrow the inbox's `.chip` deliberately: this row *is* the inbox's workspace
+filter doing the same job to a different list, and a thumb should not have to learn two
+shapes for one idea.
+
+`node scripts/launcher-check.mjs` checks it in headless Chrome at phone size, against a
+fixture `/api/consoles` served by the script itself, so it never touches a daemon or a
+bead. Eighteen assertions: the tabs and their counts, that selecting one filters the
+list to it, that the selection survives a reload, that ＋ POSTs the *selected* repo and
+lands in the thread, that ＋ on All opens the picker and starts nothing by asking, the
+empty and the removed-repo cases, and — the one that must not have changed — that
+opening a conversation by id still bypasses the launcher entirely. `--baseline` serves
+the committed `console.js`/`console.html`/`style.css`, where there is no All tab and no
+＋ at all, so it must fail everything but that last one. `--out=<dir>` writes the three
+screens, because a row of passing assertions says nothing about whether the tabs and
+the ＋ fit beside each other at 393px.
 
 ### The proposal is the review, so the review is editable
 
