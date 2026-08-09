@@ -142,7 +142,17 @@
     return `/graph?ws=${encodeURIComponent(q.workspace)}&id=${encodeURIComponent(q.id)}`;
   }
 
-  function renderMarkdown(md) {
+  /** What bd handed us: hard-wrapped, so let the paragraph reflow. */
+  const FROM_BD = { breaks: false };
+
+  /**
+   * `breaks` is a choice, not a default. bd stores its fields hard-wrapped at ~78
+   * columns, so on a phone every stored line wraps naturally and then takes a
+   * forced break on top — a staircase instead of a paragraph, and list items that
+   * read as loose prose. Prose that came out of bd renders with `breaks: false`.
+   * Anything typed by a person means its newlines, so it keeps them.
+   */
+  function renderMarkdown(md, { breaks = true } = {}) {
     let patched = String(md || '');
     // Rewrite local image paths before parsing — DOMPurify would strip file:// URLs.
     patched = patched.replace(
@@ -155,7 +165,7 @@
       /(^|[^!])\[([^\]]*)\]\(\s*([^)\s]+)\s*\)/g,
       (m, pre, label, href) => (isLocalPath(href) ? `${pre}[${label}](${docUrl(href)})` : m)
     );
-    const html = window.marked.parse(patched, { breaks: true, gfm: true });
+    const html = window.marked.parse(patched, { breaks, gfm: true });
     return window.DOMPurify.sanitize(html, { ADD_ATTR: ['target', 'rel'] });
   }
 
@@ -765,13 +775,13 @@
   /** The body of an agent bead: description, notes, thread. Fetched by expand(). */
   function agentBriefHtml(q) {
     const parts = [];
-    if (q.description) parts.push(`<div class="md">${renderMarkdown(q.description)}</div>`);
+    if (q.description) parts.push(`<div class="md">${renderMarkdown(q.description, FROM_BD)}</div>`);
     // `notes` is where sessions record what they actually did, and it is often the
     // only part worth reading — a bead can have an aspirational description and a
     // notes field saying it shipped three days ago.
     if (q.notes) {
       parts.push('<div class="section-label">notes</div>');
-      parts.push(`<div class="md">${renderMarkdown(q.notes)}</div>`);
+      parts.push(`<div class="md">${renderMarkdown(q.notes, FROM_BD)}</div>`);
     }
     if (!q.description && !q.notes) parts.push('<p class="subtitle">No description on this bead.</p>');
 
@@ -796,7 +806,7 @@
     const d = q.decision;
     const parts = [];
 
-    if (d?.context) parts.push(`<div class="md">${renderMarkdown(d.context)}</div>`);
+    if (d?.context) parts.push(`<div class="md">${renderMarkdown(d.context, FROM_BD)}</div>`);
 
     for (const src of d?.diagrams || []) {
       parts.push(`<div class="diagram" data-src="${esc(src)}">drawing…</div>`);
@@ -841,7 +851,7 @@
 
     for (const s of q.sections || []) {
       if (s.field !== 'description') parts.push(`<div class="section-label">${esc(s.field)}</div>`);
-      parts.push(`<div class="md">${renderMarkdown(s.markdown)}</div>`);
+      parts.push(`<div class="md">${renderMarkdown(s.markdown, FROM_BD)}</div>`);
     }
 
     // The same agent state as the card head, repeated at the END of the thread.
