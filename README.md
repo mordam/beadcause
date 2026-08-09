@@ -126,11 +126,12 @@ images:
   future agent can act on it without re-reading the question.
 - `diagram` is mermaid, rendered on the phone. ` ```mermaid ` fences in the prose
   render too.
-- `docs` are files on the Mac you need to read before answering. Each opens in a
-  **separate reader tab** (`/doc?p=…`): markdown is rendered, text/log/csv shown
-  as-is, PDFs embedded. Relative links inside a rendered markdown doc resolve
-  against that doc's directory, so a spec that links its sibling files stays
-  navigable. Servable extensions are images plus
+- `docs` are files on the Mac you need to read before answering. Each opens in the
+  **reader** (`/doc?p=…`) as a [drawer over the card you were
+  reading](#detail-opens-over-the-tab-not-instead-of-it): markdown is rendered,
+  text/log/csv shown as-is, PDFs embedded. Relative links inside a rendered markdown
+  doc resolve against that doc's directory, so a spec that links its sibling files
+  stays navigable — and follows into the same drawer. Servable extensions are images plus
   `.md .markdown .txt .log .csv .json .jsonl .yaml .yml .pdf` — source files are
   refused, deliberately.
 - **A local path written inline in the prose becomes a reader link too** —
@@ -801,7 +802,9 @@ because `bd human list` doesn't return a dependent count and `bd show` does — 
 same reason `commentCount` is 0 until you open a question.
 
 The graph itself is at `/graph?ws=<workspace>` with an optional `&id=<bead>`, and a
-scope switch between *this bead* and the *whole workspace*.
+scope switch between *this bead* and the *whole workspace*. Tapped from any view, it
+opens as a [drawer over that view](#detail-opens-over-the-tab-not-instead-of-it)
+rather than as a page you have to find your way back from.
 
 ### It grows, five beads at a time
 
@@ -956,6 +959,109 @@ exactly one tab is current and it is the right one, the current tab is not a lin
 and the last row of the list, the console's composer and the last advocate card all
 clear it — in both colour schemes. `--fake-inset` re-runs the safe-area sums with a
 notch substituted in, for the Chromes with no `Emulation.setSafeAreaInsets`.
+
+## Detail opens over the tab, not instead of it
+
+The graph and the reader are linked from all four views — the inbox, current
+sessions, the advocates and the bead console — and both used to be a full-page
+navigation. Looking at what a bead blocks therefore cost you your place in the list,
+your half-typed answer was behind a **✕ → inbox** you had to trust, and the back
+gesture landed on whatever the browser felt like. They are not destinations. They
+are detail about the thing you just tapped, so they **slide in from the right over
+the current tab** and dismiss back to it.
+
+`public/drawer.js` is one file loaded by both sides of it, picking its half at load:
+
+- **On a tab**, it intercepts clicks on `/graph?` and `/doc?` links and loads the
+  page that already exists into an iframe in the panel. The iframe is the whole
+  trick — it keeps d3 out of the inbox's bundle and marked out of the graph's, and
+  no page had to learn to render the other one. The anchors keep their real `href`,
+  so long-press → open in new tab still works, and a pasted `/graph?ws=…` or
+  `/doc?p=…` URL still loads the standalone page exactly as before. (A detail page
+  opened on its own installs nothing: no drawer over a drawer's worth of the same
+  thing.)
+- **Inside the drawer**, the page stops being a page: it puts its own top bar away,
+  hands its title up to the panel's header, and retargets a link from one document to
+  the next instead of escaping to a new tab.
+
+**One header, one ✕, and the ✕ means the drawer.** Both pages were built to be opened
+on their own, so both carry a full top bar — a pulse dot, an `h1`, and a ✕ that meant
+*close this tab* and fell back to navigating the whole app to the inbox. In a panel
+that is wrong twice over: a second header stacked under the tab's own, and a way out
+that throws away the thing the drawer was opened over. So the chrome moves out to the
+panel, where it can mean what it says. The page's name goes with it — watched rather
+than read once, because the graph renames itself every time the scope toggle moves
+between one bead and the whole workspace — and a document keeps the monospace its own
+bar gave it, since a path is read character by character. Everything that is not
+chrome stays exactly where it was: the scope toggle, the reticle and the graph's
+detail sheet are the detail you came for, and the sheet's own ✕ closes the sheet and
+leaves you on the graph.
+
+Opened as a page — a pasted URL, a long-press → new tab, a notification — none of
+that applies and the top bar comes back, because out there it is the only chrome
+there is. The switch is `.in-drawer` on `<html>`, set by `drawer.js` the moment it
+sees it is in a frame.
+
+**The tab underneath is never navigated and its scroll is never touched.** That is
+the point of the change, and it is also why there is no scroll-restoring code
+anywhere in the drawer: the inbox's own anchoring (see [Keeping your place in a long
+brief](#keeping-your-place-in-a-long-brief)) keeps working behind the panel, and an
+open brief is on the same paragraph when the drawer goes.
+
+**One history entry, exactly.** The drawer pushes one, so Android's back button and
+iOS's back-swipe close it and land you on the tab you were reading. Exactly one is
+the fiddly part: an iframe's *initial* navigation adds no session-history entry and
+every one after it does, so a drawer that re-pointed its iframe by `src` would make
+back walk you through every document you had opened inside it before finally giving
+you the tab. In-drawer navigation goes through `location.replace()`, and a closed
+drawer drops its iframe so the next open is an initial load again — which also means
+a graph left open is not still polling behind the tab you went back to.
+
+Dismiss it with the ✕, with the backdrop, with a swipe right, or with back. The
+swipe needs saying: a touch inside an iframe is never seen by the page around it, so
+the drawer has a narrow transparent strip down its own left edge to start one from,
+and the page in the drawer forwards its own swipes out. The graph pans, and a wide
+table or code block scrolls sideways, so a swipe that starts on one of those is left
+to it rather than stolen.
+
+**Full width on a phone, inset on a wide screen** — with the tab still visible
+around it, because there it reads as detail rather than as a new page. It covers the
+[tab bar](#getting-around--the-tab-bar) while it is up, deliberately: the drawer is
+one gesture deep, and the way out of it is back, not a fifth destination.
+
+The Android shell needed one line for this. `shouldOverrideUrlLoading` fires for
+subframe navigations too, so the WebView was intercepting the drawer's own iframe
+load and opening `DocActivity` on top of a drawer that stayed empty behind it. It now
+leaves anything that is not the main frame alone; a `/doc` link that *is* a main-frame
+navigation — a notification, a deep link — still opens the native reader.
+
+### Checking that it gives the tab back
+
+`node scripts/drawer-check.mjs` drives the real `public/*.js` in headless Chrome at
+phone size against fixtures served from the script, so it needs neither the daemon
+nor a real bead. It reads a brief a long way down, opens the spec it links to, and
+asserts the paragraph has not moved — then that the panel's ✕ closes the drawer and
+not the tab, that a link inside a document retargets the drawer, that **one** back
+closes it however many documents were read in there, that the same module behaves on
+the sessions tab with a graph, that the panel is full width on a phone and inset with
+a working backdrop on a wide screen, and that a pasted `/graph` URL still loads the
+page itself.
+
+It counts the chrome, too, because that is the part a screenshot flatters: exactly
+one header and one ✕ inside the drawer, both the panel's, with a long filename clipped
+to the one row rather than shoving the ✕ off the edge; the header saying what the page
+in there says it is, and still saying it after the scope toggle moves; the graph's
+detail sheet opening inside the panel and closing back to the graph rather than
+closing the drawer; the page's own ✕ dismissing the drawer rather than the app if
+anything ever reaches it; and both pages standing on their own — header, ✕ and no
+drawer mode — when they are loaded as pages.
+
+`--baseline` serves the committed copies instead of the working ones, which is how
+you check a failure here is a real one: whatever a change brings has to fail without
+it. `--out=DIR` saves the three shots worth eyeballing, since how it *looks* is not
+something a number can say. Like the other browser checks it is not in `npm test`,
+because it needs Chrome; run it when you touch the drawer, the graph, the reader, or
+the links into either.
 
 ## Current sessions — who is working, and on what
 
@@ -1800,7 +1906,7 @@ Auth on everything under `/api/` except `/api/health`: header
 | Method | Path | Body / params | Returns |
 |---|---|---|---|
 | GET | `/api/health` | — | `{ok, workspaces[]}` · **no token** |
-| GET | `/api/questions` | `?scope=human\|both\|agent` | `{questions[], workspaces[], spaces[], scope}` — `scope` defaults to `human`, and an unrecognised value falls back to it rather than erroring |
+| GET | `/api/questions` | `?scope=human\|both\|agent` | `{questions[], workspaces[], spaces[], summary, scope}` — `scope` defaults to `human`, and an unrecognised value falls back to it rather than erroring. `summary` is `{sessions, proposals}`, the two counts the inbox's bar draws |
 | GET | `/api/question` | `?workspace=&id=` | one question **plus `comments[]`** |
 | GET | `/api/poll` | `?since=<seq>&wait=<s>` | long-poll: `{seq, resync, events[], questions, workspaces[]}` |
 | POST | `/api/respond` | `{workspace, id, response, create?}` | comments, then closes the bead. `create` is the 1-based indices of an advocate proposal's beads to file; without it, `CREATE:` in the text means all and `CREATE: 1,3` means those |
@@ -1849,6 +1955,31 @@ A row from `scope=agent` is **not** a question: it carries `agent: true`, has no
 `decision`, and its `description` is deliberately absent — fetch that from
 `/api/bead`. `/api/question` is the wrong endpoint for one, because it parses the
 decision block and only means anything for a `human` bead.
+
+### The two counts on the poll
+
+`/api/questions` carries a `summary` — `{sessions, proposals}` — because the top bar
+of the inbox wants to say how many agents are running and how many advocates are
+waiting on an answer, and the bar is on screen whenever the inbox is. Everything else
+in that picture is on `/api/work`, which is two `bd` calls per workspace and about a
+second for six: fine when you open it, not fine every thirty seconds on a phone.
+
+These two are the exception because neither costs a `bd` call. `sessions` is a
+readdir of `~/.claude/sessions` plus a JSON parse per record — every live session on
+the Mac, including ones in no configured workspace, which is exactly the set the
+sessions page lists. `proposals` counts **advocates**, not beads: one open ask per
+advocate is the rule `propose()` enforces, so a repo with two proposal-shaped beads
+in it is still one repo waiting on you.
+
+`proposals` is held from the last `human` sweep rather than counted out of the
+response, and that is deliberate. The `agent` scope runs no `human` sweep at all, so
+counting the rows would empty the badge the moment you switched tabs — which reads as
+"answered" rather than as "not fetched". The poller sweeps every thirty seconds
+whatever any client asked for, so the number is at worst one poll old in any scope.
+
+The field is additive and its own object: a client that has never heard of it — the
+installed Android build, a service worker still serving last week's `app.js` — reads
+the fields it always read and renders exactly as it did.
 
 ## Config — `~/.config/beadcause/config.json`
 
@@ -2047,8 +2178,8 @@ controls.
 
 ### `npm test`
 
-Four suites: `scripts/selftest.mjs`, then `test/observe.mjs`, `test/atomic.mjs` and
-`test/memory.mjs`. What they have in common is that each covers something whose
+Five suites: `scripts/selftest.mjs`, then `test/observe.mjs`, `test/atomic.mjs`,
+`test/memory.mjs` and `test/summary.mjs`. What they have in common is that each covers something whose
 failure is *silent* — a flag that does nothing, a state file that comes back empty,
 a message that was never written. The loud failures are still covered by
 `node --check` on changed files and by booting an observer instance and driving it.
@@ -2067,6 +2198,15 @@ The mirror-image test is deliberately absent: "with the flag off, does an advoca
 really open a window?" can only be answered by opening one. That is the incident
 this flag exists because of, so the suite proves the guards are *conditional* and
 stops there.
+
+`test/summary.mjs` covers the two counts on `/api/questions`, against a stub `bd`
+that logs every invocation and a temp `~/.claude/sessions`. The arithmetic is not the
+risk; three quieter things are. That the counts start costing a `bd` call — the log
+is asserted to be one `human list` per workspace and nothing else, so a sweep added
+by accident fails here rather than turning up as a slower inbox months later. That
+the badge empties in a scope that sweeps no questions. And that the response stopped
+being additive — every field an older client reads is asserted still present and
+unchanged.
 
 ## Notes on bd
 
