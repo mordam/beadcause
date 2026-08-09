@@ -1714,7 +1714,7 @@ Auth on everything under `/api/` except `/api/health`: header
 | Method | Path | Body / params | Returns |
 |---|---|---|---|
 | GET | `/api/health` | — | `{ok, workspaces[]}` · **no token** |
-| GET | `/api/questions` | `?scope=human\|both\|agent` | `{questions[], workspaces[], spaces[], scope}` — `scope` defaults to `human`, and an unrecognised value falls back to it rather than erroring |
+| GET | `/api/questions` | `?scope=human\|both\|agent` | `{questions[], workspaces[], spaces[], summary, scope}` — `scope` defaults to `human`, and an unrecognised value falls back to it rather than erroring. `summary` is `{sessions, proposals}`, the two counts the inbox's bar draws |
 | GET | `/api/question` | `?workspace=&id=` | one question **plus `comments[]`** |
 | GET | `/api/poll` | `?since=<seq>&wait=<s>` | long-poll: `{seq, resync, events[], questions, workspaces[]}` |
 | POST | `/api/respond` | `{workspace, id, response, create?}` | comments, then closes the bead. `create` is the 1-based indices of an advocate proposal's beads to file; without it, `CREATE:` in the text means all and `CREATE: 1,3` means those |
@@ -1763,6 +1763,31 @@ A row from `scope=agent` is **not** a question: it carries `agent: true`, has no
 `decision`, and its `description` is deliberately absent — fetch that from
 `/api/bead`. `/api/question` is the wrong endpoint for one, because it parses the
 decision block and only means anything for a `human` bead.
+
+### The two counts on the poll
+
+`/api/questions` carries a `summary` — `{sessions, proposals}` — because the top bar
+of the inbox wants to say how many agents are running and how many advocates are
+waiting on an answer, and the bar is on screen whenever the inbox is. Everything else
+in that picture is on `/api/work`, which is two `bd` calls per workspace and about a
+second for six: fine when you open it, not fine every thirty seconds on a phone.
+
+These two are the exception because neither costs a `bd` call. `sessions` is a
+readdir of `~/.claude/sessions` plus a JSON parse per record — every live session on
+the Mac, including ones in no configured workspace, which is exactly the set the
+sessions page lists. `proposals` counts **advocates**, not beads: one open ask per
+advocate is the rule `propose()` enforces, so a repo with two proposal-shaped beads
+in it is still one repo waiting on you.
+
+`proposals` is held from the last `human` sweep rather than counted out of the
+response, and that is deliberate. The `agent` scope runs no `human` sweep at all, so
+counting the rows would empty the badge the moment you switched tabs — which reads as
+"answered" rather than as "not fetched". The poller sweeps every thirty seconds
+whatever any client asked for, so the number is at worst one poll old in any scope.
+
+The field is additive and its own object: a client that has never heard of it — the
+installed Android build, a service worker still serving last week's `app.js` — reads
+the fields it always read and renders exactly as it did.
 
 ## Config — `~/.config/beadcause/config.json`
 
@@ -1961,8 +1986,8 @@ controls.
 
 ### `npm test`
 
-Four suites: `scripts/selftest.mjs`, then `test/observe.mjs`, `test/atomic.mjs` and
-`test/memory.mjs`. What they have in common is that each covers something whose
+Five suites: `scripts/selftest.mjs`, then `test/observe.mjs`, `test/atomic.mjs`,
+`test/memory.mjs` and `test/summary.mjs`. What they have in common is that each covers something whose
 failure is *silent* — a flag that does nothing, a state file that comes back empty,
 a message that was never written. The loud failures are still covered by
 `node --check` on changed files and by booting an observer instance and driving it.
@@ -1981,6 +2006,15 @@ The mirror-image test is deliberately absent: "with the flag off, does an advoca
 really open a window?" can only be answered by opening one. That is the incident
 this flag exists because of, so the suite proves the guards are *conditional* and
 stops there.
+
+`test/summary.mjs` covers the two counts on `/api/questions`, against a stub `bd`
+that logs every invocation and a temp `~/.claude/sessions`. The arithmetic is not the
+risk; three quieter things are. That the counts start costing a `bd` call — the log
+is asserted to be one `human list` per workspace and nothing else, so a sweep added
+by accident fails here rather than turning up as a slower inbox months later. That
+the badge empties in a scope that sweeps no questions. And that the response stopped
+being additive — every field an older client reads is asserted still present and
+unchanged.
 
 ## Notes on bd
 
