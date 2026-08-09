@@ -2,7 +2,8 @@
 //
 // Does a state file survive a writer being killed mid-write?
 //
-//   node scripts/atomic-check.mjs [--baseline]
+//   npm test                        (runs it alongside test/observe.mjs)
+//   node test/atomic.mjs --baseline  (the proof that a pass means something)
 //
 // The failure this guards against is not subtle once you have seen it: a bare
 // `fs.writeFileSync` truncates before it writes, so a process killed inside that
