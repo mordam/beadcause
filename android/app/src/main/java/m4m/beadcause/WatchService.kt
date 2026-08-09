@@ -112,19 +112,21 @@ class WatchService : Service() {
                 val cold = withContext(Dispatchers.IO) { Api.poll(conn, since = null, waitSeconds = 0) }
                 since = cold.seq
                 Prefs.setSeq(this, since)
-                status(idleText(cold.questions?.size))
+                status(idleText(cold.questions?.size, cold.requests?.size ?: 0))
             } catch (e: Exception) {
                 Log.w(TAG, "cold start failed: ${e.message}")
             }
         }
 
         var openCount: Int? = null
+        var requestCount = 0
 
         while (scope.isActive) {
             try {
                 val poll = withContext(Dispatchers.IO) { Api.poll(conn, since, WAIT_SECONDS) }
                 failures = 0
                 poll.questions?.let { openCount = it.size }
+                poll.requests?.let { requestCount = it.size }
                 handle(poll)
                 // Only persist on an actual move. A timed-out poll returns the same
                 // sequence every 25 seconds, and each write is a keystore-backed
@@ -133,7 +135,7 @@ class WatchService : Service() {
                     since = poll.seq
                     Prefs.setSeq(this, since)
                 }
-                status(idleText(openCount))
+                status(idleText(openCount, requestCount))
             } catch (e: Exception) {
                 if (Api.isUnauthorized(e)) {
                     // The token was rotated or the config regenerated. Retrying forever
@@ -153,15 +155,34 @@ class WatchService : Service() {
         }
     }
 
-    private fun idleText(open: Int?) = when {
-        open == null -> "Watching for questions"
-        open == 0 -> "Watching · nothing waiting"
-        open == 1 -> "Watching · 1 question open"
-        else -> "Watching · $open questions open"
+    /**
+     * The always-on line on the foreground-service row.
+     *
+     * Requests are counted apart, and named, for the same reason they are everywhere
+     * else: "2 questions open" while an agent is waiting to be told whether it may
+     * change is a status line that is true and still leaves out the thing that has
+     * been waiting longest.
+     */
+    private fun idleText(open: Int?, requests: Int = 0): String {
+        val asks = when (requests) {
+            0 -> ""
+            1 -> " · 1 foundation request"
+            else -> " · $requests foundation requests"
+        }
+        val work = when {
+            open == null -> "Watching for questions"
+            open == 0 -> if (asks.isEmpty()) "Watching · nothing waiting" else "Watching"
+            open == 1 -> "Watching · 1 question open"
+            else -> "Watching · $open questions open"
+        }
+        return work + asks
     }
 
     private fun handle(poll: Poll) {
-        val byKey = poll.questions?.associateBy { it.key }.orEmpty()
+        // Both channels. They are drawn in different places and notified on different
+        // Android channels, but "is this bead still live, and what is it" is one
+        // question and answering it from one map is what keeps the two consistent.
+        val byKey = poll.allBeads.associateBy { it.key }
 
         // Missed more than the server's event log holds, or the daemon restarted and
         // its sequence went backwards. Either way the event stream can't be trusted,
@@ -185,6 +206,18 @@ class WatchService : Service() {
                         showing += key
                     }
                 }
+                // The other channel. Quiet is respected on exactly the same terms:
+                // an agent asking to be different is not urgent enough to override a
+                // mute, and a mute that important things ignore is not a mute.
+                "foundation-request" -> byKey[key]?.let {
+                    if (event.quiet) {
+                        Log.i(TAG, "$key — a foundation request arrived quietly (${event.space} is muted)")
+                    } else {
+                        Notifications.foundationRequest(this, it)
+                        showing += key
+                    }
+                }
+                "foundation-reply" -> if (!event.quiet) Notifications.foundationReply(this, event)
                 "reply" -> if (!event.quiet) Notifications.reply(this, event)
                 // Answered here, on another device, or by an agent closing the bead.
                 // Either way the decision is made and the row should go.

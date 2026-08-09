@@ -11,7 +11,7 @@
   },
   "scripts": {
     "start": "node bin/beadcause.js",
-    "test": "node test/observe.mjs && node test/atomic.mjs",
+    "test": "node scripts/selftest.mjs && node test/observe.mjs && node test/atomic.mjs",
     "qr": "node bin/beadcause.js --qr",
     "vendor": "node scripts/vendor.js",
     "postinstall": "node scripts/vendor.js",
