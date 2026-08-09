@@ -3,6 +3,7 @@ import { loadConfig, CONFIG_PATH, OBSERVING } from '../lib/config.js';
 import { createApp, startPoller, listen } from '../lib/server.js';
 import { advocatedWorkspaces, workerLimit } from '../lib/advocate.js';
 import { attachTerminalSocket } from '../lib/termsocket.js';
+import { flush } from '../lib/commonrepo.js';
 import { shutdownTerminals, startTerminalReaper, terminalsEnabled } from '../lib/terminal.js';
 
 const cfg = loadConfig();
@@ -104,7 +105,11 @@ const shutdown = () => {
   // point; outliving the process that owns the registry is just a leak.
   shutdownTerminals();
   servers.forEach((s) => s.close());
-  process.exit(0);
+  // State written in the last couple of seconds has a snapshot scheduled and not
+  // yet taken, and the most interesting write in a log is usually the last one
+  // before the process went away. Bounded: a git that hangs must not be able to
+  // stop the daemon exiting, so the snapshot gets two seconds and no more.
+  Promise.race([flush(), new Promise((r) => setTimeout(r, 2000))]).finally(() => process.exit(0));
 };
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);

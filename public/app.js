@@ -17,6 +17,11 @@
     token: '',
     scope: 'human',
     questions: [],
+    // The other channel: agents asking to change what they are. Its own array, never
+    // merged into `questions`, because everything that reads `questions` — the
+    // filters, the counts, the empty state, the order — is about work, and a
+    // constitutional decision is not work. See `requestsHtml`.
+    requests: [],
     spaces: [],
     space: 'all',
     workspace: 'all',
@@ -42,6 +47,10 @@
     // 'yes' | 'no'). Held here rather than on the question so a background refresh
     // cannot wipe a half-made decision, the same reason drafts live outside it.
     picks: new Map(),
+    // Which proposal rows you have unfolded, as `${key}|${n}`. Out here with the
+    // picks for the same reason: a background refresh must not fold a row back up
+    // while you are reading it.
+    propOpen: new Set(),
   };
 
   /* ---------------------------------------------------------------- token */
@@ -137,7 +146,17 @@
     return `/graph?ws=${encodeURIComponent(q.workspace)}&id=${encodeURIComponent(q.id)}`;
   }
 
-  function renderMarkdown(md) {
+  /** What bd handed us: hard-wrapped, so let the paragraph reflow. */
+  const FROM_BD = { breaks: false };
+
+  /**
+   * `breaks` is a choice, not a default. bd stores its fields hard-wrapped at ~78
+   * columns, so on a phone every stored line wraps naturally and then takes a
+   * forced break on top — a staircase instead of a paragraph, and list items that
+   * read as loose prose. Prose that came out of bd renders with `breaks: false`.
+   * Anything typed by a person means its newlines, so it keeps them.
+   */
+  function renderMarkdown(md, { breaks = true } = {}) {
     let patched = String(md || '');
     // Rewrite local image paths before parsing — DOMPurify would strip file:// URLs.
     patched = patched.replace(
@@ -150,7 +169,7 @@
       /(^|[^!])\[([^\]]*)\]\(\s*([^)\s]+)\s*\)/g,
       (m, pre, label, href) => (isLocalPath(href) ? `${pre}[${label}](${docUrl(href)})` : m)
     );
-    const html = window.marked.parse(patched, { breaks: true, gfm: true });
+    const html = window.marked.parse(patched, { breaks, gfm: true });
     return window.DOMPurify.sanitize(html, { ADD_ATTR: ['target', 'rel'] });
   }
 
@@ -403,6 +422,62 @@
     beads.map((_, i) => i + 1).filter((n) => picksFor(key).get(n) === 'yes');
 
   /**
+   * The fields a proposed bead would be created with, in the order proposalBody
+   * prints them (lib/proposal.js) — the row and the question body it came from
+   * should read the same way round. Rationale is deliberately absent here: it is an
+   * argument for the bead rather than part of it, so the row prints it last.
+   */
+  const PROP_FIELDS = [
+    // The description needs no label: it is what a bead obviously is, and a row with
+    // one short line in it should not carry a heading saying so.
+    { key: 'description', label: '' },
+    { key: 'acceptance', label: 'Done when' },
+    { key: 'design', label: 'Design' },
+    { key: 'notes', label: 'Notes' },
+    { key: 'labels', label: 'Labels', pills: true },
+    { key: 'deps', label: 'Depends on', pills: 'id' },
+  ];
+
+  /**
+   * Everything that would end up on the bead, each under a quiet label.
+   *
+   * Prose goes through the markdown renderer rather than out as escaped text: an
+   * advocate writes a description as a bulleted list, and a list rendered as one
+   * run-on line is a list you skip — which is the whole failure this row had.
+   */
+  function propFieldsHtml(b) {
+    return PROP_FIELDS.map((f) => {
+      const v = b[f.key];
+      const body = f.pills
+        ? (Array.isArray(v) ? v : [])
+            .map((x) => `<span class="pill${f.pills === 'id' ? ' id' : ''}">${esc(x)}</span>`)
+            .join('')
+        : v
+        ? `<div class="md">${renderMarkdown(v, FROM_BD)}</div>`
+        : '';
+      if (!body) return '';
+      const label = f.label ? `<span class="prop-label">${f.label}</span>` : '';
+      return `<div class="prop-field${f.pills ? ' pills' : ''}">${label}${body}</div>`;
+    }).join('');
+  }
+
+  // A phone column fits about this many characters, and this many lines of one row
+  // is as much as can sit above the next proposal and still leave it scannable.
+  const PHONE_COLS = 42;
+  const COLLAPSE_AT = 9;
+
+  /**
+   * Roughly how tall a row's prose will be. Cheap on purpose: the alternative is
+   * measuring after layout, and this only has to be right about "is this a wall of
+   * text", which counting wrapped lines settles well enough.
+   */
+  function propLines(b) {
+    const prose = [b.description, b.acceptance, b.design, b.notes, b.rationale].filter(Boolean).join('\n');
+    if (!prose) return 0;
+    return prose.split('\n').reduce((n, line) => n + Math.max(1, Math.ceil(line.length / PHONE_COLS)), 0);
+  }
+
+  /**
    * An advocate asking to create beads.
    *
    * Every other question in the inbox is one decision, which is why the rest of this
@@ -428,15 +503,34 @@
       .map((b, i) => {
         const n = i + 1;
         const choice = picks.get(n) || '';
-        return `<div class="prop-row ${choice ? `pick-${choice}` : ''}" data-idx="${n}" data-key="${esc(q.key)}">
+        // Long rows start folded so three proposals still fit on the screen you are
+        // deciding from. A fold and not the old three-line clamp, because a clamp
+        // cuts markdown mid-list-item and leaves no way at all to see the rest.
+        const long = propLines(b) > COLLAPSE_AT;
+        const collapsed = long && !state.propOpen.has(`${q.key}|${n}`);
+        return `<div class="prop-row ${choice ? `pick-${choice}` : ''}${collapsed ? ' is-collapsed' : ''}" data-idx="${n}" data-key="${esc(q.key)}">
           <div class="prop-main">
-            <span class="prop-title"><span class="prop-n">${n}</span>${esc(b.title)}</span>
-            <span class="prop-meta">
-              <span class="pill">${esc(b.type)}</span><span class="pill p${b.priority}">P${b.priority}</span>
-              ${b.acceptance ? `<span class="prop-acc">${esc(b.acceptance)}</span>` : ''}
-            </span>
-            ${b.description ? `<span class="prop-desc">${esc(b.description)}</span>` : ''}
-            ${b.rationale ? `<span class="prop-why">${esc(b.rationale)}</span>` : ''}
+            <div class="prop-head"><span class="prop-n">${n}</span><span class="prop-title">${esc(b.title)}</span></div>
+            <div class="prop-body">
+              <div class="prop-meta">
+                <span class="pill">${esc(b.type)}</span><span class="pill p${b.priority}">P${b.priority}</span>
+              </div>
+              ${propFieldsHtml(b)}
+              ${
+                b.rationale
+                  ? `<div class="prop-why"><span class="prop-label">Why</span><div class="md">${renderMarkdown(
+                      b.rationale,
+                      FROM_BD
+                    )}</div></div>`
+                  : ''
+              }
+            </div>
+            ${
+              long
+                ? `<button class="prop-more" data-act="prop-more" data-key="${esc(q.key)}" data-idx="${n}"
+                    aria-expanded="${!collapsed}">${collapsed ? 'Show the rest' : 'Show less'}</button>`
+                : ''
+            }
           </div>
           <div class="prop-choice">
             <button class="prop-btn yes" data-act="pick" data-key="${esc(q.key)}" data-idx="${n}" data-pick="yes"
@@ -760,13 +854,13 @@
   /** The body of an agent bead: description, notes, thread. Fetched by expand(). */
   function agentBriefHtml(q) {
     const parts = [];
-    if (q.description) parts.push(`<div class="md">${renderMarkdown(q.description)}</div>`);
+    if (q.description) parts.push(`<div class="md">${renderMarkdown(q.description, FROM_BD)}</div>`);
     // `notes` is where sessions record what they actually did, and it is often the
     // only part worth reading — a bead can have an aspirational description and a
     // notes field saying it shipped three days ago.
     if (q.notes) {
       parts.push('<div class="section-label">notes</div>');
-      parts.push(`<div class="md">${renderMarkdown(q.notes)}</div>`);
+      parts.push(`<div class="md">${renderMarkdown(q.notes, FROM_BD)}</div>`);
     }
     if (!q.description && !q.notes) parts.push('<p class="subtitle">No description on this bead.</p>');
 
@@ -791,7 +885,7 @@
     const d = q.decision;
     const parts = [];
 
-    if (d?.context) parts.push(`<div class="md">${renderMarkdown(d.context)}</div>`);
+    if (d?.context) parts.push(`<div class="md">${renderMarkdown(d.context, FROM_BD)}</div>`);
 
     for (const src of d?.diagrams || []) {
       parts.push(`<div class="diagram" data-src="${esc(src)}">drawing…</div>`);
@@ -836,7 +930,7 @@
 
     for (const s of q.sections || []) {
       if (s.field !== 'description') parts.push(`<div class="section-label">${esc(s.field)}</div>`);
-      parts.push(`<div class="md">${renderMarkdown(s.markdown)}</div>`);
+      parts.push(`<div class="md">${renderMarkdown(s.markdown, FROM_BD)}</div>`);
     }
 
     // The same agent state as the card head, repeated at the END of the thread.
@@ -885,6 +979,13 @@
   const gearNudge = () => (state.scope === 'human' ? ' Tap ⚙ to include the work agents are on.' : '');
 
   function emptyHtml() {
+    // "Nothing to decide" printed directly under a pane saying an agent is asking to
+    // be changed is the app contradicting itself. The empty state is about the
+    // questions feed, so when the other channel has something in it, say which
+    // emptiness this is.
+    if ((state.requests || []).length) {
+      return `<div class="empty">Nothing about work is waiting.${gearNudge()}</div>`;
+    }
     if (state.scope === 'agent') {
       return `<div class="empty"><strong>Nothing live</strong>No open, claimed or blocked beads in any workspace.</div>`;
     }
@@ -892,6 +993,52 @@
       return `<div class="empty"><strong>Nothing live</strong>No questions, and no bead open anywhere.</div>`;
     }
     return `<div class="empty"><strong>Nothing to decide</strong>No open questions labelled <code>human</code>.${gearNudge()}</div>`;
+  }
+
+  /**
+   * The foundation channel: agents asking to change what they are.
+   *
+   * A pane of its own, above the list and outside every filter on it. The reasoning,
+   * because it looks like a styling choice and is not:
+   *
+   * - **It is not filtered by space or workspace.** Those answer "which of my lives
+   *   is this about", and an agent's definition is not in one of them — it is the
+   *   same console whichever repo it was working in when it hit the wall.
+   * - **It is not sorted with the questions, or counted with them.** A P0 question
+   *   is urgent; a request to change what an agent is is *pending*, indefinitely, and
+   *   letting the two compete for the top of the screen would mean either the urgent
+   *   thing sinks or the constitutional one is never seen.
+   * - **It is drawn inside `#list` all the same**, as its own section. Every handler
+   *   on this page is delegated from that element, so a card in a sibling container
+   *   would render perfectly and answer nothing.
+   *
+   * Cards are `cardHtml` unchanged — the request is answered exactly the way a
+   * question is, and a second card renderer would be a second place for the approve
+   * path to drift.
+   */
+  function requestsHtml() {
+    const rows = state.requests || [];
+    if (!rows.length) return '';
+    const many = rows.length > 1;
+    return `<section class="channel foundation-channel" aria-label="Foundation requests">
+      <header class="channel-head">
+        <span class="channel-icon" aria-hidden="true">⚖️</span>
+        <div>
+          <h2>${many ? `${rows.length} agents are` : 'An agent is'} asking to change what ${many ? 'they are' : 'it is'}</h2>
+          <p>Not a question about work. Approving writes one commit and re-seeds the agent.</p>
+        </div>
+      </header>
+      ${rows.map(cardHtml).join('')}
+    </section>`;
+  }
+
+  /** How many requests are waiting, on the ⚖️ in the header. */
+  function paintRequestBadge() {
+    const badge = $('#req-badge');
+    if (!badge) return;
+    const n = (state.requests || []).length;
+    badge.textContent = n > 9 ? '9+' : String(n);
+    badge.hidden = !n;
   }
 
   /** Repaint the armed option in place. Cheap, and never touches the textarea. */
@@ -1216,11 +1363,17 @@
     const visible =
       state.workspace === 'all' ? inSpace : inSpace.filter((q) => q.workspace === state.workspace);
 
+    // The other channel, always first and never filtered. It is rare enough that
+    // putting it at the top costs nothing on the days there is nothing in it, and on
+    // the day there is, it is the one thing that must not be scrolled past.
+    const channel = requestsHtml();
+
     if (!state.questions.length) {
-      listEl.innerHTML = emptyHtml();
+      listEl.innerHTML = channel + emptyHtml();
     } else if (!visible.length) {
       const where = state.workspace !== 'all' ? state.workspace : state.space !== 'all' ? state.space : '';
-      listEl.innerHTML = `<div class="empty">Nothing waiting${where ? ` in ${esc(where)}` : ''}.${gearNudge()}</div>`;
+      listEl.innerHTML =
+        channel + `<div class="empty">Nothing waiting${where ? ` in ${esc(where)}` : ''}.${gearNudge()}</div>`;
     } else {
       // Anything you've already replied to sinks to the bottom. It is not waiting on
       // you any more — an agent has it — so it must not sit between you and the
@@ -1228,9 +1381,10 @@
       // sent it (priority, then age).
       const waiting = visible.filter((q) => !q.awaitingAgent);
       const replied = visible.filter((q) => q.awaitingAgent);
-      listEl.innerHTML = [...waiting, ...replied].map(cardHtml).join('');
+      listEl.innerHTML = channel + [...waiting, ...replied].map(cardHtml).join('');
     }
 
+    paintRequestBadge();
     renderFilters(inSpace);
 
     openLinksInNewTab(listEl);
@@ -1249,7 +1403,16 @@
     toast._t = setTimeout(() => (toastEl.hidden = true), bad ? 5000 : 2600);
   }
 
-  const byKey = (key) => state.questions.find((q) => q.key === key);
+  /**
+   * A card by key, from either channel.
+   *
+   * Every interaction on this page — open, answer, comment, the ⋮ menu, the deep
+   * link from a notification — goes through here, which is why the two channels can
+   * be two arrays without two of everything else. Requests first: there are at most
+   * a handful, and it makes the lookup that matters the cheap one.
+   */
+  const byKey = (key) =>
+    (state.requests || []).find((q) => q.key === key) || state.questions.find((q) => q.key === key);
 
   function disarm() {
     state.armed = null;
@@ -1288,6 +1451,10 @@
       clearDraft(key);
       if (close) {
         state.questions = state.questions.filter((x) => x.key !== key);
+        // And out of the other channel, on the same tap. An answered request that
+        // stayed in the pane would still be showing its approve button — for a bead
+        // that has already been closed on the answer you just gave.
+        state.requests = (state.requests || []).filter((x) => x.key !== key);
         state.open.delete(key);
         // Inside the Android shell, drop the notification for this question now.
         // Otherwise it sits in the shade with buttons that would answer a bead that
@@ -1501,6 +1668,21 @@
       return;
     }
 
+    // Unfolds one row, by touching that row only. Emphatically not a render(), for
+    // the same reason paintPicks exists: rebuilding the card under a decision you
+    // are halfway through making loses the decision.
+    if (act === 'prop-more') {
+      const row = btn.closest('.prop-row');
+      const token = `${key}|${btn.dataset.idx}`;
+      const open = !state.propOpen.has(token);
+      if (open) state.propOpen.add(token);
+      else state.propOpen.delete(token);
+      row?.classList.toggle('is-collapsed', !open);
+      btn.setAttribute('aria-expanded', String(open));
+      btn.textContent = open ? 'Show less' : 'Show the rest';
+      return;
+    }
+
     if (act === 'pick') {
       const n = Number(btn.dataset.idx);
       const picks = picksFor(key);
@@ -1541,6 +1723,7 @@
       }
       disarm();
       state.picks.delete(key);
+      for (const t of [...state.propOpen]) if (t.startsWith(`${key}|`)) state.propOpen.delete(t);
       const declined = beads.length - approved.length;
       const text = approved.length
         ? `CREATE: ${approved.join(',')} — filing ${approved.length} of ${beads.length} proposed bead${
@@ -1687,8 +1870,12 @@
     // had a question in it; keeping it would hide everything the widening just let in.
     state.workspace = 'all';
     schedulePoll();
+    // Only the questions. The scope is a setting about which slice of *work* the
+    // list is, and the other channel is not a slice of it — clearing the pane here
+    // would blank a pending constitutional request for a couple of seconds because
+    // you tapped a filter that has nothing to do with it.
     state.questions = [];
-    listEl.innerHTML = '<div class="empty">Asking bd…</div>';
+    listEl.innerHTML = requestsHtml() + '<div class="empty">Asking bd…</div>';
     load();
   });
 
@@ -1716,22 +1903,30 @@
       // you just left; the re-run queued above is the one that counts.
       if (asked !== state.scope) return;
       const openKeys = state.open;
-      // Keep any already-fetched detail so an open card doesn't flicker.
-      const prev = new Map(state.questions.map((q) => [q.key, q]));
-      state.questions = data.questions.map((q) => {
+      // Keep any already-fetched detail so an open card doesn't flicker. Both
+      // channels are merged against the same map: a bead moves between them only by
+      // gaining or losing a label, and when it does the fresh row is what is right.
+      const prev = new Map([...state.questions, ...(state.requests || [])].map((q) => [q.key, q]));
+      // `agent` has to be reset before the merge, not left to it: a question payload
+      // omits the field rather than sending false, so a bead that has just gained the
+      // `human` label would otherwise keep rendering as read-only agent work for as
+      // long as the tab stayed open.
+      const merge = (q) => {
         const before = prev.get(q.key);
-        if (!before) return q;
-        // `agent` has to be reset before the merge, not left to it: a question
-        // payload omits the field rather than sending false, so a bead that has
-        // just gained the `human` label would otherwise keep rendering as
-        // read-only agent work for as long as the tab stayed open.
-        return Object.assign(before, { agent: false }, q);
-      });
+        return before ? Object.assign(before, { agent: false }, q) : q;
+      };
+      // Absent rather than empty means an old server that predates the channel — keep
+      // whatever is on screen instead of silently emptying the pane.
+      state.requests = Array.isArray(data.requests) ? data.requests.map(merge) : state.requests;
+      state.questions = data.questions.map(merge);
       state.spaces = data.spaces || [];
       // A space that has been renamed or removed in config would otherwise leave the
       // filter pinned to something that no longer exists, showing an empty list.
       if (state.space !== 'all' && !state.spaces.some((s) => s.name === state.space)) state.space = 'all';
-      state.open = new Set([...openKeys].filter((k) => state.questions.some((q) => q.key === k)));
+      // Kept open across a refresh only if the bead is still somewhere — in either
+      // channel. Checking only `questions` would collapse an open request every 25
+      // seconds, mid-read.
+      state.open = new Set([...openKeys].filter((k) => Boolean(byKey(k))));
       render();
       focusHash();
     } catch (err) {

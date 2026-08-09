@@ -23,20 +23,17 @@
       <h1>Beadcause</h1>
     </div>
     <div class="sheet-actions">
-      <!-- A link, not a button: /sessions is its own page, so the inbox needs no JS
-           for it and nothing here can go stale with the view. -->
-      <!-- The only way into the app that adds work rather than acting on it. -->
-      <a href="/console" class="icon-btn" aria-label="Bead console — work out what to file next">🧾</a>
-      <!-- The only way in that lets you *drive* an agent rather than read one.
-           The variation selector is load-bearing: bare U+2328 renders text-style,
-           which beside 🧾 and 🤖 reads as a broken glyph rather than an icon. -->
+      <!-- The console, the sessions and the advocates used to hang here. They are
+           tabs now — the bar at the foot of every page owns them, so they are one
+           tap from anywhere rather than one tap from the inbox. What is left is
+           what acts on *this* view (⟳) or is not a standing view of its own.
+           The variation selector on ⌨️ is load-bearing: bare U+2328 renders
+           text-style, which beside ⚖️ reads as a broken glyph rather than an icon. -->
       <a href="/terminal" class="icon-btn" aria-label="Terminal — drive a Claude session from here">⌨️</a>
-      <a href="/sessions" class="icon-btn" aria-label="Current sessions — what every agent is on">🤖</a>
-      <!-- Next to /sessions on purpose: that one is what the agents are doing right
-           now, this one is what they are. Two halves of the same question. -->
-      <a href="/foundations" class="icon-btn" aria-label="Foundations — what each agent kind is, and what it may do">⚖️</a>
-      <!-- The advocates: what each repo's advocate is doing, and what it wants to file. -->
-      <a href="/monitor" class="icon-btn" aria-label="Advocates — what each repo's advocate is doing">📣</a>
+      <!-- The badge is the channel's presence in the chrome: a request never appears
+           in the list below, so without this the only sign one is waiting would be a
+           notification you may have already swiped away. -->
+      <a href="/foundations" class="icon-btn" id="foundations-link" aria-label="Foundations — what each agent kind is, and what it may do">⚖️<span class="badge" id="req-badge" hidden></span></a>
       <button id="refresh" class="icon-btn" aria-label="Refresh">⟳</button>
     </div>
   </header>
@@ -80,6 +77,7 @@
 
   <script src="/vendor/marked.js"></script>
   <script src="/vendor/purify.js"></script>
+  <script src="/tabbar.js"></script>
   <script src="/app.js"></script>
 </body>
 </html>
