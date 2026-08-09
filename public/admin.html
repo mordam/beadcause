@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0b0f14" media="(prefers-color-scheme: dark)">
+  <meta name="theme-color" content="#f6f7f9" media="(prefers-color-scheme: light)">
+  <title>Beadcause · admin</title>
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body class="doc-body">
+  <header class="topbar">
+    <div class="brand">
+      <span class="dot" id="pulse"></span>
+      <h1>Admin</h1>
+      <!-- An observer may read this screen and may not press anything on it: its
+           advocate state is the real daemon's, so a kill from here would reach
+           across. See the OBSERVING guard on POST /api/admin. -->
+      <span class="observing" id="observing" hidden>⦿ observing</span>
+    </div>
+    <div class="sheet-actions">
+      <button id="refresh" class="icon-btn" aria-label="Refresh">⟳</button>
+    </div>
+  </header>
+
+  <main class="work">
+    <!--
+      What the buttons below actually do, said once at the top rather than in four
+      tooltips. The drain sentence is the important one: "pause" here does not stop
+      an agent mid-edit, and a control that let you believe it did would be the
+      dangerous kind of wrong.
+    -->
+    <p class="admin-lede">
+      Pausing stops advocates <strong>launching</strong> new sessions and closes the
+      in-app terminals. Sessions already running on the Mac are left alone — each
+      finishes its bead and closes its own window. Nothing here happens on its own:
+      restarting the daemon never pauses or resumes anything.
+    </p>
+
+    <!-- What the last press actually did. Outside #admin so the ten-second repaint
+         does not wipe the one line telling you whether it worked. -->
+    <p class="admin-said" id="said" hidden></p>
+
+    <div id="admin">
+      <div class="empty">Asking the daemon…</div>
+    </div>
+  </main>
+
+  <script src="/tabbar.js"></script>
+  <script src="/admin.js"></script>
+</body>
+</html>

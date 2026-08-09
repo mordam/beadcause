@@ -26,6 +26,10 @@
     { id: 'console', href: '/console', icon: '🧾', label: 'Console', paths: ['/console', '/console.html'] },
     { id: 'sessions', href: '/sessions', icon: '🤖', label: 'Sessions', paths: ['/sessions', '/work', '/work.html'] },
     { id: 'advocates', href: '/monitor', icon: '📣', label: 'Advocates', paths: ['/monitor', '/advocates', '/monitor.html'] },
+    // The fifth tab this file's header left room for. Pause all / resume all lives
+    // on its own page, and it has to be reachable from wherever you noticed you
+    // wanted it — which is the point of the bar.
+    { id: 'admin', href: '/admin', icon: '⏸', label: 'Admin', paths: ['/admin', '/admin.html'] },
   ];
 
   const here = location.pathname.replace(/\/+$/, '') || '/';
