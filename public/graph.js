@@ -600,8 +600,14 @@
 
   /* --------------------------------------------------------- the sheet */
 
-  const md = (text) =>
-    window.DOMPurify.sanitize(window.marked.parse(String(text || ''), { gfm: true, breaks: false }), {
+  /**
+   * Same split, and the same default, as the inbox: a newline means a line break,
+   * because a person typed it. bd's own fields are the exception — they arrive
+   * hard-wrapped at ~78 columns and have to reflow, so they opt out with FROM_BD.
+   */
+  const FROM_BD = { breaks: false };
+  const md = (text, { breaks = true } = {}) =>
+    window.DOMPurify.sanitize(window.marked.parse(String(text || ''), { gfm: true, breaks }), {
       ADD_ATTR: ['target', 'rel'],
     });
 
@@ -631,7 +637,7 @@
       b.dependency_count ? `<span class="pill">waits on ${esc(b.dependency_count)}</span>` : '',
     ].filter(Boolean);
     parts.push(`<div class="meta">${meta.join('')}</div>`);
-    if (b.description) parts.push(`<div class="md">${md(b.description)}</div>`);
+    if (b.description) parts.push(`<div class="md">${md(b.description, FROM_BD)}</div>`);
     if (b.comments?.length) {
       parts.push('<div class="section-label">Thread</div>');
       parts.push(

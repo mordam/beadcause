@@ -141,6 +141,13 @@ images:
 - A block that isn't valid YAML shows the parse error on the card rather than
   silently dropping to free-text. Quote markdown links: bare `- [x](y)` is a YAML
   flow sequence (beadcause repairs that one case, but quoting is clearer).
+- **Write the prose as paragraphs; the hard wrap doesn't survive.** bd stores a
+  description, notes, design or acceptance hard-wrapped at about 78 columns, and
+  on a phone each of those lines wraps again — so anything that came out of bd
+  renders with markdown's `breaks` off and reflows into real paragraphs and real
+  lists. A blank line is what makes a new paragraph, there as anywhere. Comments
+  are the other way round: someone typed those on a phone, meaning every newline,
+  so a comment keeps the line breaks it was written with.
 
 From an agent session, piping the body avoids shell-quoting hell:
 
@@ -247,6 +254,26 @@ keeps a half-typed answer with its caret, and that collapsing still lands on the
 card's head. `--baseline` serves `HEAD:public/app.js` instead of the working copy —
 which is how you tell a real failure from a flaky one: baseline must fail the scroll
 cases, the working copy must pass all of them.
+
+### Reading a paragraph bd folded at 78 columns
+
+bd hard-wraps what it stores. A phone is narrower than 78 columns, so every one of
+those stored lines wraps again on its own — and rendering markdown with `breaks` on
+puts a `<br>` at each fold as well, which draws a paragraph as a staircase and a
+folded list item as two lines of loose prose. Turning `breaks` off everywhere is not
+the fix either: a comment is typed on the phone, by a person, who means the newlines
+they put in.
+
+So `renderMarkdown` takes the flag rather than assuming it, and the caller decides.
+Description, notes, design, acceptance and the decision block's own context came out
+of bd and reflow; comments and console chat were typed and keep their breaks. The
+graph's detail sheet follows the same split.
+
+`node scripts/wrap-check.mjs` checks both halves, in the same headless-Chrome-on-
+fixtures way as the scroll check, over the inbox card and the graph sheet: a folded
+paragraph comes back as one sentence with no break in it, a folded list item stays
+one item, and a three-line comment still has its two breaks. `--baseline` serves
+`HEAD:public/app.js` and `HEAD:public/graph.js`, where the bd-prose cases must fail.
 
 ## Who you are talking to
 
