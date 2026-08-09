@@ -36,7 +36,9 @@ things that can't be guessed**, generates a launchd plist for *your* home direct
 and node binary, starts the service, waits for it to answer, and prints the pairing
 QR. It's re-runnable — run it again after pulling.
 
-The questions, all with a safe default on Enter: which workspaces are **shared with
+The questions, all with a safe default on Enter: **what the agents should call you**
+(the name every prompt, pull request body and bead note uses — guessed from your git
+identity), which workspaces are **shared with
 other people** (those get a contentless push and no unattended agents), where your
 **code lives** (so a question can show you files from it), whether your shell
 **derives `BEADS_DIR` from the working directory**, whether to use **ntfy**,
@@ -1708,6 +1710,25 @@ a bead, and that is all it knows. So:
   the brief asks it to do. Where it didn't, the row says when the window was opened
   and nothing more.
 
+Those four endings are what the *daemon* can tell apart. What **you** read is the last
+line the session printed, and the brief asks for it in fixed words so it can be
+searched for across a wall of windows:
+
+    ** BEAD WORK DONE ** CAN BE MERGED, PUSHED, DEPLOYED **
+
+`** BEAD WORK DONE **` never varies. What follows names every step the work has not
+been through yet — `MERGED`, `PUSHED`, `DEPLOYED`, `REBUILT`, in that order — and
+`CAN BE CLOSED` on its own is the one line that means nothing is outstanding. In PR
+mode the only honest word is `CAN BE REVIEWED`: a delivering session never merges,
+pushes or deploys, so it can owe nothing but your answer.
+
+That line used to be `CAN BE CLOSED` unconditionally, which said the *window* had
+nothing left to do and said nothing about the work — and it is the sweep below that
+makes the difference expensive. An unmerged branch is never retired, so a session that
+stopped at a worktree commit left it sitting there indefinitely while reading as
+finished in every list. Nothing parses the marker; it is prose for a human, and
+`lib/session.js` is the only file that mentions it.
+
 ### Clearing up after it
 
 A session that obeys its repo's rules makes a git worktree before its first edit.
@@ -2861,6 +2882,7 @@ the fields it always read and renders exactly as it did.
 
 | key | meaning |
 |---|---|
+| `owner` | what the agents call you. It goes into every agent prompt ("*<name>* is not at the keyboard", "*<name>* approves every bead before it exists"), the body of every pull request an agent opens, and the notes that land on a bead. Asked first by `npm run configure`; guessed from your git `user.name` (first word) when it has never been set |
 | `port`, `host` | listens on `127.0.0.1` **and** the Tailscale IP only — never the LAN |
 | `token` | required on every `/api/*` call; regenerate by deleting the file |
 | `workspaces` | auto-discovered from `~/beads/*/.beads`, and **reconciled on every start** — entries whose directory has gone are dropped and new ones picked up, both logged. Renaming a workspace directory used to leave a stale entry that failed on every poll tick, silently hiding that whole workspace from the phone |
