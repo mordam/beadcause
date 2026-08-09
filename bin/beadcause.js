@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { loadConfig, CONFIG_PATH } from '../lib/config.js';
+import { loadConfig, CONFIG_PATH, OBSERVING } from '../lib/config.js';
 import { createApp, startPoller, listen } from '../lib/server.js';
 import { advocatedWorkspaces, workerLimit } from '../lib/advocate.js';
 import { attachTerminalSocket } from '../lib/termsocket.js';
@@ -71,13 +71,26 @@ const reaper = terminalsEnabled(cfg) ? startTerminalReaper(cfg) : null;
 
 console.log(`[beadcause] config      ${CONFIG_PATH}`);
 console.log(`[beadcause] workspaces  ${cfg.workspaces.map((w) => w.name).join(', ')}`);
+// First thing in the log, and unmissable, because the mistake it guards against is
+// believing you are in it when you are not — and the evidence of *that* arrives
+// thirty seconds later as two Claude windows you did not ask for.
+if (OBSERVING) {
+  console.log('[beadcause] ─────────────────────────────────────────────────────');
+  console.log('[beadcause] OBSERVING — this instance watches and never acts.');
+  console.log('[beadcause]   no sessions · no proposals · no worktree sweeps');
+  console.log('[beadcause]   no session logs · no reply agents · no ntfy push');
+  console.log('[beadcause]   the terminal, the bead console and answering still work');
+  console.log('[beadcause] ─────────────────────────────────────────────────────');
+}
 // Say it at startup, in the log launchd keeps: an advocate opens Claude sessions
 // on this Mac without being asked, so which repos have one — and how many windows
 // each may open — is the first thing anyone reading this log wants to know.
 const advocated = advocatedWorkspaces(cfg).map((w) => `${w.name}\u00d7${workerLimit(cfg, w.name).limit}`);
 console.log(
   `[beadcause] advocates   ${
-    advocated.length ? `${advocated.join(', ')} (max ${cfg.advocates?.globalMaxWorkers ?? 3} sessions in total)` : '(none — advocates.workspaces is empty)'
+    advocated.length
+      ? `${advocated.join(', ')} ${OBSERVING ? '(observing — they survey, they open nothing)' : `(max ${cfg.advocates?.globalMaxWorkers ?? 3} sessions in total)`}`
+      : '(none — advocates.workspaces is empty)'
   }`
 );
 console.log(`[beadcause] ntfy topic  ${cfg.ntfy.enabled ? cfg.ntfy.topic : '(disabled)'}`);
