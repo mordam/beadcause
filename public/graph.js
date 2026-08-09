@@ -10,6 +10,11 @@
  * - **A node is a way in, not a label.** bd's 130x40 boxes truncate every title.
  *   Tapping one here opens a card you can actually read, and that card opens the
  *   whole bead in a sheet.
+ *
+ * And the thing a phone forced, which the desktop never showed: a graph that fits
+ * a phone is a graph too small to read — 128 beads fit at a thirteenth of full
+ * size, where a title is 1.4px. So the fitted view stays and a circle in the
+ * middle of it is magnified instead. See the loupe section below.
  */
 (() => {
   'use strict';
@@ -23,6 +28,10 @@
   const TICK = 130;         // ms between batches — fast enough to feel alive
   const NODE_W = 132;
   const NODE_H = 40;
+  const ZOOM_MIN = 0.15;    // the floor a finger can reach on its own
+  const ZOOM_MAX = 3;
+  const LOUPE_ACROSS = 3;   // beads that fit across the glass
+  const LOUPE_MIN_M = 1.1;  // below this the glass shows what the screen already does
 
   const $ = (id) => document.getElementById(id);
   const main = $('graph-main');
@@ -32,6 +41,7 @@
   const growthText = $('growth-text');
   const growthPause = $('growth-pause');
   const emptyEl = $('empty');
+  const reticleLabel = $('reticle-label');
   const card = $('card');
   const sheet = $('sheet');
 
@@ -83,6 +93,11 @@
 
   const svg = d3.select('#canvas');
   let g, gLinks, gNodes, zoom;
+  let loupe, loupeBack, loupeUse, loupeRim, reticle;
+  let loupeR = 0;
+  let loupeK = 1;
+  let loupeOn = false;      // off until the graph has finished arriving
+  let centred = null;       // the bead under the glass
 
   function resetCanvas() {
     svg.selectAll('*').remove();
@@ -100,18 +115,34 @@
       .attr('d', 'M0,-4L8,0L0,4')
       .attr('fill', css('--muted', '#8ba0b6'));
 
-    g = svg.append('g');
+    defs.append('clipPath').attr('id', 'loupe-clip').append('circle').attr('r', 0);
+
+    g = svg.append('g').attr('id', 'scene');
     gLinks = g.append('g').attr('class', 'links');
     gNodes = g.append('g').attr('class', 'nodes');
 
+    // The loupe is a second rendering of the very same scene — a <use> of it,
+    // clipped to a circle. Nothing is laid out twice and nothing has to be kept
+    // in sync: the force simulation ticks the original and the copy follows.
+    loupe = svg.append('g').attr('class', 'loupe').attr('clip-path', 'url(#loupe-clip)').attr('pointer-events', 'none');
+    loupeBack = loupe.append('circle').attr('class', 'loupe-back');
+    loupeUse = loupe.append('use').attr('href', '#scene');
+    loupeRim = svg.append('circle').attr('class', 'loupe-rim').attr('pointer-events', 'none');
+    reticle = svg.append('g').attr('class', 'reticle').attr('pointer-events', 'none');
+    reticle.append('path').attr('class', 'reticle-l');
+    reticle.append('path').attr('class', 'reticle-r');
+
     zoom = d3
       .zoom()
-      .scaleExtent([0.15, 3])
+      .scaleExtent([ZOOM_MIN, ZOOM_MAX])
       .on('start', (e) => {
         // Only a gesture counts. Programmatic fitting also fires 'zoom'.
         if (e.sourceEvent) userMoved = true;
       })
-      .on('zoom', (e) => g.attr('transform', e.transform));
+      .on('zoom', (e) => {
+        g.attr('transform', e.transform);
+        updateLoupe();
+      });
     svg.call(zoom);
     // A tap on empty canvas puts the card away — the same gesture you'd expect
     // from any sheet, and it stops a stale card hovering over a graph you've
@@ -119,6 +150,171 @@
     svg.on('click', (e) => {
       if (e.target === svg.node()) dismissCard();
     });
+    // Inside the loupe you are looking at a magnified copy, and the copy takes no
+    // pointer events — so without this a tap would fall through to whichever
+    // speck happens to sit under your finger in the unmagnified scene, and select
+    // the wrong bead. Capture the tap first and resolve it against what you can
+    // actually see. Capture phase, so it runs before the nodes' own handlers.
+    svg.node().addEventListener(
+      'click',
+      (e) => {
+        if (!loupeOn) return;
+        const box = main.getBoundingClientRect();
+        const p = [e.clientX - box.left, e.clientY - box.top];
+        const c = centre();
+        if (Math.hypot(p[0] - c[0], p[1] - c[1]) > loupeR) return;
+        e.stopPropagation();
+        const hit = beadUnder(unmagnify(p));
+        hit ? select(hit) : dismissCard();
+      },
+      true
+    );
+  }
+
+  /* --------------------------------------------------------------- loupe */
+
+  /*
+   * A phone can hold the whole graph or it can hold a readable bead, never both:
+   * 128 beads only fit by shrinking to a thirteenth, where a title is 1.4px. So
+   * keep the fitted view — the shape of the work is worth seeing — and magnify a
+   * circle in the middle of it, big enough for three beads across and the rows
+   * above and below. You pan the graph under the glass rather than zooming in
+   * and losing your place.
+   *
+   * The magnification is exact and needs no layout maths. Holding the centre of
+   * the screen fixed and scaling everything about it by m is, in screen space,
+   * `translate(c(1-m)) scale(m)` — so the loupe is that transform on a <use> of
+   * the scene, and the scene keeps its own zoom transform underneath.
+   */
+
+  const centre = () => [main.clientWidth / 2, main.clientHeight / 2];
+
+  /** Radius, and the scale the magnified copy is drawn at. */
+  function loupeGeometry() {
+    const w = main.clientWidth;
+    const h = main.clientHeight;
+    const r = Math.max(96, Math.min((w - 24) / 2, (h - 132) / 2, 190));
+    // Three beads across the diameter, with a gap between them — and never past
+    // 1:1, for the same reason the fit never magnifies: this is for reading what
+    // is there, not for blowing three beads up to fill a phone.
+    const k = Math.min(1, (2 * r) / (LOUPE_ACROSS * NODE_W + (LOUPE_ACROSS - 1) * 16));
+    return { r, k };
+  }
+
+  /** How much the loupe magnifies what is under it, given the current zoom. */
+  function loupeFactor() {
+    const t = d3.zoomTransform(svg.node());
+    return t.k > 0 ? loupeK / t.k : 1;
+  }
+
+  /** A point on screen, back through the magnification to where it really is. */
+  function unmagnify(p) {
+    const m = loupeFactor();
+    const c = centre();
+    return [(p[0] - c[0] * (1 - m)) / m, (p[1] - c[1] * (1 - m)) / m];
+  }
+
+  /** The bead whose box contains a screen point, or null. */
+  function beadUnder(p) {
+    if (!sim) return null;
+    const t = d3.zoomTransform(svg.node());
+    const qx = (p[0] - t.x) / t.k;
+    const qy = (p[1] - t.y) / t.k;
+    for (const n of sim.nodes())
+      if (Math.abs(n.x - qx) <= NODE_W / 2 && Math.abs(n.y - qy) <= NODE_H / 2) return n;
+    return null;
+  }
+
+  /** The bead nearest the middle of the screen, if it is under the glass. */
+  function beadAtCentre() {
+    if (!sim || !sim.nodes().length) return null;
+    const t = d3.zoomTransform(svg.node());
+    const c = centre();
+    const qx = (c[0] - t.x) / t.k;
+    const qy = (c[1] - t.y) / t.k;
+    const m = loupeFactor();
+    let best = null;
+    let bd = Infinity;
+    for (const n of sim.nodes()) {
+      // Distance to the box rather than to the centre, so a wide bead you are
+      // sitting on top of wins over a nearer neighbouring bead's midpoint.
+      const dx = Math.max(Math.abs(n.x - qx) - NODE_W / 2, 0);
+      const dy = Math.max(Math.abs(n.y - qy) - NODE_H / 2, 0);
+      const d = Math.hypot(dx, dy);
+      if (d < bd) {
+        bd = d;
+        best = n;
+      }
+    }
+    // Only lock on to something actually inside the glass.
+    return bd * t.k * m <= loupeR * 0.72 ? best : null;
+  }
+
+  function updateLoupe() {
+    if (!loupe) return;
+    const geo = loupeGeometry();
+    loupeR = geo.r;
+    loupeK = geo.k;
+    const m = loupeFactor();
+    const c = centre();
+
+    // Below about a tenth of magnification the glass shows what the naked screen
+    // already does, and a ring around nothing is just clutter.
+    const on = loupeOn && m >= LOUPE_MIN_M;
+    loupe.attr('display', on ? null : 'none');
+    loupeRim.attr('display', on ? null : 'none');
+    reticle.attr('display', on ? null : 'none');
+    if (reticleLabel) reticleLabel.hidden = !on;
+    if (!on) {
+      if (gNodes) gNodes.selectAll('g.gn').classed('reticled', false);
+      return;
+    }
+
+    svg.select('#loupe-clip circle').attr('cx', c[0]).attr('cy', c[1]).attr('r', loupeR);
+    loupeBack.attr('cx', c[0]).attr('cy', c[1]).attr('r', loupeR);
+    loupeUse.attr('transform', `translate(${c[0] * (1 - m)},${c[1] * (1 - m)}) scale(${m})`);
+    loupeRim.attr('cx', c[0]).attr('cy', c[1]).attr('r', loupeR);
+
+    updateReticle(m, c);
+  }
+
+  /** Frame the bead under the glass, and say which one it is. */
+  function updateReticle(m, c) {
+    const n = beadAtCentre();
+    centred = n;
+    gNodes.selectAll('g.gn').classed('reticled', (d) => d === n);
+
+    const t = d3.zoomTransform(svg.node());
+    // Where the bead is drawn inside the loupe: through the zoom, then through
+    // the magnification. With no bead under the glass the brackets sit dead
+    // centre at bead size, so the HUD still says what it is looking for.
+    const sx = n ? m * t.applyX(n.x) + c[0] * (1 - m) : c[0];
+    const sy = n ? m * t.applyY(n.y) + c[1] * (1 - m) : c[1];
+    const w = (NODE_W * loupeK) / 2 + 5;
+    const h = (NODE_H * loupeK) / 2 + 5;
+    const arm = Math.min(h * 0.55, 12);
+    reticle
+      .select('.reticle-l')
+      .attr('d', `M${sx - w + arm},${sy - h}H${sx - w}V${sy + h}H${sx - w + arm}`);
+    reticle
+      .select('.reticle-r')
+      .attr('d', `M${sx + w - arm},${sy - h}H${sx + w}V${sy + h}H${sx + w - arm}`);
+
+    if (reticleLabel) {
+      reticleLabel.style.top = `${c[1] + loupeR + 12}px`;
+      reticleLabel.innerHTML = n
+        ? `<span class="pill id">${esc(n.id)}</span><span class="reticle-title">${esc(n.title || '')}</span>`
+        : '<span class="reticle-hint">pan a bead into the glass</span>';
+    }
+  }
+
+  /** Slide a bead under the glass, keeping the zoom the fit chose. */
+  function centreOn(n) {
+    if (!n) return;
+    const t = d3.zoomTransform(svg.node());
+    const c = centre();
+    const to = d3.zoomIdentity.translate(c[0] - n.x * t.k, c[1] - n.y * t.k).scale(t.k);
+    svg.transition().duration(620).call(zoom.transform, to);
   }
 
   /** Frame everything drawn so far, until the first pan or pinch. */
@@ -139,6 +335,12 @@
     // blow six beads up to fill the screen, which looks like a bug rather than a
     // fit — the point of this is to get everything *in*, not to magnify.
     const k = Math.min(1, Math.min(w / (x1 - x0), h / (y1 - y0)));
+    // `zoom.transform` isn't clamped by scaleExtent but every gesture is, so a
+    // graph big enough to fit below the floor — deluvia's 128 beads land at 0.13
+    // on a phone — opens on a view a finger can never get back to: the first
+    // pinch out stops at 0.15 and half the graph is off screen for good. Let the
+    // floor follow the fit down.
+    zoom.scaleExtent([Math.min(ZOOM_MIN, k), ZOOM_MAX]);
     const t = d3.zoomIdentity
       .translate(w / 2 - ((x0 + x1) / 2) * k, h / 2 - ((y0 + y1) / 2) * k)
       .scale(k);
@@ -281,12 +483,25 @@
           .attr('x2', (d) => d.target.x)
           .attr('y2', (d) => d.target.y);
         gNodes.selectAll('g.gn').attr('transform', (d) => `translate(${d.x},${d.y})`);
+        if (loupeOn) updateLoupe();
         if (selected) placeCard();
       })
       // The layout keeps moving after the last batch, so the fit that ran with it
       // is already stale by the time it settles — which is how 108 beads ended up
-      // half off the left edge. Re-frame once the simulation is actually still.
-      .on('end', () => fit());
+      // half off the left edge. Re-frame once the simulation is actually still,
+      // then raise the glass; and if this graph was opened for one bead, slide
+      // that bead under it, which is the whole reason you tapped through to here.
+      .on('end', () => {
+        fit();
+        setTimeout(() => {
+          loupeOn = true;
+          updateLoupe();
+          if (bead && !userMoved) {
+            const n = sim.nodes().find((d) => d.id === bead);
+            if (n) centreOn(n);
+          }
+        }, 320);
+      });
 
     const step = () => {
       if (paused) return;
@@ -352,8 +567,20 @@
   function placeCard() {
     if (!selected || card.hidden) return;
     const t = d3.zoomTransform(svg.node());
-    const x = t.applyX(selected.x);
-    const y = t.applyY(selected.y);
+    let x = t.applyX(selected.x);
+    let y = t.applyY(selected.y);
+    // A bead tapped through the glass is drawn magnified, so anchor the card
+    // where you actually saw it rather than on the speck underneath.
+    if (loupeOn) {
+      const m = loupeFactor();
+      const c = centre();
+      const mx = m * x + c[0] * (1 - m);
+      const my = m * y + c[1] * (1 - m);
+      if (Math.hypot(mx - c[0], my - c[1]) <= loupeR) {
+        x = mx;
+        y = my;
+      }
+    }
     const w = card.offsetWidth;
     const h = card.offsetHeight;
     const maxX = main.clientWidth - w - 12;
@@ -446,6 +673,8 @@
     closeSheet();
     paused = false;
     userMoved = false;
+    loupeOn = false;
+    centred = null;
     growthPause.textContent = 'Pause';
     emptyEl.hidden = true;
     growth.hidden = false;
@@ -476,7 +705,10 @@
     grow(data.nodes, data.links);
   }
 
-  window.addEventListener('resize', () => fit());
+  window.addEventListener('resize', () => {
+    fit();
+    updateLoupe();
+  });
 
   if (!workspace) return fail('No workspace given.');
   if (!token) return fail('This device is not paired. Open the inbox first.');

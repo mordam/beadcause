@@ -210,6 +210,44 @@ set.
 Either way the answer lands as a comment authored by `beadcause` and the bead
 closes with reason "Answered via Beadcause".
 
+### Keeping your place in a long brief
+
+Deferring the repaint covers the case where you are typing. It does not cover the
+much commoner one: reading. An open card is `position: fixed; inset: 0;
+overflow-y: auto` — it takes the whole screen and **scrolls its own contents** — so
+`window.scrollY` is 0 for the entire time a brief is on screen, and the list's
+`innerHTML` rebuild throws that card away and builds a new one at `scrollTop` 0.
+That is the jump back to the top of the card, and it is why putting `window.scrollY`
+back afterwards never helped anyone with a brief open: it was restoring a number
+that was zero all along. (It was doing real work for the list behind, which is why
+the list's own offset is still put back too.)
+
+Restoring the card's own offset is still not enough on its own, because mermaid
+renders **asynchronously**. At the instant the position is put back, every diagram
+is an empty placeholder and the card is at its shortest; the offset gets clamped to
+the short content, the diagrams then draw and push everything down, and you are left
+above where you were by exactly the height of the diagrams above you.
+
+So what is stored is an *element* — the card by its key, then the way down into it
+by child index to the deepest thing still starting above the fold — and it is
+re-measured every time the layout changes: immediately, on the next frame, as each
+image decodes, and when the diagrams finish. Each restore is absolute rather than
+incremental, so a later one refines the answer instead of compounding the last.
+Anything deliberate that moves the page — your thumb, a wheel, an arrow key, or the
+scroll that **↑ Collapse** does to put you back on the card's head — ends the
+sequence rather than fighting it. The caret, the selection and the focused textarea
+come back the same way, for the repaints that genuinely cannot be deferred.
+
+`node scripts/scroll-check.mjs` checks all of it: headless Chrome at phone size,
+driving the real `public/app.js` against fixtures served by the script itself, so it
+never touches a bead. It asserts that a poll leaves a long brief where it was, that
+it still does when a diagram sits above the reading point and sizes late, that a
+deep link naming the card you already have open moves nothing, that a forced repaint
+keeps a half-typed answer with its caret, and that collapsing still lands on the
+card's head. `--baseline` serves `HEAD:public/app.js` instead of the working copy —
+which is how you tell a real failure from a flaky one: baseline must fail the scroll
+cases, the working copy must pass all of them.
+
 ## Who you are talking to
 
 Commenting dispatches an agent to reply — and you choose which one. Above the
@@ -558,6 +596,66 @@ like something else:
 - **d3 transitions share a default name.** The nodes' fade-in and the auto-fit's zoom
   transition kept cancelling each other, leaving every node stuck at opacity 0.0004 —
   a fully drawn, entirely invisible graph. The fade is a CSS animation now.
+
+### The glass in the middle
+
+A phone can hold the whole graph or one readable bead, never both. deluvia's 128
+beads only fit a 393px screen by shrinking to a thirteenth, where a title measures
+**1.4 css px** — the fit was working perfectly and producing a field of coloured
+specks. Zooming in to read one is the obvious answer and the wrong one: you lose
+the shape of the work, which is the only reason to draw a graph at all.
+
+So the fitted view stays, and a **circle in the middle of it is magnified** — sized
+for three beads across and the rows above and below, at a scale that never passes
+1:1. You pan the graph under the glass instead of zooming into it. A `[ ]` reticle
+frames whichever bead is under it and a pill underneath names it in full, because
+a node clips its title at twenty characters and that is the one thing magnifying
+cannot fix. Open the graph for a particular bead — the **What this is blocking**
+link — and once the layout settles that bead slides under the glass on its own.
+
+The magnification needs no layout maths at all. Holding the centre of the screen
+fixed and scaling about it by `m` is, in screen space, exactly
+`translate(c(1-m)) scale(m)` — so the loupe is a `<use>` of the scene carrying that
+transform, clipped to a circle. There is no second layout and nothing to keep in
+sync: the force simulation ticks the original and the copy follows.
+
+Two things that are not obvious:
+
+- **The copy takes no pointer events, so taps have to be re-aimed.** Inside the
+  circle you are looking at the magnified copy while your finger lands on the
+  shrunken original underneath — without intercepting the tap and mapping it back
+  through the magnification, tapping a bead you can read selects a different bead
+  you cannot. It is a capture-phase listener, so it runs before the nodes' own.
+- **The glass is down until the graph has finished arriving**, and hides itself
+  whenever it would magnify by less than 1.1 — at that point it is a ring drawn
+  around what the screen already shows.
+
+On a workspace as large as deluvia the glass is about as wide as the whole fitted
+graph, so the overview it is supposed to sit inside has very little left to show.
+That is the layout's fault rather than the loupe's: the force spreads by dependency
+layer along **x**, so a portrait phone fits to width and leaves 59% of the screen
+empty above and below. Rotating that axis is still open — see `bc-z7s`.
+
+### Checking it on a phone
+
+The graph is the one screen that was only ever verified in a desktop browser, which
+is the one place it is never used. `node scripts/phone-check.mjs <workspace>` opens
+it the way a phone does — headless Chrome emulating an iPhone 14 Pro at 393x852 and
+3x, mobile user agent, real two-finger touch events — and asserts the four things
+that only break on a phone: every bead ends up on screen, a pinch zooms, the view it
+opened on is still reachable afterwards, and a tap raises the card. It needs the
+daemon running; `--base=http://127.0.0.1:PORT` points it at a checkout instead, and
+`--out=DIR` saves a screenshot. No dependency — it drives Chrome over the DevTools
+protocol on Node's built-in `WebSocket`.
+
+Run it with the window hidden and it will still be honest: Chrome throttles an
+occluded renderer to about one frame a second, the force layout never settles, and
+every measurement becomes a measurement of the throttling — so the script disables
+that explicitly. That is also the answer if the numbers ever look impossible.
+
+It also prints what the glass is doing — how much it magnifies, how big a title is
+inside it, how many beads it has room for — and `--id=<bead>` opens the graph the
+way **What this is blocking** does and asserts that bead ends up under it.
 
 ## Current sessions — who is working, and on what
 
@@ -1034,6 +1132,34 @@ bead that already exists (`dependsOn: [bc-7rx]`), which is how "this waits on th
 we started from" is written; those are checked against the tracker before anything is
 written, so a made-up id costs a warning rather than a half-created proposal.
 
+### A console ends when the beads exist
+
+A console is a conversation with one purpose, and pressing **Create** achieves it. So
+accepting closes it and drops you back to the list — there is nothing left to say to
+a conversation whose whole subject is now three rows in the tracker, and a list where
+every finished one stays open is a list you read past to find the one that isn't.
+
+Closing is **soft**. The transcript stays on disk, the id keeps working, and saying
+anything to a closed console reopens it — "one more thing" is a normal thought to
+have five minutes later, and a dead end you can navigate to and not use is worse than
+a row you close twice. The unspent draft *is* dropped, because cards left on screen
+after a close are an invitation to create them twice.
+
+- **✕ on any row** in the list closes it by hand — for the conversations that end by
+  going nowhere rather than by filing anything. The ✕ and the row are siblings, not
+  nested, so closing a console can never also open it.
+- **Closed rows sink** below the live ones, dimmed, with a `closed` pill.
+- **Warnings keep it open.** A create that reports one — a parent that does not
+  exist, a dependency it could not resolve — leaves you on the screen that produced
+  it. Dropping to the list would take the warning away before it was read.
+- **Refused mid-turn**, with a `409` that says so: a console that is `thinking` has an
+  agent streaming into it, and a reply arriving into something the list calls
+  finished is worse than closing it twice.
+
+Both the close and the reopen appear in the scrollback as quiet divider lines. They
+belong in the history, but rendering them in an assistant bubble would read as
+something the agent said.
+
 ### What it costs you to know
 
 - **The agent cannot write to the tracker.** Its allowlist is read-only `bd` plus
@@ -1320,7 +1446,8 @@ Auth on everything under `/api/` except `/api/health`: header
 | GET | `/api/session-archive` | `?workspace=&commit=&file=` | one archived `session.log`, `meta.json` or `transcript.jsonl` |
 | GET | `/sessions`, `/work` | — | the current-sessions page (same page, two paths) |
 | GET | `/graph` | `?ws=&id=` | the HTML graph page |
-| GET | `/api/consoles` | — | `{consoles[], workspaces[]}` — every bead console, newest first |
+| GET | `/api/consoles` | — | `{consoles[], workspaces[]}` — every bead console, newest first; `closedAt` set on the finished ones |
+| POST | `/api/console/close` | `{id}` | soft-closes it and returns the new list. `409` mid-turn; saying anything to it reopens it |
 | POST | `/api/console` | `{workspace, seed?}` | `{id, console}` — opens one; a `seed` bead auto-starts the first turn |
 | GET | `/api/console` | `?id=` | the whole console: messages, draft, created beads |
 | POST | `/api/console/message` | `{id, text}` | starts a turn and returns — follow it on `/api/console/poll` |
