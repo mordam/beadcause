@@ -23,6 +23,12 @@
     // constitutional decision is not work. See `requestsHtml`.
     requests: [],
     spaces: [],
+    // The counts the chrome draws — beads asking you something, agents running,
+    // advocates waiting. Server-held rather than counted out of the rows above,
+    // because two of the three are about things that are not in this list at all
+    // and the third has to survive a scope that never fetched it. See summaryNow()
+    // in lib/server.js.
+    summary: {},
     space: 'all',
     workspace: 'all',
     open: new Set(),
@@ -1041,6 +1047,51 @@
     badge.hidden = !n;
   }
 
+  /**
+   * The three counts in the chrome: what is waiting on you, and what is waiting
+   * elsewhere.
+   *
+   * Where each one goes is the whole argument. "Waiting on you" is the app's
+   * premise and has no icon of its own, so it takes the space the wordmark used
+   * to; the other two already have a tab apiece, so they become badges on those
+   * tabs rather than a second row of chips — the number and the way to act on it
+   * end up the same tap target.
+   *
+   * The waiting number is counted off the rows on screen whenever this scope
+   * actually swept them, so answering a question drops it on the tap rather than
+   * on the next poll. The `agent` scope sweeps no questions at all, and there the
+   * server's held count is the only honest answer — a zero would read as "nothing
+   * is asking you anything" when the truth is "you did not ask".
+   */
+  function paintSummary() {
+    const s = state.summary || {};
+    const swept = state.scope !== 'agent';
+    const held = Number(s.questions);
+    const waiting = swept || !Number.isFinite(held) ? state.questions.filter((q) => !q.agent).length : held;
+
+    const el = $('#waiting');
+    if (el) {
+      el.hidden = !waiting;
+      // The word is a separate element so a narrow phone can drop it and keep the
+      // number — see .waiting in style.css.
+      el.innerHTML = `${waiting}<span class="word">waiting</span>`;
+      el.setAttribute(
+        'aria-label',
+        `${waiting} bead${waiting === 1 ? '' : 's'} waiting on you${state.scope === 'human' ? '' : ' — show only these'}`
+      );
+    }
+
+    // Both tabs live at the foot of every page, but only this one has the numbers:
+    // they ride the inbox's poll. A page that never sets a badge shows none, which
+    // is better than a number it has no way to refresh.
+    const badge = window.beadcause?.tabBadge;
+    if (!badge) return;
+    const sessions = Number(s.sessions) || 0;
+    const proposals = Number(s.proposals) || 0;
+    badge('sessions', sessions, `Sessions — ${sessions} agent${sessions === 1 ? '' : 's'} running`);
+    badge('advocates', proposals, `Advocates — ${proposals} proposal${proposals === 1 ? '' : 's'} waiting`);
+  }
+
   /** Repaint the armed option in place. Cheap, and never touches the textarea. */
   function paintArmed() {
     for (const btn of listEl.querySelectorAll('.option')) {
@@ -1385,6 +1436,7 @@
     }
 
     paintRequestBadge();
+    paintSummary();
     renderFilters(inSpace);
 
     openLinksInNewTab(listEl);
@@ -1887,10 +1939,18 @@
     scopeDlg.showModal();
   });
 
-  scopeDlg.addEventListener('click', (ev) => {
-    const btn = ev.target.closest('[data-scope]');
-    if (!btn || btn.dataset.scope === state.scope) return;
-    state.scope = btn.dataset.scope;
+  /**
+   * Switch which slice of the tracker the list is.
+   *
+   * Out of the panel's click handler because the count in the top bar is the other
+   * way in: tapping "3 waiting" means "show me those three", which is this, and a
+   * second copy of it would be a second place for the reset-and-refetch to drift.
+   * Already-there is a no-op rather than a reload — the count you tapped is a
+   * count of what is already on screen.
+   */
+  function chooseScope(next) {
+    if (!SCOPES.includes(next) || next === state.scope) return;
+    state.scope = next;
     localStorage.setItem('beadcause.scope', state.scope);
     paintScope();
     // The workspace filter was almost certainly pointing at the one workspace that
@@ -1904,7 +1964,16 @@
     state.questions = [];
     listEl.innerHTML = requestsHtml() + '<div class="empty">Asking bd…</div>';
     load();
+  }
+
+  scopeDlg.addEventListener('click', (ev) => {
+    const btn = ev.target.closest('[data-scope]');
+    if (btn) chooseScope(btn.dataset.scope);
   });
+
+  // The count is a filter you can reach without opening the panel: it says how many
+  // beads are asking you something, so tapping it shows you exactly those.
+  $('#waiting')?.addEventListener('click', () => chooseScope('human'));
 
   /* ----------------------------------------------------------------- load */
 
@@ -1947,6 +2016,9 @@
       state.requests = Array.isArray(data.requests) ? data.requests.map(merge) : state.requests;
       state.questions = data.questions.map(merge);
       state.spaces = data.spaces || [];
+      // Absent means a server that predates the counts — keep the last ones rather
+      // than blanking the chrome, exactly as the requests pane does above.
+      if (data.summary) state.summary = data.summary;
       // A space that has been renamed or removed in config would otherwise leave the
       // filter pinned to something that no longer exists, showing an empty list.
       if (state.space !== 'all' && !state.spaces.some((s) => s.name === state.space)) state.space = 'all';

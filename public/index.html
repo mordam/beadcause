@@ -20,7 +20,17 @@
            list below means, so it reads first rather than last. -->
       <button id="settings" class="icon-btn" aria-label="Settings — what the inbox shows" aria-haspopup="dialog">⚙</button>
       <span class="dot" id="pulse"></span>
-      <h1>Beadcause</h1>
+      <!-- The mark, not the word. The phone already says "Beadcause" on the home
+           screen, in the PWA title and in the switcher; spelling it out a fourth time
+           spent the widest part of the bar on the one thing you cannot be unsure of.
+           It stays an <h1> with the name as the image's alt text, so the header is
+           still labelled and a reader still hears which app this is. -->
+      <h1 class="mark"><img src="/icon.svg" alt="Beadcause" width="26" height="26" decoding="async"></h1>
+      <!-- What the width bought: how many beads are asking you something. It sits in
+           the brand space because it *is* the app's premise and has no icon of its
+           own — the other two counts hang off the tabs that answer them. Hidden at
+           zero: an empty inbox should look empty, not report itself. -->
+      <button id="waiting" class="waiting" hidden></button>
     </div>
     <div class="sheet-actions">
       <!-- The console, the sessions and the advocates used to hang here. They are

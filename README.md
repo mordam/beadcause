@@ -792,6 +792,35 @@ The wider scopes poll at 60s rather than the inbox's 25s: they are a full `bd li
 sweep, about 2.5s of `bd` across seven workspaces, and that does not want to run four
 times a minute for a list you are glancing at.
 
+### The top bar says who is asking, not what the app is called
+
+The widest part of the bar used to be the word **Beadcause** — on a screen you
+reached by tapping an icon labelled Beadcause, in an app whose title bar says
+Beadcause. It is the app mark now, the same artwork as the home-screen icon, still
+inside the `<h1>` with the name as the image's `alt` so the header is labelled and a
+reader still hears which app this is.
+
+What the reclaimed width is spent on is the premise itself:
+
+```
+  ⚙  ●  ◔  ( 8 waiting )                    ⌨️  ⚖️  ⟳
+```
+
+**8 waiting** is how many beads are asking you something, and tapping it is the way
+back to the `human` scope — the count *is* the filter. It is hidden at zero, because
+an empty inbox should look empty rather than report itself, and under 360px the word
+drops and the number stays.
+
+The other two numbers in that picture — agents running, advocates waiting — are
+**badges on the tabs that answer them**, not chips up here: the number and the way to
+act on it end up as the same tap target. See [the tab bar](#getting-around--the-tab-bar).
+
+The count is drawn from the rows on screen whenever the scope actually swept them, so
+answering a question drops it on the tap rather than on the next poll. In the `agent`
+scope — which sweeps no questions at all — it falls back to the count the server
+holds from the last sweep, for the same reason the advocate badge does: a zero there
+would read as "nothing is asking you anything" when the truth is "you did not ask".
+
 ## What a question is blocking
 
 A question whose answer nothing is waiting on is just a question. One that blocks
@@ -937,6 +966,15 @@ So all four carry the same bar along the bottom, where a thumb already is:
  Inbox   Console   Sessions   Advocates
  ▔▔▔▔▔
 ```
+
+Sessions and Advocates carry a **badge** when there is something behind them — how
+many agents are running, how many advocates are waiting on an answer. Both numbers
+ride the inbox's own poll (`/api/questions` carries them; see [the three counts on
+the poll](#the-three-counts-on-the-poll)), so they are live while you are on the
+inbox and simply absent on a page that has no way to refresh them — which beats a
+stale number that looks live. Zero shows nothing. The badge sits inside the tab's
+`aria-hidden` icon, so the tab takes an `aria-label` saying what the number counts:
+"2" read out after "Sessions" says nothing about two of what.
 
 Any view is one tap from any other, and nothing closes any more. The current tab is
 a `<span>` rather than a link — tapping where you already are should do nothing, not
@@ -1906,7 +1944,7 @@ Auth on everything under `/api/` except `/api/health`: header
 | Method | Path | Body / params | Returns |
 |---|---|---|---|
 | GET | `/api/health` | — | `{ok, workspaces[]}` · **no token** |
-| GET | `/api/questions` | `?scope=human\|both\|agent` | `{questions[], workspaces[], spaces[], summary, scope}` — `scope` defaults to `human`, and an unrecognised value falls back to it rather than erroring. `summary` is `{sessions, proposals}`, the two counts the inbox's bar draws |
+| GET | `/api/questions` | `?scope=human\|both\|agent` | `{questions[], workspaces[], spaces[], summary, scope}` — `scope` defaults to `human`, and an unrecognised value falls back to it rather than erroring. `summary` is `{sessions, proposals, questions}`, the three counts the inbox's chrome draws |
 | GET | `/api/question` | `?workspace=&id=` | one question **plus `comments[]`** |
 | GET | `/api/poll` | `?since=<seq>&wait=<s>` | long-poll: `{seq, resync, events[], questions, workspaces[]}` |
 | POST | `/api/respond` | `{workspace, id, response, create?}` | comments, then closes the bead. `create` is the 1-based indices of an advocate proposal's beads to file; without it, `CREATE:` in the text means all and `CREATE: 1,3` means those |
@@ -1956,26 +1994,33 @@ A row from `scope=agent` is **not** a question: it carries `agent: true`, has no
 `/api/bead`. `/api/question` is the wrong endpoint for one, because it parses the
 decision block and only means anything for a `human` bead.
 
-### The two counts on the poll
+### The three counts on the poll
 
-`/api/questions` carries a `summary` — `{sessions, proposals}` — because the top bar
-of the inbox wants to say how many agents are running and how many advocates are
-waiting on an answer, and the bar is on screen whenever the inbox is. Everything else
-in that picture is on `/api/work`, which is two `bd` calls per workspace and about a
-second for six: fine when you open it, not fine every thirty seconds on a phone.
+`/api/questions` carries a `summary` — `{sessions, proposals, questions}` — because
+the chrome of the inbox wants to say how many beads are asking you something, how
+many agents are running and how many advocates are waiting on an answer, and it is on
+screen whenever the inbox is. Everything else in that picture is on `/api/work`,
+which is two `bd` calls per workspace and about a second for six: fine when you open
+it, not fine every thirty seconds on a phone.
 
-These two are the exception because neither costs a `bd` call. `sessions` is a
+These three are the exception because none of them costs a `bd` call. `sessions` is a
 readdir of `~/.claude/sessions` plus a JSON parse per record — every live session on
 the Mac, including ones in no configured workspace, which is exactly the set the
 sessions page lists. `proposals` counts **advocates**, not beads: one open ask per
 advocate is the rule `propose()` enforces, so a repo with two proposal-shaped beads
 in it is still one repo waiting on you.
 
-`proposals` is held from the last `human` sweep rather than counted out of the
-response, and that is deliberate. The `agent` scope runs no `human` sweep at all, so
-counting the rows would empty the badge the moment you switched tabs — which reads as
-"answered" rather than as "not fetched". The poller sweeps every thirty seconds
-whatever any client asked for, so the number is at worst one poll old in any scope.
+`questions` is the inbox's own count — the beads asking you something — and it is the
+questions channel only: a [foundation request](#a-channel-of-its-own-on-every-surface)
+has the ⚖️ badge in the bar already, and counting it in both places would make the two
+disagree about the same bead.
+
+`proposals` and `questions` are both held from the last `human` sweep rather than
+counted out of the response, and that is deliberate. The `agent` scope runs no
+`human` sweep at all, so counting the rows would empty them the moment you switched
+tabs — which reads as "answered" rather than as "not fetched". The poller sweeps every
+thirty seconds whatever any client asked for, so the numbers are at worst one poll old
+in any scope.
 
 The field is additive and its own object: a client that has never heard of it — the
 installed Android build, a service worker still serving last week's `app.js` — reads
@@ -2199,12 +2244,14 @@ really open a window?" can only be answered by opening one. That is the incident
 this flag exists because of, so the suite proves the guards are *conditional* and
 stops there.
 
-`test/summary.mjs` covers the two counts on `/api/questions`, against a stub `bd`
+`test/summary.mjs` covers the three counts on `/api/questions`, against a stub `bd`
 that logs every invocation and a temp `~/.claude/sessions`. The arithmetic is not the
-risk; three quieter things are. That the counts start costing a `bd` call — the log
+risk; four quieter things are. That the counts start costing a `bd` call — the log
 is asserted to be one `human list` per workspace and nothing else, so a sweep added
-by accident fails here rather than turning up as a slower inbox months later. That
-the badge empties in a scope that sweeps no questions. And that the response stopped
+by accident fails here rather than turning up as a slower inbox months later. That a
+count empties in a scope that sweeps no questions. That the waiting count claims the
+other channel's beads as well as its own — the fixture holds a `foundation` bead, and
+it is asserted into `requests` and out of the count. And that the response stopped
 being additive — every field an older client reads is asserted still present and
 unchanged.
 

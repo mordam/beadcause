@@ -86,7 +86,16 @@ function serve() {
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(JSON.stringify(b));
     };
-    if (p === '/api/questions') return json({ questions: QUESTIONS, workspaces: ['demo'], spaces: [], scope: 'human' });
+    // `summary` is what the badges on Sessions and Advocates are drawn from, so the
+    // bar this checks is the bar that ships rather than a bare one.
+    if (p === '/api/questions')
+      return json({
+        questions: QUESTIONS,
+        workspaces: ['demo'],
+        spaces: [],
+        scope: 'human',
+        summary: { sessions: 2, proposals: 1, questions: QUESTIONS.length },
+      });
     if (p === '/api/work') return json(WORK);
     if (p === '/api/consoles') return json({ consoles: [], workspaces: ['demo', 'other'] });
     if (p.startsWith('/api/')) return json({});
