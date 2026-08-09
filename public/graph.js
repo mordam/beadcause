@@ -729,5 +729,16 @@
     });
   }
 
-  draw();
+  // `&open=1` lands on the bead's own text rather than on the graph it lives in.
+  // A link made right after filing something is a link to read the thing you filed,
+  // and finding one node in a force layout mid-animation is three taps that were
+  // never the point.
+  //
+  // openSheet needs nothing but an id — it fetches the rest from /api/bead — so this
+  // does not wait for a node to exist. It waits on draw() only because draw() opens
+  // by closing the sheet, and it runs even when draw() failed: a graph that would not
+  // load is when having the text anyway is worth most. Dismissing the sheet leaves you
+  // on the graph, scoped to that bead, which is where this link used to stop.
+  const drawn = draw();
+  if (bead && params.get('open') === '1') drawn.finally(() => openSheet({ id: bead }));
 })();
