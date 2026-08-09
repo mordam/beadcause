@@ -2914,6 +2914,59 @@
     if (pendingRender && !isAnswering()) render();
   });
 
+  /* --------------------------------------------------------- the filter rows */
+
+  /**
+   * Which two chips are pressed is held by the server, not by this browser.
+   *
+   * It has to survive more than a reload: the four views are separate documents, so
+   * Inbox → Console → Inbox is a fresh page and a filter living in this closure is
+   * gone by the time you come back. localStorage would fix that much and nothing
+   * else — the notification path runs in the server's poll and has to read the same
+   * value, and one install with one human should not have a phone and a laptop
+   * disagreeing about what is filtered. See /api/filter in lib/server.js.
+   *
+   * The scope setting is not part of this and stays in localStorage; it is which
+   * slice of the tracker you are looking at, which belongs to the screen you are
+   * looking at it on.
+   */
+
+  // The last value the *server* had. What makes adopting on every poll safe rather
+  // than a race: the poll already in flight when you tap a chip comes back carrying
+  // the old value, and treating that as an instruction would undo the tap.
+  let seenFilter = null;
+  // Depth rather than a flag: two quick taps put two writes in the air, and the
+  // first one's echo must not land as an instruction on top of the second.
+  let writingFilter = 0;
+
+  /** Take the server's chips — but only when they are news. */
+  function adoptFilter(filter) {
+    if (!filter || writingFilter) return;
+    const stamp = `${filter.space} ${filter.workspace}`;
+    if (stamp === seenFilter) return;
+    seenFilter = stamp;
+    state.space = filter.space;
+    state.workspace = filter.workspace;
+  }
+
+  /**
+   * Write the chips back, without waiting for it. The list has already repainted —
+   * a filter is not something you should watch a spinner for.
+   */
+  function saveFilter() {
+    const filter = { space: state.space, workspace: state.workspace };
+    seenFilter = `${filter.space} ${filter.workspace}`;
+    writingFilter += 1;
+    api('/api/filter', { method: 'POST', body: JSON.stringify(filter) })
+      // A write that failed is a filter that will be back to what it was on the next
+      // reload — and the poll after this one will say so by putting the old chips
+      // back, which is a truer report than a toast. Worth a console line, no more.
+      .catch((err) => console.warn('[beadcause] filter not saved:', err.message))
+      .finally(() => {
+        writingFilter -= 1;
+      });
+  }
+
   filtersEl.addEventListener('click', (ev) => {
     const spaceChip = ev.target.closest('[data-space]');
     if (spaceChip) {
@@ -2922,12 +2975,14 @@
       // usually leave you staring at an empty list.
       state.workspace = 'all';
       render(true);
+      saveFilter();
       return;
     }
     const chip = ev.target.closest('[data-ws]');
     if (!chip) return;
     state.workspace = chip.dataset.ws;
     render(true);
+    saveFilter();
   });
 
   /* ------------------------------------------------------------- settings */
@@ -2974,6 +3029,10 @@
     // The workspace filter was almost certainly pointing at the one workspace that
     // had a question in it; keeping it would hide everything the widening just let in.
     state.workspace = 'all';
+    // Saved, even though the scope itself is not. The clearing is a change to the
+    // filter like any other, and leaving it unsaved would put the old workspace back
+    // on the next reload while this tab kept showing everything.
+    saveFilter();
     schedulePoll();
     // Only the questions. The scope is a setting about which slice of *work* the
     // list is, and the other channel is not a slice of it — clearing the pane here
@@ -3042,9 +3101,18 @@
       // Absent means a server that predates the counts — keep the last ones rather
       // than blanking the chrome, exactly as the requests pane does above.
       if (data.summary) state.summary = data.summary;
+      adoptFilter(data.filter);
       // A space that has been renamed or removed in config would otherwise leave the
       // filter pinned to something that no longer exists, showing an empty list.
       if (state.space !== 'all' && !state.spaces.some((s) => s.name === state.space)) state.space = 'all';
+      // The same for the workspace row, which now matters far more than it did: a
+      // filter that only lived for as long as the tab did could not be stale, and one
+      // restored from the server on every load can be. Checked against the workspaces
+      // the server *serves* rather than against the rows on screen — a live workspace
+      // with nothing open in it is a filter that legitimately matches nothing right
+      // now, not one pointing at something that is gone.
+      const served = data.workspaces || [];
+      if (state.workspace !== 'all' && served.length && !served.includes(state.workspace)) state.workspace = 'all';
       // Kept open across a refresh only if the bead is still somewhere — in either
       // channel. Checking only `questions` would collapse an open request every 25
       // seconds, mid-read.
