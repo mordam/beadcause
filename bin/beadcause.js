@@ -128,6 +128,17 @@ const control = (req, res) => {
       return reply({ role, build, startedAt, pid: process.pid, inflight: inflight - 1, reaping: reaper !== null });
     case '/internal/activate':
       if (!poller) poller = startPoller(cfg, app);
+      // Restored again, having already been restored at startup. A standby can sit
+      // idle for a long time before it is promoted, and everything the outgoing
+      // backend did to a terminal in that window happened after this process read
+      // the directory — so promoting without a re-read serves a list from before
+      // the swap. Idempotent: restoreTerminals() skips any id already in memory.
+      //
+      // What that skip also means, and the reason this is not a full refresh: a
+      // terminal this process restored as resumable and which has since *ended*
+      // keeps its stale in-memory state, because the id is already known. Fixing
+      // that needs reconciliation rather than a second restore.
+      if (terminalsEnabled(cfg)) restoreTerminals(cfg);
       if (!reaper && terminalsEnabled(cfg)) reaper = startTerminalReaper(cfg);
       if (role !== 'active') console.log('[beadcause] promoted to active — polling');
       role = 'active';
