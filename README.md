@@ -47,6 +47,7 @@ always safe.
 
 ```bash
 npm run monitor              # live view of what the daemon is doing
+npm run check                # the checks around the agent log — safe with the daemon up
 npm run uninstall-service    # remove the service (keeps your config and token)
 tail -f ~/Library/Logs/beadcause.log
 launchctl kickstart -k gui/$(id -u)/m4m.beadcause   # restart after changing lib/ or bin/
@@ -87,6 +88,11 @@ otherwise its poller would keep firing notifications with no listener behind the
   [Discussing a question on the Mac](#discussing-a-question-on-the-mac).
 - **Nothing is exposed beyond the tailnet.** The daemon binds `127.0.0.1` and your
   Tailscale IP, never `0.0.0.0`.
+- **There is no test suite.** `npm run check` is one file — `scripts/check-agent-log.js`,
+  the contract the [session log](#watching-it-work--the-session-log) rests on — and it
+  says so rather than pretending to cover the rest. It runs against a throwaway config
+  directory on an ephemeral port and never touches `bd`, so it is safe to run with the
+  daemon up.
 
 ## Asking a question
 
@@ -199,6 +205,14 @@ set.
 
 ## Answering
 
+- **An open card takes the screen.** It used to expand inline, which on a phone
+  meant the brief, the thread and the answer box all competed with the list around
+  them — a question is read one at a time. Open, a card is `position: fixed` across
+  the viewport with the list underneath it, and there is a way out at each end:
+  **↑ Collapse** in the top corner, where your thumb already is when the card opens,
+  and another at the foot of the brief, where you land after a diagram and a thread.
+  Collapsing scrolls you back onto the card you were reading rather than leaving you
+  wherever the shrinking list happened to put you.
 - **Two taps on an option.** The first arms it, the second commits — a pocket tap
   shouldn't close a bead. It disarms after 6s.
 - **Free text**, with *Answer & close* or *Comment only* if you want the question
@@ -916,6 +930,12 @@ beads.
   That's the signal a session can actually find: `bd list --label=human-replied`
   shows every question waiting on an agent rather than on you. The card shows
   "⏳ you replied · waiting on an agent to pick this up".
+- **And then it gets out of your way.** Commenting collapses the card and sinks it
+  below everything still waiting on you, dimmed. Leaving it open in front of you
+  implies there is something left for you to do with it, when the next move belongs
+  to the agent. The reply landing clears the flag, so it rises back into the queue
+  in its own place — priority, then age. Answering removes it outright; that was
+  always true.
 - **Someone actually answers.** A comment dispatches an unattended `claude -p` in
   that workspace's directory to read the thread and reply on the bead. Without it
   `human-replied` was only a *passive flag*: it waited for an agent session to come
@@ -934,6 +954,50 @@ beads.
 - **Links in comments are live.** Comment bodies render as markdown, bare URLs
   autolink, and local paths become reader-tab links, all opening in a new tab.
   Comments from an agent are marked with an accent bar.
+
+### Watching it work — the session log
+
+A dispatched agent can take minutes, and until it comments there was one piece of
+evidence it had picked your comment up at all: a chip saying **thinking**. For a
+run that long that is indistinguishable from nothing happening — the exact failure
+auto-dispatch was built to fix.
+
+So a card with an agent on it carries a **Session log** button, and it tails what
+the agent is actually doing:
+
+```
+● dispatched in /Users/you/projects/acme
+● session 4f1c9a2b · claude-opus-5 · cwd /Users/you/projects/acme
+  > Bash bd show ac-abc
+    ○ ac-abc · Deploy to staging before the demo? [P1 · OPEN]
+  > Grep stripe.*fee
+Both fee models are in lib/billing.js — gross is the default…
+  > Bash bd comment ac-abc --actor claude-session "…"
+● done · 47s · $0.0231
+```
+
+`dispatchReply` used to buffer the run with `execFile` and throw the output away.
+It now runs `claude -p … --output-format stream-json --verbose` (the CLI refuses
+stream-json under `--print` without it), and every event is turned into the line a
+terminal would have shown and appended to a per-bead file under
+`~/.config/beadcause/logs/`. **The rendering is server-side** (`lib/agentlog.js`),
+so the format lives in one place and the phone only ever receives text — the same
+renderer the session archive replays with. An event type nobody has handled yet
+draws nothing rather than a wall of `{"type":…}`, because the point of the pane is
+that it reads like a CLI.
+
+`GET /api/agent-log` returns the tail — capped at 64KB and 400 lines, from the
+*end*, since what a run in progress is doing now is always the last thing in it —
+and a `running` flag. The pane polls every two seconds while the agent is up, keeps
+your scroll position unless you were already at the bottom, and stops asking the
+moment `running` goes false: a finished log does not change, and an open pane must
+not cost a file read every two seconds for the rest of the day. The pane itself
+stays until you close it, which is why the button outlives the `human-replied`
+flag that first drew it — the reply often lands while you are still reading.
+
+It is 9.5px monospace with `white-space: pre`, scrolling sideways rather than
+reflowing. The output was laid out by something counting characters at 80 columns,
+and wrapping it would destroy the only alignment it has.
 
 ## ⚙ What the inbox shows
 
@@ -2630,6 +2694,7 @@ Auth on everything under `/api/` except `/api/health`: header
 | POST | `/api/ask` | `{workspace, title, body, priority}` | `{id, key}` — files a new `human` bead |
 | POST | `/api/session` | `{workspace, id}` | `{dir}` — opens iTerm2 + `claude` on that bead |
 | POST | `/api/status` | `{workspace, id, phase, detail, actor}` | agent progress |
+| GET | `/api/agent-log` | `?workspace=&id=` | `{lines[], running, phase}` — the dispatched agent's log, as the CLI would have shown it |
 | GET | `/api/asset` | `?p=<abs path>` | image/doc bytes, restricted to `assetRoots` |
 | GET | `/doc` | `?p=<abs path>` | the HTML reader page |
 | GET | `/api/graph` | `?workspace=&id=` | `{nodes, links}` — the whole workspace with no `id` |

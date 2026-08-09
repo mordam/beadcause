@@ -39,6 +39,10 @@
     // reading mid-run.
     logs: new Set(),
     logText: new Map(),
+    // Keys whose run has finished. The pane stays — you are usually reading it at
+    // the moment the agent stops — but a log that has stopped changing must stop
+    // being asked for, or an open pane is a file read every two seconds forever.
+    logsDone: new Set(),
     logTimer: null,
     // Key of the card whose ⋮ menu is showing. At most one, and it is deliberately
     // opened and closed by DOM surgery rather than render() — see closeMenu().
@@ -1240,7 +1244,10 @@
           ${open ? 'Hide details' : draft ? 'Resume your answer' : hasBrief ? 'Show details' : 'Write an answer'}
         </button>
         ${
-          q.awaitingAgent
+          // While an agent has it, or for as long as its pane is open: the reply can
+          // land while you are still reading the log, and a pane whose button has
+          // gone with the flag that drew it is one you can no longer close.
+          q.awaitingAgent || state.logs.has(q.key)
             ? `<button class="linkish log-btn" data-act="log" data-key="${esc(q.key)}">${
                 state.logs.has(q.key) ? 'Hide session log' : 'Session log'
               }</button>`
@@ -1679,10 +1686,20 @@
     const keys = only ? [only] : [...state.logs];
     for (const key of keys) {
       if (!state.logs.has(key)) continue;
+      if (!only && state.logsDone.has(key)) continue;
       const [workspace, id] = [key.slice(0, key.indexOf('/')), key.slice(key.indexOf('/') + 1)];
       try {
         const data = await api(`/api/agent-log?workspace=${encodeURIComponent(workspace)}&id=${encodeURIComponent(id)}`);
-        const text = (data.lines || []).join('\n') || 'No output yet — the agent is starting.';
+        // The endpoint says whether an agent is still running. The read that first
+        // sees it stopped is also the read that collects its last lines, so this
+        // key can go quiet straight afterwards without losing the end of the run.
+        if (data.running) state.logsDone.delete(key);
+        else state.logsDone.add(key);
+        const text =
+          (data.lines || []).join('\n') ||
+          (data.running
+            ? 'No output yet — the agent is starting.'
+            : 'No log for this bead — no agent has run on it.');
         state.logText.set(key, text);
         const pre = listEl.querySelector(`[data-log="${CSS.escape(key)}"]`);
         if (pre) {
@@ -2769,8 +2786,12 @@
       if (state.logs.has(key)) {
         state.logs.delete(key);
         state.logText.delete(key);
+        state.logsDone.delete(key);
       } else {
         state.logs.add(key);
+        // Reopening must tail again even if the last run had finished — by now it
+        // may be a second dispatch, against a second comment.
+        state.logsDone.delete(key);
         pollLogs(key);
       }
       render(true);
