@@ -132,6 +132,58 @@ body {
 
 .list { padding: 12px 12px 0; display: flex; flex-direction: column; gap: 12px; }
 
+/*
+  The foundation channel — agents asking to change what they are.
+
+  It has to read as a different *kind* of thing from the list under it, not as an
+  important question. So: no red, no priority colour, nothing that says "urgent".
+  The accent hairline and the tinted ground say "this is elsewhere", which is what
+  the separation is actually claiming. A request is pending, not late.
+
+  Its cards are ordinary `.card`s, deliberately — the answer path must not fork —
+  and `.card.open` still goes fullscreen out of here, because it is `position:
+  fixed` against the viewport rather than against this section.
+*/
+.channel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--accent) 7%, var(--surface));
+}
+.channel-head { display: flex; gap: 11px; align-items: flex-start; }
+.channel-icon { font-size: 21px; line-height: 1.25; }
+.channel-head h2 {
+  margin: 0;
+  font-size: 15.5px;
+  line-height: 1.3;
+  color: var(--text);
+}
+.channel-head p {
+  margin: 4px 0 0;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+/* How many are waiting, on the ⚖️ in the header — the channel's only presence in
+   the chrome, since a request is never in the list below. */
+.icon-btn { position: relative; }
+.icon-btn .badge {
+  position: absolute;
+  top: -5px; right: -5px;
+  min-width: 17px; height: 17px;
+  padding: 0 4px;
+  border-radius: 9px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-size: 10.5px; font-weight: 700; line-height: 17px;
+  text-align: center;
+}
+.icon-btn .badge[hidden] { display: none; }
+
 .empty {
   padding: 56px 24px;
   text-align: center;
@@ -1091,6 +1143,9 @@ body {
   padding-bottom: 4px; border-bottom: 1px solid var(--line);
 }
 .seed-note a { text-decoration: none; }
+/* Same reason as .created-row: the id and the title it belongs to are one target. */
+.seed-link { display: flex; align-items: center; gap: 7px; min-height: 40px; color: inherit; }
+.seed-title { color: var(--muted); }
 
 .msg { font-size: 15.5px; line-height: 1.6; }
 
@@ -1137,14 +1192,56 @@ body {
   color: var(--accent); font: inherit; font-size: 14px; font-weight: 600; cursor: pointer;
 }
 
+/* A proposal the transcript has moved past. It still says what it was, and it still
+   goes somewhere — filed leads down to the beads it became, revised opens the draft
+   that replaced it — so it is quieter than the live one rather than absent. Only a
+   draft that went away without becoming anything is dead, and that one is visibly
+   dead rather than quietly inert. */
+.proposed-link.filed,
+.proposed-link.revised,
+.proposed-link[disabled] {
+  font-size: 13px; font-weight: 500;
+  min-height: 34px; padding: 6px 12px;
+  line-height: 1.35; text-align: left;
+}
+.proposed-link.filed { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); color: var(--prose); }
+.proposed-link.revised { border-color: var(--line); color: var(--muted); }
+.proposed-link[disabled] { border-color: var(--line); color: var(--muted); opacity: 0.75; cursor: default; }
+
 .created-note {
   border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--line));
   border-radius: 12px; padding: 11px 13px; background: color-mix(in srgb, var(--accent) 7%, transparent);
 }
 .created-note strong { display: block; font-size: 14.5px; margin-bottom: 8px; }
-.created-list { display: grid; grid-template-columns: auto 1fr; gap: 5px 9px; align-items: baseline; }
-.created-list .pill.id { text-decoration: none; }
+/* One row, one link. The pill was the only target here and the title beside it was
+   inert text twenty times its size — on a phone that is a miss waiting to happen, so
+   the anchor is the row and carries the 40px the row needs to be hit reliably. Ids in
+   a workspace share a prefix and a monospace face, so a flex row lines the titles up
+   as well as the two-column grid used to. */
+.created-list { display: flex; flex-direction: column; gap: 2px; }
+.created-row {
+  display: flex; align-items: center; gap: 9px;
+  min-height: 40px; padding: 2px 5px; margin: 0 -5px;
+  border-radius: 9px;
+  color: inherit; text-decoration: none;
+}
+.created-row .pill.id { flex: none; text-decoration: none; }
+.created-row:active { background: color-mix(in srgb, var(--accent) 14%, transparent); }
 .created-title { font-size: 13.5px; color: var(--prose); }
+/* Walked to from a filed proposal further up. The scroll alone leaves you wondering
+   which of several notes you were sent to. */
+@keyframes note-flash {
+  from { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 60%, transparent); }
+  to { box-shadow: 0 0 0 3px transparent; }
+}
+.created-note.flash { animation: note-flash 1.4s ease-out; }
+@media (prefers-reduced-motion: reduce) { .created-note.flash { animation: none; outline: 2px solid var(--accent); } }
+
+.reseed-note {
+  border: 1px dashed var(--line); border-radius: 12px; padding: 10px 13px;
+  font-size: 13px; color: var(--prose);
+}
+.reseed-note strong { display: block; font-size: 13.5px; color: var(--text); margin-bottom: 4px; }
 
 .warnings { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
 .warnings span { font-size: 12.5px; color: var(--warn); }
@@ -1508,6 +1605,24 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
 .mon-times { font-size: 11.5px; color: var(--muted); gap: 0; }
 .mon-tally { font-size: 12px; font-weight: 600; color: var(--muted); }
 .mon-tally.warn { color: var(--warn); }
+
+/* Observer mode. Beside the page title, because it says what this daemon *is*, not
+   what it is currently doing — and two consoles side by side are otherwise
+   identical. Warm rather than alarming: nothing is wrong, it simply never acts.
+   `[hidden]` is restated because the flex display above would otherwise show it. */
+.observing {
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--warn);
+  border: 1px solid color-mix(in srgb, var(--warn) 45%, transparent);
+  background: color-mix(in srgb, var(--warn) 12%, transparent);
+  border-radius: 999px;
+  padding: 2px 8px;
+  white-space: nowrap;
+}
+.observing[hidden] { display: none; }
 .adv-note .dim { opacity: 0.7; }
 
 /* ── The in-app terminal ─────────────────────────────────────────────────────

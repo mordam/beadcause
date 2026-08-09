@@ -135,7 +135,13 @@
     return hrs < 24 ? `${hrs}h ago` : `${Math.round(hrs / 24)}d ago`;
   };
 
+  // `id` only scopes the graph — it does not open anything. `open` adds the second
+  // half: the graph page raises that bead's sheet once it has drawn. Anywhere the id
+  // is the whole reason for the link (a bead you just filed, the one this console
+  // started from) wants beadUrl; a link that means "show me the neighbourhood" wants
+  // graphUrl.
   const graphUrl = (ws, id) => `/graph?ws=${encodeURIComponent(ws)}&id=${encodeURIComponent(id)}`;
+  const beadUrl = (ws, id) => `${graphUrl(ws, id)}&open=1`;
 
   /* --------------------------------------------------------------- launcher */
 
@@ -259,23 +265,89 @@
       .join('')}</div>`;
   }
 
-  function messageHtml(m) {
+  /** Is there anything the sheet could actually show? What `openSheet` gates on. */
+  const liveDraft = () => (state.draft?.beads?.length || 0) > 0;
+
+  /**
+   * What became of a proposal — read off the transcript rather than stored on it.
+   *
+   * `proposed: N` is written into the message when the turn lands and stays there for
+   * the life of the console. The draft it pointed at does not: creating spends it,
+   * the next turn replaces it, closing drops it. So what the button means is decided
+   * by the first thing *after* the message that either consumed that draft or put
+   * another one in its place — and a button whose draft is gone must say so rather
+   * than open nothing.
+   */
+  function proposalFate(all, i) {
+    for (let j = i + 1; j < all.length; j++) {
+      const m = all[j];
+      if (m.role === 'system' && m.kind === 'created') return { kind: 'filed', at: j, created: m.created || [] };
+      if (m.role === 'assistant' && m.proposed) return { kind: liveDraft() ? 'revised' : 'spent' };
+    }
+    return { kind: liveDraft() ? 'live' : 'spent' };
+  }
+
+  /**
+   * The line under a reply that proposed something, in whichever of its four states.
+   *
+   * Only the newest live proposal opens the sheet on what it proposed. A filed one
+   * walks you down to the beads it became — they are already listed in the “✓ Created”
+   * note, and reopening an editor for beads that exist would offer to file them
+   * twice. A superseded one is honest that the sheet now holds a later draft. And one
+   * whose draft went away without becoming anything is disabled, because the only
+   * thing left to say is that there is nothing to look at.
+   */
+  function proposalHtml(m, all, i) {
+    const n = m.proposed;
+    const beads = `${n} bead${n === 1 ? '' : 's'}`;
+    const fate = proposalFate(all, i);
+    if (fate.kind === 'filed' && fate.created.length) {
+      const c = fate.created.length;
+      return `<button class="proposed-link filed" data-goto="${fate.at}">✓ filed ${c} bead${
+        c === 1 ? '' : 's'
+      }</button>`;
+    }
+    if (fate.kind === 'filed') {
+      return `<button class="proposed-link" disabled>🧾 proposed ${beads} — none were created</button>`;
+    }
+    if (fate.kind === 'revised') {
+      return `<button class="proposed-link revised" data-open-sheet>🧾 proposed ${beads} — revised since; open the current draft</button>`;
+    }
+    if (fate.kind === 'spent') {
+      return `<button class="proposed-link" disabled>🧾 proposed ${beads} — draft discarded</button>`;
+    }
+    return `<button class="proposed-link" data-open-sheet>🧾 proposed ${beads} — review</button>`;
+  }
+
+  function messageHtml(m, i, all) {
     if (m.role === 'user') return `<div class="msg you">${esc(m.text)}</div>`;
 
     if (m.role === 'system' && m.kind === 'created') {
+      // Pill and title in one anchor, not a linked id sitting beside inert text. The
+      // title is the big thing on the row and it looked tappable long before it was;
+      // the id pill on its own is a 40px-wide target on a phone.
       const pills = (m.created || [])
         .map(
           (x) =>
-            `<a class="pill id created" href="${esc(graphUrl(state.console.workspace, x.id))}" target="_blank" rel="noopener">${esc(x.id)}</a>
-             <span class="created-title">${esc(x.title)}</span>`
+            `<a class="created-row" href="${esc(beadUrl(state.console.workspace, x.id))}" target="_blank" rel="noopener">
+               <span class="pill id created">${esc(x.id)}</span>
+               <span class="created-title">${esc(x.title)}</span>
+             </a>`
         )
         .join('');
       const warn = (m.warnings || []).length
         ? `<div class="warnings">${m.warnings.map((w) => `<span>${esc(w)}</span>`).join('')}</div>`
         : '';
-      return `<div class="msg created-note">
+      return `<div class="msg created-note" data-msg="${i}">
         <strong>✓ Created ${m.created.length} bead${m.created.length === 1 ? '' : 's'}</strong>
         <div class="created-list">${pills}</div>${warn}</div>`;
+    }
+
+    // What beadcause did to the agent between turns. Its own row rather than an
+    // assistant bubble: the console did not say this, and a note about the console
+    // being restarted is the last thing that should look like the agent talking.
+    if (m.role === 'system' && m.kind === 'reseeded') {
+      return `<div class="msg reseed-note"><strong>↻ Foundation changed</strong>${esc(m.text)}</div>`;
     }
 
     // A quiet divider rather than a message. The console being closed or picked back
@@ -301,11 +373,7 @@
     }
     if (m.interrupted) parts.push(`<div class="warnings"><span>this turn was cut short by a restart</span></div>`);
     if (m.proposalError) parts.push(`<div class="warnings"><span>${esc(m.proposalError)}</span></div>`);
-    if (m.proposed) {
-      parts.push(
-        `<button class="proposed-link" data-open-sheet>🧾 proposed ${m.proposed} bead${m.proposed === 1 ? '' : 's'} — review</button>`
-      );
-    }
+    if (m.proposed) parts.push(proposalHtml(m, all, i));
     if (!parts.length) return '';
     return `<div class="msg claude${m.pending ? ' live' : ''}">${parts.join('')}</div>`;
   }
@@ -315,7 +383,7 @@
     const pin = atBottom();
 
     const head = c.seed
-      ? `<div class="seed-note">Starting from <a class="pill id" href="${esc(graphUrl(c.workspace, c.seed.id))}" target="_blank" rel="noopener">${esc(c.seed.id)}</a> ${esc(c.seed.title)}</div>`
+      ? `<div class="seed-note">Starting from <a class="seed-link" href="${esc(beadUrl(c.workspace, c.seed.id))}" target="_blank" rel="noopener"><span class="pill id">${esc(c.seed.id)}</span> <span class="seed-title">${esc(c.seed.title)}</span></a></div>`
       : '';
 
     const msgs = c.messages.map(messageHtml).filter(Boolean).join('');
@@ -330,6 +398,7 @@
       a.rel = 'noopener noreferrer';
     }
     for (const b of $('#thread').querySelectorAll('[data-open-sheet]')) b.addEventListener('click', openSheet);
+    for (const b of $('#thread').querySelectorAll('[data-goto]')) b.addEventListener('click', gotoCreated);
 
     $('#title').textContent = c.seed ? `From ${c.seed.id}` : c.workspace;
     $('#pulse').classList.toggle('busy', c.status === 'thinking');
@@ -417,8 +486,27 @@
 
   const sheetOpen = () => $('#sheet').classList.contains('open');
 
+  /**
+   * Walk to what a filed proposal became. The ids are already on the screen, in the
+   * “✓ Created” note below the reply, so this is a scroll and a flash rather than a
+   * screen of its own — and from there each pill opens the bead.
+   */
+  function gotoCreated(e) {
+    const note = $(`#thread .created-note[data-msg="${e.currentTarget.dataset.goto}"]`);
+    if (!note) return;
+    note.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    note.classList.remove('flash');
+    void note.offsetWidth; // restart the animation if it is already running
+    note.classList.add('flash');
+  }
+
   function openSheet() {
-    if (!state.draft?.beads?.length) return;
+    if (!liveDraft()) {
+      // Reachable only if the draft went away between the repaint that drew the
+      // button and the tap. Saying nothing is the bug this screen used to have.
+      toast('Nothing to review — that proposal has been filed or replaced.');
+      return;
+    }
     $('#sheet').hidden = false;
     requestAnimationFrame(() => $('#sheet').classList.add('open'));
     renderSheet();

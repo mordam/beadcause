@@ -30,7 +30,10 @@
            The variation selector on ⌨️ is load-bearing: bare U+2328 renders
            text-style, which beside ⚖️ reads as a broken glyph rather than an icon. -->
       <a href="/terminal" class="icon-btn" aria-label="Terminal — drive a Claude session from here">⌨️</a>
-      <a href="/foundations" class="icon-btn" aria-label="Foundations — what each agent kind is, and what it may do">⚖️</a>
+      <!-- The badge is the channel's presence in the chrome: a request never appears
+           in the list below, so without this the only sign one is waiting would be a
+           notification you may have already swiped away. -->
+      <a href="/foundations" class="icon-btn" id="foundations-link" aria-label="Foundations — what each agent kind is, and what it may do">⚖️<span class="badge" id="req-badge" hidden></span></a>
       <button id="refresh" class="icon-btn" aria-label="Refresh">⟳</button>
     </div>
   </header>

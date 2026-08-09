@@ -43,6 +43,18 @@ object Notifications {
     const val CHANNEL_REPLIES = "replies_v2"
     const val CHANNEL_SERVICE = "service"
 
+    /**
+     * An agent asking to change what it is.
+     *
+     * Its own Android channel, which is worth more here than anywhere else in this
+     * file: a channel is the unit the *user* controls. Adam can set this one to
+     * silent, or to peek, or turn it off for a fortnight, without touching whether a
+     * question about work can reach him — and that is the real content of "a separate
+     * channel". A tag on a shared channel would have looked the same in the shade and
+     * given him nothing to hold.
+     */
+    const val CHANNEL_FOUNDATION = "foundation_v1"
+
     private val RETIRED_CHANNELS = listOf("questions", "replies")
 
     /** One short shake. `longArrayOf(0, 40)` is wait 0ms, buzz 40ms, stop. */
@@ -50,8 +62,11 @@ object Notifications {
 
     const val SERVICE_NOTIFICATION_ID = 1
 
-    /** The one card everything that isn't the service notification lands in. */
+    /** The card questions and replies land in. */
     private const val TRAY_NOTIFICATION_ID = 3
+
+    /** And the card foundation requests land in — separate, so neither hides the other. */
+    private const val FOUNDATION_NOTIFICATION_ID = 4
     const val REPLY_RESULT_KEY = "beadcause.reply.text"
 
     /** Notification actions are one tap, unlike the app's two-tap confirm. */
@@ -85,6 +100,18 @@ object Notifications {
             // A reply is news, not a summons: same pip, no buzz at all.
             NotificationChannel(CHANNEL_REPLIES, "Agent replies", NotificationManager.IMPORTANCE_DEFAULT).apply {
                 description = "An agent answered a thread you commented on"
+                setSound(blip, audio)
+                enableVibration(false)
+            }
+        )
+        mgr.createNotificationChannel(
+            // IMPORTANCE_DEFAULT, not HIGH, and that is the judgement in this whole
+            // feature: a constitutional request is important and never urgent. It has
+            // been waiting for a session already and will keep. So it lands in the
+            // shade with the same pip and no buzz — noticed when the phone is looked
+            // at, never a peek over what is on screen.
+            NotificationChannel(CHANNEL_FOUNDATION, "Foundation requests", NotificationManager.IMPORTANCE_DEFAULT).apply {
+                description = "An agent is asking to change what it is"
                 setSound(blip, audio)
                 enableVibration(false)
             }
@@ -170,6 +197,57 @@ object Notifications {
         )
     }
 
+    /**
+     * An agent asking to change what it is.
+     *
+     * Same buttons as a question — approve and decline are two options and both fit
+     * — but a different card, a different Android channel, and a line that says who
+     * is asking before it says what for. The scope is what the card leads with in the
+     * body: it is the half of a request that decides most of them, and the argument
+     * for it needs the app.
+     */
+    fun foundationRequest(ctx: Context, q: Question) {
+        val who = q.amendmentAgent ?: "An agent"
+        val body = buildString {
+            q.amendmentScope?.let { append("Scoped to: ").append(it).append("\n\n") }
+            if (q.title.isNotBlank()) append(q.title)
+        }.trim()
+
+        Tray.add(
+            ctx,
+            Tray.Entry(
+                key = q.key,
+                line = "$who asks to change what it is",
+                subtitle = "${q.workspace} · foundation",
+                big = body.ifBlank { q.question },
+                question = q,
+                isReply = false,
+                chan = Tray.Chan.FOUNDATION,
+            ),
+        )
+    }
+
+    /** The agent answering a question you put to it about its own request. */
+    fun foundationReply(ctx: Context, event: Event) {
+        val key = event.key ?: return
+        Tray.add(
+            ctx,
+            Tray.Entry(
+                key = key,
+                line = "${event.author ?: "The agent"} on its own request: " +
+                    event.text.orEmpty().lineSequence().firstOrNull().orEmpty(),
+                subtitle = key,
+                big = event.text.orEmpty(),
+                // No question object, so no buttons — deliberately. A reply is
+                // something to read before deciding, and the decision is one tap
+                // away in the app where the whole thread is.
+                question = null,
+                isReply = true,
+                chan = Tray.Chan.FOUNDATION,
+            ),
+        )
+    }
+
     /** An agent answered a thread you commented on. */
     fun reply(ctx: Context, event: Event) {
         val key = event.key ?: return
@@ -206,10 +284,11 @@ object Notifications {
      * bound to the newest question with its key in the subtext so the target is
      * never a guess.
      */
-    fun renderTray(ctx: Context, entries: List<Tray.Entry>) {
+    fun renderTray(ctx: Context, chan: Tray.Chan, entries: List<Tray.Entry>) {
         val mgr = NotificationManagerCompat.from(ctx)
+        val trayId = if (chan == Tray.Chan.FOUNDATION) FOUNDATION_NOTIFICATION_ID else TRAY_NOTIFICATION_ID
         if (entries.isEmpty()) {
-            mgr.cancel(TRAY_NOTIFICATION_ID)
+            mgr.cancel(trayId)
             return
         }
 
@@ -217,7 +296,15 @@ object Notifications {
         val target = entries.firstOrNull { !it.isReply }?.question
         val questions = entries.count { !it.isReply }
 
-        val builder = NotificationCompat.Builder(ctx, if (questions == 0) CHANNEL_REPLIES else CHANNEL_QUESTIONS)
+        // The foundation card stays on its own channel whatever is in it — a reply
+        // about a request is still part of that conversation, and moving it to the
+        // replies channel would put it back under the settings for work.
+        val androidChannel = when {
+            chan == Tray.Chan.FOUNDATION -> CHANNEL_FOUNDATION
+            questions == 0 -> CHANNEL_REPLIES
+            else -> CHANNEL_QUESTIONS
+        }
+        val builder = NotificationCompat.Builder(ctx, androidChannel)
             .setSmallIcon(R.drawable.ic_notification)
             .setCategory(NotificationCompat.CATEGORY_MESSAGE)
             .setContentIntent(openIntent(ctx, newest.key))
@@ -244,20 +331,29 @@ object Notifications {
                 .setNumber(entries.size)
         }
 
+        // `question` is nullable now — a reply about a foundation request carries no
+        // bead to answer, because the answering happens in the thread. `?.let` rather
+        // than `!!`: a card with no Reply button is a small loss, a crash in the
+        // notification path takes the watcher down with it.
         if (newest.isReply && entries.size == 1) {
-            builder.addAction(typedAction(ctx, newest.question!!, slot = 7, label = "Reply", close = false))
+            newest.question?.let { builder.addAction(typedAction(ctx, it, slot = 7, label = "Reply", close = false)) }
         } else if (target != null) {
             addQuestionActions(ctx, builder, target)
         }
 
-        mgr.notifySafely(TRAY_NOTIFICATION_ID, builder.build())
+        mgr.notifySafely(trayId, builder.build())
     }
 
     private fun summary(entries: List<Tray.Entry>): String {
+        // Counted in the words of whichever channel this card is: "2 requests · 1
+        // reply waiting" is a summary of the foundation card, and calling those
+        // questions would undo the separation in the one line that summarises it.
+        val foundation = entries.first().chan == Tray.Chan.FOUNDATION
         val questions = entries.count { !it.isReply }
         val replies = entries.size - questions
+        val noun = if (foundation) "request" else "question"
         val parts = buildList {
-            if (questions > 0) add("$questions question" + if (questions == 1) "" else "s")
+            if (questions > 0) add("$questions $noun" + if (questions == 1) "" else "s")
             if (replies > 0) add("$replies repl" + if (replies == 1) "y" else "ies")
         }
         return parts.joinToString(" · ") + " waiting"
