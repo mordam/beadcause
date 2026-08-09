@@ -11,6 +11,13 @@
   --accent-ink: #06231f;
   --warn: #fbbf24;
   --danger: #f87171;
+  /* The two colours an answer flies in — see public/absorb.js. Deliberately not
+     --accent: the bead you answered and the beads your decision created have to be
+     told apart from each other at a glance, and both have to be told apart from the
+     teal that every other live thing in this app already uses. */
+  --bead-answered: #60a5fa;
+  --bead-made: #4ade80;
+  --bead-flash: #ffffff;
   --radius: 14px;
   --tap: 48px;
 }
@@ -28,6 +35,10 @@
     --accent-ink: #ffffff;
     --warn: #92600a;
     --danger: #b91c1c;
+    /* A step darker, because these are drawn on a near-white page rather than on
+       #0b0f14 — the dark scheme's values wash out against it. */
+    --bead-answered: #2563eb;
+    --bead-made: #16a34a;
   }
 }
 
@@ -279,7 +290,11 @@ body {
   border-radius: var(--radius);
   overflow: hidden;
 }
-.card.answering { opacity: 0.5; pointer-events: none; }
+/* `.card.answering` — a 50% dim held over the card for as long as bd took — used to
+   live here, with a "Recording your answer…" row under it. Both are gone: the card
+   now leaves on the tap and the answer flies to the mark as a bead, which says the
+   same thing about the wait and rather more about where the answer went. See
+   .flight-layer below and public/absorb.js. */
 
 /*
   An answer you started and did not send.
@@ -815,21 +830,82 @@ body {
 /* A busy session breathes; an idle one is a hollow ring drawn as text. `.adv-worker`
    is on the list because a claimed, still-running window is the most alive thing on
    either page, and it was drawing the same dead grey dot as an idle one. */
-.activity.live .spark, .sending .spark, .session-row .spark, .adv-worker .spark { background: var(--accent); animation: breathe 1.3s ease-in-out infinite; }
+.activity.live .spark, .session-row .spark, .adv-worker .spark { background: var(--accent); animation: breathe 1.3s ease-in-out infinite; }
 @keyframes breathe {
   0%, 100% { opacity: 1; transform: scale(1); }
   50% { opacity: 0.35; transform: scale(0.7); }
 }
 
-.sending {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  padding: 11px 15px;
-  border-top: 1px solid var(--line);
-  color: var(--muted);
-  font-size: 13.5px;
-  font-weight: 550;
+/* ------------------------------------------------------- the answer, in flight */
+
+/*
+  The layer the beads fly in. See public/absorb.js for the sequence itself; what
+  matters here is that it is on <body> and fixed, not in the list — render() is
+  about to rebuild the list, and for an answered question has already thrown away
+  the card the bead came out of. A flight parented to that card would be destroyed
+  mid-air by the repaint it is meant to cover.
+
+  Above .card.open and the toast (both 40) and above the topbar (20), because the
+  bead has to be visible crossing the bar it is flying into. Below the tools dialog
+  (60) and the drawer (70): both of those are things to be answered, and an
+  animation must not draw over one.
+*/
+.flight-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 55;
+  pointer-events: none;
+}
+
+/* Positioned and animated entirely from JS — every value here is what a bead looks
+   like standing still. `will-change` because the phone is compositing a handful of
+   these against a list that is repainting underneath them at the same moment. */
+.fbead {
+  position: fixed;
+  border-radius: 50%;
+  background: var(--bead-flash);
+  will-change: transform, opacity;
+}
+/* The first frame of the collapse: still a card, with the card's own surface, so
+   what shrinks is the thing you were reading rather than a dot drawn over it. */
+.fbead.fghost {
+  border-radius: var(--radius);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.28);
+}
+
+/* The line that grows out of the mark to meet an incoming bead. Anchored at the
+   mark and rotated toward the bead, so animating its width is what makes it reach —
+   and, on the way back, what retracts it. */
+.fthread {
+  position: fixed;
+  height: 2px;
+  margin-top: -1px;
+  transform-origin: left center;
+  border-radius: 1px;
+  background: linear-gradient(90deg, var(--bead-answered), color-mix(in srgb, var(--bead-answered) 25%, transparent));
+  will-change: width;
+}
+
+/* The mark, swallowing one. A thump per bead rather than one for the batch: N beads
+   going in should look like N things arriving. */
+.brand h1.mark img.absorbing, .brand .dot.absorbing {
+  animation: absorb-thump 380ms cubic-bezier(0.3, 1.4, 0.4, 1);
+}
+@keyframes absorb-thump {
+  0% { transform: scale(1); }
+  32% { transform: scale(1.22); }
+  100% { transform: scale(1); }
+}
+
+/* Straight to the end state, per the convention the rest of the app follows: the
+   card is gone and the bead is closed either way, and absorb.js builds no elements
+   at all under this preference. The rule is here so a bead that is already in the
+   air when the preference flips stops rather than finishing its arc. */
+@media (prefers-reduced-motion: reduce) {
+  .flight-layer { display: none; }
+  .brand h1.mark img.absorbing, .brand .dot.absorbing { animation: none; }
 }
 
 /* Reader tab */

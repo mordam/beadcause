@@ -57,6 +57,12 @@
     // picks for the same reason: a background refresh must not fold a row back up
     // while you are reading it.
     propOpen: new Set(),
+    // Keys whose answer is written but not yet acknowledged. The card leaves the
+    // list on the tap so the bead has somewhere to collapse into — but the bead is
+    // still open on the server until the write lands, so a poll that overlapped the
+    // write would put the card straight back underneath the flight. Held until the
+    // write resolves either way; see submit().
+    inFlight: new Set(),
   };
 
   /* ---------------------------------------------------------------- token */
@@ -1596,17 +1602,77 @@
     clearTimeout(state.armedTimer);
   }
 
-  async function submit(key, text, { close, create = null }) {
+  /**
+   * Send an answer or a comment, and show it becoming a bead while it goes.
+   *
+   * The write is the slow part — `bd` can spend a second or three retrying against
+   * the Dolt lock — and what used to happen over that second was nothing: the card
+   * dimmed, a "Recording your answer…" row appeared, and then the list jump-cut to
+   * one without it. So the order here is deliberately optimistic:
+   *
+   *   1. start the flight, off the card's geometry, *before* anything is sent
+   *   2. take the card out of the list and repaint, so the list has already reflowed
+   *      behind the bead by the time the bead exists
+   *   3. issue the write, and let the flight cover the round trip
+   *   4. absorb on success, recall on failure
+   *
+   * Which means every piece of state the card was built from has to be recoverable,
+   * because step 4 can be "put it back". That is what `at`/`rAt`/`wasOpen` are for,
+   * and it is why clearDraft() still happens only once the server has accepted: the
+   * restored card is rebuilt from the draft, so a draft cleared optimistically would
+   * be an answer this function had thrown away.
+   *
+   * `onRestore` is for state submit() cannot see — the proposal's per-bead picks are
+   * cleared by the caller before it gets here, and a card that came back with every
+   * decision wiped would be a worse outcome than the failed write.
+   */
+  async function submit(key, text, { close, create = null, onRestore = null }) {
     const q = byKey(key);
     if (!q) return;
     const card = listEl.querySelector(`.card[data-key="${CSS.escape(key)}"]`);
-    card?.classList.add('answering');
-    // Writes go through bd, which can retry against the Dolt lock for a second or
-    // two. Say so, rather than leaving a dimmed card and no explanation.
-    const sending = document.createElement('div');
-    sending.className = 'sending';
-    sending.innerHTML = `<span class="spark"></span>${close ? 'Recording your answer…' : 'Adding your comment…'}`;
-    card?.appendChild(sending);
+
+    // Where it was in each channel, so a rejected write puts it back where it was
+    // rather than at the end of a list you were part-way down.
+    const at = state.questions.indexOf(q);
+    const rAt = (state.requests || []).indexOf(q);
+    const wasOpen = state.open.has(key);
+
+    // Fired on the tap. An answer closes its bead, so its flight ends in the mark;
+    // a comment does not, and absorbing a bead that is still open would be a lie —
+    // so that one flies to the row it is about to come back to, and settles there.
+    const flight = window.beadcause?.absorb?.launch({
+      from: card,
+      made: close && create ? create.length : 0,
+      tone: close ? 'answer' : 'comment',
+      target: close ? null : () => listEl.querySelector(`.card[data-key="${CSS.escape(key)}"]`),
+    });
+
+    // The card goes now, either out of the list entirely or just closed. Everything
+    // the flight needs was measured above; from here on it is drawing over a list
+    // that no longer contains what it came out of.
+    state.open.delete(key);
+    if (close) {
+      state.inFlight.add(key);
+      if (at >= 0) state.questions.splice(at, 1);
+      if (rAt >= 0) state.requests.splice(rAt, 1);
+    }
+    // Forced: for a comment the answered card's textarea is still in the DOM holding
+    // text, so a deferred render would never fire and the card would linger open.
+    render(true);
+
+    const restoreCard = () => {
+      state.inFlight.delete(key);
+      if (at >= 0 && !state.questions.includes(q)) {
+        state.questions.splice(Math.min(at, state.questions.length), 0, q);
+      }
+      if (rAt >= 0 && !(state.requests || []).includes(q)) {
+        state.requests.splice(Math.min(rAt, state.requests.length), 0, q);
+      }
+      if (wasOpen) openOnly(key);
+      onRestore?.();
+      render(true);
+    };
+
     try {
       const res = await api(close ? '/api/respond' : '/api/comment', {
         method: 'POST',
@@ -1627,6 +1693,10 @@
       });
       clearDraft(key);
       if (close) {
+        // The card left the list on the tap; this is only the belt to that braces —
+        // a poll that landed mid-write could have merged it back in, and the suppress
+        // set comes off in the same breath.
+        state.inFlight.delete(key);
         state.questions = state.questions.filter((x) => x.key !== key);
         // And out of the other channel, on the same tap. An answered request that
         // stayed in the pane would still be showing its approve button — for a bead
@@ -1638,31 +1708,35 @@
         // is already closed.
         window.BeadcauseNative?.answered?.(key);
         toast(`Answered ${q.id}`);
-        // Forced: the answered card's textarea is still in the DOM holding text,
-        // so a deferred render would never fire and the card would linger.
         render(true);
+        // The tracker took it, so it may be swallowed. Awaited rather than fired and
+        // forgotten so a caller that answers two questions in a row cannot have the
+        // second flight start on top of the first one's.
+        await flight?.absorb();
       } else {
         toast(res?.elevated ? 'Comment added — running with tools, this once' : 'Comment added — an agent will be told');
         // The server has spent the arm on this dispatch, so the box must come back
         // off. Re-read rather than assume: if the dispatch was refused the arm is
         // still there, and a tick that lied either way would be the worst outcome.
         loadAgents();
-        card?.classList.remove('answering');
-        sending.remove();
         // Reflect the awaiting-agent flag the server just set, without waiting
         // for the next poll.
         q.awaitingAgent = true;
-        // Collapse and let it sink. You have said your piece; keeping the card open
-        // in front of you implies there is something left for you to do with it,
+        // Collapsed on the tap already. You have said your piece; keeping the card
+        // open in front of you implies there is something left for you to do with it,
         // when the next move belongs to the agent. It comes back up when it replies.
-        state.open.delete(key);
         clearDraft(key);
         render(true);
+        // Not absorbed: this bead is still open, and the mark eating it would say it
+        // had been dealt with. It settles onto the row it just came back to.
+        await flight?.land();
       }
     } catch (err) {
-      card?.classList.remove('answering');
-      sending.remove();
       toast(err.message, true);
+      // Reverse the travel first, then re-open the card underneath where the beads
+      // came down. A tracker that refused the answer must not be shown swallowing it.
+      await flight?.recall();
+      restoreCard();
     }
   }
 
@@ -1924,15 +1998,27 @@
         return;
       }
       disarm();
+      // Kept, not just dropped: submit() can hand the card back if bd refuses the
+      // write, and a proposal that came back with every yes/no wiped would cost more
+      // than the failure did. See `onRestore` below.
+      const hadPicks = new Map(picksFor(key));
+      const hadOpen = [...state.propOpen].filter((t) => t.startsWith(`${key}|`));
       state.picks.delete(key);
-      for (const t of [...state.propOpen]) if (t.startsWith(`${key}|`)) state.propOpen.delete(t);
+      for (const t of hadOpen) state.propOpen.delete(t);
       const declined = beads.length - approved.length;
       const text = approved.length
         ? `CREATE: ${approved.join(',')} — filing ${approved.length} of ${beads.length} proposed bead${
             beads.length === 1 ? '' : 's'
           }${declined ? `, declining ${declined}` : ''}.`
         : `Not now — none of the ${beads.length} proposed beads.`;
-      await submit(key, text, { close: true, create: approved.length ? approved : null });
+      await submit(key, text, {
+        close: true,
+        create: approved.length ? approved : null,
+        onRestore: () => {
+          state.picks.set(key, hadPicks);
+          for (const t of hadOpen) state.propOpen.add(t);
+        },
+      });
       return;
     }
 
@@ -2138,10 +2224,15 @@
         const before = prev.get(q.key);
         return before ? Object.assign(before, { agent: false }, q) : q;
       };
+      // A question whose answer is written but not yet acknowledged is still open on
+      // the server, so it is still in this payload — and putting it back would drop a
+      // card into the list underneath the bead that is at that moment flying out of
+      // it. It comes back only if the write is refused, from submit()'s own copy.
+      const live = (q) => !state.inFlight.has(q.key);
       // Absent rather than empty means an old server that predates the channel — keep
       // whatever is on screen instead of silently emptying the pane.
-      state.requests = Array.isArray(data.requests) ? data.requests.map(merge) : state.requests;
-      state.questions = data.questions.map(merge);
+      state.requests = Array.isArray(data.requests) ? data.requests.map(merge).filter(live) : state.requests;
+      state.questions = data.questions.map(merge).filter(live);
       state.spaces = data.spaces || [];
       // Absent means a server that predates the counts — keep the last ones rather
       // than blanking the chrome, exactly as the requests pane does above.

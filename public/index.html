@@ -99,6 +99,11 @@
   <script src="/vendor/purify.js"></script>
   <script src="/presence.js"></script>
   <script src="/tabbar.js"></script>
+  <!-- The answer collapsing into beads and the beads going into the mark. Before
+       app.js because submit() reaches for it on the tap; it registers itself on
+       `beadcause` and touches nothing else, so a page that drops it still answers
+       questions — just without the flight. -->
+  <script src="/absorb.js"></script>
   <script src="/app.js"></script>
   <!-- Graph and doc links open over this tab instead of navigating away from it.
        Last, and needing nothing from app.js: it works on the anchors, not the app. -->

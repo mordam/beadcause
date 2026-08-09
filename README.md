@@ -218,6 +218,87 @@ set.
 Either way the answer lands as a comment authored by `beadcause` and the bead
 closes with reason "Answered via Beadcause".
 
+### Where the answer goes
+
+Answering used to end in a dead pause. The card dimmed to half opacity, a
+"Recording your answer…" row appeared under it, and then nothing happened at all
+for as long as `bd` spent retrying against the Dolt lock — a second, sometimes
+three — after which the list rebuilt itself and the card was simply gone. Dim,
+hang, jump cut. Nothing said where the thing you had just decided went, and on a
+slow write it read as a freeze rather than as work.
+
+What happens instead is that **the answer becomes a bead, and the bead goes into
+the tracker**, in six steps:
+
+1. **Collapse.** The open answer view shrinks and rounds down in place, from card
+   to a single bead-sized circle, floating *in front of* a list that has already
+   reflowed underneath it. The card is gone by the time the bead exists.
+2. **Ignite.** At bead size it pulses once, white → blue, and holds blue.
+3. **Travel.** It arcs across the screen toward the app mark in the top-left of the
+   header — an arc, not a shove.
+4. **Attract.** Just short of the mark the motion goes magnetic: it stops coasting
+   and starts being pulled.
+5. **Thread.** A line grows out of the mark to meet it. Contact is capture.
+6. **Absorb.** It is drawn straight down the thread into the mark and swallowed,
+   and the thread retracts with it.
+
+**One bead per bead created, plus one for the bead you answered.** Approving an
+advocate's proposal files N beads in the same call, and today they arrived with no
+ceremony whatsoever; now each one flies its own arc, and the created ones pulse
+**green and faster** than the answered one's single slow blue pulse. The thing you
+decided and the things your decision made should not look identical. They fan out
+around the mark rather than stacking on it, each with a thread of its own, because
+four beads landing on one point look like one bead.
+
+Four things about this are load-bearing, and each of them is a way it could have
+been built wrong:
+
+- **It plays over the wait, not after it.** The flight starts on the tap and the
+  write is issued behind it. Everything up to *attract* runs while the request is
+  out; the beads then hold in the magnetic zone, visibly being pulled, for however
+  long `bd` takes. The latency lands in the one part of the sequence that already
+  looks like something is happening. A flight that began when the response arrived
+  would only have moved the pause somewhere else.
+- **A refused write takes it back.** The last step is gated: the beads are absorbed
+  only once the server has accepted, and if it hasn't they fly home the way they
+  came and the card re-opens underneath them with your text still in it. A tracker
+  that rejected your answer must not be shown swallowing it. Which is why the card
+  is removed *optimistically* but every piece of state it was built from — its index
+  in each channel, whether it was open, the proposal's per-bead yes/no, and above
+  all the draft, which is still only cleared once the server says yes — is kept
+  until the write resolves. A poll that overlaps the write is suppressed for that
+  one bead, or the list would drop a card back underneath the flight leaving it.
+- **A comment ends differently, deliberately.** *Comment only* does not close the
+  bead, so nothing is absorbed: the card collapses to a bead on the tap and the bead
+  settles back onto the row it came from. The mark eating a bead that is still open
+  would be a lie about what just happened.
+- **The beads are not in the list.** They live on a fixed overlay on `<body>`,
+  because `render()` destroys the card they came out of while they are still in the
+  air. A flight parented to that card would be wiped out by the very repaint it
+  exists to cover.
+
+With `prefers-reduced-motion` nothing is put in the air at all — the end state is
+reached directly, per the convention the rest of the app follows. The target is
+resolved from a short list of selectors ending at `.brand`, so the mark can be
+swapped for something else without any of the geometry being redone.
+
+`node scripts/absorb-check.mjs` checks all of it: headless Chrome at phone size,
+driving the real `public/app.js` and `public/absorb.js` against fixtures served by
+the script itself, with `/api/respond` deliberately slow — which is what turns a
+1.5-second animation into something a test can stand in the middle of and measure.
+It asserts that the card leaves the list on the tap rather than when the write
+lands, that what replaces it is a bead-sized circle on the overlay, that approving
+three beads puts four in the air in two colours, that a forced repaint underneath
+destroys none of them, that they arrive at the mark and are held there with nothing
+threaded while the write is still out, that a thread then grows and the overlay ends
+empty, that a refused write returns them and gives the card back with the typed
+answer verbatim, that a comment is never threaded, and that with reduced motion no
+bead ever moves and the card still goes. `--baseline` serves the committed `public/`
+instead of the working copy — which is how you tell a real failure from a flaky one:
+baseline must fail every flight case and pass the controls. `--shots` drops a PNG per
+stage into `.claude/shots/`, because the one thing an assertion about coordinates
+cannot tell you is whether it looks like anything.
+
 ### Keeping your place in a long brief
 
 Deferring the repaint covers the case where you are typing. It does not cover the
