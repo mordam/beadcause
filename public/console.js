@@ -423,6 +423,16 @@
   function adopt(c) {
     state.console = c;
     state.seq = c.seq;
+    // Every update to the thread comes through here, so this is the one place that
+    // knows both which console is open and what it has become — a title that changed
+    // when the agent named it, a console that has since been closed.
+    window.beadcause?.presence?.report({
+      view: 'console',
+      id: c.id,
+      workspace: c.workspace || '',
+      key: c.seed?.id ? `${c.workspace}/${c.seed.id}` : '',
+      detail: c.title || '',
+    });
 
     const incoming = JSON.stringify(c.draft || null);
     if (incoming === state.baseDraft) {

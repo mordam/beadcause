@@ -841,8 +841,15 @@
   });
 
   document.getElementById('refresh').addEventListener('click', load);
-  setInterval(load, REFRESH_MS);
-  setInterval(pumpLogs, LOG_MS);
+  // Two `bd` calls per workspace every twenty seconds is worth paying for the pane
+  // you are looking at and nothing else — the mirror tab sits over this one, and a
+  // hidden page must not keep sweeping every tracker on the Mac.
+  setInterval(() => !out.hidden && load(), REFRESH_MS);
+  setInterval(() => !out.hidden && pumpLogs(), LOG_MS);
+
+  // How the tab bar brings this pane back up to date when you return to it.
+  window.beadcause = window.beadcause || {};
+  window.beadcause.monitor = { refresh: load };
 
   if (!token) {
     out.innerHTML = '<div class="empty"><strong>This device is not paired</strong>Open the inbox first.</div>';
