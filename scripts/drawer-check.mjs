@@ -15,16 +15,21 @@
 //     on the last document you'd opened inside it. In-drawer navigation goes
 //     through location.replace() for that reason, and nothing about it is visible
 //     from the outside, which is what makes it worth a test;
-//   - the ✕ inside the drawer closes the drawer rather than calling window.close()
-//     on a tab it does not own;
+//   - the drawer shows exactly ONE header and ONE ✕ — the panel's, carrying the name
+//     the page inside handed up — and that ✕ closes the drawer rather than calling
+//     window.close() on a tab it does not own or navigating the app to the inbox;
+//   - the page's own chrome comes back when it really is a page, because that is the
+//     fallback a pasted URL lands on and out there the top bar is all there is;
+//   - the graph is still the graph in there: the scope toggle works at drawer width
+//     and renames the header with it, and the detail sheet opens inside the panel
+//     rather than across the window;
 //   - full width on a phone, inset on a wide screen, backdrop dismisses;
 //   - a pasted /graph URL still loads the standalone page, with no drawer in it.
 //
 // Real public/*.js in a headless Chrome at phone size, against fixtures served from
 // this process, so nothing here touches a real bead or needs the daemon.
 // `--baseline` serves the committed copies of the changed files instead of the
-// working ones — and /drawer.js does not exist at HEAD, so baseline must fail every
-// drawer case and pass the pasted-URL one.
+// working ones, which is how you check a failure here is a real one.
 import { execFileSync, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import http from 'node:http';
@@ -155,8 +160,9 @@ const TYPES = {
 };
 
 // The committed copies, for --baseline. Read through git rather than from a second
-// checkout so the comparison is against HEAD of this very worktree. /drawer.js is
-// new, so at HEAD there is nothing to serve — which is exactly the baseline.
+// checkout so the comparison is against HEAD of this very worktree. A file that does
+// not exist at HEAD is not served at all — which for a new one is exactly the
+// baseline: the behaviour it brings has to fail without it.
 const BASE_FILES = ['/index.html', '/work.html', '/doc.html', '/graph.html', '/style.css', '/drawer.js'];
 const committed = (p) => {
   try {
@@ -183,6 +189,8 @@ function serve() {
     }
     if (p === '/api/work') return json(WORK);
     if (p === '/api/graph') return json(GRAPH);
+    // What the graph's detail sheet fetches when you ask a node for its text.
+    if (p === '/api/bead') return json({ ...BEAD, comments: [] });
     if (p === '/api/asset') {
       const body = DOCS[url.searchParams.get('p') || ''];
       if (body == null) {
@@ -366,6 +374,25 @@ const STATE = `(() => {
     right: panel ? Math.round(innerWidth - panel.getBoundingClientRect().right) : 0,
     frame: inner,
     frameBox: frame ? Math.round(frame.getBoundingClientRect().width) : 0,
+    // The panel's own header: what it says the drawer is showing, and how many ways
+    // out of it there are.
+    head: (() => { const h = panel && panel.querySelector('.drawer-title'); return h ? h.textContent.trim() : null; })(),
+    headKind: (() => { const h = panel && panel.querySelector('.drawer-title'); return h ? h.dataset.kind || '' : null; })(),
+    closes: panel ? panel.querySelectorAll('[data-role="close"]').length : 0,
+    // And the chrome the page inside is *still* showing. A second header under the
+    // panel's, or a ✕ that means something other than "close the drawer", is the
+    // thing this whole case exists to catch — so it is counted by what is on screen
+    // rather than by what is in the markup.
+    inner: (() => {
+      try {
+        if (!frame) return null;
+        const d = frame.contentDocument;
+        const seen = (sel) => [...d.querySelectorAll(sel)].filter((el) => el.getClientRects().length > 0).length;
+        return { bars: seen('.topbar'), closes: seen('#doc-close, #graph-close'), scope: seen('.scope-btn') };
+      } catch (e) {
+        return null;
+      }
+    })(),
     // What the page in there thinks it has to lay out in. A drawer whose contents
     // are laid out against the *window* is one whose ✕ is off the right edge.
     frameView: (() => { try { return frame ? frame.contentWindow.innerWidth : 0; } catch (e) { return -1; } })(),
@@ -392,6 +419,40 @@ const clickSel = (sel) => `(() => {
   if (!el) return false;
   el.click();
   return true;
+})()`;
+
+// A link the page never had, clicked the way a real one would be: the drawer only
+// ever opens from a tap on an anchor, and `&open=1` is a shape of link the fixtures
+// do not otherwise carry.
+const openViaLink = (href) => `(() => {
+  const a = document.createElement('a');
+  a.href = ${JSON.stringify(href)};
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  return true;
+})()`;
+
+// The graph's own detail sheet, measured inside the drawer. It is `position: fixed`
+// in there, so it is laid out against the panel rather than against the window — the
+// way it can go wrong is by being the window's width and hanging off the panel.
+const SHEET = `(() => {
+  const f = document.querySelector('.drawer-frame');
+  try {
+    const d = f.contentDocument;
+    const el = d.getElementById('sheet');
+    if (!el || el.hidden) return { up: false, text: '' };
+    const r = el.getBoundingClientRect();
+    return {
+      up: r.width > 0 && r.height > 0,
+      width: Math.round(r.width),
+      left: Math.round(r.left),
+      frame: Math.round(f.contentWindow.innerWidth),
+      text: (d.getElementById('sheet-body').innerText || '').slice(0, 200),
+    };
+  } catch (e) {
+    return { up: false, text: '' };
+  }
 })()`;
 
 const clickInDrawer = (sel) => `(() => {
@@ -459,6 +520,52 @@ try {
     withDoc.open && withDoc.width === withDoc.viewport && withDoc.frameView === withDoc.frameBox,
     `${withDoc.width}px of ${withDoc.viewport}px · frame ${withDoc.frameBox}px, laid out at ${withDoc.frameView}px`
   );
+  check(
+    "the panel's header wears the document's name, and the page in there has put its own away",
+    withDoc.open && withDoc.head === 'SPEC.md' && withDoc.headKind === 'doc' && !!withDoc.inner && withDoc.inner.bars === 0,
+    `header says ${JSON.stringify(withDoc.head)} (${withDoc.headKind}) · ${
+      withDoc.inner ? withDoc.inner.bars : '?'
+    } page header(s) still showing inside`
+  );
+  check(
+    "exactly one ✕, and it is the panel's",
+    withDoc.closes === 1 && !!withDoc.inner && withDoc.inner.closes === 0,
+    `${withDoc.closes} in the panel, ${withDoc.inner ? withDoc.inner.closes : '?'} in the page`
+  );
+
+  // A document's name is a filename and can be long. The header it moved into has one
+  // row and a ✕ at the end of it, so a name that wrapped, or that pushed the ✕ off the
+  // panel, would be a worse header than the top bar it replaced.
+  const squeezed = await evalJs(
+    s,
+    `(() => {
+      const h = document.querySelector('.drawer-title');
+      const x = document.querySelector('.drawer [data-role="close"]');
+      // Tolerant of a header that is not there, the way every other probe here is:
+      // on --baseline there is no panel header at all, and a run that reports ✗ per
+      // case says far more than one that dies on a null.
+      if (!h || !x) return { grew: -1, fits: false, clipped: false };
+      const was = h.textContent;
+      const one = Math.round(h.getBoundingClientRect().height);
+      h.textContent = 'a-very-long-document-name-that-nobody-would-ever-actually-choose.md';
+      const head = h.closest('.drawer-head').getBoundingClientRect();
+      const out = {
+        grew: Math.round(h.getBoundingClientRect().height) - one,
+        fits: Math.round(x.getBoundingClientRect().right) <= Math.round(head.right),
+        clipped: h.scrollWidth > h.clientWidth,
+      };
+      h.textContent = was;
+      return out;
+    })()`
+  );
+  check(
+    'a long name is clipped to the one row rather than wrapping or shoving the ✕ off the panel',
+    squeezed.grew === 0 && squeezed.fits && squeezed.clipped,
+    `row grew ${squeezed.grew}px, ✕ ${squeezed.fits ? 'inside' : 'off the edge'}, ${
+      squeezed.clipped ? 'clipped' : 'not clipped'
+    }`
+  );
+
   await shot(s, 'phone-doc-drawer');
 
   const during = await evalJs(s, PLACE);
@@ -470,21 +577,35 @@ try {
     `card ${before.card}→${during.card}px`
   );
 
-  /* ---- the ✕ in there closes the drawer, not the tab ---- */
+  /* ---- the ✕ on the panel closes the drawer, not the tab ---- */
 
-  const clicked = await evalJs(s, clickInDrawer('#doc-close'));
+  const clicked = await evalJs(s, clickSel('.drawer [data-role="close"]'));
   await sleep(500);
   const afterX = await evalJs(s, STATE);
   const place = await evalJs(s, PLACE);
   check(
-    'the ✕ inside closes the drawer and leaves you on the tab',
+    "the panel's ✕ closes the drawer and leaves you on the tab",
     clicked && !afterX.open && afterX.path === '/',
-    clicked ? `at ${afterX.path}, drawer ${afterX.open ? 'still open' : 'closed'}` : 'no ✕ in the drawer to click'
+    clicked ? `at ${afterX.path}, drawer ${afterX.open ? 'still open' : 'closed'}` : 'no ✕ on the panel to click'
   );
   check(
     'and the brief is exactly where you left it',
     afterX.exists && place.card === before.card && place.doc === before.doc,
     `card ${before.card}px → ${place.card}px`
+  );
+
+  // The page's own ✕ is hidden in there, so nothing but this reaches it — which is
+  // the point of checking it. It used to mean `location.href = '/'`, and a stylesheet
+  // that has not landed yet would leave that button live over the tab you were on.
+  await evalJs(s, clickSel('.docs a[href^="/doc?"]'));
+  await waitFor(s, `(${STATE}).text.includes(${JSON.stringify(IN_SPEC)})`, 40);
+  const hidden = await evalJs(s, clickInDrawer('#doc-close'));
+  await sleep(500);
+  const afterHidden = await evalJs(s, STATE);
+  check(
+    "and the page's own ✕, if anything ever reaches it, closes the drawer rather than the app",
+    hidden && !afterHidden.open && afterHidden.path === '/',
+    hidden ? `at ${afterHidden.path}, drawer ${afterHidden.open ? 'still open' : 'closed'}` : 'the page had no ✕ left'
   );
 
   /* ---- a link inside a document retargets the drawer, and back still exits ---- */
@@ -538,6 +659,27 @@ try {
   );
   check('the graph really draws in there', drew, drew ? '' : 'no nodes in the drawer');
 
+  const graphChrome = await evalJs(s, STATE);
+  check(
+    'and it hands its name up too, without leaving a header behind',
+    graphChrome.head === 'dr-one' && graphChrome.headKind === 'graph' && !!graphChrome.inner && graphChrome.inner.bars === 0,
+    `header says ${JSON.stringify(graphChrome.head)} (${graphChrome.headKind}) · ${
+      graphChrome.inner ? graphChrome.inner.bars : '?'
+    } page header(s) still showing inside`
+  );
+
+  // The scope toggle is not chrome — it is the graph — so it stays, and it renames
+  // the drawer as it goes. A header that read the title once would still say the
+  // bead's id over a picture of the whole workspace.
+  const toggled = await evalJs(s, clickInDrawer('.scope-btn[data-scope="all"]'));
+  const renamed = await waitFor(s, `(${STATE}).head === ${JSON.stringify(WS)}`, 40);
+  const scoped = await evalJs(s, STATE);
+  check(
+    'the scope toggle still works at drawer width, and the header follows it',
+    toggled && renamed && scoped.inner && scoped.inner.scope === 2,
+    toggled ? `header says ${JSON.stringify(scoped.head)} · ${scoped.inner ? scoped.inner.scope : '?'} scope buttons` : 'no scope toggle in there'
+  );
+
   await back(s);
   const backTab = await evalJs(s, STATE);
   check(
@@ -545,6 +687,33 @@ try {
     backTab.exists && !backTab.open && backTab.path === '/work',
     `at ${backTab.path}, drawer ${backTab.open ? 'still open' : 'closed'}`
   );
+
+  /* ---- the graph's detail sheet, at drawer width ---- */
+
+  await evalJs(s, openViaLink(`/graph?ws=${WS}&id=dr-one&open=1`));
+  await waitFor(s, `(${STATE}).open`, 40);
+  const sheetUp = await waitFor(s, `(${SHEET}).text.includes('A question with a spec')`, 60);
+  const sheet = await evalJs(s, SHEET);
+  check(
+    "the graph's detail sheet still opens, and inside the panel rather than across the window",
+    sheetUp && sheet.up && sheet.left >= 0 && sheet.width <= sheet.frame,
+    sheet.up ? `${sheet.width}px at x=${sheet.left}, in a ${sheet.frame}px panel` : 'the sheet never came up'
+  );
+  await shot(s, 'phone-graph-sheet');
+
+  // Two ✕s are on screen now — the sheet's and the panel's — and they must not be the
+  // same button. Dismissing the sheet leaves you on the graph, which is where the
+  // standalone page leaves you too.
+  await evalJs(s, clickInDrawer('#sheet-close'));
+  await sleep(400);
+  const afterSheet = await evalJs(s, SHEET);
+  const stillUp = await evalJs(s, STATE);
+  check(
+    'and closing the sheet leaves you on the graph rather than closing the drawer',
+    !afterSheet.up && stillUp.open && stillUp.path === '/work',
+    `sheet ${afterSheet.up ? 'still up' : 'closed'}, drawer ${stillUp.open ? 'open' : 'closed'} at ${stillUp.path}`
+  );
+  await back(s);
 
   /* ---- a wide screen: inset, with a backdrop that dismisses ---- */
 
@@ -582,6 +751,40 @@ try {
     'pasting a /graph URL straight in still loads the page itself',
     pasted && !standalone.exists && standalone.path === '/graph',
     pasted ? `at ${standalone.path}${standalone.exists ? ', with a drawer over it' : ''}` : 'the graph never drew'
+  );
+
+  // With its own header, because out here there is no panel to have taken it: no
+  // title, no way back, and the page is a dead end. The ✕ means the tab, and this is
+  // the one place where that is the truth.
+  const chrome = await evalJs(
+    s,
+    `(() => {
+      const seen = (sel) => [...document.querySelectorAll(sel)].filter((el) => el.getClientRects().length > 0).length;
+      const h1 = document.querySelector('.topbar h1');
+      return { bars: seen('.topbar'), closes: seen('#graph-close'), inDrawer: document.documentElement.classList.contains('in-drawer'),
+               title: h1 ? h1.textContent.trim() : null };
+    })()`
+  );
+  check(
+    'and it stands on its own out there — its own header, its own ✕, no drawer mode',
+    chrome.bars === 1 && chrome.closes === 1 && !chrome.inDrawer && chrome.title === 'dr-one',
+    `${chrome.bars} header(s), ${chrome.closes} ✕, saying ${JSON.stringify(chrome.title)}`
+  );
+
+  await s.send('Page.navigate', { url: `${BASE}/doc?p=${encodeURIComponent(SPEC)}` });
+  await waitFor(s, `document.body.innerText.includes(${JSON.stringify(IN_SPEC)})`, 40);
+  const docChrome = await evalJs(
+    s,
+    `(() => {
+      const seen = (sel) => [...document.querySelectorAll(sel)].filter((el) => el.getClientRects().length > 0).length;
+      const h1 = document.querySelector('.topbar h1');
+      return { bars: seen('.topbar'), closes: seen('#doc-close'), title: h1 ? h1.textContent.trim() : null };
+    })()`
+  );
+  check(
+    'and so does the reader',
+    docChrome.bars === 1 && docChrome.closes === 1 && docChrome.title === 'SPEC.md',
+    `${docChrome.bars} header(s), ${docChrome.closes} ✕, saying ${JSON.stringify(docChrome.title)}`
   );
 } finally {
   close();

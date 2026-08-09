@@ -1856,7 +1856,8 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
 
 /* Detail over the tab you were on: the dependency graph, or a document a question
    told you to read. See public/drawer.js — the panel holds an iframe of the page
-   that already exists, which is why there is nothing here about its contents.
+   that already exists, which is why there is almost nothing here about its contents:
+   only the header the page hands its title to, and the page's own header going away.
 
    Above .card.open (40) and the toast (40), below the token dialog (60 and a real
    <dialog>, which lives in the top layer anyway): a drawer covers the brief you
@@ -1905,6 +1906,49 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
   border: 0;
   background: var(--bg);
 }
+
+/* One drawer, one header. Both pages inside were built to be opened on their own and
+   carry a full top bar; in here that would be a second header under the tab's, and a
+   ✕ that navigated the whole app away rather than dismissing the panel. So the page
+   puts its bar away (.in-drawer, below) and hands its title up to this one, which is
+   the only place a ✕ means what it says.
+
+   The pulse dot does not come with it: the tab underneath is already saying the app
+   is alive, and repeating that inside a panel over it says nothing twice. The ✕ is a
+   plain .icon-btn, the same 40px target as every other one in the app. */
+.drawer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 10px 9px 16px;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg);
+}
+
+.drawer-title {
+  min-width: 0;
+  margin: 0;
+  font-size: 17px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A path is read character by character, so a document keeps the monospace it wore
+   in the reader's own bar. A bead id does not need it. */
+.drawer-title[data-kind='doc'] {
+  font-size: 15px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+/* Inside the drawer. `.in-drawer` is set by drawer.js on <html> as soon as it sees it
+   is in a frame. The top bar is the whole of what goes: the scope toggle, the graph,
+   the sheet and the reader are the detail you came for and are left exactly as they
+   are. Opened as a page, none of this applies. */
+.in-drawer .topbar { display: none; }
 
 /* The strip a swipe-to-dismiss starts from. Transparent and narrow, in front of the
    iframe, because a touch that lands in an iframe is never seen out here. */

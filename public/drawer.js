@@ -14,9 +14,18 @@
  *     inbox's bundle and marked out of the graph's, and no page had to learn how to
  *     render the other one. The anchors keep their real hrefs, so long-press →
  *     open in new tab, and a pasted URL, still land on the standalone page.
- *   - **inside the drawer**, the page's own ✕ closes the drawer rather than trying
- *     to close a tab it does not own, a link to another document retargets the
- *     drawer rather than escaping it, and a swipe right dismisses.
+ *   - **inside the drawer**, the page stops being a page: it hides its own top bar,
+ *     hands its title up to the panel's header, retargets a link to another document
+ *     rather than escaping the drawer, and dismisses on a swipe right.
+ *
+ * That last part is why the panel has a header at all. Both pages were built to be
+ * opened on their own, so both carry a full top bar with a pulse dot, an h1 and a ✕
+ * that means "close this tab" — and in a drawer that is wrong twice over: a second
+ * header stacked under the tab's, and a ✕ that navigated the whole app to the inbox
+ * rather than dismissing the panel. So the chrome moves out here, where it can mean
+ * what it says: one header, one ✕, and the ✕ closes the drawer. The pages keep
+ * theirs for the case they were built for — a pasted URL, a long-press → new tab —
+ * because there the top bar is the only chrome there is.
  *
  * The drawer pushes exactly one history entry, so Android's back button and iOS's
  * back-swipe close it and land you on the tab you were on rather than on a blank
@@ -37,6 +46,7 @@
 
   const CLOSE = 'beadcause:drawer-close';
   const OPEN = 'beadcause:drawer-open';
+  const TITLE = 'beadcause:drawer-title';
   const DETAIL = new Set(['/graph', '/graph.html', '/doc', '/doc.html']);
   const SLIDE_MS = 240;
 
@@ -64,6 +74,7 @@
   function tab() {
     let wrap = null;
     let panel = null;
+    let titleEl = null;
     let frame = null;
     let open = false;
     let pushed = false;
@@ -77,11 +88,21 @@
       wrap.hidden = true;
       wrap.innerHTML =
         '<div class="drawer-backdrop" data-role="backdrop"></div>' +
-        '<aside class="drawer" role="dialog" aria-modal="true" aria-label="Detail" tabindex="-1">' +
+        '<aside class="drawer" role="dialog" aria-modal="true" aria-labelledby="drawer-title" tabindex="-1">' +
+        '<header class="drawer-head">' +
+        '<h2 class="drawer-title" id="drawer-title" data-role="title"></h2>' +
+        '<button class="icon-btn" data-role="close" aria-label="Close">✕</button>' +
+        '</header>' +
         '<div class="drawer-edge" data-role="edge" aria-hidden="true"></div>' +
         '</aside>';
       document.body.appendChild(wrap);
       panel = wrap.querySelector('.drawer');
+      titleEl = wrap.querySelector('[data-role="title"]');
+
+      // The only ✕ in here. The page inside has put its own away (see .in-drawer in
+      // style.css), because that one meant "close this tab" — which an iframe cannot do,
+      // and which fell back to navigating the whole app to the inbox.
+      wrap.querySelector('[data-role="close"]').addEventListener('click', () => close());
 
       const backdrop = wrap.querySelector('[data-role="backdrop"]');
       backdrop.addEventListener('click', () => close());
@@ -120,8 +141,21 @@
       );
     }
 
+    /** What the header says, sent up by the page inside once it knows. */
+    function setTitle({ title, kind } = {}) {
+      if (!titleEl) return;
+      titleEl.textContent = title || 'Detail';
+      // A file keeps the monospace it wore in the reader's own bar; a bead id does
+      // not need it. The page says which it is rather than the header guessing.
+      titleEl.dataset.kind = kind || '';
+    }
+
     /** Point the drawer at a URL, without spending a history entry on it. */
     function load(url) {
+      // Retargeting is a new page, so the header stops claiming the old one's name
+      // the instant the load starts rather than when the new page gets around to
+      // saying its own.
+      setTitle({ title: 'Loading…' });
       if (frame) {
         frame.contentWindow.location.replace(url);
         return;
@@ -205,6 +239,7 @@
       if (e.origin !== location.origin || !frame || e.source !== frame.contentWindow) return;
       const msg = e.data || {};
       if (msg.type === CLOSE) close();
+      else if (msg.type === TITLE) setTitle(msg);
       else if (msg.type === OPEN) {
         const url = detailUrl(msg.url);
         if (url) load(embedded(url));
@@ -218,10 +253,25 @@
     document.documentElement.classList.add('in-drawer');
     const post = (msg) => parent.postMessage(msg, location.origin);
 
+    // The page's own top bar is hidden in here — one drawer, one header — so what it
+    // said has to go somewhere, and it goes up to the panel's. Watched rather than
+    // read once: the graph renames itself every time the scope toggle moves between
+    // one bead and the whole workspace, and a header that froze on the first name
+    // would be quietly lying from the second tap on.
+    const kind = location.pathname.startsWith('/doc') ? 'doc' : 'graph';
+    const heading = document.querySelector('.topbar h1');
+    const sendTitle = () => post({ type: TITLE, kind, title: (heading ? heading.textContent : document.title).trim() });
+    sendTitle();
+    if (heading)
+      new MutationObserver(sendTitle).observe(heading, { childList: true, characterData: true, subtree: true });
+
     // Capture, so this lands before the page's own handler rather than after it:
     // the ✕ means "close this", and in here that is the drawer — not window.close(),
     // which an iframe cannot do, and not a jump to the inbox, which would bury the
-    // tab you came from under a second copy of the app.
+    // tab you came from under a second copy of the app. The page's own ✕ is hidden
+    // in here now, so this is a backstop rather than the path a thumb takes: a
+    // stylesheet that has not landed yet must not leave a live button that navigates
+    // the whole app away.
     document.addEventListener(
       'click',
       (e) => {

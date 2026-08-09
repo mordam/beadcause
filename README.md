@@ -799,9 +799,27 @@ the current tab** and dismiss back to it.
   `/doc?p=…` URL still loads the standalone page exactly as before. (A detail page
   opened on its own installs nothing: no drawer over a drawer's worth of the same
   thing.)
-- **Inside the drawer**, the page's own ✕ closes the drawer rather than calling
-  `window.close()` on a tab it does not own, and a link from one document to the next
-  retargets the drawer instead of escaping to a new tab.
+- **Inside the drawer**, the page stops being a page: it puts its own top bar away,
+  hands its title up to the panel's header, and retargets a link from one document to
+  the next instead of escaping to a new tab.
+
+**One header, one ✕, and the ✕ means the drawer.** Both pages were built to be opened
+on their own, so both carry a full top bar — a pulse dot, an `h1`, and a ✕ that meant
+*close this tab* and fell back to navigating the whole app to the inbox. In a panel
+that is wrong twice over: a second header stacked under the tab's own, and a way out
+that throws away the thing the drawer was opened over. So the chrome moves out to the
+panel, where it can mean what it says. The page's name goes with it — watched rather
+than read once, because the graph renames itself every time the scope toggle moves
+between one bead and the whole workspace — and a document keeps the monospace its own
+bar gave it, since a path is read character by character. Everything that is not
+chrome stays exactly where it was: the scope toggle, the reticle and the graph's
+detail sheet are the detail you came for, and the sheet's own ✕ closes the sheet and
+leaves you on the graph.
+
+Opened as a page — a pasted URL, a long-press → new tab, a notification — none of
+that applies and the top bar comes back, because out there it is the only chrome
+there is. The switch is `.in-drawer` on `<html>`, set by `drawer.js` the moment it
+sees it is in a frame.
 
 **The tab underneath is never navigated and its scroll is never touched.** That is
 the point of the change, and it is also why there is no scroll-restoring code
@@ -839,20 +857,28 @@ navigation — a notification, a deep link — still opens the native reader.
 `node scripts/drawer-check.mjs` drives the real `public/*.js` in headless Chrome at
 phone size against fixtures served from the script, so it needs neither the daemon
 nor a real bead. It reads a brief a long way down, opens the spec it links to, and
-asserts the paragraph has not moved — then that the ✕ inside closes the drawer and
+asserts the paragraph has not moved — then that the panel's ✕ closes the drawer and
 not the tab, that a link inside a document retargets the drawer, that **one** back
 closes it however many documents were read in there, that the same module behaves on
 the sessions tab with a graph, that the panel is full width on a phone and inset with
 a working backdrop on a wide screen, and that a pasted `/graph` URL still loads the
 page itself.
 
-`--baseline` serves the committed copies instead of the working ones — and
-`drawer.js` does not exist at HEAD — which is how you check a failure here is a real
-one: baseline passes the pasted-URL case and fails all thirteen others. `--out=DIR`
-saves the two shots worth eyeballing, since how it *looks* is not something a number
-can say. Like the other browser checks it is not in `npm test`, because it needs
-Chrome; run it when you touch the drawer, the graph, the reader, or the links into
-either.
+It counts the chrome, too, because that is the part a screenshot flatters: exactly
+one header and one ✕ inside the drawer, both the panel's, with a long filename clipped
+to the one row rather than shoving the ✕ off the edge; the header saying what the page
+in there says it is, and still saying it after the scope toggle moves; the graph's
+detail sheet opening inside the panel and closing back to the graph rather than
+closing the drawer; the page's own ✕ dismissing the drawer rather than the app if
+anything ever reaches it; and both pages standing on their own — header, ✕ and no
+drawer mode — when they are loaded as pages.
+
+`--baseline` serves the committed copies instead of the working ones, which is how
+you check a failure here is a real one: whatever a change brings has to fail without
+it. `--out=DIR` saves the three shots worth eyeballing, since how it *looks* is not
+something a number can say. Like the other browser checks it is not in `npm test`,
+because it needs Chrome; run it when you touch the drawer, the graph, the reader, or
+the links into either.
 
 ## Current sessions — who is working, and on what
 
