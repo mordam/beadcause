@@ -954,6 +954,31 @@ undecided count, and one primary button that says exactly what it will do (*"Cre
 of 3"*). Two taps to commit, like every other answer here. The YAML block no longer
 renders on the phone at all; it is parsed out and drawn as those rows.
 
+**Each row is the whole record, not a summary of one.** The number sits in a gutter
+and the body hangs off it, so the column reads as a numbered list of beads. Under the
+title: the type and priority pills, then the description, then everything else that
+approval would actually write — **Done when**, **Design**, **Notes**, **Labels**,
+**Depends on** — each under a quiet label, in the same order the question body prints
+them. Description and acceptance go through the markdown renderer, so a bulleted
+description is bullets rather than one run-on line; before this they were escaped
+text clamped to three lines, and acceptance criteria wrapped in among the pills with
+nothing saying what they were. The rationale comes last and in italics, because it is
+an argument for the bead and not part of it. A long row starts folded with a **Show
+the rest** under it, so three proposals still fit on a screen — a fold and not a
+clamp, because a clamp cuts a list mid-item and offers no way to see the rest.
+Unfolding touches that one row and nothing else: the picks you have already made, and
+the primary button's count, are exactly where you left them.
+
+`node scripts/proposal-check.mjs` checks that: headless Chrome at phone size driving
+the real `public/app.js` against a proposal built by `lib/proposal.js` and parsed back
+by `lib/decision.js`, so the fixture is a round trip and it never touches a bead. It
+asserts the lists render as lists under their labels, that every field appears, that
+the body lines up under the title, that a long row folds and a short one is left
+alone, that unfolding leaves the picks and the button untouched — and that a poll
+does not fold the row back up under you. `--baseline` serves `HEAD:public/app.js`
+and `HEAD:public/style.css` instead of the working copy, which is how you tell a real
+failure from a flaky one. `--out=<dir>` writes a screenshot of each state.
+
 What was **declined is recorded** on the closed question along with what was created,
 because a proposal answered "create 1 and 3" and closed with only the new ids reads,
 later, as though 2 was never offered.
