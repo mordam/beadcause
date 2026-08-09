@@ -1,7 +1,10 @@
 #!/usr/bin/env node
-import { loadConfig, CONFIG_PATH } from '../lib/config.js';
+import { loadConfig, CONFIG_PATH, OBSERVING } from '../lib/config.js';
 import { createApp, startPoller, listen } from '../lib/server.js';
 import { advocatedWorkspaces, workerLimit } from '../lib/advocate.js';
+import { attachTerminalSocket } from '../lib/termsocket.js';
+import { flush } from '../lib/commonrepo.js';
+import { restoreTerminals, shutdownTerminals, startTerminalReaper, terminalsEnabled } from '../lib/terminal.js';
 
 const cfg = loadConfig();
 const setupUrl = `${cfg.baseUrl}/?t=${cfg.token}`;
@@ -61,16 +64,38 @@ if (!cfg.workspaces.length) {
 const app = createApp(cfg);
 const servers = listen(cfg, app.handler);
 const poller = startPoller(cfg, app);
+// The in-app terminal rides the same servers, on the HTTP upgrade path. Awaited
+// because `ws` is imported dynamically — an install that hasn't run `npm install`
+// since this landed loses the terminal and keeps everything else.
+await attachTerminalSocket(cfg, servers);
+// Terminals that were running when the last daemon went away. Nothing is spawned
+// here — they come back as offers to resume, and the first attach is what starts a
+// process. Before the reaper, so a restore is subject to the same idle clock.
+if (terminalsEnabled(cfg)) restoreTerminals(cfg);
+const reaper = terminalsEnabled(cfg) ? startTerminalReaper(cfg) : null;
 
 console.log(`[beadcause] config      ${CONFIG_PATH}`);
 console.log(`[beadcause] workspaces  ${cfg.workspaces.map((w) => w.name).join(', ')}`);
+// First thing in the log, and unmissable, because the mistake it guards against is
+// believing you are in it when you are not — and the evidence of *that* arrives
+// thirty seconds later as two Claude windows you did not ask for.
+if (OBSERVING) {
+  console.log('[beadcause] ─────────────────────────────────────────────────────');
+  console.log('[beadcause] OBSERVING — this instance watches and never acts.');
+  console.log('[beadcause]   no sessions · no proposals · no worktree sweeps');
+  console.log('[beadcause]   no session logs · no reply agents · no ntfy push');
+  console.log('[beadcause]   the terminal, the bead console and answering still work');
+  console.log('[beadcause] ─────────────────────────────────────────────────────');
+}
 // Say it at startup, in the log launchd keeps: an advocate opens Claude sessions
 // on this Mac without being asked, so which repos have one — and how many windows
 // each may open — is the first thing anyone reading this log wants to know.
 const advocated = advocatedWorkspaces(cfg).map((w) => `${w.name}\u00d7${workerLimit(cfg, w.name).limit}`);
 console.log(
   `[beadcause] advocates   ${
-    advocated.length ? `${advocated.join(', ')} (max ${cfg.advocates?.globalMaxWorkers ?? 3} sessions in total)` : '(none — advocates.workspaces is empty)'
+    advocated.length
+      ? `${advocated.join(', ')} ${OBSERVING ? '(observing — they survey, they open nothing)' : `(max ${cfg.advocates?.globalMaxWorkers ?? 3} sessions in total)`}`
+      : '(none — advocates.workspaces is empty)'
   }`
 );
 console.log(`[beadcause] ntfy topic  ${cfg.ntfy.enabled ? cfg.ntfy.topic : '(disabled)'}`);
@@ -78,8 +103,17 @@ console.log(`[beadcause] phone URL   ${cfg.baseUrl}/?t=${cfg.token}`);
 
 const shutdown = () => {
   clearInterval(poller);
+  if (reaper) clearInterval(reaper);
+  // A pty that outlived the daemon has nothing left to relay it anywhere, and it
+  // holds a Claude session open against the tracker. Outliving a *socket* is the
+  // point; outliving the process that owns the registry is just a leak.
+  shutdownTerminals();
   servers.forEach((s) => s.close());
-  process.exit(0);
+  // State written in the last couple of seconds has a snapshot scheduled and not
+  // yet taken, and the most interesting write in a log is usually the last one
+  // before the process went away. Bounded: a git that hangs must not be able to
+  // stop the daemon exiting, so the snapshot gets two seconds and no more.
+  Promise.race([flush(), new Promise((r) => setTimeout(r, 2000))]).finally(() => process.exit(0));
 };
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);

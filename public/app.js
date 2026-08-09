@@ -17,7 +17,18 @@
     token: '',
     scope: 'human',
     questions: [],
+    // The other channel: agents asking to change what they are. Its own array, never
+    // merged into `questions`, because everything that reads `questions` — the
+    // filters, the counts, the empty state, the order — is about work, and a
+    // constitutional decision is not work. See `requestsHtml`.
+    requests: [],
     spaces: [],
+    // The counts the chrome draws — beads asking you something, agents running,
+    // advocates waiting. Server-held rather than counted out of the rows above,
+    // because two of the three are about things that are not in this list at all
+    // and the third has to survive a scope that never fetched it. See summaryNow()
+    // in lib/server.js.
+    summary: {},
     space: 'all',
     workspace: 'all',
     open: new Set(),
@@ -32,10 +43,20 @@
     // Key of the card whose ⋮ menu is showing. At most one, and it is deliberately
     // opened and closed by DOM surgery rather than render() — see closeMenu().
     menu: null,
+    // The roster you can put a comment to, and which one is selected. The choice is
+    // global rather than per card: "who am I talking to" is a mode you are in, not a
+    // property of one question.
+    agents: [],
+    agent: localStorage.getItem('beadcause.agent') || '',
+    agentForm: false,
     // Per-bead decisions on an advocate's proposal: key → Map(1-based index →
     // 'yes' | 'no'). Held here rather than on the question so a background refresh
     // cannot wipe a half-made decision, the same reason drafts live outside it.
     picks: new Map(),
+    // Which proposal rows you have unfolded, as `${key}|${n}`. Out here with the
+    // picks for the same reason: a background refresh must not fold a row back up
+    // while you are reading it.
+    propOpen: new Set(),
   };
 
   /* ---------------------------------------------------------------- token */
@@ -78,7 +99,9 @@
       throw new Error('token rejected');
     }
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+    // The body travels with the error: a 428 asking for an acknowledgement carries
+    // the whole warning to show, and a message string alone would throw it away.
+    if (!res.ok) throw Object.assign(new Error(data.error || `HTTP ${res.status}`), { status: res.status, body: data });
     return data;
   }
 
@@ -129,7 +152,17 @@
     return `/graph?ws=${encodeURIComponent(q.workspace)}&id=${encodeURIComponent(q.id)}`;
   }
 
-  function renderMarkdown(md) {
+  /** What bd handed us: hard-wrapped, so let the paragraph reflow. */
+  const FROM_BD = { breaks: false };
+
+  /**
+   * `breaks` is a choice, not a default. bd stores its fields hard-wrapped at ~78
+   * columns, so on a phone every stored line wraps naturally and then takes a
+   * forced break on top — a staircase instead of a paragraph, and list items that
+   * read as loose prose. Prose that came out of bd renders with `breaks: false`.
+   * Anything typed by a person means its newlines, so it keeps them.
+   */
+  function renderMarkdown(md, { breaks = true } = {}) {
     let patched = String(md || '');
     // Rewrite local image paths before parsing — DOMPurify would strip file:// URLs.
     patched = patched.replace(
@@ -142,7 +175,7 @@
       /(^|[^!])\[([^\]]*)\]\(\s*([^)\s]+)\s*\)/g,
       (m, pre, label, href) => (isLocalPath(href) ? `${pre}[${label}](${docUrl(href)})` : m)
     );
-    const html = window.marked.parse(patched, { breaks: true, gfm: true });
+    const html = window.marked.parse(patched, { breaks, gfm: true });
     return window.DOMPurify.sanitize(html, { ADD_ATTR: ['target', 'rel'] });
   }
 
@@ -355,12 +388,13 @@
   }
 
   /**
-   * What is behind the kebab: the two ways out of a card that aren't reading it.
+   * What is behind the kebab: the three ways out of a card that aren't reading it.
    *
-   * The first acts *on* this bead. The second goes the other way — what work comes
-   * off the back of it — and is an anchor rather than a button, because the console
-   * page opens the conversation itself from `?ws=&seed=` (see public/console.js) and
-   * so needs nothing from this one.
+   * The first two act *on* this bead and differ only in which screen the session
+   * lands on — the Mac's, or this one. The third goes the other way: what work
+   * comes off the back of it. All but the first are anchors rather than buttons,
+   * because both of those pages open from `?ws=&seed=` on their own (see
+   * public/term.js and public/console.js) and so need nothing from this one.
    *
    * The key is `workspace/id`; a workspace name never contains a slash, so the first
    * one splits it.
@@ -373,6 +407,10 @@
       <button class="menu-item" role="menuitem" data-act="discuss" data-key="${esc(key)}">
         <span class="glyph">&gt;_</span> Discuss in a Claude session on the Mac
       </button>
+      <a class="menu-item" role="menuitem"
+        href="/terminal?ws=${encodeURIComponent(ws)}&amp;seed=${encodeURIComponent(id)}">
+        <span class="glyph">⌨️</span> Drive a session on it from here
+      </a>
       <a class="menu-item" role="menuitem"
         href="/console?ws=${encodeURIComponent(ws)}&amp;seed=${encodeURIComponent(id)}">
         <span class="glyph">🧾</span> Work out the next beads from this
@@ -388,6 +426,62 @@
 
   const approvedIndices = (key, beads) =>
     beads.map((_, i) => i + 1).filter((n) => picksFor(key).get(n) === 'yes');
+
+  /**
+   * The fields a proposed bead would be created with, in the order proposalBody
+   * prints them (lib/proposal.js) — the row and the question body it came from
+   * should read the same way round. Rationale is deliberately absent here: it is an
+   * argument for the bead rather than part of it, so the row prints it last.
+   */
+  const PROP_FIELDS = [
+    // The description needs no label: it is what a bead obviously is, and a row with
+    // one short line in it should not carry a heading saying so.
+    { key: 'description', label: '' },
+    { key: 'acceptance', label: 'Done when' },
+    { key: 'design', label: 'Design' },
+    { key: 'notes', label: 'Notes' },
+    { key: 'labels', label: 'Labels', pills: true },
+    { key: 'deps', label: 'Depends on', pills: 'id' },
+  ];
+
+  /**
+   * Everything that would end up on the bead, each under a quiet label.
+   *
+   * Prose goes through the markdown renderer rather than out as escaped text: an
+   * advocate writes a description as a bulleted list, and a list rendered as one
+   * run-on line is a list you skip — which is the whole failure this row had.
+   */
+  function propFieldsHtml(b) {
+    return PROP_FIELDS.map((f) => {
+      const v = b[f.key];
+      const body = f.pills
+        ? (Array.isArray(v) ? v : [])
+            .map((x) => `<span class="pill${f.pills === 'id' ? ' id' : ''}">${esc(x)}</span>`)
+            .join('')
+        : v
+        ? `<div class="md">${renderMarkdown(v, FROM_BD)}</div>`
+        : '';
+      if (!body) return '';
+      const label = f.label ? `<span class="prop-label">${f.label}</span>` : '';
+      return `<div class="prop-field${f.pills ? ' pills' : ''}">${label}${body}</div>`;
+    }).join('');
+  }
+
+  // A phone column fits about this many characters, and this many lines of one row
+  // is as much as can sit above the next proposal and still leave it scannable.
+  const PHONE_COLS = 42;
+  const COLLAPSE_AT = 9;
+
+  /**
+   * Roughly how tall a row's prose will be. Cheap on purpose: the alternative is
+   * measuring after layout, and this only has to be right about "is this a wall of
+   * text", which counting wrapped lines settles well enough.
+   */
+  function propLines(b) {
+    const prose = [b.description, b.acceptance, b.design, b.notes, b.rationale].filter(Boolean).join('\n');
+    if (!prose) return 0;
+    return prose.split('\n').reduce((n, line) => n + Math.max(1, Math.ceil(line.length / PHONE_COLS)), 0);
+  }
 
   /**
    * An advocate asking to create beads.
@@ -415,15 +509,34 @@
       .map((b, i) => {
         const n = i + 1;
         const choice = picks.get(n) || '';
-        return `<div class="prop-row ${choice ? `pick-${choice}` : ''}" data-idx="${n}" data-key="${esc(q.key)}">
+        // Long rows start folded so three proposals still fit on the screen you are
+        // deciding from. A fold and not the old three-line clamp, because a clamp
+        // cuts markdown mid-list-item and leaves no way at all to see the rest.
+        const long = propLines(b) > COLLAPSE_AT;
+        const collapsed = long && !state.propOpen.has(`${q.key}|${n}`);
+        return `<div class="prop-row ${choice ? `pick-${choice}` : ''}${collapsed ? ' is-collapsed' : ''}" data-idx="${n}" data-key="${esc(q.key)}">
           <div class="prop-main">
-            <span class="prop-title"><span class="prop-n">${n}</span>${esc(b.title)}</span>
-            <span class="prop-meta">
-              <span class="pill">${esc(b.type)}</span><span class="pill p${b.priority}">P${b.priority}</span>
-              ${b.acceptance ? `<span class="prop-acc">${esc(b.acceptance)}</span>` : ''}
-            </span>
-            ${b.description ? `<span class="prop-desc">${esc(b.description)}</span>` : ''}
-            ${b.rationale ? `<span class="prop-why">${esc(b.rationale)}</span>` : ''}
+            <div class="prop-head"><span class="prop-n">${n}</span><span class="prop-title">${esc(b.title)}</span></div>
+            <div class="prop-body">
+              <div class="prop-meta">
+                <span class="pill">${esc(b.type)}</span><span class="pill p${b.priority}">P${b.priority}</span>
+              </div>
+              ${propFieldsHtml(b)}
+              ${
+                b.rationale
+                  ? `<div class="prop-why"><span class="prop-label">Why</span><div class="md">${renderMarkdown(
+                      b.rationale,
+                      FROM_BD
+                    )}</div></div>`
+                  : ''
+              }
+            </div>
+            ${
+              long
+                ? `<button class="prop-more" data-act="prop-more" data-key="${esc(q.key)}" data-idx="${n}"
+                    aria-expanded="${!collapsed}">${collapsed ? 'Show the rest' : 'Show less'}</button>`
+                : ''
+            }
           </div>
           <div class="prop-choice">
             <button class="prop-btn yes" data-act="pick" data-key="${esc(q.key)}" data-idx="${n}" data-pick="yes"
@@ -492,6 +605,138 @@
       go.textContent = propGoLabel(approved, beads.length, armed);
       go.classList.toggle('confirm', armed);
       go.disabled = !(approved || undecided === 0);
+    }
+  }
+
+  /** The selected agent, falling back to the first one the server offered. */
+  const currentAgent = () => state.agents.find((a) => a.id === state.agent) || state.agents[0] || null;
+
+  /**
+   * Who answers when you comment.
+   *
+   * Commenting has always dispatched an agent; there was just only one of it, and
+   * its brief was hard-coded. Half the time what a thread needs is not an answer but
+   * the counter-argument, or the three paths that settle it — different briefs, not
+   * different phrasings of one.
+   *
+   * The chips are a mode, not a per-card setting, and the foundation of the selected
+   * one is printed underneath: an agent whose brief you cannot read is a name you
+   * are guessing at. Creating one needs only a name and that paragraph — never
+   * tools, which is why this form cannot widen what any agent may do.
+   */
+  function agentsHtml() {
+    if (!state.agents.length) return '';
+    const chosen = currentAgent();
+    const chips = state.agents
+      .map(
+        (a) => `<button class="chip agent-chip" data-act="agent" data-agent="${esc(a.id)}"
+          aria-pressed="${a.id === chosen?.id}">${esc(a.emoji || '🤖')} ${esc(a.name)}</button>`
+      )
+      .join('');
+
+    return `<div class="section-label">Reply from <span>the agent that picks up your comment</span></div>
+      <div class="chip-row agent-row">
+        ${chips}
+        <button class="chip agent-add" data-act="agent-new" aria-label="New agent">＋</button>
+      </div>
+      <p class="agent-desc">${esc(chosen?.description || '')}</p>
+      ${allowToolsHtml(chosen)}
+      <div class="agent-form" ${state.agentForm ? '' : 'hidden'}>
+        <input data-role="agent-name" placeholder="Name — e.g. Pricing hawk" maxlength="40">
+        <textarea data-role="agent-desc" rows="4"
+          placeholder="Its foundation: what this agent is for, and how it should answer. This goes in front of every reply it writes."></textarea>
+        <div class="row">
+          <button class="primary" data-act="agent-create">Create agent</button>
+          <button class="secondary" data-act="agent-cancel">Cancel</button>
+        </div>
+      </div>`;
+  }
+
+  /**
+   * "Allow tools" — off by every time.
+   *
+   * A checkbox rather than a setting, because it is spent by the comment it rides
+   * on: the server arms the agent's configured override for exactly one reply and
+   * drops it the moment the dispatch goes. So this is re-ticked for every comment
+   * you want it for, which is the point — an elevation you set once and forget is an
+   * elevation nobody remembers granting.
+   *
+   * Only drawn for an agent that HAS an override in the config file. Nothing here
+   * can write one; this decides whether it is used, never what it says.
+   */
+  function allowToolsHtml(agent) {
+    if (!agent?.tools) return '';
+    const busy = agent.busyOn;
+    return `<label class="allow-tools${agent.armed ? ' on' : ''}${busy ? ' busy' : ''}">
+      <input type="checkbox" data-act="allow-tools" data-agent="${esc(agent.id)}" ${agent.armed ? 'checked' : ''} ${
+        busy ? 'disabled' : ''
+      }>
+      <span class="allow-label">⚠ Allow tools for this comment</span>
+      <span class="allow-note">${
+        busy
+          ? `${esc(agent.name)} is answering ${esc(busy)} — not while it is running`
+          : agent.armed
+            ? 'armed · spent when you send'
+            : esc(agent.tools)
+      }</span>
+    </label>`;
+  }
+
+  /**
+   * The warning, the first time an agent is given its extra reach.
+   *
+   * The text comes from the server so every client warns in the same words about the
+   * same tools — and it names them verbatim, because a warning that will not say
+   * what is being granted is theatre.
+   */
+  function confirmTools(disclaimer) {
+    return new Promise((resolve) => {
+      const wrap = document.createElement('div');
+      wrap.className = 'dialog-wrap';
+      wrap.innerHTML = `<div class="dialog" role="dialog" aria-modal="true" aria-label="${esc(disclaimer.title)}">
+        <h2>${esc(disclaimer.title)}</h2>
+        <pre class="dialog-tools">${esc(disclaimer.tools)}</pre>
+        <ul>${disclaimer.points.map((p) => `<li>${esc(p)}</li>`).join('')}</ul>
+        <div class="row">
+          <button class="primary" data-yes>I understand — allow for this comment</button>
+          <button class="secondary" data-no>Cancel</button>
+        </div>
+      </div>`;
+      const done = (v) => {
+        wrap.remove();
+        resolve(v);
+      };
+      wrap.addEventListener('click', (ev) => {
+        if (ev.target.closest('[data-yes]')) return done(true);
+        // The backdrop cancels, like every other dismissable thing here — but a tap
+        // inside the panel must not, or reading it would close it.
+        if (ev.target.closest('[data-no]') || !ev.target.closest('.dialog')) return done(false);
+      });
+      document.body.appendChild(wrap);
+    });
+  }
+
+  /**
+   * Repaint the chooser in place.
+   *
+   * Never through render(): the comment box sits directly beneath it, and rebuilding
+   * the card to change which chip is pressed would drop a half-written comment —
+   * which is the exact failure the draft machinery elsewhere exists to prevent.
+   */
+  function paintAgents() {
+    for (const block of listEl.querySelectorAll('.agents')) block.innerHTML = agentsHtml();
+  }
+
+  async function loadAgents() {
+    try {
+      const data = await api('/api/agents');
+      state.agents = data.agents || [];
+      if (!state.agents.some((a) => a.id === state.agent)) state.agent = data.default || state.agents[0]?.id || '';
+      paintAgents();
+    } catch {
+      // A roster that won't load must not stop you commenting: with no chips, the
+      // server falls back to the default agent exactly as it did before this existed.
+      state.agents = [];
     }
   }
 
@@ -616,13 +861,13 @@
   /** The body of an agent bead: description, notes, thread. Fetched by expand(). */
   function agentBriefHtml(q) {
     const parts = [];
-    if (q.description) parts.push(`<div class="md">${renderMarkdown(q.description)}</div>`);
+    if (q.description) parts.push(`<div class="md">${renderMarkdown(q.description, FROM_BD)}</div>`);
     // `notes` is where sessions record what they actually did, and it is often the
     // only part worth reading — a bead can have an aspirational description and a
     // notes field saying it shipped three days ago.
     if (q.notes) {
       parts.push('<div class="section-label">notes</div>');
-      parts.push(`<div class="md">${renderMarkdown(q.notes)}</div>`);
+      parts.push(`<div class="md">${renderMarkdown(q.notes, FROM_BD)}</div>`);
     }
     if (!q.description && !q.notes) parts.push('<p class="subtitle">No description on this bead.</p>');
 
@@ -647,7 +892,7 @@
     const d = q.decision;
     const parts = [];
 
-    if (d?.context) parts.push(`<div class="md">${renderMarkdown(d.context)}</div>`);
+    if (d?.context) parts.push(`<div class="md">${renderMarkdown(d.context, FROM_BD)}</div>`);
 
     for (const src of d?.diagrams || []) {
       parts.push(`<div class="diagram" data-src="${esc(src)}">drawing…</div>`);
@@ -692,7 +937,7 @@
 
     for (const s of q.sections || []) {
       if (s.field !== 'description') parts.push(`<div class="section-label">${esc(s.field)}</div>`);
-      parts.push(`<div class="md">${renderMarkdown(s.markdown)}</div>`);
+      parts.push(`<div class="md">${renderMarkdown(s.markdown, FROM_BD)}</div>`);
     }
 
     // The same agent state as the card head, repeated at the END of the thread.
@@ -708,6 +953,8 @@
         }</div>`
       );
     }
+
+    parts.push(`<div class="agents">${agentsHtml()}</div>`);
 
     parts.push(`<div class="freeform">
       <textarea data-role="answer" placeholder="Answer in your own words…" rows="3">${esc(getDraft(q.key))}</textarea>
@@ -739,6 +986,13 @@
   const gearNudge = () => (state.scope === 'human' ? ' Tap ⚙ to include the work agents are on.' : '');
 
   function emptyHtml() {
+    // "Nothing to decide" printed directly under a pane saying an agent is asking to
+    // be changed is the app contradicting itself. The empty state is about the
+    // questions feed, so when the other channel has something in it, say which
+    // emptiness this is.
+    if ((state.requests || []).length) {
+      return `<div class="empty">Nothing about work is waiting.${gearNudge()}</div>`;
+    }
     if (state.scope === 'agent') {
       return `<div class="empty"><strong>Nothing live</strong>No open, claimed or blocked beads in any workspace.</div>`;
     }
@@ -746,6 +1000,97 @@
       return `<div class="empty"><strong>Nothing live</strong>No questions, and no bead open anywhere.</div>`;
     }
     return `<div class="empty"><strong>Nothing to decide</strong>No open questions labelled <code>human</code>.${gearNudge()}</div>`;
+  }
+
+  /**
+   * The foundation channel: agents asking to change what they are.
+   *
+   * A pane of its own, above the list and outside every filter on it. The reasoning,
+   * because it looks like a styling choice and is not:
+   *
+   * - **It is not filtered by space or workspace.** Those answer "which of my lives
+   *   is this about", and an agent's definition is not in one of them — it is the
+   *   same console whichever repo it was working in when it hit the wall.
+   * - **It is not sorted with the questions, or counted with them.** A P0 question
+   *   is urgent; a request to change what an agent is is *pending*, indefinitely, and
+   *   letting the two compete for the top of the screen would mean either the urgent
+   *   thing sinks or the constitutional one is never seen.
+   * - **It is drawn inside `#list` all the same**, as its own section. Every handler
+   *   on this page is delegated from that element, so a card in a sibling container
+   *   would render perfectly and answer nothing.
+   *
+   * Cards are `cardHtml` unchanged — the request is answered exactly the way a
+   * question is, and a second card renderer would be a second place for the approve
+   * path to drift.
+   */
+  function requestsHtml() {
+    const rows = state.requests || [];
+    if (!rows.length) return '';
+    const many = rows.length > 1;
+    return `<section class="channel foundation-channel" aria-label="Foundation requests">
+      <header class="channel-head">
+        <span class="channel-icon" aria-hidden="true">⚖️</span>
+        <div>
+          <h2>${many ? `${rows.length} agents are` : 'An agent is'} asking to change what ${many ? 'they are' : 'it is'}</h2>
+          <p>Not a question about work. Approving writes one commit and re-seeds the agent.</p>
+        </div>
+      </header>
+      ${rows.map(cardHtml).join('')}
+    </section>`;
+  }
+
+  /** How many requests are waiting, on the ⚖️ in the header. */
+  function paintRequestBadge() {
+    const badge = $('#req-badge');
+    if (!badge) return;
+    const n = (state.requests || []).length;
+    badge.textContent = n > 9 ? '9+' : String(n);
+    badge.hidden = !n;
+  }
+
+  /**
+   * The three counts in the chrome: what is waiting on you, and what is waiting
+   * elsewhere.
+   *
+   * Where each one goes is the whole argument. "Waiting on you" is the app's
+   * premise and has no icon of its own, so it takes the space the wordmark used
+   * to; the other two already have a tab apiece, so they become badges on those
+   * tabs rather than a second row of chips — the number and the way to act on it
+   * end up the same tap target.
+   *
+   * The waiting number is counted off the rows on screen whenever this scope
+   * actually swept them, so answering a question drops it on the tap rather than
+   * on the next poll. The `agent` scope sweeps no questions at all, and there the
+   * server's held count is the only honest answer — a zero would read as "nothing
+   * is asking you anything" when the truth is "you did not ask".
+   */
+  function paintSummary() {
+    const s = state.summary || {};
+    const swept = state.scope !== 'agent';
+    const held = Number(s.questions);
+    const waiting = swept || !Number.isFinite(held) ? state.questions.filter((q) => !q.agent).length : held;
+
+    const el = $('#waiting');
+    if (el) {
+      el.hidden = !waiting;
+      // The word is a separate element so a narrow phone can drop it and keep the
+      // number — see .waiting in style.css.
+      el.innerHTML = `${waiting}<span class="word">waiting</span>`;
+      el.setAttribute(
+        'aria-label',
+        `${waiting} bead${waiting === 1 ? '' : 's'} waiting on you${state.scope === 'human' ? '' : ' — show only these'}`
+      );
+    }
+
+    // Both tabs live at the foot of every page, but only this one has the numbers:
+    // they ride the inbox's poll. A page that never sets a badge shows none, which
+    // is better than a number it has no way to refresh.
+    const badge = window.beadcause?.tabBadge;
+    if (!badge) return;
+    const sessions = Number(s.sessions) || 0;
+    const proposals = Number(s.proposals) || 0;
+    badge('sessions', sessions, `Sessions — ${sessions} agent${sessions === 1 ? '' : 's'} running`);
+    badge('advocates', proposals, `Advocates — ${proposals} proposal${proposals === 1 ? '' : 's'} waiting`);
   }
 
   /** Repaint the armed option in place. Cheap, and never touches the textarea. */
@@ -875,13 +1220,203 @@
     if (state.logs.size) pollLogs();
   }, 2000);
 
+  /* ----------------------------------------------------- keeping your place */
+
+  /**
+   * Where the reader was, stored as "this element, this far down the screen"
+   * rather than as a scroll offset — and applied to the element that actually
+   * scrolls, which is usually not the window.
+   *
+   * An open card is `position: fixed; inset: 0; overflow-y: auto` (see .card.open):
+   * it takes the whole screen and scrolls its own contents, so `window.scrollY` is
+   * 0 the entire time a brief is being read. Rebuilding the list with innerHTML
+   * throws that card away and builds a new one at scrollTop 0 — which is the jump
+   * back to the top of the card, and why putting `window.scrollY` back never helped a
+   * reader with a brief open: it was restoring a number that was zero all along.
+   *
+   * The offset alone is still not enough. mermaid renders asynchronously, so at the
+   * moment the position is put back every diagram is an empty placeholder and the
+   * card is at its shortest; the offset is clamped to the short content, the
+   * diagrams then draw and push everything down, and the reader ends up above where
+   * they were. So an element is stored too — the card by its key, then the way down
+   * into it by child index — and re-measured each time the layout changes.
+   */
+  const ANCHOR_SLOP = 8;
+  // Redrawn or rewritten wholesale, so never anchor *inside* one: a mermaid
+  // placeholder holds a fresh SVG after every repaint, and a log pane is replaced
+  // line by line.
+  const OPAQUE = '.diagram, svg, pre';
+  const docScroller = () => document.scrollingElement || document.documentElement;
+  let placeGen = 0;
+
+  /** Something deliberate is moving the page. Stop putting it back. */
+  const releasePlace = () => {
+    placeGen++;
+  };
+  // A thumb, a wheel or an arrow key is the reader deciding where to be, and it
+  // ends any restore still waiting on a late diagram. Deliberate scrolls in code
+  // call releasePlace() themselves. `scroll` is deliberately not in this list —
+  // the restore scrolls, and would cancel itself.
+  for (const ev of ['wheel', 'touchmove', 'keydown']) {
+    addEventListener(ev, releasePlace, { passive: true });
+  }
+
+  /**
+   * Does this element scroll its own contents? An open card does — it is fixed to
+   * the screen with `overflow-y: auto` — and asking rather than assuming is what
+   * keeps this honest if the card ever lays out inline on a wider screen.
+   */
+  const scrolls = (el) =>
+    el.scrollHeight > el.clientHeight + 1 && /(auto|scroll)/.test(getComputedStyle(el).overflowY);
+
+  function capturePlace() {
+    const place = {
+      gen: ++placeGen,
+      docTop: docScroller().scrollTop,
+      key: null,
+      self: false,
+      scrollTop: 0,
+      top: 0,
+      path: [],
+      focus: null,
+    };
+
+    // An open card is the whole screen, so it is the only thing worth anchoring to
+    // while one is up. Otherwise: the card that owns the top of the list — the last
+    // one starting at or above it, since anything below moves when a height above it
+    // changes. Above the first card, the first card is the best there is.
+    let anchor = [...listEl.querySelectorAll('.card.open')].pop() || null;
+    if (!anchor) {
+      for (const card of listEl.querySelectorAll('.card[data-key]')) {
+        const top = card.getBoundingClientRect().top;
+        if (top <= ANCHOR_SLOP || !anchor) anchor = card;
+        if (top > ANCHOR_SLOP) break;
+      }
+    }
+    if (!anchor) return place;
+
+    // Decided here rather than at restore time: straight after the rebuild the card
+    // is at its shortest, so it may not look like a scroller even though it is one,
+    // and mistaking it for the page would write a card offset onto the document.
+    place.self = scrolls(anchor);
+    const scroller = place.self ? anchor : docScroller();
+    place.key = anchor.dataset.key;
+    place.scrollTop = scroller.scrollTop;
+    place.top = anchor.getBoundingClientRect().top;
+
+    // Then down into it, by child index, to the deepest thing still starting above
+    // the fold. The card alone is not a fine enough anchor for a long brief: a
+    // diagram inside it and above where you are reading grows after the repaint,
+    // and everything under it — the paragraph you were on included — slides down by
+    // that diagram's height while the card's own top never moves.
+    const fold = (place.self ? place.top : 0) + ANCHOR_SLOP;
+    let node = anchor;
+    while (!node.matches(OPAQUE)) {
+      const kids = node.children;
+      let step = null;
+      for (let i = kids.length - 1; i >= 0; i--) {
+        const r = kids[i].getBoundingClientRect();
+        if (r.height && r.top <= fold) {
+          step = { index: i, top: r.top };
+          break;
+        }
+      }
+      if (!step) break;
+      place.path.push(step);
+      node = kids[step.index];
+    }
+
+    const box = document.activeElement;
+    if (box?.matches?.('[data-role="answer"]')) {
+      place.focus = {
+        key: box.closest('.card')?.dataset.key,
+        start: box.selectionStart,
+        end: box.selectionEnd,
+        scrollTop: box.scrollTop,
+      };
+    }
+    return place;
+  }
+
+  function restorePlace(place) {
+    if (place.gen !== placeGen) return;
+    // The list behind an open card scrolls too, and it is what you come back to
+    // when the card is collapsed.
+    docScroller().scrollTop = place.docTop;
+    if (!place.key) return;
+    const card = listEl.querySelector(`.card[data-key="${CSS.escape(place.key)}"]`);
+    // The anchor card is gone — answered, or filtered away. The page offset above
+    // is all that is left to go on.
+    if (!card) return;
+
+    const scroller = place.self ? card : docScroller();
+    // Absolute, not incremental: every call starts from the recorded offset and
+    // then corrects, so running again after the diagrams land refines the answer
+    // instead of compounding the last one.
+    scroller.scrollTop = place.scrollTop;
+
+    // As deep as the rebuilt card still goes. A step that no longer resolves means
+    // that part of the brief has not been laid out yet, and its parent is the best
+    // anchor available until it has — which is exactly why this runs again once the
+    // diagrams are drawn.
+    let node = card;
+    let top = place.top;
+    for (const step of place.path) {
+      const kid = node.children[step.index];
+      if (!kid) break;
+      node = kid;
+      top = step.top;
+    }
+    const delta = node.getBoundingClientRect().top - top;
+    if (Math.abs(delta) > 1) scroller.scrollTop += delta;
+  }
+
+  /**
+   * Put the caret back where it was.
+   *
+   * This cannot promise the soft keyboard: a textarea removed from the document is
+   * blurred, and refocusing outside a touch gesture does not always raise the
+   * keyboard again. That is why a repaint is still deferred whenever it can be
+   * (see isAnswering) — this is what makes the repaints that *cannot* be deferred,
+   * like the one after a comment is filed, survivable rather than destructive.
+   */
+  function restoreFocus(f) {
+    if (!f.key) return;
+    const box = listEl.querySelector(`.card[data-key="${CSS.escape(f.key)}"] [data-role="answer"]`);
+    if (!box || box === document.activeElement) return;
+    // preventScroll: where the card sits is restorePlace's decision, and focus
+    // scrolling the box into view would fight it.
+    box.focus({ preventScroll: true });
+    try {
+      box.setSelectionRange(f.start, f.end);
+    } catch {
+      /* the draft came back shorter than the selection did */
+    }
+    box.scrollTop = f.scrollTop;
+  }
+
+  /**
+   * Restore now, then keep restoring as the late layout lands: the next frame, each
+   * image as it decodes, and the diagrams — mermaid renders asynchronously, so a
+   * brief with a diagram in it resizes well after the repaint that contained it.
+   */
+  function settlePlace(place, drawn) {
+    if (place.focus) restoreFocus(place.focus);
+    restorePlace(place);
+    requestAnimationFrame(() => restorePlace(place));
+    for (const img of listEl.querySelectorAll('img')) {
+      if (!img.complete) img.addEventListener('load', () => restorePlace(place), { once: true });
+    }
+    drawn.then(() => restorePlace(place)).catch(() => {});
+  }
+
   function render(force = false) {
     if (!force && isAnswering()) {
       pendingRender = true;
       return;
     }
     pendingRender = false;
-    const scrollY = window.scrollY;
+    const place = capturePlace();
 
     // Two levels of filter: space (work vs personal), then workspace within it.
     // With no spaces configured the first level is skipped entirely and this
@@ -893,11 +1428,17 @@
     const visible =
       state.workspace === 'all' ? inSpace : inSpace.filter((q) => q.workspace === state.workspace);
 
+    // The other channel, always first and never filtered. It is rare enough that
+    // putting it at the top costs nothing on the days there is nothing in it, and on
+    // the day there is, it is the one thing that must not be scrolled past.
+    const channel = requestsHtml();
+
     if (!state.questions.length) {
-      listEl.innerHTML = emptyHtml();
+      listEl.innerHTML = channel + emptyHtml();
     } else if (!visible.length) {
       const where = state.workspace !== 'all' ? state.workspace : state.space !== 'all' ? state.space : '';
-      listEl.innerHTML = `<div class="empty">Nothing waiting${where ? ` in ${esc(where)}` : ''}.${gearNudge()}</div>`;
+      listEl.innerHTML =
+        channel + `<div class="empty">Nothing waiting${where ? ` in ${esc(where)}` : ''}.${gearNudge()}</div>`;
     } else {
       // Anything you've already replied to sinks to the bottom. It is not waiting on
       // you any more — an agent has it — so it must not sit between you and the
@@ -905,20 +1446,48 @@
       // sent it (priority, then age).
       const waiting = visible.filter((q) => !q.awaitingAgent);
       const replied = visible.filter((q) => q.awaitingAgent);
-      listEl.innerHTML = [...waiting, ...replied].map(cardHtml).join('');
+      listEl.innerHTML = channel + [...waiting, ...replied].map(cardHtml).join('');
     }
 
+    paintRequestBadge();
+    paintSummary();
     renderFilters(inSpace);
 
-    // innerHTML replacement collapses the page height for an instant; put the
-    // reader back where they were rather than at the top of the list.
-    if (scrollY) window.scrollTo(0, scrollY);
-
     openLinksInNewTab(listEl);
-    drawDiagrams(listEl);
+    // Puts the caret and the scroll position back — immediately, and again as the
+    // diagrams and images size themselves afterwards.
+    settlePlace(place, drawDiagrams(listEl));
     // The list it describes has just been replaced, so its counts are stale — but a
     // 25s poll must not make it flash on screen at someone who isn't scrolling.
     paintScrollPos(false);
+    publishView(visible);
+  }
+
+  /**
+   * Tell the daemon which card is up, so the monitor can show it in full.
+   *
+   * Called from render() rather than from each place that opens or closes a card:
+   * every one of those ends in a render, and presence.js drops a report identical to
+   * the last one, so the cheap call in one place beats six correct ones.
+   *
+   * `state.open` holds at most one key — openOnly() is what keeps that true — so its
+   * last entry is the card being read. Written as a pop() off the Set rather than an
+   * assumption about its size, because load() rebuilds the Set by filtering and a
+   * cheap read costs nothing next to a wrong report.
+   */
+  function publishView(visible) {
+    const p = window.beadcause?.presence;
+    if (!p) return;
+    const q = byKey([...state.open].pop() || '');
+    p.report({
+      view: q ? 'card' : 'inbox',
+      workspace: q ? q.workspace : state.workspace === 'all' ? '' : state.workspace,
+      id: q?.id || '',
+      key: q?.key || '',
+      scope: state.scope,
+      space: state.space,
+      detail: q ? q.title : `${visible.length} waiting`,
+    });
   }
 
   /* ------------------------------------------ where you are in the list */
@@ -1011,7 +1580,16 @@
     toast._t = setTimeout(() => (toastEl.hidden = true), bad ? 5000 : 2600);
   }
 
-  const byKey = (key) => state.questions.find((q) => q.key === key);
+  /**
+   * A card by key, from either channel.
+   *
+   * Every interaction on this page — open, answer, comment, the ⋮ menu, the deep
+   * link from a notification — goes through here, which is why the two channels can
+   * be two arrays without two of everything else. Requests first: there are at most
+   * a handful, and it makes the lookup that matters the cheap one.
+   */
+  const byKey = (key) =>
+    (state.requests || []).find((q) => q.key === key) || state.questions.find((q) => q.key === key);
 
   function disarm() {
     state.armed = null;
@@ -1030,7 +1608,7 @@
     sending.innerHTML = `<span class="spark"></span>${close ? 'Recording your answer…' : 'Adding your comment…'}`;
     card?.appendChild(sending);
     try {
-      await api(close ? '/api/respond' : '/api/comment', {
+      const res = await api(close ? '/api/respond' : '/api/comment', {
         method: 'POST',
         body: JSON.stringify(
           close
@@ -1042,12 +1620,18 @@
                 // out of the sentence: the text is for you, the array is for it.
                 ...(create ? { create } : {}),
               }
-            : { workspace: q.workspace, id: q.id, text }
+            : // Which agent picks this up. Absent or unknown resolves to the
+              // default server-side, so an old phone still gets an answer.
+              { workspace: q.workspace, id: q.id, text, agent: state.agent || undefined }
         ),
       });
       clearDraft(key);
       if (close) {
         state.questions = state.questions.filter((x) => x.key !== key);
+        // And out of the other channel, on the same tap. An answered request that
+        // stayed in the pane would still be showing its approve button — for a bead
+        // that has already been closed on the answer you just gave.
+        state.requests = (state.requests || []).filter((x) => x.key !== key);
         state.open.delete(key);
         // Inside the Android shell, drop the notification for this question now.
         // Otherwise it sits in the shade with buttons that would answer a bead that
@@ -1058,7 +1642,11 @@
         // so a deferred render would never fire and the card would linger.
         render(true);
       } else {
-        toast(`Comment added — an agent will be told`);
+        toast(res?.elevated ? 'Comment added — running with tools, this once' : 'Comment added — an agent will be told');
+        // The server has spent the arm on this dispatch, so the box must come back
+        // off. Re-read rather than assume: if the dispatch was refused the arm is
+        // still there, and a tick that lied either way would be the worst outcome.
+        loadAgents();
         card?.classList.remove('answering');
         sending.remove();
         // Reflect the awaiting-agent flag the server just set, without waiting
@@ -1205,9 +1793,95 @@
       paintArmed();
       state.open.delete(key);
       render(true);
+      // This scroll is the point of the button, so it outranks the repaint's own
+      // restore — which would otherwise pull the page back as the diagrams land.
+      releasePlace();
       listEl
         .querySelector(`.card[data-key="${CSS.escape(key)}"]`)
         ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      return;
+    }
+
+    if (act === 'agent') {
+      state.agent = btn.dataset.agent;
+      localStorage.setItem('beadcause.agent', state.agent);
+      state.agentForm = false;
+      paintAgents();
+      return;
+    }
+
+    if (act === 'allow-tools') {
+      const id = btn.dataset.agent;
+      // The box is painted from the server's answer, never from the tap: an arm that
+      // was refused must not leave a tick behind suggesting it was granted.
+      const wanted = btn.checked;
+      btn.checked = !wanted;
+      try {
+        const send = (extra = {}) =>
+          api('/api/agent-arm', { method: 'POST', body: JSON.stringify({ id, ...extra }) });
+        if (!wanted) {
+          state.agents = (await send({ disarm: true })).agents || state.agents;
+        } else {
+          let data;
+          try {
+            data = await send();
+          } catch (err) {
+            if (!err.body?.needsAcknowledgement) throw err;
+            if (!(await confirmTools(err.body.disclaimer))) return paintAgents();
+            data = await send({ acknowledge: true });
+          }
+          state.agents = data.agents || state.agents;
+          toast('Allowed for this comment only');
+        }
+      } catch (err) {
+        toast(err.message, true);
+      }
+      paintAgents();
+      return;
+    }
+
+    if (act === 'agent-new' || act === 'agent-cancel') {
+      state.agentForm = act === 'agent-new';
+      paintAgents();
+      // Focus after the repaint, or there is nothing yet to focus.
+      if (state.agentForm) listEl.querySelector('[data-role="agent-name"]')?.focus();
+      return;
+    }
+
+    if (act === 'agent-create') {
+      const block = btn.closest('.agents');
+      const name = block?.querySelector('[data-role="agent-name"]')?.value.trim() || '';
+      const description = block?.querySelector('[data-role="agent-desc"]')?.value.trim() || '';
+      if (!name) return toast('Give it a name', true);
+      if (description.length < 20) return toast('Give it a foundation — a sentence or two', true);
+      btn.disabled = true;
+      try {
+        const data = await api('/api/agents', { method: 'POST', body: JSON.stringify({ name, description }) });
+        state.agents = data.agents || state.agents;
+        state.agent = data.agent.id;
+        localStorage.setItem('beadcause.agent', state.agent);
+        state.agentForm = false;
+        paintAgents();
+        toast(`${data.agent.name} is ready`);
+      } catch (err) {
+        btn.disabled = false;
+        toast(err.message, true);
+      }
+      return;
+    }
+
+    // Unfolds one row, by touching that row only. Emphatically not a render(), for
+    // the same reason paintPicks exists: rebuilding the card under a decision you
+    // are halfway through making loses the decision.
+    if (act === 'prop-more') {
+      const row = btn.closest('.prop-row');
+      const token = `${key}|${btn.dataset.idx}`;
+      const open = !state.propOpen.has(token);
+      if (open) state.propOpen.add(token);
+      else state.propOpen.delete(token);
+      row?.classList.toggle('is-collapsed', !open);
+      btn.setAttribute('aria-expanded', String(open));
+      btn.textContent = open ? 'Show less' : 'Show the rest';
       return;
     }
 
@@ -1251,6 +1925,7 @@
       }
       disarm();
       state.picks.delete(key);
+      for (const t of [...state.propOpen]) if (t.startsWith(`${key}|`)) state.propOpen.delete(t);
       const declined = beads.length - approved.length;
       const text = approved.length
         ? `CREATE: ${approved.join(',')} — filing ${approved.length} of ${beads.length} proposed bead${
@@ -1391,20 +2066,41 @@
     scopeDlg.showModal();
   });
 
-  scopeDlg.addEventListener('click', (ev) => {
-    const btn = ev.target.closest('[data-scope]');
-    if (!btn || btn.dataset.scope === state.scope) return;
-    state.scope = btn.dataset.scope;
+  /**
+   * Switch which slice of the tracker the list is.
+   *
+   * Out of the panel's click handler because the count in the top bar is the other
+   * way in: tapping "3 waiting" means "show me those three", which is this, and a
+   * second copy of it would be a second place for the reset-and-refetch to drift.
+   * Already-there is a no-op rather than a reload — the count you tapped is a
+   * count of what is already on screen.
+   */
+  function chooseScope(next) {
+    if (!SCOPES.includes(next) || next === state.scope) return;
+    state.scope = next;
     localStorage.setItem('beadcause.scope', state.scope);
     paintScope();
     // The workspace filter was almost certainly pointing at the one workspace that
     // had a question in it; keeping it would hide everything the widening just let in.
     state.workspace = 'all';
     schedulePoll();
+    // Only the questions. The scope is a setting about which slice of *work* the
+    // list is, and the other channel is not a slice of it — clearing the pane here
+    // would blank a pending constitutional request for a couple of seconds because
+    // you tapped a filter that has nothing to do with it.
     state.questions = [];
-    listEl.innerHTML = '<div class="empty">Asking bd…</div>';
+    listEl.innerHTML = requestsHtml() + '<div class="empty">Asking bd…</div>';
     load();
+  }
+
+  scopeDlg.addEventListener('click', (ev) => {
+    const btn = ev.target.closest('[data-scope]');
+    if (btn) chooseScope(btn.dataset.scope);
   });
+
+  // The count is a filter you can reach without opening the panel: it says how many
+  // beads are asking you something, so tapping it shows you exactly those.
+  $('#waiting')?.addEventListener('click', () => chooseScope('human'));
 
   /* ----------------------------------------------------------------- load */
 
@@ -1430,22 +2126,33 @@
       // you just left; the re-run queued above is the one that counts.
       if (asked !== state.scope) return;
       const openKeys = state.open;
-      // Keep any already-fetched detail so an open card doesn't flicker.
-      const prev = new Map(state.questions.map((q) => [q.key, q]));
-      state.questions = data.questions.map((q) => {
+      // Keep any already-fetched detail so an open card doesn't flicker. Both
+      // channels are merged against the same map: a bead moves between them only by
+      // gaining or losing a label, and when it does the fresh row is what is right.
+      const prev = new Map([...state.questions, ...(state.requests || [])].map((q) => [q.key, q]));
+      // `agent` has to be reset before the merge, not left to it: a question payload
+      // omits the field rather than sending false, so a bead that has just gained the
+      // `human` label would otherwise keep rendering as read-only agent work for as
+      // long as the tab stayed open.
+      const merge = (q) => {
         const before = prev.get(q.key);
-        if (!before) return q;
-        // `agent` has to be reset before the merge, not left to it: a question
-        // payload omits the field rather than sending false, so a bead that has
-        // just gained the `human` label would otherwise keep rendering as
-        // read-only agent work for as long as the tab stayed open.
-        return Object.assign(before, { agent: false }, q);
-      });
+        return before ? Object.assign(before, { agent: false }, q) : q;
+      };
+      // Absent rather than empty means an old server that predates the channel — keep
+      // whatever is on screen instead of silently emptying the pane.
+      state.requests = Array.isArray(data.requests) ? data.requests.map(merge) : state.requests;
+      state.questions = data.questions.map(merge);
       state.spaces = data.spaces || [];
+      // Absent means a server that predates the counts — keep the last ones rather
+      // than blanking the chrome, exactly as the requests pane does above.
+      if (data.summary) state.summary = data.summary;
       // A space that has been renamed or removed in config would otherwise leave the
       // filter pinned to something that no longer exists, showing an empty list.
       if (state.space !== 'all' && !state.spaces.some((s) => s.name === state.space)) state.space = 'all';
-      state.open = new Set([...openKeys].filter((k) => state.questions.some((q) => q.key === k)));
+      // Kept open across a refresh only if the bead is still somewhere — in either
+      // channel. Checking only `questions` would collapse an open request every 25
+      // seconds, mid-read.
+      state.open = new Set([...openKeys].filter((k) => Boolean(byKey(k))));
       render();
       focusHash();
     } catch (err) {
@@ -1483,8 +2190,16 @@
       return;
     }
     hashHandled = key;
+    // The card is already open and there is an answer on the go: the link is
+    // pointing at where you already are. Rebuilding the list to "open" what is
+    // open drops the keyboard and loses the caret for nothing — this is the tap
+    // that comes back from the notification shade, or a fresh push about the very
+    // bead being answered.
+    if (state.open.has(key) && isAnswering()) return;
     await expand(key);
     const el = listEl.querySelector(`.card[data-key="${CSS.escape(key)}"]`);
+    // Going to the card is what the link asked for; it outranks the restore.
+    releasePlace();
     el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }
 
@@ -1517,11 +2232,17 @@
 
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
 
-  // The one thing the page exposes to its host. The Android shell calls this when
-  // you come back from the notification shade or a document, so the list is fresh
+  // What the page exposes to its host. The Android shell calls `refresh` when you
+  // come back from the notification shade or a document, so the list is fresh
   // without a reload — a reload would discard scroll position and any draft sitting
   // in a textarea. render() still refuses to repaint mid-answer.
-  window.beadcause = { refresh: load };
+  //
+  // Merged rather than assigned: presence.js is loaded before this and hangs its own
+  // handle here, and replacing the object wholesale silently unhooks it — the page
+  // then works perfectly while telling the monitor nothing, which is the hardest
+  // possible version of this bug to see.
+  window.beadcause = window.beadcause || {};
+  window.beadcause.refresh = load;
 
   /** The scope survives a reload — it is a preference, not a session detail. */
   function bootScope() {
@@ -1533,4 +2254,7 @@
   bootToken();
   bootScope();
   load();
+  // After the list, and never blocking it: the chooser only appears inside an open
+  // card, so there is nothing on screen waiting for this.
+  loadAgents();
 })();

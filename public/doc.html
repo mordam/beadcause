@@ -23,6 +23,11 @@
 
   <script src="/vendor/marked.js"></script>
   <script src="/vendor/purify.js"></script>
+  <script src="/presence.js"></script>
   <script src="/doc.js"></script>
+  <!-- The other half of the drawer: when this page *is* the drawer's contents, its
+       ✕ closes the drawer and a sibling document retargets it. Opened on its own —
+       a pasted URL, a long-press → new tab — it installs nothing at all. -->
+  <script src="/drawer.js"></script>
 </body>
 </html>

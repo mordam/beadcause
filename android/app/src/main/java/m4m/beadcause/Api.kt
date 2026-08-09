@@ -135,6 +135,18 @@ data class Question(
     val options: List<Option>,
     val allowFreeText: Boolean,
     val awaitingAgent: Boolean,
+    /**
+     * An agent asking to change what it is, rather than a question about work.
+     *
+     * The two arrive over the same wire and are answered by the same endpoint —
+     * everything underneath is shared — but they are different kinds of decision
+     * and the phone keeps them in different places: a pane of its own in the app,
+     * and a card of its own in the shade. See [Tray.Chan].
+     */
+    val foundation: Boolean = false,
+    /** Which agent is asking, and how far the change reaches. Null unless [foundation]. */
+    val amendmentAgent: String? = null,
+    val amendmentScope: String? = null,
 ) {
     /** Stable across restarts, so an update replaces rather than stacks. */
     val notificationId: Int get() = key.hashCode()
@@ -167,14 +179,26 @@ data class Poll(
     val events: List<Event>,
     /** Null when the poll timed out with nothing to report — keep what you had. */
     val questions: List<Question>?,
+    /**
+     * The foundation channel, sent apart from [questions] and never folded into it.
+     *
+     * Null on a quiet poll, exactly like [questions] — an empty channel and an
+     * uneventful minute are different facts, and confusing them would clear the
+     * shade every time nothing happened.
+     */
+    val requests: List<Question>?,
     val workspaces: List<String>,
 ) {
+    /** Both channels together, for the lookups that only need "is this bead live". */
+    val allBeads: List<Question> get() = questions.orEmpty() + requests.orEmpty()
+
     companion object {
         fun from(json: JSONObject) = Poll(
             seq = json.optLong("seq"),
             resync = json.optBoolean("resync"),
             events = json.optJSONArray("events").map { it.toEvent() },
             questions = json.optJSONArray("questions")?.toQuestions(),
+            requests = json.optJSONArray("requests")?.toQuestions(),
             workspaces = json.optJSONArray("workspaces").toStringList(),
         )
     }
@@ -231,6 +255,12 @@ private fun JSONObject.toQuestion(): Question {
         },
         allowFreeText = decision?.optBoolean("allowFreeText", true) ?: true,
         awaitingAgent = optBoolean("awaitingAgent"),
+        // The server sets `foundation` from the bead's label rather than from whether
+        // the amendment block parsed, so a malformed request still arrives in the
+        // right channel — carrying its error — instead of falling into the work feed.
+        foundation = optBoolean("foundation"),
+        amendmentAgent = optJSONObject("amendment")?.optStringOrNull("agent"),
+        amendmentScope = optJSONObject("amendment")?.optStringOrNull("scope"),
     )
 }
 
