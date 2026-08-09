@@ -1416,6 +1416,15 @@ decision block and only means anything for a `human` bead.
 `host` falls back to `127.0.0.1` if Tailscale was down when the config was
 written — fix the IP in the file if the phone can't connect.
 
+### Environment
+
+| variable | meaning |
+|---|---|
+| `BEADCAUSE_CONFIG_DIR` | where the config, state and tokens live (default `~/.config/beadcause`). Isolates **only those** — see [observer mode](#a-second-instance--observer-mode) before booting a second instance |
+| `BEADCAUSE_OBSERVE` | watch and never act: no sessions, proposals, sweeps, session logs, reply agents or pushes. `BEADCAUSE_READONLY` is the same flag |
+| `BEADCAUSE_NODE` | the `node` the LaunchAgent runs (`scripts/install.sh`, `scripts/open-monitor.sh`) |
+| `BEADCAUSE_BROWSER` | which browser `scripts/open-monitor.sh` opens the console in |
+
 ### Privacy of the push
 
 An ntfy.sh topic is readable by anyone who guesses its name. The topic is random,
@@ -1429,6 +1438,104 @@ the exception: they must send the token as a header to authenticate the POST. So
 a `full` push on a public server does place the token on ntfy.sh. It's useless
 without tailnet access, but if that bothers you, either self-host ntfy or set
 `ntfy.actionButtons: false` and answer by tapping through to the app.
+
+## A second instance — observer mode
+
+Sooner or later you want to look at a change to the UI without restarting the live
+daemon on `:4318`, so you boot a second one on a spare port with its own config
+directory. **Do not do that without `BEADCAUSE_OBSERVE=1`.**
+
+`BEADCAUSE_CONFIG_DIR` isolates the config, the state file and the token. That is
+*all* it isolates. The tracker, the repos and `.claude/worktrees/` belong to the
+machine, so a second daemon is a second **fully live** daemon: it has its own
+advocates, its own poll loop, and no idea the first one exists. Booted from a copy
+of your real config, its first tick — thirty seconds in — opened two Claude sessions
+in two repos and retired a worktree in the shared checkout. Nothing malfunctioned.
+It did exactly what the live one does, twice.
+
+So:
+
+```sh
+mkdir -p /tmp/bc
+jq '.port=4372 | .baseUrl="http://127.0.0.1:4372" | .host="127.0.0.1"' \
+  ~/.config/beadcause/config.json > /tmp/bc/config.json
+
+BEADCAUSE_CONFIG_DIR=/tmp/bc BEADCAUSE_OBSERVE=1 node bin/beadcause.js
+```
+
+Reach it at `http://127.0.0.1:4372/?t=<token from that config>`. Pick the port
+yourself and check it's free — `4319` is taken by something unrelated on this Mac.
+
+It says so at startup, unmissably, because the way this flag fails is you believing
+you set it:
+
+```
+[beadcause] ─────────────────────────────────────────────────────
+[beadcause] OBSERVING — this instance watches and never acts.
+[beadcause]   no sessions · no proposals · no worktree sweeps
+[beadcause]   no session logs · no reply agents · no ntfy push
+[beadcause]   the terminal, the bead console and answering still work
+[beadcause] ─────────────────────────────────────────────────────
+```
+
+**What it switches off** — everything the daemon would do on its own:
+
+| off | otherwise |
+|---|---|
+| advocates opening sessions | a real Claude window per ready bead, in the shared checkout |
+| bead proposals | a survey agent, and a question in your inbox from an instance you booted to look at CSS |
+| worktree sweeps | `.claude/worktrees/` retired out from under sibling sessions — the one act that reaches outside the config directory to move somebody else's work |
+| session logs | `refs/beadcause/sessions/*` and git notes written into repos this instance is only visiting |
+| reply agents | two daemons dispatching two agents at the same comment |
+| ntfy push | two notifications per question, whose buttons answer on two different ports |
+| `POST /api/session` | the one button whose consequence is an hour of unattended agent |
+
+Advocates still **survey**, so the ready queue and what each would pick up next are
+on screen — that is usually the thing you booted a second instance to look at. Each
+card reads `observing — this instance never acts on its own · N ready`.
+
+**Which daemon am I looking at?** An amber `⦿ OBSERVING` badge sits beside the page
+title on `/monitor` and `/work`, and beside the name in the terminal monitor. The
+advocate cards say it too, but an instance with *no* advocates configured would
+otherwise look identical to the live one — and believing you are in observer mode
+when you are not is the whole failure this mode exists to prevent. The signal is one
+field, `observing`, on `/api/work` and `/api/poll`; it is `false` on the live
+instance rather than absent, so a console can never paint the badge over a daemon
+that is in fact opening windows.
+
+**What still works** is everything you sit in front of: the terminal, the bead
+console, answering and commenting on questions. A mode that broke those would be a
+mode nobody uses. Note the tracker is shared regardless — a bead you create from the
+console of an observer instance is a real bead, and an answer is a real answer.
+
+Nothing is written to the config file: your switches stay as you set them, and the
+mode is asked about at each point where the daemon would otherwise act. That also
+means it cannot leak into the live instance. `BEADCAUSE_READONLY=1` is accepted as
+the same flag — not for elegance, but because the one failure worth engineering
+against here is typing the name slightly wrong and getting silence.
+
+**This is not the sandbox for testing the advocates themselves.** It stops them
+acting; it does not give them a private tracker or a private checkout. To watch an
+advocate actually launch something, use the live instance and its pause/resume
+controls.
+
+### `npm test`
+
+The repo has one test file, `test/observe.mjs`, and it is about this flag only —
+because this is the only switch here that fails *silently*. Turn off the terminal
+and the terminal is gone; get this one subtly wrong and everything looks fine until
+there are two Claude windows open on repos you weren't working in. It checks that
+the flag reads the way this section says (both spellings, and `0`/`false`/empty
+meaning off), that an armed advocate with a full queue surveys and launches nothing,
+that no reply agent or push goes out, that `/api/work` and `/api/poll` carry the
+`observing` field the badge is drawn from — and, as the control, that with the flag
+off all of that goes down the ordinary path and the field reads `false`.
+
+The mirror-image test is deliberately absent: "with the flag off, does an advocate
+really open a window?" can only be answered by opening one. That is the incident
+this flag exists because of, so the suite proves the guards are *conditional* and
+stops there. Everything else is still gated by `node --check` on changed files and
+by booting an observer instance and driving it.
 
 ## Notes on bd
 
