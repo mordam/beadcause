@@ -1,11 +1,13 @@
 /* Cache the shell so the inbox opens instantly and the 3.5 MB mermaid bundle is
    fetched once. API traffic is never cached — an answered question must vanish. */
-const CACHE = 'beadcause-v10';
+const CACHE = 'beadcause-v11';
 const SHELL = [
   '/',
   '/index.html',
   '/style.css',
   '/app.js',
+  // On every page that can open a detail drawer, and on both pages that can be one.
+  '/drawer.js',
   '/doc.html',
   '/doc.js',
   '/graph.html',
