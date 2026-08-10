@@ -2654,10 +2654,26 @@ card, same buttons, nothing created until you tap. What follows is the other way
 happens when a repo runs *out* of work and something has to go looking.
 
 So when a repo runs out of ready work, the advocate spawns a **read-only** survey
-agent (`bd`, `git log`, read, grep, and the [web lookups](#looking-something-up--and-why-it-is-not-bashcurl) — nothing that can write) which reads the recent
+agent (`bd`, `git log`, read, grep, and the [web lookups](#looking-something-up--and-why-it-is-not-bashcurl) — nothing that can create, close or delete a bead) which reads the recent
 closes, the blocked beads, any `## Discovered` notes left in comments by sessions
 older than the propose command, and the repo's own docs. If it finds nothing worth filing it says so and the advocate
 goes idle, which is a perfectly good outcome and one the prompt asks for explicitly.
+
+**One write got let back in, deliberately: `bd label add`.** It is the exception to
+the paragraph above, and the reason is that a survey often finds work that is
+*already tracked* and just needs you — `bd label add <id> human` is how a bead
+reaches the inbox, and going the long way round (proposing a bead about a bead) would
+be absurd. So the survey gets `bd label add` plus `bd label list` and `bd label
+list-all`, because a label chosen without seeing which labels exist is how a graph
+grows six spellings of one tag. It does **not** get `bd label remove` or `bd label
+propagate`, and the grant is spelled one level down — three entries, not
+`Bash(bd label:*)` — for exactly the reason the reply agents' list is spelled verb by
+verb. The prompt says what labelling is for, so it is not used as a general-purpose
+bead editor, and `test/allowlist.mjs` asserts both halves: that `add` and the two
+reads work, and that `remove` and `propagate` are still unreachable. The advocate's
+`writes` flag stays `false` — it means *may create, close or delete work*, and
+labelling sits outside that on purpose, because drawing the advocate the same as a
+work session would overstate what it can do.
 
 If it does find something, you get **one ordinary question in the inbox** carrying
 the entire text of every bead it wants — title, type, priority, the full

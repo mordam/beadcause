@@ -764,6 +764,23 @@ body {
   display: inline-block; min-width: 18px;
   color: var(--muted); font-variant-numeric: tabular-nums; font-weight: 700;
 }
+/* "This already exists." The same --warn as an unsent draft, a gate and the shade
+   prompt, for the same reason: the app has noticed something it is about to make a mess
+   of and is saying so. It sits between the head and the body, outside the fold, because
+   it is the only thing on a row that changes what ✓ means — see dupeHtml() in app.js. */
+.prop-dupe {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px;
+  margin-left: 22px; padding: 6px 8px;
+  border: 1px solid color-mix(in srgb, var(--warn) 55%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--warn) 10%, var(--surface));
+  font-size: 12px; line-height: 1.45; color: var(--text);
+}
+.prop-dupe-flag {
+  flex: none;
+  font-size: 10.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--warn);
+}
 .prop-body { display: flex; flex-direction: column; gap: 9px; padding-left: 22px; }
 /* Folded rather than clamped. Three lines of -webkit-line-clamp over markdown cuts a
    list mid-item, and nothing on the row said there was more or offered it; this
@@ -2068,6 +2085,33 @@ button.work-row {
 .sheet-body { flex: 1; overflow-y: auto; padding: 14px 16px calc(env(safe-area-inset-bottom) + 28px); }
 .sheet-title { margin: 0 0 10px; font-size: 18px; line-height: 1.3; }
 .sheet-body .meta { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+
+/* Where the bead sits: its parent, and what it is stuck behind. Above the
+   description, quiet enough not to compete with the title, and every row a link —
+   the count these replace was the one part of the sheet you could read and not
+   follow. 44px minimum, because each one is a tap target on a phone. */
+.rel { display: flex; flex-direction: column; gap: 10px; margin-bottom: 14px; }
+.rel-group { display: flex; flex-direction: column; gap: 4px; }
+.rel-kind {
+  font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--muted);
+}
+.rel-row {
+  display: flex; align-items: center; gap: 8px;
+  min-height: 44px;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-2);
+  color: var(--text);
+  text-decoration: none;
+  font-size: 14px;
+}
+.rel-row .pill.id { flex: none; }
+/* Status as colour, the same channel the nodes use — a closed blocker is grey and
+   a live one is not, without a word spent saying so. */
+.rel-dot { flex: none; width: 7px; height: 7px; border-radius: 50%; }
+.rel-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* `display: flex` beats the UA's [hidden] rule — see .brief[hidden]. */
 .scope[hidden] { display: none; }
