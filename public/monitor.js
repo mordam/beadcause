@@ -27,6 +27,13 @@
  *   - **A held-off advocate is drawn, never hidden.** Paused, quiet, cooling down and
  *     out-of-slots each say so in full, because an advocate you cannot see is
  *     indistinguishable from a repo with nothing left to do.
+ *
+ * Every session listed here — a worker row whose window is still running, a "Claude
+ * sessions" row, an Elsewhere row — links to `/session?pid=…`, the same detail
+ * /sessions and the mirror send you to, and it opens in the drawer over this console.
+ * The rows on this page used to be inert `<div>`s: the detail existed, folded inline on
+ * /sessions, and there was no way to reach it from the page that lists the advocate's
+ * own work. See public/session.js.
  */
 (() => {
   'use strict';
@@ -89,6 +96,9 @@
 
   const graphUrl = (ws, id) => `/graph?ws=${encodeURIComponent(ws)}${id ? `&id=${encodeURIComponent(id)}` : ''}`;
 
+  /** The one address a session has anywhere in the app — see public/session.js. */
+  const sessionUrl = (pid) => `/session?pid=${encodeURIComponent(pid)}`;
+
   const P_LABEL = ['P0', 'P1', 'P2', 'P3', 'P4'];
 
   /* --------------------------------------------------------------------- state */
@@ -130,6 +140,52 @@
     if (!state.picks.has(key)) state.picks.set(key, new Map());
     return state.picks.get(key);
   };
+
+  /**
+   * Is there a process behind this pid *in the payload we are drawing*?
+   *
+   * Only the worker rows need to ask. A session row came out of `sessions` and is live
+   * by construction; a worker's `pid` is whatever the last advocate tick found by
+   * matching a session name against the bead id, and the window may have gone since.
+   * So a worker with a live pid goes to `/session?pid=…` and one without keeps its bead
+   * link, which is the one honest thing left to point at.
+   */
+  function livePid(pid) {
+    if (pid == null || pid === '') return false;
+    const want = Number(pid);
+    if (!Number.isInteger(want) || want <= 0 || !state.work) return false;
+    return (
+      (state.work.elsewhere || []).some((s) => s.pid === want) ||
+      (state.work.workspaces || []).some((w) => (w.sessions || []).some((s) => s.pid === want))
+    );
+  }
+
+  /**
+   * A live `claude` process, wherever on this page it is listed.
+   *
+   * One function for what used to be three near-identical blocks — the "other work in
+   * this repo" section, a repo with no advocate, and the Elsewhere card — because they
+   * had drifted into three slightly different rows for the same thing, and because
+   * making a row a link to somewhere was exactly the change that must not be made in
+   * two of three places.
+   */
+  function sessionRow(s) {
+    // The label names the session as well as the destination: `aria-label` replaces the
+    // row's text outright, so one saying only "what pid 30342 is doing" would take the
+    // session's own name away from the reader who needs it most.
+    return `<a class="work-row session-row" href="${esc(sessionUrl(s.pid))}" aria-label="${esc(
+      s.name || `pid ${s.pid}`
+    )} — what it is doing">
+      <span class="work-phase">${s.status === 'busy' ? '<span class="spark"></span>' : '○'}</span>
+      <span class="work-main">
+        <span class="work-title">${esc(s.name || '(unnamed session)')}</span>
+        <span class="work-sub">${esc(s.where || s.cwd)} · pid ${esc(s.pid)}${
+          s.status ? ` · ${esc(s.status)}` : ''
+        }</span>
+      </span>
+      <time>${esc(age(s.at))}</time>
+    </a>`;
+  }
 
   async function api(path, opts = {}) {
     const res = await fetch(path, {
@@ -231,7 +287,14 @@
       // looking identical to a window that answers.
       w.reachable === false ? '<span class="tag dim">no window handle</span>' : '',
     ].filter(Boolean);
-    return `<a class="work-row adv-worker" href="${esc(graphUrl(a.workspace, w.id))}">
+    // Where the pid names a process that is still running, the row goes to that
+    // session's own detail — the transcript is the answer to "is this moving", and it is
+    // why you were reading this section. Where it does not, the bead stays the
+    // destination: a worker whose window has exited has no session to show, and
+    // `/session?pid=…` for a dead pid is a 404, which is a worse row than the one it
+    // replaced.
+    const live = livePid(w.pid);
+    return `<a class="work-row adv-worker" href="${esc(live ? sessionUrl(w.pid) : graphUrl(a.workspace, w.id))}">
       <span class="work-phase">${w.claimed && !w.ended ? '<span class="spark"></span>' : w.ended ? '◍' : '◔'}</span>
       <span class="work-main">
         <span class="work-title">${esc(w.title || w.id)}</span>
@@ -481,21 +544,7 @@
               (sessions.length
                 ? `<div class="session-label">Claude sessions <span>${
                     others.length ? 'Which is on which bead is not recorded.' : 'Nothing claimed in the tracker.'
-                  }</span></div>` +
-                  sessions
-                    .map(
-                      (s) => `<div class="work-row session-row">
-                        <span class="work-phase">${s.status === 'busy' ? '<span class="spark"></span>' : '○'}</span>
-                        <span class="work-main">
-                          <span class="work-title">${esc(s.name || '(unnamed session)')}</span>
-                          <span class="work-sub">${esc(s.where || s.cwd)} · pid ${esc(s.pid)}${
-                            s.status ? ` · ${esc(s.status)}` : ''
-                          }</span>
-                        </span>
-                        <time>${esc(age(s.at))}</time>
-                      </div>`
-                    )
-                    .join('')
+                  }</span></div>` + sessions.map(sessionRow).join('')
                 : '')
           )
         : '',
@@ -562,18 +611,7 @@
           </a>`
         )
         .join('')}
-      ${sessions
-        .map(
-          (s) => `<div class="work-row session-row">
-            <span class="work-phase">${s.status === 'busy' ? '<span class="spark"></span>' : '○'}</span>
-            <span class="work-main">
-              <span class="work-title">${esc(s.name || '(unnamed session)')}</span>
-              <span class="work-sub">${esc(s.where || s.cwd)} · pid ${esc(s.pid)}</span>
-            </span>
-            <time>${esc(age(s.at))}</time>
-          </div>`
-        )
-        .join('')}
+      ${sessions.map(sessionRow).join('')}
       <div class="work-foot">
         <div class="meta"></div>
         <a class="work-graph" href="${esc(graphUrl(w.name))}">Graph →</a>
@@ -634,18 +672,7 @@
       <div class="work-head"><h2>Elsewhere</h2><span class="mon-state dim">${esc(
         plural(sessions.length, 'session')
       )} outside every workspace</span></div>
-      ${sessions
-        .map(
-          (s) => `<div class="work-row session-row">
-            <span class="work-phase">${s.status === 'busy' ? '<span class="spark"></span>' : '○'}</span>
-            <span class="work-main">
-              <span class="work-title">${esc(s.name || '(unnamed session)')}</span>
-              <span class="work-sub">${esc(s.where || s.cwd)} · pid ${esc(s.pid)}</span>
-            </span>
-            <time>${esc(age(s.at))}</time>
-          </div>`
-        )
-        .join('')}
+      ${sessions.map(sessionRow).join('')}
     </article>`;
   }
 
