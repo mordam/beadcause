@@ -162,6 +162,15 @@ images:
   <id or label>` beside the list is the same thing said once instead of per row,
   and wins if both are written. Only one option is ever starred: two is the block
   contradicting itself, and a card is the wrong place to discover that.
+- **`closes: false` on an option that commissions work rather than settling it.**
+  Answering normally closes the bead, which is right for a verdict and wrong for a
+  build order: "Build both as written" is an instruction, and closing on it files
+  the work as finished at the moment it is ordered. An option marked this way
+  comments the answer, drops the `human` label and leaves the bead open and
+  unclaimed — so it goes straight into `bd ready` and an advocate picks it up as
+  work, instead of a session having to reopen it by hand and put the card back in
+  your inbox. Everything else about the tap is the same, including the card
+  leaving the inbox; the toast says which of the two happened.
 - `diagram` is mermaid, rendered on the phone. ` ```mermaid ` fences in the prose
   render too.
 - `docs` are files on the Mac you need to read before answering. Each opens in the
@@ -2319,13 +2328,22 @@ says **no bead named** rather than borrowing one.
   It takes **two taps**, with the consequence written into the button between them —
   the same arming pattern as the destructive control on /admin, and for the same
   reason: a `confirm()` on a phone is a system sheet you dismiss by reflex.
-- **Ship** — opens an iTerm session on the Mac with a deploy-only brief. The brief
-  carries what is already true — merged, on origin, not in the running build — so the
-  session does not start by working out what this screen already knew. Offered on
-  merged rows even when all three lamps are lit, because a repo can need shipping
-  twice. This still goes through a session rather than through the daemon; the daemon
-  now *can* deploy a repo that declares how ([below](#deploying-a-repo-when-it-says-how)),
-  and which of the two this button uses is a separate decision that has not been made.
+- **Ship** — **runs this repo's declared deploy** ([below](#deploying-a-repo-when-it-says-how))
+  where there is one, and opens an iTerm session with a deploy-only brief where there is
+  not. Which of the two it will do is on the button before you press it — *Ship* against
+  *Ship on the Mac* — with the command named in the line underneath, because `fly deploy`
+  costs nothing you would notice and `launchctl kickstart -k` kills the daemon you are
+  reading it on. The deploying one takes **two taps**, like Merge: the reason the old
+  Ship needed no guard was that a window is something you can watch and stop, and a
+  declared deploy is not. The session's brief carries what is already true — merged, on
+  origin, not in the running build — so it does not start by working out what this
+  screen already knew. Offered on merged rows even when all three lamps are lit, because
+  a repo can need shipping twice.
+
+  Both halves of the app now mean the same thing by the word: **Ship it** on a delivery
+  card merges and then deploys, and this deploys work that is already merged. One word
+  that did two different things depending on which screen you were on was the thing
+  worth fixing; a repo that has declared nothing keeps the window, and loses nothing.
 - **Comment** — goes to the pull request on GitHub and stops there. Not
   [`/api/comment`](#the-conversation-both-ways), which writes on a *bead* and puts an
   agent onto answering it.
@@ -2351,15 +2369,20 @@ with a real `origin` to fetch from — the three-state ancestry, deployed meanin
 boot commit rather than the newest one, the bead tiers, and that `landLocally` leaves
 a dirty checkout exactly as it found it. `node scripts/prs-check.mjs` covers the
 phone's half in headless Chrome with every POST recorded: that the first tap on merge
-sends *nothing*, that Ship is absent until it is merged, and that a refusal lands
-under the row as GitHub's own sentence.
+sends *nothing*, that Ship is absent until it is merged, that the deploying Ship arms
+and the window-opening one does not, and that a refusal lands under the row as GitHub's
+own sentence. `node test/prship.mjs` covers the fork itself end to end through the
+daemon — a declared deploy started with no window, a repo with none falling through to
+the session, two taps not becoming two deploys, and an unmerged pull request deploying
+nothing.
 
 ### Deploying a repo, when it says how
 
 For a long time the daemon could do everything after a merge except the last thing.
 `grep` for `launchctl` across `lib/` and `bin/` found prose in comments and nothing that
-runs: every deploy on this Mac was Adam at a keyboard, and the Ship button above is a
-window that asks him to be. `lib/deploy.js` is the missing verb.
+runs: every deploy on this Mac was Adam at a keyboard, and the Ship button above was a
+window that asked him to be. `lib/deploy.js` is the missing verb, and Ship now runs it
+wherever it has been written down.
 
 **A deploy is declared, never guessed.** `deploys` in `~/.config/beadcause/config.json`,
 keyed by workspace, empty by default and empty for most repos forever:
@@ -2952,11 +2975,12 @@ Five things follow, and they are the whole of the change:
   and the merge commit in its close reason. A session does not close its own bead here;
   the delivery does, and the advocate reads that reason back so the sessions page can say
   *landed #42* rather than the older and much weaker "closed by the session".
-- **Deploying is still yours.** The merge is on `origin`; whether that is *running* is a
-  different fact with a different button. The notification says what landed and what is
-  still owed, and links to [the PR board](#pull-requests--merged-pushed-deployed), where
-  **Ship** is. What a deploy even *is* lives in each repo's `CLAUDE.md`, and a worker
-  being right about a merge does not make it right about that. On a card that *did* come
+- **Deploying is still yours to ask for.** The merge is on `origin`; whether that is
+  *running* is a different fact with a different button. The notification says what
+  landed and what is still owed, and links to
+  [the PR board](#pull-requests--merged-pushed-deployed), where **Ship** is. A worker
+  being right about a merge does not make it right about a deploy, so it never runs one
+  — but where the repo has written its deploy down, Ship is one tap and no window. On a card that *did* come
   to you, the two are one tap apart: **Merge** and **Ship it** sit next to each other,
   and the difference between them is the whole of [the next section](#ship-it--the-same-merge-and-then-the-deploy).
 
@@ -3055,8 +3079,9 @@ exactly the part worth a second's thought: `fly deploy` costs nothing you would 
 and `launchctl kickstart -k` on this Mac SIGKILLs the daemon you are holding.
 
 **Merge is still first, and still the safe one.** Ship sits second, deliberately not
-under a thumb aiming at the top button: a merge you meant to ship is one more tap on the
-PR board, and a deploy you did not mean is not a tap at all. Both arm the same way —
+under a thumb aiming at the top button: a merge you meant to ship is two more taps on
+[the PR board](#the-three-buttons), where Ship runs the same declared deploy this one
+does, and a deploy you did not mean is not a tap at all. Both arm the same way —
 tap, then tap again — and both are disabled on the same facts, because a pull request
 GitHub will not take is not one to ship either.
 
