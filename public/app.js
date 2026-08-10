@@ -3546,7 +3546,12 @@
           method: 'POST',
           body: JSON.stringify({ workspace: q.workspace, id: q.id }),
         });
-        toast(`Session open in ${res.dir.split('/').pop()} — go to your Mac`);
+        // `endorsed` is the server saying this bead was being held back from every
+        // agent until this tap (lib/endorse.js). Worth a word: it is a decision you
+        // just made, and nothing else on this card says you made it.
+        toast(
+          `${res.endorsed ? 'Endorsed it — session' : 'Session'} open in ${res.dir.split('/').pop()} — go to your Mac`
+        );
       } catch (err) {
         toast(err.message, true);
       } finally {
