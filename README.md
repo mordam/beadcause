@@ -2221,16 +2221,27 @@ in another room:
   beadcause holding words back that the session was ready to take would be a delay it
   invented.
 
-And the one surprise the channel has: **`write text` presses return at the end of a
-line**, so a second line would submit as a second message — half a sentence into a
-running agent. A multi-line message is closed up to one line, warned about while you are
-still typing it, and confirmed after it has gone. That flattening is the whole reason
-Claude Code's IDE WebSocket was investigated first ([`docs/ide-websocket-spike.md`](docs/ide-websocket-spike.md),
-on `bc-g1l`), and the reason it is not what this is built on: it *can* put multi-line
-text in a live session's input box, but there is no message in that protocol which
-submits one, so it would still need a return keystroke from AppleScript — a second
-channel bolted alongside this one rather than a replacement for it, and one that reaches
-only sessions inside its declared `workspaceFolders`.
+**Two paragraphs arrive as two paragraphs.** They used to arrive as one line: `write
+text` adds a return at the end of what it writes, so a second line would have submitted
+as a second message — half a sentence into a running agent — and the text was closed up
+before it went, warned about while you typed and confirmed after it landed. That
+flattening was the whole reason Claude Code's IDE WebSocket was investigated
+([`docs/ide-websocket-spike.md`](docs/ide-websocket-spike.md), on `bc-g1l`), and the
+spike ended by finding the flattening was never a property of AppleScript at all — only
+of a default. `write` takes a `newline` boolean, so the message goes down as a bracketed
+paste with `newline no` and submits nothing, and a bare `write text ""` after it is the
+one Return that sends the lot as a single turn. Two statements on the channel that was
+already there, which is why nothing here speaks the WebSocket: it can put multi-line text
+in a live session's box but has no message that submits one, so it would have needed the
+AppleScript return anyway — a second channel bolted alongside this one, reaching only
+sessions inside its declared `workspaceFolders`.
+
+Two things about it worth knowing. `SAY_MAX` is unchanged and still real: the message
+rides to `osascript` as an argument however many lines it is split over, so ARG_MAX is
+still the ceiling and 8000 characters is refused for being long rather than mistaken for
+a session that has gone. And on the Mac itself, a message over a few lines shows in the
+composer as `[Pasted text #1 +6 lines]` rather than as the words — it submits in full,
+but anyone reading that screen is reading a placeholder.
 
 `POST /api/session-say` is token-authenticated like everything else under `/api/`, and
 it is *not* refused in observe mode: `BEADCAUSE_OBSERVE` is about the daemon acting on
@@ -2241,12 +2252,14 @@ console, which a spare-port instance is booted precisely to try.
 phone size against fixtures, and it is pointed at the promises rather than the markup:
 the words surviving a refusal, a dropped connection and a repaint; the box disappearing
 when a send comes back saying the session is out of reach; the reply arriving through
-the transcript pane rather than through the send's own response. `--baseline` fails all
-fifteen, because before this there was no box. The delivery itself is the one part no
-test does — `write text` into a live window would type a fixture string into whatever
-session answered — so `test/session.mjs` covers the rules around it instead: reach
-refusing a pid with no terminal, the flattening rule, and the AppleScript matching a tty
-as well as an id.
+the transcript pane rather than through the send's own response; and, since `bc-75q2`,
+the line breaks reaching the wire with nothing on the page claiming they were closed up.
+`--baseline` fails all of them, because before this there was no box. The delivery itself
+is the one part no test does — `write text` into a live window would type a fixture
+string into whatever session answered — so `test/session.mjs` covers the rules around it
+instead: reach refusing a pid with no terminal, the length refused on the message as
+typed rather than on a flattened one, and the AppleScript matching a tty as well as an id
+and sending its paste with `newline no` and exactly one Return after it.
 
 Every card has a **Graph →** into the whole workspace — which is also the answer to
 "how do I see what another session just created", since the graph draws every open
@@ -2811,9 +2824,11 @@ one whose window you had closed looked exactly the same.
 There is no socket to an advocate's session; it is an iTerm window, and the daemon owns
 neither the window nor the shell in it. What it does own is the window's **iTerm session
 id**, captured from `scripts/open-session.applescript` at launch. That is the channel:
-`scripts/message-session.applescript` writes one line into that session, exactly as if
-it had been typed, and Claude Code takes input mid-turn and answers it when the turn
-lands. Three outcomes per open session, each a fact rather than a guess:
+`scripts/message-session.applescript` writes into that session exactly as if it had been
+typed, and Claude Code takes input mid-turn and answers it when the turn lands. The
+check-in itself is still one line, but by its own choice now rather than the channel's —
+one instruction and one command to run is not something to spread over six lines in a
+window somebody is working in. Three outcomes per open session, each a fact rather than a guess:
 
 | addressing the window… | reading |
 |---|---|
@@ -2904,6 +2919,21 @@ them to ask GitHub.
 it is resumable. The branch is kept deliberately — `git branch -d` refuses a branch
 checked out in another worktree, and the branch is what makes the retirement
 reversible. Retired worktrees accumulate; nothing here ever removes one.
+
+**A `STRAY` row in the attic sweep is worth distrusting before you act on it.** The
+sweep lives outside this repo, but what it reports about `.claude/worktrees-retired/`
+is read as a statement about this one — and for a while it was wrong. It tested each
+retired directory for a registration by piping `git worktree list` into `grep -q`
+under `set -o pipefail`: grep exits at its first match, git takes SIGPIPE while it is
+still walking the rest, the pipeline reports 141, and a directory that *is* registered
+reads as one that is not. It called most of a healthy 85-entry attic unregistered, a
+different subset each run, which is what a race looks like from the outside. bc-bcdp
+was filed against the attic on that evidence; the attic was fine, and every directory
+in it had been put there by `git worktree move` exactly as this page describes.
+Two things to check before believing the next one: `git worktree list --porcelain |
+grep worktrees-retired | wc -l` against `ls -1d .claude/worktrees-retired/*/ | wc -l`,
+and whether the row survives a second run. `test/pipefail.mjs` keeps the construct out
+of this repo's own scripts, where it sat in four places.
 
 Two limits worth knowing. A session's `cwd` is recorded when it starts, so a session
 that later entered a worktree does not show as being *in* it — the lock is what
@@ -4657,7 +4687,14 @@ cookie says so), and `/auth/signout` ends the session.
 | GET | `/api/poll` | `?since=<seq>&wait=<s>` | long-poll: `{seq, resync, events[], questions, workspaces[]}` |
 | POST | `/api/respond` | `{workspace, id, response, create?, edits?}` | comments, then closes the bead. `create` is the 1-based indices of a proposal's beads to file; without it, `CREATE:` in the text means all and `CREATE: 1,3` means those. `edits` is `{n: {title, type, priority, description, acceptance}}` keyed by the same numbers, applied before creating. A `MERGE:` / `CHANGES:` / `DECLINE:` response on a delivery question acts on its pull request first — see [Landing work](#landing-work--a-branch-a-pull-request-and-the-workers-own-merge) |
 | GET | `/api/pr` | `?workspace=&id=` | `{delivery, pr, unavailable}` — the live diffstat, check rollup and mergeability of a delivery question's PR. Every failure is an answer rather than a 500: no `gh`, no remote, GitHub unreachable all come back with `pr: null` and a sentence in `unavailable` |
+| GET | `/api/prs` | `?refresh=1` | the PR board: every pull request in every repo with its Merged · Pushed · Deployed lamps, plus `observing`. Cached 25s on the daemon; `refresh=1` forces the `gh` sweep |
+| POST | `/api/pr/merge` | `{workspace, number, method?}` | merges it at GitHub, then fast-forwards this Mac's `main`. The two halves report separately — `{pr, alreadyMerged, land}` — because a merge that landed and a fast-forward refused over open files is a *good* outcome and one flat failure over both would send you to GitHub to find out which |
+| POST | `/api/pr/ship` | `{workspace, number}` | the declared deploy where the repo has one, an iTerm session where it does not. `409` if the PR is not merged — shipping an unmerged pull request has no meaning. Refused on an observer |
+| POST | `/api/pr/comment` | `{workspace, number, text}` | a note on the pull request at GitHub and nothing else. Not `/api/comment`, which writes on a *bead* and puts an agent onto answering it |
 | POST | `/api/comment` | `{workspace, id, text, agent?}` | comments, sets `human-replied`, dispatches that agent to reply (default when absent or unknown) |
+| POST | `/api/dismiss` | `{workspace, id, reason?}` | takes the card off the screen and **closes nothing**. Writes your note if you typed one, writes nothing at all if you did not, and never touches the status — "I am not dealing with this now" is not "this is decided" |
+| POST | `/api/filter` | `{space, workspace}` | which slice the inbox is, remembered server-side so every client agrees and the notifications match. Each is a name or `all`, bounded at 120 characters. Widening forgets what you had declined |
+| POST | `/api/notifications/dismiss` | `{keys[], confirm}` | clears the phone's notification rows for beads the filter excludes. `confirm: false` records the decline, which is what stops the next sweep asking again. The beads are untouched either way |
 | POST | `/api/ask` | `{workspace, title, body, priority}` | `{id, key}` — files a new `human` bead |
 | POST | `/api/session` | `{workspace, id}` | `{dir}` — opens iTerm2 + `claude` on that bead |
 | POST | `/api/status` | `{workspace, id, phase, detail, actor}` | agent progress |
@@ -4674,7 +4711,9 @@ cookie says so), and `/auth/signout` ends the session.
 | GET | `/api/foundation` | — | `{requests[], workspaces[]}` — the foundation channel on its own, without an inbox sweep. **The bare path is the channel and nothing else** |
 | GET | `/api/foundations` | `?workspace=` | `{agents[], workspace, workspaces[]}` — every agent kind, for the list on the agents screen |
 | GET | `/api/foundation/agent` | `?id=&workspace=` | `{agent, workspace}` — one agent's foundation, history and activity. `404` for an id that is not an agent kind. Named for its neighbours `/api/foundation/{amend,decline,log}`, and *not* the bare path: it was registered there too, where it never answered once |
-| GET | `/api/advocates` | — | `{advocates[]}` — per repo: queue, open sessions, note, error |
+| POST | `/api/foundation/amend` | `{id, workspace?, set, bead?, justification}` | edits one agent's foundation, recorded exactly like an amendment the agent asked for — same history, same justification. `400` naming the field if `set` carries a protected one, rather than dropping it silently |
+| POST | `/api/foundation/decline` | `{id, workspace?, bead?, request, reason}` | records a refusal against that agent, so `git log refs/beadcause/foundations` carries the no as well as the yes |
+| GET | `/api/foundation/log` | `?id=&ws=&bead=` | `{key, log}` — that agent's transcript. `{key: null}` and a sentence when the kind keeps no log file |
 | POST | `/api/advocate` | `{workspace, action}` | `pause` · `resume` · `release` (free the slots) · `forget` (clear attempt counters) |
 | GET | `/api/advocate-log` | `?workspace=` | the survey agent's transcript, as the CLI would have shown it |
 | GET | `/api/session-archive` | `?workspace=&id=` | the archived sessions for a bead |
@@ -4698,6 +4737,14 @@ cookie says so), and `/auth/signout` ends the session.
 | POST | `/api/terminal/close` | `{id}` | ends it (SIGTERM, then SIGKILL after 5s) |
 | WS | `/ws/terminal` | `?id=`, subprotocols `beadcause.term.v1` + `tok.<token>` | binary frames both ways are pty bytes; JSON carries `hello` · `ready` · `exit` in, `input` · `resize` · `close` out |
 | GET | `/terminal` | `?id=` or `?ws=&seed=` | the terminal page |
+| GET | `/api/admin` | — | every scope and what pausing it would cost. Read-only and cheap — no `bd` call, no spawn — because `/admin` polls it and the counts on the buttons have to be current when you press one |
+| POST | `/api/admin` | `{action, what, scope, mode}` | pause or resume everything, one space, or one half of it. `what` is `all` · `advocates` · `terminals`; `mode` is `drain` (default — no new launches, running workers finish untouched) or `kill`. Never run at boot: a `launchctl kickstart -k` behaves exactly as it did. Refused on an observer |
+| GET | `/api/deploys` | `?limit=` or `?id=` | the recent deploys, or one with its log. Four endings, not two: `ok`, `failed`, and the two that mean nobody knows — `unconfirmed` (the ordinary ending of a restart) and `lost` |
+| POST | `/api/deploy` | `{workspace, bead?, reason?}` | runs that repo's declared deploy. `409` with no declaration, or if one is already running. Means "written down and a process owns it", never "it worked". Refused on an observer |
+| POST | `/api/presence` | `{device, view, key}` | which view this device has open, so the mirror can follow it. Wakes `/api/poll` without costing a `bd` sweep — see `changed` there |
+| GET | `/api/presence` | — | `{devices[]}` — who is where |
+| DELETE | `/api/presence` | `{device}` | forget one device |
+| POST | `/api/session-say` | `{pid, text}` | says one line into a live session's own iTerm window. `413` with the words left in the box if it is past `SAY_MAX` — the message rides to `osascript` as an argument, and past `ARG_MAX` the failure reads as "the session is gone", which is the one thing this must not lie about |
 
 Two more, **loopback and token only**, and never proxied to a backend — anyone on
 the tailnet holding the token could otherwise stop the poller:

@@ -108,6 +108,61 @@ check(
   'and no (method, path) is registered twice, so no handler is shadowed'
 );
 
+/* ------------------------------------------------- the README knows what it serves */
+
+/**
+ * Every `/api` path the server answers is in the README's API table, and every one in
+ * the table is answered.
+ *
+ * Both directions, because both had gone wrong and they fail differently. Seventeen of
+ * the forty-nine paths were missing — not a sloppy row here and there but *whole
+ * surfaces*: `/api/admin`, `/api/prs` and the rest of the PR board, `/api/foundations`,
+ * `/api/filter`. And the table carried a row for `GET /api/advocates`, which had no
+ * caller in the repo at all; the row was the only evidence it should exist, which is
+ * precisely how a route with nothing behind it stays convincing enough not to delete.
+ *
+ * A documentation check earns its place in a suite only when the drift is invisible
+ * otherwise, and this one was: nothing about serving an undocumented route feels wrong
+ * from inside the server, and nothing about documenting an unserved one feels wrong from
+ * inside the README.
+ */
+const README = fs.readFileSync(path.join(HERE, '..', 'README.md'), 'utf8');
+/**
+ * `(method, path)` on both sides, not path alone.
+ *
+ * Path granularity looks like it works and quietly does not: `/api/presence` answers
+ * GET, POST and DELETE, so deleting the GET row leaves the path still "documented" by
+ * its two siblings and the check passes over a hole. The duplicate scan above is already
+ * per pair, and these two claims should not disagree about what a route is.
+ *
+ * Table rows only — `| GET | \`/api/x\` | … |` — rather than every mention of a path in
+ * 4,800 lines of prose. A route argued about in a paragraph is not a documented one.
+ */
+const documented = new Set();
+for (const m of README.matchAll(/^\|\s*(GET|POST|PUT|DELETE|PATCH)\s*\|\s*`(\/api\/[a-z/-]+)`/gim)) {
+  documented.add(`${m[1].toUpperCase()} ${m[2]}`);
+}
+const served = new Set(pairs.map((r) => `${r.method} ${r.path}`));
+// `/api/health` is in the table and answered before the token check, above the chain
+// these pairs come from — so it is served, just not by a line this scan can see.
+served.add('GET /api/health');
+
+const undocumented = [...served].filter((r) => !documented.has(r)).sort();
+const phantom = [...documented].filter((r) => !served.has(r)).sort();
+
+check(
+  () => assert.ok(documented.size >= 40, `only ${documented.size} rows matched — has the API table moved or changed shape?`),
+  `the README's API table is readable — ${documented.size} routes in it`
+);
+check(
+  () => assert.deepEqual(undocumented, [], `served but undocumented: ${undocumented.join(', ')}`),
+  'every /api path the server answers is in it'
+);
+check(
+  () => assert.deepEqual(phantom, [], `documented but not served: ${phantom.join(', ')}`),
+  'and every route in it is one the server answers'
+);
+
 /* ------------------------------------------------------------------- the app */
 
 const ws = path.join(tmp, 'ws');

@@ -132,9 +132,11 @@ orders do not, and should not.
 
 The spike closed by claiming the channel buys exactly one thing over what beadcause
 already has — **multi-line text with no quoting** — because
-`scripts/message-session.applescript` puts words into a live worker and presses return
-today, but `write text` ends with a return, so the message is flattened to one line
-first. That was the whole case for a second channel.
+`scripts/message-session.applescript` puts words into a live worker and presses return,
+but `write text` ended with a return, so the message was flattened to one line first.
+That was the whole case for a second channel. (Was: the two statements below are what
+that script does now — shipped on `bc-75q2`, and nothing in the app claims a flattening
+any more.)
 
 **The claim was wrong.** The flattening is not a property of AppleScript; it is a
 property of the *default* on one parameter. iTerm's `write` command takes a `newline`
