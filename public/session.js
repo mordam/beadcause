@@ -182,10 +182,12 @@
    * the message anyway, find out afterwards, and the words are gone. Saying it in the
    * place the box would have been is the whole of the second acceptance criterion.
    *
-   * The hint under the box is live, because the one surprise this channel has is that
-   * it flattens. Better to read "will be sent as one line" while you are still writing
-   * the second paragraph than to be told about it once it is too late to phrase it
-   * differently.
+   * The hint under the box is live, and what it has to say has changed: the channel
+   * used to close your newlines up, and now it keeps them. What is left worth saying
+   * while you are still typing is what a multi-line message *looks like* on the Mac —
+   * the composer there shows `[Pasted text #1 +6 lines]`, not the words — because
+   * someone standing over that screen would otherwise read a placeholder as a lost
+   * message. It submits in full either way.
    */
   function sayHtml(s) {
     const reach = state.reach;
@@ -204,7 +206,7 @@
 
     const busy = s.status === 'busy';
     const hints = [];
-    if (/\n/.test(state.draft)) hints.push('Newlines close up — this goes as one line.');
+    if (/\n/.test(state.draft)) hints.push('Line breaks are kept — it goes as one message, pasted.');
     if (busy) hints.push('It is mid-turn, so the session holds this until the turn lands.');
 
     const note = state.note
@@ -372,11 +374,14 @@
 
       // Only the words that actually went. Anything typed since stays put.
       if (state.draft === going) state.draft = '';
+      // Said from the text that went rather than from a field on the response: the
+      // daemon has nothing left to report about the shape of the message, because
+      // nothing happens to it any more.
       state.note = {
-        kind: data.flattened ? 'warn' : 'ok',
+        kind: 'ok',
         text: [
           data.queued ? 'Sent — the session is mid-turn and will answer when it lands.' : 'Sent.',
-          data.flattened ? 'It went as one line: the newlines were closed up.' : '',
+          /\n/.test(text) ? 'Line breaks and all, as one message.' : '',
           'Watch the transcript below.',
         ]
           .filter(Boolean)

@@ -24,10 +24,14 @@
 //     obvious way to write it, and it only costs you anything on the day the send
 //     fails.
 //
-// Plus the one surprise the channel has: `write text` presses return at the end of a
-// line, so a two-paragraph message goes as one line. Said before you send and again
-// after, because a message that quietly reflowed is a message you think arrived as
-// typed.
+// Plus the promise that replaced this channel's one surprise. `write text` used to press
+// return at the end of a line, so a two-paragraph message went as one line, and the page
+// warned you about it twice. It does not reflow any more — the AppleScript pastes the
+// text and presses Return once — so what is checked here is the other direction, and it
+// is the stricter of the two: the words go on the wire with their newlines intact, and
+// nothing on the page claims a flattening that no longer happens. A warning left behind
+// after the behaviour it described is a page lying about something it used to be honest
+// about.
 //
 // The real public/session.js in a headless Chrome the size of a phone, against fixtures
 // served from this process — so nothing here touches the daemon, a real session, or an
@@ -113,7 +117,7 @@ const TYPES = {
 const committed = (rel) => execFileSync('git', ['show', `HEAD:${rel}`], { cwd: ROOT });
 
 /** What the fixture does to the next send. Set per case, read once. */
-const behave = { mode: 'ok', flattened: false, queued: true };
+const behave = { mode: 'ok', queued: true };
 /** Every send that arrived, so a case can assert what was actually on the wire. */
 const received = [];
 /** Flipped once a send is accepted: the session has answered, in the transcript. */
@@ -156,7 +160,9 @@ function serve() {
         }
         const answer = () => {
           replied = true;
-          json({ ok: true, sent: sent.text, flattened: behave.flattened, queued: behave.queued });
+          // Shaped like the real endpoint's answer, which no longer has anything to say
+          // about what happened to the text — because nothing happens to it.
+          json({ ok: true, sent: sent.text, queued: behave.queued });
         };
         // A send held open on purpose, so the case that types *during* one has a
         // window to type in.
@@ -387,16 +393,15 @@ try {
   await sleep(150);
   v = await evalJs(s, SAY);
   check(
-    'a message with a newline warns that it goes as one line, before it goes',
-    /one line/i.test(v.hint),
+    'a message with a newline says the line breaks are kept, before it goes',
+    /kept|line breaks/i.test(v.hint) && !/one line/i.test(v.hint),
     JSON.stringify(v.hint)
   );
-  check('and the words survive the repaint that put the warning there', v.draft === 'two\n\nparagraphs', JSON.stringify(v.draft));
+  check('and the words survive the repaint that put the hint there', v.draft === 'two\n\nparagraphs', JSON.stringify(v.draft));
 
   /* ---- the send: what goes on the wire, and the box emptying only then ---- */
 
   behave.mode = 'ok';
-  behave.flattened = true;
   received.length = 0;
   await evalJs(s, submit);
   await waitFor(s, `(${SAY}).note.length > 0 && !/Sending/.test((${SAY}).note)`, 40);
@@ -406,10 +411,15 @@ try {
     received.length === 1 && received[0].pid === LIVE && received[0].text === 'two\n\nparagraphs',
     JSON.stringify(received)
   );
+  check(
+    'and the newlines are on the wire, not closed up on the way to it',
+    received.length === 1 && received[0].text.split('\n').length === 3,
+    JSON.stringify(received[0]?.text)
+  );
   check('the box empties once the daemon says it delivered', v.draft === '', JSON.stringify(v.draft));
   check(
-    'and it admits the newlines were closed up, rather than letting you assume',
-    /one line/i.test(v.note) && v.noteKind === 'say-warn',
+    'and it says the line breaks went too, rather than warning about a reflow that no longer happens',
+    /line breaks/i.test(v.note) && !/one line/i.test(v.note) && v.noteKind !== 'say-warn',
     `${JSON.stringify(v.note)} (${v.noteKind})`
   );
   check(
@@ -431,7 +441,6 @@ try {
   /* ---- the keyboard's own send button ---- */
 
   received.length = 0;
-  behave.flattened = false;
   await evalJs(s, type('and again'));
   await evalJs(s, pressEnter);
   await waitFor(s, `${received.length} > 0 || (${SAY}).draft === ''`, 30);
