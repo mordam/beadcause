@@ -138,14 +138,11 @@ body {
   cursor: pointer;
 }
 
-/* The gear wears the scope. Once the panel is closed, this is the only thing on
-   screen that says why "Climative 59" is not a count of questions. */
-.icon-btn.wide { border-color: var(--accent); color: var(--accent); }
-
 /*
-  Two stacked rows now — spaces, then the workspaces within the chosen space — so
-  the container stacks and each row scrolls sideways on its own. With no spaces
-  configured only the second row renders and this looks exactly as it did.
+  Three stacked rows — the scope, then the spaces, then the workspaces within the
+  chosen space — so the container stacks and each row scrolls sideways on its own.
+  Only the scope row is unconditional; with one space and one workspace this is a
+  single row of three chips.
 */
 .filters {
   display: flex; flex-direction: column; gap: 6px;
@@ -157,7 +154,27 @@ body {
   scrollbar-width: none;
 }
 .chip-row::-webkit-scrollbar { display: none; }
-/* The space row leads, so it reads as the coarser choice. */
+/*
+  The scope leads, and it is a different *kind* of control from the two rows under
+  it: those filter the rows already fetched, this one changes what gets fetched at
+  all. So it is set apart — squarer, tighter, banded together like one segmented
+  switch rather than three independent chips — and a rule under it draws the line
+  between "which slice of the tracker" and "which part of that slice".
+*/
+.chip-row.scopes { gap: 0; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
+.chip-row.scopes .chip {
+  border-radius: 0;
+  border-left-width: 0;
+  padding: 6px 16px;
+  font-weight: 620;
+}
+.chip-row.scopes .chip:first-child { border-radius: 999px 0 0 999px; border-left-width: 1px; }
+.chip-row.scopes .chip:last-child { border-radius: 0 999px 999px 0; }
+/* The accent fill eats its own left border, so the chip after it has to grow one
+   back or the switch loses a divider wherever the armed chip happens to sit. */
+.chip-row.scopes .chip[aria-pressed="true"] + .chip { border-left: 1px solid var(--line); }
+
+/* The space row is the coarser of the two that filter. */
 .chip-row.spaces .chip { font-weight: 620; }
 .chip {
   flex: 0 0 auto;
@@ -1727,7 +1744,8 @@ button.work-row {
 .setup h2 { margin: 0 0 8px; font-size: 17px; }
 .setup p { color: var(--muted); font-size: 14px; margin: 0 0 12px; }
 /*
-  The scope switch inside the settings dialog.
+  A row of equal-width buttons inside a dialog — the foundations amendment's
+  Cancel/Save pair.
 
   `.scope` is the graph tab's page-level switch — sticky, full-bleed, with a rule
   under it. In a dialog none of that chrome applies, so it is undone here rather
@@ -1740,7 +1758,6 @@ button.work-row {
   position: static;
 }
 .setup .scope-btn { flex: 1; }
-#scope-note { min-height: 40px; }
 
 .setup input {
   width: 100%; min-height: var(--tap);
