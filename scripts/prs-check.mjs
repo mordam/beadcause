@@ -17,9 +17,12 @@
 //   • **A lamp with three states.** On, off, and the hollow ring that means nobody
 //     has looked. Drawn from the same fixture the daemon would send, so a row that
 //     collapses "unknown" into "no" fails here.
-//   • **Merge is armed.** The first press must send nothing. A phone in a pocket that
-//     merges on one tap is the single worst thing on this screen, and the only proof
-//     is the absence of a request.
+//   • **Merge is armed, and so is a Ship that deploys.** The first press must send
+//     nothing. A phone in a pocket that merges on one tap is the single worst thing on
+//     this screen, and the only proof is the absence of a request. Ship joined it the
+//     day it stopped opening a window you could watch and started running the repo's
+//     declared deploy — in the repos that declare one, which is what its label and the
+//     line under it say before you touch it.
 //   • **Which buttons exist.** Merge only while it is open, Ship only once it is
 //     merged. Not greyed out — absent, so there is nothing to think about.
 //   • **A refusal is readable.** A merge GitHub will not do comes back as a sentence
@@ -77,6 +80,11 @@ const row = (over) => ({
   local: true,
   deployed: true,
   deployTracked: true,
+  // The default is the repo that has declared no deploy, because that is most of them
+  // — and it is the row whose Ship still opens a window on the Mac. The one that
+  // deploys from here is a row of its own below, so both are on screen at once.
+  deployDeclared: false,
+  deployHint: '',
   stage: 'deployed',
   note: '',
   ...over,
@@ -128,6 +136,16 @@ const BOARD = () => ({
           deployed: null,
           stage: 'merged',
           note: 'Nothing here has seen that commit yet — this Mac may not have fetched.',
+        }),
+        row({
+          key: 'demo#5',
+          number: 5,
+          title: 'Merged in a repo that wrote its deploy down',
+          deployed: false,
+          stage: 'pushed',
+          deployDeclared: true,
+          deployHint: 'runs `launchctl` · rebuilds APK · restarts beadcause',
+          note: 'Merged and pushed — but not in the build that is running. Ship it.',
         }),
         row({ key: 'demo#1', number: 1, title: 'Shipped and running' }),
       ],
@@ -362,7 +380,7 @@ try {
   console.log('what the lamps say');
 
   ok(
-    (await evalJs(s, `document.querySelectorAll('#prs .board-pr').length`)) === 4,
+    (await evalJs(s, `document.querySelectorAll('#prs .board-pr').length`)) === 5,
     `every pull request is drawn — ${await evalJs(s, `document.querySelectorAll('#prs .board-pr').length`)} rows`
   );
 
@@ -480,7 +498,15 @@ try {
   await evalJs(s, OPEN_ROW(3));
   await sleep(200);
   posted.length = 0;
-  reply = { status: 200, body: { ok: true, dir: '/Users/x/repos/demo', mode: 'default' } };
+  reply = { status: 200, body: { ok: true, via: 'session', dir: '/Users/x/repos/demo', mode: 'default' } };
+  const shipLabel = await evalJs(s, `document.querySelector('#prs [data-act="ship"]')?.textContent.trim() || ''`);
+  ok(/on the Mac/.test(shipLabel), `a repo with no declared deploy says the window in the label — "${shipLabel}"`);
+  ok(
+    /no deploy beadcause can run/.test(
+      await evalJs(s, `document.querySelector('#prs .board-hint')?.textContent || ''`)
+    ),
+    'and says why underneath it'
+  );
   await evalJs(s, clickAct('ship'));
   await sleep(600);
   ok(posted.length === 1 && posted[0].path === '/api/pr/ship', `ship opens a session — ${posted[0]?.path}`);
@@ -489,6 +515,49 @@ try {
     /repos\/demo/.test((await evalJs(s, SAID))?.text || ''),
     `and says where the window is coming up — "${(await evalJs(s, SAID))?.text}"`
   );
+
+  /* ------------------------------------------------- the ship that deploys here */
+
+  // The other half of the same button, and the one that can act without anyone
+  // watching: no window to stop, so it arms like Merge does.
+  console.log('\nand where the deploy is declared, it deploys');
+
+  await s.send('Page.navigate', { url: `${BASE}/prs` });
+  await sleep(1500);
+  await evalJs(s, OPEN_ROW(5));
+  await sleep(200);
+  posted.length = 0;
+  ok(
+    /launchctl/.test(await evalJs(s, `document.querySelector('#prs .board-hint')?.textContent || ''`)),
+    `the row names the command Ship will run — "${await evalJs(s, `document.querySelector('#prs .board-hint')?.textContent.trim() || ''`)}"`
+  );
+  await evalJs(s, clickAct('ship'));
+  await sleep(300);
+  ok(posted.length === 0, `the first tap sends nothing — ${posted.length} request(s)`);
+  ok(
+    /sure\?/i.test(await evalJs(s, `document.querySelector('#prs [data-act="ship"]')?.textContent || ''`)),
+    `and the button says it is about to deploy — "${await evalJs(
+      s,
+      `document.querySelector('#prs [data-act="ship"]')?.textContent.trim() || ''`
+    )}"`
+  );
+
+  reply = { status: 200, body: { ok: true, via: 'deploy', deploy: { id: 'd-abc123', workspace: 'demo' }, number: 5 } };
+  await evalJs(s, clickAct('ship'));
+  await sleep(600);
+  ok(posted.length === 1 && posted[0].path === '/api/pr/ship', `the second tap deploys — ${posted[0]?.path}`);
+  ok(posted[0]?.body.number === 5, 'for the row it was pressed on');
+  const deploying = await evalJs(s, SAID);
+  ok(
+    /Deploying demo/.test(deploying?.text || '') && !/window/.test(deploying?.text || ''),
+    `and it says a deploy is running, not a window opening — "${deploying?.text}"`
+  );
+  ok(/d-abc123/.test(deploying?.text || ''), 'naming the record, because the outcome arrives later');
+
+  await s.send('Page.navigate', { url: `${BASE}/prs` });
+  await sleep(1500);
+  await evalJs(s, OPEN_ROW(3));
+  await sleep(200);
 
   posted.length = 0;
   reply = { status: 200, body: { ok: true } };

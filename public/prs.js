@@ -17,12 +17,14 @@
  * unknown drawn as "off" would say work was not pushed when the truth is that nobody
  * has looked, and that is the one way this screen could actually mislead you.
  *
- * **Merge is armed; ship and comment are not.** Merging is irreversible and lands on
- * origin the instant it is pressed, so it takes two taps with the consequence written
- * into the button between them — the same arming pattern as the destructive control on
- * /admin, and for the same reason: a `confirm()` on a phone is a sheet you dismiss by
- * reflex. Shipping opens a window on the Mac, which you can watch and stop; commenting
- * writes a sentence on GitHub. Neither of those needs a guard.
+ * **A button that acts is armed; a button that opens a window is not.** Merging is
+ * irreversible and lands on origin the instant it is pressed, so it takes two taps with
+ * the consequence written into the button between them — the same arming pattern as the
+ * destructive control on /admin, and for the same reason: a `confirm()` on a phone is a
+ * sheet you dismiss by reflex. Ship is now on both sides of that line, which is why it
+ * says which it is: in a repo that declares a deploy it runs it from here, so it arms;
+ * in a repo that declares none it opens a session on the Mac you can watch and stop, so
+ * it does not. Commenting writes a sentence on GitHub and needs no guard either.
  */
 (() => {
   'use strict';
@@ -42,7 +44,12 @@
     card: null,
     /** Which PR's actions are open, as `workspace#number`. */
     row: null,
-    /** The armed merge button's row key, if any. Cleared by every repaint. */
+    /**
+     * The armed button, as `<action>@<row key>`. At most one on the whole board, and
+     * cleared by every repaint — two arming buttons now share the row (Merge, and a
+     * Ship that deploys rather than opening a window), and a bare key could not tell
+     * them apart.
+     */
     armed: null,
     /** What you have typed at a PR, kept out here so a repaint doesn't lose it. */
     draft: '',
@@ -129,6 +136,24 @@
     </span>`;
   }
 
+  /** Is *this* button on *this* row the one waiting for its second tap? */
+  const isArmed = (key, action) => state.armed === `${action}@${key}`;
+
+  /**
+   * The sentence under the buttons: what Ship is about to do to this repo.
+   *
+   * Two entirely different acts wear the word "ship" here, and which one you get is a
+   * config entry you cannot see from a phone. So it is written out — with the command
+   * named, because `fly deploy` costs nothing you would notice and `launchctl
+   * kickstart -k` on this Mac kills the daemon you are reading this on.
+   */
+  function shipHint(p) {
+    if (!p.deployDeclared) {
+      return 'Ship opens a session on the Mac — this repo declares no deploy beadcause can run.';
+    }
+    return `Ship deploys ${esc(p.workspace)} from here${p.deployHint ? ` — ${esc(p.deployHint).replace(/`([^`]+)`/g, '<code>$1</code>')}` : ''}.`;
+  }
+
   /**
    * What you can do to it, and the note saying why you might want to.
    *
@@ -137,10 +162,10 @@
    * absence is a fact you read in passing.
    */
   function actionsHtml(p) {
-    const armed = state.armed === p.key;
     const buttons = [];
 
     if (p.state === 'OPEN') {
+      const armed = isArmed(p.key, 'merge');
       buttons.push(
         `<button class="board-btn merge${armed ? ' armed' : ''}" data-act="merge" data-key="${esc(p.key)}">${
           armed ? `Merge #${p.number} — sure?` : 'Merge &amp; push'
@@ -151,9 +176,19 @@
       // Shown even when it is already deployed, because a repo can need shipping twice
       // — an APK that was never rebuilt, a daemon someone restarted onto older code —
       // and a button that vanishes the moment the lamps go green cannot say that.
+      const armed = isArmed(p.key, 'ship');
+      const again = p.deployed === true;
       buttons.push(
-        `<button class="board-btn ship" data-act="ship" data-key="${esc(p.key)}">${
-          p.deployed === true ? 'Ship again' : 'Ship'
+        `<button class="board-btn ship${armed ? ' armed' : ''}" data-act="ship" data-key="${esc(p.key)}">${
+          armed
+            ? `Deploy #${p.number} — sure?`
+            : p.deployDeclared
+              ? again
+                ? 'Ship again'
+                : 'Ship'
+              : again
+                ? 'Ship again on the Mac'
+                : 'Ship on the Mac'
         }</button>`
       );
     }
@@ -170,6 +205,7 @@
         }
       </div>
       <div class="board-actions">${buttons.join('')}</div>
+      ${p.merged ? `<div class="board-hint">${shipHint(p)}</div>` : ''}
       <div class="board-say">
         <textarea data-say="${esc(p.key)}" rows="2" placeholder="Say something on #${esc(p.number)}…">${esc(
           state.draft
@@ -315,9 +351,13 @@
     const p = rowFor(key);
     if (!p || state.busy) return;
 
-    if (action === 'merge' && state.armed !== key) {
+    // Merge always arms. Ship arms only where it will *deploy* — where it opens a
+    // window instead, the window is the guard: you can watch it and stop it, which is
+    // the whole reason this button never needed a second tap before it could deploy.
+    const arms = action === 'merge' || (action === 'ship' && p.deployDeclared);
+    if (arms && !isArmed(key, action)) {
       // First press arms it. Nothing is sent, and the button now says what it will do.
-      state.armed = key;
+      state.armed = `${action}@${key}`;
       return render();
     }
 
@@ -326,7 +366,11 @@
 
     state.busy = true;
     state.armed = null;
-    state.said = { key, text: action === 'ship' ? 'Opening a window on the Mac…' : 'Working…', bad: false };
+    state.said = {
+      key,
+      text: action === 'ship' ? (p.deployDeclared ? `Deploying ${p.workspace}…` : 'Opening a window on the Mac…') : 'Working…',
+      bad: false,
+    };
     render();
 
     const url = action === 'merge' ? '/api/pr/merge' : action === 'ship' ? '/api/pr/ship' : '/api/pr/comment';
@@ -354,7 +398,21 @@
           bad: false,
         };
       } else if (action === 'ship') {
-        state.said = { key, text: `A session is opening in ${data.dir || 'the repo'} to deploy it.`, bad: false };
+        // Which of the two happened comes from the daemon, not from what the button
+        // said a second ago: the row could have been drawn before a `deploys` entry
+        // was added or taken away, and the answer must be about what actually ran.
+        state.said =
+          data.via === 'deploy'
+            ? {
+                key,
+                // Never "deployed". A 200 here means the record is on disk and a
+                // detached runner owns it — for this repo the next thing that happens
+                // is the daemon being killed by its own deploy, and the outcome
+                // arrives later, on the deploys screen and on this phone.
+                text: `Deploying ${p.workspace} — ${data.deploy?.id || 'started'}. How it went lands on your phone.`,
+                bad: false,
+              }
+            : { key, text: `A session is opening in ${data.dir || 'the repo'} to deploy it.`, bad: false };
       } else {
         state.said = { key, text: 'Said on GitHub.', bad: false };
         state.draft = '';
