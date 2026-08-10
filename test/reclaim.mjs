@@ -14,9 +14,11 @@
  *    test, a session that hung after checking in once would hold its slot forever.
  * 3. **macOS refusing the Apple event read as "the window is gone".** Then the first
  *    reclaim after a TCC prompt lapses would free every slot in the house.
- * 4. **A message that submits half a sentence.** `write text` ends with a return, so a
- *    newline in the check-in text sends a fragment into a running agent and leaves the
- *    rest behind.
+ * 4. **A check-in that arrives as six lines of prose.** The channel carries newlines now
+ *    — `messageSession` pastes and presses Return once — so this is no longer a message
+ *    split in half; it is a wall of text landing in a window someone is working in, when
+ *    the whole content is one instruction and one command to run. `checkinMessage` closes
+ *    it up itself, which is why that is asserted here rather than assumed downstream.
  * 5. **The daemon and the bin disagreeing about where a check-in lives.** The session
  *    answers, the answer lands in a directory nobody reads, and the slot goes anyway.
  *
@@ -207,7 +209,7 @@ await check('the check-in file is where the bin will write it', () => {
 
 await check('the message is one line, and names the command that answers it', () => {
   const msg = checkinMessage('alpha', 'al-1', 10);
-  assert.ok(!/\n/.test(msg), 'a newline here submits half a sentence — failure mode 4');
+  assert.ok(!/\n/.test(msg), 'the template closes its own newlines up — failure mode 4');
   assert.match(msg, /bin\/checkin\.js -w alpha -i al-1 -m /, 'the answer has to be copy-pasteable');
   assert.match(msg, /BEAD WORK DONE/, 'the other ending is the one already in the brief');
   assert.match(msg, /10 minutes/, 'and it says what silence costs');

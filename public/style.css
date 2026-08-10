@@ -1701,6 +1701,10 @@ button.work-row {
   color: var(--muted);
   overflow-wrap: anywhere;
 }
+/* `say-warn` has no sender left on this page — the one warning it carried was that your
+   newlines had been closed up, and they are not any more. Kept because "the send half
+   worked" is a shape this composer could need again, and one selector is cheaper than
+   rediscovering the colour. */
 .say-warn { color: var(--warn); }
 .say-bad { color: var(--danger); }
 /* Why there is no box. Indented against a border rather than set in colour: it is not
