@@ -225,6 +225,20 @@ class WatchService : Service() {
                     Notifications.cancel(this, key)
                     showing -= key
                 }
+                // The filter was narrowed and you said to clear what it excludes.
+                //
+                // **Its own branch, not a third name on `answered` above.** The action
+                // happens to be identical — drop the row — but the fact is the opposite
+                // of an answer: this bead is still open, still waiting, and still in the
+                // inbox. Nothing was decided and `bd` was never told. Widen the filter
+                // and it is there again; if it says anything new it rings again. Folding
+                // it into `answered` would have made the shell's log, and any future
+                // client that treats `answered` as "this is settled", quietly wrong.
+                "dismissed" -> {
+                    Log.i(TAG, "$key cleared from the shade (${event.reason ?: "filtered"}) — the bead is untouched")
+                    Notifications.cancel(this, key)
+                    showing -= key
+                }
                 // "created" is a question filed from this phone's own share sheet, and
                 // "activity" is an agent progress chip — neither is worth a buzz.
                 else -> Unit

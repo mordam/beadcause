@@ -24,9 +24,6 @@
 <body>
   <header class="topbar">
     <div class="brand">
-      <!-- Top left, ahead of the title: the scope it opens decides what the whole
-           list below means, so it reads first rather than last. -->
-      <button id="settings" class="icon-btn" aria-label="Settings — what the inbox shows" aria-haspopup="dialog">⚙</button>
       <span class="dot" id="pulse"></span>
       <!-- The mark, not the word. The phone already says "Beadcause" on the home
            screen, in the PWA title and in the switcher; spelling it out a fourth time
@@ -62,6 +59,13 @@
     </div>
   </header>
 
+  <!--
+    Which slice of the tracker the list is, then which space, then which workspace —
+    three rows of chips, coarsest first, all painted by renderFilters() in app.js.
+    The first of them used to be a gear opening a modal; it is a row like the others
+    now, because a setting that changes what every count on the screen means should
+    not need a tap to read.
+  -->
   <nav class="filters" id="filters" hidden></nav>
 
   <main id="list" class="list" aria-live="polite">
@@ -79,25 +83,6 @@
   <div id="scrollpos" class="scrollpos" hidden aria-hidden="true"></div>
 
   <div id="toast" class="toast" role="status" hidden></div>
-
-  <!--
-    Settings. One setting, so it is a panel rather than a page: which slice of the
-    tracker the inbox is. `human` is the app's premise — beads that are asking you
-    something — but a workspace with none of them read as completely idle, so
-    Climative showed 0 while 54 beads were open in it.
-  -->
-  <dialog id="settings-panel" class="setup">
-    <h2>Show</h2>
-    <nav class="scope" id="scope-toggle" role="group" aria-label="Which beads to list">
-      <button data-scope="human" class="scope-btn">Human</button>
-      <button data-scope="both" class="scope-btn">Both</button>
-      <button data-scope="agent" class="scope-btn">Agent</button>
-    </nav>
-    <p id="scope-note"></p>
-    <form method="dialog">
-      <button value="close" class="primary">Done</button>
-    </form>
-  </dialog>
 
   <dialog id="setup" class="setup">
     <form method="dialog">

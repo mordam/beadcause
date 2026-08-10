@@ -210,6 +210,63 @@ you press **All**:
 [beadcause] acme/cl-9x2 arrived quietly (Work is muted right now)
 ```
 
+### And it offers to tidy up the noise it already made
+
+Narrowing the filter silences what comes *next*. It used to say nothing at all about
+the notifications already sitting unread on the phone for the beads it has just
+hidden — which are precisely the ones you have decided not to think about.
+
+So when a filter change excludes beads that are currently ringing, the inbox asks,
+once, naming how many:
+
+> **3 unread notifications for beads this filter hides**
+> Clearing them touches the phone and nothing else — the beads stay open and
+> unanswered, and they come back when you widen the filter.
+>
+> [ Clear them ]  [ Leave them ]
+
+**Clearing is not answering, and not dismissing either.** It drops the rows from the
+Android shell's tray and stops there: `bd` is never called, the beads stay open, they
+stay in the inbox, and widening the filter shows them again — if one of them says
+something new, it rings again. That is why it travels as its own event type,
+`dismissed`, rather than reusing `answered`: every client cancels the row on
+`answered` *and* treats the bead as settled, and nothing here settles anything.
+
+**Leave them** is an answer too, not a cancel — it is recorded, so the next poll does
+not ask again about the same beads. Widening the filter forgets that, so narrowing
+again later is a fresh question rather than a silence you inherited from last week.
+Notifications for beads still inside the filter are never touched, and a filter change
+with nothing excluded and unread prompts nothing at all.
+
+```
+[beadcause] filter narrowed to Work — asking about 2 unread notification(s): sophab/sp-4kd, deluvia/dv-1x9
+[beadcause] cleared 2 notification(s) the filter excludes: sophab/sp-4kd, deluvia/dv-1x9 — the beads are untouched
+```
+
+**The honest limit: an ntfy notification already delivered cannot be recalled.** ntfy
+is a one-way relay and the server has no handle on a message it has published. What
+can actually be cleared is the Android shell's own tray, because that shell holds a
+live connection and cancels on the event. So the prompt only appears when a client
+that *owns* a tray has been seen — the shell passes `shade=1` on its long-poll, and
+nothing else does, so a terminal monitor parked on the same endpoint cannot be
+mistaken for a phone. If ntfy is your only surface, this offers nothing and therefore
+says nothing, rather than showing a button that reports success and clears nothing.
+Two weeks without a shade client counts as an app that has been uninstalled.
+
+There is deliberately no in-app unread marker to clear alongside it. The badge counts
+beads that are **open**, clearing leaves them open, and a count that dropped would be
+claiming a decision nobody made.
+
+`node test/ringing.mjs` (part of `npm test`) covers the server half — including the
+real poller, because the one line that records that a bead rang is the easiest thing
+here to lose in a merge and the hardest to notice: losing it makes the prompt simply
+never appear. `node scripts/shade-check.mjs` is the half that lives in a thumb, in
+headless Chrome at phone size: that the pane lands **inside `#list`** so its buttons
+are delegated to at all, that each one reaches `/api/notifications/dismiss` with the
+right `confirm` and the keys it was shown, and that a poll landing under an unanswered
+prompt does not take it away. `--baseline` runs it against the committed `app.js`,
+where 13 of the 17 fail.
+
 **A quiet space is quiet, not hidden.** Its questions still arrive, still appear in
 the list, still count towards the badge — they just don't light up your phone, and
 the chip shows 🔕 so the silence is legible rather than looking like a fault. That
@@ -1175,7 +1232,7 @@ It is 9.5px monospace with `white-space: pre`, scrolling sideways rather than
 reflowing. The output was laid out by something counting characters at 80 columns,
 and wrapping it would destroy the only alignment it has.
 
-## ⚙ What the inbox shows
+## What the inbox shows
 
 The inbox is `bd human list` filtered to open, and that is the app's whole premise:
 a bead reaches your phone because it is *asking you something*. The cost of that
@@ -1183,7 +1240,7 @@ premise is that a workspace with no `human` beads reads as completely idle — t
 Climative space chip said **0** while 54 beads were open in it and five were being
 worked on. Arithmetically correct, and indistinguishable from a broken app.
 
-So the **gear at the top left** carries one setting, in three positions:
+So the **first row of filter chips** carries one setting, in three positions:
 
 | | shows | costs |
 |---|---|---|
@@ -1193,9 +1250,18 @@ So the **gear at the top left** carries one setting, in three positions:
 
 "Live" is `open`, `in_progress` or `blocked`; deferred and closed are out, because
 neither is anything an agent is on. **Every count on the screen follows the scope** —
-that is the point of it, and why the gear takes an accent border once it leaves
-`Human`: with the panel closed it is the only thing on screen saying why "Climative
-59" is not a count of questions.
+that is the point of it, and it is why the switch is a row of chips rather than the
+gear and modal panel it started as. A setting that changes what every number below it
+means has to be *readable* without a tap; behind a gear, the only thing saying why
+"Climative 59" was not a count of questions was an accent border on the gear itself,
+and you had to already know what it meant.
+
+It sits above the space and workspace rows because it is the coarsest of the three —
+those two filter the rows that came back, this one decides which rows are fetched at
+all. That difference is drawn rather than written: the scope chips are banded into one
+segmented switch with a rule under it, and the filtering rows are loose pills below.
+Being the only unconditional row, it is also what stopped the filter nav from hiding
+itself when a workspace had a single space and a single repo in it.
 
 Three things make this safe to widen:
 
@@ -1228,7 +1294,8 @@ reader still hears which app this is.
 What the reclaimed width is spent on is the premise itself:
 
 ```
-  ⚙  ●  ◔  ( 8 waiting )                    ⌨️  ⚖️  ⟳
+  ●  ◔  ( 8 waiting )                       ⌨️  ⚖️  ⟳
+  [ Human | Both | Agent ]  Climative 59  Personal 4
 ```
 
 **8 waiting** is how many beads are asking you something, and tapping it is the way
@@ -1414,7 +1481,7 @@ throw away the list, the conversation and your scroll position to rebuild the sa
 screen — and it is marked twice over, by the accent colour and by the rule above it,
 because colour alone is not a mark. The bar pads itself past the home indicator.
 
-⚙ and ⟳ stay in the top bar of the views that have them: they act on the view you
+⟳ stays in the top bar of the views that have it: it acts on the view you
 are looking at rather than taking you off it. ⌨️ (the terminal) and ⚖️ (the
 foundations) stay in the inbox's top bar too — they are places you go for one thing
 and come back from, not views you live in.

@@ -31,6 +31,12 @@
     summary: {},
     space: 'all',
     workspace: 'all',
+    // `{ count, keys }` when narrowing the filter has left unread notifications on the
+    // phone for beads it now excludes, else null. Server-decided, both halves: whether
+    // to ask at all, and how many — see lib/ringing.js. Held here rather than drawn on
+    // the spot because the prompt has to survive the 25s poll that lands while you are
+    // reading it.
+    dismissAsk: null,
     open: new Set(),
     armed: null, // key of the option awaiting its confirm tap
     armedTimer: null,
@@ -1566,7 +1572,8 @@
    * broken app, because a space could be showing 0 while fifty-four beads were open
    * in it. So when the scope is the narrow one, the empty state names the way out.
    */
-  const gearNudge = () => (state.scope === 'human' ? ' Tap ⚙ to include the work agents are on.' : '');
+  const widenNudge = () =>
+    state.scope === 'human' ? ' Tap <b>Both</b> above to include the work agents are on.' : '';
 
   function emptyHtml() {
     // "Nothing to decide" printed directly under a pane saying an agent is asking to
@@ -1574,7 +1581,7 @@
     // questions feed, so when the other channel has something in it, say which
     // emptiness this is.
     if ((state.requests || []).length) {
-      return `<div class="empty">Nothing about work is waiting.${gearNudge()}</div>`;
+      return `<div class="empty">Nothing about work is waiting.${widenNudge()}</div>`;
     }
     if (state.scope === 'agent') {
       return `<div class="empty"><strong>Nothing live</strong>No open, claimed or blocked beads in any workspace.</div>`;
@@ -1582,7 +1589,7 @@
     if (state.scope === 'both') {
       return `<div class="empty"><strong>Nothing live</strong>No questions, and no bead open anywhere.</div>`;
     }
-    return `<div class="empty"><strong>Nothing to decide</strong>No open questions labelled <code>human</code>.${gearNudge()}</div>`;
+    return `<div class="empty"><strong>Nothing to decide</strong>No open questions labelled <code>human</code>.${widenNudge()}</div>`;
   }
 
   /**
@@ -1619,6 +1626,50 @@
         </div>
       </header>
       ${rows.map(cardHtml).join('')}
+    </section>`;
+  }
+
+  /**
+   * "You have just hidden three beads that are still buzzing on your phone."
+   *
+   * Narrowing the filter silences what comes next, and used to say nothing about the
+   * notifications already sitting unread for the beads it now excludes — which are
+   * exactly the ones you have just decided not to think about.
+   *
+   * Three things about the shape:
+   *
+   * - **It asks; it does not act.** Clearing notifications you did not ask to have
+   *   cleared is the kind of silent tidying that makes an inbox untrustworthy, and
+   *   the count is in the sentence because "some" is not enough to decide on.
+   * - **Both buttons are answers**, and *Leave them* is not a cancel: it is recorded,
+   *   which is what stops the next poll asking again. So neither is styled as the
+   *   dangerous one — there is nothing to undo either way.
+   * - **It is drawn inside `#list`**, above the foundation channel, for the same
+   *   reason that channel is: every handler on this page is delegated from that
+   *   element, so a pane in a sibling container would render and do nothing.
+   *
+   * Nothing here says "dismissed" or "answered" about the beads, because none of that
+   * is true: they stay open, unanswered and in the inbox, and widening the filter
+   * brings them straight back.
+   */
+  function dismissAskHtml() {
+    const ask = state.dismissAsk;
+    if (!ask?.count) return '';
+    const n = ask.count;
+    const many = n !== 1;
+    return `<section class="shade-ask" aria-label="Unread notifications the filter excludes">
+      <header>
+        <span class="shade-icon" aria-hidden="true">🔔</span>
+        <div>
+          <h2>${n} unread notification${many ? 's' : ''} for bead${many ? 's' : ''} this filter hides</h2>
+          <p>Clearing them touches the phone and nothing else — the bead${many ? 's stay' : ' stays'}
+            open and unanswered, and ${many ? 'they come' : 'it comes'} back when you widen the filter.</p>
+        </div>
+      </header>
+      <div class="shade-actions">
+        <button class="primary" data-act="shade-clear">Clear ${many ? 'them' : 'it'}</button>
+        <button class="secondary" data-act="shade-leave">Leave ${many ? 'them' : 'it'}</button>
+      </div>
     </section>`;
   }
 
@@ -1715,7 +1766,35 @@
   const spaceOf = (q) => q.space || 'Other';
 
   /**
-   * The filter rows: spaces on top, workspaces below.
+   * The scope chips. The third column is what the settings panel used to spell out
+   * under the switch; it rides along as the chip's `title` and its accessible name,
+   * because three one-word chips are not self-explanatory and there is no longer a
+   * paragraph of prose to put it in.
+   */
+  const SCOPE_CHIPS = [
+    ['human', 'Human', 'Beads labelled human — the ones asking you something. This is the inbox.'],
+    ['both', 'Both', 'Questions first, then every bead that is open, claimed or blocked.'],
+    ['agent', 'Agent', 'Only what the agents are on: every live bead that is not a question.'],
+  ];
+
+  const scopeRowHtml = () =>
+    `<div class="chip-row scopes" role="group" aria-label="Which beads to list">` +
+    SCOPE_CHIPS.map(
+      ([id, label, note]) =>
+        `<button class="chip" data-scope="${id}" aria-pressed="${state.scope === id}" title="${esc(
+          note
+        )}" aria-label="${esc(`${label} — ${note}`)}">${label}</button>`
+    ).join('') +
+    `</div>`;
+
+  /**
+   * The filter rows: scope on top, then spaces, then workspaces.
+   *
+   * Coarsest first, and the scope is the coarsest of all — it decides which slice of
+   * the tracker the other two are filtering. It is also the only one that costs a
+   * refetch, which is why it lived behind a gear for a while; but a setting that
+   * changes what every count below it means has to be readable without a tap, so it
+   * is a row of chips like the rest and the panel is gone.
    *
    * A muted space still shows its count — the whole design is that a quiet space is
    * quiet, not hidden. The bell tells you why nothing buzzed, so silence never looks
@@ -1727,10 +1806,10 @@
     const names = [...new Set(inSpace.map((q) => q.workspace))].sort();
     const showWorkspaces = names.length >= 2;
 
-    filtersEl.hidden = !showSpaces && !showWorkspaces;
-    if (filtersEl.hidden) return;
+    // The scope row is unconditional, so the nav no longer hides itself.
+    filtersEl.hidden = false;
 
-    const rows = [];
+    const rows = [scopeRowHtml()];
 
     if (showSpaces) {
       const total = state.questions.length;
@@ -2061,14 +2140,18 @@
     // The other channel, always first and never filtered. It is rare enough that
     // putting it at the top costs nothing on the days there is nothing in it, and on
     // the day there is, it is the one thing that must not be scrolled past.
-    const channel = requestsHtml();
+    // Above even that, and above the empty state especially: narrowing the filter to
+    // something with nothing in it is the most likely way to get here, and the pane
+    // asking about the notifications you just hid must not be the thing that is missing
+    // from an otherwise empty screen.
+    const channel = dismissAskHtml() + requestsHtml();
 
     if (!state.questions.length) {
       listEl.innerHTML = channel + emptyHtml();
     } else if (!visible.length) {
       const where = state.workspace !== 'all' ? state.workspace : state.space !== 'all' ? state.space : '';
       listEl.innerHTML =
-        channel + `<div class="empty">Nothing waiting${where ? ` in ${esc(where)}` : ''}.${gearNudge()}</div>`;
+        channel + `<div class="empty">Nothing waiting${where ? ` in ${esc(where)}` : ''}.${widenNudge()}</div>`;
     } else {
       // Anything you've already replied to sinks to the bottom. It is not waiting on
       // you any more — an agent has it — so it must not sit between you and the
@@ -2543,6 +2626,49 @@
     if (!btn) return;
     const key = btn.dataset.key;
     const act = btn.dataset.act;
+
+    /**
+     * Both answers to the notification prompt — see dismissAskHtml().
+     *
+     * The keys go back up with the tap rather than the server re-deciding on its own,
+     * so what is cleared is exactly what the sentence you read was counting. A bead
+     * that started ringing in between is not covered by it.
+     *
+     * The pane goes on the tap, before the write. If the write fails the server state
+     * is unchanged, so the next poll brings the same ask straight back — which is the
+     * right way round: a prompt that reappears is recoverable, a prompt that hangs
+     * about after you answered it is not.
+     */
+    if (act === 'shade-clear' || act === 'shade-leave') {
+      const ask = state.dismissAsk;
+      const clear = act === 'shade-clear';
+      state.dismissAsk = null;
+      render(true);
+      if (!ask?.keys?.length) return;
+      // Counted for exactly the reason the filter's own writes are: the 25s poll is
+      // very likely to be in flight when you tap, and its payload was assembled before
+      // this write landed. Without the guard, answering the prompt would be followed by
+      // the same prompt sliding back onto the screen a second later.
+      shadeWrites += 1;
+      try {
+        const res = await api('/api/notifications/dismiss', {
+          method: 'POST',
+          body: JSON.stringify({ confirm: clear, keys: ask.keys }),
+        });
+        const n = clear ? res.cleared ?? 0 : res.left ?? 0;
+        toast(
+          clear
+            ? `Cleared ${n} notification${n === 1 ? '' : 's'} — the bead${n === 1 ? '' : 's'} stay${n === 1 ? 's' : ''} open`
+            : `Left ${n === 1 ? 'it' : 'them'} on the phone`
+        );
+      } catch (err) {
+        // The server state is unchanged, so the next poll offers the same ask again.
+        toast(err.message, true);
+      } finally {
+        shadeWrites -= 1;
+      }
+      return;
+    }
 
     if (act === 'agent-menu') {
       const wasOpen = state.agentMenu === key;
@@ -3124,9 +3250,21 @@
    * which is the right way round: the next poll puts the stored value back.
    */
   let filterWrites = 0;
+  /** The same, for an answer to the notification prompt. See the `shade-clear` handler. */
+  let shadeWrites = 0;
   function persistFilter() {
     filterWrites += 1;
     api('/api/filter', { method: 'POST', body: JSON.stringify({ space: state.space, workspace: state.workspace }) })
+      .then((res) => {
+        // The write is also what asks about the notifications the new filter excludes —
+        // this response, not a later poll, because "at the moment of the change" is the
+        // only moment where clearing them is obviously part of the same act. Absent
+        // means nothing to ask, which is also what an older daemon sends.
+        const ask = res?.dismissAsk?.count ? res.dismissAsk : null;
+        if (!ask && !state.dismissAsk) return;
+        state.dismissAsk = ask;
+        render(true);
+      })
       .catch(() => {})
       .finally(() => {
         filterWrites -= 1;
@@ -3134,6 +3272,14 @@
   }
 
   filtersEl.addEventListener('click', (ev) => {
+    // Coarsest first, and the only one of the three that refetches rather than
+    // filtering what is already here — so it returns before the two that persist a
+    // filter server-side, which this is not.
+    const scopeChip = ev.target.closest('[data-scope]');
+    if (scopeChip) {
+      chooseScope(scopeChip.dataset.scope);
+      return;
+    }
     const spaceChip = ev.target.closest('[data-space]');
     if (spaceChip) {
       state.space = spaceChip.dataset.space;
@@ -3151,37 +3297,27 @@
     persistFilter();
   });
 
-  /* ------------------------------------------------------------- settings */
+  /* ---------------------------------------------------------------- scope */
 
-  const scopeDlg = $('#settings-panel');
-
-  const SCOPE_NOTE = {
-    human: 'Beads labelled human — the ones asking you something. This is the inbox.',
-    both: 'Questions first, then every bead that is open, claimed or blocked.',
-    agent: 'Only what the agents are on: every live bead that is not a question.',
-  };
-
+  /**
+   * Move the armed scope chip without rebuilding the row.
+   *
+   * The scope row is painted by renderFilters(), but the switch below clears the list
+   * and waits on `bd` rather than rendering — so on the tap itself there is nothing to
+   * repaint the chips. Doing it in place also keeps the spaces and workspaces rows on
+   * screen while the fetch is out; rendering with an emptied list would drop them and
+   * then bring them back a couple of seconds later.
+   */
   function paintScope() {
-    for (const btn of scopeDlg.querySelectorAll('[data-scope]')) {
-      const on = btn.dataset.scope === state.scope;
-      btn.classList.toggle('on', on);
-      btn.setAttribute('aria-pressed', String(on));
+    for (const btn of filtersEl.querySelectorAll('[data-scope]')) {
+      btn.setAttribute('aria-pressed', String(btn.dataset.scope === state.scope));
     }
-    $('#scope-note').textContent = SCOPE_NOTE[state.scope];
-    // The gear carries the state, because the scope changes what every count on the
-    // screen means and the panel that set it is closed by the time you read them.
-    $('#settings').classList.toggle('wide', state.scope !== 'human');
   }
-
-  $('#settings').addEventListener('click', () => {
-    paintScope();
-    scopeDlg.showModal();
-  });
 
   /**
    * Switch which slice of the tracker the list is.
    *
-   * Out of the panel's click handler because the count in the top bar is the other
+   * Out of the chip row's click handler because the count in the top bar is the other
    * way in: tapping "3 waiting" means "show me those three", which is this, and a
    * second copy of it would be a second place for the reset-and-refetch to drift.
    * Already-there is a no-op rather than a reload — the count you tapped is a
@@ -3205,13 +3341,8 @@
     load();
   }
 
-  scopeDlg.addEventListener('click', (ev) => {
-    const btn = ev.target.closest('[data-scope]');
-    if (btn) chooseScope(btn.dataset.scope);
-  });
-
-  // The count is a filter you can reach without opening the panel: it says how many
-  // beads are asking you something, so tapping it shows you exactly those.
+  // The count is the second way to the same chip: it says how many beads are asking
+  // you something, so tapping it shows you exactly those.
   $('#waiting')?.addEventListener('click', () => chooseScope('human'));
 
   /* ----------------------------------------------------------------- load */
@@ -3270,6 +3401,13 @@
       if (data.filter && !filterWrites) {
         state.space = data.filter.space || 'all';
         state.workspace = data.filter.workspace || 'all';
+        // The prompt travels with the filter and is adopted on the same terms, because
+        // it is a fact about that filter: the laptop can narrow it, and then this phone
+        // is the device holding the notifications and the only one that can be asked.
+        // Skipped while a write of our own is in flight for the same reason as above —
+        // this payload was assembled before the tap that changed it. `shadeWrites`
+        // covers the second tap that can be in flight here: the answer to the prompt.
+        if (!shadeWrites) state.dismissAsk = data.dismissAsk?.count ? data.dismissAsk : null;
       }
       // A space that has been renamed or removed in config would otherwise leave the
       // filter pinned to something that no longer exists, showing an empty list.
@@ -3400,7 +3538,11 @@
   function bootScope() {
     const saved = localStorage.getItem('beadcause.scope');
     if (SCOPES.includes(saved)) state.scope = saved;
-    paintScope();
+    // Painted here rather than waiting for the first render, so the row that says
+    // which slice you are looking at is on screen while `bd` is still being asked —
+    // which is exactly when a wide scope makes the wait long enough to wonder.
+    filtersEl.innerHTML = scopeRowHtml();
+    filtersEl.hidden = false;
   }
 
   bootToken();

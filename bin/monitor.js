@@ -265,6 +265,9 @@ const EVENT_COLOUR = {
   created: C.blue,
   activity: C.magenta,
   answered: C.dim,
+  // Dim like `answered`, because both are a row leaving the shade — but a different
+  // word, and that is the point: nothing was decided here.
+  dismissed: C.dim,
   resync: C.red,
   monitor: C.dim,
 };
@@ -306,6 +309,11 @@ function eventDetail(e) {
       return 'closed or answered elsewhere';
     case 'commented':
       return 'you commented — an agent should pick it up';
+    case 'dismissed':
+      // Spelled out every time, because a line that only said "dismissed" next to
+      // `answered` above it would read as a bead going away. It is not: the bead is
+      // exactly as it was, and only the phone is quieter.
+      return `notification cleared (${e.reason || 'filtered'}) — the bead is still open`;
     case 'resync':
       return 'reconnected after falling off the event log';
     case 'advocate': {
