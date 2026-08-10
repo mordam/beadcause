@@ -3225,7 +3225,7 @@ shapes for one idea.
 
 `node scripts/launcher-check.mjs` checks it in headless Chrome at phone size, against a
 fixture `/api/consoles` served by the script itself, so it never touches a daemon or a
-bead. Eighteen assertions: the tabs and their counts, that selecting one filters the
+bead. Twenty-one assertions: the tabs and their counts, that selecting one filters the
 list to it, that the selection survives a reload, that ＋ POSTs the *selected* repo and
 lands in the thread, that ＋ on All opens the picker and starts nothing by asking, the
 empty and the removed-repo cases, and — the one that must not have changed — that
@@ -3234,6 +3234,46 @@ the committed `console.js`/`console.html`/`style.css`, where there is no All tab
 ＋ at all, so it must fail everything but that last one. `--out=<dir>` writes the three
 screens, because a row of passing assertions says nothing about whether the tabs and
 the ＋ fit beside each other at 393px.
+
+### A chat with an agent says so
+
+Two screens start conversations, and they write the same record. `/console` starts a
+**chat session** — describe a thing, get a proposal. [The agents
+screen](#what-an-agent-is--and-how-it-asks-to-be-different) starts a **chat with one of
+the agents** — the Critic, the Researcher, whoever — which is the same
+machinery with a different foundation and no proposal expected. Both carry a workspace,
+so both are in `/api/consoles`, and the repo tabs made that *more* visible rather than
+less: an agent chat lands under its repo's tab as if it had been started there.
+
+Which left a chat with the Critic sitting in *Pick up again* looking exactly like a
+conversation about what to file next, with only its title to tell them apart — and a
+title is the one thing on that row you can rename.
+
+So an agent chat is marked twice:
+
+- **The agent's own emoji in the phase slot**, where a chat session draws 💬. Free, and
+  it is the first thing your eye lands on down the left edge of the list.
+- **A tinted pill beside the repo**, `🧨 Critic`, and this is the one that holds. The
+  phase slot is *status* as well: a running turn draws a spark there and a finished one
+  a tick, and both of those take the emoji away. The pill never moves.
+
+Leaving agent chats out of the list entirely was the other option, and it is worse:
+they would then be reachable only from the agent they were started with, which is a
+place you go to *change* an agent, not a place you go to find a conversation you had.
+The point of *Pick up again* is that it is the one list of everything you were saying.
+
+The name and the emoji are resolved **on the server** (`withAgentNames`, lib/agents.js),
+because the record only ever stored the agent's *id* — the roster is where a name lives,
+a custom agent's emoji exists nowhere else, and a second fetch for the roster from the
+phone would paint every agent chat as an ordinary chat session and then correct itself.
+Both routes that hand the list back use it, reading it *and* closing a row: the close
+returns a fresh list the phone renders directly, so an undecorated one there would
+un-mark every agent chat on screen until the next reload. An id with nothing behind it
+any more keeps its own name and a generic 🤖 rather than falling back to the default
+agent — the conversation happened, whatever the roster says now.
+
+`node test/agentchats.mjs` (in `npm test`) covers the naming and both routes;
+`scripts/launcher-check.mjs` covers what the row draws.
 
 ### The proposal is the review, so the review is editable
 

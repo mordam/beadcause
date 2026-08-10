@@ -542,6 +542,18 @@ body {
 .console-row .work-row { flex: 1; min-width: 0; }
 .console-row.closed { opacity: 0.55; }
 .console-row.closed .work-title { font-weight: 500; }
+/* The pills sit flush against each other in the markup — the row is one line and a
+   template that breaks would put whitespace inside the ellipsis. */
+.console-row .work-sub .pill { margin-right: 5px; }
+/* Which agent this conversation is with. Tinted rather than grey because it is the
+   thing the row is being told apart by: a chat with the Critic and a chat about
+   what to file next are the same shape otherwise, and the repo pill beside it is
+   deliberately the quiet one. */
+.pill.agent {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--accent);
+  text-transform: none; letter-spacing: 0;
+}
 .row-x {
   flex: none; width: 40px; height: 40px;
   border: 1px solid var(--line); border-radius: 10px;

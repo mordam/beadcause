@@ -70,11 +70,15 @@ const row = (id, workspace, title, extra = {}) => ({
 const CONSOLES = [
   row('bc-1', 'beadcause', 'The launcher is one pile'),
   row('bc-2', 'beadcause', 'A finished one', { closedAt: at(5) }),
+  // Started from /foundations, not from here — same record, same workspace, so it
+  // lands under beadcause's tab looking exactly like the two above it unless the
+  // row says who it is with. The server names the agent; see lib/agents.js.
+  row('bc-3', 'beadcause', 'Chat with the critic', { agent: 'critic', agentName: 'Critic', agentEmoji: '🧨' }),
   row('sp-1', 'sophab', 'Hero openings'),
   row('sp-2', 'sophab', 'Pricing tiers'),
 ];
 
-const COUNTS = { all: 4, beadcause: 2, sophab: 2, deluvia: 0 };
+const COUNTS = { all: 5, beadcause: 3, sophab: 2, deluvia: 0 };
 
 // One thread to land in, so a ＋ that navigates arrives somewhere real.
 const THREAD = {
@@ -253,10 +257,19 @@ const TABS = `[...document.querySelectorAll('#ws-row [data-ws]')].map((b) => ({
 }))`;
 
 // Which repo each visible conversation belongs to. The first pill on a row is its
-// workspace; a closed row carries a second one saying so.
+// workspace; an agent chat and a closed row each carry another one after it.
 const ROWS = `[...document.querySelectorAll('#recent .console-row')].map(
   (r) => r.querySelector('.pill').textContent.trim()
 )`;
+
+// What each row says about who it is with: the mark in the phase slot, and the
+// agent pill if it has one.
+const MARKS = `[...document.querySelectorAll('#recent .console-row')].map((r) => ({
+  id: (r.querySelector('[data-close]')?.dataset.close) || '',
+  title: r.querySelector('.work-title').textContent.trim(),
+  phase: r.querySelector('.work-phase').textContent.trim(),
+  agentPill: r.querySelector('.pill.agent')?.textContent.trim() || null,
+}))`;
 
 const server = await serve();
 const BASE = `http://127.0.0.1:${server.address().port}`;
@@ -316,7 +329,9 @@ try {
   check('All is what an unvisited launcher opens on', tabs[0]?.on === true, JSON.stringify(tabs[0]));
   check(
     'each tab carries how many conversations it holds',
-    tabs[0]?.text === 'All 4' && tabs[1]?.text === 'beadcause 2' && tabs[2]?.text === 'sophab 2',
+    tabs[0]?.text === `All ${COUNTS.all}` &&
+      tabs[1]?.text === `beadcause ${COUNTS.beadcause}` &&
+      tabs[2]?.text === `sophab ${COUNTS.sophab}`,
     tabs.map((t) => t.text).join(' | ')
   );
   check(
@@ -331,6 +346,26 @@ try {
   );
   check('All shows every conversation', (await evalJs(s, ROWS)).length === COUNTS.all, `${(await evalJs(s, ROWS)).length}`);
   await shot('all');
+
+  /* ---- an agent chat is not a chat session ---- */
+  const marks = await evalJs(s, MARKS);
+  const agentRow = marks.find((m) => m.title === 'Chat with the critic');
+  const plainRows = marks.filter((m) => m.title !== 'Chat with the critic');
+  check(
+    'a chat started from /foundations says which agent it is with',
+    agentRow?.agentPill === '🧨 Critic',
+    JSON.stringify(agentRow)
+  );
+  check(
+    "and draws that agent's emoji where a chat session draws 💬",
+    agentRow?.phase === '🧨',
+    `${agentRow?.phase} vs ${plainRows.map((m) => m.phase).join(',')}`
+  );
+  check(
+    'a chat session carries no agent pill — it is what the mark is read against',
+    plainRows.every((m) => m.agentPill === null),
+    JSON.stringify(plainRows.filter((m) => m.agentPill))
+  );
 
   /* ---- selecting one filters the list to it ---- */
   await tapTab('sophab');
