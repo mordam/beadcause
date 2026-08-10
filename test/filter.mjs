@@ -273,6 +273,205 @@ check(() => {
   });
 }, 'an unconfigured install is left alone rather than reset');
 
+/* ------------------------------------------- the filter as an input to the push */
+
+const { matchesFilter, quietReasonFor, describeFilter } = await import(LIB('spaces.js'));
+
+// One space muted, one not, and a workspace in neither — the three states a bead can
+// be pushed from.
+const pushCfg = {
+  spaces: [
+    { name: 'Work', workspaces: ['alpha'] },
+    { name: 'Personal', workspaces: ['beta'], muted: true },
+  ],
+};
+const bead = (workspace, space) => ({ key: `${workspace}/x-1`, workspace, space });
+
+check(() => {
+  assert.equal(matchesFilter({ space: 'all', workspace: 'all' }, bead('alpha', 'Work')), true);
+  assert.equal(matchesFilter({ space: 'Work', workspace: 'all' }, bead('alpha', 'Work')), true);
+  assert.equal(matchesFilter({ space: 'Work', workspace: 'all' }, bead('beta', 'Personal')), false);
+  assert.equal(matchesFilter({ space: 'all', workspace: 'alpha' }, bead('beta', 'Personal')), false);
+  assert.equal(matchesFilter({ space: 'Work', workspace: 'beta' }, bead('beta', 'Personal')), false);
+}, 'a bead is in the filter only when both halves say so');
+
+check(() => {
+  // The same fallback the inbox's own spaceOf makes. If these two disagreed the phone
+  // would go quiet for a bead it is showing you, which is the one outcome that reads
+  // as a lost question rather than a quiet one.
+  assert.equal(matchesFilter({ space: 'Other', workspace: 'all' }, bead('gamma', null)), true);
+  assert.equal(matchesFilter({ space: 'Work', workspace: 'all' }, bead('gamma', null)), false);
+}, 'a bead in no configured space answers to "Other", exactly as the list does');
+
+check(() => {
+  assert.equal(quietReasonFor(pushCfg, { space: 'all', workspace: 'all' }, bead('alpha', 'Work')), null);
+  assert.equal(quietReasonFor(pushCfg, { space: 'Work', workspace: 'all' }, bead('beta', 'Personal')), 'filtered');
+  assert.equal(quietReasonFor(pushCfg, { space: 'all', workspace: 'all' }, bead('beta', 'Personal')), 'muted');
+  // Both at once. Quiet either way, and reported as the half you can see pressed on
+  // the screen and undo in a tap.
+  assert.equal(quietReasonFor(pushCfg, { space: 'Work', workspace: 'alpha' }, bead('beta', 'Personal')), 'filtered');
+}, 'the two reasons stay distinguishable, and the filter is the one reported');
+
+check(() => {
+  assert.equal(describeFilter({ space: 'Work', workspace: 'alpha' }), 'Work / alpha');
+  assert.equal(describeFilter({ space: 'Work', workspace: 'all' }), 'Work');
+  assert.equal(describeFilter({ space: 'all', workspace: 'all' }), 'all');
+  assert.equal(describeFilter(null), 'all');
+}, 'the log line says what the filter was set to');
+
+/* ------------------------------------------ and the poller, end to end, for real */
+//
+// The unit tests above prove the decision. This proves the wiring, which is where
+// this feature can only fail one of two ways — a phone that never rings again, or a
+// filter that turns out to be a view after all — and neither is visible by reading
+// the function that decides.
+//
+// Everything here is the real poller: the real `tick`, the real reconciliation, the
+// real ntfy client, pointed at a server that writes down what it was sent.
+
+const { startPoller } = await import(LIB('server.js'));
+const { createEventBus } = await import(LIB('events.js'));
+
+const sent = [];
+const ntfy = http.createServer((req, res) => {
+  let body = '';
+  req.setEncoding('utf8');
+  req.on('data', (c) => (body += c));
+  req.on('end', () => {
+    try {
+      sent.push(JSON.parse(body));
+    } catch {
+      sent.push({ unparseable: body });
+    }
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end('{}');
+  });
+});
+await new Promise((resolve) => ntfy.listen(0, '127.0.0.1', resolve));
+const ntfyPort = ntfy.address().port;
+
+// Filtered to Work, which holds alpha and not beta. Written before the poller starts,
+// exactly as a phone would have left it.
+saveState({ notified: [], commentCounts: {}, filter: { space: 'Work', workspace: 'all' } });
+
+const q = (workspace, space, id, extra = {}) => ({
+  key: `${workspace}/${id}`,
+  workspace,
+  space,
+  id,
+  title: `${id} in ${workspace}`,
+  question: `${id} in ${workspace}`,
+  priority: 2,
+  ...extra,
+});
+
+// Present from the first tick, so the poller baselines their comment counts and a
+// later comment reads as an agent replying rather than as backlog.
+const replied = [
+  q('alpha', 'Work', 'a-reply', { awaitingAgent: true }),
+  q('beta', 'Personal', 'b-reply', { awaitingAgent: true }),
+];
+let comments = 1;
+let inbox = [...replied];
+
+const pollCfg = {
+  baseUrl: 'http://127.0.0.1',
+  token: 'filter-test-token',
+  actor: 'beadcause-test',
+  workspaces: [{ name: 'alpha' }, { name: 'beta' }],
+  spaces: [
+    { name: 'Work', workspaces: ['alpha'] },
+    { name: 'Personal', workspaces: ['beta'] },
+  ],
+  pollSeconds: 5,
+  autoDispatch: false,
+  ntfy: { enabled: true, topic: 'filter-test', server: `http://127.0.0.1:${ntfyPort}`, actionButtons: false },
+};
+
+const bus = createEventBus();
+const pollApp = {
+  bus,
+  hooks: {},
+  bd: {
+    comments: async () =>
+      Array.from({ length: comments }, (_, i) => ({ author: 'agent', text: `turn ${i + 1}` })),
+    removeLabel: async () => {},
+  },
+  allQuestions: async () => inbox,
+};
+
+const timer = startPoller(pollCfg, pollApp);
+
+// The first cycle is the baseline sweep — it pushes nothing by design. Wait for it to
+// have read the comment counts before moving the fixture underneath it.
+const settled = async (fn, ms = 20000) => {
+  const until = Date.now() + ms;
+  while (Date.now() < until) {
+    if (fn()) return true;
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  return false;
+};
+await settled(() => bus.seq > 0 || sent.length > 0 || loadState().notified.length === 2);
+
+// Now the thing to be notified about, or not: one fresh question in each workspace,
+// and a reply on each of the two watched threads.
+comments = 2;
+inbox = [...replied, q('alpha', 'Work', 'a-new'), q('beta', 'Personal', 'b-new')];
+
+const events = () => bus.since(0) || [];
+const found = (type, key) => events().find((e) => e.type === type && e.key === key);
+const gotAll = await settled(
+  () =>
+    found('question', 'alpha/a-new') &&
+    found('question', 'beta/b-new') &&
+    found('reply', 'alpha/a-reply') &&
+    found('reply', 'beta/b-reply')
+);
+// A little slack after the last event, so a push that was going to happen has had its
+// chance to. Asserting "nothing was sent" the instant the event lands would pass on a
+// race rather than on the behaviour.
+await new Promise((r) => setTimeout(r, 300));
+clearInterval(timer);
+ntfy.close();
+
+check(() => {
+  assert.ok(gotAll, `all four events arrived (saw ${events().map((e) => `${e.type}:${e.key}`).join(', ')})`);
+}, 'every bead still emits its event — filtering quietens, it never drops');
+
+check(() => {
+  const e = found('question', 'beta/b-new');
+  assert.equal(e.quiet, true, 'quiet');
+  assert.equal(e.quietReason, 'filtered', 'quietReason');
+  assert.ok(
+    !sent.some((p) => JSON.stringify(p).includes('b-new')),
+    `nothing was pushed for it (sent: ${JSON.stringify(sent)})`
+  );
+}, 'a fresh bead outside the filter arrives with no ntfy push at all');
+
+check(() => {
+  const e = found('question', 'alpha/a-new');
+  assert.equal(e.quiet, false, 'quiet');
+  assert.equal(e.quietReason, null, 'quietReason');
+  assert.ok(sent.some((p) => String(p.title).includes('a-new')), 'it was pushed');
+}, 'a fresh bead inside the filter notifies exactly as before');
+
+check(() => {
+  const e = found('reply', 'beta/b-reply');
+  assert.equal(e.quiet, true, 'quiet');
+  assert.equal(e.quietReason, 'filtered', 'quietReason');
+  assert.ok(
+    !sent.some((p) => JSON.stringify(p).includes('b-reply')),
+    'no reply push either'
+  );
+}, 'a reply is as quiet as the bead it is on');
+
+check(() => {
+  const e = found('reply', 'alpha/a-reply');
+  assert.equal(e.quiet, false, 'quiet');
+  assert.ok(sent.some((p) => String(p.title).includes('a-reply')), 'the in-filter reply was pushed');
+}, 'and a reply inside the filter still gets through');
+
 /* ----------------------------------------------------- hygiene, cheap and blunt */
 
 check(() => {
