@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { loadConfig, CONFIG_PATH, OBSERVING } from '../lib/config.js';
+import { loadConfig, reconcileBaseUrl, CONFIG_PATH, OBSERVING } from '../lib/config.js';
 import { createApp, startPoller, listen } from '../lib/server.js';
 import { advocatedWorkspaces, workerLimit } from '../lib/advocate.js';
 import { buildStamp } from '../lib/build.js';
@@ -173,6 +173,13 @@ const servers = listen(
   internalPort ? { ...cfg, port: internalPort, host: '127.0.0.1' } : cfg,
   handler
 );
+
+// `listen()` is the one place a certificate can *appear* — it is what calls
+// `tailscale cert` — so the URL is asked again now that it has. Only when we own the
+// real port: a backend behind the router binds loopback, never fetches anything, and
+// must not be the process that decides what the phone is told. Persisted, because the
+// next `npm run qr` is a different process and reads this off disk.
+if (!internalPort) reconcileBaseUrl(cfg, { persist: true });
 
 // The in-app terminal rides the same servers, on the HTTP upgrade path. Awaited
 // because `ws` is imported dynamically — an install that hasn't run `npm install`

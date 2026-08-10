@@ -33,7 +33,7 @@ import net from 'node:net';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { loadConfig } from '../lib/config.js';
+import { loadConfig, reconcileBaseUrl } from '../lib/config.js';
 import { buildStamp, routerStamp } from '../lib/build.js';
 import { hotSwapProblem } from '../lib/service.js';
 import { certificate, secureServer, MIN_VERSION } from '../lib/tls.js';
@@ -592,6 +592,10 @@ if (process.argv.includes('--swap')) {
 const routerBuildAtStart = routerStamp();
 
 const servers = listen();
+// In the installed configuration this process is what terminates TLS, so it is also
+// what may have just fetched the first certificate — and therefore what has to move
+// `baseUrl` onto the name. Its backends bind loopback and deliberately do not.
+reconcileBaseUrl(cfg, { persist: true });
 log(`supervising ${BACKEND}`);
 await bringUp('first start').catch((err) => {
   // Keep the port. A router that exited here would be restarted by launchd into the
