@@ -4,9 +4,15 @@
 //
 //   node scripts/card-thread-check.mjs [--baseline] [--keep] [--out=<dir>]
 //
-// Three things that are all the same complaint — an open card spends your attention
-// on what you already know — and one that is a promise it cannot keep:
+// Four things that are all the same complaint — a card spends your attention on what
+// you already know, or fails to tell you what you do not:
 //
+//   0. **A question you have already answered says so, before it is opened.**
+//      Answering closes the bead; a decision whose answer was a build order gets
+//      reopened by the session it commissioned, and the card comes back rebuilt from
+//      the tracker with the same options and no memory of what you chose. The banner
+//      has to be above those options and on the collapsed row, because the gesture it
+//      interrupts is a two-tap answer from the list. See lib/answered.js.
 //   1. **No *Answer & close* on a bead bd will refuse to close.** gate-check.mjs
 //      covers the refusal; this covers not needing it. `/api/question` says whether
 //      the bead is gated, so an epic with open children draws no answer button at
@@ -87,6 +93,31 @@ const bead = (id, title, extra = {}) => ({
 const EPIC = bead('ct-1', 'Blue/green router — the epic', { issue_type: 'epic' });
 const PLAIN = bead('ct-2', 'An ordinary question with a long thread');
 
+// A bead that has been round the inbox before: answered, closed by the answer, then
+// reopened by the session the answer commissioned — so it is back, rebuilt from the
+// tracker, carrying the same options it carried the first time. The banner is what
+// stands between that and the same answer being given twice, and it has to be on the
+// *collapsed* card, because the gesture it interrupts is a two-tap answer from the
+// list. See lib/answered.js and test/answered.mjs.
+const AGAIN = bead('ct-3', 'A question that has already been answered', {
+  description: [
+    'The question came back because the answer was a build order.',
+    '```decision',
+    'question: Build both halves, or just the API?',
+    'options:',
+    '  - id: both',
+    '    label: Build both as written',
+    '  - id: api',
+    '    label: Build the API only',
+    '```',
+  ].join('\n'),
+});
+const ANSWERED_BEFORE = {
+  at: '2026-08-09T13:33:00Z',
+  response: 'Build both as written — the common repo and remember/recall/post/read.',
+  count: 1,
+};
+
 const EPIC_GATE = {
   kind: 'epic',
   reason: 'an epic with 2 open child issues',
@@ -127,10 +158,15 @@ const COMMENTS = thread(6);
 const LAST_MINE = COMMENTS.filter((c) => c.author === MINE).pop();
 const LAST_THEM = COMMENTS[COMMENTS.length - 1];
 
-const QUESTIONS = [EPIC, PLAIN].map((i) => toQuestion('demo', i));
+const withAnswer = (q) => (q.id === AGAIN.id ? { ...q, answeredBefore: ANSWERED_BEFORE } : q);
+const QUESTIONS = [EPIC, PLAIN, AGAIN].map((i) => withAnswer(toQuestion('demo', i)));
 const DETAIL = {
   [EPIC.id]: () => ({ ...toQuestion('demo', EPIC), comments: [], gate: EPIC_GATE }),
   [PLAIN.id]: () => ({ ...toQuestion('demo', PLAIN), comments: COMMENTS, gate: null }),
+  // The detail fetch carries the same field as the list row it merges over. If it
+  // did not, the banner would vanish the moment the card was opened — which is the
+  // one repaint you are guaranteed to trigger while deciding what to do about it.
+  [AGAIN.id]: () => ({ ...withAnswer(toQuestion('demo', AGAIN)), comments: [], gate: null }),
 };
 
 const DRAFT = 'Two is fine.';
@@ -327,6 +363,29 @@ const collapseCard = async (id) => {
   await sleep(500);
 };
 
+/**
+ * The "you answered this already" banner, and where it sits relative to the buttons.
+ *
+ * Position is the assertion that matters, not presence: a banner below the options
+ * is read after the answer has been sent. Measured off the DOM rather than the
+ * bounding boxes so it holds on a collapsed card, an open card and either landscape
+ * column — all of which move the geometry and none of which change the order.
+ */
+const ANSWERED = (id) => `(() => {
+  const card = ${CARD(id)};
+  const banner = card.querySelector('.answered-before');
+  const options = [...card.querySelectorAll('.options .option')];
+  const kids = [...card.children];
+  return {
+    shown: !!banner && banner.getBoundingClientRect().height > 0,
+    text: banner ? banner.textContent.replace(/\\s+/g, ' ').trim() : '',
+    options: options.length,
+    top: banner ? kids.indexOf(banner) : -1,
+    optionTop: kids.findIndex((k) => k.classList.contains('options')),
+    aboveOptions: !!banner && kids.indexOf(banner) < kids.findIndex((k) => k.classList.contains('options')),
+  };
+})()`;
+
 /** What the buttons under the box are, and what stands in for the missing one. */
 const BUTTONS = (id) => `(() => {
   const card = ${CARD(id)};
@@ -414,9 +473,41 @@ try {
   console.log(`\n${BASELINE ? 'BASELINE (HEAD)' : 'working copy'} · ${VP.width}x${VP.height} · ${BASE}\n`);
 
   await s.send('Page.navigate', { url: `${BASE}/?t=${TOKEN}` });
-  await waitFor(`document.querySelectorAll('.card').length >= 2`);
+  await waitFor(`document.querySelectorAll('.card').length >= 3`);
 
-  /* ---- 1. the epic offers a comment, not a close ---- */
+  /* ---- 1. an already-answered question says so before anything is opened ---- */
+  const repeat = await evalJs(s, ANSWERED(AGAIN.id));
+  const controls = await evalJs(
+    s,
+    `[${CARD(EPIC.id)}, ${CARD(PLAIN.id)}].map((c) => !!c.querySelector('.answered-before'))`
+  );
+  await shot('answered-before');
+  check('a question you have already answered says so on the collapsed card', repeat.shown === true, JSON.stringify(repeat));
+  check(
+    'quoting the answer you actually gave',
+    /remember\/recall\/post\/read/.test(repeat.text),
+    JSON.stringify(repeat.text.slice(0, 90))
+  );
+  check('and when you gave it', /answered this/i.test(repeat.text), JSON.stringify(repeat.text.slice(0, 60)));
+  check(
+    'above the buttons that would answer it again — the whole point',
+    repeat.aboveOptions === true,
+    `banner ${repeat.top} · first option ${repeat.optionTop}`
+  );
+  check(
+    'the options are still there — this states a fact, it does not take the decision',
+    repeat.options === 2,
+    `${repeat.options} options`
+  );
+  check('a question nobody has answered carries no banner', controls.every((c) => c === false), JSON.stringify(controls));
+
+  // The repaint you are guaranteed to cause while deciding what to do about it.
+  await openCard(AGAIN.id);
+  const stillThere = await evalJs(s, ANSWERED(AGAIN.id));
+  check('and opening the card does not lose it', stillThere.shown === true, JSON.stringify(stillThere));
+  await collapseCard(AGAIN.id);
+
+  /* ---- 2. the epic offers a comment, not a close ---- */
   await openCard(EPIC.id);
   const epic = await evalJs(s, BUTTONS(EPIC.id));
   await shot('epic');
@@ -436,14 +527,14 @@ try {
   check('and nothing was written by opening it', real().length === 0, JSON.stringify(real().map((w) => w.path)));
   await collapseCard(EPIC.id);
 
-  /* ---- 2. an ordinary question keeps every button ---- */
+  /* ---- 3. an ordinary question keeps every button ---- */
   await openCard(PLAIN.id);
   const plain = await evalJs(s, BUTTONS(PLAIN.id));
   check('an ungated question still answers and closes', plain.answer === true, `answer button: ${plain.answer}`);
   check('with the comment back to being the second option', plain.notePrimary === false, JSON.stringify(plain.noteLabel));
   check('and no note about a gate it does not have', plain.why === '', JSON.stringify(plain.why.slice(0, 60)));
 
-  /* ---- 3. the thread is folded to the recent exchange ---- */
+  /* ---- 4. the thread is folded to the recent exchange ---- */
   const folded = await evalJs(s, THREAD(PLAIN.id));
   await shot('thread');
   check('every comment is on the card', folded.total === COMMENTS.length, `${folded.total} of ${COMMENTS.length}`);

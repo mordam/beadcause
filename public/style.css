@@ -1060,6 +1060,36 @@ body {
 .gate-why .gate-blockers { margin-bottom: 0; }
 
 /*
+  "You answered this already" — between the question and the buttons that answer it.
+
+  Amber at the edge and nothing filled, like .gate-why, and for the same reason:
+  nothing has gone wrong and nothing is waiting on you here. It is a fact about the
+  card you are looking at, and the buttons under it still work. What it must not be
+  is quiet enough to scroll past on a collapsed card, because the two-tap answer from
+  the list is exactly the gesture it exists to interrupt — hence the weight on the
+  first line and the answer itself quoted underneath, clamped so a long one cannot
+  push the options off the screen it is trying to protect.
+*/
+.answered-before {
+  margin: 0 15px 10px;
+  padding: 9px 11px;
+  border: 1px dashed color-mix(in srgb, var(--warn) 55%, var(--line));
+  border-radius: 11px;
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+.answered-before strong { display: block; color: var(--text); font-size: 14px; margin-bottom: 3px; }
+.answered-before p {
+  margin: 0;
+  color: var(--muted);
+  white-space: pre-wrap;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  overflow: hidden;
+}
+
+/*
   Suggested answers, sitting on the top edge of the box they fill.
 
   Chips rather than buttons, and quieter than `.option` on purpose: these were

@@ -155,7 +155,24 @@ data class Question(
     /** Which agent is asking, and how far the change reaches. Null unless [foundation]. */
     val amendmentAgent: String? = null,
     val amendmentScope: String? = null,
+    /**
+     * What you said the last time this bead was a question, or null — which is almost
+     * always, because it is only set when answering this bead closed it and something
+     * has since reopened it.
+     *
+     * It matters most here, of all the surfaces. The shade offers the first three
+     * options as buttons, so a question that has come back can be answered identically
+     * from a lock screen without the card ever being opened — which is precisely how
+     * beadcause/bc-goo.2 collected the same answer twice an hour apart. See
+     * lib/answered.js on the daemon side.
+     */
+    val answeredAt: String? = null,
+    val answeredResponse: String? = null,
+    val answeredCount: Int = 0,
 ) {
+    /** Has this bead been round the inbox before? */
+    val answeredBefore: Boolean get() = answeredAt != null || answeredResponse != null
+
     /** Stable across restarts, so an update replaces rather than stacks. */
     val notificationId: Int get() = key.hashCode()
 }
@@ -287,6 +304,9 @@ private fun JSONObject.toQuestion(): Question {
         foundation = optBoolean("foundation"),
         amendmentAgent = optJSONObject("amendment")?.optStringOrNull("agent"),
         amendmentScope = optJSONObject("amendment")?.optStringOrNull("scope"),
+        answeredAt = optJSONObject("answeredBefore")?.optStringOrNull("at"),
+        answeredResponse = optJSONObject("answeredBefore")?.optStringOrNull("response"),
+        answeredCount = optJSONObject("answeredBefore")?.optInt("count") ?: 0,
     )
 }
 
