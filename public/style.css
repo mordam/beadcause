@@ -528,6 +528,16 @@ body {
 }
 .option.confirm .rec-tag { color: color-mix(in srgb, var(--accent-ink) 80%, transparent); }
 
+/* An option that commissions work rather than settling it — `closes: false` in the
+   decision block. Quieter than the recommendation, because it is a fact about what
+   the tap does and not an argument for tapping it. */
+.hand-tag {
+  align-self: flex-start;
+  font-size: 11px; font-weight: 600; letter-spacing: 0.02em;
+  color: var(--muted);
+}
+.option.confirm .hand-tag { color: color-mix(in srgb, var(--accent-ink) 72%, transparent); }
+
 .actions { display: flex; gap: 8px; padding: 0 15px 14px; }
 
 .note-line {
@@ -1791,8 +1801,16 @@ button.work-row {
    thought. */
 .board-btn.merge.armed { background: var(--warn); color: var(--accent-ink); }
 .board-btn.ship { border-color: color-mix(in srgb, var(--accent) 55%, transparent); }
+/* Ship arms too, where it deploys from here rather than opening a window — same
+   colour as an armed merge, because it is the same promise: the next tap is the act. */
+.board-btn.ship.armed { border-color: transparent; background: var(--warn); color: var(--accent-ink); }
 .board-btn.link { color: var(--muted); background: none; }
 .board-btn[disabled] { opacity: 0.5; }
+
+/* What Ship will do to this repo, under the button rather than in it: the label has
+   room for the verb and this has room for the command behind it. */
+.board-hint { margin-top: 8px; font-size: 11.5px; color: var(--muted); overflow-wrap: anywhere; }
+.board-hint code { font-size: 11px; }
 
 .board-say { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
 .board-say textarea {

@@ -23,10 +23,17 @@
  *   what turns that into a word.
  * - **A non-zero exit is a failure, full stop.** No step's output is scanned for
  *   reassuring strings, and nothing after a failed step runs.
+ *
+ * The one thing it checks rather than merely runs is the last step's target: a deploy
+ * whose command is `launchctl kickstart <label>` restarts whatever is loaded under that
+ * label, which is not necessarily the tree the three steps above just brought up to
+ * date. See lib/launchagent.js — a stale plist is the one failure that exits 0.
  */
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
+
+import { launchAgentProblem } from '../lib/launchagent.js';
 
 const RECORD = process.argv[2];
 if (!RECORD) {
@@ -197,6 +204,20 @@ async function main() {
       if (built.code !== 0) fail(`${r.label} failed (exit ${built.code}) — nothing was deployed`);
       save({ steps });
     }
+  }
+
+  // Everything above moved the tree. This is the one thing that asks whether the
+  // command below will actually run what was moved — and it is here, after the
+  // rebuilds, rather than earlier, because a repo is allowed to declare its own
+  // installer as a rebuild step and fix the drift itself. Checking before that would
+  // refuse a deploy for a problem its very next step was about to solve. The cost is
+  // that a refusal can come after a long build; the alternative is worse.
+  const stale = launchAgentProblem({ command: rec.plan.command, dir: rec.dir, launchAgent: rec.plan.launchAgent });
+  if (stale) {
+    console.error(`\n=== launchagent: ${stale.code}`);
+    for (const line of stale.message.split('\n')) console.error(`    ${line}`);
+    save({ launchAgent: stale });
+    fail(stale.message);
   }
 
   // Last, and the point of no return for a deploy that restarts beadcause: from here
