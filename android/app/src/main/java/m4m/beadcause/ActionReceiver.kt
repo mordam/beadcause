@@ -26,6 +26,18 @@ class ActionReceiver : BroadcastReceiver() {
         const val EXTRA_KEY = "key"
         const val EXTRA_RESPONSE = "response"
         const val EXTRA_CLOSE = "close"
+
+        /**
+         * Which option button this action is, when it is one.
+         *
+         * The shade answers with the option's *sentence*, and the sentence cannot say
+         * whether the answer commissions work or settles it — an option marked
+         * `closes: false` leaves the bead open. Without this the three buttons on a
+         * lock screen would close a bead the same tap in the app hands back, which is
+         * the shade quietly disagreeing with the app about what a tap means. Absent
+         * for a typed reply, which is always an ending.
+         */
+        const val EXTRA_OPTION = "option"
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -36,6 +48,7 @@ class ActionReceiver : BroadcastReceiver() {
         val id = intent.getStringExtra(EXTRA_ID) ?: return
         val key = intent.getStringExtra(EXTRA_KEY) ?: "$workspace/$id"
         val close = intent.getBooleanExtra(EXTRA_CLOSE, true)
+        val option = intent.getStringExtra(EXTRA_OPTION)
 
         val typed = RemoteInput.getResultsFromIntent(intent)?.getCharSequence(Notifications.REPLY_RESULT_KEY)?.toString()
         val text = (intent.getStringExtra(EXTRA_RESPONSE) ?: typed)?.trim()
@@ -52,12 +65,27 @@ class ActionReceiver : BroadcastReceiver() {
         val pending = goAsync()
         scope.launch {
             try {
-                if (close) Api.respond(conn, workspace, id, text) else Api.comment(conn, workspace, id, text)
+                // Whether the bead actually closed is the server's answer, not this
+                // one's: `close` says which endpoint to call, and a commissioning
+                // option goes to the same one and comes back saying it stayed open.
+                val handedBack = if (close) {
+                    Api.respond(conn, workspace, id, text, option).optBoolean("handedBack", false)
+                } else {
+                    Api.comment(conn, workspace, id, text)
+                    false
+                }
                 // Not cancel(): SystemUI can restore a notification whose reply
                 // session it was holding. Replacing it with an action-less receipt
                 // is the only way to be sure the buttons are gone.
                 Notifications.acknowledged(ctx, key, text, close)
-                toast(ctx, if (close) "Answered $id" else "Comment added to $id")
+                toast(
+                    ctx,
+                    when {
+                        handedBack -> "Answered $id — handed back as work"
+                        close -> "Answered $id"
+                        else -> "Comment added to $id"
+                    },
+                )
             } catch (e: Exception) {
                 Log.w("Beadcause", "action on $key failed", e)
                 val reason = if (Api.isUnauthorized(e)) "The server rejected the token — re-pair the app." else e.message ?: "Send failed"

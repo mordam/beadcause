@@ -1448,6 +1448,13 @@
         }" data-act="option" data-key="${esc(q.key)}" data-opt="${esc(o.id)}" data-label="${esc(o.label)}">
           <span class="label">${armed ? 'Tap again to confirm · ' : ''}${esc(o.label)}</span>
           ${o.recommended ? '<span class="rec-tag">★ recommended</span>' : ''}
+          ${
+            // A sibling of `.label` for the same reason the star is — paintArmed
+            // writes label.textContent, and anything nested in there is gone on the
+            // first tap. Worth saying before the tap rather than only in the toast
+            // after it: this option is an instruction, and the bead stays open.
+            o.closes === false ? '<span class="hand-tag">↪ commissions the work</span>' : ''
+          }
           ${o.hint ? `<span class="hint">${esc(o.hint)}</span>` : ''}
         </button>`;
       })
@@ -2750,7 +2757,7 @@
    * optimistic dance above — the flight, the removal, the restore on failure — is the
    * same code. All that differs is which route it goes to and what the toast says.
    */
-  async function submit(key, text, { close, dismiss = false, create = null, edits = null, onRestore = null }) {
+  async function submit(key, text, { close, dismiss = false, create = null, edits = null, option = null, onRestore = null }) {
     const q = byKey(key);
     if (!q) return;
     const card = listEl.querySelector(`.card[data-key="${CSS.escape(key)}"]`);
@@ -2818,6 +2825,11 @@
                 // Explicit, rather than leaving the server to read the numbers back
                 // out of the sentence: the text is for you, the array is for it.
                 ...(create ? { create } : {}),
+                // Which button was pressed, for the one thing the sentence cannot
+                // say: whether this answer commissions work rather than settling it.
+                // Sent as the id and read back off the bead server-side — the card
+                // in front of you may be a poll old, and only the bead knows.
+                ...(option ? { option } : {}),
                 // And your rewrites, keyed by the same numbers. The server puts each
                 // one back through the parser's own normaliser before anything is
                 // created, so a priority you typed into the wrong box is clamped
@@ -2852,7 +2864,13 @@
         toast(
           dismiss
             ? `${q.id} set aside — back when ${res?.until ? `${res.until} clears` : 'someone comments'}`
-            : `Answered ${q.id}`
+            : // A commission leaves the inbox without being finished, and the card
+              // vanishing looks identical either way. This line is the only place
+              // the difference is visible, so it comes off what the server did
+              // rather than off which button was pressed.
+              res?.handedBack
+              ? `Answered ${q.id} — handed back as work`
+              : `Answered ${q.id}`
         );
         render(true);
         // The tracker took it, so it may be swallowed. Awaited rather than fired and
@@ -3476,7 +3494,7 @@
         return;
       }
       disarm();
-      await submit(key, opt.response, { close: true });
+      await submit(key, opt.response, { close: true, option: opt.id });
       return;
     }
 

@@ -404,11 +404,17 @@ object Notifications {
             val intent = actionIntent(ctx, q, index) {
                 putExtra(ActionReceiver.EXTRA_RESPONSE, option.response)
                 putExtra(ActionReceiver.EXTRA_CLOSE, true)
+                // See ActionReceiver.EXTRA_OPTION: without the id, an option that
+                // commissions work would close the bead from the shade and hand it
+                // back from the app.
+                putExtra(ActionReceiver.EXTRA_OPTION, option.id)
             }
             builder.addAction(
                 NotificationCompat.Action.Builder(
                     R.drawable.ic_check,
-                    option.label,
+                    // "↪" rather than a second line, because an action is a label and
+                    // nothing else. It is the same mark the card in the app carries.
+                    if (option.closes) option.label else "↪ ${option.label}",
                     broadcast(ctx, intent, q.key.hashCode() * 8 + index, mutable = false),
                 ).build()
             )
