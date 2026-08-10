@@ -196,11 +196,11 @@ class WatchService : Service() {
         for (event in poll.events) {
             val key = event.key ?: continue
             when (event.type) {
-                // A quiet space still gets its card and its badge — the list came
+                // A quiet bead still gets its card and its badge — the list came
                 // down with this poll — it just doesn't post a notification.
                 "question" -> byKey[key]?.let {
                     if (event.quiet) {
-                        Log.i(TAG, "$key arrived quietly (${event.space} is muted)")
+                        Log.i(TAG, "$key arrived quietly (${event.whyQuiet()})")
                     } else {
                         Notifications.question(this, it)
                         showing += key
@@ -211,7 +211,7 @@ class WatchService : Service() {
                 // mute, and a mute that important things ignore is not a mute.
                 "foundation-request" -> byKey[key]?.let {
                     if (event.quiet) {
-                        Log.i(TAG, "$key — a foundation request arrived quietly (${event.space} is muted)")
+                        Log.i(TAG, "$key — a foundation request arrived quietly (${event.whyQuiet()})")
                     } else {
                         Notifications.foundationRequest(this, it)
                         showing += key
@@ -249,3 +249,16 @@ class WatchService : Service() {
         stopSelf()
     }
 }
+
+/**
+ * Why the phone stayed dark for this one, for the log.
+ *
+ * Two reasons that look identical in a logcat and are fixed differently: a mute ends
+ * on a clock, a filter ends when you press All. Falls back to the mute wording when
+ * the server didn't say, which is what an older daemon sends.
+ */
+private fun Event.whyQuiet(): String =
+    when (quietReason) {
+        "filtered" -> "outside the inbox filter"
+        else -> "${space ?: "its space"} is muted"
+    }
