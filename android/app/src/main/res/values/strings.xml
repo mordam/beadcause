@@ -4,6 +4,7 @@
 
     <string name="notifications_denied">Notifications are off, so questions won\'t reach you. Turn them on in Settings → Apps → Beadcause.</string>
     <string name="cannot_reach_server">Can\'t reach %1$s. Is Tailscale connected?</string>
+    <string name="no_browser">No browser on this phone to open the console in.</string>
 
     <string name="pair_title">Pair with your Mac</string>
     <string name="pair_hint">Run <b>npm run qr</b> on the Mac and point the camera at the code.</string>
