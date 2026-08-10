@@ -1533,16 +1533,64 @@ button.work-row {
 .session-detail .session-label { margin-top: 10px; }
 .session-detail .agent-log { max-height: 52vh; }
 
+/* Saying something back — the box between the facts and the transcript.
+
+   Above the transcript rather than pinned to the bottom of the screen, which is the
+   other obvious place for a composer and would be wrong here: the pane below is not a
+   thread you are writing into, it is a log you are watching for a reply, and a box
+   under it would put the answer above the question. This way the reading order is the
+   causal order — say it, watch it land. See public/session.js. */
+.say-block { display: contents; }
+.session-say { display: flex; gap: 8px; align-items: flex-end; margin-top: 6px; }
+/* Borrowed wholesale from `.composer textarea` rather than restyled: this is the same
+   act on the same phone as the bead console's box, and two composers that look
+   different for no reason teach you that they behave differently. 16px or iOS zooms
+   the page when you focus it. */
+.session-say textarea {
+  flex: 1; resize: none; max-height: 260px;
+  min-height: var(--tap);
+  padding: 12px 13px;
+  border-radius: 14px; border: 1px solid var(--line);
+  background: var(--surface); color: var(--text);
+  font: inherit; font-size: 16px;
+  line-height: 1.45;
+}
+.session-say .send:disabled { opacity: 0.5; }
+
+/* The three things it says back, in one shape and three colours, because they are the
+   same kind of statement: what happened to the message you typed. Quiet by default —
+   an outcome line that shouts is one you stop reading. */
+.say-hint, .say-note, .say-blocked {
+  margin: 6px 0 0;
+  font-size: 12px; line-height: 1.45;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.say-warn { color: var(--warn); }
+.say-bad { color: var(--danger); }
+/* Why there is no box. Indented against a border rather than set in colour: it is not
+   a failure — a session in Terminal.app is running perfectly well — and painting it red
+   would read as something to go and fix. */
+.say-blocked {
+  padding-left: 10px;
+  border-left: 2px solid var(--line);
+}
+
 /* On a page of its own the transcript is the point, so it takes the room the folded
    pane had to leave for the rest of the list — sized off the viewport the way .doc .pdf
    is, with a floor so a short screen still shows a readable pane rather than three
-   lines. */
+   lines.
+
+   The offset grew when the composer arrived above it: a box, its send button and a line
+   of hint are about 120px that used to be transcript. The floor is what stops a landscape
+   phone — where 100dvh is barely 390px — from computing a negative height and showing
+   nothing at all. */
 .session-page { padding-bottom: 24px; }
 .session-solo { padding-bottom: 0; }
 .session-solo .agent-log {
   max-height: none;
-  height: calc(100dvh - 260px);
-  min-height: 180px;
+  height: calc(100dvh - 380px);
+  min-height: 160px;
 }
 
 .work-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }

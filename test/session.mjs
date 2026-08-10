@@ -34,6 +34,13 @@
 //    the whole of what this bead asked for: if a list grows its own inline pane again, or
 //    links somewhere else, the detail has stopped being in one place.
 //
+// 7. **And you can answer it.** `POST /api/session-say` types into the session, reach
+//    says whether that is possible, and both halves of the promise are pinned here: a
+//    session that cannot be reached is refused with the reason rather than accepted and
+//    dropped, and the text is flattened to one line by a rule with exactly one
+//    definition. See the note above the send tests for what is deliberately *not*
+//    exercised, and why.
+//
 // The session it reads is this very process: `liveSessions` liveness-checks every pid,
 // so a fixture pid would be filtered out before the endpoint ever saw it. Nothing here
 // touches a real workspace, a real ~/.claude, or bd.
@@ -126,6 +133,33 @@ fs.writeFileSync(
   ].join('\n')
 );
 
+// **launchd**, as a second session — and the choice of pid is the whole trick.
+//
+// The unreachable path has to be tested against something *alive*, or the 404 for a
+// dead pid answers first and the reach check is never reached at all. It also has to be
+// something that can never turn out to be reachable, because a "reachable" session in
+// this test would be typed into for real: `write text` puts words in a live terminal,
+// and a suite that did that on a laptop with iTerm open would inject a test string into
+// whatever window happened to answer.
+//
+// pid 1 is both, permanently. It is always running; `liveSessions` counts it alive
+// through the EPERM branch, which is exactly what that branch is for; and it has no
+// controlling terminal, so `sessionReach` refuses it before any AppleScript is compiled.
+const NO_TTY_PID = 1;
+fs.writeFileSync(
+  path.join(SESSIONS_DIR, `${NO_TTY_PID}.json`),
+  JSON.stringify({
+    pid: NO_TTY_PID,
+    sessionId: 'ffffeeee-dddd-cccc-bbbb-aaaa00002222',
+    name: 'a session with no terminal',
+    cwd: CWD,
+    status: 'idle',
+    kind: 'claude',
+    startedAt: STARTED,
+    statusUpdatedAt: ACTIVE,
+  })
+);
+
 /* --------------------------------------------------------------------- server */
 
 const cfg = {
@@ -160,25 +194,31 @@ const port = await new Promise((resolve, reject) => {
 const { createApp, listen } = await import(LIB('server.js'));
 const servers = listen({ ...cfg, port }, createApp({ ...cfg, port }).handler);
 
-const call = (pathname, { token = cfg.token } = {}) =>
+const call = (pathname, { token = cfg.token, body = null } = {}) =>
   new Promise((resolve, reject) => {
+    const payload = body === null ? null : JSON.stringify(body);
     const req = http.request(
       {
         host: '127.0.0.1',
         port,
         path: pathname,
-        method: 'GET',
-        headers: token ? { 'x-beadcause-token': token } : {},
+        method: payload === null ? 'GET' : 'POST',
+        headers: {
+          ...(token ? { 'x-beadcause-token': token } : {}),
+          ...(payload === null ? {} : { 'content-type': 'application/json' }),
+        },
       },
       (res) => {
-        let body = '';
+        let text = '';
         res.setEncoding('utf8');
-        res.on('data', (c) => (body += c));
-        res.on('end', () => resolve({ status: res.statusCode, type: res.headers['content-type'] || '', body }));
+        res.on('data', (c) => (text += c));
+        res.on('end', () =>
+          resolve({ status: res.statusCode, type: res.headers['content-type'] || '', body: text })
+        );
       }
     );
     req.on('error', reject);
-    req.end();
+    req.end(payload ?? undefined);
   });
 
 for (let i = 0; i < 100; i += 1) {
@@ -336,6 +376,148 @@ check(() => {
     .filter((f) => fs.readFileSync(PUBLIC(f), 'utf8').includes('/api/session-log'));
   assert.deepEqual(readers, ['session.js'], `readers of /api/session-log: ${readers.join(', ')}`);
 }, 'and public/session.js is the only page that reads a transcript');
+
+/* ================================================== and then you can answer it (bc-01p)
+ *
+ * Watching a session and not being able to say anything to it was the dead end. What
+ * follows pins the parts of the answer that are load-bearing and silent when broken.
+ *
+ * **What is deliberately not here: a successful send.** Delivering a message means
+ * `write text` into a live iTerm session, which is a real side effect on the machine
+ * running the suite — a test that did it would type a fixture string into whatever
+ * window answered, mid-turn, in a session doing real work. So the reach *rule* is
+ * tested against a session that can never be reachable (see NO_TTY_PID), the flattening
+ * rule is tested as the unit it is, and the delivery itself is left to the one place it
+ * can honestly be tried: a phone, against a session you can see.
+ */
+
+const { oneLine, sessionReach } = await import(LIB('session.js'));
+
+/* --------------------------------------------------------------- reach, on the record */
+
+const reachable = JSON.parse((await call(`/api/session-log?pid=${process.pid}`)).body || '{}');
+check(() => {
+  // Not `can: true`: whether *this* process is in an iTerm window depends on how the
+  // suite was started — `npm test` in iTerm yes, over ssh or from the daemon no — and a
+  // test that demanded one of those would fail for being run correctly. The invariant
+  // the page actually leans on is that the answer is a boolean and never bare.
+  assert.equal(typeof reachable.reach, 'object', `reach was ${JSON.stringify(reachable.reach)}`);
+  assert.equal(typeof reachable.reach.can, 'boolean');
+  assert.ok('tty' in reachable.reach, 'reach carries the tty it resolved');
+}, 'the record says whether the session can be spoken to');
+
+check(() => {
+  // The second acceptance criterion, as an invariant rather than a wording: a refusal
+  // always carries a sentence, because the page has nothing else to show and an empty
+  // `why` would render as a session that silently offers nothing.
+  if (reachable.reach.can) {
+    assert.equal(reachable.reach.why, null, 'a reachable session has nothing to explain');
+  } else {
+    assert.ok(String(reachable.reach.why || '').trim().length > 10, JSON.stringify(reachable.reach));
+  }
+}, 'and a refusal is never bare — there is always a reason to show');
+
+const noTty = JSON.parse((await call(`/api/session-log?pid=${NO_TTY_PID}`)).body || '{}');
+check(() => {
+  assert.equal(noTty.reach.can, false, JSON.stringify(noTty.reach));
+  assert.equal(noTty.reach.tty, null);
+  assert.match(noTty.reach.why, /no terminal/i);
+}, 'a live session with no controlling terminal is unreachable, and says which way');
+
+// Straight at the function, because the endpoint could only ever agree with it, and this
+// is the join the whole feature rests on: pid → tty → the window showing it. Awaited out
+// here because `check` is synchronous — a promise handed to it would report a pass before
+// the assertion had run.
+const direct = await sessionReach(NO_TTY_PID);
+const nonsense = await sessionReach(-1);
+check(() => {
+  assert.equal(direct.can, false, JSON.stringify(direct));
+  assert.equal(nonsense.can, false, JSON.stringify(nonsense));
+}, 'sessionReach refuses a pid with no terminal and a pid that is not one');
+
+/* ------------------------------------------------------------------- saying something */
+
+const dumb = await call('/api/session-say', { body: { pid: process.pid, text: '   \n  ' } });
+check(() => {
+  assert.equal(dumb.status, 400);
+  assert.match(JSON.parse(dumb.body).error, /nothing to say/);
+}, 'whitespace is not a message — refused before anything is delivered');
+
+const toDead = await call('/api/session-say', { body: { pid: DEAD, text: 'anyone there' } });
+check(() => {
+  assert.equal(toDead.status, 404);
+  assert.match(JSON.parse(toDead.body).error, new RegExp(String(DEAD)));
+}, 'a pid that has gone is a 404 naming it, not a message quietly dropped');
+
+const toUnreachable = await call('/api/session-say', { body: { pid: NO_TTY_PID, text: 'hello?' } });
+check(() => {
+  const data = JSON.parse(toUnreachable.body);
+  // 409 rather than 400: the request was fine, the session cannot take it. And the
+  // reason rides along so a tab that has been open since before the window closed
+  // corrects its own composer instead of offering the box a second time.
+  assert.equal(toUnreachable.status, 409, toUnreachable.body);
+  assert.match(data.error, /no terminal/i);
+  assert.equal(data.reach?.can, false, `reach was ${JSON.stringify(data.reach)}`);
+}, 'a session out of reach refuses with the reason, and hands the reason back');
+
+const huge = await call('/api/session-say', { body: { pid: NO_TTY_PID, text: 'x'.repeat(9000) } });
+check(() => {
+  // Past ARG_MAX `osascript` fails, and the error it fails with reads as "that session
+  // is gone" — which is the one lie this endpoint cannot tell. Refused up front, with a
+  // number in it, and refused *before* the reach check so the message is about the
+  // message rather than about the session.
+  assert.equal(huge.status, 413, huge.body);
+  assert.match(JSON.parse(huge.body).error, /9000 characters/);
+}, 'a message too long to type is refused for being too long, not for the wrong reason');
+
+const unauth = await call('/api/session-say', { token: '', body: { pid: NO_TTY_PID, text: 'hi' } });
+check(() => {
+  assert.equal(unauth.status, 401);
+}, 'and typing into a session on this Mac needs the token, like everything else');
+
+/* ------------------------------------------------------- one line, and it admits to it */
+
+check(() => {
+  // `write text` presses return at the end of a line, so a second line submits as a
+  // second message — half a sentence into a running agent. One definition of the rule,
+  // read by the AppleScript's caller and by the endpoint that reports `flattened`; two
+  // would eventually disagree, and the symptom would be a message claiming it arrived
+  // as typed.
+  assert.equal(oneLine('two\n\nparagraphs'), 'two paragraphs');
+  assert.equal(oneLine('  trailing \n'), 'trailing');
+  assert.equal(oneLine('a\n  b\n\tc'), 'a b c');
+  assert.equal(oneLine('already one line'), 'already one line');
+}, 'a multi-line message is closed up to one line');
+
+/* ------------------------------------------------ the channel itself, in the AppleScript */
+
+const applescript = fs.readFileSync(path.join(ROOT, 'scripts', 'message-session.applescript'), 'utf8');
+check(() => {
+  // Two comparisons, one line, and the second one is the whole of how a session this
+  // daemon never opened is addressed. Drop it and the advocate's own workers go on
+  // working — it kept their iTerm session ids — while every session started at the
+  // keyboard silently answers `missing`, which is indistinguishable from a closed
+  // window. That is the failure this check exists for.
+  assert.match(applescript, /id of s\) as text\) is equal to wantedId or \(tty of s\) is equal to wantedId/);
+}, 'the AppleScript addresses a session by its tty as well as by its id');
+
+check(() => {
+  // `/api/session-log` polls every two seconds. Without this guard, a phone opening a
+  // session page would launch iTerm on the Mac to find out whether iTerm was running.
+  assert.match(applescript, /is running\) then return "missing"/);
+  const ttys = fs.readFileSync(path.join(ROOT, 'scripts', 'iterm-ttys.applescript'), 'utf8');
+  assert.match(ttys, /if not \(application id "com\.googlecode\.iterm2" is running\) then return ""/);
+}, 'and neither script ever launches iTerm to ask it a question');
+
+check(() => {
+  // The mirror of the transcript check above: one page types into a session, so there is
+  // one place the composer can be.
+  const senders = fs
+    .readdirSync(path.join(ROOT, 'public'))
+    .filter((f) => f.endsWith('.js'))
+    .filter((f) => fs.readFileSync(PUBLIC(f), 'utf8').includes('/api/session-say'));
+  assert.deepEqual(senders, ['session.js'], `senders on /api/session-say: ${senders.join(', ')}`);
+}, 'and public/session.js is the only page that talks back to one');
 
 /* --------------------------------------------------------------------- teardown */
 

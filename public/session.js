@@ -27,6 +27,31 @@
  * verbatim rather than redesigned — the point of the change is that there is one of
  * them, not that it looks new. The room a full page has goes to the transcript, which
  * is the half you came for.
+ *
+ * ## And then you can answer it
+ *
+ * Watching a session think and not being able to say anything to it was the last dead
+ * end in the app: every other conversation here — the bead console, the agent chat, the
+ * pty on /term — is one beadcause started and therefore owns, and this is the one
+ * already on your screen. So there is a box under the facts, and the transcript below
+ * it is the reply. Nothing renders the answer: the pane was already tailing the file
+ * the session writes, so the response arrives on the next poll through the channel that
+ * was there all along.
+ *
+ * Three things about it are the feature rather than decoration, and each is a way of
+ * not lying to you about a message you typed on a phone in another room:
+ *
+ *   - **A session that cannot be reached says so instead of offering a box.** Reach is
+ *     `pid → controlling tty → the iTerm window showing it` (see `sessionReach` in
+ *     lib/session.js); a session with no terminal, or one in Terminal.app or tmux,
+ *     is running fine and simply out of reach of the only channel there is. It arrives
+ *     on the same response as the facts, so the composer can never contradict them.
+ *   - **Nothing typed is thrown away.** A send that fails puts the words back in the
+ *     box and says why; a repaint restores the draft; and the box is not cleared until
+ *     the daemon has said it delivered.
+ *   - **What the channel changes about your message, it admits to.** `write text`
+ *     presses return at the end of a line, so a two-paragraph message goes as one
+ *     line — said before you send it and again after.
  */
 (() => {
   'use strict';
@@ -51,6 +76,20 @@
     /** Set once the pid is gone, or the request failed. Ends the polling. */
     gone: null,
     first: true,
+    /** Whether it can be typed into, and the sentence to show when it cannot. */
+    reach: null,
+    /**
+     * What you have typed and not yet sent.
+     *
+     * Held out here rather than read off the textarea, because a repaint replaces the
+     * element — and a half-written message that disappears because reach flipped while
+     * you were typing is exactly the kind of loss this page is not allowed to have.
+     */
+    draft: '',
+    /** The last thing the send said back: `{ kind: 'ok'|'warn'|'bad', text }`. */
+    note: null,
+    /** True while a send is in flight, so a double tap cannot send twice. */
+    sending: false,
   };
 
   const esc = (s) =>
@@ -135,6 +174,54 @@
       .join('')}</dl>`;
   }
 
+  /**
+   * The box, or the reason there isn't one.
+   *
+   * A session out of reach gets the sentence the daemon wrote and no composer at all —
+   * not a disabled one. A disabled box is an invitation with the door shut: you write
+   * the message anyway, find out afterwards, and the words are gone. Saying it in the
+   * place the box would have been is the whole of the second acceptance criterion.
+   *
+   * The hint under the box is live, because the one surprise this channel has is that
+   * it flattens. Better to read "will be sent as one line" while you are still writing
+   * the second paragraph than to be told about it once it is too late to phrase it
+   * differently.
+   */
+  function sayHtml(s) {
+    const reach = state.reach;
+    if (reach && !reach.can) {
+      return `<div class="session-label">Say something <span>Not to this one.</span></div>
+        <p class="say-blocked">${esc(reach.why || 'This session cannot be typed into.')}</p>`;
+    }
+    if (!reach) {
+      // Reach comes back on the same response as the facts, so this is only ever seen
+      // by a client talking to a daemon that predates the endpoint. Silence would leave
+      // the page looking exactly as it did before the feature existed, which is the
+      // right amount of degradation and the wrong amount of explanation.
+      return `<div class="session-label">Say something <span>Not from this server.</span></div>
+        <p class="say-blocked">This daemon does not know how to pass a message to a session yet.</p>`;
+    }
+
+    const busy = s.status === 'busy';
+    const hints = [];
+    if (/\n/.test(state.draft)) hints.push('Newlines close up — this goes as one line.');
+    if (busy) hints.push('It is mid-turn, so the session holds this until the turn lands.');
+
+    const note = state.note
+      ? `<p class="say-note say-${esc(state.note.kind)}">${esc(state.note.text)}</p>`
+      : '';
+
+    return `<div class="session-label">Say something <span>It lands in the session as if typed.</span></div>
+      <form class="session-say" data-say>
+        <textarea data-say-text rows="1" enterkeyhint="send" autocomplete="off"
+          placeholder="Say something to this session…"></textarea>
+        <button class="primary send" type="submit" data-say-send aria-label="Send"
+          ${state.sending ? 'disabled' : ''}>↑</button>
+      </form>
+      ${hints.length ? `<p class="say-hint">${esc(hints.join(' '))}</p>` : ''}
+      ${note}`;
+  }
+
   function render() {
     if (state.gone) {
       out.innerHTML = `<div class="empty"><strong>${esc(state.gone.title)}</strong>${esc(state.gone.detail)}</div>`;
@@ -149,9 +236,146 @@
     // it said anything once.
     out.innerHTML = `<div class="session-detail session-solo">
       ${factsHtml(s)}
+      <div class="say-block" data-say-block>${sayHtml(s)}</div>
       <div class="session-label">Transcript <span>Its own log, as the terminal showed it.</span></div>
       <pre class="agent-log" data-session-log>${esc(state.logText || 'opening the transcript…')}</pre>
     </div>`;
+    wireSay();
+  }
+
+  /**
+   * Give the freshly-drawn box its draft back, and its behaviour.
+   *
+   * Re-wired on every render rather than delegated from `out`, because the form is
+   * rebuilt wholesale and there is exactly one of it — and the draft has to be put back
+   * in the same breath as the element is created, or a repaint mid-sentence is a
+   * repaint that ate the sentence.
+   */
+  function wireSay() {
+    const form = out.querySelector('[data-say]');
+    if (!form) return;
+    const box = form.querySelector('[data-say-text]');
+    box.value = state.draft;
+    autoGrow(box);
+
+    box.addEventListener('input', () => {
+      const had = /\n/.test(state.draft);
+      state.draft = box.value;
+      autoGrow(box);
+      // Only when the hint itself would change: repainting the page on every keystroke
+      // would take the caret with it.
+      if (had !== /\n/.test(state.draft)) repaintSay();
+    });
+    box.addEventListener('keydown', (ev) => {
+      // The keyboard says "send", so Enter sends and shift+Enter is a newline — the
+      // same bargain the bead console strikes, so the two composers do not disagree.
+      if (ev.key === 'Enter' && !ev.shiftKey) {
+        ev.preventDefault();
+        say();
+      }
+    });
+    form.addEventListener('submit', (ev) => {
+      ev.preventDefault();
+      say();
+    });
+  }
+
+  const autoGrow = (el) => {
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(el.scrollHeight, 260)}px`;
+  };
+
+  /**
+   * Redraw the composer alone, keeping the caret where it was.
+   *
+   * The transcript below is a `<pre>` several thousand lines long and the facts have
+   * not changed because a hint appeared, so `render()` for this would rebuild the
+   * expensive half of the page to move a line of small text — and take the keyboard
+   * down with it on iOS, which is the part that actually matters.
+   */
+  function repaintSay() {
+    const block = out.querySelector('[data-say-block]');
+    if (!block || !state.session) return render();
+
+    const box = block.querySelector('[data-say-text]');
+    // Only worth restoring if it was the focused element — putting the caret back into
+    // a box you were not typing in would open the keyboard over the transcript.
+    const at = box && box === document.activeElement ? box.selectionStart : null;
+
+    block.innerHTML = sayHtml(state.session);
+    wireSay();
+
+    const fresh = block.querySelector('[data-say-text]');
+    if (fresh && at !== null) {
+      fresh.focus();
+      fresh.setSelectionRange(at, at);
+    }
+  }
+
+  /**
+   * Send what is in the box, and be honest about what happened to it.
+   *
+   * The rule the whole function is built around: **the box is cleared only once the
+   * daemon has said it delivered.** Every other path — a refusal, a closed window, a
+   * dropped connection — leaves the words exactly where they were and puts the reason
+   * underneath them. There is no queue and no retry here on purpose: mid-turn typing is
+   * held by the *session*, which is what the CLI does with anything typed while it
+   * works, so a second queue on this side would be beadcause holding words back that
+   * the session was ready to take.
+   *
+   * There is no optimistic echo either. The transcript below is the reply channel, and
+   * showing a message there before the session has written it would put a line in the
+   * pane that is not in the file — the one place on this page where invented content
+   * would be indistinguishable from a real transcript.
+   */
+  async function say() {
+    // What is being sent, frozen. The box stays live while the request is in flight —
+    // shutting it would be the composer closing mid-thought, which is the thing
+    // public/sendqueue.js exists to have stopped doing elsewhere — so by the time this
+    // returns, `state.draft` may be the *next* message. Clearing it blindly on success
+    // would delete words that were never sent.
+    const going = state.draft;
+    const text = going.trim();
+    if (!text || state.sending) return;
+
+    state.sending = true;
+    state.note = { kind: 'ok', text: 'Sending…' };
+    repaintSay();
+
+    try {
+      const res = await fetch('/api/session-say', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-beadcause-token': token },
+        body: JSON.stringify({ pid, text }),
+      });
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        // A 409 carries the reach it was refused for, so a tab left open since before
+        // the window closed corrects itself here rather than offering the box again.
+        if (data.reach) state.reach = data.reach;
+        state.note = { kind: 'bad', text: `${data.error || `HTTP ${res.status}`} Your message is still here.` };
+        return;
+      }
+
+      // Only the words that actually went. Anything typed since stays put.
+      if (state.draft === going) state.draft = '';
+      state.note = {
+        kind: data.flattened ? 'warn' : 'ok',
+        text: [
+          data.queued ? 'Sent — the session is mid-turn and will answer when it lands.' : 'Sent.',
+          data.flattened ? 'It went as one line: the newlines were closed up.' : '',
+          'Watch the transcript below.',
+        ]
+          .filter(Boolean)
+          .join(' '),
+      };
+    } catch (err) {
+      state.note = { kind: 'bad', text: `Couldn't reach the server: ${err.message}. Your message is still here.` };
+    } finally {
+      state.sending = false;
+      repaintSay();
+    }
   }
 
   /**
@@ -182,7 +406,13 @@
       }
       if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
 
+      // What the composer is drawn from, and the two things about it that can change
+      // under a page left open: whether it is still reachable (a window closed by hand)
+      // and whether it is mid-turn (which decides what the hint says).
+      const was = `${state.reach?.can}·${state.reach?.why}·${state.session?.status}`;
+
       state.session = data;
+      state.reach = data.reach || null;
       state.file = data.file || null;
       state.logText =
         (data.lines || []).join('\n') ||
@@ -206,6 +436,10 @@
       const atBottom = pre.scrollHeight - pre.scrollTop - pre.clientHeight < 40;
       pre.textContent = state.logText;
       if (atBottom) pre.scrollTop = pre.scrollHeight;
+
+      // …and the composer alone if what it says has actually changed. Not on every
+      // poll: it holds the caret and, on iOS, the keyboard.
+      if (was !== `${state.reach?.can}·${state.reach?.why}·${state.session?.status}`) repaintSay();
     } catch (err) {
       // A transport failure is not a session that has gone, so it does not stop the
       // polling — it says so where the transcript would be and tries again.
