@@ -4013,6 +4013,12 @@ If the transcript has been pruned since, `claude` says `No conversation found wi
 session ID: …` and exits — the terminal ends the way any other ended session does,
 rather than silently starting a different conversation under the same name.
 
+**A hot swap is a daemon restart as far as a terminal is concerned**, and it happens
+every time you save a file in `lib/` rather than once a week — so the socket is closed
+deliberately at the cutover, with a code the page reconnects from, rather than being cut
+when the drain gives up on it. See
+[the WebSocket goes through it too](#the-websocket-goes-through-it-too-and-a-swap-ends-it-on-purpose).
+
 ### The keys a phone doesn't have
 
 Claude Code is driven by esc, ^C and shift-tab, and an Android soft keyboard offers
@@ -4231,6 +4237,50 @@ The limits, stated plainly:
   whose plist has drifted from the tree it just pulled. A plist rewritten
   without a bootout counts as stale too — launchd keeps the argv it bootstrapped with,
   so editing the file changes nothing on its own.
+
+### The WebSocket goes through it too, and a swap ends it on purpose
+
+[The terminal](#the-terminal--driving-a-session-from-the-phone) is an HTTP upgrade, and
+an upgrade is not a request the proxy above can carry: `connection` and `upgrade` are
+hop-by-hop headers — they describe *this* hop — so a proxy strips them, and has to state
+them again when it means to open the next hop as a tunnel. The router did the first half
+and not the second. A server with no `upgrade` listener hands the request to its
+ordinary handler rather than refusing it, so `GET /ws/terminal` reached the backend
+looking like any other GET, missed the upgrade listener there entirely, and the app
+answered the only thing it could: `404`, reported by a browser as `Unexpected server
+response: 404`.
+
+Which made it the exact shape of the bug this whole section exists to prevent — correct
+files, a healthy process, and a path the page plainly asks for returning 404 — with one
+extra turn of the screw: it worked perfectly under `npm run start:bare`, where the phone
+reaches `lib/termsocket.js` directly, and that is the one configuration launchd never
+runs. Both halves are load-bearing, and the suite proves it by breaking each one on its
+own: a listener that forwarded the stripped headers produces the identical 404 one hop
+later.
+
+So the router tunnels it. It dials the active backend carrying the original `upgrade`,
+`connection` and `sec-websocket-*` headers, relays the `101` back along with whatever
+bytes followed it — `ws` sends its first frames immediately, and dropping them would eat
+the `hello` the page waits for — then pipes the two sockets together and never looks at
+a frame. Nothing in `lib/termsocket.js` changed and nothing should: the handshake, the
+subprotocol carrying the token, and the accepted-then-closed `1008` for an unknown id
+are the same whether the socket arrived over loopback from the router or straight off the
+tailnet. A refusal that is *not* a 101 — `401` for a bad token, `404` for a path that is
+not the terminal — is written back verbatim, because a proxy that turned that into a
+dropped socket would cost the client the one useful sentence in the exchange.
+
+**What a swap does to an attached terminal is a decision, and this is it.** The pty is a
+child of the backend and cannot outlive one, so there is no version of this where the
+terminal survives a swap — only versions where it ends well or badly. Left alone, an
+attached socket holds `inflight` above zero for the whole 60 seconds of the drain: the
+phone spends a minute typing into a process that is already condemned, and then loses it
+mid-keystroke with `1006`, which is indistinguishable from a tunnel. So the outgoing
+backend is asked to close them itself, with a real close frame carrying **1012 — Service
+Restart**. The page reconnects within a second onto the new backend, where the record has
+come back `resumable`, and `claude --resume` puts the conversation back with the note
+that [says so](#and-it-survives-the-daemon-too). The socket is counted in `inflight`
+either way, so a backend is never killed out from under one; `npm run swap:status` names
+the count beside the requests.
 
 ## HTTPS on the tailnet name
 

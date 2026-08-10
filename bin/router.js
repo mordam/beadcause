@@ -13,6 +13,11 @@
  * second backend up beside the first, health-checks it, hands over, and drains the
  * old one. The phone sees one continuous server.
  *
+ * Everything the phone asks for comes through here, and that is two paths and not one:
+ * ordinary requests, and the HTTP upgrade the terminal rides. The second was missing
+ * for a while and cost the terminal a 404 in the only configuration launchd runs — see
+ * `onUpgrade`, and the README section it points at.
+ *
  * Why a router at all, rather than two processes sharing the port: `reusePort` is
  * ENOTSUP on macOS under Node 22, so two processes cannot hold 4318 between them.
  * One has to own it, and it has to be the one that never needs replacing — which
@@ -143,7 +148,20 @@ async function spawnBackend() {
     env: process.env,
   });
 
-  const be = { port, child, pid: child.pid, build: null, startedAt: Date.now(), role: 'starting', reaping: null, inflight: 0 };
+  const be = {
+    port,
+    child,
+    pid: child.pid,
+    build: null,
+    startedAt: Date.now(),
+    role: 'starting',
+    reaping: null,
+    inflight: 0,
+    // Client sockets that have been upgraded through this backend — terminals, in
+    // practice. Counted in `inflight` like any request, but unlike a request they
+    // never end on their own, so `retire` has to say something to them.
+    upgrades: new Set(),
+  };
   child.on('exit', (code, signal) => onBackendExit(be, code, signal));
 
   const deadline = Date.now() + HEALTH_TIMEOUT_MS;
@@ -179,6 +197,32 @@ function stop(be) {
 }
 
 /**
+ * Ask a superseded backend to let go of its terminal sockets.
+ *
+ * **What a swap does to an attached terminal, decided.** The pty is a child of the
+ * backend, so it cannot outlive one — there is no version of this where the terminal
+ * survives a swap, only versions where it ends well or badly. Left alone, an attached
+ * socket keeps `inflight` above zero for the whole of DRAIN_MS: a phone spends a
+ * minute typing into a process that is already condemned, then loses it mid-keystroke
+ * with 1006, which is indistinguishable from a tunnel. So the outgoing backend is
+ * asked to close them itself, with a real close frame carrying 1012 (Service
+ * Restart); the phone reconnects within a second onto the *new* backend, where the
+ * record has come back `resumable`, and `claude --resume` puts the conversation back.
+ *
+ * Only asked when this router has actually proxied an upgrade to it: on the swap that
+ * lands this change the outgoing backend has no such control path, and a 404 warning
+ * about a socket nobody had open would be noise. Failure is survivable either way —
+ * the drain falls back to DRAIN_MS and then SIGTERM, exactly as it did before.
+ */
+function release(be) {
+  if (!be.upgrades.size) return;
+  const n = be.upgrades.size;
+  localJson(be.port, '/internal/release', { method: 'POST' })
+    .then((r) => log(`pid ${be.pid} released ${r?.closed ?? n} terminal socket(s) — the phone reconnects onto the new backend`))
+    .catch((err) => warn(`pid ${be.pid} would not release its ${n} terminal socket(s) (${err.message}) — draining them out`));
+}
+
+/**
  * Let a superseded backend finish what it already had, then end it.
  *
  * It is in standby by this point, so it polls nothing and notifies nobody; all it
@@ -189,6 +233,7 @@ function stop(be) {
 function retire(be) {
   be.role = 'draining';
   retiring.add(be);
+  release(be);
   const started = Date.now();
   const timer = setInterval(() => {
     const drained = be.inflight === 0;
@@ -366,6 +411,22 @@ function forwardable(headers) {
 }
 
 /**
+ * The same headers, with the two hop-by-hop ones an upgrade cannot do without.
+ *
+ * `connection` and `upgrade` are hop-by-hop precisely because they describe *this*
+ * hop, and a proxy that means to open the next hop as a tunnel has to state them
+ * again rather than pass them through. Stripping them is what made the terminal 404:
+ * `GET /ws/terminal` arrived at the backend as an ordinary request, missed the
+ * `upgrade` listener entirely, and was answered by the app's own 404.
+ *
+ * `sec-websocket-*` is not hop-by-hop and was never dropped — including the
+ * subprotocol, which is where the token travels. See lib/termsocket.js.
+ */
+function upgradeHeaders(req) {
+  return { ...forwardable(req.headers), connection: 'Upgrade', upgrade: req.headers.upgrade };
+}
+
+/**
  * A fresh loopback socket per proxied request, deliberately.
  *
  * Pooling them would save a handshake that costs nothing over loopback, and buy a
@@ -397,6 +458,9 @@ function describe(be) {
     // Whether this backend is sweeping terminals. Exactly one should be, ever.
     reaping: be.reaping,
     inflight: be.inflight,
+    // Of which this many are upgraded sockets — terminals. Reported separately
+    // because they are the part of `inflight` that will not fall on its own.
+    upgrades: be.upgrades.size,
     upSeconds: Math.round((Date.now() - be.startedAt) / 1000),
   };
 }
@@ -498,6 +562,134 @@ const handler = (req, res) => {
   req.pipe(upstream);
 };
 
+/**
+ * Refuse an upgrade before there is a socket to speak WebSocket on.
+ *
+ * Plain HTTP, for the reason lib/termsocket.js gives about its own refusals: a
+ * browser reports a failed handshake with a status far more usefully than it reports
+ * a socket that opens and closes with a code, and 1006 is also what a phone going
+ * through a tunnel produces.
+ */
+function denyUpgrade(socket, code, message) {
+  if (!socket.destroyed) socket.write(`HTTP/1.1 ${code} ${message}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`);
+  socket.destroy();
+}
+
+/** An HTTP message head, rebuilt from a parsed response. */
+function headOf(res) {
+  const lines = [`HTTP/1.1 ${res.statusCode} ${res.statusMessage || ''}`.trimEnd()];
+  for (const [k, v] of Object.entries(res.headers)) {
+    if (Array.isArray(v)) for (const one of v) lines.push(`${k}: ${one}`);
+    else lines.push(`${k}: ${v}`);
+  }
+  return `${lines.join('\r\n')}\r\n\r\n`;
+}
+
+/**
+ * The other half of the proxy: an HTTP upgrade, tunnelled to the active backend.
+ *
+ * With an `upgrade` listener, Node routes an upgrade request here and never to
+ * `handler`. Without one it does the opposite — the request goes to `handler` like any
+ * other — which is why the symptom was a *404* rather than a dead socket: the router
+ * proxied `GET /ws/terminal` as an ordinary request, with `upgrade` and `connection`
+ * stripped as hop-by-hop, so the backend's own upgrade listener never saw it and
+ * `app.handler` answered the only thing it could. Both halves are the bug: a listener
+ * that forwarded `forwardable(req.headers)` would produce the same 404 one hop later.
+ *
+ * The response is one of two things and both are relayed rather than interpreted.
+ * A 101 becomes two pipes and nothing else — the router never looks at a WebSocket
+ * frame, so nothing here can be confused by one, and the token subprotocol is checked
+ * by the backend exactly as it is under `npm run start:bare`. Anything else is the
+ * backend refusing the upgrade (401 for a bad token, 404 for a path that is not the
+ * terminal), and it is written out verbatim, because a proxy that turned a 401 into a
+ * dropped socket would cost the client the one useful sentence in the exchange.
+ */
+const onUpgrade = (req, socket, head) => {
+  socket.on('error', () => socket.destroy());
+
+  let url;
+  try {
+    url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+  } catch {
+    return denyUpgrade(socket, 400, 'Bad Request');
+  }
+  // The control plane is request/response only, and a backend's `/internal/` is not
+  // reachable through here by design — see `control`. An upgrade must not be the
+  // hole in either.
+  if (url.pathname.startsWith('/internal/')) return denyUpgrade(socket, 404, 'Not Found');
+  if (!active) return denyUpgrade(socket, 503, 'Service Unavailable');
+
+  const target = active;
+  target.inflight++;
+  target.upgrades.add(socket);
+  let counted = true;
+  /** The loopback half, once there is one. Held so the client going away can end it. */
+  let tunnel = null;
+  const done = () => {
+    if (!counted) return;
+    counted = false;
+    target.inflight--;
+    target.upgrades.delete(socket);
+  };
+  const upstream = http.request({
+    host: '127.0.0.1',
+    port: target.port,
+    method: req.method,
+    path: req.url,
+    headers: upgradeHeaders(req),
+    // Not the shared agent: an upgraded socket is taken out of HTTP entirely, and
+    // handing it back to a pool that expects to manage it is how a tunnel ends up
+    // reused for a request.
+    agent: false,
+  });
+
+  // One close handler for the client end, and it ends everything. The client can go
+  // away *during* the handshake — a phone that locks mid-connect — and the loopback
+  // request left behind would keep the backend's own WebSocket alive with nobody on
+  // the other side of it, which is a socket the drain would then wait on forever.
+  socket.on('close', () => {
+    done();
+    upstream.destroy();
+    tunnel?.destroy();
+  });
+
+  upstream.on('upgrade', (up, upSocket, upHead) => {
+    tunnel = upSocket;
+    upSocket.on('error', () => upSocket.destroy());
+    socket.write(headOf(up));
+    // Bytes each side had already sent past its own head. The backend's `ws` writes
+    // its first frames immediately after the 101, so `upHead` is routinely non-empty
+    // and dropping it would eat the `hello` message the terminal page waits for.
+    if (upHead?.length) socket.write(upHead);
+    if (head?.length) upSocket.write(head);
+    socket.pipe(upSocket);
+    upSocket.pipe(socket);
+    // The backend going away ends the client too — which is what turns a released
+    // socket, or a killed backend, into a reconnect rather than a page waiting on a
+    // tunnel with nothing behind it. The other direction is the close handler above.
+    upSocket.on('close', () => socket.destroy());
+  });
+
+  // The backend answered rather than upgrading — its own refusal, relayed intact.
+  upstream.on('response', (up) => {
+    socket.write(headOf(up));
+    up.on('data', (chunk) => socket.write(chunk));
+    up.on('end', () => socket.end());
+    up.on('error', () => socket.destroy());
+  });
+
+  upstream.on('error', (err) => {
+    warn(`upgrade to pid ${target.pid} failed — ${err.message}`);
+    denyUpgrade(socket, 502, 'Bad Gateway');
+  });
+
+  req.on('error', () => upstream.destroy());
+  // A WebSocket handshake is a GET with no body, and `head` — anything the client
+  // sent past its own request head — is written to the tunnel above rather than into
+  // this request, where it would arrive before the 101 as a body nobody asked for.
+  upstream.end();
+};
+
 // ----------------------------------------------------------------------- listening
 
 /**
@@ -523,6 +715,12 @@ function listen() {
   return hosts.map((host) => {
     const secure = Boolean(material) && host !== '127.0.0.1';
     const { server, front } = secure ? secureServer(material, handler) : { server: http.createServer(handler), front: null };
+    // The terminal rides the upgrade path, and a server with no `upgrade` listener
+    // quietly treats one as an ordinary request — which is how the terminal came to
+    // 404. In the installed configuration this is the only listener there is: the
+    // backends bind loopback, so the one lib/termsocket.js attaches to *their* servers
+    // can never be reached from the tailnet.
+    server.on('upgrade', onUpgrade);
     // The front owns the port when there is one: it binds, it fails, it closes.
     const listener = front || server;
     listener.on('error', (err) => {
@@ -588,7 +786,12 @@ async function askRunningRouter(pathname, method) {
 
 if (process.argv.includes('--status')) {
   const s = await askRunningRouter('/internal/router/state', 'GET');
-  const line = (be) => (be ? `pid ${be.pid} :${be.port} build ${be.build} ${be.role} inflight ${be.inflight} up ${be.upSeconds}s` : '(none)');
+  const line = (be) =>
+    be
+      ? `pid ${be.pid} :${be.port} build ${be.build} ${be.role} inflight ${be.inflight}${
+          be.upgrades ? ` (${be.upgrades} terminal socket${be.upgrades === 1 ? '' : 's'})` : ''
+        } up ${be.upSeconds}s`
+      : '(none)';
   console.log(`router   pid ${s.router.pid} on :${s.router.port}${s.router.sourceChanged ? '  ⚠ source changed — restart it' : ''}`);
   console.log(`active   ${line(s.active)}`);
   for (const be of s.retiring) console.log(`draining ${line(be)}`);
