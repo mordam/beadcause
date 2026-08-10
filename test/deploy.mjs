@@ -41,6 +41,7 @@ const LIB = (name) => path.join(HERE, '..', 'lib', name);
 const {
   deployFor,
   deployable,
+  deployHint,
   startDeploy,
   listDeploys,
   showDeploy,
@@ -191,6 +192,36 @@ await check('and the declaration wins when it names one', () => {
   const r = repo('dirs2');
   const plan = deployFor(config({ demo: { command: ['true'], dir: r.checkout } }, { demo: tmp }), 'demo');
   assert.equal(plan.dir, path.resolve(r.checkout));
+});
+
+/* ------------------------------------------------------------------- the hint */
+
+// What the Ship button on a delivery card says it will do. The failure worth a test is
+// a hint that reads the same for every repo: `fly deploy` and a launchd SIGKILL of the
+// daemon you are holding are not the same offer, and the button is where that is said.
+
+await check('a repo with no deploy has no hint, which is what stops the button being drawn', () => {
+  assert.equal(deployHint(null), '');
+  assert.equal(deployHint(deployFor(config({}, { demo: tmp }), 'demo')), '');
+});
+
+await check('the hint names the command, every rebuild, and the restart', () => {
+  const cfg = config(
+    {
+      demo: {
+        command: ['launchctl', 'kickstart', '-k', 'gui/{uid}/m4m.demo'],
+        restarts: true,
+        rebuild: [{ label: 'apk', when: ['android'], command: ['true'] }],
+      },
+    },
+    { demo: tmp }
+  );
+  assert.equal(deployHint(deployFor(cfg, 'demo')), 'runs `launchctl` · rebuilds apk · restarts beadcause');
+});
+
+await check('a repo that does not restart beadcause does not claim to', () => {
+  const cfg = config({ demo: { command: ['fly', 'deploy'] } }, { demo: tmp });
+  assert.equal(deployHint(deployFor(cfg, 'demo')), 'runs `fly`');
 });
 
 /* ---------------------------------------------------------------- a real deploy */

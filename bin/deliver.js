@@ -53,6 +53,7 @@ import { execFileSync } from 'node:child_process';
 import { loadConfig } from '../lib/config.js';
 import { ownerName } from '../lib/owner.js';
 import { deliveryBody, deliveryTitle, DELIVERY_LABEL } from '../lib/delivery.js';
+import { deployFor, deployHint } from '../lib/deploy.js';
 import { pushLanded } from '../lib/notify.js';
 import * as pr from '../lib/pr.js';
 
@@ -329,6 +330,27 @@ if (refused) console.error(`beadcause-deliver: not merged — ${refused}`);
 
 /* ----------------------------------------------------------- the question bead */
 
+/**
+ * Whether this card gets a **Ship it** button, and what it says it will do.
+ *
+ * Read here rather than at answer time because this is what writes the options, and
+ * the options are the whole protocol on the wire — but read *again* by the server
+ * before anything deploys, so a declaration removed between filing and answering costs
+ * a stale button and never a wrong deploy. Empty for every repo with no `deploys`
+ * entry, which is most of them.
+ *
+ * A broken declaration is caught and dropped rather than thrown: `deployFor` refuses a
+ * `command` that is not argv, and that is a good refusal at the moment somebody presses
+ * the button. It is a terrible reason to fail a delivery whose branch is already pushed
+ * and whose pull request is already open.
+ */
+let shipHint = '';
+try {
+  shipHint = deployHint(deployFor(cfg, ws.name));
+} catch (err) {
+  console.error(`beadcause-deliver: ${ws.name} declares a deploy this cannot read, so the card offers no Ship — ${first(err)}`);
+}
+
 const delivery = {
   workspace: ws.name,
   bead: beadId,
@@ -366,6 +388,7 @@ const out = bd([
     // claiming the worker chose this would be crediting it with a decision it never had.
     refused,
     asked: review && cfg.pr?.autoMerge !== false,
+    ship: shipHint,
   }),
   '--json',
 ]);

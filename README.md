@@ -2692,7 +2692,7 @@ session finishes ──► beadcause-deliver ──► pushes the branch ──�
                         ▼                                                                        ▼
               gh pr merge --squash                                                   question with the PR link
               bead closes: it landed                                                        ──► your phone
-              ✅ push, nothing to answer                                          Merge · Request changes · Decline
+              ✅ push, nothing to answer                                   Merge · Ship · Request changes · Decline
                         │
                         └──► 🔀 PR board: merged, on origin, not yet running → Ship
 ```
@@ -2721,7 +2721,9 @@ Five things follow, and they are the whole of the change:
   different fact with a different button. The notification says what landed and what is
   still owed, and links to [the PR board](#pull-requests--merged-pushed-deployed), where
   **Ship** is. What a deploy even *is* lives in each repo's `CLAUDE.md`, and a worker
-  being right about a merge does not make it right about that.
+  being right about a merge does not make it right about that. On a card that *did* come
+  to you, the two are one tap apart: **Merge** and **Ship it** sit next to each other,
+  and the difference between them is the whole of [the next section](#ship-it--the-same-merge-and-then-the-deploy).
 
 **The old ending is intact, and it is the fallback.** Everything below about the card,
 the three answers and the markers is still exactly what happens when the merge does not
@@ -2793,6 +2795,64 @@ stated and pressing would only produce an error.
 every other one, this also lands code in `main`, which is the strongest argument for
 the second tap in the whole app.
 
+### Ship it — the same merge, and then the deploy
+
+The fourth button, and the only one that is not always there. **Ship it** is `MERGE:`
+plus the repo's [declared deploy](#deploying-a-repo-when-it-says-how),
+so what changes is not only what is on `origin` but what is *running*.
+
+**It appears only where there is a deploy to run.** `deploys` in the config is empty by
+default and most repos have no entry, so most cards get the three answers they always
+had — a Ship button in a repo that declares nothing would be a button whose entire
+content is a failure message. `beadcause-deliver` looks the declaration up when it files
+the card, and the server looks it up **again** before anything runs, so a declaration
+removed in between costs a stale button and never a wrong deploy.
+
+**And it says what it will actually do**, on the button, in two lines:
+
+```
+  Ship #42
+  merge, then runs launchctl · rebuilds apk · restarts beadcause
+```
+
+Because "deploy it" means something different in every repo, and the difference is
+exactly the part worth a second's thought: `fly deploy` costs nothing you would notice,
+and `launchctl kickstart -k` on this Mac SIGKILLs the daemon you are holding.
+
+**Merge is still first, and still the safe one.** Ship sits second, deliberately not
+under a thumb aiming at the top button: a merge you meant to ship is one more tap on the
+PR board, and a deploy you did not mean is not a tap at all. Both arm the same way —
+tap, then tap again — and both are disabled on the same facts, because a pull request
+GitHub will not take is not one to ship either.
+
+**The deploy starts last of everything.** This is the whole reason it is not simply
+`MERGE:` with a flag. A beadcause deploy kills the process serving the request that
+asked for it, so by the time it starts, everything durable this answer owed is already
+done: the merge is on GitHub, the work bead is closed with the PR number in its reason,
+the answer is written, the question is closed, and every other client has been told.
+Then — and only then — `startDeploy` hands the work to a detached runner and the reply
+goes out. A 200 here means *written down and a process owns it*, never *it worked*; how
+it went arrives on `/api/deploys`, on the PR board, and on your phone.
+
+**Ship in a repo with nothing declared still merges.** It has to: the merge is the half
+both buttons asked for, and throwing it away over a missing config entry would be the
+worst possible reading of "ship it". The bead says why nothing was deployed, in that
+sentence, rather than implying it shipped. The same is true of a deploy already running
+for that repo, and of a declaration that is present and malformed.
+
+One thing to know about the lock screen: ntfy allows three action buttons and a
+shippable delivery offers four, so **decline** is the one that falls off the
+notification. That is the right one to lose — declining asks for a direction to take
+instead, which is a paragraph and not a tap, and on the card itself it is already a
+two-step panel for exactly that reason.
+
+`node test/ship.mjs` drives the whole thing through a real `POST /api/respond` with a
+fake `bd`, a fake `gh` and a declared deploy whose command writes a file: that `MERGE:`
+deploys nothing, that free text does neither, that a repo with no declaration merges and
+says so — and, the one that needs an end-to-end test to prove at all, that the deploy
+command sees a `bd` call log which **already** contains the closed bead and the answered
+question.
+
 ### Request changes is a sentence, not a button
 
 There is no one-tap "changes requested". It opens the card and puts you in the answer
@@ -2856,11 +2916,18 @@ is treated as consent.
 | marker | what it does |
 |---|---|
 | `MERGE:` | `gh pr merge --squash --delete-branch`, then closes the work bead with the PR number in its reason |
+| `SHIP:` | the same merge, and then the repo's declared deploy — started after the answer is written, never before |
 | `CHANGES:` | comments on the PR and the bead, reopens the bead, leaves the branch alone |
 | `DECLINE:` | closes the PR unmerged, abandons the branch, reopens the bead — and writes whatever direction you gave onto it |
 
 "Looks good to me" is a comment, which is exactly what it looks like. So is *"I think
 we should MERGE: it"* — the marker only counts at the start.
+
+`SHIP:` is a fourth word rather than a flag on `MERGE:` for the same reason the other
+three are separate words: the wire carries the response string and nothing else, so the
+prefix is the whole protocol — and *merge* must never widen into *merge and deploy*
+because somebody appended a sentence to it. `MERGE: ship it after` merges, and deploys
+nothing.
 
 The merge happens **before** the question is closed, the same order `createProposed`
 keeps: a merge GitHub refuses leaves the question open and answerable rather than
@@ -2871,7 +2938,7 @@ why a worker *waits* for its checks and then merges, rather than handing GitHub 
 standing instruction and exiting. Whatever closes a bead here is a merge that has
 already happened.
 
-A delivery question closes on all three answers, including *request changes* — the
+A delivery question closes on all four answers, including *request changes* — the
 question was *merge this?* and it has been answered. The next push files a new one, so
 the inbox carries one card per attempt rather than one card that quietly changes
 meaning under you.
@@ -3225,7 +3292,7 @@ shapes for one idea.
 
 `node scripts/launcher-check.mjs` checks it in headless Chrome at phone size, against a
 fixture `/api/consoles` served by the script itself, so it never touches a daemon or a
-bead. Eighteen assertions: the tabs and their counts, that selecting one filters the
+bead. Twenty-one assertions: the tabs and their counts, that selecting one filters the
 list to it, that the selection survives a reload, that ＋ POSTs the *selected* repo and
 lands in the thread, that ＋ on All opens the picker and starts nothing by asking, the
 empty and the removed-repo cases, and — the one that must not have changed — that
@@ -3234,6 +3301,46 @@ the committed `console.js`/`console.html`/`style.css`, where there is no All tab
 ＋ at all, so it must fail everything but that last one. `--out=<dir>` writes the three
 screens, because a row of passing assertions says nothing about whether the tabs and
 the ＋ fit beside each other at 393px.
+
+### A chat with an agent says so
+
+Two screens start conversations, and they write the same record. `/console` starts a
+**chat session** — describe a thing, get a proposal. [The agents
+screen](#what-an-agent-is--and-how-it-asks-to-be-different) starts a **chat with one of
+the agents** — the Critic, the Researcher, whoever — which is the same
+machinery with a different foundation and no proposal expected. Both carry a workspace,
+so both are in `/api/consoles`, and the repo tabs made that *more* visible rather than
+less: an agent chat lands under its repo's tab as if it had been started there.
+
+Which left a chat with the Critic sitting in *Pick up again* looking exactly like a
+conversation about what to file next, with only its title to tell them apart — and a
+title is the one thing on that row you can rename.
+
+So an agent chat is marked twice:
+
+- **The agent's own emoji in the phase slot**, where a chat session draws 💬. Free, and
+  it is the first thing your eye lands on down the left edge of the list.
+- **A tinted pill beside the repo**, `🧨 Critic`, and this is the one that holds. The
+  phase slot is *status* as well: a running turn draws a spark there and a finished one
+  a tick, and both of those take the emoji away. The pill never moves.
+
+Leaving agent chats out of the list entirely was the other option, and it is worse:
+they would then be reachable only from the agent they were started with, which is a
+place you go to *change* an agent, not a place you go to find a conversation you had.
+The point of *Pick up again* is that it is the one list of everything you were saying.
+
+The name and the emoji are resolved **on the server** (`withAgentNames`, lib/agents.js),
+because the record only ever stored the agent's *id* — the roster is where a name lives,
+a custom agent's emoji exists nowhere else, and a second fetch for the roster from the
+phone would paint every agent chat as an ordinary chat session and then correct itself.
+Both routes that hand the list back use it, reading it *and* closing a row: the close
+returns a fresh list the phone renders directly, so an undecorated one there would
+un-mark every agent chat on screen until the next reload. An id with nothing behind it
+any more keeps its own name and a generic 🤖 rather than falling back to the default
+agent — the conversation happened, whatever the roster says now.
+
+`node test/agentchats.mjs` (in `npm test`) covers the naming and both routes;
+`scripts/launcher-check.mjs` covers what the row draws.
 
 ### The proposal is the review, so the review is editable
 
