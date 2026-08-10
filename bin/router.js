@@ -36,6 +36,7 @@ import { fileURLToPath } from 'node:url';
 import { loadConfig } from '../lib/config.js';
 import { buildStamp, routerStamp } from '../lib/build.js';
 import { hotSwapProblem } from '../lib/service.js';
+import { certificate, secureServer, MIN_VERSION } from '../lib/tls.js';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const BACKEND = path.join(ROOT, 'bin', 'beadcause.js');
@@ -503,27 +504,40 @@ const handler = (req, res) => {
  * Bind loopback and the tailnet address — the same pair `lib/server.js` binds, and
  * deliberately re-implemented here rather than imported. The router has to be able
  * to come up when `lib/server.js` is broken; that is most of the point of it.
+ *
+ * **TLS terminates here in the installed configuration**, because here is what owns
+ * the port: the backends behind this bind loopback only, so a certificate on their
+ * sockets would guard the one hop that never leaves the machine and leave the phone on
+ * plain http. lib/tls.js is a leaf — node builtins and lib/config.js — which keeps the
+ * rule this file lives by: it depends on almost nothing, so almost nothing can stop it
+ * coming up. The proxy hop to the backend stays plain `http://127.0.0.1`.
  */
 function listen() {
   const hosts = ['127.0.0.1'];
   if (cfg.host && cfg.host !== '127.0.0.1') hosts.push(cfg.host);
 
+  const material = hosts.length > 1 ? certificate(cfg) : null;
+
   let bound = 0;
   let failed = 0;
   return hosts.map((host) => {
-    const server = http.createServer(handler);
-    server.on('error', (err) => {
+    const secure = Boolean(material) && host !== '127.0.0.1';
+    const { server, front } = secure ? secureServer(material, handler) : { server: http.createServer(handler), front: null };
+    // The front owns the port when there is one: it binds, it fails, it closes.
+    const listener = front || server;
+    listener.on('error', (err) => {
       warn(`listen ${host}:${cfg.port} — ${err.message}`);
       if (++failed === hosts.length && bound === 0) {
         warn('no address could be bound — exiting');
         process.exit(1);
       }
     });
-    server.listen(cfg.port, host, () => {
+    listener.listen(cfg.port, host, () => {
       bound++;
-      log(`listening on http://${host}:${cfg.port}`);
+      if (secure) log(`listening on https://${material.name}:${cfg.port} (${host}, ${MIN_VERSION} floor)`);
+      else log(`listening on http://${host}:${cfg.port}`);
     });
-    return server;
+    return listener;
   });
 }
 

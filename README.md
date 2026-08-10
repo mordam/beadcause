@@ -95,6 +95,10 @@ otherwise its poller would keep firing notifications with no listener behind the
   [Discussing a question on the Mac](#discussing-a-question-on-the-mac).
 - **Nothing is exposed beyond the tailnet.** The router binds `127.0.0.1` and your
   Tailscale IP, never `0.0.0.0`; the backends behind it bind loopback only.
+- **The tailnet address is HTTPS**, with a real certificate for your MagicDNS name and
+  a TLS 1.2 floor — once *HTTPS Certificates* is enabled for the tailnet. Until then it
+  logs why and serves plain http. Loopback is plain http on purpose. See
+  [HTTPS on the tailnet name](#https-on-the-tailnet-name).
 - **Editing `lib/` needs no restart.** The router swaps a fresh backend in under the
   port a few seconds later — see [The router](#the-router--why-you-never-restart-it)
   for what it will and will not do for you.
@@ -1300,6 +1304,16 @@ remove. So the ignore file lands first, *and* every commit re-checks the staged 
 against a denylist and aborts rather than dropping the file quietly. An ignore rule
 is one `git add -f` away from not applying; the cost of being wrong once is a
 rotated key.
+
+**And an existing ignore file is topped up, because the pair of those rules had a
+gap.** The file was written once and never looked at again, so a rule added to
+`lib/commonrepo.js` afterwards only ever protected fresh installs — which stayed
+harmless until the tailnet certificate arrived and put a `.key` in that directory.
+The denylist did its job and the key was never committed; what it did instead was
+abort **every** snapshot from then on, and a history that has quietly stopped looks
+exactly like one with nothing to say. So `ensureRepo` now appends any rule the file
+predates — appends, never rewrites, so a line you added by hand survives — and says
+in the log which ones it added. `test/commonrepo.mjs` holds it.
 
 ### Two writers, and why it is a compare-and-swap
 
@@ -3966,6 +3980,75 @@ The limits, stated plainly:
   without a bootout counts as stale too — launchd keeps the argv it bootstrapped with,
   so editing the file changes nothing on its own.
 
+## HTTPS on the tailnet name
+
+The wire was never in the clear — WireGuard already encrypts everything between the
+phone and the Mac — so this is not about eavesdropping. It is about three things the
+tailnet cannot give you:
+
+- **Secure-context browser features.** The microphone, service workers on anything
+  but loopback, the clipboard, WebAuthn: a browser gates all of them on the *origin*,
+  and `http://100.x.y.z:4318` is not a secure one whatever tunnel it arrives through.
+- **Google sign-in.** It will not accept a non-HTTPS redirect URI. Full stop.
+- **Defence in depth.** A tailnet ACL that is one day wrong should cost an
+  eavesdropper a TLS handshake, not the whole conversation.
+
+**Where the certificate comes from.** No authority will sign `100.96.105.106`, so
+HTTPS means serving the MagicDNS name — `<host>.<tailnet>.ts.net` — and
+`tailscale cert` is what gets a certificate for it: Let's Encrypt, fetched through
+Tailscale, renewed by Tailscale. It is cached in `~/.config/beadcause/tls/` and
+re-fetched at startup when it has under a month left.
+
+**It needs one thing switched on that this repo cannot switch on for you:** *HTTPS
+Certificates*, at [the tailnet DNS page](https://login.tailscale.com/admin/dns).
+Without it `tailscale cert` answers "your Tailscale account does not support getting
+TLS certs", and beadcause says so in the log and **serves plain http exactly as
+before** — a daemon that refused to boot over a certificate would take the inbox down
+for a feature nobody had asked for yet.
+
+**Terminated in the daemon, not by `tailscale serve`.** Fronting it with Tailscale's
+own proxy would be less code and the same certificate, but then the protocol floor
+would be Tailscale's to choose and ours to discover. An explicit `minVersion` is only
+enforceable where the socket is made — so TLS 1.2 is the floor, 1.1 and below are
+refused the handshake, and `test/tls.mjs` pins that with a real client rather than
+leaving it as an option nobody would notice being dropped.
+
+**Loopback stays plain http, deliberately.** `127.0.0.1` is already a secure context,
+so it gains nothing — and it is where the control plane lives: `npm run swap:status`,
+`/internal/*`, `npm run monitor`, and the router's own proxy hop to its backend. A
+certificate there would guard the one hop that never leaves the machine and break
+every one of those callers on the way.
+
+```
+     phone ──▶ :4318 tailnet address   TLS 1.2+, cert for <host>.<tailnet>.ts.net
+                       │
+     mac   ──▶ :4318 127.0.0.1         plain http — control plane, monitor, router hop
+```
+
+**Nothing that already points at the IP breaks.** Every QR you have scanned, every
+notification already sent and every installed PWA says `http://100.x.y.z:4318/…`, and
+a plain request arriving on a TLS port normally produces a parse error with nothing on
+screen to explain it. So the tailnet listener peeks at the first byte: a TLS handshake
+goes to the HTTPS server untouched, and anything else gets a **307 to the same path on
+the certificate's name** — query kept, so the `?t=<token>` on a pairing link still
+pairs. It is a temporary redirect, and method-preserving, so a POST stays a POST and
+nothing is cached past `tls.enabled: false`.
+
+The terminal WebSocket needs no change: `public/term.js` derives `wss:` from the
+page's own scheme, the upgrade is wired onto whatever `listen()` returned, and the
+token still travels as a subprotocol rather than in the URL.
+
+```bash
+curl -sI https://$(tailscale status --json | jq -r .Self.DNSName | sed 's/\.$//'):4318/api/health
+curl -sI http://127.0.0.1:4318/api/health          # still plain, still the control plane
+openssl s_client -connect <name>:4318 -tls1_1      # refused: alert 70, protocol version
+```
+
+Two things it does not do yet, each with its own bead: it does not renew a certificate
+while the daemon stays up (it only fetches at startup), and `baseUrl` still names the
+Tailscale IP — which works, because of the redirect above, but means the QR and every
+notification link take one extra hop.
+
 ## HTTP API
 
 Auth on everything under `/api/` except `/api/health`: header
@@ -4079,6 +4162,8 @@ the fields it always read and renders exactly as it did.
 |---|---|
 | `owner` | what the agents call you. It goes into every agent prompt ("*<name>* is not at the keyboard", "*<name>* approves every bead before it exists"), the body of every pull request an agent opens, and the notes that land on a bead. Asked first by `npm run configure`; guessed from your git `user.name` (first word) when it has never been set |
 | `port`, `host` | listens on `127.0.0.1` **and** the Tailscale IP only — never the LAN |
+| `tls.enabled` | HTTPS on the tailnet address with a `tailscale cert` certificate and a TLS 1.2 floor (default `true`). Loopback is never TLS whatever this says, and a tailnet without *HTTPS Certificates* enabled falls back to plain http with the reason in the log — see [HTTPS on the tailnet name](#https-on-the-tailnet-name) |
+| `tls.name` | the name to get a certificate for, if not the MagicDNS name `tailscale status` reports (default `null` — ask). The protocol floor is deliberately not a setting |
 | `token` | required on every `/api/*` call; regenerate by deleting the file |
 | `workspaces` | auto-discovered from `~/beads/*/.beads`, and **reconciled on every start** — entries whose directory has gone are dropped and new ones picked up, both logged. Renaming a workspace directory used to leave a stale entry that failed on every poll tick, silently hiding that whole workspace from the phone |
 | `openSessions` | allow `POST /api/session` to open a Claude session on the Mac (default `true`) |
@@ -4342,6 +4427,21 @@ turn-ending delivers, two queued messages become one turn, a refused delivery ke
 the words and gives up rather than spinning, and an idle repaint re-sends nothing.
 The browser half is `scripts/queue-check.mjs`, named as a `skip` at the end of the
 suite so what it does *not* cover is on the screen rather than in a comment.
+
+`test/tls.mjs` covers the [protocol floor](#https-on-the-tailnet-name), which is the
+quietest thing in this repo: `minVersion` is one option on one object, it has no visible
+effect until something old dials in, and nothing in the app would notice it being
+dropped. So it is a real handshake against a self-signed certificate in a temp
+directory — a client that offers TLS 1.1 is refused, and the assertion is that the
+*server* refused it (`ciphers: 'DEFAULT:@SECLEVEL=0'`, because Node's client will not
+even offer 1.1 otherwise, and a client-side refusal would pass this test with the floor
+removed), while 1.2 and 1.3 both connect and get an answer. Then the three seams the
+sniffing front sits on: an HTTPS request served intact, a plain-http request answered
+with a 307 to the certificate's name with its query kept, and the terminal WebSocket
+over `wss` still gated by the token subprotocol — accepted-then-closed `1008` for an
+unknown id, refused with a `401` for a wrong token. Whether a *phone* trusts the real
+certificate is a named `skip`: that is a fact about Let's Encrypt and `tailscale cert`,
+and no test on this machine can answer it.
 
 ## Notes on bd
 
