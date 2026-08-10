@@ -303,15 +303,49 @@ children" is not a decision to take from a lock screen, and a `force` flag that
 skipped the check would only reach the same refusal from bd a moment later, since
 `respond` does not pass `--force` either.
 
-`node test/closegate.mjs` is the gate itself, in the `npm test` suite: the two
-refusals, and — the expensive half — the six cases that must **not** be refused,
-because a question bd would close happily becoming unanswerable from the phone is
-a worse bug than the one this fixes, and a silent one. `node scripts/gate-check.mjs`
-is what it looks like in your hand: headless Chrome at phone size driving the real
-`public/app.js` against a fixture that answers `/api/respond` with a 409, asserting
-mostly what must *not* happen — no error toast, no write, the draft still in the
-box. `--baseline` serves the committed `app.js`/`style.css`, where a 409 is just an
-error; `--out=<dir>` writes the note.
+### Dismissing is a close too
+
+**Every path that closes a bead has to ask, not just the one that answers it.** The
+answer path was fixed first, and `/api/dismiss` — *Dismiss without answering* — was
+written in the same week, did the same two writes in the same order, and asked
+nothing. So it shipped carrying the identical bug, and dv-gr6 collected three
+`Dismissed via Beadcause` comments, one per attempt.
+
+It gates the same way now, ahead of the refusal record it owes an amendment
+request as well as ahead of the write — a dismissal that never happened must not
+tell an agent its request was refused. What differs is the offer. An answer always
+has something worth keeping; a dismissal is usually wordless, which is the ordinary
+case, and a **Save as a comment** button over an empty box would save nothing and
+say it had. The server decides which in `canComment`, because it is the side that
+knows whether a note came with the request, and the note says *cannot be dismissed*
+rather than *cannot be closed*.
+
+The one close that is deliberately **not** gated is the work bead a merged pull
+request finishes. That one is already `.catch`-ed and logged: the merge has
+happened by then, and failing the request over a bead that would not close would
+be reporting the merge as a failure.
+
+### Checking it
+
+Three, because the three things that can break here are different things:
+
+- **`node test/closegate.mjs`** — the gate itself: the two refusals, and, the
+  expensive half, the six cases that must **not** be refused. A question bd would
+  close happily becoming unanswerable from the phone is a worse bug than the one
+  this fixes, and a silent one.
+- **`node test/closepaths.mjs`** — that the endpoints actually *ask* it. A
+  different claim, and the one that broke: `closeGate` was correct the whole time
+  `/api/dismiss` was not calling it. Both endpoints are driven over real HTTP with
+  `cfg.bdBin` pointed at a fake `bd`, so *"nothing was written"* is asserted
+  against the argv bd would have been given. It fails 7/12 against the version
+  before this section was written.
+- **`node scripts/gate-check.mjs`** — what it looks like in your hand: headless
+  Chrome at phone size driving the real `public/app.js`, asserting mostly what must
+  *not* happen — no error toast, no write, the draft still in the box. Note what it
+  cannot tell you: the fixture supplies the 409 itself, so it passes whether or not
+  the real server would send one. That is `closepaths`' job, and the reason it
+  exists. `--baseline` serves the committed `app.js`/`style.css`; `--out=<dir>`
+  writes the note.
 
 ### Where the answer goes
 

@@ -1355,6 +1355,14 @@
    *
    * The beads behind it are named and linked, because "blocked by open issues" with
    * no ids is a dead end, and the fix — close those first — starts with reading them.
+   *
+   * **Answering and dismissing both land here**, because both of them close the bead
+   * and bd gates the close, not the reason for it. What differs is the offer. An
+   * answer always has something worth keeping, so it is always offered; a dismissal
+   * is usually wordless — *Dismiss without answering* is the ordinary case — and a
+   * "Save as a comment" button over an empty box would save nothing and say it had.
+   * The server decides which, in `canComment`, because it is the side that knows
+   * whether a note came with the request.
    */
   function gateNoteHtml(q) {
     const gate = q.closeGate;
@@ -1366,14 +1374,24 @@
             target="_blank" rel="noopener" title="${esc(b.title || '')}">${esc(b.id)}</a>`
       )
       .join(' ');
+    const verb = gate.from === 'dismiss' ? 'dismissed' : 'closed';
+    const until = gate.kind === 'epic' ? 'its children are' : 'its blockers are';
+    const offer = gate.canComment !== false;
     return `<div class="gate-note">
-      <strong>${esc(q.id)} cannot be closed — ${esc(gate.reason)}</strong>
-      <p>Nothing has been written. Save what you typed as a comment and it stays on the
-        thread; the bead stays open until ${gate.kind === 'epic' ? 'its children are' : 'its blockers are'} closed.</p>
+      <strong>${esc(q.id)} cannot be ${verb} — ${esc(gate.reason)}</strong>
+      <p>Nothing has been written. ${
+        offer
+          ? `Save what you typed as a comment and it stays on the thread; the bead stays open until ${until} closed.`
+          : `The bead stays open until ${until} closed. Close ${
+              gate.kind === 'epic' ? 'the children' : 'the blockers'
+            } and this one goes with them.`
+      }</p>
       ${blockers ? `<div class="gate-blockers">${blockers}</div>` : ''}
       <div class="row">
-        <button class="primary" data-act="gate-comment" data-key="${esc(q.key)}">Save as a comment</button>
-        <button class="secondary" data-act="gate-dismiss" data-key="${esc(q.key)}">Not now</button>
+        ${offer ? `<button class="primary" data-act="gate-comment" data-key="${esc(q.key)}">Save as a comment</button>` : ''}
+        <button class="${offer ? 'secondary' : 'primary'}" data-act="gate-dismiss" data-key="${esc(
+      q.key
+    )}">${offer ? 'Not now' : 'OK'}</button>
       </div>
     </div>`;
   }
@@ -2357,8 +2375,10 @@
       // comes back carrying the reason and the offer — and the draft stays in the
       // box, because the failure mode this whole path exists to stop is you deciding
       // the answer was lost and typing it in again.
+      // Which button was pressed rides along, because the note reads differently for
+      // the two: an answer is always worth keeping, a wordless dismissal is not.
       const gate = err.status === 409 && err.body?.gate ? err.body.gate : null;
-      if (gate) q.closeGate = gate;
+      if (gate) q.closeGate = { ...gate, from: dismiss ? 'dismiss' : 'answer', canComment: err.body.canComment };
       else toast(err.message, true);
       // Reverse the travel first, then re-open the card underneath where the beads
       // came down. A tracker that refused the answer must not be shown swallowing it.

@@ -111,7 +111,7 @@ function serve() {
       const q = QUESTIONS.find((x) => x.id === url.searchParams.get('id'));
       return q ? json(q) : json({ error: 'not found' });
     }
-    if ((p === '/api/respond' || p === '/api/comment') && req.method === 'POST') {
+    if ((p === '/api/respond' || p === '/api/comment' || p === '/api/dismiss') && req.method === 'POST') {
       let body = '';
       req.on('data', (c) => (body += c));
       return void req.on('end', () => {
@@ -120,10 +120,20 @@ function serve() {
         // The gated bead refuses the close, exactly as the server does — 409, a
         // reason, and nothing written. Commenting on it is fine, which is the whole
         // point of the offer.
+        //
+        // `/api/dismiss` gates identically, because a dismissal is a close too. What
+        // it changes is `canComment`: a dismissal carries an optional note, and with
+        // nothing typed there is nothing to offer to save.
         if (p === '/api/respond' && parsed.id === GATED.id) {
           return json({ error: `bd will not close ${GATED.id}: ${GATE.reason}`, gate: GATE, canComment: true }, 409);
         }
-        json({ ok: true, closed: p === '/api/respond' });
+        if (p === '/api/dismiss' && parsed.id === GATED.id) {
+          return json(
+            { error: `bd will not close ${GATED.id}: ${GATE.reason}`, gate: GATE, canComment: Boolean(parsed.reason) },
+            409
+          );
+        }
+        json({ ok: true, closed: p !== '/api/comment' });
       });
     }
     if (p.startsWith('/api/')) return json({});
@@ -377,6 +387,44 @@ try {
     after.cards === 2,
     `${after.cards} cards`
   );
+
+  /* ---- dismiss is a close too, and it shipped without the gate ---- */
+  //
+  // `/api/dismiss` arrived while the answer path was being fixed and inherited the
+  // exact bug: dv-gr6 collected three "Dismissed via Beadcause" comments, one per
+  // attempt. Two taps to dismiss, because the button arms first.
+  await evalJs(s, `document.querySelector('[data-act="gate-dismiss"]')?.click()`);
+  await sleep(400);
+  writes.length = 0;
+  const gatedCard = `document.querySelector('.card[data-key=' + JSON.stringify(${KEY(GATED.id)}) + ']')`;
+  // Saving the comment collapsed the card, so the dismiss button is not in the DOM
+  // until it is open again.
+  if (!(await evalJs(s, `${gatedCard}?.querySelector('[data-act="dismiss"]') !== null`))) {
+    await evalJs(s, `${gatedCard}.querySelector('[data-act="toggle"]').click()`);
+    await sleep(700);
+  }
+  const dismissBtn = `${gatedCard}.querySelector('[data-act="dismiss"]')`;
+  await evalJs(s, `(() => { const b = ${dismissBtn}; if (b) { b.click(); b.click(); } })()`);
+  await waitFor(`!!document.querySelector('.gate-note')`);
+  const binned = await evalJs(s, NOTE);
+  check(
+    'dismissing a bead bd will not close says so too',
+    binned.shown && /cannot be dismissed/.test(binned.text),
+    binned.text.slice(0, 90) || 'no note'
+  );
+  check(
+    'and it went to /api/dismiss, once, writing nothing',
+    writes.length === 1 && writes[0].path === '/api/dismiss',
+    JSON.stringify(writes.map((w) => w.path))
+  );
+  check('the bead is still in the list', binned.cards === 2, `${binned.cards} cards`);
+  check(
+    'a wordless dismissal is offered no comment to save',
+    !(await evalJs(s, `!!document.querySelector('[data-act="gate-comment"]')`)),
+    'the save button is absent'
+  );
+  await evalJs(s, `document.querySelector('[data-act="gate-dismiss"]')?.click()`);
+  await sleep(400);
 
   /* ---- the gate is not simply refusing everything ---- */
   writes.length = 0;
