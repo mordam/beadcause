@@ -5,6 +5,7 @@ import { advocatedWorkspaces, workerLimit } from '../lib/advocate.js';
 import { buildStamp } from '../lib/build.js';
 import { hotSwapProblem, problemBanner } from '../lib/service.js';
 import { attachTerminalSocket } from '../lib/termsocket.js';
+import { closeServer } from '../lib/tls.js';
 import { flush } from '../lib/commonrepo.js';
 import { restoreTerminals, shutdownTerminals, startTerminalReaper, terminalsEnabled } from '../lib/terminal.js';
 
@@ -271,7 +272,9 @@ const shutdown = () => {
   // holds a Claude session open against the tracker. Outliving a *socket* is the
   // point; outliving the process that owns the registry is just a leak.
   shutdownTerminals();
-  servers.forEach((s) => s.close());
+  // `closeServer` rather than `close()`: a TLS listener is a net.Server in front of an
+  // https.Server, and it is the front that holds the port.
+  servers.forEach(closeServer);
   // State written in the last couple of seconds has a snapshot scheduled and not
   // yet taken, and the most interesting write in a log is usually the last one
   // before the process went away. Bounded: a git that hangs must not be able to
