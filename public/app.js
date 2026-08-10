@@ -1202,10 +1202,15 @@
         const armed = state.armed === `${q.key}|${o.id}`;
         // The arm/disarm state is painted in place by paintArmed() — it must never
         // go through render(), which would rebuild the list under a half-typed answer.
-        return `<button class="option${armed ? ' confirm' : ''}" data-act="option" data-key="${esc(q.key)}" data-opt="${esc(
-          o.id
-        )}" data-label="${esc(o.label)}">
+        //
+        // The recommended tag is a *sibling* of `.label`, never inside it, because
+        // paintArmed writes `label.textContent` — a badge nested in there would
+        // survive until the first tap and then silently vanish.
+        return `<button class="option${o.recommended ? ' rec' : ''}${
+          armed ? ' confirm' : ''
+        }" data-act="option" data-key="${esc(q.key)}" data-opt="${esc(o.id)}" data-label="${esc(o.label)}">
           <span class="label">${armed ? 'Tap again to confirm · ' : ''}${esc(o.label)}</span>
+          ${o.recommended ? '<span class="rec-tag">★ recommended</span>' : ''}
           ${o.hint ? `<span class="hint">${esc(o.hint)}</span>` : ''}
         </button>`;
       })
@@ -1300,6 +1305,7 @@
     return `<div class="freeform${declining ? ' declining' : ''}">
       ${replyBarHtml(q.key)}
       ${gateNoteHtml(q)}
+      ${declining ? '' : suggestedHtml(q)}
       <textarea data-role="answer" placeholder="${boxPlaceholder}" rows="3">${esc(getDraft(q.key))}</textarea>
       <div class="row">
         <button class="primary${declining ? ' danger' : ''}" data-act="${
@@ -1308,6 +1314,47 @@
         <button class="secondary" data-act="note" data-key="${esc(q.key)}">Comment only</button>
       </div>
       ${declining ? '' : dismissHtml(q)}
+    </div>`;
+  }
+
+  /**
+   * The answers this question looks like it has, when nobody wrote it any.
+   *
+   * A `decision` block gets `.options`: full-width buttons above the fold that
+   * answer and close on two taps, because an agent wrote the sentence each one
+   * sends. These are the other case — lib/suggest.js read them out of the prose —
+   * and three things follow from that difference.
+   *
+   * **They live in the answer box, not above the card.** Their whole job is to
+   * save you typing into the box under them, and a chip several screens away from
+   * the thing it fills is a chip you have to scroll back from to check.
+   *
+   * **They are chips, not buttons.** The visual weight has to say which kind of
+   * thing this is without a word of explanation, and `.options` already owns the
+   * shape that means "this closes the bead".
+   *
+   * **A tap fills; it never sends.** The words came out of a paragraph rather than
+   * out of an agent's `response:` field, so they go where you can read and edit
+   * them, and *Answer & close* is still the thing that commits them. One tap, no
+   * arming: filling a box you are looking at is not a gesture that needs guarding.
+   *
+   * Only ever drawn on an open card, which is the same as saying you have had the
+   * chance to read the brief the chips were lifted from.
+   */
+  function suggestedHtml(q) {
+    const options = q.suggested?.options || [];
+    if (!options.length) return '';
+    const draft = getDraft(q.key).trim();
+    return `<div class="suggested" data-key="${esc(q.key)}">
+      <div class="section-label">Suggested · from the ${esc(q.suggested.from)} <span>tap to fill the box</span></div>
+      <div class="chips">${options
+        .map(
+          (o) => `<button class="chip${o.recommended ? ' rec' : ''}" data-act="suggest" data-key="${esc(
+            q.key
+          )}" data-opt="${esc(o.id)}" aria-pressed="${draft === o.response.trim()}"
+            title="${esc(o.response)}">${o.recommended ? '<span class="star">★</span>' : ''}${esc(o.label)}</button>`
+        )
+        .join('')}</div>
     </div>`;
   }
 
@@ -1709,6 +1756,23 @@
   function paintDraftMark(key) {
     const card = listEl.querySelector(`.card[data-key="${CSS.escape(key)}"]`);
     card?.classList.toggle('has-draft', Boolean(getDraft(key)));
+  }
+
+  /**
+   * Light the suggested chip whose words are currently in the box, and only that
+   * one. Derived from the text rather than remembered from the tap, so it stays
+   * true after a keystroke, after a draft is restored on reopening a card, and
+   * after two chips in a row.
+   */
+  function paintSuggested(key, text) {
+    const block = listEl.querySelector(`.suggested[data-key="${CSS.escape(key)}"]`);
+    if (!block) return;
+    const options = byKey(key)?.suggested?.options || [];
+    const now = String(text ?? '').trim();
+    for (const chip of block.querySelectorAll('.chip')) {
+      const opt = options.find((o) => o.id === chip.dataset.opt);
+      chip.setAttribute('aria-pressed', String(Boolean(opt) && opt.response.trim() === now));
+    }
   }
 
   /** Which space a question belongs to. Unassigned workspaces collect under "Other". */
@@ -2895,6 +2959,40 @@
       return;
     }
 
+    /**
+     * A suggested answer, tapped: put its words in the box.
+     *
+     * Nothing is sent and nothing is armed — see suggestedHtml for why this half of
+     * the feature deliberately stops short of answering.
+     *
+     * The one rule with teeth is what happens to text already in the box. Replacing
+     * it wholesale would let a tap destroy a sentence you typed, which is the thing
+     * this app protects hardest; appending always would turn changing your mind into
+     * "Restore at promotion\nRestore at startup", two contradictory answers on one
+     * thread. So: swap when what is there is a suggestion (you are picking again),
+     * append when it is yours (you are adding a choice to a caveat you wrote).
+     *
+     * Painted in place for the usual reason — render() would rebuild the card under
+     * the textarea and take the keyboard down with it.
+     */
+    if (act === 'suggest') {
+      const q = byKey(key);
+      const opts = q?.suggested?.options || [];
+      const opt = opts.find((o) => o.id === btn.dataset.opt);
+      const box = listEl.querySelector(`.card[data-key="${CSS.escape(key)}"] [data-role="answer"]`);
+      if (!opt || !box) return;
+
+      const current = box.value.trim();
+      const mine = current && !opts.some((o) => o.response.trim() === current);
+      box.value = mine ? `${current}\n${opt.response}` : opt.response;
+      setDraft(key, box.value);
+      paintDraftMark(key);
+      paintSuggested(key, box.value);
+      box.focus();
+      box.setSelectionRange(box.value.length, box.value.length);
+      return;
+    }
+
     // Opens iTerm2 on the Mac with `claude` already reading this bead. Writes
     // nothing here, so — unlike answering — it deliberately never calls render():
     // the card stays exactly as it is, half-typed answer and all.
@@ -3037,6 +3135,10 @@
     // the box the moment there is anything in it. In place for the same reason the
     // mark is: a render() here would rebuild the card under the keystroke.
     paintArmed();
+    // A pressed chip is a claim about what the box says. Edit one word of it and
+    // the claim stops being true, so it lets go rather than sitting there lit under
+    // an answer that is now yours.
+    paintSuggested(key, box.value);
   });
 
   listEl.addEventListener('change', (ev) => {
