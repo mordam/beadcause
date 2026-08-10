@@ -1572,7 +1572,8 @@
    * broken app, because a space could be showing 0 while fifty-four beads were open
    * in it. So when the scope is the narrow one, the empty state names the way out.
    */
-  const gearNudge = () => (state.scope === 'human' ? ' Tap ⚙ to include the work agents are on.' : '');
+  const widenNudge = () =>
+    state.scope === 'human' ? ' Tap <b>Both</b> above to include the work agents are on.' : '';
 
   function emptyHtml() {
     // "Nothing to decide" printed directly under a pane saying an agent is asking to
@@ -1580,7 +1581,7 @@
     // questions feed, so when the other channel has something in it, say which
     // emptiness this is.
     if ((state.requests || []).length) {
-      return `<div class="empty">Nothing about work is waiting.${gearNudge()}</div>`;
+      return `<div class="empty">Nothing about work is waiting.${widenNudge()}</div>`;
     }
     if (state.scope === 'agent') {
       return `<div class="empty"><strong>Nothing live</strong>No open, claimed or blocked beads in any workspace.</div>`;
@@ -1588,7 +1589,7 @@
     if (state.scope === 'both') {
       return `<div class="empty"><strong>Nothing live</strong>No questions, and no bead open anywhere.</div>`;
     }
-    return `<div class="empty"><strong>Nothing to decide</strong>No open questions labelled <code>human</code>.${gearNudge()}</div>`;
+    return `<div class="empty"><strong>Nothing to decide</strong>No open questions labelled <code>human</code>.${widenNudge()}</div>`;
   }
 
   /**
@@ -1765,7 +1766,35 @@
   const spaceOf = (q) => q.space || 'Other';
 
   /**
-   * The filter rows: spaces on top, workspaces below.
+   * The scope chips. The third column is what the settings panel used to spell out
+   * under the switch; it rides along as the chip's `title` and its accessible name,
+   * because three one-word chips are not self-explanatory and there is no longer a
+   * paragraph of prose to put it in.
+   */
+  const SCOPE_CHIPS = [
+    ['human', 'Human', 'Beads labelled human — the ones asking you something. This is the inbox.'],
+    ['both', 'Both', 'Questions first, then every bead that is open, claimed or blocked.'],
+    ['agent', 'Agent', 'Only what the agents are on: every live bead that is not a question.'],
+  ];
+
+  const scopeRowHtml = () =>
+    `<div class="chip-row scopes" role="group" aria-label="Which beads to list">` +
+    SCOPE_CHIPS.map(
+      ([id, label, note]) =>
+        `<button class="chip" data-scope="${id}" aria-pressed="${state.scope === id}" title="${esc(
+          note
+        )}" aria-label="${esc(`${label} — ${note}`)}">${label}</button>`
+    ).join('') +
+    `</div>`;
+
+  /**
+   * The filter rows: scope on top, then spaces, then workspaces.
+   *
+   * Coarsest first, and the scope is the coarsest of all — it decides which slice of
+   * the tracker the other two are filtering. It is also the only one that costs a
+   * refetch, which is why it lived behind a gear for a while; but a setting that
+   * changes what every count below it means has to be readable without a tap, so it
+   * is a row of chips like the rest and the panel is gone.
    *
    * A muted space still shows its count — the whole design is that a quiet space is
    * quiet, not hidden. The bell tells you why nothing buzzed, so silence never looks
@@ -1777,10 +1806,10 @@
     const names = [...new Set(inSpace.map((q) => q.workspace))].sort();
     const showWorkspaces = names.length >= 2;
 
-    filtersEl.hidden = !showSpaces && !showWorkspaces;
-    if (filtersEl.hidden) return;
+    // The scope row is unconditional, so the nav no longer hides itself.
+    filtersEl.hidden = false;
 
-    const rows = [];
+    const rows = [scopeRowHtml()];
 
     if (showSpaces) {
       const total = state.questions.length;
@@ -2122,7 +2151,7 @@
     } else if (!visible.length) {
       const where = state.workspace !== 'all' ? state.workspace : state.space !== 'all' ? state.space : '';
       listEl.innerHTML =
-        channel + `<div class="empty">Nothing waiting${where ? ` in ${esc(where)}` : ''}.${gearNudge()}</div>`;
+        channel + `<div class="empty">Nothing waiting${where ? ` in ${esc(where)}` : ''}.${widenNudge()}</div>`;
     } else {
       // Anything you've already replied to sinks to the bottom. It is not waiting on
       // you any more — an agent has it — so it must not sit between you and the
@@ -3243,6 +3272,14 @@
   }
 
   filtersEl.addEventListener('click', (ev) => {
+    // Coarsest first, and the only one of the three that refetches rather than
+    // filtering what is already here — so it returns before the two that persist a
+    // filter server-side, which this is not.
+    const scopeChip = ev.target.closest('[data-scope]');
+    if (scopeChip) {
+      chooseScope(scopeChip.dataset.scope);
+      return;
+    }
     const spaceChip = ev.target.closest('[data-space]');
     if (spaceChip) {
       state.space = spaceChip.dataset.space;
@@ -3260,37 +3297,27 @@
     persistFilter();
   });
 
-  /* ------------------------------------------------------------- settings */
+  /* ---------------------------------------------------------------- scope */
 
-  const scopeDlg = $('#settings-panel');
-
-  const SCOPE_NOTE = {
-    human: 'Beads labelled human — the ones asking you something. This is the inbox.',
-    both: 'Questions first, then every bead that is open, claimed or blocked.',
-    agent: 'Only what the agents are on: every live bead that is not a question.',
-  };
-
+  /**
+   * Move the armed scope chip without rebuilding the row.
+   *
+   * The scope row is painted by renderFilters(), but the switch below clears the list
+   * and waits on `bd` rather than rendering — so on the tap itself there is nothing to
+   * repaint the chips. Doing it in place also keeps the spaces and workspaces rows on
+   * screen while the fetch is out; rendering with an emptied list would drop them and
+   * then bring them back a couple of seconds later.
+   */
   function paintScope() {
-    for (const btn of scopeDlg.querySelectorAll('[data-scope]')) {
-      const on = btn.dataset.scope === state.scope;
-      btn.classList.toggle('on', on);
-      btn.setAttribute('aria-pressed', String(on));
+    for (const btn of filtersEl.querySelectorAll('[data-scope]')) {
+      btn.setAttribute('aria-pressed', String(btn.dataset.scope === state.scope));
     }
-    $('#scope-note').textContent = SCOPE_NOTE[state.scope];
-    // The gear carries the state, because the scope changes what every count on the
-    // screen means and the panel that set it is closed by the time you read them.
-    $('#settings').classList.toggle('wide', state.scope !== 'human');
   }
-
-  $('#settings').addEventListener('click', () => {
-    paintScope();
-    scopeDlg.showModal();
-  });
 
   /**
    * Switch which slice of the tracker the list is.
    *
-   * Out of the panel's click handler because the count in the top bar is the other
+   * Out of the chip row's click handler because the count in the top bar is the other
    * way in: tapping "3 waiting" means "show me those three", which is this, and a
    * second copy of it would be a second place for the reset-and-refetch to drift.
    * Already-there is a no-op rather than a reload — the count you tapped is a
@@ -3314,13 +3341,8 @@
     load();
   }
 
-  scopeDlg.addEventListener('click', (ev) => {
-    const btn = ev.target.closest('[data-scope]');
-    if (btn) chooseScope(btn.dataset.scope);
-  });
-
-  // The count is a filter you can reach without opening the panel: it says how many
-  // beads are asking you something, so tapping it shows you exactly those.
+  // The count is the second way to the same chip: it says how many beads are asking
+  // you something, so tapping it shows you exactly those.
   $('#waiting')?.addEventListener('click', () => chooseScope('human'));
 
   /* ----------------------------------------------------------------- load */
@@ -3516,7 +3538,11 @@
   function bootScope() {
     const saved = localStorage.getItem('beadcause.scope');
     if (SCOPES.includes(saved)) state.scope = saved;
-    paintScope();
+    // Painted here rather than waiting for the first render, so the row that says
+    // which slice you are looking at is on screen while `bd` is still being asked —
+    // which is exactly when a wide scope makes the wait long enough to wonder.
+    filtersEl.innerHTML = scopeRowHtml();
+    filtersEl.hidden = false;
   }
 
   bootToken();
