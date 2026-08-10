@@ -29,6 +29,15 @@
  *
  * `/api/agents` is the guarded route throughout because it reads config and nothing
  * else — no `bd`, no network, no disk. What is being tested is the gate, not the route.
+ *
+ * The last section is about where the client secret is allowed to live, which is a
+ * security property rather than a behaviour and therefore the kind that rots quietly.
+ * `config.json` is committed to the repo in `~/.config/beadcause` after every write, so
+ * a secret in a field there is in a history no rotation can reach; the field is gone, and
+ * what these assertions hold is that it stays gone, that a config which still has one is
+ * drained rather than broken, and that a `clientSecretFile` pointed somewhere that repo
+ * would commit is said out loud. The commit that would carry it is refused in
+ * `test/commonrepo.mjs`, which is the other half of the same guarantee.
  */
 import fs from 'node:fs';
 import http from 'node:http';
@@ -68,13 +77,22 @@ const auth = await import(LIB('auth.js'));
 
 console.log('\nlib/auth.js — configuration');
 
+// The secret comes from a file, because as of bc-m6m there is nowhere else for it to
+// come from but this and the env var: `config.json` is committed to the repo in
+// `~/.config/beadcause` after every write, so a field there is a secret in a history
+// rather than a secret on a disk. Written outside the config directory on purpose, so
+// that clearing `clientSecretFile` falls through to a default path which does not exist
+// — which is what "no secret" has to mean now.
+const SECRET_FILE = path.join(tmp, 'client-secret.key');
+fs.writeFileSync(SECRET_FILE, 'shh\n', { mode: 0o600 });
+
 const FULL = {
   port: 4318,
   auth: {
     google: {
       enabled: true,
       clientId: 'cid.apps.googleusercontent.com',
-      clientSecret: 'shh',
+      clientSecretFile: SECRET_FILE,
       allowed: ['Adam@Example.com'],
       redirectUri: 'https://mac.tailnet.ts.net:4318/auth/google/callback',
       sessionDays: 30,
@@ -84,12 +102,21 @@ const FULL = {
 const without = (field) => ({ ...FULL, auth: { google: { ...FULL.auth.google, [field]: field === 'allowed' ? [] : null } } });
 
 is('configured → on', Boolean(auth.googleAuth(FULL)), true);
+is('the secret is read out of the file', auth.googleAuth(FULL)?.clientSecret, 'shh');
 is('no clientId → off', auth.googleAuth(without('clientId')), null);
-is('no secret → off', auth.googleAuth(without('clientSecret')), null);
+is('no secret file → off', auth.googleAuth(without('clientSecretFile')), null);
 is('empty allowlist → off', auth.googleAuth(without('allowed')), null);
 is('enabled:false → off', auth.googleAuth({ ...FULL, auth: { google: { ...FULL.auth.google, enabled: false } } }), null);
 is('nothing configured at all → off, and no complaint', auth.googleProblem({ port: 4318 }), null);
-is('half configured → off, with a reason', Boolean(auth.googleProblem(without('clientSecret'))), true);
+is('half configured → off, with a reason', Boolean(auth.googleProblem(without('clientSecretFile'))), true);
+// The field this bead took away. It is not read — but it is not ignored either, or a
+// config that still has one would silently stop signing anybody in; see the absorb
+// section below for where it goes instead.
+is(
+  'a clientSecret in the config is NOT a configured secret',
+  auth.googleAuth({ ...FULL, auth: { google: { ...FULL.auth.google, clientSecretFile: null, clientSecret: 'shh' } } }),
+  null
+);
 // The refusal that matters most: a plain-http callback cannot work (Google rejects it,
 // and a Secure cookie is dropped over http), so it must read as off rather than as a
 // login screen nobody can get past.
@@ -99,9 +126,76 @@ is('half configured → off, with a reason', Boolean(auth.googleProblem(without(
 // but it would be the same for a reason that varies by machine.
 is(
   'no certificate and no explicit redirectUri → off',
-  auth.googleAuth({ port: 4318, tls: { enabled: false }, auth: { google: { enabled: true, clientId: 'x', clientSecret: 'y', allowed: ['a@b.c'] } } }),
+  auth.googleAuth({
+    port: 4318,
+    tls: { enabled: false },
+    auth: { google: { enabled: true, clientId: 'x', clientSecretFile: SECRET_FILE, allowed: ['a@b.c'] } },
+  }),
   null
 );
+
+/* --------------------------------------------- where the secret is allowed to live */
+
+console.log('\nlib/auth.js — keeping the secret out of the committed config');
+
+// The migration, and the reason this bead exists: a config written by the version that
+// had a `clientSecret` field, or hand-edited by somebody following the README that
+// suggested one, is drained into a file the snapshotter refuses — and the field is gone
+// afterwards, because a config that still has it is a config that will be committed
+// with it.
+{
+  const dir = fs.mkdtempSync(path.join(tmp, 'absorb-'));
+  const cfg = { auth: { google: { clientId: 'cid', clientSecretFile: path.join(dir, 'moved.key'), clientSecret: 'GOCSPX-from-the-config' } } };
+  const moved = auth.absorbClientSecret(cfg);
+  is('the field is taken out of the config', 'clientSecret' in cfg.auth.google, false);
+  is('and it says it moved it', moved?.moved, true);
+  is('the secret is in the file now', fs.readFileSync(path.join(dir, 'moved.key'), 'utf8').trim(), 'GOCSPX-from-the-config');
+  is('at 0600, like the session key', fs.statSync(path.join(dir, 'moved.key')).mode & 0o777, 0o600);
+  is('and sign-in reads it from there', auth.clientSecret(cfg.auth.google), 'GOCSPX-from-the-config');
+}
+{
+  // A file that already has one wins. Overwriting it would sign every browser out of a
+  // working install to honour a copy somebody forgot to delete.
+  const dir = fs.mkdtempSync(path.join(tmp, 'absorb-'));
+  const file = path.join(dir, 'kept.key');
+  fs.writeFileSync(file, 'the-one-in-use\n', { mode: 0o600 });
+  const cfg = { auth: { google: { clientSecretFile: file, clientSecret: 'the-stale-copy' } } };
+  const moved = auth.absorbClientSecret(cfg);
+  is('the file is left alone', fs.readFileSync(file, 'utf8').trim(), 'the-one-in-use');
+  is('the config field still goes', 'clientSecret' in cfg.auth.google, false);
+  is('and it says so rather than claiming a move', moved?.moved, false);
+}
+is('nothing to absorb → nothing said', auth.absorbClientSecret({ auth: { google: { clientId: 'cid' } } }), null);
+is('no auth block at all → nothing said', auth.absorbClientSecret({}), null);
+{
+  // An empty field is not a secret, but it is an advertisement for the place one should
+  // not go, so it leaves too.
+  const cfg = { auth: { google: { clientSecret: null } } };
+  auth.absorbClientSecret(cfg);
+  is('an empty clientSecret field is dropped as well', 'clientSecret' in cfg.auth.google, false);
+}
+
+// The one hole the default cannot close: a `clientSecretFile` pointed at a name inside
+// the config repo that its denylist does not match. Not refused — that would turn a
+// working sign-in off over a filename — so this warning is the only tell there is.
+is('the default file is safe by name, so nothing is said', auth.secretFileWarning({ auth: { google: {} } }), null);
+is(
+  'a secret file in the config repo that the denylist does not cover is called out',
+  Boolean(
+    auth.secretFileWarning({
+      auth: { google: { clientSecretFile: path.join(process.env.BEADCAUSE_CONFIG_DIR, 'google-secret.txt') } },
+    })
+  ),
+  true
+);
+is(
+  'and one named so that it does is not',
+  auth.secretFileWarning({
+    auth: { google: { clientSecretFile: path.join(process.env.BEADCAUSE_CONFIG_DIR, 'google.secret') } },
+  }),
+  null
+);
+is('a file outside that directory is your business, not ours', auth.secretFileWarning(FULL), null);
 
 console.log('\nlib/auth.js — the allowlist');
 const A = auth.googleAuth(FULL);
@@ -280,7 +374,7 @@ const onCfg = {
     google: {
       enabled: true,
       clientId: 'cid.apps.googleusercontent.com',
-      clientSecret: 'shh',
+      clientSecretFile: SECRET_FILE,
       allowed: ['adam@example.com'],
       // Explicit, and http on purpose: it keeps `tailscale cert` out of this test and
       // lets the cookie be settable over loopback. The Secure flag is asserted against
