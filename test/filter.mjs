@@ -18,6 +18,12 @@
 //    arrives empty rather than absent hides every bead in the inbox with nothing
 //    on screen to say why.
 //
+// 3. **A saved filter outlives the config it was picked under.** A renamed space, a
+//    dropped workspace, or a workspace moved between spaces all show the same way:
+//    an empty list with no chip pressed to explain it. reconcileFilter is what the
+//    server applies on the way out — and it matters beyond the chips, because the
+//    push path reads state.json directly, with no client in the loop to correct it.
+//
 // The HTTP half proves the round trip the client actually uses: the filter is
 // carried on the same payload as the questions, because a second fetch would paint
 // the unfiltered list first and then snatch it away.
@@ -195,6 +201,97 @@ check(() => {
   assert.deepEqual(JSON.parse(blanked.body).filter, { space: 'all', workspace: 'all' });
   assert.deepEqual(loadState().filter, { space: 'all', workspace: 'all' });
 }, 'an empty write clears back to All rather than storing undefined');
+
+const oversized = await call('/api/filter', {
+  method: 'POST',
+  body: JSON.stringify({ space: 'x'.repeat(500), workspace: 'ok' }),
+});
+check(() => {
+  // The poll rewrites state.json every thirty seconds, so an unbounded name from a
+  // junk body is a cost paid on every tick forever. Coerced, not refused — the client
+  // can only send a chip that was on its screen, so a 400 here would be noise.
+  assert.equal(JSON.parse(oversized.body).filter.space, 'all');
+  assert.equal(loadState().filter.space, 'all');
+}, 'an absurdly long name is coerced rather than stored');
+
+/* ------------------------------------------- staleness, against a real setup */
+
+const { summarise, reconcileFilter } = await import(LIB('spaces.js'));
+
+// Two configured spaces plus a workspace assigned to neither, which is what makes
+// summarise() emit the synthetic "Other" group.
+const spacesCfg = {
+  spaces: [
+    { name: 'Work', workspaces: ['alpha'] },
+    { name: 'Personal', workspaces: ['beta'] },
+  ],
+};
+const SPACES = summarise(spacesCfg, [{ workspace: 'alpha' }, { workspace: 'beta' }, { workspace: 'gamma' }]);
+const NAMES = ['alpha', 'beta', 'gamma'];
+const rf = (f) => reconcileFilter(SPACES, NAMES, f);
+
+check(() => {
+  assert.deepEqual(rf({ space: 'Work', workspace: 'alpha' }), { space: 'Work', workspace: 'alpha' });
+}, 'a filter naming things that still exist is left alone');
+
+check(() => {
+  // The space is gone, but the workspace still names something real — that is a
+  // filter you can read off the screen, so only the dead half falls back.
+  assert.deepEqual(rf({ space: 'Renamed', workspace: 'beta' }), { space: 'all', workspace: 'beta' });
+}, 'a space that has gone falls back on its own, keeping a live workspace');
+
+check(() => {
+  assert.deepEqual(rf({ space: 'Work', workspace: 'deleted' }), { space: 'Work', workspace: 'all' });
+}, 'a workspace that has gone falls back');
+
+check(() => {
+  // Both halves name something real and together they match nothing. This is the
+  // case the client-side reconciliation does not catch.
+  assert.deepEqual(rf({ space: 'Work', workspace: 'beta' }), { space: 'Work', workspace: 'all' });
+}, 'a workspace that has moved out of the filtered space falls back');
+
+check(() => {
+  assert.ok(SPACES.some((s) => s.name === 'Other'), 'the fixture should produce an Other group');
+  // Not in cfg.spaces at all — validating against the config rather than summarise()
+  // would silently drop this filter on every single load.
+  assert.deepEqual(rf({ space: 'Other', workspace: 'gamma' }), { space: 'Other', workspace: 'gamma' });
+}, 'the synthetic "Other" group is a space you can stay filtered to');
+
+check(() => {
+  assert.deepEqual(rf({ space: 'all', workspace: 'all' }), { space: 'all', workspace: 'all' });
+  assert.deepEqual(rf(null), { space: 'all', workspace: 'all' });
+  assert.deepEqual(rf({ space: 42, workspace: [] }), { space: 'all', workspace: 'all' });
+}, 'nothing picked, and junk, both read as everything');
+
+check(() => {
+  // The distinction the whole guard turns on: no spaces configured is not the same
+  // as every space having vanished. An install with no spaces set up never draws the
+  // row, and resetting a saved value on that basis would be guessing.
+  assert.deepEqual(reconcileFilter([], [], { space: 'work', workspace: 'climative' }), {
+    space: 'work',
+    workspace: 'climative',
+  });
+}, 'an unconfigured install is left alone rather than reset');
+
+/* ----------------------------------------------------- hygiene, cheap and blunt */
+
+check(() => {
+  // Not about the filter, and here because writing this feature is what produced one:
+  // a NUL inside a template literal is legal JavaScript, runs perfectly, and turns the
+  // file binary — grep then matches nothing in it and says nothing about why. A bad
+  // half-hour for a person, and a silently wrong answer for an agent.
+  const bad = [];
+  for (const root of ['lib', 'public']) {
+    const dir = path.join(HERE, '..', root);
+    for (const f of fs.readdirSync(dir)) {
+      if (!/\.(js|mjs)$/.test(f)) continue;
+      const buf = fs.readFileSync(path.join(dir, f));
+      const at = buf.findIndex((b) => b < 32 && b !== 9 && b !== 10 && b !== 13);
+      if (at >= 0) bad.push(`${root}/${f} byte ${at} = 0x${buf[at].toString(16)}`);
+    }
+  }
+  assert.deepEqual(bad, [], `control bytes found: ${bad.join(', ')}`);
+}, 'no source file carries an invisible control byte');
 
 servers.forEach((s) => s.close());
 fs.rmSync(tmp, { recursive: true, force: true });
