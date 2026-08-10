@@ -97,7 +97,9 @@ otherwise its poller would keep firing notifications with no listener behind the
   Tailscale IP, never `0.0.0.0`; the backends behind it bind loopback only.
 - **The tailnet address is HTTPS**, with a real certificate for your MagicDNS name and
   a TLS 1.2 floor — once *HTTPS Certificates* is enabled for the tailnet. Until then it
-  logs why and serves plain http. Loopback is plain http on purpose. See
+  logs why and serves plain http. Loopback is plain http on purpose. The daemon
+  [renews the certificate under itself](#renewing-it-before-it-expires) and pushes to
+  your phone if it ever cannot. See
   [HTTPS on the tailnet name](#https-on-the-tailnet-name).
 - **Editing `lib/` needs no restart.** The router swaps a fresh backend in under the
   port a few seconds later — see [The router](#the-router--why-you-never-restart-it)
@@ -3996,8 +3998,9 @@ tailnet cannot give you:
 **Where the certificate comes from.** No authority will sign `100.96.105.106`, so
 HTTPS means serving the MagicDNS name — `<host>.<tailnet>.ts.net` — and
 `tailscale cert` is what gets a certificate for it: Let's Encrypt, fetched through
-Tailscale, renewed by Tailscale. It is cached in `~/.config/beadcause/tls/` and
-re-fetched at startup when it has under a month left.
+Tailscale. It is cached in `~/.config/beadcause/tls/`, re-fetched when it has under a
+month left, and — because that copy is ours and nothing outside this process touches it
+— [renewed by the daemon itself while it runs](#renewing-it-before-it-expires).
 
 **It needs one thing switched on that this repo cannot switch on for you:** *HTTPS
 Certificates*, at [the tailnet DNS page](https://login.tailscale.com/admin/dns).
@@ -4044,10 +4047,62 @@ curl -sI http://127.0.0.1:4318/api/health          # still plain, still the cont
 openssl s_client -connect <name>:4318 -tls1_1      # refused: alert 70, protocol version
 ```
 
-Two things it does not do yet, each with its own bead: it does not renew a certificate
-while the daemon stays up (it only fetches at startup), and `baseUrl` still names the
+One thing it does not do yet, and it has its own bead: `baseUrl` still names the
 Tailscale IP — which works, because of the redirect above, but means the QR and every
 notification link take one extra hop.
+
+### Renewing it before it expires
+
+A `tailscale cert` certificate lasts 90 days, and the copy in
+`~/.config/beadcause/tls/` is **ours** — `tailscale serve` would have renewed one for
+us, and we are not using it. So the default outcome of fetching a certificate at
+startup and never looking again is an app that goes dark about three months later, on a
+phone, behind a certificate warning, for a reason nothing on screen explains.
+
+So the listener that owns the port keeps it alive. **Every six hours** it compares the
+certificate on the socket against the calendar, and inside the last month it re-asks
+`tailscale cert`. Six hours is absurdly often for a date three months out and exactly
+right for the two cases that matter: a Mac that sleeps more than it runs is only up for
+an hour or two a day, and Tailscale's own renewal — it reissues once a certificate is
+two thirds through, so around 30 days left — becomes due at a moment this process has no
+way to be told about. A check with nothing due reads one file and compares one date; it
+does not shell out.
+
+**The swap does not interrupt anything.** A new certificate goes onto the running
+sockets with `setSecureContext`, which decides how the *next* handshake goes and touches
+nothing else: the `net.Server` in front still owns port 4318, requests in flight are
+still being served, and **a terminal WebSocket that has been open for an hour stays
+open**. No restart, no dropped port, nothing for the phone to notice. `test/certrenew.mjs`
+holds all three of those — including a WebSocket opened before a renewal, echoing a
+message after it.
+
+**And when it cannot renew, it says so where you will see it.** This is the one failure
+whose own error message cannot reach you: once the certificate has actually expired the
+inbox answers the phone with an interstitial, and the log line explaining it is on a Mac
+nobody is sitting at. So a renewal that fails gets an ntfy push — through a relay that
+has nothing to do with this listener — carrying what `tailscale` actually said and the
+command that fixes it. It repeats daily rather than every six hours, and its priority
+climbs as the expiry approaches: a fortnight out this is a chore, three days out it is
+the app going dark.
+
+```
+[beadcause] tls  CERTIFICATE NOT RENEWING — mac.tailnet.ts.net expires in 6.2 days:
+                 your Tailscale account does not support getting TLS certs
+[beadcause] tls  fix it by hand: tailscale cert mac.tailnet.ts.net
+```
+
+Two details worth knowing if you ever debug this:
+
+- `tailscale cert` **can fail while exiting 0** — an account without *HTTPS
+  Certificates* prints a 500 to stderr and returns success — so what counts as a
+  renewal here is a certificate whose bytes *changed*, not an exit code and not the
+  presence of a file. A `cert` that hands back the one we already had is normal at 30
+  days and an alarm at 10.
+- `BEADCAUSE_TAILSCALE` overrides where the `tailscale` binary is looked for (the
+  built-in list is three macOS paths, no `PATH` lookup, because launchd's `PATH` is not
+  yours). It is what lets `test/certrenew.mjs` drive the whole renewal against
+  certificates it mints itself instead of asking Let's Encrypt for a real one every time
+  somebody runs the suite.
 
 ## HTTP API
 
@@ -4228,6 +4283,7 @@ written — fix the IP in the file if the phone can't connect.
 | `BEADCAUSE_OBSERVE` | watch and never act: no sessions, proposals, sweeps, session logs, reply agents or pushes. `BEADCAUSE_READONLY` is the same flag |
 | `BEADCAUSE_NODE` | the `node` the LaunchAgent runs (`scripts/install.sh`, `scripts/open-monitor.sh`) |
 | `BEADCAUSE_BROWSER` | which browser `scripts/open-monitor.sh` opens the console in |
+| `BEADCAUSE_TAILSCALE` | the `tailscale` binary, overriding the three macOS paths that are searched by default. Has to exist to count — a path typed wrong reads as "no tailscale" rather than failing mysteriously later. See [renewing the certificate](#renewing-it-before-it-expires) |
 
 ### Every state file is replaced, never overwritten
 
@@ -4442,6 +4498,25 @@ over `wss` still gated by the token subprotocol — accepted-then-closed `1008` 
 unknown id, refused with a `401` for a wrong token. Whether a *phone* trusts the real
 certificate is a named `skip`: that is a fact about Let's Encrypt and `tailscale cert`,
 and no test on this machine can answer it.
+
+`test/certrenew.mjs` covers [the renewal](#renewing-it-before-it-expires), which is
+quieter still — the failure it prevents has no symptom for 89 days and then takes the
+whole app down, and you could not find it by hand without leaving a Mac untouched for a
+quarter and being surprised. `BEADCAUSE_TAILSCALE` points `lib/config.js` at a shell
+script that answers `status --json` and mints certificates with `openssl`, so what runs
+is the real `obtain()` — the same `spawnSync`, the same "the files decide whether this
+worked" rule — against a certificate authority the test made up. Its `refuse` mode is the
+actual failure, reproduced faithfully: stderr gets a 500, and the exit code is **0**.
+Four things are held. A certificate with months left costs nothing (asserted as *no
+calls to tailscale at all*, not as a fast return). A renewal that fails keeps the working
+certificate on the socket, says `CERTIFICATE NOT RENEWING` in the log with the fixing
+command beside it, and pushes **once** across six checks rather than once per check. A
+renewal that succeeds swaps the live sockets — new fingerprint on the next handshake, the
+same port still listening, an HTTPS request answered immediately, the TLS 1.2 floor still
+refusing 1.1, and **a WebSocket opened before the swap still echoing a message after
+it**, which is the acceptance criterion no amount of reading the code proves. And behind
+the router, where the listener is loopback-only plain http, the whole thing is a no-op
+that starts no timer.
 
 ## Notes on bd
 
