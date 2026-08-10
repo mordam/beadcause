@@ -4835,12 +4835,39 @@ controls.
 
 ### `npm test`
 
-`scripts/selftest.mjs`, then every suite under `test/`, then `scripts/test-swap.js` —
-the exact list, in order, is the `test` script in `package.json`, which is the one place
-worth keeping current. What they have in common is that each covers something whose
+`test/lockfile.mjs`, then `scripts/selftest.mjs`, then every suite under `test/` in
+alphabetical order, then `scripts/test-swap.js`. **Nothing lists them** — `scripts.test`
+is `node scripts/test.mjs`, and the runner reads the directory, so adding a suite is
+adding a file and nothing else. `node scripts/test.mjs --list` prints what would run
+without running it. What the suites have in common is that each covers something whose
 failure is *silent* — a flag that does nothing, a state file that comes back empty,
 a message that was never written. The loud failures are still covered by
 `node --check` on changed files and by booting an observer instance and driving it.
+
+**Discovery is a merge fix, not a tidying-up.** The list used to be a single line in
+`package.json` naming every suite in order, and adding a suite meant editing that one
+line — so a dozen concurrent sessions all edited the same line, and git cannot merge
+that: two changes to one line is a conflict however far apart the two insertions read.
+bc-ec6 hit it three times in twenty minutes on that line and nothing else, and each
+collision cost a downmerge, a resolution and a four-minute suite — by which time main
+had moved again, so a branch could lose that race indefinitely while every step it took
+was correct. Only three suites are still named in the runner, because only three have an
+order that matters: the lockfile check first (a lock that disagrees with `package.json`
+makes every later failure suspect), the smoke test second (if the daemon cannot start,
+the 30-odd suites after it fail for the same uninteresting reason), and the swap under
+load last (it is slower than everything else together). The long tail — where every
+collision happened — is unordered, sorted only so the output is stable.
+
+`test/testrunner.mjs` covers that, and the check that matters is not about running tests
+at all: it builds two branches in a temp repo that each add a suite and merges them with
+a real `git merge-tree` — the same three-way merge GitHub refuses a pull request over —
+asserting the merge is clean, with the old one-line chain as the control, asserted to
+conflict. Without the control the clean case proves nothing, since two branches adding
+two different files were never going to collide. The rest is what discovery can newly
+get wrong in silence: that every `test/*.mjs` on disk is in the list (the chain used to
+*be* the inventory; the directory is now), that the two `scripts/` entries which are not
+`test/*.mjs` survive, that the three pinned positions hold, and that a failure still
+stops the run, propagates its exit code, and does not run what comes after it.
 
 `test/observe.mjs` is about observer mode only, and it is the oldest of them —
 because this is the switch here that fails most quietly. Turn off the terminal
