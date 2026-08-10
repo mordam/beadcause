@@ -3,6 +3,7 @@
 # Install beadcause as a login-time background service on macOS.
 #
 #   npm run install-service
+#   npm run install-service -- --non-interactive    # ask nothing; keep the answers on file
 #
 # Everything machine-specific is discovered here rather than committed: the plist is
 # generated with *this* user's home, node binary and checkout path. A checked-in
@@ -13,6 +14,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LABEL="m4m.beadcause"
+USER_ID="$(id -u)"
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 # A second agent, opt-in, that opens the advocate console in a browser window at
 # login. Separate from the daemon on purpose: the daemon must come up headless and
@@ -25,6 +27,45 @@ LEGACY_LABELS=("com.neadamthal.beadcause" "com.beadcause" "n8l.beadcause")
 say()  { printf '\033[1m==>\033[0m %s\n' "$*"; }
 warn() { printf '\033[33m warn\033[0m %s\n' "$*" >&2; }
 die()  { printf '\033[31merror\033[0m %s\n' "$*" >&2; exit 1; }
+
+# Scratch space for the plist being replaced and for the bootstrap probe below.
+# Removed however this exits, including the die()s.
+WORK="$(mktemp -d "${TMPDIR:-/tmp}/beadcause-install.XXXXXX")"
+trap 'rm -rf "$WORK"' EXIT
+
+# -------------------------------------------------------------------- arguments
+
+usage() {
+  cat <<USAGE
+Install beadcause as a launchd agent (macOS).
+
+  npm run install-service                        ask the setup questions
+  npm run install-service -- --non-interactive   ask nothing, keep the answers on file
+  bash scripts/install.sh --non-interactive
+
+  -n, --non-interactive  do not run scripts/configure.js. What is already in
+                         ~/.config/beadcause/config.json is printed and left alone;
+                         change it later with 'npm run configure' in a terminal.
+      --interactive      ask even when the environment looks unattended.
+  -h, --help             this.
+
+SKIP_CONFIGURE=1 in the environment means the same as --non-interactive, and an
+agent or CI environment (CLAUDECODE, AI_AGENT, CI) implies it — see the note above
+the configure step for why an agent session must not be asked questions.
+USAGE
+}
+
+NON_INTERACTIVE=0
+FORCE_INTERACTIVE=0
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -n|--non-interactive) NON_INTERACTIVE=1 ;;
+    --interactive)        FORCE_INTERACTIVE=1 ;;
+    -h|--help)            usage; exit 0 ;;
+    *)                    usage >&2; die "unknown option: $1" ;;
+  esac
+  shift
+done
 
 # ---------------------------------------------------------------- prerequisites
 
@@ -54,10 +95,42 @@ say "installing dependencies"
 
 # ------------------------------------------------------------------- configure
 
-# Writes ~/.config/beadcause/config.json on first run, then asks the few things
-# that cannot be guessed. Skips itself when there is no TTY.
-( cd "$ROOT" && node scripts/configure.js < /dev/tty ) || \
-  warn "configuration skipped — run 'npm run configure' later to set it up."
+# Writes ~/.config/beadcause/config.json on first run, then asks the few things that
+# cannot be guessed. Fed from /dev/tty rather than stdin because `npm run` pipes stdin,
+# and an installer that silently skipped its own questions was the original bug.
+#
+# But /dev/tty is *the controlling terminal*, which is not the same thing as a human
+# who is paying attention. In an agent session it belongs to the agent: the questions
+# are asked of nobody, no prompt is visible anywhere, and the install hangs on the
+# first one for as long as you let it. The escape people reached for — drop the
+# controlling terminal (setsid) so /dev/tty fails and this step warns and carries on —
+# also leaves the GUI session, and `launchctl bootstrap gui/<uid>` then fails *after*
+# the bootout, leaving the daemon unloaded. Two workarounds cancelling each other out.
+#
+# So say it in a flag instead, and recognise the obvious cases without being asked.
+SKIP_CONFIGURE_WHY=""
+if [ "$NON_INTERACTIVE" = 1 ]; then
+  SKIP_CONFIGURE_WHY="--non-interactive"
+elif [ -n "${SKIP_CONFIGURE:-}" ]; then
+  SKIP_CONFIGURE_WHY="SKIP_CONFIGURE=$SKIP_CONFIGURE"
+elif [ -n "${CLAUDECODE:-}" ] || [ -n "${AI_AGENT:-}" ]; then
+  SKIP_CONFIGURE_WHY="this is an agent session, and nobody would see the questions"
+elif [ -n "${CI:-}" ]; then
+  SKIP_CONFIGURE_WHY="CI=$CI"
+fi
+if [ "$FORCE_INTERACTIVE" = 1 ]; then SKIP_CONFIGURE_WHY=""; fi
+
+if [ -n "$SKIP_CONFIGURE_WHY" ]; then
+  say "not asking the setup questions ($SKIP_CONFIGURE_WHY)"
+  # Fed /dev/null deliberately: with no TTY configure.js prints what is currently
+  # configured and changes nothing, which is the useful half of it when nobody can
+  # answer. Everything below reads the same config either way.
+  ( cd "$ROOT" && node scripts/configure.js < /dev/null ) || \
+    warn "could not read the current configuration — carrying on with the defaults."
+else
+  ( cd "$ROOT" && node scripts/configure.js < /dev/tty ) || \
+    warn "configuration skipped — run 'npm run configure' later to set it up."
+fi
 
 # ------------------------------------------------------------ migrate old install
 
@@ -67,7 +140,7 @@ for legacy in "${LEGACY_LABELS[@]}"; do
   legacy_plist="$HOME/Library/LaunchAgents/$legacy.plist"
   if launchctl list 2>/dev/null | grep -q "$legacy" || [ -f "$legacy_plist" ]; then
     say "removing the previous $legacy service (now $LABEL)"
-    launchctl bootout "gui/$(id -u)/$legacy" 2>/dev/null || true
+    launchctl bootout "gui/$USER_ID/$legacy" 2>/dev/null || true
     rm -f "$legacy_plist"
   fi
 done
@@ -85,6 +158,15 @@ MONITOR_ENABLED="$(cd "$ROOT" && node -e '
 
 say "writing $PLIST"
 mkdir -p "$HOME/Library/LaunchAgents" "$(dirname "$LOG")"
+
+# Keep the plist that is loaded right now. If the new one will not bootstrap, the label
+# has to end up loaded again rather than left empty — and that needs the file it was
+# loaded from, which is about to be overwritten.
+PREV_PLIST=""
+if [ -f "$PLIST" ]; then
+  PREV_PLIST="$WORK/previous.plist"
+  cp "$PLIST" "$PREV_PLIST"
+fi
 
 cat > "$PLIST" <<PLIST_EOF
 <?xml version="1.0" encoding="UTF-8"?>
@@ -131,10 +213,96 @@ PLIST_EOF
 
 # --------------------------------------------------------------------- load it
 
+# Can this shell load a job into the GUI domain at all? Answered by loading one that
+# does nothing and unloading it again, rather than by finding out halfway through.
+#
+# `launchctl bootstrap gui/<uid>` fails with `Bootstrap failed: 5: Input/output error`
+# for a process that has left the GUI session — one that called setsid, a launchd job of
+# its own, ssh with no console. Replacing a running job means booting it out first, so
+# by the time that error arrives the daemon is already gone: the port dead, the
+# readiness wait below dying, and every step after it skipped, on the one path whose
+# entire job is to have no outage. It cost a real one. Asking first costs a few
+# milliseconds.
+#
+# The probe job never runs anything — RunAtLoad false, no KeepAlive, and /usr/bin/true
+# if it somehow were started — and its plist lives in $WORK, so nothing is left on disk.
+# If the bootout of it ever failed, what remains is an idle label that owns nothing,
+# until the next logout.
+can_bootstrap() {
+  local probe="$LABEL.bootstrap-probe.$$"
+  local plist="$WORK/$probe.plist"
+  cat > "$plist" <<PROBE_EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>$probe</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/bin/true</string>
+  </array>
+  <key>RunAtLoad</key>
+  <false/>
+</dict>
+</plist>
+PROBE_EOF
+  if launchctl bootstrap "gui/$USER_ID" "$plist" 2>/dev/null; then
+    launchctl bootout "gui/$USER_ID/$probe" 2>/dev/null || true
+    return 0
+  fi
+  return 1
+}
+
 say "loading the service"
-launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null || true
-launchctl bootstrap "gui/$(id -u)" "$PLIST"
-launchctl kickstart -k "gui/$(id -u)/$LABEL"
+
+if ! can_bootstrap; then
+  # Nothing has been booted out yet, so whatever was loaded still is. It is running the
+  # code it was loaded with rather than what is in $ROOT, which is worse than the new
+  # code and enormously better than nothing at all.
+  warn "this shell cannot load launchd jobs into gui/$USER_ID, so the service was left"
+  warn "exactly as it was instead of being booted out into nothing."
+  if curl -fsS -m 2 http://127.0.0.1:4318/api/health >/dev/null 2>&1; then
+    warn "what is loaded is still up and answering on 4318 — on the code it was loaded"
+    warn "with, which after an edit to bin/ is not what is in $ROOT."
+  fi
+  warn "$PLIST has been rewritten but never reloaded, so the file and the job launchd is"
+  warn "holding disagree. Finish it from a Terminal window you are logged in to:"
+  warn "  launchctl bootout gui/$USER_ID/$LABEL"
+  warn "  launchctl bootstrap gui/$USER_ID $PLIST"
+  warn "  launchctl kickstart -k gui/$USER_ID/$LABEL"
+  die "not loaded. This is what a process with no GUI session gets; it is not your plist."
+fi
+
+launchctl bootout "gui/$USER_ID/$LABEL" 2>/dev/null || true
+
+if ! launchctl bootstrap "gui/$USER_ID" "$PLIST"; then
+  # The probe has just proved the domain accepts jobs, so this is about *this* plist.
+  # Either way the label is booted out and nothing is running — the state this whole
+  # section exists to avoid — so put back what was there and say what happened.
+  warn "launchctl refused $PLIST."
+  mv "$PLIST" "$PLIST.rejected"
+  warn "kept as $PLIST.rejected, so it can be diffed against one that works."
+  if [ -n "$PREV_PLIST" ]; then
+    cp "$PREV_PLIST" "$PLIST"
+    if launchctl bootstrap "gui/$USER_ID" "$PLIST"; then
+      launchctl kickstart -k "gui/$USER_ID/$LABEL" 2>/dev/null || true
+      warn "the plist that was installed before is back in place and loaded again: the"
+      warn "service is running what it was running before this script started."
+    else
+      warn "the previous plist would not load either — NOTHING IS LOADED under $LABEL."
+      warn "the service is down. From a Terminal window you are logged in to:"
+      warn "  launchctl bootstrap gui/$USER_ID $PLIST"
+    fi
+  else
+    warn "there was no plist here before, so there is nothing to fall back to: $LABEL is"
+    warn "not loaded, and it was not loaded when this started either."
+  fi
+  die "bootstrap failed — see above."
+fi
+
+launchctl kickstart -k "gui/$USER_ID/$LABEL" 2>/dev/null || \
+  warn "kickstart failed; RunAtLoad should have started it anyway — the wait below decides."
 
 # Give it a moment to bind before we claim it works.
 for _ in $(seq 1 20); do
@@ -155,7 +323,7 @@ say "running — workspaces: ${WORKSPACES:-none}"
 # port answered perfectly the whole time — so nothing anyone could see was broken.
 # launchd keeps the arguments it bootstrapped with, so this reads them back from it
 # and not from the file.
-LOADED="$(launchctl print "gui/$(id -u)/$LABEL" 2>/dev/null | grep -oE '[^[:space:]]+/bin/[A-Za-z0-9._-]+\.js' | head -1 || true)"
+LOADED="$(launchctl print "gui/$USER_ID/$LABEL" 2>/dev/null | grep -oE '[^[:space:]]+/bin/[A-Za-z0-9._-]+\.js' | head -1 || true)"
 if [ "$LOADED" = "$ROOT/bin/router.js" ]; then
   say "launchd is running bin/router.js — editing lib/ swaps under the port, no restart"
 elif [ -n "$LOADED" ]; then
@@ -163,14 +331,14 @@ elif [ -n "$LOADED" ]; then
   warn "the hot-swap is NOT live — edits to lib/ will need a restart. Re-run this script."
 else
   warn "could not read back what launchd loaded for $LABEL; check with:"
-  warn "  launchctl print gui/$(id -u)/$LABEL | grep -A3 arguments"
+  warn "  launchctl print gui/$USER_ID/$LABEL | grep -A3 arguments"
 fi
 
 # ------------------------------------------------------------- the monitor agent
 
 # Always tear the old one down first, so answering "no" in configure actually
 # removes the window rather than leaving a stale agent loaded from last time.
-launchctl bootout "gui/$(id -u)/$MONITOR_LABEL" 2>/dev/null || true
+launchctl bootout "gui/$USER_ID/$MONITOR_LABEL" 2>/dev/null || true
 rm -f "$MONITOR_PLIST"
 
 if [ "$MONITOR_ENABLED" = "1" ]; then
@@ -221,8 +389,16 @@ MONITOR_EOF
   # RunAtLoad means bootstrap opens the window straight away, which is also the
   # only honest way to prove the whole path works — daemon up, token readable,
   # browser willing.
-  launchctl bootstrap "gui/$(id -u)" "$MONITOR_PLIST"
-  say "the advocate console opens at login (and just opened) — http://127.0.0.1:4318/monitor"
+  #
+  # A failure here is not a failure of the install: the daemon is loaded and answering
+  # by this point, and this is a window. Warning rather than exiting is also what keeps
+  # the pairing QR below from being skipped over a browser that would not open.
+  if launchctl bootstrap "gui/$USER_ID" "$MONITOR_PLIST"; then
+    say "the advocate console opens at login (and just opened) — http://127.0.0.1:4318/monitor"
+  else
+    warn "the console agent would not load; the daemon itself is unaffected."
+    warn "open http://127.0.0.1:4318/monitor yourself, or 'npm run monitor' in a terminal."
+  fi
 else
   say "console not opened at login — visit /monitor when you want it"
 fi
@@ -239,13 +415,14 @@ Useful from here:
   npm run monitor                                # the same thing in a terminal, roughly
   npm run swap:status                            # which build is actually answering
   npm run swap                                   # swap now, without waiting
-  launchctl kickstart -k gui/$(id -u)/$LABEL     # only needed for bin/router.js itself
+  launchctl kickstart -k gui/$USER_ID/$LABEL     # only needed for bin/router.js itself
 
 Editing lib/ no longer needs a restart: the router notices within a few seconds and
 swaps the backend under the port, draining the old one. The exception is
 bin/router.js, which cannot replace itself — it says so in the log when it changes.
 
   npm run uninstall-service                      # remove it again
+  npm run install-service -- --non-interactive   # re-run this without the questions
 
 Config (token, ntfy topic, workspaces) lives in ~/.config/beadcause/config.json.
 NEXT
