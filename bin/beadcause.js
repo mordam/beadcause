@@ -3,6 +3,7 @@ import { loadConfig, CONFIG_PATH, OBSERVING } from '../lib/config.js';
 import { createApp, startPoller, listen } from '../lib/server.js';
 import { advocatedWorkspaces, workerLimit } from '../lib/advocate.js';
 import { buildStamp } from '../lib/build.js';
+import { hotSwapProblem, problemBanner } from '../lib/service.js';
 import { attachTerminalSocket } from '../lib/termsocket.js';
 import { flush } from '../lib/commonrepo.js';
 import { restoreTerminals, shutdownTerminals, startTerminalReaper, terminalsEnabled } from '../lib/terminal.js';
@@ -244,6 +245,23 @@ console.log(
 console.log(`[beadcause] ntfy topic  ${cfg.ntfy.enabled ? cfg.ntfy.topic : '(disabled)'}`);
 console.log(`[beadcause] phone URL   ${cfg.baseUrl}/?t=${cfg.token}`);
 console.log(`[beadcause] build       ${build} (${role}${internalPort ? `, internal :${internalPort}` : ', standalone'})`);
+
+/**
+ * Say it, at startup, when launchd is running this file instead of the router.
+ *
+ * Only when launchd started us — `process.ppid === 1`, which is how a LaunchAgent's
+ * child arrives and how nothing a person types does. `npm run start:bare` is a
+ * deliberate choice and gets no lecture; a router-spawned backend has `--port` and is
+ * excluded before we look at anything.
+ *
+ * Last in the startup block on purpose. This is the line that was missing for three
+ * days: every other line above was correct, the README described a hot-swap, and the
+ * process printing them was the plain server launchd had been restarting all along.
+ */
+if (!internalPort && process.ppid === 1) {
+  const problem = hotSwapProblem({ loadedProgram: process.argv[1] });
+  if (problem) for (const line of problemBanner(problem)) console.error(line);
+}
 
 const shutdown = () => {
   // Guarded, not bare: a standby has no poller to clear.
