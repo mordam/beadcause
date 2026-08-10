@@ -301,8 +301,10 @@
     const options = opts.length
       ? `<div class="mir-options">${opts
           .map(
-            (o) => `<button class="mir-opt" data-mact="option" data-response="${esc(o.response)}">
-              <span>${esc(o.label)}</span>${o.hint ? `<small>${esc(o.hint)}</small>` : ''}
+            (o) => `<button class="mir-opt" data-mact="option" data-opt="${esc(o.id)}" data-response="${esc(o.response)}">
+              <span>${esc(o.label)}</span>${
+                o.closes === false ? '<small>↪ commissions the work — the bead stays open</small>' : ''
+              }${o.hint ? `<small>${esc(o.hint)}</small>` : ''}
             </button>`
           )
           .join('')}</div>`
@@ -544,12 +546,18 @@
 
   const draftFor = (key) => (state.drafts.get(key) || '').trim();
 
-  async function respond(t, text, close) {
+  async function respond(t, text, close, option = null) {
     const key = t.key || `${t.workspace}/${t.id}`;
     try {
       if (close) {
-        await api('/api/respond', { method: 'POST', body: JSON.stringify({ workspace: t.workspace, id: t.id, response: text }) });
-        note('Answered — the card is closed.');
+        // The option id rides along so the server can see whether this answer
+        // commissions work — see lib/decision.js. Absent for a typed answer, which
+        // is always an ending.
+        const res = await api('/api/respond', {
+          method: 'POST',
+          body: JSON.stringify({ workspace: t.workspace, id: t.id, response: text, ...(option ? { option } : {}) }),
+        });
+        note(res?.handedBack ? 'Answered — left open and handed back as work.' : 'Answered — the card is closed.');
       } else {
         await api('/api/comment', { method: 'POST', body: JSON.stringify({ workspace: t.workspace, id: t.id, text }) });
         note('Commented — an agent has been sent to answer it.');
@@ -595,7 +603,7 @@
       return ensureDetail();
     }
 
-    if (act === 'option') return respond(t, btn.dataset.response, true);
+    if (act === 'option') return respond(t, btn.dataset.response, true, btn.dataset.opt || null);
 
     if (act === 'comment' || act === 'respond') {
       const key = t.key || `${t.workspace}/${t.id}`;

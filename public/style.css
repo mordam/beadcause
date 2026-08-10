@@ -528,6 +528,16 @@ body {
 }
 .option.confirm .rec-tag { color: color-mix(in srgb, var(--accent-ink) 80%, transparent); }
 
+/* An option that commissions work rather than settling it — `closes: false` in the
+   decision block. Quieter than the recommendation, because it is a fact about what
+   the tap does and not an argument for tapping it. */
+.hand-tag {
+  align-self: flex-start;
+  font-size: 11px; font-weight: 600; letter-spacing: 0.02em;
+  color: var(--muted);
+}
+.option.confirm .hand-tag { color: color-mix(in srgb, var(--accent-ink) 72%, transparent); }
+
 .actions { display: flex; gap: 8px; padding: 0 15px 14px; }
 
 .note-line {
