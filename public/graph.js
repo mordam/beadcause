@@ -771,8 +771,72 @@
     }
   }
 
+  /**
+   * The bead's own sheet, rather than the graph around it — the link the gate
+   * blockers in the inbox already use (`gateBlockersHtml`, public/app.js).
+   *
+   * `&open=1` is the whole point: landing on a force layout mid-animation and
+   * hunting for one node is three taps that were never what the tap meant.
+   * Inside the drawer these never escape it — drawer.js intercepts any `/graph?`
+   * link and re-points the iframe with `location.replace`, so back still closes
+   * the drawer exactly once no matter how many beads deep you walked.
+   */
+  const beadUrl = (id) =>
+    `/graph?ws=${encodeURIComponent(workspace)}&id=${encodeURIComponent(id)}&open=1`;
+
+  /**
+   * Where the bead sits, split out of the one array bd already sends.
+   *
+   * `bd show --json` returns `dependencies[]` with a full row per edge — id, title,
+   * status — and a `dependency_type` saying which kind of edge it is. The parent is
+   * in there too, as `parent-child`, which is why the count beside it cannot be
+   * trusted: a subtask that waits on nothing at all still arrived here claiming
+   * "waits on 1", because bd counts the edge to its parent among them.
+   *
+   * So the array is split rather than counted, and each edge goes to the group whose
+   * label is true of it. `discovered-from` and `related` get their own group instead
+   * of being folded into "waits on": neither blocks anything, and a bead that says it
+   * is waiting on something it is not is worse than one that says nothing.
+   */
+  const RELATED = new Set(['discovered-from', 'related']);
+
+  function relations(b) {
+    const known = Array.isArray(b.dependencies);
+    const rows = known ? b.dependencies.filter(Boolean) : [];
+    const parent = rows.find((r) => r.dependency_type === 'parent-child');
+    return {
+      // Whether the edges themselves arrived, as against only bd's count of them.
+      // The rows are the truth when they are here; the count is what is left when
+      // they are not.
+      known,
+      // The row carries the title; `b.parent` is only an id. Falling back to it means
+      // a payload that lost the row still gets a way up rather than nothing at all.
+      parent: parent || (b.parent ? { id: b.parent } : null),
+      waits: rows.filter((r) => r !== parent && !RELATED.has(r.dependency_type)),
+      related: rows.filter((r) => RELATED.has(r.dependency_type)),
+    };
+  }
+
+  /** One group of linked beads, or nothing — never a heading with no rows under it. */
+  function relGroupHtml(label, rows) {
+    if (!rows.length) return '';
+    return `<div class="rel-group">
+      <span class="rel-kind">${esc(label)}</span>
+      ${rows
+        .map(
+          (r) => `<a class="rel-row" href="${esc(beadUrl(r.id))}">
+            <span class="rel-dot" style="background:${statusColor(r.status)}"></span>
+            <span class="pill id">${esc(r.id)}</span>
+            <span class="rel-title">${esc(r.title || '')}</span>
+          </a>`
+        )
+        .join('')}
+    </div>`;
+  }
+
   function sheetHtml(b) {
     const parts = [`<h2 class="sheet-title">${esc(b.title || '')}</h2>`];
+    const rel = relations(b);
     const meta = [
       `<span class="pill" style="color:${statusColor(b.status)}">${esc(String(b.status || '').replace('_', ' '))}</span>`,
       b.priority != null ? `<span class="pill">P${esc(b.priority)}</span>` : '',
@@ -781,9 +845,22 @@
       // them, so the domain is two thirds of a very shouty pill saying nothing.
       b.owner ? `<span class="pill">${esc(String(b.owner).split('@')[0])}</span>` : '',
       b.dependent_count ? `<span class="pill">blocks ${esc(b.dependent_count)}</span>` : '',
-      b.dependency_count ? `<span class="pill">waits on ${esc(b.dependency_count)}</span>` : '',
+      // Only when the rows are not there to say it better. A count and the list it
+      // counts, one above the other, is the sheet saying the same thing twice — and
+      // the count is the half you cannot tap. Worse, on a subtask the count is not
+      // even true: the edge bd is counting is the one to the parent.
+      !rel.known && b.dependency_count ? `<span class="pill">waits on ${esc(b.dependency_count)}</span>` : '',
     ].filter(Boolean);
     parts.push(`<div class="meta">${meta.join('')}</div>`);
+    // Above the description, because "what is this under, and what is it stuck
+    // behind" is the question you have before you read a word of it — and because
+    // a bead with neither draws nothing here, so it looks exactly as it did before.
+    const groups = [
+      relGroupHtml('Parent', rel.parent ? [rel.parent] : []),
+      relGroupHtml('Waits on', rel.waits),
+      relGroupHtml('Related', rel.related),
+    ].filter(Boolean);
+    if (groups.length) parts.push(`<div class="rel">${groups.join('')}</div>`);
     if (b.description) parts.push(`<div class="md">${md(b.description, FROM_BD)}</div>`);
     // The rest of the row, in the order bd itself prints it. `/api/bead` has always
     // returned all of it; the sheet just stopped reading after `description`, so the
