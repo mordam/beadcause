@@ -37,9 +37,10 @@
 // 7. **And you can answer it.** `POST /api/session-say` types into the session, reach
 //    says whether that is possible, and both halves of the promise are pinned here: a
 //    session that cannot be reached is refused with the reason rather than accepted and
-//    dropped, and the text is flattened to one line by a rule with exactly one
-//    definition. See the note above the send tests for what is deliberately *not*
-//    exercised, and why.
+//    dropped, and what you typed is what goes — the text is no longer flattened to one
+//    line, so what is pinned instead is the two AppleScript statements that make a
+//    multi-line message land whole. See the note above the send tests for what is
+//    deliberately *not* exercised, and why.
 //
 // The session it reads is this very process: `liveSessions` liveness-checks every pid,
 // so a fixture pid would be filtered out before the endpoint ever saw it. Nothing here
@@ -386,12 +387,13 @@ check(() => {
  * `write text` into a live iTerm session, which is a real side effect on the machine
  * running the suite — a test that did it would type a fixture string into whatever
  * window answered, mid-turn, in a session doing real work. So the reach *rule* is
- * tested against a session that can never be reachable (see NO_TTY_PID), the flattening
- * rule is tested as the unit it is, and the delivery itself is left to the one place it
- * can honestly be tried: a phone, against a session you can see.
+ * tested against a session that can never be reachable (see NO_TTY_PID), the rules about
+ * the text are tested as the units they are, the shape of the send is read off the
+ * AppleScript, and the delivery itself is left to the one place it can honestly be
+ * tried: a phone, against a session you can see.
  */
 
-const { oneLine, sessionReach } = await import(LIB('session.js'));
+const { oneLine, pasteSafe, sessionReach } = await import(LIB('session.js'));
 
 /* --------------------------------------------------------------- reach, on the record */
 
@@ -475,19 +477,46 @@ check(() => {
   assert.equal(unauth.status, 401);
 }, 'and typing into a session on this Mac needs the token, like everything else');
 
-/* ------------------------------------------------------- one line, and it admits to it */
+/* ------------------------------------------------------ what is done to the text (bc-75q2) */
+
+// A successful send cannot be tested here — it would type into a real window — but the
+// length refusal happens *before* the reach check, and it is computed on the text the
+// endpoint is about to deliver. So a message whose flattened form would fit and whose
+// real form does not tells the two behaviours apart from outside, with nothing delivered:
+// 8028 characters over 730 paragraphs, which flattening would shrink to 7299 and let
+// through as a 409 from the unreachable pid instead.
+const PARAS = 'x'.repeat(9);
+const manyLines = `${PARAS}\n\n`.repeat(730);
+const long = await call('/api/session-say', { body: { pid: NO_TTY_PID, text: manyLines } });
+check(() => {
+  assert.equal(long.status, 413, `${long.status}: ${long.body}`);
+  assert.match(
+    JSON.parse(long.body).error,
+    new RegExp(`${manyLines.trim().length} characters`),
+    'the count is of the message as typed — a flattened one would be shorter, and would have fit'
+  );
+}, 'the endpoint measures the message with its newlines in it, because that is what it sends');
 
 check(() => {
-  // `write text` presses return at the end of a line, so a second line submits as a
-  // second message — half a sentence into a running agent. One definition of the rule,
-  // read by the AppleScript's caller and by the endpoint that reports `flattened`; two
-  // would eventually disagree, and the symptom would be a message claiming it arrived
-  // as typed.
+  // Still exported, still exact, and now a choice rather than a toll: `checkinMessage`
+  // calls it because a check-in reads better as one line in a window someone is working
+  // in. Nothing on the send path calls it any more, which is the point of the bead.
   assert.equal(oneLine('two\n\nparagraphs'), 'two paragraphs');
   assert.equal(oneLine('  trailing \n'), 'trailing');
   assert.equal(oneLine('a\n  b\n\tc'), 'a b c');
   assert.equal(oneLine('already one line'), 'already one line');
-}, 'a multi-line message is closed up to one line');
+}, 'oneLine survives for the templates that want one line');
+
+check(() => {
+  // The one thing still done to a message on the way out. Inside a bracketed paste
+  // Claude Code submits on CR and breaks a line on LF, so a stray `\r\n` would send the
+  // first half and type the second half into the next turn — the exact failure the
+  // flattening used to prevent, arriving by a different door.
+  assert.equal(pasteSafe('first\r\nsecond'), 'first\nsecond');
+  assert.equal(pasteSafe('old mac\rstyle'), 'old mac\nstyle');
+  assert.equal(pasteSafe('already\nfine'), 'already\nfine');
+  assert.ok(!/\r/.test(pasteSafe('a\r\nb\rc\n\r\nd')));
+}, 'and a carriage return never reaches the pty, because it would submit mid-message');
 
 /* ------------------------------------------------ the channel itself, in the AppleScript */
 
@@ -500,6 +529,22 @@ check(() => {
   // window. That is the failure this check exists for.
   assert.match(applescript, /id of s\) as text\) is equal to wantedId or \(tty of s\) is equal to wantedId/);
 }, 'the AppleScript addresses a session by its tty as well as by its id');
+
+check(() => {
+  // The whole of bc-75q2, in the two statements that replaced one. `newline no` is what
+  // stops the paste submitting itself — without it `write text` presses return at the
+  // end of the *first* line and the rest of the message is typed into the next turn,
+  // which is the bug the flattening existed to hide. The bare `write text ""` after it
+  // is the single Return that sends the lot as one turn; drop that and the message sits
+  // in the composer forever, delivered and unsent, with `sent` reported to the phone.
+  assert.match(applescript, /write text pasted newline no/, 'the paste must not press return');
+  assert.match(applescript, /write text ""\s*$/m, 'and something has to press it exactly once');
+  // Built here rather than passed through argv: the markers are the one part that must
+  // be exactly right, and they are ESC bytes travelling through a shell-free execFile,
+  // an AppleScript literal and a pty. One place to get them wrong is enough.
+  assert.match(applescript, /ASCII character 27/);
+  assert.match(applescript, /esc & "\[200~" & theText & esc & "\[201~"/);
+}, 'and sends a multi-line message as a bracketed paste with one Return after it');
 
 check(() => {
   // `/api/session-log` polls every two seconds. Without this guard, a phone opening a
