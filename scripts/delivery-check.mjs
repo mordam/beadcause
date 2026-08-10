@@ -92,8 +92,18 @@ const issue = (id, title, description, extra = {}) => ({
   ...extra,
 });
 
+// With a deploy declared, which is the four-button card — the widest this ever gets,
+// and the one worth looking at on a 393px screen. `deployHint` is what a real
+// `beadcause-deliver` would have passed, verbatim.
 const DELIVERY_Q = {
-  ...toQuestion(WS, issue('dc-pr', deliveryTitle(DELIVERY), deliveryBody(DELIVERY, { context: '**7 files**, +210 −33.' }))),
+  ...toQuestion(
+    WS,
+    issue(
+      'dc-pr',
+      deliveryTitle(DELIVERY),
+      deliveryBody(DELIVERY, { context: '**7 files**, +210 −33.', ship: 'runs `launchctl` · rebuilds apk · restarts beadcause' })
+    )
+  ),
   comments: [],
 };
 
@@ -349,6 +359,18 @@ const PR_VIEW = `(() => {
       cls: [...c.classList].filter((x) => x !== 'pr-chip').join(','),
     })),
     merge: go ? { text: go.textContent.replace(/\\s+/g, ' ').trim(), disabled: go.disabled } : null,
+    ship: (() => {
+      const b = d.querySelector('.pr-ship');
+      if (!b) return null;
+      return {
+        text: b.textContent.replace(/\\s+/g, ' ').trim(),
+        what: b.querySelector('.pr-ship-what')?.textContent.trim() || '',
+        disabled: b.disabled,
+        right: Math.round(b.getBoundingClientRect().right),
+        // Two lines is the design. One would wrap into a paragraph at this width.
+        lines: Math.round(b.getBoundingClientRect().height / parseFloat(getComputedStyle(b).fontSize)),
+      };
+    })(),
     buttons: [...d.querySelectorAll('[data-act]')].map((b) => b.dataset.act),
     width: Math.round(d.getBoundingClientRect().width),
     right: Math.round(d.getBoundingClientRect().right),
@@ -444,11 +466,25 @@ try {
     chipText
   );
   check(
-    'all three actions are offered',
-    ['pr-merge', 'pr-changes', 'pr-decline'].every((a) => v?.buttons.includes(a)),
+    'all four actions are offered, in a repo that has a deploy',
+    ['pr-merge', 'pr-ship', 'pr-changes', 'pr-decline'].every((a) => v?.buttons.includes(a)),
     (v?.buttons || []).join(', ')
   );
   check('the block stays inside the phone', (v?.right ?? 999) <= VP.width, `right edge ${v?.right}px of ${VP.width}px`);
+  // Four is the ceiling this card was told to respect. The failure it is protecting
+  // against is not "the button is missing" — it is four full-width buttons pushing the
+  // card into a menu, or the ship hint wrapping into a paragraph nobody reads.
+  check(
+    'Ship says what it will actually do, on its own second line',
+    /restarts beadcause/.test(v?.ship?.what || ''),
+    v?.ship?.what
+  );
+  check('and it stays inside the phone too', (v?.ship?.right ?? 999) <= VP.width, `right edge ${v?.ship?.right}px`);
+  check(
+    'in two lines, not a paragraph',
+    (v?.ship?.lines ?? 99) <= 3,
+    `${v?.ship?.lines} line-heights tall — "${v?.ship?.text}"`
+  );
 
   /* --------------------------------------------- 2. what gh says changes it */
 
@@ -520,6 +556,47 @@ try {
     'the marker names the PR and the bead it closes',
     /#42/.test(posted[0]?.response || '') && /dc-work/.test(posted[0]?.response || ''),
     posted[0]?.response
+  );
+
+  /* -------------------------------------------------- 3b. shipping is the wider one */
+
+  console.log('\nand shipping is the same two taps, with a different word\n');
+
+  v = await reload('clean');
+  posted.length = 0;
+  await evalJs(s, `${DELIV}.querySelector('[data-act="pr-ship"]').click()`);
+  await sleep(300);
+  const shipArmed = await evalJs(s, PR_VIEW);
+  check(
+    'one tap arms rather than deploys',
+    posted.length === 0 && /Tap again to confirm/.test(shipArmed?.ship?.text || ''),
+    `${posted.length} request(s) sent, button "${shipArmed?.ship?.text}"`
+  );
+  check(
+    'and arming ship does not arm merge — they are one tap apart and not the same act',
+    !/Tap again to confirm/.test(shipArmed?.merge?.text || ''),
+    shipArmed?.merge?.text
+  );
+
+  await evalJs(s, `${DELIV}.querySelector('[data-act="pr-ship"]').click()`);
+  await sleep(600);
+  check('the second tap sends it', posted.length === 1, `${posted.length} request(s)`);
+  check(
+    'and it carries SHIP:, never MERGE: — the one is not a longer spelling of the other',
+    /^SHIP:/.test(posted[0]?.response || ''),
+    JSON.stringify(posted[0]?.response || '').slice(0, 90)
+  );
+  check(
+    'naming the PR and the repo it will deploy',
+    /#42/.test(posted[0]?.response || '') && /deploy demo/.test(posted[0]?.response || ''),
+    posted[0]?.response
+  );
+
+  v = await reload('conflicting');
+  check(
+    'a conflict disables ship as well as merge — a PR GitHub will not take is not one to ship',
+    v?.ship?.disabled === true,
+    `disabled=${v?.ship?.disabled}`
   );
 
   /* ------------------------------------------- 4. asking for changes is prose */
