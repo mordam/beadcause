@@ -1967,6 +1967,87 @@ the advocate console did not. Once every row anywhere in the app reached the sam
 address, the two pages were the same page — see [the tab
 bar](#getting-around--the-tab-bar).
 
+### And you can answer it
+
+Watching a session think and having no way to say anything to it was the last dead end
+in the app. Every other conversation here is one beadcause *started* — the bead console,
+the agent chat, the pty on `/term` — and so it owns a process and can write to its
+stdin. This is the one already on your screen, and it belongs to a terminal window the
+daemon does not own.
+
+So there is a box under the facts, and **the transcript below it is the reply**:
+
+```
+  │  SAY SOMETHING  It lands in the session as if typed.     │
+  │  ┌──────────────────────────────────────────┐  ╭────╮   │
+  │  │ have you run the tests yet?              │  │ ↑  │   │
+  │  └──────────────────────────────────────────┘  ╰────╯   │
+  │  It is mid-turn, so the session holds this until the     │
+  │  turn lands.                                             │
+```
+
+Nothing renders the answer — the pane was already tailing the file the session writes,
+so the reply arrives on the next two-second poll through the channel that was there all
+along. No second connection, and nothing echoed optimistically into the transcript,
+because a line in that pane which is not in the file would be indistinguishable from
+something the session actually said.
+
+**The channel is `write text` into iTerm**, the same one the advocate has always used to
+ask a worker whether it is still alive — it puts the words in the TUI and presses
+return, exactly as if they had been typed. What is new is the *address*. The advocate
+kept the iTerm session id of every window it opened, which is an exact handle and exists
+for almost none of the sessions on this Mac. A session you started at the keyboard was
+never opened here. But every process has a **controlling terminal**, and iTerm reports
+the same value on its side, so the join is `pid → /dev/ttysNNN → the window showing it`
+and it needs nothing remembered at launch. That is what makes this reach sessions that
+predate the feature, including the one you are reading this in.
+
+Three things it refuses to be vague about, because all three fail silently and you are
+in another room:
+
+- **A session that cannot be reached says why, and offers no box at all.** Not a
+  disabled one: a disabled box is an invitation with the door shut, so you write the
+  message anyway and find out afterwards. A session with no controlling terminal (run
+  headless, or over the SDK) has no input line to type into; a session in Terminal.app,
+  tmux or over ssh is running perfectly well and is simply out of reach of the one
+  channel there is. Those are different sentences, and neither of them is "finished".
+- **Nothing typed is lost without being told.** The box empties only once the daemon has
+  said it delivered. A refusal, a window that closed between the check and the send, a
+  connection that died mid-request — the words stay exactly where you typed them and the
+  reason goes underneath.
+- **Mid-turn is queued, and it says who is queuing it.** Claude Code takes typing while
+  a turn is running and answers it when the turn lands, so the message goes straight
+  out and the *session* holds it. There is deliberately no second queue on this side:
+  beadcause holding words back that the session was ready to take would be a delay it
+  invented.
+
+And the one surprise the channel has: **`write text` presses return at the end of a
+line**, so a second line would submit as a second message — half a sentence into a
+running agent. A multi-line message is closed up to one line, warned about while you are
+still typing it, and confirmed after it has gone. That flattening is the whole reason
+Claude Code's IDE WebSocket was investigated first (`bc-g1l`), and the reason it is not
+what this is built on: it *can* put multi-line text in a live session's input box, but
+there is no message in that protocol which submits one, so it would still need a return
+keystroke from AppleScript — a second channel bolted alongside this one rather than a
+replacement for it, and one that reaches only sessions inside its declared workspace
+folders.
+
+`POST /api/session-say` is token-authenticated like everything else under `/api/`, and
+it is *not* refused in observe mode: `BEADCAUSE_OBSERVE` is about the daemon acting on
+its own, and this is you typing — the same category as the in-app terminal and the bead
+console, which a spare-port instance is booted precisely to try.
+
+`node scripts/say-check.mjs` drives the real `public/session.js` in headless Chrome at
+phone size against fixtures, and it is pointed at the promises rather than the markup:
+the words surviving a refusal, a dropped connection and a repaint; the box disappearing
+when a send comes back saying the session is out of reach; the reply arriving through
+the transcript pane rather than through the send's own response. `--baseline` fails all
+fifteen, because before this there was no box. The delivery itself is the one part no
+test does — `write text` into a live window would type a fixture string into whatever
+session answered — so `test/session.mjs` covers the rules around it instead: reach
+refusing a pid with no terminal, the flattening rule, and the AppleScript matching a tty
+as well as an id.
+
 Every card has a **Graph →** into the whole workspace — which is also the answer to
 "how do I see what another session just created", since the graph draws every open
 issue rather than only the questions.
