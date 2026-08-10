@@ -2,8 +2,8 @@
  *
  * Every other control in beadcause acts on one repo. This page is the only one that
  * acts on all of them at once, which is why it is a page of its own rather than a
- * block at the top of /sessions: a button that stops everything should not be on a
- * screen you scroll past forty times a day.
+ * block at the top of the advocate console: a button that stops everything should not
+ * be on a screen you scroll past forty times a day.
  *
  * Two disciplines, both borrowed from the rest of the app and both load-bearing here.
  *

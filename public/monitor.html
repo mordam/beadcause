@@ -5,7 +5,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#0b0f14" media="(prefers-color-scheme: dark)">
   <meta name="theme-color" content="#f6f7f9" media="(prefers-color-scheme: light)">
-  <title>Beadcause · advocates</title>
+  <!-- "& sessions" because this page absorbed /sessions, and every path that view had
+       lands here: the title is what a bookmark of /sessions, the Android shell's
+       history and a desktop tab all read as, and there is room for the second word in
+       all three — which the bottom tab bar's 72px per label does not have. The <h1>
+       stays the one word — the tally beside it already says "N working", which is the
+       sessions question, and the top bar on a 360px phone has no room to say it twice. -->
+  <title>Beadcause · advocates &amp; sessions</title>
   <link rel="icon" href="/icon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/style.css">
 </head>
@@ -38,6 +44,11 @@
     <div class="empty">Looking for a device…</div>
   </section>
 
+  <!-- Before monitor.js, which reports through it on the way up. This page is the
+       sessions view now, and a phone sitting on it should be followable from a screen
+       with room — see the presence note at the foot of monitor.js for why a page that
+       is also a mirror can safely publish itself. -->
+  <script src="/presence.js"></script>
   <script src="/tabbar.js"></script>
   <script src="/vendor/marked.js"></script>
   <script src="/vendor/purify.js"></script>

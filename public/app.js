@@ -1716,14 +1716,19 @@
       );
     }
 
-    // Both tabs live at the foot of every page, but only this one has the numbers:
+    // The tabs live at the foot of every page, but only this one has the numbers:
     // they ride the inbox's poll. A page that never sets a badge shows none, which
     // is better than a number it has no way to refresh.
+    //
+    // One badge, and it is the proposals. A badge means *needs you* — that is what
+    // makes it worth putting a number on a tab you are not looking at — and a running
+    // agent needs nothing; it is a fact about the machine. `summary.sessions` is still
+    // served and still worth reading, and it is read on the page itself, in the
+    // advocate console's tally ("N working · M to answer"), where it sits beside the
+    // repo it belongs to instead of standing for every repo at once.
     const badge = window.beadcause?.tabBadge;
     if (!badge) return;
-    const sessions = Number(s.sessions) || 0;
     const proposals = Number(s.proposals) || 0;
-    badge('sessions', sessions, `Sessions — ${sessions} agent${sessions === 1 ? '' : 's'} running`);
     badge('advocates', proposals, `Advocates — ${proposals} proposal${proposals === 1 ? '' : 's'} waiting`);
   }
 

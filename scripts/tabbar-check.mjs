@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 //
-// Does the tab bar hold up on all four standing views?
+// Does the tab bar hold up on every standing view?
 //
 //   node scripts/tabbar-check.mjs [--fake-inset] [--out=DIR]
 //
@@ -17,9 +17,14 @@
 // composer, the last advocate card — clears it. Both colour schemes, and the
 // inbox's full-screen open card too, which is meant to win over the bar.
 //
-// The badges too, on the inbox: Sessions and Advocates carry the counts the poll
-// hands them, they stay inside their tab rather than spilling into the next one,
-// and a tab with nothing behind it draws nothing.
+// The badge too, on the inbox: Advocates carries the proposal count the poll hands
+// it, it stays inside its tab rather than spilling into the next one, and a tab with
+// nothing behind it draws nothing.
+//
+// And `/sessions` is in the list even though it is no longer a page: it redirects to
+// the advocate console now, it is still on the phone's home screen, and the failure
+// this file exists to catch — a page you cannot leave — is exactly what a stale
+// shortcut landing somewhere with no bar would be.
 //
 // `--fake-inset` restates the stylesheet's safe-area sums with 34px of home
 // indicator substituted in, for the Chromes that have no `Emulation.setSafeAreaInsets`.
@@ -63,21 +68,21 @@ const QUESTIONS = Array.from({ length: 8 }, (_, i) => ({ ...toQuestion('demo', i
 
 const WORK = {
   workspaces: [
-    // A claimed bead, so the sessions page unfolds its first card the way it does on
-    // a real Mac. An empty fixture folded every card, which is how an unfolded card
-    // taking the whole viewport — `.card.open`, over the bar this file exists to
-    // check — went unnoticed here for as long as it did.
+    // A claimed bead and a live session, so the advocate console draws a card with
+    // something in it rather than an empty one. An empty fixture is how a card taking
+    // the whole viewport — over the bar this file exists to check — went unnoticed
+    // here for as long as it did.
     {
       name: 'demo',
       working: [{ id: 'de-1', title: 'a claimed bead', actor: 'x', since: '2026-08-01T09:00:00Z' }],
-      sessions: [],
+      sessions: [{ pid: 4242, name: 'human.de-1.a-session', where: 'demo', status: 'busy', at: '2026-08-01T09:30:00Z' }],
       counts: { open: 5, ready: 2 },
     },
     { name: 'other', working: [], sessions: [], counts: { open: 1 } },
   ],
   advocates: [
-    { workspace: 'demo', state: 'idle', workers: [], paused: false, next: [] },
-    { workspace: 'other', state: 'idle', workers: [], paused: false, next: [] },
+    { workspace: 'demo', state: 'idle', workers: [], paused: false, next: [], limit: 2, queue: 1 },
+    { workspace: 'other', state: 'idle', workers: [], paused: false, next: [], limit: 2, queue: 0 },
   ],
   elsewhere: [],
 };
@@ -212,13 +217,25 @@ function serve() {
     if (p === '/api/consoles') return json({ consoles: [], workspaces: ['demo', 'other'] });
     if (p === '/api/admin') return json(ADMIN);
     if (p === '/api/prs') return json(PRS);
+    // The advocate console carries the mirror pane, which parks a long-poll here and
+    // restarts it the moment it returns. An immediate empty answer would turn that
+    // into a spin loop at full speed against this stub, so park it the way the daemon
+    // does — the run is over long before it answers.
+    if (p === '/api/poll') {
+      const timer = setTimeout(() => {
+        if (!res.writableEnded) json({ seq: 1, events: [], presence: [] });
+      }, 20000);
+      res.on('close', () => clearTimeout(timer));
+      return;
+    }
     if (p.startsWith('/api/')) return json({});
-    // The same aliases the real server maps onto one page.
+    // The same aliases the real server maps onto one page. `/sessions` and `/work` are
+    // the advocate console now — see serveStatic in lib/server.js — and they are here
+    // because the bar has to mark Advocates as current on all four of its paths.
     let rel = p;
-    if (rel === '/sessions' || rel === '/work') rel = '/work.html';
     if (rel === '/console') rel = '/console.html';
     if (rel === '/prs' || rel === '/pulls') rel = '/prs.html';
-    if (rel === '/monitor' || rel === '/advocates') rel = '/monitor.html';
+    if (rel === '/monitor' || rel === '/advocates' || rel === '/sessions' || rel === '/work') rel = '/monitor.html';
     if (rel === '/admin') rel = '/admin.html';
     const file = path.join(PUBLIC, rel === '/' ? 'index.html' : rel.replace(/^\/+/, ''));
     if (!file.startsWith(PUBLIC) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) {
@@ -341,6 +358,18 @@ const PROBE = `(() => {
   };
 })()`;
 
+/* The advocate console, under two of its four paths — one probe, because it is one
+   page and a copy per path would be a copy that could drift. */
+const MON_CLEAR = `(() => {
+  const cards = [...document.querySelectorAll('#mon .card, #mon .mon-card')];
+  const last = cards[cards.length - 1];
+  if (!last) return { what: 'last advocate card', missing: true };
+  document.scrollingElement.scrollTop = document.scrollingElement.scrollHeight;
+  const r = last.getBoundingClientRect();
+  const bar = document.querySelector('.tabbar').getBoundingClientRect();
+  return { what: 'last advocate card', bottom: Math.round(r.bottom), barTop: Math.round(bar.top), n: cards.length };
+})()`;
+
 // What must clear the bar, per page.
 const CLEAR = {
   '/': `(() => {
@@ -363,15 +392,6 @@ const CLEAR = {
     return { what: 'composer', bottom: Math.round(r.bottom), barTop: Math.round(bar.top),
              sendBottom: Math.round(document.querySelector('#send').getBoundingClientRect().bottom) };
   })()`,
-  '/sessions': `(() => {
-    const cards = [...document.querySelectorAll('#work .card')];
-    const last = cards[cards.length - 1];
-    if (!last) return { what: 'last session card', missing: true };
-    document.scrollingElement.scrollTop = document.scrollingElement.scrollHeight;
-    const r = last.getBoundingClientRect();
-    const bar = document.querySelector('.tabbar').getBoundingClientRect();
-    return { what: 'last session card', bottom: Math.round(r.bottom), barTop: Math.round(bar.top), n: cards.length };
-  })()`,
   // The last row's buttons — Merge & push, Ship, Comment. A bar over those is a
   // merge where a thumb reaches for a tab, which is the one mis-tap on this page
   // that cannot be taken back.
@@ -384,15 +404,9 @@ const CLEAR = {
     const bar = document.querySelector('.tabbar').getBoundingClientRect();
     return { what: 'last repo card', bottom: Math.round(r.bottom), barTop: Math.round(bar.top), n: cards.length };
   })()`,
-  '/monitor': `(() => {
-    const cards = [...document.querySelectorAll('#mon .card, #mon .mon-card')];
-    const last = cards[cards.length - 1];
-    if (!last) return { what: 'last advocate card', missing: true };
-    document.scrollingElement.scrollTop = document.scrollingElement.scrollHeight;
-    const r = last.getBoundingClientRect();
-    const bar = document.querySelector('.tabbar').getBoundingClientRect();
-    return { what: 'last advocate card', bottom: Math.round(r.bottom), barTop: Math.round(bar.top), n: cards.length };
-  })()`,
+  '/monitor': MON_CLEAR,
+  // The same page, reached by the path the phone's home screen still holds.
+  '/sessions': MON_CLEAR,
   // The kill button is the last thing on the last scope's card, and it is the one
   // control on this page you must never press by accident. A bar sitting over it
   // would put "stop every running session" exactly where a thumb reaches for the
@@ -409,20 +423,24 @@ const CLEAR = {
 };
 
 /* Every standing view, in bar order. The count is asserted from this list rather
-   than written out as a number, so adding a sixth tab is one line here and not a
-   test that fails with "four tabs: <five of them>". */
-const TABS = ['inbox', 'console', 'sessions', 'prs', 'advocates', 'admin'];
+   than written out as a number, so adding or dropping a tab is one line here and not
+   a test that fails with "five tabs: <four of them>". */
+const TABS = ['inbox', 'console', 'prs', 'advocates', 'admin'];
 
 const PAGES = [
   { url: '/', tab: 'inbox', name: 'inbox' },
   { url: '/console', tab: 'console', name: 'console' },
-  { url: '/sessions', tab: 'sessions', name: 'sessions' },
-  // The sixth tab, and the one that made the bar tight: six labels share 393px here
-  // and 360px on the common Android width, which is what the `:has(:nth-child(6))`
-  // step-down in the stylesheet is for. The label-fits assertion below is the check
-  // on that, and it is why this page is in the list rather than trusted.
+  // "PRs" rather than "Pull requests" because five labels share 393px here and 360px
+  // on the common Android width. The stylesheet has a `:has(:nth-child(6))` step-down
+  // for when a sixth tab arrives; at five it does not apply, and this page is in the
+  // list to keep the shortest-label tab measured rather than trusted.
   { url: '/prs', tab: 'prs', name: 'prs' },
   { url: '/monitor', tab: 'advocates', name: 'advocates' },
+  // The same page under the path the sessions view left behind. The tab it lights has
+  // to be Advocates: a shortcut that lands somewhere the bar calls nothing is a page
+  // you cannot tell where you are on.
+  // `name` is also a screenshot filename, hence the hyphen rather than an arrow.
+  { url: '/sessions', tab: 'advocates', name: 'sessions-redirected' },
   // Pause all / resume all. Nothing on it is reachable any other way, so a bar that
   // failed here would strand the one control that stops everything.
   { url: '/admin', tab: 'admin', name: 'admin' },
@@ -510,15 +528,20 @@ try {
       ok(String(p.atBarMiddle).includes('tab'), `the bar takes its own taps (hit test: ${p.atBarMiddle})`);
       ok(!/[✕‹]/.test(await evalJs(s, `document.querySelector('.topbar').textContent`)), 'no ✕ or ‹ in the top bar');
 
-      // The badges, where the numbers actually arrive. They ride the inbox's own
-      // poll, so this is the one page that has them — and a badge that overflowed
-      // its tab would land on the neighbouring one and count the wrong thing.
+      // The badge, where the number actually arrives. It rides the inbox's own poll,
+      // so this is the one page that has it — and a badge that overflowed its tab
+      // would land on the neighbouring one and count the wrong thing.
+      //
+      // One badge, and it is the proposals: a badge means "needs you", and the running
+      // agents the old Sessions tab counted need nothing. `summary.sessions` is still
+      // in the fixture because the server still sends it — nothing should draw it here.
       if (page.url === '/') {
         const b = await evalJs(
           s,
           `(() => {
             const of = (id) => {
               const item = document.querySelector('.tab-item[data-tab="' + id + '"]');
+              if (!item) return null;
               const el = item.querySelector('.tab-badge');
               const r = el.getBoundingClientRect();
               const box = item.getBoundingClientRect();
@@ -528,12 +551,13 @@ try {
             return { sessions: of('sessions'), advocates: of('advocates'), inbox: of('inbox'), console: of('console') };
           })()`
         );
-        ok(b.sessions.text === '2' && b.advocates.text === '1', `the counts are on their tabs — ${b.sessions.text} / ${b.advocates.text}`);
+        ok(b.advocates.text === '1', `the count is on its tab — ${b.advocates.text}`);
         ok(
-          /agents? running/.test(b.sessions.label || '') && /proposals? waiting/.test(b.advocates.label || ''),
-          'each badge says what it counts, for a reader that cannot see it'
+          /proposals? waiting/.test(b.advocates.label || ''),
+          'the badge says what it counts, for a reader that cannot see it'
         );
-        ok(b.sessions.inside && b.advocates.inside, 'a badge stays inside its own tab');
+        ok(b.advocates.inside, 'a badge stays inside its own tab');
+        ok(b.sessions === null, 'there is no Sessions tab left to badge');
         ok(b.inbox.text === null && b.console.text === null, 'a tab with nothing behind it has no badge');
       }
 

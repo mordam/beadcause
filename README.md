@@ -1446,34 +1446,42 @@ way **What this is blocking** does and asserts that bead ends up under it.
 
 The standing views — it started as four: the **inbox**, the **chat session**, the
 **sessions** and the **advocates**, with the **pull requests** and the **admin**
-screen since. The bar labels the second one just **Chat**, because six
-tabs leave no room for two words at 360px. They are separate pages, and each one used to end in an ✕
-in the top right that hard-navigated back to `/`. That made the inbox a hallway —
-chat session to advocates was two taps through a page you did not want — and the ad-hoc
-cross-links that grew to paper over it (sessions → advocates, advocates → sessions)
-were the same complaint, admitting itself.
+screen since, and Sessions gone again because it and Advocates turned out to be one
+view drawn twice. The bar labels the chat session just **Chat**, because five tabs
+leave no room for two words at 360px. They are separate pages, and each one used to
+end in an ✕ in the top right that hard-navigated back to `/`. That made the inbox a
+hallway — chat session to advocates was two taps through a page you did not want — and
+the ad-hoc cross-links that grew to paper over it (sessions → advocates, advocates →
+sessions) were the same complaint, admitting itself.
 
 So all of them carry the same bar along the bottom, where a thumb already is:
 
 ```
-  📥      🧾       🤖        🔀         📣         ⏸
- Inbox   Chat  Sessions    PRs    Advocates   Admin
+  📥      🧾       🔀         📣         ⏸
+ Inbox   Chat    PRs    Advocates   Admin
  ▔▔▔▔▔
 ```
 
-Six tabs is 60px each at 360px, which "Advocates" does not fit at the bar's normal
-type size — so the stylesheet steps the type down when a sixth tab is there
+Five tabs is 72px each at 360px, which "Advocates" fits. Six would be 60px, which it
+does not — so the stylesheet steps the type down when a sixth tab is there
 (`.tabbar:has(.tab-item:nth-child(6))`), keyed off the bar's own contents rather than
 off a count written down somewhere, so adding or removing a tab needs nothing else.
+It is dormant at five and will come back on its own if a tab does.
 
-Sessions and Advocates carry a **badge** when there is something behind them — how
-many agents are running, how many advocates are waiting on an answer. Both numbers
-ride the inbox's own poll (`/api/questions` carries them; see [the three counts on
-the poll](#the-three-counts-on-the-poll)), so they are live while you are on the
-inbox and simply absent on a page that has no way to refresh them — which beats a
-stale number that looks live. Zero shows nothing. The badge sits inside the tab's
-`aria-hidden` icon, so the tab takes an `aria-label` saying what the number counts:
-"2" read out after "Sessions" says nothing about two of what.
+Advocates carries a **badge** when there is something behind it — how many advocates
+are waiting on an answer. The number rides the inbox's own poll (`/api/questions`
+carries it; see [the three counts on the poll](#the-three-counts-on-the-poll)), so it
+is live while you are on the inbox and simply absent on a page that has no way to
+refresh it — which beats a stale number that looks live. Zero shows nothing. The badge
+sits inside the tab's `aria-hidden` icon, so the tab takes an `aria-label` saying what
+the number counts: "2" read out after "Advocates" says nothing about two of what.
+
+**One badge, and it is the proposals.** Sessions used to carry the count of running
+agents beside it, and dropping it was deliberate rather than a casualty of the merge:
+a badge on a tab you are not looking at means *needs you*, and a running agent needs
+nothing — it is a fact about the machine. The count is still served and still on
+screen, in the advocate console's own tally ("3 working · 1 to answer"), beside the
+repo it belongs to instead of standing in for all of them.
 
 Any view is one tap from any other, and nothing closes any more. The current tab is
 a `<span>` rather than a link — tapping where you already are should do nothing, not
@@ -1489,9 +1497,9 @@ and come back from, not views you live in.
 An **open question is the exception**: a card you have opened takes the whole screen,
 tab bar included, because the answer buttons at its foot must not sit under anything.
 Collapsing it gives the bar back. That behaviour belongs to `.card.open` and to the
-inbox alone — the accordions on the sessions and pull request views mark their
-unfolded card `unfolded` instead, because a workspace card that took the screen over
-the bar was a page you could not leave, on a view whose first load unfolds one.
+inbox alone — the accordion on the pull request view marks its unfolded card
+`unfolded` instead, because a card that took the screen over the bar was a page you
+could not leave, on a view whose first load unfolds one.
 
 `node scripts/tabbar-check.mjs` checks it, headless at phone size against fixtures
 the script serves itself: the bar is on every page and pinned to the bottom,
@@ -1499,6 +1507,14 @@ exactly one tab is current and it is the right one, the current tab is not a lin
 and the last row of the list, the chat session's composer and the last advocate card all
 clear it — in both colour schemes. `--fake-inset` re-runs the safe-area sums with a
 notch substituted in, for the Chromes with no `Emulation.setSafeAreaInsets`.
+
+The *paths* are checked separately, in `npm test`: `node test/pagepaths.mjs` asks a
+real server for every URL a phone might still have on its home screen and checks which
+document came back — all five that reach the advocate console, both that reach the pull
+request board, and so on — plus that `/work.js`, deleted with the sessions view, 404s
+rather than lingering. The aliases live in a run of one-line `if`s in `serveStatic`,
+which is exactly the shape a merge eats, and a broken one is silent: the page is fine,
+the shortcut is not.
 
 ## Detail opens over the tab, not instead of it
 
@@ -1610,30 +1626,32 @@ it carries the `human` label — which means everything the sessions on the Mac 
 actually doing was invisible from the phone. Nine beads claimed in sophab five
 minutes ago showed up nowhere at all.
 
-**🤖 Sessions in the tab bar** opens `/sessions`: one card per workspace, busiest
-first. (`/work`, what this used to be called, still resolves to the same page.)
+This used to be its own page — 🤖 Sessions, at `/sessions`. It is **the advocate
+console** now (📣 in the tab bar). The two were one view drawn twice: the same
+`/api/work` payload, one card per repo, the same claimed beads, the same live `claude`
+rows, an advocate state line on each. Everything below is on the console's cards, and
+`/sessions`, `/work` and `/work.html` all serve it, because those paths are on the
+phone's home screen and in the Android shell's history.
 
-**The cards are an accordion — one open at a time.** Six workspaces of beads and
-sessions is several screens on a phone, and the whole page had to be paged through to
-reach the one repo you opened it for. Collapsed, a heading still carries its own
-summary, so the scan happens in one screen and only the card you want unfolds. The
-busiest card (the first one) opens itself on arrival, because six closed headings
-would charge you a tap on every visit for nothing.
+Which is also the better answer to the question. "What is running" is almost always
+"what is running *in this repo*" — and on the console the sessions sit inside the repo
+they are running in, under **Other work in this repo**, beside the advocate that may
+have opened them and the queue they came off.
 
 ```
-climative                        5 on a bead · 5 sessions ⌄
-  ◗ pipeline-service: client built without retry…      11h
-    cl-1jw  adam.morgan
-  ◗ TECH-5989 fanout: downmerge 25 service repos       17h
-    cl-wyv  adam.morgan
-  CLAUDE SESSIONS  Which of these is on which bead is not recorded.
-  ● Climative - newrelic v14 override fix           11h  ›
-    dms-client-retry-4e7 · pid 90310 · idle
-  54 open · 51 ready · 3 blocked            [ Graph → ]
-
-deluvia                                     2 sessions ›
-sophab                                      1 session  ›
-ehatt                                              idle ›
+climative                                   2 of 3 sessions
+  54 open · 51 ready · 3 in progress · 4 for the advocate
+  ▾ Working now                                        2/3
+  ▸ Up next                                              4
+  ▸ Thinking
+  ▾ Other work in this repo                               3
+      CLAIMED BEADS  Not opened by the advocate.
+      ◗ pipeline-service: client built without retry…   11h
+        cl-1jw  adam.morgan
+      CLAUDE SESSIONS  Which is on which bead is not recorded.
+      ● Climative - newrelic v14 override fix       11h   ›
+        dms-client-retry-4e7 · pid 90310 · idle
+  surveyed 4m ago · launched 11h ago       [ Graph → ]
 ```
 
 A session reaches this page through **either of two independent signals**, and the
@@ -1727,12 +1745,29 @@ Four things worth knowing:
   `/api/` and no further — but it is the most sensitive thing this daemon serves, and
   `claudeSessions: false` turns it off along with the rest of the session reading.
 
-Only one session is open at a time, and folding a card closes the session inside it —
-a pane left open behind a fold would reappear on its own when you came back. The pane
-polls every two seconds while it is open and never otherwise, and it keeps its scroll
-position across the card refresh: following the tail is only right if you were already
-at the bottom, and a pane that jumped to the end every 45 seconds would make reading
-back through a run impossible.
+Only one session is open at a time, and folding the section it is in closes it — a
+pane left open behind a fold would reappear on its own when you came back. The pane
+polls every 2.5 seconds while it is open and never otherwise, on the same tick as the
+advocates' own transcripts, because both are a file read on the Mac.
+
+**It keeps its scroll position across a repaint**, and that matters more here than it
+did on a page of its own: the console redraws every twenty seconds, after every
+control press, and every time an advocate's survey transcript gains a line. Following
+the tail is only right if you were already at the bottom — a pane that jumped to the
+end three times a minute would make reading back through a run impossible, and one
+that jumped to the *top* would lose your place just as often. A session that exits
+closes its own pane rather than leaving a stale one behind.
+
+`node scripts/session-pane-check.mjs` is the check on all of that, headless at phone
+size against fixtures it serves itself: the row is a button in all three places it
+appears — inside an advocate card, on a repo with no advocate, and under **Elsewhere** —
+the facts fill on the tap rather than on the next tick, the pane survives a repaint
+driven by the page *and* one you asked for with Pause, keeping its offset when you had
+scrolled back and following the tail when you had not, the advocate's own transcript
+still pins to its foot without dragging the session pane with it, one pane is open at a
+time, a transcript that cannot be read says `⚠` in place instead of taking the card
+down, and a session that exits takes its pane with it. `--out=DIR` saves the two shots
+worth eyeballing. Not in `npm test`, because it needs Chrome.
 
 Every card has a **Graph →** into the whole workspace — which is also the answer to
 "how do I see what another session just created", since the graph draws every open
@@ -1742,11 +1777,12 @@ Two `bd` calls per workspace (`status --json` for the counts, `list
 --status=in_progress --limit 0 --json` for the beads — `--limit 0` because bd's own
 default is 50, and a silently truncated list here would read as the whole truth),
 run in parallel across all of them:
-about two seconds for six. It refreshes every 45s and on ⟳, deliberately not on the
+about two seconds for six. It refreshes every 20s and on ⟳, deliberately not on the
 inbox's 30s cycle — the inbox is polled by every client all day, and this is opened
-when you want it. A workspace that fails reports its error in place rather than
-vanishing from the list; a missing row would read as "nothing happening there",
-which is the one thing it doesn't mean.
+when you want it. It also stops while the Mirror pane is the one showing, because a
+hidden page must not keep sweeping every tracker on the Mac. A workspace that fails
+reports its error in place rather than vanishing from the list; a missing row would
+read as "nothing happening there", which is the one thing it doesn't mean.
 
 ## Pull requests — merged, pushed, deployed
 
@@ -2017,10 +2053,14 @@ and at most one every `proposeCooldownHours`.
 
 ### What you see, and where
 
-- **The sessions page** (🤖 in the tab bar) grows an **Advocate** block on each repo's
-  card: what it is doing, the beads it has windows open on, what it will pick up
-  next, and **Pause** / **Reclaim sessions**. *Reclaim sessions* asks each open window
-  whether it is still working — see below.
+- **The advocate console** (📣 in the tab bar, at `/monitor` — and at `/sessions` and
+  `/work`, which it absorbed) is one card per repo: what the advocate is doing, the
+  beads it has windows open on, what it will pick up next, its survey transcript, the
+  proposals waiting on you, what its finished sessions left behind, and the other work
+  in that repo — your own claimed beads and every live `claude` process, each one
+  tappable for its transcript. Plus **Pause** / **Reclaim sessions** / **Forget
+  attempts**. *Reclaim sessions* asks each open window whether it is still working —
+  see below.
 - **The monitor** (`npm run monitor`) has an advocates pane above the questions, and
   every launch, close, lapse and proposal appears in its event log.
 - **The launchd log** (`~/Library/Logs/beadcause.log`) carries the same events as
@@ -3157,7 +3197,7 @@ event instead, so `node bin/monitor.js >> somewhere.log` does something sensible
 Static files are read from disk on every request. Server code is read **once**, at
 startup. So an edit to `lib/` leaves a running daemon serving today's pages against
 yesterday's routes, and nothing about it looks wrong: the files are correct, the
-process is healthy, and `/sessions` returns 404 to a page that plainly asks for it.
+process is healthy, and a path the page plainly asks for returns 404.
 That happened against a ten-hour-old process, and "remember to restart" is not a fix
 — forgetting is the entire bug.
 
@@ -3252,7 +3292,7 @@ Auth on everything under `/api/` except `/api/health`: header
 | GET | `/api/session-archive` | `?workspace=&id=` | the archived sessions for a bead |
 | GET | `/api/session-archive` | `?workspace=&commit=&file=` | one archived `session.log`, `meta.json` or `transcript.jsonl` |
 | GET | `/api/session-log` | `?pid=` | `{pid, sessionId, status, file, lines[]}` — the tail of that live session's own transcript. 404 for a pid that is not running |
-| GET | `/sessions`, `/work` | — | the current-sessions page (same page, two paths) |
+| GET | `/monitor`, `/advocates`, `/sessions`, `/work`, `/work.html` | — | the advocate console — and the sessions view it absorbed (one page, five paths) |
 | GET | `/graph` | `?ws=&id=` | the HTML graph page |
 | GET | `/api/consoles` | — | `{consoles[], workspaces[]}` — every chat session, newest first; `closedAt` set on the finished ones |
 | POST | `/api/console/close` | `{id}` | soft-closes it and returns the new list. `409` mid-turn; saying anything to it reopens it |
@@ -3303,7 +3343,9 @@ it, not fine every thirty seconds on a phone.
 These three are the exception because none of them costs a `bd` call. `sessions` is a
 readdir of `~/.claude/sessions` plus a JSON parse per record — every live session on
 the Mac, including ones in no configured workspace, which is exactly the set the
-sessions page lists. `proposals` counts **advocates**, not beads: one open ask per
+advocate console lists (the ones outside every workspace under **Elsewhere**). It is
+no longer a tab badge — see [the tab bar](#getting-around--the-tab-bar) — but the
+console's tally is drawn from it. `proposals` counts **advocates**, not beads: one open ask per
 advocate is the rule `propose()` enforces, so a repo with two proposal-shaped beads
 in it is still one repo waiting on you.
 
@@ -3369,7 +3411,7 @@ the fields it always read and renders exactly as it did.
 | `agents[].tools` | the allowlist that agent may be *armed* with, for one reply at a time. Config-file only — see [Allow tools](#allow-tools--for-one-comment-and-only-that-one) |
 | `agentToolsAcknowledged` | agents whose extended-tools warning you have accepted; written when you accept it |
 | `spaces` | groups of workspaces sharing a notification policy — see [Spaces](#spaces--keeping-work-out-of-your-evening) |
-| `claudeSessions` | `false` to stop reading `~/.claude/sessions` for the current-sessions page (default on; absent directory is not an error) |
+| `claudeSessions` | `false` to stop reading `~/.claude/sessions` for the session rows on the advocate console (default on; absent directory is not an error) |
 | `claudeSessionsDir` | where those per-process records live, if not `$CLAUDE_CONFIG_DIR/sessions` or `~/.claude/sessions` |
 | `claudeProjectsDir` | where session transcripts live, if not the `projects` folder of every `~/.claude…` directory. Takes a list. Governed by `claudeSessions` — off there means no transcripts either |
 | `assetRoots` | the only directories `/api/asset` will read images from |

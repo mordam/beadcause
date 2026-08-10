@@ -6,49 +6,59 @@
   hard-navigated to `/`. That made the inbox a hallway: chat session → advocates was
   two taps through a page you did not want. The ad-hoc cross-links that grew to paper
   over it (sessions → advocates, advocates → sessions) were the same complaint,
-  admitting itself.
+  admitting itself — and in the end those two were one view drawn twice, so Sessions
+  is gone and Advocates answers for both.
 
   So: one bar, the same on all of them, fixed to the bottom where a thumb already is.
   Any view is one tap from any other, and nothing closes any more.
 
-  It is built here rather than pasted into four <head>-alike blocks of HTML because
+  It is built here rather than pasted into five <head>-alike blocks of HTML because
   there is no templating in this app and a bar that says different things on
-  different pages is worse than no bar. One list, one place to add a fifth tab, and
-  one place for the badges that hang off Sessions and Advocates — hence the
-  `data-tab` on each item, which is the handle to find them by.
+  different pages is worse than no bar. One list, one place to add a tab, and one
+  place for the badge that hangs off Advocates — hence the `data-tab` on each item,
+  which is the handle to find it by.
 
-  The badges themselves are set from outside, through `beadcause.tabBadge`: the
-  numbers arrive on the inbox's own poll (/api/questions carries them), and a bar
-  that fetched them itself would be a fifth caller of an endpoint the page it is
-  drawn on has already called. So on the inbox they are live, and on a page that
-  never sets one there is simply no badge — which is the honest state, rather than
-  a stale number that page has no way to refresh.
+  The badge itself is set from outside, through `beadcause.tabBadge`: the number
+  arrives on the inbox's own poll (/api/questions carries it), and a bar that fetched
+  it itself would be a fifth caller of an endpoint the page it is drawn on has
+  already called. So on the inbox it is live, and on a page that never sets one there
+  is simply no badge — which is the honest state, rather than a stale number that
+  page has no way to refresh.
 */
 (() => {
   const TABS = [
-    // `paths` is every URL that *is* this view. The server maps several onto one
-    // page (`/work` and `/sessions`, `/monitor` and `/advocates`) and the phone's
-    // home screen still holds the old ones, so a tab has to recognise all of them
-    // or the bar shows nothing as current on a page you are plainly looking at.
+    // `paths` is every URL that *is* this view. The server maps several onto one page
+    // — Advocates answers to five of them, three inherited from the sessions view it
+    // absorbed — and the phone's home screen still holds the old ones, so a tab has
+    // to recognise all of them or the bar shows nothing as current on a page you are
+    // plainly looking at.
     { id: 'inbox', href: '/', icon: '📥', label: 'Inbox', paths: ['/', '/index.html'] },
     // Everywhere else this is a "chat session" — the page title, the <h1>, the
     // foundation, the README. Here it is one word, and the bar is why: five tabs
     // give each label 72px at 360px, and "Chat session" measures 68px *unwrapped*,
-    // so it takes two lines while its four neighbours take one and its icon rides
+    // so it takes two lines while its three neighbours take one and its icon rides
     // higher than theirs. 360px is the common Android width and the app is a WebView
     // shell, so that is the ordinary case, not the edge. The word it might be
-    // confused with — the agent chats on /foundations — is not a tab, so nothing
-    // here is ambiguous; "Sessions" beside it is the one that would be, and it is
-    // the label this one drops.
+    // confused with — the agent chats on /foundations — is not a tab; the tab that
+    // *was* ambiguous with it, "Sessions", is gone, and the short label is still the
+    // right one on a bar this tight.
     // The id and the href stay `console`: they live in stored conversation records
     // and on the phone's home screen.
     { id: 'console', href: '/console', icon: '🧾', label: 'Chat', paths: ['/console', '/console.html'] },
-    { id: 'sessions', href: '/sessions', icon: '🤖', label: 'Sessions', paths: ['/sessions', '/work', '/work.html'] },
-    // Sixth, and next to Sessions on purpose: this is where the work those sessions
-    // finished goes, and the two are read one after the other. "PRs" rather than
-    // "Pull requests" for the reason the tab beside it is called Chat — see above.
+    // Next to Advocates on purpose: that is where the sessions are, this is where the
+    // work they finished goes, and the two are read one after the other. "PRs" rather
+    // than "Pull requests" for the reason the tab beside it is called Chat — above.
     { id: 'prs', href: '/prs', icon: '🔀', label: 'PRs', paths: ['/prs', '/pulls', '/prs.html'] },
-    { id: 'advocates', href: '/monitor', icon: '📣', label: 'Advocates', paths: ['/monitor', '/advocates', '/monitor.html'] },
+    // The sessions view too. `/sessions`, `/work` and `/work.html` all serve this page
+    // now, and they stay in `paths` so the bar marks the right tab for a phone opening
+    // the shortcut it has had on its home screen for months.
+    {
+      id: 'advocates',
+      href: '/monitor',
+      icon: '📣',
+      label: 'Advocates',
+      paths: ['/monitor', '/advocates', '/monitor.html', '/sessions', '/work', '/work.html'],
+    },
     // The fifth tab this file's header left room for. Pause all / resume all lives
     // on its own page, and it has to be reachable from wherever you noticed you
     // wanted it — which is the point of the bar.
@@ -85,7 +95,7 @@
    * Hang a count off a tab, or take it away.
    *
    * `label` is what a screen reader gets, because the badge itself is inside the
-   * `aria-hidden` icon — a bare "2" read out after "Sessions" says nothing about
+   * `aria-hidden` icon — a bare "2" read out after "Advocates" says nothing about
    * two of what. Passing 0 (or nothing) clears both the badge and the label, so a
    * tab that has been answered goes back to reading exactly as it did before.
    */

@@ -110,6 +110,20 @@
 
   /* -------------------------------------------------------------------- target */
 
+  /**
+   * Every device except the one this tab is running on.
+   *
+   * The page around this pane reports its own view now (it is the advocates *and* the
+   * sessions view, so a mirror elsewhere should be able to follow a phone sitting on
+   * it). Without this filter that report comes straight back down the bus, sorts to
+   * the front of the list on its next heartbeat because the list is newest-first, and
+   * this pane starts following the device it is drawn on — a mirror showing "Mac has
+   * the sessions view open" and nothing richer behind it. `presence.device` is stable
+   * per browser profile, which is exactly the granularity that makes "me" decidable
+   * here; with presence.js absent, nothing reports and nothing is dropped.
+   */
+  const notMe = (d) => d.device !== window.beadcause?.presence?.device;
+
   const following = () =>
     (state.pin && state.devices.find((d) => d.device === state.pin)) || (state.pin ? null : state.devices[0]) || null;
 
@@ -606,7 +620,7 @@
         const data = await api(`/api/poll?since=${state.seq}&wait=25&want=presence`);
         state.seq = data.seq ?? state.seq;
         const before = targetKey(target());
-        if (Array.isArray(data.presence)) state.devices = data.presence;
+        if (Array.isArray(data.presence)) state.devices = data.presence.filter(notMe);
         const after = targetKey(target());
         if (after !== before) {
           if (state.active) await ensureDetail();
@@ -641,6 +655,11 @@
     advPane.hidden = state.active;
     pane.hidden = !state.active;
     for (const b of tabsEl.querySelectorAll('[data-tab]')) b.setAttribute('aria-pressed', String(b.dataset.tab === which));
+    // What this device is looking at, which the chip just changed. On the mirror pane
+    // you are looking at *another* device, so this one is nowhere — `null` keeps the
+    // record and marks it idle rather than dropping it, which is what a mirror on a
+    // third screen should see. See the presence note at the foot of monitor.js.
+    window.beadcause?.presence?.report({ view: state.active ? null : 'sessions' });
     if (state.active) {
       state.moved = false;
       dot.hidden = true;

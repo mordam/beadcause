@@ -163,7 +163,7 @@ const TYPES = {
 // checkout so the comparison is against HEAD of this very worktree. A file that does
 // not exist at HEAD is not served at all — which for a new one is exactly the
 // baseline: the behaviour it brings has to fail without it.
-const BASE_FILES = ['/index.html', '/work.html', '/doc.html', '/graph.html', '/style.css', '/drawer.js'];
+const BASE_FILES = ['/index.html', '/monitor.html', '/doc.html', '/graph.html', '/style.css', '/drawer.js'];
 const committed = (p) => {
   try {
     return execFileSync('git', ['show', `HEAD:public${p}`], { cwd: ROOT, stdio: ['ignore', 'pipe', 'ignore'] });
@@ -200,6 +200,17 @@ function serve() {
       res.writeHead(200, { 'content-type': 'text/markdown; charset=utf-8' });
       return res.end(body);
     }
+    // The advocate console carries the mirror pane, which parks a long-poll here and
+    // restarts it the moment it returns. An immediate empty answer would turn that
+    // into a spin loop at full speed against this stub — and it is the page /work
+    // serves now — so park it the way the daemon does and let the run end first.
+    if (p === '/api/poll') {
+      const timer = setTimeout(() => {
+        if (!res.writableEnded) json({ seq: 1, events: [], presence: [] });
+      }, 20000);
+      res.on('close', () => clearTimeout(timer));
+      return;
+    }
     // Everything else the pages poke at on boot. An empty body answers all of it.
     if (p.startsWith('/api/')) return json({});
 
@@ -209,8 +220,9 @@ function serve() {
       res.writeHead(200, { 'content-type': TYPES[path.extname(p)] || 'text/plain' });
       return res.end(body);
     }
-    // The daemon serves these as pages, not as files on disk.
-    const PAGES = { '/': 'index.html', '/work': 'work.html', '/graph': 'graph.html', '/doc': 'doc.html' };
+    // The daemon serves these as pages, not as files on disk. `/work` is the advocate
+    // console now — the sessions view it used to serve was merged into it.
+    const PAGES = { '/': 'index.html', '/work': 'monitor.html', '/graph': 'graph.html', '/doc': 'doc.html' };
     const file = path.join(PUBLIC, PAGES[p] || p.replace(/^\/+/, ''));
     if (!file.startsWith(PUBLIC) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) {
       res.writeHead(404).end('no');
@@ -636,18 +648,18 @@ try {
     `card ${before.card}px → ${backPlace.card}px`
   );
 
-  /* ---- the sessions tab: the same module, a different view, a graph ---- */
+  /* ---- the advocates tab: the same module, a different view, a graph ---- */
 
   await s.send('Page.navigate', { url: `${BASE}/work` });
   if (!(await waitFor(s, `!!document.querySelector('.work-row[href^="/graph?"]')`)))
-    throw new Error('the sessions list never rendered');
+    throw new Error('the advocate console never rendered a graph row');
 
   await evalJs(s, clickSel('.work-row[href^="/graph?"]'));
   await sleep(400);
   const graphUp = await waitFor(s, `(${STATE}).frame && (${STATE}).frame.startsWith('/graph')`, 40);
   const withGraph = await evalJs(s, STATE);
   check(
-    'a graph row opens over the sessions list too',
+    'a graph row opens over the advocate console too',
     graphUp && withGraph.open && withGraph.path === '/work',
     withGraph.exists ? `at ${withGraph.path}, showing ${withGraph.frame}` : 'no drawer — the tab navigated'
   );
@@ -683,7 +695,7 @@ try {
   await back(s);
   const backTab = await evalJs(s, STATE);
   check(
-    'back closes it and leaves you on the sessions tab',
+    'back closes it and leaves you on the advocates tab',
     backTab.exists && !backTab.open && backTab.path === '/work',
     `at ${backTab.path}, drawer ${backTab.open ? 'still open' : 'closed'}`
   );

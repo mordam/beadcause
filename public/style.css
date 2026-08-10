@@ -1389,6 +1389,11 @@ button.work-row {
 .session-facts dd { margin: 0; min-width: 0; font-size: 12.5px; overflow-wrap: anywhere; }
 .session-detail .session-label { margin-top: 10px; }
 .session-detail .agent-log { max-height: 52vh; }
+/* Half the page was the right size when the pane was the only thing under a row on a
+   list of its own. Inside an advocate card it has five other panes above and below it,
+   so it takes the same height as the survey transcript it now sits beside — see
+   .mon-log. Same reasoning, same number. */
+.mon-card .session-detail .agent-log { max-height: 34vh; }
 
 .work-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
 .work-foot .meta { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; }
@@ -2871,10 +2876,10 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
 .tabbar:has(.tab-item:nth-child(6)) .tab-item { font-size: 9.5px; letter-spacing: 0; padding-inline: 1px; }
 .tabbar:has(.tab-item:nth-child(6)) .tab-icon { font-size: 18px; }
 
-/* How many agents are running, and how many advocates are waiting — on the tabs
-   that answer them, so the number and the way to act on it are one tap target.
-   It hangs off the icon rather than the item so it lands on the glyph and not out
-   at the edge of a tab that is a quarter of the screen wide. */
+/* How many proposals are waiting — on the tab that answers them, so the number and
+   the way to act on it are one tap target. It hangs off the icon rather than the item
+   so it lands on the glyph and not out at the edge of a tab that is a fifth of the
+   screen wide. */
 .tab-badge {
   position: absolute;
   top: -3px; left: 62%;

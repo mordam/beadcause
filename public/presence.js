@@ -12,8 +12,11 @@
  * failure is swallowed. The monitor going blind is not a reason for the phone to
  * stall or to show an error about a feature the person holding it is not using.
  *
- * The monitor itself deliberately does not load this. It is the mirror, not a thing
- * to be mirrored, and a device that follows another device would list itself.
+ * The monitor loads this too, which took some care: it is the mirror *and*, since it
+ * absorbed /sessions, a view worth mirroring. A device that followed another device
+ * would list itself, so the two halves that stop it are `notMe` in public/mirror.js —
+ * the pane never follows the profile it is drawn on — and `showTab`, which reports
+ * `null` while the mirror pane is the one you are looking at.
  */
 (() => {
   'use strict';
