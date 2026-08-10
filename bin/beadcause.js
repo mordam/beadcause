@@ -238,7 +238,7 @@ const advocated = advocatedWorkspaces(cfg).map((w) => `${w.name}\u00d7${workerLi
 console.log(
   `[beadcause] advocates   ${
     advocated.length
-      ? `${advocated.join(', ')} ${OBSERVING ? '(observing — they survey, they open nothing)' : `(max ${cfg.advocates?.globalMaxWorkers ?? 3} sessions in total)`}`
+      ? `${advocated.join(', ')} ${OBSERVING ? '(observing — they survey, they open nothing)' : `(max ${cfg.advocates?.globalMaxWorkers ?? 10} sessions in total)`}`
       : '(none — advocates.workspaces is empty)'
   }`
 );
