@@ -53,7 +53,7 @@ table and two of them are the same path.
 | **Advocates** | `/monitor`, `/advocates`, `/monitor.html`, `/sessions`, `/work`, `/work.html` | What is running, per repo? | `/api/work`, `/api/advocate`, `/api/advocate-log`, `/api/session-archive`, `/api/questions`, `/api/respond` |
 | **Mirror** | *(in-page pane on Advocates)* | What does the phone have open? | `/api/presence`, `/api/poll`, `/api/work`, `/api/console`, `/api/respond` |
 | **Admin** | `/admin` | Stop everything. | `/api/admin` (GET/POST), `/api/work`, `/auth/whoami`, `/auth/signout` |
-| **Foundations** | `/foundations` | What is each agent allowed to be? | `/api/foundations`, `/api/foundation`, `/api/foundation/amend`, `/api/foundation/decline`, `/api/foundation/log`, `/api/consoles`, `/api/console/*` |
+| **Foundations** | `/foundations` | What is each agent allowed to be? | `/api/foundations`, `/api/foundation/agent`, `/api/foundation/amend`, `/api/foundation/decline`, `/api/foundation/log`, `/api/consoles`, `/api/console/*` |
 | **Terminal** | `/terminal` (+`?id=`, `?ws=&seed=`) | Drive a Claude session by hand. | `/api/terminals`, `/api/terminal` (GET/POST), `/api/terminal/close`, `ws://…/ws/terminal` |
 | **Session detail** | `/session?pid=` | What is this one session doing? | `/api/session-log`, `/api/session-say` |
 | **Graph** | `/graph?ws=&id=` | How does this bead sit in the graph? | `/api/graph`, `/api/bead` |
@@ -114,6 +114,12 @@ also inside the `questions` pill three inches to its left. §4.3 is about what t
 These are not verdicts. They are things that are wrong now.
 
 ### D1. The Foundations agent-detail screen is unreachable — `/api/foundation` GET is registered twice
+
+> **Fixed — bc-dwqh.** The agent detail moved to `GET /api/foundation/agent`, exactly as
+> §6.2 called for; the channel kept its name. `test/routes.mjs` hits `createApp` rather
+> than a fake, `assertRoutes` in `lib/server.js` refuses to boot on a duplicate
+> `(method, path)`, and the same suite holds every `scripts/*-check.mjs` fake to a path
+> the real server actually registers. What is below is the review as written.
 
 `lib/server.js` registers `GET /api/foundation` at **line 1385** (the foundation
 *channel*: `{requests, workspaces}`) and again at **line 2214** (one *agent* by id:
@@ -553,7 +559,7 @@ blocking bc-2tr, bc-es8 and bc-dmt. *(Not a bead — two `bd close`es. Note bc-e
 daemon restart, per its own delivery comment: its allowlist change is daemon code.)*
 
 **2. Fix D1: give the two `GET /api/foundation` handlers different paths, and test the
-real server.** The channel is the older, broader route and the agent detail is the
+real server.** *(Done — bc-dwqh.)* The channel is the older, broader route and the agent detail is the
 narrower one, so the agent detail should move: `GET /api/foundation/agent?id=` (or fold it
 into `/api/foundations?id=`). Whichever way, the test that matters is against `createApp`,
 not against a fake — `scripts/queue-check.mjs` currently asserts the contract the real

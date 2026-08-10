@@ -172,7 +172,7 @@
   async function loadAgent() {
     const q = new URLSearchParams({ id: state.id });
     if (state.workspace) q.set('workspace', state.workspace);
-    const data = await api(`/api/foundation?${q}`);
+    const data = await api(`/api/foundation/agent?${q}`);
     state.agent = data.agent;
     state.workspace = data.workspace;
     renderDetail();

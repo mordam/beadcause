@@ -182,7 +182,12 @@ function serve() {
       });
     }
     if (p === '/api/foundations') return json({ workspace: 'demo', workspaces: ['demo'], agents: [AGENT] });
-    if (p === '/api/foundation') return json({ workspace: 'demo', agent: AGENT });
+    // The agent detail, on the path the real server answers it on. This fake used to
+    // serve it from `/api/foundation` — the *channel's* path — and was right about the
+    // contract while the real server was wrong about it (bc-dwqh), which is the one
+    // arrangement where green means nothing. test/routes.mjs is the test that hits
+    // createApp instead, and is what keeps these two honest about each other.
+    if (p === '/api/foundation/agent') return json({ workspace: 'demo', agent: AGENT });
     if (p.startsWith('/api/')) return json({});
 
     for (const rel of ['public/console.js', 'public/foundations.js']) {
