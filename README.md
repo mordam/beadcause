@@ -2221,16 +2221,27 @@ in another room:
   beadcause holding words back that the session was ready to take would be a delay it
   invented.
 
-And the one surprise the channel has: **`write text` presses return at the end of a
-line**, so a second line would submit as a second message — half a sentence into a
-running agent. A multi-line message is closed up to one line, warned about while you are
-still typing it, and confirmed after it has gone. That flattening is the whole reason
-Claude Code's IDE WebSocket was investigated first ([`docs/ide-websocket-spike.md`](docs/ide-websocket-spike.md),
-on `bc-g1l`), and the reason it is not what this is built on: it *can* put multi-line
-text in a live session's input box, but there is no message in that protocol which
-submits one, so it would still need a return keystroke from AppleScript — a second
-channel bolted alongside this one rather than a replacement for it, and one that reaches
-only sessions inside its declared `workspaceFolders`.
+**Two paragraphs arrive as two paragraphs.** They used to arrive as one line: `write
+text` adds a return at the end of what it writes, so a second line would have submitted
+as a second message — half a sentence into a running agent — and the text was closed up
+before it went, warned about while you typed and confirmed after it landed. That
+flattening was the whole reason Claude Code's IDE WebSocket was investigated
+([`docs/ide-websocket-spike.md`](docs/ide-websocket-spike.md), on `bc-g1l`), and the
+spike ended by finding the flattening was never a property of AppleScript at all — only
+of a default. `write` takes a `newline` boolean, so the message goes down as a bracketed
+paste with `newline no` and submits nothing, and a bare `write text ""` after it is the
+one Return that sends the lot as a single turn. Two statements on the channel that was
+already there, which is why nothing here speaks the WebSocket: it can put multi-line text
+in a live session's box but has no message that submits one, so it would have needed the
+AppleScript return anyway — a second channel bolted alongside this one, reaching only
+sessions inside its declared `workspaceFolders`.
+
+Two things about it worth knowing. `SAY_MAX` is unchanged and still real: the message
+rides to `osascript` as an argument however many lines it is split over, so ARG_MAX is
+still the ceiling and 8000 characters is refused for being long rather than mistaken for
+a session that has gone. And on the Mac itself, a message over a few lines shows in the
+composer as `[Pasted text #1 +6 lines]` rather than as the words — it submits in full,
+but anyone reading that screen is reading a placeholder.
 
 `POST /api/session-say` is token-authenticated like everything else under `/api/`, and
 it is *not* refused in observe mode: `BEADCAUSE_OBSERVE` is about the daemon acting on
@@ -2241,12 +2252,14 @@ console, which a spare-port instance is booted precisely to try.
 phone size against fixtures, and it is pointed at the promises rather than the markup:
 the words surviving a refusal, a dropped connection and a repaint; the box disappearing
 when a send comes back saying the session is out of reach; the reply arriving through
-the transcript pane rather than through the send's own response. `--baseline` fails all
-fifteen, because before this there was no box. The delivery itself is the one part no
-test does — `write text` into a live window would type a fixture string into whatever
-session answered — so `test/session.mjs` covers the rules around it instead: reach
-refusing a pid with no terminal, the flattening rule, and the AppleScript matching a tty
-as well as an id.
+the transcript pane rather than through the send's own response; and, since `bc-75q2`,
+the line breaks reaching the wire with nothing on the page claiming they were closed up.
+`--baseline` fails all of them, because before this there was no box. The delivery itself
+is the one part no test does — `write text` into a live window would type a fixture
+string into whatever session answered — so `test/session.mjs` covers the rules around it
+instead: reach refusing a pid with no terminal, the length refused on the message as
+typed rather than on a flattened one, and the AppleScript matching a tty as well as an id
+and sending its paste with `newline no` and exactly one Return after it.
 
 Every card has a **Graph →** into the whole workspace — which is also the answer to
 "how do I see what another session just created", since the graph draws every open
@@ -2827,9 +2840,11 @@ one whose window you had closed looked exactly the same.
 There is no socket to an advocate's session; it is an iTerm window, and the daemon owns
 neither the window nor the shell in it. What it does own is the window's **iTerm session
 id**, captured from `scripts/open-session.applescript` at launch. That is the channel:
-`scripts/message-session.applescript` writes one line into that session, exactly as if
-it had been typed, and Claude Code takes input mid-turn and answers it when the turn
-lands. Three outcomes per open session, each a fact rather than a guess:
+`scripts/message-session.applescript` writes into that session exactly as if it had been
+typed, and Claude Code takes input mid-turn and answers it when the turn lands. The
+check-in itself is still one line, but by its own choice now rather than the channel's —
+one instruction and one command to run is not something to spread over six lines in a
+window somebody is working in. Three outcomes per open session, each a fact rather than a guess:
 
 | addressing the window… | reading |
 |---|---|

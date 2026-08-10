@@ -73,6 +73,9 @@ delete process.env.BEADCAUSE_READONLY;
 // entered first is the one whose constants initialise. See the same note in
 // test/lookup.mjs and scripts/selftest.mjs.
 const foundation = await import(LIB('foundation.js'));
+// After foundation.js, for the reason above — and by then it is already loaded, since
+// foundation.js is the module that imports DEFAULT_TOOL_LIST from it.
+const agents = await import(LIB('agents.js'));
 const { createAdvocates } = await import(LIB('advocate.js'));
 
 /* ---------------------------------------------------------------- the harness */
@@ -147,12 +150,35 @@ const ADVOCATE_BD = [
 ];
 
 /**
+ * The reply agents' `bd` surface, spelled out.
+ *
+ * lib/agents.js owns this list and dispatch's foundation quotes it, so this is the same
+ * assertion as the advocate's one above pointed at the other end of the same argument:
+ * the phone's extended-tools dialog shows this string, and a verb added to it is a verb
+ * every reply agent gets. `comment` is the one write, and it is the answer itself.
+ */
+const DISPATCH_BD = [
+  'Bash(bd show:*)',
+  'Bash(bd comments:*)',
+  'Bash(bd comment:*)',
+  'Bash(bd list:*)',
+  'Bash(bd ready:*)',
+  'Bash(bd blocked:*)',
+  'Bash(bd search:*)',
+  'Bash(bd stats:*)',
+  'Bash(bd memories:*)',
+  'Bash(bd dep tree:*)',
+];
+
+/**
  * Commands no unattended agent may reach, as commands rather than as patterns.
  *
  * Written the way an agent would type them, because that is the only form in which
- * "can it file its own proposal?" has an answer. `bd dep add` is on the list for the
- * same reason as the rest and is the one that hides best: `Bash(bd dep:*)` looks like a
- * grant to read a dependency tree and carries `add`, `remove`, `relate` and `unrelate`.
+ * "can it file its own proposal?" has an answer. The four `bd dep` lines are the ones
+ * that hide best: `Bash(bd dep:*)` looks like a grant to read a dependency tree and
+ * carries `add`, `remove`, `relate` and `unrelate` — plus `bd dep <id> --blocks <id>`,
+ * which is `add` spelled on the bare verb, so it slips past a narrowing that only
+ * thought about subcommands.
  */
 const TRACKER_WRITES = [
   'bd create --title="filed by the agent itself" --type=task',
@@ -161,6 +187,9 @@ const TRACKER_WRITES = [
   'bd update bc-ec6 --claim',
   'bd dep add bc-ec6 bc-1',
   'bd dep remove bc-ec6 bc-1',
+  'bd dep relate bc-ec6 bc-1',
+  'bd dep unrelate bc-ec6 bc-1',
+  'bd dep bc-ec6 --blocks bc-1',
 ];
 
 /**
@@ -275,17 +304,17 @@ await test('but it cannot remove or propagate one — the line is inside bd labe
 
 await test('and neither can the chat session or the comment answerer', async () => {
   // The chat session proposes beads it must not file; dispatch answers a comment and is
-  // allowed exactly one write, `bd comment`, which is the answer itself. Every `bd
-  // label` verb is the advocate's alone, the reads included: they are granted there so a
-  // *survey* can route a bead into the inbox and pick a label that already exists, which
-  // is not a thing either of these two is doing.
+  // allowed exactly one write, `bd comment`, which is the answer itself. There is no
+  // skip here any more: `bd dep add` was reachable on dispatch through `Bash(bd dep:*)`
+  // until bc-1f99 narrowed it to `Bash(bd dep tree:*)`, and the whole point of that
+  // narrowing is that this loop covers the `bd dep` lines too.
+  //
+  // Every `bd label` verb is the advocate's alone, the reads included: they are granted
+  // there so a *survey* can route a bead into the inbox and pick a label that already
+  // exists, which is not a thing either of these two is doing.
   for (const agent of ['console', 'dispatch']) {
     const f = await foundation.effective(ROOT, agent);
     for (const cmd of [...TRACKER_WRITES, ...LABEL_OK, ...LABEL_NEVER, ...LABEL_READS]) {
-      // `bd dep add` is reachable on dispatch today through `Bash(bd dep:*)` — the same
-      // shape of hole as bc-ec6, in a different agent, and not this bead's to close.
-      // Proposed separately rather than fixed here; skipped so the rest is still asserted.
-      if (agent === 'dispatch' && cmd.startsWith('bd dep ')) continue;
       assert.ok(!permits(f.allowedTools, cmd), `${agent} can run \`${cmd}\``);
     }
   }
@@ -310,6 +339,26 @@ await test('the advocate is still writes: false, and the comment says what that 
   const prose = block.replace(/^\s*\/\/ ?/gm, '').replace(/\s+/g, ' ');
   assert.match(prose, /may \*?create, close or delete work\*?/, 'the narrowed meaning of `writes` is not written down');
   assert.match(prose, /[Ll]abelling is deliberately outside/, 'nothing says labelling sits outside `writes`');
+});
+
+await test('the reply agents’ bd grants are named one verb at a time', async () => {
+  // Both ends of the one list: what lib/agents.js exports and what dispatch's
+  // foundation resolves to. They are the same array today, and this is what notices
+  // if a copy appears and widens on its own.
+  const f = await foundation.effective(ROOT, 'dispatch');
+  assert.deepEqual(f.allowedTools.filter((e) => /^Bash\(bd\b/.test(e)), DISPATCH_BD);
+  assert.deepEqual(agents.DEFAULT_TOOL_LIST.filter((e) => /^Bash\(bd\b/.test(e)), DISPATCH_BD);
+  // `--allowedTools` is handed the joined string, so the narrowing has to survive the
+  // join as well as the array — a stray `Bash(bd dep:*)` would still be a word in it.
+  assert.ok(!agents.DEFAULT_TOOLS.includes('Bash(bd dep:*)'), 'the glob is back in the string the phone is shown');
+});
+
+await test('a dispatched reply can still read a dependency tree', async () => {
+  // The narrowing is worthless if it costs the read it was hiding behind. `bd dep tree`
+  // is why `dep` was on this list at all, and it must still run.
+  const f = await foundation.effective(ROOT, 'dispatch');
+  assert.ok(permits(f.allowedTools, 'bd dep tree bc-ec6'), 'dispatch lost the dependency tree it is meant to read');
+  assert.ok(permits(f.allowedTools, 'bd comment bc-ec6 "the answer"'), 'dispatch lost the one write that is its answer');
 });
 
 await test('the worker is the only agent with no allowlist, and that is on purpose', async () => {
@@ -340,6 +389,10 @@ await test('the matcher itself is not the thing passing these', () => {
   assert.ok(!permits(['Bash(bd list:*)'], 'bd create --title=x'));
   assert.ok(!permits(['Bash(bd dep tree:*)'], 'bd dep add a b'));
   assert.ok(permits(['Bash(bd dep tree:*)'], 'bd dep tree bc-1'));
+  // `--blocks` on the bare verb, which is `dep add` under another name: a narrowing to
+  // `tree` has to refuse it, and only refuses it because `bd dep bc-1 …` is not a
+  // command starting with `bd dep tree`.
+  assert.ok(!permits(['Bash(bd dep tree:*)'], 'bd dep bc-1 --blocks bc-2'));
   // The label split, in the matcher: `add` does not carry `remove`, and `list` does not
   // carry `list-all` — which is why the foundation names all three.
   assert.ok(permits(['Bash(bd label add:*)'], 'bd label add bc-1 human'));
@@ -349,6 +402,7 @@ await test('the matcher itself is not the thing passing these', () => {
   // The hole, read as the CLI reads it: the glob one level up grants everything under it.
   assert.ok(permits(['Bash(bd *)'], 'bd create --title=x'));
   assert.ok(permits(['Bash(bd dep:*)'], 'bd dep add a b'));
+  assert.ok(permits(['Bash(bd dep:*)'], 'bd dep bc-1 --blocks bc-2'));
   assert.ok(permits(['Bash(bd label:*)'], 'bd label remove a b'));
   // A pattern with no glob is one command and not a prefix.
   assert.ok(permits(['Bash(bd stats)'], 'bd stats'));
