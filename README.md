@@ -953,12 +953,47 @@ question it was answering. It is now named subcommand by subcommand:
 ```
 Bash(bd show:*) Bash(bd comments:*) Bash(bd comment:*) Bash(bd list:*)
 Bash(bd ready:*) Bash(bd blocked:*) Bash(bd search:*) Bash(bd stats:*)
-Bash(bd memories:*) Bash(bd dep:*) Read Grep Glob
+Bash(bd memories:*) Bash(bd dep:*) Bash(beadcause-memory:*) Read Grep Glob
+WebSearch WebFetch Bash(beadcause-get:*)
 ```
 
 Adding a verb there should feel like a decision, which is why they are listed rather
 than globbed. The prompt says the same thing in words — answer, never close, never
-create — but the allowlist is what makes it true.
+create — but the allowlist is what makes it true. `test/lookup.mjs` asserts the list
+grant by grant, so widening it fails a test named after the thing being widened.
+
+### Looking something up — and why it is not `Bash(curl:*)`
+
+The last three entries are new, and they are the difference between a question that
+turns on one external fact getting answered and getting a comment saying it cannot
+be. Smallest first:
+
+- **`WebSearch` / `WebFetch`** — read-only by construction. An agent can pull a page
+  and cite it and cannot POST anywhere. This is the grant to reach for.
+- **`beadcause-get <url>`** — the bytes as served, for the content types WebFetch
+  mangles on its way to prose: JSON, CSV, XML, a raw table.
+
+`Bash(curl:*)` was considered and refused, because the pattern does not mean what it
+looks like it means: it matches `-X POST`, `-d`, `--upload-file`, and `-o` writing
+anywhere on disk, and curl reads `file://` — a network grant that is quietly also an
+unrestricted file read. `-X GET` alongside `-d` still sends a body, so "GET only"
+cannot be a method flag either. So the allowlisted thing is a **wrapper**
+(`bin/beadcause-get`, `lib/lookup.js`): the agent names a URL and cannot name a
+method, a header, a body or an output file, because no code path here builds one.
+It also refuses loopback and the private ranges — a laptop answers GETs on
+`127.0.0.1` that it would not answer a stranger with — bounds redirects, caps the
+read, and times the whole operation out.
+
+What the wrapper cannot enforce is in the prompt instead, and it is the part that
+matters for a number: **cite the source and the edition**, and say so plainly when
+what you found is a *different* source from the one the question named. A fetched
+value is not automatically a usable one. The same brief tells agents what they may
+put in a URL, because a GET carries its query string to whoever is on the other end.
+
+The **live logged-in browser is not on the table**: driving Adam's Chrome means
+acting as him on every site he is signed into, and its per-site permission prompt has
+nobody present to answer it. Browsing, when it lands, is a headless Chrome with a
+throwaway profile.
 
 The agent's reply is authored as `--actor <agent-id>`, so the thread says which one
 answered, the phase chip says which one is thinking, and the reply poller still
@@ -1347,8 +1382,9 @@ beads.
   `human-replied` was only a *passive flag*: it waited for an agent session to come
   looking, and the session that filed the question had exited days ago. Five threads
   sat unanswered that way, one of them reading "Can anyone hear me?".
-  The agent runs with a narrow allowlist — `Bash(bd *) Read Grep Glob`, so it can
-  research and comment but not edit anything — and is told to comment with
+  The agent runs with a narrow allowlist — the `bd` verbs that only look,
+  Read/Grep/Glob, and the [web lookups](#looking-something-up--and-why-it-is-not-bashcurl),
+  so it can research and comment but not edit anything — and is told to comment with
   `--actor claude-session`, never to close the bead. One agent per bead at a time.
   Off with `autoDispatch: false`, and workspaces you marked as shared during setup
   are excluded for the same reason they push `minimal`.
@@ -2373,7 +2409,7 @@ card, same buttons, nothing created until you tap. What follows is the other way
 happens when a repo runs *out* of work and something has to go looking.
 
 So when a repo runs out of ready work, the advocate spawns a **read-only** survey
-agent (`bd`, `git log`, read, grep — nothing that can write) which reads the recent
+agent (`bd`, `git log`, read, grep, and the [web lookups](#looking-something-up--and-why-it-is-not-bashcurl) — nothing that can write) which reads the recent
 closes, the blocked beads, any `## Discovered` notes left in comments by sessions
 older than the propose command, and the repo's own docs. If it finds nothing worth filing it says so and the advocate
 goes idle, which is a perfectly good outcome and one the prompt asks for explicitly.

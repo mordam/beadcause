@@ -1,0 +1,115 @@
+#!/usr/bin/env node
+/**
+ * `beadcause-get <url>` — the only way an agent here can pull bytes off the network.
+ *
+ * An agent in beadcause is a `claude -p` with an explicit allowlist. It cannot
+ * `import` anything, so lib/lookup.js is invisible to it; this command is the whole
+ * of the surface, and the allowlist entry is `Bash(beadcause-get:*)`.
+ *
+ * **What is deliberately missing, and it is most of curl.** There is no `--method`,
+ * no `--header`, no `--data`, no `--upload-file` and no `--output`. Not "rejected
+ * later" — there is no code path that builds a request body or writes a file, so
+ * there is nothing for such a flag to reach. That is the point of the wrapper: the
+ * agent names a URL, and cannot name a method. See the note at the top of
+ * lib/lookup.js for why `Bash(curl:*)` would have granted all of them.
+ *
+ * Reach for `WebFetch` first. It is the smaller grant and it reads a page as prose.
+ * This is for what WebFetch mangles on the way: JSON, CSV, XML, a raw text table,
+ * anything where the bytes as served are the answer.
+ */
+import { get, LookupError, DEFAULT_MAX_BYTES, HARD_MAX_BYTES, DEFAULT_TIMEOUT_MS, HARD_MAX_TIMEOUT_MS } from '../lib/lookup.js';
+
+const USAGE = `beadcause-get — read one public URL over http/https, and nothing else
+
+  beadcause-get <url> [--head] [--max-bytes=N] [--timeout=SECONDS] [--json]
+
+  --head            status and headers only; the body is not read
+  --max-bytes=N     stop after N bytes (default ${DEFAULT_MAX_BYTES}, max ${HARD_MAX_BYTES})
+  --timeout=N       give up after N seconds (default ${DEFAULT_TIMEOUT_MS / 1000}, max ${HARD_MAX_TIMEOUT_MS / 1000})
+  --json            the whole result as one JSON object, body included
+
+There is no flag for the method, a header, a request body, or an output file, and
+adding one is not an oversight to fix — this command exists so that a URL is the only
+thing that can be asked for. It is GET, it is http or https, and it prints to stdout.
+
+Private and loopback addresses are refused: this reads public URLs. For files on this
+machine use Read; for a page you want as prose use WebFetch.
+
+Cite what you read. The URL this prints on the first line is the one after redirects,
+which is the one worth quoting, along with the edition or date the page itself claims.`;
+
+const KNOWN = new Set(['head', 'max-bytes', 'timeout', 'json', 'help']);
+
+const flags = new Map();
+const args = [];
+for (const a of process.argv.slice(2)) {
+  const m = /^--([a-z-]+)(?:=(.*))?$/.exec(a);
+  if (m) {
+    if (!KNOWN.has(m[1])) {
+      console.error(`beadcause-get: no such option --${m[1]}\n\n${USAGE}`);
+      process.exit(2);
+    }
+    flags.set(m[1], m[2] ?? true);
+  } else if (a.startsWith('-') && a !== '-') {
+    console.error(`beadcause-get: no such option ${a}\n\n${USAGE}`);
+    process.exit(2);
+  } else {
+    args.push(a);
+  }
+}
+
+if (flags.has('help') || args.length === 0) {
+  console.log(USAGE);
+  process.exit(args.length === 0 && !flags.has('help') ? 2 : 0);
+}
+if (args.length > 1) {
+  // One URL per run, on purpose: a loop the agent writes is visible in the log, and a
+  // loop this command hides is not.
+  console.error(`beadcause-get: one URL at a time (got ${args.length})\n\n${USAGE}`);
+  process.exit(2);
+}
+
+const number = (name, fallback) => {
+  if (!flags.has(name)) return fallback;
+  const n = Number(flags.get(name));
+  if (!Number.isFinite(n) || n <= 0) {
+    console.error(`beadcause-get: --${name} wants a positive number`);
+    process.exit(2);
+  }
+  return n;
+};
+
+try {
+  const res = await get(args[0], {
+    headersOnly: flags.has('head'),
+    maxBytes: number('max-bytes', undefined),
+    timeoutMs: flags.has('timeout') ? number('timeout') * 1000 : undefined,
+  });
+
+  if (flags.has('json')) {
+    console.log(JSON.stringify(res, null, 2));
+  } else {
+    // A short preamble every line of which starts with `#`, so the agent can tell the
+    // wrapper's words from the page's, and so the citable URL is the first thing it
+    // reads rather than something it has to reconstruct from the redirect chain.
+    const size = res.binary || flags.has('head') ? (res.declaredBytes ?? 'unknown') : res.bytes;
+    console.log(`# GET ${res.url}`);
+    console.log(`# ${res.status} ${res.statusText || ''} · ${res.contentType || 'no content-type'} · ${size} bytes${res.truncated ? ` (truncated at the ${res.bytes}-byte cap)` : ''}`);
+    if (res.redirects.length) console.log(`# redirected ${res.redirects.length}×, last hop from ${args[0]}`);
+    if (res.binary) console.log(`# body not printed: ${res.contentType} is not text. Try WebFetch, which can read it as prose.`);
+    if (!res.binary && !flags.has('head')) {
+      console.log('');
+      process.stdout.write(res.body);
+      if (!res.body.endsWith('\n')) console.log('');
+    }
+  }
+  // A 404 is an answer, not a crash: the run completed and the status is on screen.
+  process.exit(0);
+} catch (err) {
+  if (err instanceof LookupError) {
+    console.error(`beadcause-get: ${err.message} [${err.code}]`);
+    process.exit(1);
+  }
+  console.error(`beadcause-get: ${err?.message || err}`);
+  process.exit(1);
+}
