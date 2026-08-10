@@ -79,8 +79,9 @@ otherwise its poller would keep firing notifications with no listener behind the
    the tailnet can issue certificates, and the Tailscale address over plain http until
    then — see [the URL you are given](#the-url-you-are-given-and-what-happens-to-a-phone-that-already-has-one).
    Every device needs this once — a
-   notification opened on an unpaired phone lands on the token prompt, which is the
-   tell. **A phone paired before the URL moved needs it a second time**, because the
+   notification opened on an unpaired phone lands on the token prompt, or on the
+   [sign-in screen](#signing-in-with-google) if you have configured Google, which either
+   way is the tell. **A phone paired before the URL moved needs it a second time**, because the
    token is stored per origin and the name is a different origin from the address.
 3. **Share → Add to Home Screen**, and it installs as a standalone app. Android
    users can instead install the native app — see [The Android app](#the-android-app).
@@ -105,6 +106,11 @@ otherwise its poller would keep firing notifications with no listener behind the
   [renews the certificate under itself](#renewing-it-before-it-expires) and pushes to
   your phone if it ever cannot. See
   [HTTPS on the tailnet name](#https-on-the-tailnet-name).
+- **Two credentials, and the token is not going anywhere.** Everything that is not a
+  browser uses the shared token, exactly as it always did. A browser can *also* sign in
+  with Google against an allowlist of addresses, once you configure one — see
+  [Signing in with Google](#signing-in-with-google). Configure nothing and nothing
+  changes.
 - **Editing `lib/` needs no restart.** The router swaps a fresh backend in under the
   port a few seconds later — see [The router](#the-router--why-you-never-restart-it)
   for what it will and will not do for you.
@@ -4141,10 +4147,130 @@ Two details worth knowing if you ever debug this:
   certificates it mints itself instead of asking Let's Encrypt for a real one every time
   somebody runs the suite.
 
+## Signing in with Google
+
+There are **two** credentials, and which one a caller uses is decided by whether it can
+hold a cookie. The token is the original and it is going nowhere; Google sign-in is
+beside it, for the one caller that has a face.
+
+| | credential | who uses it |
+|---|---|---|
+| **The shared token** | `x-beadcause-token: <token>`, or `?t=<token>` on a link | ntfy action buttons, `lib/notify.js` calling back to cancel a push, the Android app, `scripts/shot.mjs`, `bin/router.js`'s proxy hop and its `/internal/*` control plane, `npm run check`, `curl` |
+| **A Google session** | a signed httpOnly cookie, from an address on the allowlist | a browser, and only a browser |
+
+**The order is the compatibility guarantee.** The token is asked first on every single
+request, and a request that has it never reaches the sign-in code at all — whether
+sign-in is configured or not. Nothing in the list above can perform a redirect dance:
+an action button POSTs an answer from the notification shade, the Android app is Kotlin,
+`shot.mjs` drives a headless Chrome that has never signed into anything. Sign-in is
+purely additive, and `test/auth.mjs` asserts that in both directions — the token working
+with sign-in on, and a page with no credential still being served with sign-in off.
+
+**It is off until it is configured, and "configured" is strict.** All three of a client
+id, a secret and a non-empty allowlist, *and* something to serve an https callback from:
+
+```json
+"auth": {
+  "google": {
+    "clientId": "1234-abc.apps.googleusercontent.com",
+    "clientSecretFile": "/Users/you/.config/beadcause/google.secret",
+    "allowed": ["you@gmail.com"]
+  }
+}
+```
+
+Anything less and the token stays the only credential, with the reason in the log
+(`[auth] Google sign-in is off — …`). That includes having no certificate yet: Google
+refuses a plain-http redirect URI, and a `Secure` cookie is dropped by the browser over
+plain http — so half-configured, sign-in would be a login screen nobody could get past,
+in front of the inbox that explains why. See
+[HTTPS on the tailnet name](#https-on-the-tailnet-name).
+
+In the [Google Cloud console](https://console.cloud.google.com/apis/credentials): an
+OAuth client of type **Web application**, with the redirect URI
+`https://<host>.<tailnet>.ts.net:4318/auth/google/callback` — the MagicDNS name, not the
+Tailscale address, because no authority signs an IP. The scopes are `openid email` and
+nothing else, so the consent screen asks for an address and no more.
+
+### What a browser sees
+
+A navigation to any *page* with no credential is answered with `/login`, which offers
+the Google button and — folded away — the pairing token, because that is still the way
+in for a browser whose account is not on the allowlist. Where you were going is carried
+through, so a notification opened on a locked phone lands on the card it was about.
+
+**Only pages.** Every asset stays open: the stylesheet, `app.js`, the icon, the service
+worker, the vendor bundles. None of them contains anything — every page in this app is
+an empty shell that fetches its data through `/api/*`, behind the same gate as
+before — and gating a service worker or a manifest breaks an installed PWA in ways that
+look nothing like "please sign in".
+
+A `?t=<token>` link still opens the page it names, which is load-bearing: that is what a
+notification click is. It also leaves a `beadcause_pair` cookie behind, and that cookie
+is the one non-obvious piece of this. A token lives in `localStorage`, so it is on every
+`fetch` and on **no navigation at all** — without the cookie, a phone paired by QR code
+would open `/?t=…` perfectly and then be bounced to the login screen the moment it
+tapped the tab bar, with the token working the whole time, invisibly. The pairing cookie
+says only "this browser has been paired", and it is deliberately **not** accepted for
+`/api/*`: it opens documents, never data.
+
+### The session, and how it ends
+
+An HMAC over `{sub, email, exp}` with a key in `~/.config/beadcause/session.key` —
+`httpOnly`, `SameSite=Lax`, and `Secure` whenever what is served is https. There is no
+session store, and that is deliberate: the daemon is
+[replaced under the port](#the-router--why-you-never-restart-it) several times an hour,
+and a store in memory would sign everybody out on every swap.
+
+What that costs is per-session revocation, so be clear about what each act does:
+
+- **Sign out** — on `/admin`, next to the pause-all controls, because that is the page
+  about what you may do to this Mac rather than about beads. It ends the browser you are
+  holding, and it is not drawn at all on an install with no sign-in configured. `/login`
+  offers it too, once you are already signed in.
+- **Delete `session.key`** — ends every session on every device, everywhere. The only
+  global revocation there is. It takes effect on the next backend swap or restart.
+- **Rotate the token** — a separate act entirely, and it does not touch sign-in. Delete
+  `token` from `config.json` and re-pair every device.
+
+The key file is called `session.key` on purpose: `~/.config/beadcause` is
+[a git repo](#where-it-lives-configbeadcause-is-a-git-repo), and `*.key` is both ignored
+there **and** in that snapshotter's `FORBIDDEN` list — so the signing key cannot reach
+that history even if somebody edits the ignore file. The Google **client secret** has no
+such protection if you put it in `config.json`, which is why
+`BEADCAUSE_GOOGLE_CLIENT_SECRET` (no copy on disk at all) and `clientSecretFile` (a path
+you choose) are both accepted and preferred.
+
+### What is checked, and what is not
+
+`test/auth.mjs` drives the whole dance over real HTTP with Google's token endpoint
+stubbed: authorize → callback → session cookie → an API call carrying only that cookie →
+sign out → refused. The refusals get the same treatment, including the two that are
+easiest to get wrong — an address off the allowlist (turned away, logged, and *not*
+echoed back on the screen, because a login page that says which addresses exist is a
+directory) and a `state` that does not match the cookie.
+
+What it does **not** check is Google itself. The `id_token`'s signature is deliberately
+not verified, because it arrives from a direct TLS call from this process to Google's
+token endpoint carrying the client secret — the case Google's own documentation says
+verification can be skipped in. Everything that does not need a key *is* checked: the
+issuer, that the token was minted for this client, that it has not expired, that the
+nonce is the one we sent, and that Google says the address is verified — which is the
+hole the allowlist would otherwise have, since anybody can put any address on an account
+they have not proved they own.
+
 ## HTTP API
 
 Auth on everything under `/api/` except `/api/health`: header
-`x-beadcause-token: <token>`, or `?t=<token>` for URLs that have to be linkable.
+`x-beadcause-token: <token>`, or `?t=<token>` for URLs that have to be linkable — **or**
+a Google session cookie, if [sign-in](#signing-in-with-google) is configured and this is
+a browser. The token is asked first, always, so nothing below changes for a caller that
+has one.
+
+`/auth/*` is the one family of routes with no credential in front of it, because it is
+how a browser gets one: `/auth/google` starts the dance, `/auth/google/callback` ends
+it, `/auth/whoami` says which credentials this install has (and who you are, if the
+cookie says so), and `/auth/signout` ends the session.
 
 | Method | Path | Body / params | Returns |
 |---|---|---|---|
@@ -4258,6 +4384,13 @@ the fields it always read and renders exactly as it did.
 | `tls.enabled` | HTTPS on the tailnet address with a `tailscale cert` certificate and a TLS 1.2 floor (default `true`). Loopback is never TLS whatever this says, and a tailnet without *HTTPS Certificates* enabled falls back to plain http with the reason in the log — see [HTTPS on the tailnet name](#https-on-the-tailnet-name) |
 | `tls.name` | the name to get a certificate for, if not the MagicDNS name `tailscale status` reports (default `null` — ask). The protocol floor is deliberately not a setting |
 | `token` | required on every `/api/*` call; regenerate by deleting the file |
+| `auth.google.clientId` | the OAuth **Web application** client for this Mac (default `null` — sign-in off). All of this key, a secret and a non-empty `allowed` are needed before sign-in switches on at all — see [Signing in with Google](#signing-in-with-google) |
+| `auth.google.clientSecret` | the client secret, and the **worst** of the three places to put it: this file is committed to the git repo in that directory. Prefer `clientSecretFile` or `BEADCAUSE_GOOGLE_CLIENT_SECRET` |
+| `auth.google.clientSecretFile` | a path to read the secret from instead (default `null`) |
+| `auth.google.allowed` | the addresses allowed in, case-insensitive. Empty — the default — means sign-in is off, because a login screen nobody can pass is worse than none |
+| `auth.google.redirectUri` | the callback registered with Google. Derived from the certificate's MagicDNS name and normally left `null`; sign-in cannot switch on without one, because Google refuses a plain-http callback |
+| `auth.google.sessionDays` | how long a signed-in browser stays signed in (default `30`) |
+| `auth.google.enabled` | `false` turns sign-in off while leaving the rest of the block configured (default `true`) |
 | `workspaces` | auto-discovered from `~/beads/*/.beads`, and **reconciled on every start** — entries whose directory has gone are dropped and new ones picked up, both logged. Renaming a workspace directory used to leave a stale entry that failed on every poll tick, silently hiding that whole workspace from the phone |
 | `openSessions` | allow `POST /api/session` to open a Claude session on the Mac (default `true`) |
 | `sessionDirs` | override where a workspace's session opens. Normally unnecessary — see Discussing a question on the Mac |
@@ -4321,6 +4454,8 @@ written — fix the IP in the file if the phone can't connect.
 | `BEADCAUSE_OBSERVE` | watch and never act: no sessions, proposals, sweeps, session logs, reply agents or pushes. `BEADCAUSE_READONLY` is the same flag |
 | `BEADCAUSE_NODE` | the `node` the LaunchAgent runs (`scripts/install.sh`, `scripts/open-monitor.sh`) |
 | `BEADCAUSE_BROWSER` | which browser `scripts/open-monitor.sh` opens the console in |
+| `BEADCAUSE_GOOGLE_CLIENT_SECRET` | the Google OAuth client secret, taking precedence over both config fields. The one place it leaves no copy on disk — see [Signing in with Google](#signing-in-with-google) |
+| `BEADCAUSE_SESSION_KEY` | the HMAC key sessions are signed with, instead of `~/.config/beadcause/session.key`. Setting it to a new value signs everybody out |
 | `BEADCAUSE_TAILSCALE` | the `tailscale` binary, overriding the three macOS paths that are searched by default. Has to exist to count — a path typed wrong reads as "no tailscale" rather than failing mysteriously later. See [renewing the certificate](#renewing-it-before-it-expires) |
 
 ### Every state file is replaced, never overwritten

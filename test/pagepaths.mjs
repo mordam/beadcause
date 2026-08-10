@@ -139,6 +139,12 @@ const PAGES = [
   { what: 'the admin screen', marker: '/admin.js', paths: ['/admin', '/admin.html'] },
   { what: 'the graph', marker: '/graph.js', paths: ['/graph', '/graph.html'] },
   { what: 'the reader', marker: '/doc.js', paths: ['/doc', '/doc.html'] },
+  // The sign-in screen. Its alias lives in the same run of one-line `if`s as all of
+  // the above — and this is the one page a browser is *sent* to rather than typing, so
+  // a 404 here is a redirect loop with nothing on screen. Reachable with sign-in off
+  // too, which is the configuration this test runs in: it is also where the pairing
+  // token is explained.
+  { what: 'the sign-in screen', marker: '/login.js', paths: ['/login', '/login.html'] },
 ];
 
 /* The sessions view's own files. Deleted with it, and named here so a stray copy

@@ -254,10 +254,16 @@ try {
   });
 
   // Pair the device the way the inbox does, then open the graph.
-  await s.send('Page.navigate', { url: `${BASE}/` });
+  //
+  // `?t=` on both navigations, not just in localStorage: this is the one check script
+  // that drives the *live* daemon, and with Google sign-in configured a document
+  // request carrying no credential is answered with the login page (lib/server.js).
+  // localStorage is set after the first navigation, so it cannot help that one.
+  const t = `t=${encodeURIComponent(cfg.token || '')}`;
+  await s.send('Page.navigate', { url: `${BASE}/?${t}` });
   await sleep(1200);
   await evalJs(s, `localStorage.setItem('beadcause.token', ${JSON.stringify(cfg.token)})`);
-  const url = `${BASE}/graph?ws=${encodeURIComponent(WS)}${ID ? `&id=${encodeURIComponent(ID)}&scope=all` : ''}`;
+  const url = `${BASE}/graph?ws=${encodeURIComponent(WS)}${ID ? `&id=${encodeURIComponent(ID)}&scope=all` : ''}&${t}`;
   await s.send('Page.navigate', { url });
 
   console.log(`\niPhone 14 Pro ${VP.width}x${VP.height} @${VP.dpr}x · ${url}\n`);

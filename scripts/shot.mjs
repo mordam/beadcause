@@ -97,7 +97,25 @@ if (flag('help') || flag('h')) {
 const cfg = loadConfig();
 const BASE = (opt('base') || `http://127.0.0.1:${cfg.port}`).replace(/\/+$/, '');
 const TARGET = positional[0] || '/';
-const URL_TO_SHOOT = /^https?:/.test(TARGET) ? TARGET : `${BASE}${TARGET.startsWith('/') ? '' : '/'}${TARGET}`;
+const URL_TO_SHOOT = (() => {
+  const raw = /^https?:/.test(TARGET) ? TARGET : `${BASE}${TARGET.startsWith('/') ? '' : '/'}${TARGET}`;
+  // The token on the URL as well as in localStorage, and it is not belt-and-braces:
+  // with Google sign-in configured, a *document* request carrying no credential is
+  // answered with a redirect to the login page (lib/server.js), and localStorage is
+  // injected too late to matter — it rides on no navigation at all. So this headless
+  // Chrome presents the token the way every other non-browser caller does, and
+  // photographs the page rather than the login screen.
+  //
+  // Only ever added to this daemon's own address. A `--base` pointing somewhere else
+  // is somebody shooting a different site, and the token is not theirs to receive.
+  try {
+    const u = new URL(raw);
+    if (cfg.token && raw.startsWith(BASE) && !u.searchParams.has('t')) u.searchParams.set('t', cfg.token);
+    return u.toString();
+  } catch {
+    return raw;
+  }
+})();
 
 // iPhone 14 Pro, the device the other check scripts emulate, so a shot and a check
 // are describing the same pixels. Desktop is a plain 2x laptop window.

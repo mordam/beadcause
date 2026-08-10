@@ -1006,7 +1006,9 @@ beadcause-memory remember brief-style "he wants the counterexample above the ask
     <h4>The HTTP equivalents</h4>
     <p>Everything above has a route, because the phone is a client of the same API. Auth is
     <code>x-beadcause-token</code> on everything under <code>/api/</code> except
-    <code>/api/health</code>, or <code>?t=</code> for URLs that must be linkable.</p>
+    <code>/api/health</code>, or <code>?t=</code> for URLs that must be linkable — or, for a
+    browser on an install that has configured it, a Google session cookie. The token is asked
+    first either way, so nothing here changes for a caller that has one.</p>
     <div class="tw" style="margin-bottom:0">
       <table>
         <thead><tr><th>Route</th><th>Body / params</th><th>Notes</th></tr></thead>
@@ -1627,6 +1629,7 @@ add:
       <tbody>
         <tr><td>Network</td><td>The router binds <code>127.0.0.1</code> and the Tailscale IP, never <code>0.0.0.0</code>; backends bind loopback only. <code>host</code> falls back to loopback if Tailscale was down when the config was written, which is the failure mode where the phone simply cannot connect.</td></tr>
         <tr><td>API</td><td><code>x-beadcause-token</code> on everything under <code>/api/</code> except <code>/api/health</code>; <code>?t=</code> only for URLs that must be linkable. The pairing QR carries it once, into <code>localStorage</code>, and it is stripped from the address bar on first load.</td></tr>
+        <tr><td>A person, in a browser</td><td>Google sign-in <em>beside</em> the token, against an allowlist of addresses (lib/auth.js), off until configured. The token is asked first on every request, so nothing that cannot redirect — an ntfy action button, the Android app, <code>scripts/shot.mjs</code>, the router's proxy hop — ever reaches it. A signed <code>httpOnly</code> cookie is the session; a page requested with no credential is answered with <code>/login</code>, while every asset stays open because none of them holds anything.</td></tr>
         <tr><td>Router control</td><td><code>/internal/router/*</code> is loopback <em>and</em> token, and never proxied — anyone on the tailnet holding the token could otherwise stop the poller.</td></tr>
         <tr><td>WebSocket</td><td>The token is a subprotocol, not a query parameter.</td></tr>
         <tr><td>Filesystem reads</td><td><code>/api/asset</code> and <code>/doc</code> serve only from <code>assetRoots</code>; anything outside is refused.</td></tr>

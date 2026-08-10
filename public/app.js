@@ -113,11 +113,49 @@
       history.replaceState(null, '', location.pathname + location.hash);
     }
     state.token = localStorage.getItem('beadcause.token') || '';
-    if (!state.token) askForToken();
+    if (!state.token) needCredential();
+  }
+
+  /**
+   * No token in this browser — which since Google sign-in is two situations, not one.
+   *
+   * The page may be perfectly authorised already: an httpOnly session cookie is
+   * invisible to this script, so "no token" no longer means "no credential". Asking
+   * the daemon is the only way to tell, and it is one unauthenticated request that
+   * answers all three cases — signed in (do nothing, the cookie rides on every fetch),
+   * sign-in configured but not done (go and do it), or no sign-in on this install at
+   * all (the token dialog, exactly as before).
+   *
+   * Deliberately not awaited by the boot sequence. `load()` runs regardless, because
+   * with a session cookie it will simply work, and holding the first paint on a round
+   * trip that usually says "you are fine" is the wrong trade on a phone.
+   */
+  let asking = false;
+  async function needCredential() {
+    if (asking) return;
+    asking = true;
+    let who = null;
+    try {
+      who = await (await fetch('/auth/whoami', { headers: { accept: 'application/json' } })).json();
+    } catch {
+      /* the daemon is not answering — fall through to the dialog, which needs nobody */
+    }
+    asking = false;
+    if (who?.signedIn) return;
+    if (who?.google) {
+      const here = location.pathname + location.search + location.hash;
+      location.assign(`/login?next=${encodeURIComponent(here)}`);
+      return;
+    }
+    askForToken();
   }
 
   function askForToken() {
     const dlg = $('#setup');
+    // Two callers can reach this in one boot — bootToken and a 401 from the first
+    // poll — and `showModal` on an open dialog throws, which surfaces as the list
+    // failing to load rather than as anything about a token.
+    if (dlg.open) return;
     dlg.showModal();
     dlg.addEventListener(
       'close',
@@ -138,8 +176,13 @@
       headers: { 'content-type': 'application/json', 'x-beadcause-token': state.token, ...(opts.headers || {}) },
     });
     if (res.status === 401) {
-      localStorage.removeItem('beadcause.token');
-      askForToken();
+      // A stored token that the daemon refuses is worth forgetting. A 401 with no
+      // stored token means the session cookie ended, and there is nothing to forget —
+      // `needCredential` sends that browser back to sign in rather than showing it a
+      // box for a token it was never using.
+      if (state.token) localStorage.removeItem('beadcause.token');
+      state.token = '';
+      needCredential();
       throw new Error('token rejected');
     }
     const data = await res.json().catch(() => ({}));

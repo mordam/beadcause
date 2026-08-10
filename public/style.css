@@ -2095,6 +2095,55 @@ button.work-row {
 }
 .toast.bad { border-color: var(--danger); color: var(--danger); }
 
+/*
+  The sign-in screen (public/login.html).
+
+  A page rather than the dialog `.setup` draws, because it is arrived at by a redirect
+  from wherever you were going — a dialog needs a page underneath it, and the page
+  underneath is the one being withheld. Centred and short: there are two controls on
+  it and one of them is folded away.
+*/
+.login-body { display: grid; place-items: center; min-height: 100dvh; padding: 24px; }
+.login { width: 100%; max-width: 380px; text-align: center; }
+.login-mark { margin-bottom: 14px; }
+.login h1 { margin: 0 0 4px; font-size: 22px; }
+.login-lede { color: var(--muted); font-size: 14.5px; margin: 0 0 22px; }
+.login-note { color: var(--muted); font-size: 13px; line-height: 1.5; margin: 10px 0 0; text-align: left; }
+.login-note code { font-size: 12px; }
+
+/* Full-width and tall, because on a phone this is the only thing to press. */
+.login-btn {
+  display: flex; align-items: center; justify-content: center;
+  min-height: var(--tap); padding: 0 18px;
+  border-radius: 12px; border: 1px solid var(--line);
+  background: var(--accent); color: var(--accent-ink);
+  font: inherit; font-size: 16px; font-weight: 600; text-decoration: none;
+}
+.login-btn:active { transform: translateY(1px); }
+
+.login-token { margin-top: 26px; text-align: left; border-top: 1px solid var(--line); padding-top: 14px; }
+.login-token summary { color: var(--muted); font-size: 14px; min-height: var(--tap); display: flex; align-items: center; cursor: pointer; }
+.login-token input {
+  width: 100%; min-height: var(--tap);
+  padding: 0 12px; margin: 12px 0;
+  border-radius: 11px; border: 1px solid var(--line);
+  background: var(--surface-2); color: var(--text);
+  font: inherit; font-size: 16px;
+}
+.login-token .primary { width: 100%; min-height: var(--tap); border-radius: 11px; font-size: 16px; }
+
+/*
+  A refusal, and it has to be readable rather than decorative: the text is the only
+  thing on the page that says which of the two halves went wrong.
+*/
+.login-error {
+  margin: 0 0 20px; padding: 12px 14px; text-align: left;
+  border: 1px solid color-mix(in srgb, var(--danger) 45%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  color: var(--danger); font-size: 13.5px; line-height: 1.5;
+}
+
 .setup { border: none; border-radius: 16px; background: var(--surface); color: var(--text); max-width: 92vw; width: 380px; padding: 20px; }
 .setup::backdrop { background: rgb(0 0 0 / 0.55); }
 .setup h2 { margin: 0 0 8px; font-size: 17px; }
