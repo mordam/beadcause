@@ -1813,6 +1813,100 @@ button.work-row {
 .board-said.bad { color: var(--danger); }
 .board-foot, .board-build { font-size: 11.5px; color: var(--muted); margin: 10px 0 0; }
 .board-build, .board-quiet { max-width: 780px; margin: 0 auto; padding: 0 16px; text-align: center; }
+/* The board on screen is the last one that answered. Amber rather than red: a stale
+   board during a restart is the deploy working, not a fault. */
+.board-foot.bad { color: var(--warn); }
+
+/* ---------------------------------------------------------- a deploy, while it runs */
+
+/* Above the cards, not beside the lamp it belongs to. The Deployed lamp is something
+   you scan for; a deploy in flight is something you are told — and on this repo it is
+   the daemon serving the page that is about to be SIGKILLed. See public/prs.js.
+
+   Nothing here renders when nothing has been deployed, which is most days: an empty
+   box explaining that a repo has no deploys is a row of pixels that is never right. */
+
+.deploys {
+  max-width: 780px; margin: 0 auto 12px; padding: 0 16px;
+  display: flex; flex-direction: column; gap: 8px;
+}
+.deploy-banner {
+  margin: 0; padding: 10px 14px;
+  border: 1px solid color-mix(in srgb, var(--warn) 45%, var(--line)); border-radius: var(--radius);
+  background: color-mix(in srgb, var(--warn) 8%, var(--surface));
+  color: var(--prose); font-size: 13px;
+}
+
+.deploy {
+  border: 1px solid var(--line); border-radius: var(--radius);
+  background: var(--surface); overflow: hidden;
+}
+/* The border carries the ending, so a settled deploy is readable before it is read.
+   `unconfirmed` and `lost` take the amber rather than the red they are not: on this
+   repo an unconfirmed restart is the *ordinary* ending, and painting it as a failure
+   every time would teach you to ignore the colour that means something broke. */
+.deploy.live { border-color: color-mix(in srgb, var(--accent) 55%, var(--line)); }
+.deploy.good { border-color: color-mix(in srgb, var(--bead-made) 40%, var(--line)); }
+.deploy.warn { border-color: color-mix(in srgb, var(--warn) 45%, var(--line)); }
+.deploy.bad { border-color: color-mix(in srgb, var(--danger) 45%, var(--line)); }
+
+.deploy-row {
+  width: 100%; min-height: var(--tap);
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 12px;
+  border: 0; background: none; color: var(--text);
+  font: inherit; text-align: left; cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.deploy-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.deploy-what { display: flex; align-items: center; gap: 7px; font-size: 14px; font-weight: 600; min-width: 0; }
+.deploy-said { color: var(--muted); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.deploy.good .deploy-said { color: var(--bead-made); }
+.deploy.warn .deploy-said { color: var(--warn); }
+.deploy.bad .deploy-said { color: var(--danger); }
+.deploy.live .deploy-said { color: var(--accent); }
+.deploy-sub { font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+.deploy-dot {
+  flex: none; width: 9px; height: 9px; border-radius: 50%;
+  background: var(--muted);
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 60%, transparent);
+}
+.deploy.good .deploy-dot { background: var(--bead-made); }
+.deploy.warn .deploy-dot { background: var(--warn); }
+.deploy.bad .deploy-dot { background: var(--danger); }
+/* The same ring the topbar's pulse uses. It is the one thing on the page that says
+   "now" rather than "recently", and reusing it means the two agree. */
+.deploy.live .deploy-dot { background: var(--accent); animation: pulse 1.1s ease-out infinite; }
+
+.deploy-body { padding: 0 12px 12px; }
+.deploy-why { margin: 0 0 8px; font-size: 13px; color: var(--prose); }
+.deploy-where { font-size: 11.5px; color: var(--muted); overflow-wrap: anywhere; }
+.deploy-where code { font-size: 11px; }
+.deploy-reason { margin: 6px 0 0; font-size: 12.5px; color: var(--prose); }
+
+.deploy-steps { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.deploy-step { display: flex; flex-wrap: wrap; align-items: baseline; gap: 7px; font-size: 12.5px; }
+.deploy-tick { flex: none; width: 1em; color: var(--bead-made); }
+.deploy-step.bad .deploy-tick { color: var(--danger); }
+.deploy-step-name { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.deploy-step-note { color: var(--muted); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+
+/* What it printed. Only ever the failing step's, and only its tail — the whole of a
+   deploy's output is a terminal's job, and the runner's log below is the tail of that. */
+.deploy-out, .deploy-log {
+  flex-basis: 100%; margin: 4px 0 0; padding: 8px 10px;
+  border-radius: 10px; background: var(--surface-2);
+  color: var(--prose); font-size: 11px; line-height: 1.45;
+  white-space: pre-wrap; overflow-wrap: anywhere;
+  max-height: 220px; overflow: auto;
+}
+.deploy-log { margin-top: 10px; }
+.deploy-loading { margin: 10px 0 0; font-size: 11.5px; color: var(--muted); }
+
+@media (prefers-reduced-motion: reduce) {
+  .deploy.live .deploy-dot { animation: none; }
+}
 
 /* For the state a lamp says with colour and shape only. */
 .sr-only {
