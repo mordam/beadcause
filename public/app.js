@@ -1080,7 +1080,12 @@
     if (live?.pr?.state === 'MERGED') return `#${d.number} is already merged`;
     if (live?.pr?.state === 'CLOSED') return `#${d.number} is closed`;
     if (live?.pr?.mergeable === 'CONFLICTING') return `#${d.number} conflicts with ${d.base}`;
-    return `${d.method === 'squash' ? 'Squash and merge' : `${d.method} and merge`} #${d.number}`;
+    // GitHub's own three words for the three methods. The fallback used to be
+    // `${d.method} and merge`, which read as "merge and merge #42" for the plain merge
+    // commit — fine while `squash` was the default and the label on nearly every card
+    // once it stopped being (see `pr.mergeMethod`).
+    const how = { squash: 'Squash and merge', rebase: 'Rebase and merge' }[d.method] || 'Merge';
+    return `${how} #${d.number}`;
   }
 
   /**

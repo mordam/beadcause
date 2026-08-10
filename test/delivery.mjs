@@ -229,12 +229,15 @@ check(
 check('a url that is not a pull request url does not yield a number', !!parseDelivery(block('url: https://example.com/nope')).error);
 
 check('base defaults to main', parseDelivery(block('number: 1')).base === 'main');
-check('method defaults to squash', parseDelivery(block('number: 1')).method === 'squash');
+// `merge` and not `squash`, for the same reason `pr.mergeMethod` defaults to it: a
+// squash merge is the one that leaves the branch a non-ancestor of main, and that is
+// what every piece of worktree cleanup here tests before it removes anything.
+check('method defaults to a merge commit', parseDelivery(block('number: 1')).method === 'merge');
 check('merge and rebase are allowed through', parseDelivery(block('number: 1\nmethod: rebase')).method === 'rebase' && parseDelivery(block('number: 1\nmethod: merge')).method === 'merge');
 check('case does not matter for the method', parseDelivery(block('number: 1\nmethod: REBASE')).method === 'rebase');
 check(
-  'a method nobody recognises falls back to squash rather than reaching gh as a usage error',
-  parseDelivery(block('number: 1\nmethod: fast-forward')).method === 'squash'
+  'a method nobody recognises falls back to the default rather than reaching gh as a usage error',
+  parseDelivery(block('number: 1\nmethod: fast-forward')).method === 'merge'
 );
 check('`body:` is an alias for `summary:`', parseDelivery(block('number: 1\nbody: what changed')).summary === 'what changed');
 check('`risks:` for `risk:`', parseDelivery(block('number: 1\nrisks: it might not')).risk === 'it might not');

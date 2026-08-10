@@ -73,6 +73,10 @@ exit 1
   { mode: 0o755 }
 );
 process.env.PATH = `${BIN}${path.delimiter}${process.env.PATH}`;
+// Before the first import that reaches lib/config.js, which fixes CONFIG_DIR at module
+// load: without it the config section at the bottom of this file would read — and the
+// state file it writes would be written into — whatever this machine actually runs on.
+process.env.BEADCAUSE_CONFIG_DIR = path.join(tmp, 'config');
 
 const { workPromptFor, prMode } = await import(LIB);
 
@@ -247,6 +251,52 @@ check(
 );
 
 check('pr delivery switched off entirely is still null, and gets the old ending', (await prMode({ pr: { enabled: false } }, REPO)) === null);
+
+// A config with no `mergeMethod` — the shape of every config written before the key
+// existed — has to fall through to a merge commit, and to the *same* one bin/deliver.js
+// falls through to. The brief is a promise about what that command will do, and the two
+// reading different defaults is how a session is told it will squash and does not.
+const modeBare = await prMode({ pr: {} }, REPO);
+check('an unset mergeMethod is a merge commit, not a squash', modeBare.method === 'merge', JSON.stringify(modeBare.method));
+// And it has to read as English. "squash-merges it" is a phrase; "merge-merges it" is a
+// template showing through, and with `merge` the default it would be in nearly every
+// brief an unattended session is ever handed.
+const bareBrief = workPromptFor('beadcause', BEAD, 1, modeBare, OWNER);
+check(
+  'and the brief says so, in the sentence describing the command',
+  /merges it with a merge commit into \\?`main\\?`/.test(bareBrief),
+  (bareBrief.match(/.*merges it.*into.*/) || [])[0]
+);
+check('and never says "merge-merges"', !/merge-merges/.test(bareBrief));
+
+/* -------------------------------------------- the stored value the new default needs */
+
+console.log('\nthe one-time move of a stored `squash`');
+
+// Changing a default in `defaults()` changes nothing on a machine that already has a
+// config, because the stored value wins the merge in `loadConfig`. This one has said
+// `"squash"` since the day the key existed, so without the move the whole fix would be
+// notional: every delivery would go on squashing and every delivered worktree would go
+// on being stranded in the attic. Bounded by count rather than by cleverness — it
+// happens once, records that it did, and never fights a value set back on purpose.
+// The *default* is pinned end to end by scripts/land-check.mjs scenario 6 — a config
+// with the key removed, run through the real `loadConfig` and the real deliver.js, and
+// asserted at the `gh pr merge` argv. What is left for here is the stored value.
+const { moveSquashDefault, loadState } = await import(path.join(HERE, '..', 'lib', 'config.js'));
+
+const stored = { pr: { enabled: true, base: 'main', mergeMethod: 'squash', tidyMerged: true } };
+const said = moveSquashDefault(stored);
+check('a stored squash moves to a merge commit', stored.pr.mergeMethod === 'merge', stored.pr.mergeMethod);
+check('and it says so rather than moving a setting silently', /squash.*→.*merge/.test(said), said);
+check('and says why, in the terms of the thing that breaks', /ancestor of\s*\n?\s*main/.test(said) || /ancestor of main/.test(said), said);
+check('the move is recorded, so it is a migration and not a policy', loadState().squashDefaultMoved === true);
+
+// The half that makes it a migration: `squash` chosen deliberately, after the move, is
+// a choice — and a choice that gets overwritten on the next `beadcause-ask` is not one.
+const again = { pr: { enabled: true, base: 'main', mergeMethod: 'squash', tidyMerged: true } };
+check('a squash set back afterwards is left alone', moveSquashDefault(again) === '' && again.pr.mergeMethod === 'squash', again.pr.mergeMethod);
+check('and anything already on merge is not touched at all', moveSquashDefault({ pr: { mergeMethod: 'merge' } }) === '');
+check('nor is an explicit rebase', moveSquashDefault({ pr: { mergeMethod: 'rebase' } }) === '');
 
 /* ------------------------------------------------------------------ verdict */
 
