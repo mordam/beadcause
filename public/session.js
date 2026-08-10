@@ -211,16 +211,22 @@
       ? `<p class="say-note say-${esc(state.note.kind)}">${esc(state.note.text)}</p>`
       : '';
 
-    return `<div class="session-label">Say something <span>It lands in the session as if typed.</span></div>
+    // On the label, not in the composer. The row below is a textarea between two round
+    // buttons on a 393px phone, and a third one squeezes the box until its placeholder
+    // wraps — 22px that pushed the transcript past the bottom of the screen, which
+    // scripts/say-check.mjs measures precisely because reading the log is why the page
+    // exists. The label has a whole empty half and nothing to lose.
+    const mic = window.beadcause?.dictation?.buttonHtml({
+      target: '.session-say textarea',
+      note: '.session-say',
+      label: 'Dictate this message',
+    });
+    return `<div class="session-label">Say something <span>It lands in the session as if typed.</span>${
+      mic ? `<span class="label-mic">${mic}</span>` : ''
+    }</div>
       <form class="session-say" data-say>
         <textarea data-say-text rows="1" enterkeyhint="send" autocomplete="off"
           placeholder="Say something to this session…"></textarea>
-        ${
-          window.beadcause?.dictation?.buttonHtml({
-            note: '.session-say',
-            label: 'Dictate this message',
-          }) || ''
-        }
         <button class="primary send" type="submit" data-say-send aria-label="Send"
           ${state.sending ? 'disabled' : ''}>↑</button>
       </form>

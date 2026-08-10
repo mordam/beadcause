@@ -433,6 +433,23 @@ check('…and asks it for a mic rather than drawing one of its own', () => {
   }
 });
 
+check('the session composer keeps its mic off the row the transcript pays for', () => {
+  // A third round button between the box and the send arrow squeezed the textarea on a
+  // 393px screen until its placeholder wrapped — 22px that pushed the transcript past
+  // the bottom of the phone. scripts/say-check.mjs measures the transcript; this pins
+  // the cause, because the fix is a placement that a later edit would undo without
+  // noticing. The mic goes on the label above, and names its box rather than walking
+  // to it, since it is no longer beside it.
+  const src = read('public/session.js');
+  assert.match(src, /label-mic/, 'the session mic is not on the label row');
+  assert.match(src, /target: '\.session-say textarea'/, 'the session mic does not name its box');
+  assert.doesNotMatch(
+    src,
+    /<textarea data-say-text[\s\S]{0,400}?buttonHtml\(/,
+    'the mic is back inside the composer row'
+  );
+});
+
 check('a repaint cannot pull the box out from under a live microphone', () => {
   // isAnswering() is what defers render(). A dictation that has not produced a word
   // yet leaves the box empty, so without this the first poll to land would rebuild the
