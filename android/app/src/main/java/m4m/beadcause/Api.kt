@@ -93,6 +93,14 @@ object Api {
         val query = buildMap {
             since?.let { put("since", it.toString()) }
             put("wait", waitSeconds.toString())
+            // "I own a notification shade, and I can cancel a row in it later."
+            //
+            // The one client that can say that. The PWA draws no shade, and the
+            // terminal monitor parks on this same endpoint from the Mac — so without
+            // this flag the daemon could not tell "a phone is watching" from "a log
+            // window is open", and would offer to clear notifications that do not
+            // exist. See lib/ringing.js.
+            put("shade", "1")
         }
         return Poll.from(get(conn, "/api/poll", query))
     }
@@ -178,6 +186,15 @@ data class Event(
      * anything acts on, and this one only says how to describe it.
      */
     val quietReason: String?,
+    /**
+     * Why a `dismissed` event happened — `"filtered"` today, and nothing else.
+     *
+     * Separate from [quietReason], which says why the phone stayed *dark* for an
+     * arrival. This says why a row already in the shade was taken away, and the two
+     * would be confusing to read off one field even though today they both say
+     * "filtered". Null from a server too old to send it.
+     */
+    val reason: String?,
 )
 
 data class Poll(
@@ -237,6 +254,7 @@ private fun JSONObject.toEvent() = Event(
     space = optStringOrNull("space"),
     quiet = optBoolean("quiet"),
     quietReason = optStringOrNull("quietReason"),
+    reason = optStringOrNull("reason"),
 )
 
 private fun JSONObject.toQuestion(): Question {

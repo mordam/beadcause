@@ -31,6 +31,12 @@
     summary: {},
     space: 'all',
     workspace: 'all',
+    // `{ count, keys }` when narrowing the filter has left unread notifications on the
+    // phone for beads it now excludes, else null. Server-decided, both halves: whether
+    // to ask at all, and how many — see lib/ringing.js. Held here rather than drawn on
+    // the spot because the prompt has to survive the 25s poll that lands while you are
+    // reading it.
+    dismissAsk: null,
     open: new Set(),
     armed: null, // key of the option awaiting its confirm tap
     armedTimer: null,
@@ -1771,6 +1777,50 @@
     </section>`;
   }
 
+  /**
+   * "You have just hidden three beads that are still buzzing on your phone."
+   *
+   * Narrowing the filter silences what comes next, and used to say nothing about the
+   * notifications already sitting unread for the beads it now excludes — which are
+   * exactly the ones you have just decided not to think about.
+   *
+   * Three things about the shape:
+   *
+   * - **It asks; it does not act.** Clearing notifications you did not ask to have
+   *   cleared is the kind of silent tidying that makes an inbox untrustworthy, and
+   *   the count is in the sentence because "some" is not enough to decide on.
+   * - **Both buttons are answers**, and *Leave them* is not a cancel: it is recorded,
+   *   which is what stops the next poll asking again. So neither is styled as the
+   *   dangerous one — there is nothing to undo either way.
+   * - **It is drawn inside `#list`**, above the foundation channel, for the same
+   *   reason that channel is: every handler on this page is delegated from that
+   *   element, so a pane in a sibling container would render and do nothing.
+   *
+   * Nothing here says "dismissed" or "answered" about the beads, because none of that
+   * is true: they stay open, unanswered and in the inbox, and widening the filter
+   * brings them straight back.
+   */
+  function dismissAskHtml() {
+    const ask = state.dismissAsk;
+    if (!ask?.count) return '';
+    const n = ask.count;
+    const many = n !== 1;
+    return `<section class="shade-ask" aria-label="Unread notifications the filter excludes">
+      <header>
+        <span class="shade-icon" aria-hidden="true">🔔</span>
+        <div>
+          <h2>${n} unread notification${many ? 's' : ''} for bead${many ? 's' : ''} this filter hides</h2>
+          <p>Clearing them touches the phone and nothing else — the bead${many ? 's stay' : ' stays'}
+            open and unanswered, and ${many ? 'they come' : 'it comes'} back when you widen the filter.</p>
+        </div>
+      </header>
+      <div class="shade-actions">
+        <button class="primary" data-act="shade-clear">Clear ${many ? 'them' : 'it'}</button>
+        <button class="secondary" data-act="shade-leave">Leave ${many ? 'them' : 'it'}</button>
+      </div>
+    </section>`;
+  }
+
   /** How many requests are waiting, on the ⚖️ in the header. */
   function paintRequestBadge() {
     const badge = $('#req-badge');
@@ -2283,7 +2333,11 @@
     // The other channel, always first and never filtered. It is rare enough that
     // putting it at the top costs nothing on the days there is nothing in it, and on
     // the day there is, it is the one thing that must not be scrolled past.
-    const channel = requestsHtml();
+    // Above even that, and above the empty state especially: narrowing the filter to
+    // something with nothing in it is the most likely way to get here, and the pane
+    // asking about the notifications you just hid must not be the thing that is missing
+    // from an otherwise empty screen.
+    const channel = dismissAskHtml() + requestsHtml();
 
     if (!state.questions.length) {
       listEl.innerHTML = channel + emptyHtml();
@@ -2778,6 +2832,49 @@
     if (!btn) return;
     const key = btn.dataset.key;
     const act = btn.dataset.act;
+
+    /**
+     * Both answers to the notification prompt — see dismissAskHtml().
+     *
+     * The keys go back up with the tap rather than the server re-deciding on its own,
+     * so what is cleared is exactly what the sentence you read was counting. A bead
+     * that started ringing in between is not covered by it.
+     *
+     * The pane goes on the tap, before the write. If the write fails the server state
+     * is unchanged, so the next poll brings the same ask straight back — which is the
+     * right way round: a prompt that reappears is recoverable, a prompt that hangs
+     * about after you answered it is not.
+     */
+    if (act === 'shade-clear' || act === 'shade-leave') {
+      const ask = state.dismissAsk;
+      const clear = act === 'shade-clear';
+      state.dismissAsk = null;
+      render(true);
+      if (!ask?.keys?.length) return;
+      // Counted for exactly the reason the filter's own writes are: the 25s poll is
+      // very likely to be in flight when you tap, and its payload was assembled before
+      // this write landed. Without the guard, answering the prompt would be followed by
+      // the same prompt sliding back onto the screen a second later.
+      shadeWrites += 1;
+      try {
+        const res = await api('/api/notifications/dismiss', {
+          method: 'POST',
+          body: JSON.stringify({ confirm: clear, keys: ask.keys }),
+        });
+        const n = clear ? res.cleared ?? 0 : res.left ?? 0;
+        toast(
+          clear
+            ? `Cleared ${n} notification${n === 1 ? '' : 's'} — the bead${n === 1 ? '' : 's'} stay${n === 1 ? 's' : ''} open`
+            : `Left ${n === 1 ? 'it' : 'them'} on the phone`
+        );
+      } catch (err) {
+        // The server state is unchanged, so the next poll offers the same ask again.
+        toast(err.message, true);
+      } finally {
+        shadeWrites -= 1;
+      }
+      return;
+    }
 
     if (act === 'agent-menu') {
       const wasOpen = state.agentMenu === key;
@@ -3374,9 +3471,21 @@
    * which is the right way round: the next poll puts the stored value back.
    */
   let filterWrites = 0;
+  /** The same, for an answer to the notification prompt. See the `shade-clear` handler. */
+  let shadeWrites = 0;
   function persistFilter() {
     filterWrites += 1;
     api('/api/filter', { method: 'POST', body: JSON.stringify({ space: state.space, workspace: state.workspace }) })
+      .then((res) => {
+        // The write is also what asks about the notifications the new filter excludes —
+        // this response, not a later poll, because "at the moment of the change" is the
+        // only moment where clearing them is obviously part of the same act. Absent
+        // means nothing to ask, which is also what an older daemon sends.
+        const ask = res?.dismissAsk?.count ? res.dismissAsk : null;
+        if (!ask && !state.dismissAsk) return;
+        state.dismissAsk = ask;
+        render(true);
+      })
       .catch(() => {})
       .finally(() => {
         filterWrites -= 1;
@@ -3513,6 +3622,13 @@
       if (data.filter && !filterWrites) {
         state.space = data.filter.space || 'all';
         state.workspace = data.filter.workspace || 'all';
+        // The prompt travels with the filter and is adopted on the same terms, because
+        // it is a fact about that filter: the laptop can narrow it, and then this phone
+        // is the device holding the notifications and the only one that can be asked.
+        // Skipped while a write of our own is in flight for the same reason as above —
+        // this payload was assembled before the tap that changed it. `shadeWrites`
+        // covers the second tap that can be in flight here: the answer to the prompt.
+        if (!shadeWrites) state.dismissAsk = data.dismissAsk?.count ? data.dismissAsk : null;
       }
       // A space that has been renamed or removed in config would otherwise leave the
       // filter pinned to something that no longer exists, showing an empty list.
