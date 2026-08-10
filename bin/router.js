@@ -40,7 +40,7 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { loadConfig, reconcileBaseUrl } from '../lib/config.js';
 import { buildStamp, routerStamp } from '../lib/build.js';
-import { hotSwapProblem } from '../lib/service.js';
+import { hotSwapProblem, LOADED_ENV } from '../lib/service.js';
 import { certificate, closeServer, secureServer, startRenewal, MIN_VERSION } from '../lib/tls.js';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -145,7 +145,19 @@ async function spawnBackend() {
     // Inherited, so a backend's own logging lands in the same launchd log file as
     // the router's. Two log files for one service is a bad trade.
     stdio: 'inherit',
-    env: process.env,
+    env: {
+      ...process.env,
+      // The one fact only a launchd-started process has, handed down one hop.
+      //
+      // A backend is a *grandchild* of launchd: its own `process.argv[1]` is
+      // bin/beadcause.js and its parent is this router, so on its own it would read a
+      // correct install as "launchd started the plain server" and put a false alarm on
+      // the console. This router is the process launchd actually started, so it is the
+      // only one that can say. Always written, and empty when this router was not
+      // started by launchd — an inherited value from an outer shell must never be able
+      // to pass itself off as a fact about this job. See launchdProgram in lib/service.js.
+      [LOADED_ENV]: process.ppid === 1 ? process.argv[1] : '',
+    },
   });
 
   const be = {
