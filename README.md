@@ -210,6 +210,63 @@ you press **All**:
 [beadcause] acme/cl-9x2 arrived quietly (Work is muted right now)
 ```
 
+### And it offers to tidy up the noise it already made
+
+Narrowing the filter silences what comes *next*. It used to say nothing at all about
+the notifications already sitting unread on the phone for the beads it has just
+hidden — which are precisely the ones you have decided not to think about.
+
+So when a filter change excludes beads that are currently ringing, the inbox asks,
+once, naming how many:
+
+> **3 unread notifications for beads this filter hides**
+> Clearing them touches the phone and nothing else — the beads stay open and
+> unanswered, and they come back when you widen the filter.
+>
+> [ Clear them ]  [ Leave them ]
+
+**Clearing is not answering, and not dismissing either.** It drops the rows from the
+Android shell's tray and stops there: `bd` is never called, the beads stay open, they
+stay in the inbox, and widening the filter shows them again — if one of them says
+something new, it rings again. That is why it travels as its own event type,
+`dismissed`, rather than reusing `answered`: every client cancels the row on
+`answered` *and* treats the bead as settled, and nothing here settles anything.
+
+**Leave them** is an answer too, not a cancel — it is recorded, so the next poll does
+not ask again about the same beads. Widening the filter forgets that, so narrowing
+again later is a fresh question rather than a silence you inherited from last week.
+Notifications for beads still inside the filter are never touched, and a filter change
+with nothing excluded and unread prompts nothing at all.
+
+```
+[beadcause] filter narrowed to Work — asking about 2 unread notification(s): sophab/sp-4kd, deluvia/dv-1x9
+[beadcause] cleared 2 notification(s) the filter excludes: sophab/sp-4kd, deluvia/dv-1x9 — the beads are untouched
+```
+
+**The honest limit: an ntfy notification already delivered cannot be recalled.** ntfy
+is a one-way relay and the server has no handle on a message it has published. What
+can actually be cleared is the Android shell's own tray, because that shell holds a
+live connection and cancels on the event. So the prompt only appears when a client
+that *owns* a tray has been seen — the shell passes `shade=1` on its long-poll, and
+nothing else does, so a terminal monitor parked on the same endpoint cannot be
+mistaken for a phone. If ntfy is your only surface, this offers nothing and therefore
+says nothing, rather than showing a button that reports success and clears nothing.
+Two weeks without a shade client counts as an app that has been uninstalled.
+
+There is deliberately no in-app unread marker to clear alongside it. The badge counts
+beads that are **open**, clearing leaves them open, and a count that dropped would be
+claiming a decision nobody made.
+
+`node test/ringing.mjs` (part of `npm test`) covers the server half — including the
+real poller, because the one line that records that a bead rang is the easiest thing
+here to lose in a merge and the hardest to notice: losing it makes the prompt simply
+never appear. `node scripts/shade-check.mjs` is the half that lives in a thumb, in
+headless Chrome at phone size: that the pane lands **inside `#list`** so its buttons
+are delegated to at all, that each one reaches `/api/notifications/dismiss` with the
+right `confirm` and the keys it was shown, and that a poll landing under an unanswered
+prompt does not take it away. `--baseline` runs it against the committed `app.js`,
+where 13 of the 17 fail.
+
 **A quiet space is quiet, not hidden.** Its questions still arrive, still appear in
 the list, still count towards the badge — they just don't light up your phone, and
 the chip shows 🔕 so the silence is legible rather than looking like a fault. That

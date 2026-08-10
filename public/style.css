@@ -218,6 +218,31 @@ body {
   color: var(--muted);
 }
 
+/* The prompt that appears when narrowing the filter leaves unread notifications on
+   the phone for beads it now hides. See dismissAskHtml() in app.js.
+
+   --warn rather than --accent, and that is the whole of the visual decision: --accent
+   is this app's colour for a bead being decided, and nothing here decides anything.
+   This is the app noticing something it is about to leave in a mess and saying so,
+   which is the same voice as an unsent draft and a gate — so it borrows their orange
+   rather than inventing a fourth colour for one pane. */
+.shade-ask {
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--warn) 55%, transparent);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--warn) 8%, var(--surface));
+}
+.shade-ask header { display: flex; gap: 11px; align-items: flex-start; }
+.shade-icon { font-size: 20px; line-height: 1.3; }
+.shade-ask h2 { margin: 0; font-size: 15.5px; line-height: 1.3; color: var(--text); }
+.shade-ask p { margin: 4px 0 0; font-size: 12.5px; line-height: 1.45; color: var(--muted); }
+/* Both buttons full width and side by side, because both are answers — Leave them is
+   recorded, not a cancel, so making it the smaller target would misdescribe it. */
+.shade-actions { display: flex; gap: 8px; }
+
 /* How many are waiting, on the ⚖️ in the header — the channel's only presence in
    the chrome, since a request is never in the list below. */
 .icon-btn { position: relative; }
