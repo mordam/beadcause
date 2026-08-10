@@ -20,7 +20,7 @@
     "start:bare": "node bin/beadcause.js",
     "swap": "node bin/router.js --swap",
     "swap:status": "node bin/router.js --status",
-    "test": "node scripts/selftest.mjs && node test/observe.mjs && node test/atomic.mjs && node test/memory.mjs && node test/lookup.mjs && node test/summary.mjs && node test/suggest.mjs && node test/filter.mjs && node test/terminal.mjs && node test/queue.mjs && node test/pr.mjs && node test/delivery.mjs && node test/deploy.mjs && node test/ship.mjs && node test/land.mjs && node test/dismiss.mjs && node test/prboard.mjs && node test/admin.mjs && node test/closegate.mjs && node test/closepaths.mjs && node test/pagepaths.mjs && node test/reclaim.mjs && node test/ringing.mjs && node test/session.mjs && node test/agentchats.mjs && node scripts/test-swap.js",
+    "test": "node scripts/selftest.mjs && node test/observe.mjs && node test/atomic.mjs && node test/memory.mjs && node test/lookup.mjs && node test/summary.mjs && node test/suggest.mjs && node test/filter.mjs && node test/terminal.mjs && node test/queue.mjs && node test/pr.mjs && node test/delivery.mjs && node test/deploy.mjs && node test/ship.mjs && node test/land.mjs && node test/dismiss.mjs && node test/prboard.mjs && node test/admin.mjs && node test/closegate.mjs && node test/closepaths.mjs && node test/pagepaths.mjs && node test/reclaim.mjs && node test/ringing.mjs && node test/session.mjs && node test/agentchats.mjs && node test/dictate.mjs && node scripts/test-swap.js",
     "qr": "node bin/beadcause.js --qr",
     "vendor": "node scripts/vendor.js",
     "postinstall": "node scripts/vendor.js",

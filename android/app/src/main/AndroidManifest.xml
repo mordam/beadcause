@@ -15,8 +15,29 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <uses-permission android:name="android.permission.CAMERA" />
+    <!--
+      Dictating an answer. Asked for at the first tap on the mic rather than at
+      startup, because a pairing screen that opens by asking for the microphone reads
+      as an app with an agenda — and everything else here works without it.
+    -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
     <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.microphone" android:required="false" />
+
+    <!--
+      Android 11 hides other packages from this one unless they are declared here, and
+      `SpeechRecognizer.isRecognitionAvailable` works by *looking for* a package that
+      serves this intent. Without this block it answers false on every device, the
+      bridge tells the page there is no dictation, and the mic never appears — with
+      nothing anywhere saying why. It is a visibility declaration, not a permission:
+      it grants the ability to see that a recogniser exists, nothing more.
+    -->
+    <queries>
+        <intent>
+            <action android:name="android.speech.RecognitionService" />
+        </intent>
+    </queries>
 
     <application
         android:allowBackup="false"

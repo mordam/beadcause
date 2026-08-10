@@ -1157,6 +1157,11 @@
 
   function wire() {
     wireLauncher();
+    // Dictating the next bead. The status line goes above the composer rather than
+    // under the box — this composer is a flex row pinned to the bottom of the screen,
+    // and a paragraph dropped into it would stand up as a third column — so it lands
+    // on the strip that already carries transient news about what you are saying.
+    window.beadcause?.dictation?.attach($('#say'), { note: '#queued', label: 'Dictate this' });
     $('#composer').addEventListener('submit', (e) => {
       e.preventDefault();
       send($('#say').value);

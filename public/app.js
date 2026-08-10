@@ -256,8 +256,14 @@
    * doc link to go read the spec, focus leaves, and the answer you'd started must
    * still be sitting there when you come back.
    */
+  // A live microphone counts as answering even before the first word lands: the box
+  // is still empty at that moment, and a poll-driven repaint would throw away the
+  // textarea the dictation is aimed at — see public/dictate.js, which then has no
+  // choice but to stop mid-sentence.
   const isAnswering = () =>
-    isTyping() || [...listEl.querySelectorAll('[data-role="answer"]')].some((t) => t.value.trim());
+    isTyping() ||
+    Boolean(window.beadcause?.dictation?.listening()) ||
+    [...listEl.querySelectorAll('[data-role="answer"]')].some((t) => t.value.trim());
 
   /* -------------------------------------------------------------- mermaid */
 
@@ -1274,9 +1280,15 @@
   function replyBarHtml(key) {
     const chosen = currentAgent();
     const on = state.agentMenu === key;
-    return `<div class="reply-bar"${state.agents.length ? '' : ' hidden'}>
+    // Empty where no microphone can work at all — see public/dictate.js — which is
+    // also the case that decides whether the strip is worth drawing: with no roster
+    // *and* no mic it has nothing in it, and used to be hidden for exactly that
+    // reason.
+    const mic = window.beadcause?.dictation?.buttonHtml({ label: 'Dictate this answer' }) || '';
+    return `<div class="reply-bar"${state.agents.length || mic ? '' : ' hidden'}>
       <span class="reply-who">${replyLineHtml(chosen)}</span>
-      <div class="agent-wrap">
+      ${mic}
+      <div class="agent-wrap"${state.agents.length ? '' : ' hidden'}>
         <button class="agent-dots${chosen?.armed ? ' armed' : ''}${on ? ' on' : ''}" data-act="agent-menu"
           data-key="${esc(key)}" aria-haspopup="true" aria-expanded="${on}"
           aria-label="${esc(dotsLabel(chosen))}"><span class="dots-emoji">${esc(
@@ -1302,9 +1314,13 @@
     const chosen = currentAgent();
     for (const block of listEl.querySelectorAll('.agents')) block.innerHTML = agentsHtml();
     for (const bar of listEl.querySelectorAll('.reply-bar')) {
-      // A roster that never loaded leaves no strip at all — the server falls back to
-      // its default agent exactly as it did before any of this existed.
-      bar.hidden = !state.agents.length;
+      // A roster that never loaded leaves no chooser — the server falls back to its
+      // default agent exactly as it did before any of this existed. The strip itself
+      // survives that if there is a mic in it, because dictating an answer has
+      // nothing to do with which agent picks it up.
+      const wrap = bar.querySelector('.agent-wrap');
+      if (wrap) wrap.hidden = !state.agents.length;
+      bar.hidden = !state.agents.length && !bar.querySelector('.mic');
       const who = bar.querySelector('.reply-who');
       if (who) who.innerHTML = replyLineHtml(chosen);
       const dots = bar.querySelector('.agent-dots');

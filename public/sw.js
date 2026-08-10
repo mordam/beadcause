@@ -10,7 +10,12 @@
    in style.css, both already here — but a phone holding v18 would cache a page that
    offers no way to answer a session, and the one thing worse than not having the box is
    having it on the laptop and not on the phone. */
-const CACHE = 'beadcause-v19';
+/* v20: the answer box grew a microphone. `/dictate.js` is a new path and app.js asks
+   it, at render time, whether to draw the mic at all — so a phone holding v18's cached
+   app.js beside v20's would draw an answer box with no way to dictate into it, and a
+   phone holding the new app.js without the new file would draw one every time and
+   never listen. They have to arrive together, which is what a cache version is for. */
+const CACHE = 'beadcause-v20';
 const SHELL = [
   '/',
   '/index.html',
@@ -20,6 +25,10 @@ const SHELL = [
   // because it is loaded on the tap that answers a question — the one moment the
   // link is least likely to be there and most likely to be slow.
   '/absorb.js',
+  // The mic on the answer box. In the shell rather than network-first because the one
+  // moment it is wanted is the moment a notification was opened on a phone that has
+  // just woken up — the same argument as absorb.js above.
+  '/dictate.js',
   // The bottom tab bar, on every standing view. Every one of them is useless
   // without it now — it is the only way off a page — so it belongs in the shell
   // rather than being fetched once per page over a phone link.

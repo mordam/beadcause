@@ -215,6 +215,12 @@
       <form class="session-say" data-say>
         <textarea data-say-text rows="1" enterkeyhint="send" autocomplete="off"
           placeholder="Say something to this session…"></textarea>
+        ${
+          window.beadcause?.dictation?.buttonHtml({
+            note: '.session-say',
+            label: 'Dictate this message',
+          }) || ''
+        }
         <button class="primary send" type="submit" data-say-send aria-label="Send"
           ${state.sending ? 'disabled' : ''}>↑</button>
       </form>
