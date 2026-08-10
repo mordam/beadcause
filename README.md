@@ -1750,11 +1750,15 @@ which is the one thing it doesn't mean.
 
 ## Pull requests — merged, pushed, deployed
 
-The delivery question asks *may I merge this?*, and the card is gone the moment you
-answer it. The question that starts the second it disappears had nowhere to be asked
-from a phone: **it merged — did it reach origin, and is it running?** Those are three
-different facts. They go true at three different times, and the gap between them is
-where work sits for a week believing it has shipped.
+A delivery question asks *may I merge this?* and is gone the moment you answer it — and
+most work never raises one, because [the worker merged it
+itself](#landing-work--a-branch-a-pull-request-and-the-workers-own-merge). Either way the
+question that starts once the merge has happened had nowhere to be asked from a phone:
+**it merged — did it reach origin, and is it running?** Those are three different facts.
+They go true at three different times, and the gap between them is where work sits for a
+week believing it has shipped. This tab is the only place that gap is visible, which is
+what makes it the *more* important screen now that a worker lands its own work: the merge
+stopped being a thing Adam does, and the deploy did not.
 
 So: the 🔀 tab, one card per repo, one row per pull request, and three lamps on every
 row.
@@ -1798,7 +1802,7 @@ hand, with no bead and no delivery block, is on the board like any other. Beads 
 then matched back to it in **tiers**, strongest first, and the first tier that
 resolves to a real bead wins outright:
 
-1. the `bead:` line inside a [`beadpr` block](#landing-work--a-branch-a-pull-request-and-your-tap),
+1. the `bead:` line inside a [`beadpr` block](#landing-work--a-branch-a-pull-request-and-the-workers-own-merge),
    or an id in the **title** or the **branch name**;
 2. the branch's trailing tag — `worktree-launcher-repo-tabs-jin` ends in the bead's
    own suffix, because that is where the tag comes from;
@@ -1934,15 +1938,16 @@ Each session opens the same way the **Discuss** button does: a real iTerm2 windo
 running `claude --permission-mode auto` in the repo, which means you can watch it,
 steer it, or close it. Its brief tells it to claim the bead first, to read and obey
 the repo's own `CLAUDE.md` (worktrees, tests, deploy — the daemon has no business
-knowing those), and to end in one of exactly three ways: **delivered** as a pull
-request for you to merge, closed, or handed back to you with the `human` label and a
-decision block. A session with no honest exit invents one, and the one it invents is
-"close it and hope".
+knowing those), and to end in one of exactly three ways: **landed** — its own pull
+request merged and its bead closed — **handed over** as a pull request for you to
+decide, or **handed back** to you with the `human` label and a decision block. A session
+with no honest exit invents one, and the one it invents is "close it and hope".
 
-Delivered is the ordinary ending now, and closed is what a session is told to do only
-where there is nowhere to open a pull request — see
-[Landing work](#landing-work--a-branch-a-pull-request-and-your-tap), which is where
-the rest of that lives.
+Landed is the ordinary ending. Handed over is what happens when the merge was refused or
+the session asked for a human; closing its own bead over a local commit is what it is
+told to do only where there is nowhere to open a pull request at all — see
+[Landing work](#landing-work--a-branch-a-pull-request-and-the-workers-own-merge), which
+is where the rest of that lives.
 
 ### It will not create beads
 
@@ -2107,20 +2112,31 @@ Those four endings are what the *daemon* can tell apart. What **you** read is th
 line the session printed, and the brief asks for it in fixed words so it can be
 searched for across a wall of windows:
 
-    ** BEAD WORK DONE ** CAN BE MERGED, PUSHED, DEPLOYED **
+    ** BEAD WORK DONE ** CAN BE DEPLOYED, REBUILT **
 
-`** BEAD WORK DONE **` never varies. What follows names every step the work has not
-been through yet — `MERGED`, `PUSHED`, `DEPLOYED`, `REBUILT`, in that order — and
-`CAN BE CLOSED` on its own is the one line that means nothing is outstanding. In PR
-mode the only honest word is `CAN BE REVIEWED`: a delivering session never merges,
-pushes or deploys, so it can owe nothing but your answer.
+`** BEAD WORK DONE **` never varies. What follows names every step the work has not been
+through yet, and `CAN BE CLOSED` on its own is the one line that means nothing is
+outstanding at all. Which words are even *available* depends on the ending the session
+was given, because the whole value of the line is that it is honest:
+
+| the session | may owe | because |
+|---|---|---|
+| landed its own work | `DEPLOYED`, `REBUILT` — or `REVIEWED` if the merge was refused | the delivery merged and pushed it, so claiming either would describe work already on `origin` |
+| handed the PR over (`pr.autoMerge` off) | `REVIEWED`, and nothing else | it never merges, pushes or deploys; it can owe nothing but your answer |
+| has no remote to push to | `MERGED`, `PUSHED`, `DEPLOYED`, `REBUILT` | all four are still yours, and the session names them without doing them |
+
+Whatever it writes, it passes the same thing to the delivery as `--owed`, which puts it on
+the bead and in the notification — the marker is for a human reading a wall of windows,
+and `--owed` is for the one who is not in front of it.
 
 That line used to be `CAN BE CLOSED` unconditionally, which said the *window* had
 nothing left to do and said nothing about the work — and it is the sweep below that
 makes the difference expensive. An unmerged branch is never retired, so a session that
 stopped at a worktree commit left it sitting there indefinitely while reading as
-finished in every list. Nothing parses the marker; it is prose for a human, and
-`lib/session.js` is the only file that mentions it.
+finished in every list. Nothing parses the marker; it is prose for a human. `lib/session.js`
+is the only file that writes it and `test/land.mjs` the only one that asserts it — which is
+worth having, because "the marker claimed a step the session did not take" is a regression
+no screen in the app would show you.
 
 ### Clearing up after it
 
@@ -2225,56 +2241,120 @@ setting that keeps applying as you add repos to a shared space, instead of being
 forgotten. A quiet space's advocate **watches without launching**: the same asymmetry
 as the notifications, where quiet means "not into my evening", never "hidden".
 
-## Landing work — a branch, a pull request, and your tap
+## Landing work — a branch, a pull request, and the worker's own merge
 
-An advocate opens sessions on ready work. For a long time the question of what
-happened to that work afterwards had a bad answer: the session merged it into
-`main` on the laptop and closed its bead, and the first Adam saw of a change was in
-`git log`, after it had shipped.
+An advocate opens sessions on ready work. What happens to that work afterwards has now
+had three answers, and the third one is only defensible because of what the first two
+taught.
 
-That worked while one session ran at a time. With five it stopped working, in three
-separate ways at once. They raced each other into `main`, so a session that started
-from a clean tree finished against one that had moved twice underneath it. Every
-conflict that came of it landed on Adam anyway — in the worst possible form, hours
-later, in a repo he had not been reading. And nothing was reviewable, because by the
-time anything was visible it was already in.
+**It merged into `main` on the laptop.** The session did it and closed its bead, so the
+first Adam saw of a change was in `git log`, after it had shipped. That worked while one
+session ran at a time. With five it fell apart in three ways at once: they raced each
+other into `main`, so a session that started from a clean tree finished against one that
+had moved twice underneath it; every conflict that came of it landed on him anyway, in
+the worst possible form, hours later, in a repo he had not been reading; and nothing was
+reviewable, because by the time anything was visible it was already in.
 
-So the unit of delivery is now a **pull request**, and the merge is a question in the
-inbox like any other:
+**Then the merge became a question on his phone.** That fixed all three and introduced a
+fourth: a queue with a person in it. Every finished piece of work waited for him. A bead
+finished at three in the morning sat unmerged until breakfast, and the next bead to touch
+the same file started from a `main` that did not have it. Reviewing a diff from a phone
+is a real thing to want; doing it forty times a week at the pace an advocate can produce
+them is not, and what the gate was actually doing was waiting.
+
+**So the worker merges its own pull request** — and the pull request stays, because the
+pull request is what solved the race. There is exactly one route into `main`: push a
+branch, open a PR, ask GitHub to merge it. GitHub serialises the merges and refuses what
+cannot land, which is precisely the property a laptop with five concurrent sessions does
+not have.
 
 ```
-session finishes ──► pushes its branch ──► gh pr create
-                                               │
-                          question with the PR link ──► your phone
-                                               │
-              ┌────────────────────────────────┼────────────────────────┐
-              ▼                                ▼                        ▼
-        Merge #42                      Request changes               Decline it
-   gh pr merge --squash          note → the PR and the bead      gh pr close + direction
-   bead closes: it landed        same branch, push more          fresh branch, start again
+session finishes ──► beadcause-deliver ──► pushes the branch ──► gh pr create
+                                                                     │
+                                                       waits for the checks
+                                                                     │
+                        ┌────────── they went green ────────────────┴───── they did not ─────────┐
+                        ▼                                                                        ▼
+              gh pr merge --squash                                                   question with the PR link
+              bead closes: it landed                                                        ──► your phone
+              ✅ push, nothing to answer                                          Merge · Request changes · Decline
+                        │
+                        └──► 🔀 PR board: merged, on origin, not yet running → Ship
 ```
 
-Three things follow from that, and they are the whole of the change:
+Five things follow, and they are the whole of the change:
 
-- **No agent merges anything.** Not into main, not locally, not "just this once
-  because it is trivial". There is deliberately no `push` anywhere in `lib/pr.js` —
-  the daemon can open, read, comment on, merge and close pull requests, and that is
-  all it can do. The branch is the deliverable; the merge is your tap.
-- **A session that finishes does not close its bead.** Merging closes it, because
-  merging is what makes the work true. A session that closed its own bead here would
-  be telling the tracker something that had not happened yet.
-- **The worktrees stop being your problem.** They still exist — several branches on
-  one laptop need several working directories, and nothing changes that — but nothing
-  merges out of them, and the sweep retires them once GitHub says their PR landed.
-  You stop having to remember which of thirty directories still has something in it.
+- **A worker merges, and only ever through a pull request.** Not `git merge`, not
+  `git push origin main`, not "just this once because it is trivial". There is still no
+  `push` anywhere in `lib/pr.js` — it opens, reads, comments on, merges and closes pull
+  requests, and that is all it can do. What changed is who asks for the merge, not where
+  the merge happens.
+- **It brings `main` into its branch before delivering.** `main` moves while a session
+  works — that is the whole premise — and GitHub refuses a merge that conflicts. The
+  branch is the only place that conflict can be resolved by whoever wrote the code, while
+  the reasons are still on their screen, so the brief asks for the downmerge *and* for the
+  tests to be re-run after it: a clean merge of two working branches is not a working tree.
+- **It will not merge over a red check, and it will not wait forever for a green one.**
+  Failing checks stop it and become a card in your inbox — the button there *does* let
+  you merge over red, because a red check is sometimes a flake and judging that is what
+  a human is for. Checks that never report are the same: five minutes, then it asks.
+- **The bead closes because the merge happened**, in the same breath, with the PR number
+  and the merge commit in its close reason. A session does not close its own bead here;
+  the delivery does, and the advocate reads that reason back so the sessions page can say
+  *landed #42* rather than the older and much weaker "closed by the session".
+- **Deploying is still yours.** The merge is on `origin`; whether that is *running* is a
+  different fact with a different button. The notification says what landed and what is
+  still owed, and links to [the PR board](#pull-requests--merged-pushed-deployed), where
+  **Ship** is. What a deploy even *is* lives in each repo's `CLAUDE.md`, and a worker
+  being right about a merge does not make it right about that.
 
-The card below is the *decision*, and it is gone the moment you answer it. What
-happens to the work afterwards — whether the merge reached origin, whether it is
-running — lives on its own tab: [Pull requests](#pull-requests--merged-pushed-deployed).
+**The old ending is intact, and it is the fallback.** Everything below about the card,
+the three answers and the markers is still exactly what happens when the merge does not
+— GitHub refused it, a check went red, the checks never reported, `pr.autoMerge` is off,
+or the session passed `--review` because it wanted a human on this one. It went from
+being every delivery to being the interesting ones.
+
+### The notification with nothing to answer
+
+Every other push from beadcause is a decision arriving. This one is a decision that has
+already been taken, by an agent, on your behalf — so it is built to be different in three
+ways, each of which is the point:
+
+- **No action buttons, ever.** Not even one. The only thing a button could offer about
+  work that is already in `main` is a revert, and a revert is not something to hand
+  someone in a lock screen with one line of context.
+- **Priority 2 — it arrives, it does not shout.** A question can be urgent because
+  something is blocked on it. Nothing is blocked on this. A phone that buzzes hard for
+  things that went right is a phone that gets silenced, and it takes the questions with it.
+- **It links to `/prs`, not to a bead.** There is no bead to open — it is closed. The
+  question this actually raises is *it merged, is it running?*, which lives on the PR
+  board, next to the **Ship** button that answers it.
+
+It says what landed, the merge commit, and what the session said is **still owed** —
+`Still owed: deploy, rebuild`, in the session's own words from `--owed`, because the
+daemon knows the repo but only the session knows what it touched. A workspace in a
+[minimal space](#spaces--keeping-work-out-of-your-evening) gets the contentless version,
+same as every other push: *A worker landed its work — tap to open.*
 
 ### The question, and what is on it
 
-The card is built to be answerable without opening GitHub, because the answer to
+Its first paragraph is now the most useful thing on it, because it answers the question
+you ask on seeing one at all — *why is this here?* Three answers, three different
+sentences, never folded into one polite one:
+
+| the card says | what happened |
+|---|---|
+| *tried to merge it. **It could not:** …* | GitHub refused, or a check went red, or nothing reported. The reason is quoted from whatever refused |
+| *could have merged this itself and **deliberately did not*** | the session passed `--review`. Its reason is in the summary |
+| *Nothing is merged until you say so* | `pr.autoMerge` is off, so every delivery is a question and this one is not special |
+
+A refusal is prose on the card and never a field in the `beadpr` block — the block
+carries identity and intent, and "why it didn't merge this time" is neither. The same
+sentence goes on the pull request itself, because a green PR sitting open for two days
+with nothing on it to say why is the state this fallback exists to *not* be mysterious
+about.
+
+The rest is built to be answerable without opening GitHub, because the answer to
 "should this merge" is usually not in the diff. Above the fold: what changed, in the
 words of whoever wrote it, plus how the tests were run, what the author thinks is
 risky, and what they deliberately left undone — the commonest reason to ask for
@@ -2369,9 +2449,12 @@ we should MERGE: it"* — the marker only counts at the start.
 
 The merge happens **before** the question is closed, the same order `createProposed`
 keeps: a merge GitHub refuses leaves the question open and answerable rather than
-closed on a promise nothing kept. And it is never `gh pr merge --auto`. Queuing a
-merge to happen later when checks go green would make your tap a promise rather than
-an act, and the question would close on work that had not landed.
+closed on a promise nothing kept. And it is never `gh pr merge --auto`, from either
+caller. Queuing a merge to happen later when checks go green would make a tap a promise
+rather than an act, and the bead would close on work that had not landed — which is also
+why a worker *waits* for its checks and then merges, rather than handing GitHub a
+standing instruction and exiting. Whatever closes a bead here is a merge that has
+already happened.
 
 A delivery question closes on all three answers, including *request changes* — the
 question was *merge this?* and it has been answered. The next push files a new one, so
@@ -2467,6 +2550,8 @@ channel would have.
   "enabled": true,
   "base": "main",
   "mergeMethod": "squash",
+  "autoMerge": true,
+  "mergeWaitMs": 300000,
   "tidyMerged": true
 }
 ```
@@ -2474,21 +2559,40 @@ channel would have.
 `squash` because a session's branch is thirty commits of an agent thinking out loud
 and `main` should carry the conclusion.
 
+`autoMerge: false` is the one knob worth knowing about: it puts every delivery back on
+the ask-first ending, where the worker stops after opening the pull request and the merge
+is your tap. Nothing else changes — same branch, same PR, same card, same three answers —
+so it is a safe thing to flip for an afternoon, and flipping it back needs no cleanup. A
+worker can reach the same ending on its own for one delivery with `--review`, and the
+card says which of you decided.
+
+`mergeWaitMs` is how long a worker waits for its checks before giving up and asking. Too
+short and a repo with CI hands you every delivery as a question — a pull request is at
+its most pending in the second after it is opened. Too long and a stuck CI queue holds a
+worker's window open for an hour. Five minutes, then it asks.
+
 ### What it does to the two things that were already here
 
-**A fourth ending.** The advocate reads three endings off a session that exits:
-closed, handed back, or unfinished. A delivered session is none of them — its bead is
-*supposed* to still be open, because merging is what closes it. Without a fourth the
-best possible outcome would read as "exited unfinished", cost an attempt, and after
-two deliveries the advocate would give up on a bead whose work was sitting in a pull
-request waiting to be approved.
+**A fourth ending.** The advocate reads three endings off a session that exits: closed,
+handed back, or unfinished. A session that *handed over* a pull request is none of them —
+its bead is supposed to still be open, because merging is what closes it. Without a
+fourth, the second-best outcome in the system would read as "exited unfinished", cost an
+attempt, and after two of them the advocate would give up on a bead whose work was
+sitting in a pull request waiting on a tap.
 
 | the file appears and… | reading |
 |---|---|
+| the bead is closed, reason `Landed as #42 …` | **landed #42** — the session merged its own pull request |
 | the bead is closed | **done** |
-| an open `pr-delivery` question names this bead | **delivered** — waiting on your merge, costs no attempt |
+| an open `pr-delivery` question names this bead | **handed over** — waiting on your merge, costs no attempt |
 | the bead carries `human` | **handed back to you** |
 | neither | **exited unfinished** — costs an attempt |
+
+The first row is read off the close reason `bin/deliver.js` writes, which costs nothing:
+`bd show` has already returned by then. The alternative — asking GitHub, per ended worker,
+per tick — would be a `gh` call to re-derive something the delivery already knew. And the
+distinction is worth drawing, because "closed by the session" is the one sentence on the
+sessions page that does not say whether the work reached `main`.
 
 **The sweep learned a second way for a branch to be gone.** Its fifth condition was
 "its branch is an ancestor of `main`", and a squash-merged pull request puts a *new*
@@ -2513,10 +2617,28 @@ rule as the sweep — asked only after the local test says no.
 
 ### Checking it
 
-`npm test` covers the two libraries — `test/pr.mjs` drives `lib/pr.js` against a fake
-`gh` on `PATH`, keyed off a JSON world file and a call log, so *"it never shelled out"*
-is an assertion rather than a hope; `test/delivery.mjs` covers the block, the markers
-and the split. Neither touches the network, a bead, or a repo.
+`npm test` covers three libraries. `test/pr.mjs` drives `lib/pr.js` against a fake `gh` on
+`PATH`, keyed off a JSON world file and a call log, so *"it never shelled out"* is an
+assertion rather than a hope — including the wait for the checks, whose `sleep` is
+injected and is where the fake's world changes, so pending-then-green runs in
+milliseconds. `test/delivery.mjs` covers the block, the markers, the split, and that the
+three openings of a card are three different sentences. `test/land.mjs` covers the thing
+with no other interface: the **brief**, which is all beadcause can make a worker do. It
+asserts that the landing ending never tells a session to merge `main` by hand, that its
+marker line cannot claim `CAN BE MERGED` over work already in `main`, that the ask-first
+ending can claim nothing but a review, and that `pr.autoMerge` reaches the brief it
+decides. None of the three touches the network, a bead, or a repo.
+
+`node scripts/land-check.mjs` is the end-to-end half, and it is the only place the merge
+itself is exercised: a real `git` against a real bare remote, a real `bd` against a
+scratch workspace under `/tmp`, the real `bin/deliver.js`, and a fake `gh` that logs every
+call. Five scenarios — green checks, a refusal from GitHub, a red check, `--review`, and
+`--owed`. The assertions that matter are the negative ones: `gh pr merge` must not appear
+in the log for the red check or for `--review`, and the work bead must still be open in
+every scenario that did not merge, because a bead closed over work sitting in an unmerged
+pull request is invisible from every screen in the app. `BEADCAUSE_CONFIG_DIR` points it
+at a scratch config whose ntfy is off, so a harness run cannot reach anyone's phone;
+`--keep` leaves the temp world for inspection.
 
 `node scripts/delivery-check.mjs` is the other half: the real `public/app.js` in a
 headless Chrome the size of a phone, against a fixture built by `lib/delivery.js` and
@@ -3230,7 +3352,7 @@ Auth on everything under `/api/` except `/api/health`: header
 | GET | `/api/questions` | `?scope=human\|both\|agent` | `{questions[], workspaces[], spaces[], summary, scope}` — `scope` defaults to `human`, and an unrecognised value falls back to it rather than erroring. `summary` is `{sessions, proposals, questions}`, the three counts the inbox's chrome draws |
 | GET | `/api/question` | `?workspace=&id=` | one question **plus `comments[]`** |
 | GET | `/api/poll` | `?since=<seq>&wait=<s>` | long-poll: `{seq, resync, events[], questions, workspaces[]}` |
-| POST | `/api/respond` | `{workspace, id, response, create?, edits?}` | comments, then closes the bead. `create` is the 1-based indices of a proposal's beads to file; without it, `CREATE:` in the text means all and `CREATE: 1,3` means those. `edits` is `{n: {title, type, priority, description, acceptance}}` keyed by the same numbers, applied before creating. A `MERGE:` / `CHANGES:` / `DECLINE:` response on a delivery question acts on its pull request first — see [Landing work](#landing-work--a-branch-a-pull-request-and-your-tap) |
+| POST | `/api/respond` | `{workspace, id, response, create?, edits?}` | comments, then closes the bead. `create` is the 1-based indices of a proposal's beads to file; without it, `CREATE:` in the text means all and `CREATE: 1,3` means those. `edits` is `{n: {title, type, priority, description, acceptance}}` keyed by the same numbers, applied before creating. A `MERGE:` / `CHANGES:` / `DECLINE:` response on a delivery question acts on its pull request first — see [Landing work](#landing-work--a-branch-a-pull-request-and-the-workers-own-merge) |
 | GET | `/api/pr` | `?workspace=&id=` | `{delivery, pr, unavailable}` — the live diffstat, check rollup and mergeability of a delivery question's PR. Every failure is an answer rather than a 500: no `gh`, no remote, GitHub unreachable all come back with `pr: null` and a sentence in `unavailable` |
 | POST | `/api/comment` | `{workspace, id, text, agent?}` | comments, sets `human-replied`, dispatches that agent to reply (default when absent or unknown) |
 | POST | `/api/ask` | `{workspace, title, body, priority}` | `{id, key}` — files a new `human` bead |
@@ -3345,9 +3467,11 @@ the fields it always read and renders exactly as it did.
 | `autoDispatch` | commenting spawns an unattended agent to reply (default `true`) |
 | `autoDispatchExclude` | workspaces that never auto-dispatch — put shared trackers here |
 | `autoDispatchTimeoutMs` | kill a dispatched agent after this long (default 10 min) |
-| `pr.enabled` | deliver finished work as a [pull request you merge](#landing-work--a-branch-a-pull-request-and-your-tap) (default `true`). `false` puts every workspace back on the old ending — work the bead, close the bead. A workspace with no `gh` or no GitHub remote gets that ending anyway, without needing to be named |
+| `pr.enabled` | land finished work as [a pull request the worker merges](#landing-work--a-branch-a-pull-request-and-the-workers-own-merge) (default `true`). `false` puts every workspace back on the oldest ending — work the bead, close the bead. A workspace with no `gh` or no GitHub remote gets that ending anyway, without needing to be named |
 | `pr.base` | what a PR is opened against and merged into (default `main`) |
 | `pr.mergeMethod` | `squash` (default), `merge` or `rebase`. Squash because a session's branch is thirty commits of an agent thinking out loud |
+| `pr.autoMerge` | the worker merges its own pull request once the checks report (default `true`). `false` stops it after opening the PR and makes the merge your tap, which is what every delivery used to do. A worker can choose the same for one delivery with `--review` |
+| `pr.mergeWaitMs` | how long a worker waits for its checks before handing the PR over instead (default 5 min). A PR is at its most pending the second after it is opened, so without this a repo with CI would ask you about every delivery |
 | `pr.tidyMerged` | let the worktree sweep ask GitHub whether a branch's PR merged, since a squash-merge never makes it an ancestor of main (default `true`) |
 | `advocates.workspaces` | which repos get an [advocate](#advocates--an-agent-per-repo-whose-job-is-the-queue-reaching-zero). **Empty by default**; `["*"]` for every one |
 | `advocates.maxWorkers` | sessions one advocate may have open at once (default 1), clamped to `maxWorkersLimit` |

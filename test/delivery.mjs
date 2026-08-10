@@ -26,7 +26,13 @@
  * looks like a question nobody can answer rather than a bug. So the block order is
  * tested both ways round, since only one of them is the one you happen to generate.
  *
- * Third: an unparseable block must be an `error`, never a `null`. Null is the answer
+ * Third: the first paragraph. A worker merges its own pull request now, so one of these
+ * cards means something went differently — GitHub refused the merge, or the session
+ * asked for a human on purpose — and the three openings must not collapse into one
+ * polite sentence. A card that cannot say which of them happened is a card that invites
+ * a puzzled look at a green pull request.
+ *
+ * Fourth: an unparseable block must be an `error`, never a `null`. Null is the answer
  * for every ordinary question in the inbox, so a delivery that degrades to null does
  * not look broken — it looks like an ordinary question, and pressing merge on it
  * silently does nothing, on the one card where that matters most.
@@ -305,6 +311,56 @@ check(
   String(deliveryTitle(D({ title: 'x'.repeat(400) })).length)
 );
 check('the label is the one `bd list --label=` searches for', DELIVERY_LABEL === 'pr-delivery');
+
+/* ------------------------------------------------- why this card exists at all */
+
+console.log('\nthe first paragraph says which of the three things happened');
+
+// A worker normally merges its own pull request, so a card in the inbox is now the
+// exception — and the first thing to know is *which* exception. Three openings, and
+// the failure worth testing is any two of them reading the same.
+const refusedBody = deliveryBody(D(), { refused: '#42 conflicts with main — the branch needs a rebase before it can merge.' });
+const askedBody = deliveryBody(D(), { asked: true });
+const plainBody = deliveryBody(D());
+
+check(
+  'a refused merge leads with what stopped it, in the words of whatever refused',
+  /tried to merge it/.test(refusedBody) && /conflicts with main/.test(refusedBody),
+  refusedBody.split('\n')[0]
+);
+check(
+  'and says outright that it is now Adam’s, since the worker has run out of moves',
+  /So it is yours/.test(refusedBody),
+  refusedBody.split('\n')[0]
+);
+check(
+  'a worker that chose review says so, so green checks in the inbox do not read as a bug',
+  /deliberately did not/.test(askedBody) && !/tried to merge/.test(askedBody),
+  askedBody.split('\n')[0]
+);
+check(
+  'and with autoMerge off it is the original sentence, unchanged',
+  /Nothing is merged until you say so/.test(plainBody) && !/deliberately|tried to merge/.test(plainBody),
+  plainBody.split('\n')[0]
+);
+check(
+  'the three openings are three different sentences',
+  new Set([refusedBody, askedBody, plainBody].map((b) => b.split('\n')[0])).size === 3
+);
+check(
+  'a refusal is prose on the card and never a field in the block — the block is identity and intent',
+  parseDelivery(refusedBody).error === null && !/refused|conflicts with/.test(refusedBody.split('```beadpr')[1] || ''),
+  (refusedBody.match(/.*refused.*/) || [])[0]
+);
+check(
+  'and every opening still ends up offering the same three answers',
+  [refusedBody, askedBody, plainBody].every((b) => /id: merge/.test(b) && /id: changes/.test(b) && /id: decline/.test(b))
+);
+check(
+  'the merge wording follows the block’s method rather than saying squash regardless',
+  /rebase-merges it/.test(deliveryBody(D({ method: 'rebase' }), { asked: true })),
+  deliveryBody(D({ method: 'rebase' }), { asked: true }).split('\n')[0]
+);
 
 /* ---------------------------------------- what the block deliberately omits */
 
