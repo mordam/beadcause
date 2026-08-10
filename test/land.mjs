@@ -190,6 +190,46 @@ check(
   [null, MODE(), MODE({ autoMerge: false })].every((m) => /This is attempt 2/.test(workPromptFor('beadcause', BEAD, 2, m, OWNER)))
 );
 
+/* ------------------------------------------ the three ways to reach a human */
+
+/**
+ * A worker can owe a human three different things, and none of them is GitHub's
+ * business — they are `bd` beads, filed through this daemon, on a repo with a remote
+ * or without one.
+ *
+ * They were gated on `prMode` anyway, which is the regression these assertions exist
+ * to stop coming back. Three of Adam's four repos are private and owned by his second
+ * `gh` account, so `slugFor` was null there, so `prMode` was null, so every worker the
+ * advocate opened on sophab, deluvia or ehatt was told to write its discovery in a
+ * comment nobody reads and had no way to ask a question at all. `sp-b5r` is what that
+ * cost: the true blocker of a go-live, refused twice by two sessions, carrying no
+ * `human` label, so it never reached a phone.
+ *
+ * The `none` brief is the important column here. If these ever pass for `land` and
+ * `ask` but not for `none`, the coupling is back.
+ */
+console.log('\nthe three ways a worker reaches a human, on every repo');
+
+for (const [name, brief] of [
+  ['lands its own work', land],
+  ['asks first', ask],
+  ['no remote', none],
+]) {
+  check(`"${name}" can propose the work it found`, /--kind discovery/.test(brief) && /propose\.js/.test(brief));
+  check(`"${name}" can ask for a fact only Adam has, and park the bead behind it`, /ask\.js/.test(brief) && /--blocks bc-fmt/.test(brief));
+  check(`"${name}" can stop on a contradiction rather than pick one`, /--kind conflict/.test(brief));
+  check(
+    `"${name}" still may not create a bead itself`,
+    /Do not create beads/.test(brief) && !/\bbd create\b/.test(brief),
+    (brief.match(/.*bd create.*/) || [])[0]
+  );
+  check(
+    `"${name}" is not sent back to the \`## Discovered\` comment nobody reads`,
+    !/## Discovered/.test(brief),
+    (brief.match(/.*## Discovered.*/) || [])[0]
+  );
+}
+
 /* --------------------------------------------------- config reaching the brief */
 
 console.log('\nthe config flag reaching the brief it decides');

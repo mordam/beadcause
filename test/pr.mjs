@@ -84,7 +84,9 @@ const fs = require('node:fs');
 const statePath = process.env.GH_FAKE_STATE;
 const state = JSON.parse(fs.readFileSync(statePath, 'utf8'));
 const args = process.argv.slice(2);
-fs.appendFileSync(state.log, JSON.stringify({ args: args, cwd: process.cwd() }) + '\\n');
+// The token is logged because "which account was this call made as" is the whole
+// question one scenario below exists to answer, and it is invisible in argv.
+fs.appendFileSync(state.log, JSON.stringify({ args: args, cwd: process.cwd(), token: process.env.GH_TOKEN || null }) + '\\n');
 
 const save = () => fs.writeFileSync(statePath, JSON.stringify(state, null, 2));
 const out = (s) => { process.stdout.write(s); process.exit(0); };
@@ -100,11 +102,37 @@ const b = args[1];
 const rest = args.slice(2);
 
 if (a === 'auth' && b === 'status') {
-  if (state.auth && state.auth.ok) out('github.com\\n  Logged in to github.com\\n');
+  if (state.auth && state.auth.ok) {
+    // Real gh names each account and flags the active one. state.auth.accounts opts
+    // into that shape; without it the output is the older, account-less one, which
+    // is a case pr.js has to keep handling.
+    var accts = (state.auth && state.auth.accounts) || null;
+    if (!accts) out('github.com\\n  Logged in to github.com\\n');
+    var lines = ['github.com'];
+    for (var i = 0; i < accts.length; i++) {
+      lines.push('  \\u2713 Logged in to github.com account ' + accts[i].user + ' (keyring)');
+      lines.push('  - Active account: ' + (accts[i].active ? 'true' : 'false'));
+      lines.push('  - Token: gho_************************************');
+    }
+    out(lines.join('\\n') + '\\n');
+  }
   fail((state.auth && state.auth.stderr) || 'You are not logged into any GitHub hosts.');
 }
 
+if (a === 'auth' && b === 'token') {
+  var user = rest[rest.indexOf('--user') + 1];
+  var token = (state.tokens || {})[user];
+  if (!token) fail('no oauth token found for ' + user);
+  out(token + '\\n');
+}
+
 if (a === 'repo' && b === 'view') {
+  // The two-account world: which repo you can see depends on the token you sent.
+  if (state.repoByToken) {
+    var seen = state.repoByToken[process.env.GH_TOKEN || ''];
+    if (!seen) fail("GraphQL: Could not resolve to a Repository with the name 'them/private'. (repository)");
+    out(JSON.stringify(seen));
+  }
   if (!state.repo) fail('none of the git remotes configured for this repository point to a known GitHub host');
   out(JSON.stringify(state.repo));
 }
@@ -262,6 +290,92 @@ check(
 
 world({ repo: { nameWithOwner: '' } });
 check('an empty nameWithOwner is null too', (await pr.slugFor(REPO)) === null);
+
+/* ------------------------------------------------- and as which gh account */
+
+/**
+ * The failure this covers did not look like a failure.
+ *
+ * `gh` has one active account; this Mac has two. The active one is the work account,
+ * and Adam's personal repos are private and owned by the other — so `gh repo view` in
+ * those checkouts answered "Could not resolve to a Repository", `slugFor` read that as
+ * "no GitHub remote", `prMode` returned null, and every worker the advocate opened on
+ * three of his four repos was quietly given a lesser brief: no propose channel, no way
+ * to ask him anything, no delivery. A login decided how much an agent could say.
+ *
+ * So: the ambient account cannot see this repo, the second one can, and the assertion
+ * is not merely that the slug comes back — it is *which token the call carried*. That
+ * is the difference between resolving it per repo, here, and `gh auth switch`, which
+ * would have repointed his day job as a side effect.
+ */
+console.log('\nwhich account can see it');
+
+pr.forgetAvailability();
+resetLog();
+world({
+  auth: {
+    ok: true,
+    accounts: [
+      { user: 'workacct', active: true },
+      { user: 'personalacct', active: false },
+    ],
+  },
+  tokens: { workacct: 'tok-work', personalacct: 'tok-personal' },
+  repoByToken: { 'tok-personal': { nameWithOwner: 'them/private' } },
+});
+
+check('a repo the active account cannot see is still found, as the account that can', (await pr.slugFor(REPO)) === 'them/private');
+
+const probes = calls().filter((c) => c.args[0] === 'repo');
+check(
+  'the ambient account is tried first, with no token forced on it',
+  probes.length >= 2 && probes[0].token === null,
+  JSON.stringify(probes.map((c) => c.token))
+);
+check(
+  'and the one that answered carried the other account’s token',
+  probes[probes.length - 1].token === 'tok-personal',
+  JSON.stringify(probes.map((c) => c.token))
+);
+check(
+  'the token came from `gh auth token --user`, not from anywhere on disk',
+  calls().some((c) => c.args.join(' ') === 'auth token --user personalacct')
+);
+
+resetLog();
+check('a second ask reuses the account it found', (await pr.slugFor(REPO)) === 'them/private');
+check(
+  'and costs one `gh repo view`, not another sweep of every account',
+  calls().filter((c) => c.args[0] === 'repo').length === 1 && calls().every((c) => c.args[0] !== 'auth'),
+  JSON.stringify(calls().map((c) => c.args.join(' ')))
+);
+
+resetLog();
+await pr.view(REPO, 42).catch(() => null);
+check(
+  'and every later call in that checkout runs as that account too',
+  calls().every((c) => c.token === 'tok-personal'),
+  JSON.stringify(calls().map((c) => [c.args[0], c.token]))
+);
+
+// A repo nothing can see stays null — the local-only checkout that must not break the
+// advocate for every other workspace.
+resetLog();
+world({
+  auth: { ok: true, accounts: [{ user: 'workacct', active: true }, { user: 'personalacct', active: false }] },
+  tokens: { workacct: 'tok-work', personalacct: 'tok-personal' },
+  repoByToken: {},
+});
+pr.forgetAvailability();
+check('a checkout no account can see is null, having asked them all', (await pr.slugFor(REPO)) === null);
+check(
+  'and the active account is not asked twice for it',
+  calls().filter((c) => c.args[0] === 'repo').length === 2,
+  JSON.stringify(calls().map((c) => c.args.join(' ')))
+);
+
+pr.forgetAvailability();
+world();
 
 /* ------------------------------------------------------------------- view */
 
@@ -588,7 +702,9 @@ check(
 );
 check(
   'the PR is read before the merge and read again after',
-  calls().filter((c) => c.args[1] === 'view').length === 2,
+  // `pr view` specifically: `repo view` is the account probe, which is a different
+  // question asked once per checkout and has nothing to do with the merge preflight.
+  calls().filter((c) => c.args[0] === 'pr' && c.args[1] === 'view').length === 2,
   JSON.stringify(calls().map((c) => c.args.slice(0, 2)))
 );
 
