@@ -1154,7 +1154,7 @@ body {
 /* A busy session breathes; an idle one is a hollow ring drawn as text. `.adv-worker`
    is on the list because a claimed, still-running window is the most alive thing on
    either page, and it was drawing the same dead grey dot as an idle one. */
-.activity.live .spark, .session-row .spark, .adv-worker .spark { background: var(--accent); animation: breathe 1.3s ease-in-out infinite; }
+.activity.live .spark, .session-row .spark, .adv-worker .spark, .session-facts .spark { background: var(--accent); animation: breathe 1.3s ease-in-out infinite; }
 @keyframes breathe {
   0%, 100% { opacity: 1; transform: scale(1); }
   50% { opacity: 0.35; transform: scale(0.7); }
@@ -1254,8 +1254,9 @@ body {
 .work-count { flex: none; font-size: 12px; font-weight: 600; color: var(--muted); }
 .work-count.on { color: var(--accent); }
 .work-body { margin-top: 4px; }
-/* Rotates to point down when the thing it belongs to is open — the only affordance
-   saying a row has more behind it, on both the card head and a session row. */
+/* The only affordance saying a row has more behind it. On a card head it rotates to
+   point down when that card is unfolded; on a session row it stays pointing right,
+   because there the "more" is a detail page the row links to rather than a fold. */
 .chev { flex: none; width: 14px; text-align: center; font-size: 17px; color: var(--muted); transition: transform 120ms ease; }
 [aria-expanded='true'] > .chev { transform: rotate(90deg); }
 .work-row {
@@ -1284,9 +1285,10 @@ body {
   border-top: 1px solid var(--line);
 }
 .session-label span { font-size: 11.5px; font-weight: 450; letter-spacing: 0; text-transform: none; }
-/* Tappable, and a button rather than a link: it opens its own transcript in place
-   rather than navigating anywhere. The UA's own button borders and font have to go,
-   because `.work-row` only ever meant to set the one border that divides rows. */
+/* Tappable, and a button rather than a link where the tap does something to this page
+   rather than going somewhere — a PR row unfolding, a mirror row taking the wheel. The
+   UA's own button borders and font have to go, because `.work-row` only ever meant to
+   set the one border that divides rows. */
 button.work-row {
   width: 100%;
   background: none;
@@ -1329,11 +1331,12 @@ button.work-row {
 .adv-next .pill.id { margin-right: 4px; }
 .adv-note.bad { color: var(--danger); white-space: normal; }
 
-/* What one session actually is, under its row. The facts are indented to sit under
-   the title they belong to; the transcript is not, because it is laid out in columns
-   by something that counted characters and wants every one of them. */
+/* What one session actually is — /session?pid=…, the detail every list in the app links
+   to. It was a pane folded under the row on /sessions, which is why the labels are as
+   short as they are: they had to fit beside a value on a 390px screen with the row's own
+   icon column already spent. See public/session.js. */
 .session-detail { padding-bottom: 8px; }
-.session-facts { margin: 6px 0 0 30px; display: grid; gap: 4px; }
+.session-facts { margin: 6px 0 0; display: grid; gap: 4px; }
 .session-facts > div { display: flex; align-items: baseline; gap: 8px; }
 /* Wide enough for the longest label there is ("workspace"), and no wider: this is a
    390px screen, and every pixel of label column is one taken off a path that already
@@ -1345,8 +1348,26 @@ button.work-row {
   color: var(--muted);
 }
 .session-facts dd { margin: 0; min-width: 0; font-size: 12.5px; overflow-wrap: anywhere; }
+/* Busy or idle, on the process row — the one at-a-glance answer to "is this moving",
+   and the only line it can sit on without repeating what the line under it says.
+   `inline-block` because `.spark` is sized in px and a bare inline span ignores that,
+   which would leave a working session drawing nothing at all. */
+.session-facts .spark { display: inline-block; vertical-align: middle; margin-right: 6px; }
+.session-facts .idle { margin-right: 5px; color: var(--muted); }
 .session-detail .session-label { margin-top: 10px; }
 .session-detail .agent-log { max-height: 52vh; }
+
+/* On a page of its own the transcript is the point, so it takes the room the folded
+   pane had to leave for the rest of the list — sized off the viewport the way .doc .pdf
+   is, with a floor so a short screen still shows a readable pane rather than three
+   lines. */
+.session-page { padding-bottom: 24px; }
+.session-solo { padding-bottom: 0; }
+.session-solo .agent-log {
+  max-height: none;
+  height: calc(100dvh - 260px);
+  min-height: 180px;
+}
 
 .work-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
 .work-foot .meta { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; }
