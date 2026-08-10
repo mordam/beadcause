@@ -517,6 +517,17 @@ body {
 .option.confirm { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
 .option.confirm .hint { color: color-mix(in srgb, var(--accent-ink) 72%, transparent); }
 
+/* The one the brief argued for. A tinted edge and a tag, never a filled button:
+   filled is what `confirm` means here, and a recommendation that looked like an
+   armed button would be read as "already pressed". */
+.option.rec { border-color: color-mix(in srgb, var(--accent) 55%, var(--line)); }
+.rec-tag {
+  align-self: flex-start;
+  font-size: 11px; font-weight: 600; letter-spacing: 0.02em;
+  color: var(--accent);
+}
+.option.confirm .rec-tag { color: color-mix(in srgb, var(--accent-ink) 80%, transparent); }
+
 .actions { display: flex; gap: 8px; padding: 0 15px 14px; }
 
 .note-line {
@@ -1008,6 +1019,78 @@ body {
 .gate-note p { margin: 0 0 8px; color: var(--muted); }
 .gate-blockers { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 9px; }
 .gate-note .row { display: flex; gap: 8px; }
+
+/*
+  The same fact, said before you type instead of after you press — so it is drawn
+  quieter than the refusal above. No fill and a dashed edge: nothing has gone wrong
+  and nothing is waiting on you here, it is a note about what this bead can do. The
+  amber stays, at the edge only, because it is still the reason a button you expected
+  to find is missing.
+*/
+.gate-why {
+  padding: 10px 12px;
+  border: 1px dashed color-mix(in srgb, var(--warn) 55%, var(--line));
+  border-radius: 11px;
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+.gate-why strong { display: block; color: var(--text); font-size: 14px; margin-bottom: 3px; }
+.gate-why p { margin: 0 0 8px; color: var(--muted); }
+.gate-why .gate-blockers { margin-bottom: 0; }
+
+/*
+  Suggested answers, sitting on the top edge of the box they fill.
+
+  Chips rather than buttons, and quieter than `.option` on purpose: these were
+  read out of a paragraph, not written as answers, and the weight of the control
+  is the only honest place to say so. Nothing here closes a bead — the label of
+  the button below is still what does that.
+
+  The strip scrolls rather than growing. On a phone the answer box is pinned to
+  the bottom of an open card in a fixed budget of height, and five long chips
+  that pushed the textarea off the screen would cost more typing than they save.
+*/
+.suggested { display: flex; flex-direction: column; gap: 6px; }
+/* No rule above the label: it is already sitting on the top edge of the answer
+   box, and a second line there would fence the box off from the thread. */
+.suggested .section-label {
+  display: flex; justify-content: space-between; align-items: baseline; gap: 10px;
+  margin: 2px 0 0; padding: 0; border-top: 0;
+}
+/* The right half says what a tap does, and is not shouted — it is an instruction,
+   not a heading, and uppercase at 11px is hard enough to read once. */
+.suggested .section-label span {
+  flex: none;
+  text-transform: none; letter-spacing: 0; font-weight: 500;
+  opacity: 0.8;
+}
+.suggested .chips {
+  display: flex; flex-wrap: wrap; gap: 6px;
+  max-height: 92px; overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.chip {
+  min-height: 34px;
+  max-width: 100%;
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 6px 12px;
+  border: 1px solid var(--line); border-radius: 999px;
+  background: var(--surface-2); color: var(--text);
+  font: inherit; font-size: 13.5px; font-weight: 540;
+  text-align: left; line-height: 1.3;
+  cursor: pointer;
+}
+.chip:active { transform: scale(0.98); }
+.chip .star { color: var(--accent); font-size: 11px; }
+.chip.rec { border-color: color-mix(in srgb, var(--accent) 55%, var(--line)); }
+/* Pressed means "these are the words in the box right now" — it is a statement
+   about the textarea, not a decision, and it goes away the moment you type. */
+.chip[aria-pressed='true'] {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  border-color: var(--accent);
+}
+.chip[aria-pressed='true'] .star { color: var(--accent); }
+
 .primary {
   flex: 1;
   min-height: var(--tap);
@@ -1156,6 +1239,57 @@ body {
 .comment .md > *:last-child { margin-bottom: 0; }
 
 /*
+  A thread is mostly history, and on a phone that history is what stands between you
+  and the exchange you are in — so everything but the last thing each side said is
+  folded to its author line (see openThreadIndexes in app.js).
+
+  The author line is the toggle, which is why it is a button here. It keeps every
+  pixel of the span it replaced: same size, same colour, same margin, so a thread
+  where nothing is folded looks exactly as it did. Full width because the whole line
+  is the tap target — a 12px chevron is not something you hit on a moving bus — and
+  min-height is deliberately *not* --tap, because that would space a run of folded
+  comments out like a list of buttons instead of reading like a transcript.
+
+  The body stays in the DOM while folded and is hidden here rather than removed, so
+  opening one is a class flip on a single bubble and never a repaint of the list
+  underneath the answer box.
+*/
+.comment button.who {
+  width: 100%;
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--muted);
+  text-align: left;
+  cursor: pointer;
+}
+.comment .caret { flex: none; font-size: 9px; opacity: 0.8; }
+.comment .caret::before { content: "▾"; }
+.comment.shut .caret::before { content: "▸"; }
+.comment .who-name { flex: none; }
+/* The first line of what was said, so a folded comment is still recognisable —
+   clipped rather than wrapped, because two folded lines is not folded. */
+.comment .peek {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 450;
+  color: var(--prose);
+}
+.comment:not(.shut) .peek { display: none; }
+.comment.shut { padding: 8px 13px; }
+.comment.shut button.who { margin-bottom: 0; }
+.comment.shut .md { display: none; }
+
+/*
   The reply that hasn't landed yet, sitting where it will appear. Dashed and
   translucent so it never reads as something the agent actually said — this is the
   space being held, not content.
@@ -1196,7 +1330,7 @@ body {
 /* A busy session breathes; an idle one is a hollow ring drawn as text. `.adv-worker`
    is on the list because a claimed, still-running window is the most alive thing on
    either page, and it was drawing the same dead grey dot as an idle one. */
-.activity.live .spark, .session-row .spark, .adv-worker .spark { background: var(--accent); animation: breathe 1.3s ease-in-out infinite; }
+.activity.live .spark, .session-row .spark, .adv-worker .spark, .session-facts .spark { background: var(--accent); animation: breathe 1.3s ease-in-out infinite; }
 @keyframes breathe {
   0%, 100% { opacity: 1; transform: scale(1); }
   50% { opacity: 0.35; transform: scale(0.7); }
@@ -1296,8 +1430,9 @@ body {
 .work-count { flex: none; font-size: 12px; font-weight: 600; color: var(--muted); }
 .work-count.on { color: var(--accent); }
 .work-body { margin-top: 4px; }
-/* Rotates to point down when the thing it belongs to is open — the only affordance
-   saying a row has more behind it, on both the card head and a session row. */
+/* The only affordance saying a row has more behind it. On a card head it rotates to
+   point down when that card is unfolded; on a session row it stays pointing right,
+   because there the "more" is a detail page the row links to rather than a fold. */
 .chev { flex: none; width: 14px; text-align: center; font-size: 17px; color: var(--muted); transition: transform 120ms ease; }
 [aria-expanded='true'] > .chev { transform: rotate(90deg); }
 .work-row {
@@ -1326,9 +1461,10 @@ body {
   border-top: 1px solid var(--line);
 }
 .session-label span { font-size: 11.5px; font-weight: 450; letter-spacing: 0; text-transform: none; }
-/* Tappable, and a button rather than a link: it opens its own transcript in place
-   rather than navigating anywhere. The UA's own button borders and font have to go,
-   because `.work-row` only ever meant to set the one border that divides rows. */
+/* Tappable, and a button rather than a link where the tap does something to this page
+   rather than going somewhere — a PR row unfolding, a mirror row taking the wheel. The
+   UA's own button borders and font have to go, because `.work-row` only ever meant to
+   set the one border that divides rows. */
 button.work-row {
   width: 100%;
   background: none;
@@ -1371,11 +1507,12 @@ button.work-row {
 .adv-next .pill.id { margin-right: 4px; }
 .adv-note.bad { color: var(--danger); white-space: normal; }
 
-/* What one session actually is, under its row. The facts are indented to sit under
-   the title they belong to; the transcript is not, because it is laid out in columns
-   by something that counted characters and wants every one of them. */
+/* What one session actually is — /session?pid=…, the detail every list in the app links
+   to. It was a pane folded under the row on /sessions, which is why the labels are as
+   short as they are: they had to fit beside a value on a 390px screen with the row's own
+   icon column already spent. See public/session.js. */
 .session-detail { padding-bottom: 8px; }
-.session-facts { margin: 6px 0 0 30px; display: grid; gap: 4px; }
+.session-facts { margin: 6px 0 0; display: grid; gap: 4px; }
 .session-facts > div { display: flex; align-items: baseline; gap: 8px; }
 /* Wide enough for the longest label there is ("workspace"), and no wider: this is a
    390px screen, and every pixel of label column is one taken off a path that already
@@ -1387,8 +1524,26 @@ button.work-row {
   color: var(--muted);
 }
 .session-facts dd { margin: 0; min-width: 0; font-size: 12.5px; overflow-wrap: anywhere; }
+/* Busy or idle, on the process row — the one at-a-glance answer to "is this moving",
+   and the only line it can sit on without repeating what the line under it says.
+   `inline-block` because `.spark` is sized in px and a bare inline span ignores that,
+   which would leave a working session drawing nothing at all. */
+.session-facts .spark { display: inline-block; vertical-align: middle; margin-right: 6px; }
+.session-facts .idle { margin-right: 5px; color: var(--muted); }
 .session-detail .session-label { margin-top: 10px; }
 .session-detail .agent-log { max-height: 52vh; }
+
+/* On a page of its own the transcript is the point, so it takes the room the folded
+   pane had to leave for the rest of the list — sized off the viewport the way .doc .pdf
+   is, with a floor so a short screen still shows a readable pane rather than three
+   lines. */
+.session-page { padding-bottom: 24px; }
+.session-solo { padding-bottom: 0; }
+.session-solo .agent-log {
+  max-height: none;
+  height: calc(100dvh - 260px);
+  min-height: 180px;
+}
 
 .work-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
 .work-foot .meta { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; }
@@ -2871,10 +3026,10 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
 .tabbar:has(.tab-item:nth-child(6)) .tab-item { font-size: 9.5px; letter-spacing: 0; padding-inline: 1px; }
 .tabbar:has(.tab-item:nth-child(6)) .tab-icon { font-size: 18px; }
 
-/* How many agents are running, and how many advocates are waiting — on the tabs
-   that answer them, so the number and the way to act on it are one tap target.
-   It hangs off the icon rather than the item so it lands on the glyph and not out
-   at the edge of a tab that is a quarter of the screen wide. */
+/* How many proposals are waiting — on the tab that answers them, so the number and
+   the way to act on it are one tap target. It hangs off the icon rather than the item
+   so it lands on the glyph and not out at the edge of a tab that is a fifth of the
+   screen wide. */
 .tab-badge {
   position: absolute;
   top: -3px; left: 62%;

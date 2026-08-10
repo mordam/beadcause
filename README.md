@@ -141,6 +141,10 @@ images:
 
 - `options[].response` is the exact text recorded as the answer — write it so a
   future agent can act on it without re-reading the question.
+- `recommended: true` on one option puts a ★ and a tag on its button. `recommend:
+  <id or label>` beside the list is the same thing said once instead of per row,
+  and wins if both are written. Only one option is ever starred: two is the block
+  contradicting itself, and a card is the wrong place to discover that.
 - `diagram` is mermaid, rendered on the phone. ` ```mermaid ` fences in the prose
   render too.
 - `docs` are files on the Mac you need to read before answering. Each opens in the
@@ -176,6 +180,75 @@ node bin/ask.js -w acme -t "Which auth flow?" -b ac-abc < brief.md   # -b blocks
 
 `-b <id>` makes the named issue depend on the question, so it stays out of
 `bd ready` until you answer.
+
+### Suggested answers — when there is no block
+
+Most beads are not filed by anything that has heard of beadcause. A session ends,
+writes its open question into `bd` as ordinary prose with the choices in a list,
+and the card used to render that as paragraphs with an empty box under them — the
+answer visible on screen and still needing to be typed out with a thumb.
+
+So when a bead carries **no** `decision` block, beadcause reads the prose and
+offers what it finds as chips on the top edge of the answer box:
+
+```
+Suggested — read out of the design            tap to fill the box
+[ ★ Restore at promotion ]  [ Restore at startup ]
+```
+
+**A chip fills the box; it never sends.** That is the whole difference between
+these and the buttons above. An `options[].response` was written by an agent as
+the answer, so tapping it twice answers and closes. A suggestion is a sentence
+this parser lifted out of a paragraph, so it goes where you can read it, edit it
+and add a caveat, and *Answer & close* is still what commits it. Tapping a second
+chip swaps your pick; tapping one after you have typed something appends, because
+the words you wrote are never thrown away.
+
+**Write the list and it will be found.** Any of these parse, in this order:
+
+- `**Bold label** — the rest.` as a bulleted or numbered list. The bold run
+  becomes the chip; everything after it rides along in the answer.
+- `Option A — …`, `Option B: …`, anywhere — list, heading or bare paragraph.
+- A plain list directly under a lead-in line: *The options:*, *Choices:*,
+  *Candidates:*, *Two ways forward:*.
+
+**Say which one you would pick** with `(recommended)` in the item, or a closing
+line — `RECOMMEND Restore at promotion — the swap read is cheap`, which is the
+spelling the `handoff` skill already tells every session to write. A closing line
+beats an inline marker, because it is the later thought. `not recommended` never
+stars anything, which matters more than it sounds: it is ordinary prose, and a ★
+on it would be the app recommending the thing the brief warned you off.
+
+**It fails towards silence**, and that is deliberate — a card with no chips is
+the card you have today, while chips scraped off an unrelated bullet list invite
+the wrong tap. Nothing is offered for: one item, more than six, a `- [ ]`
+checklist, a list inside a fenced block, two candidate lists with no question
+between them to say which one is being asked, or two items that read the same.
+Nor for a proposal, an amendment or a delivery — those draw their own controls,
+and a second set of chips beside them would be two answers to one question
+disagreeing about what the question is.
+
+**A `decision` block is still better** and is what to write when you know the
+question is going to a phone: it gets full-width buttons above the fold, the
+exact sentence you chose recorded as the answer, and one tap fewer. This is the
+safety net under everything else.
+
+#### Checking it
+
+Two, because the parser and the gesture fail in different ways:
+
+- **`node test/suggest.mjs`** — the parser, in `npm test`. Every shape it reads,
+  and — the half that carries the weight — every shape it must refuse, since a
+  card with no chips is the card you have today while chips scraped off the wrong
+  list invite the wrong tap. Both directions of the ★, including `not
+  recommended`.
+- **`node scripts/suggest-check.mjs`** — the tap, in headless Chrome at phone
+  size, driving the real `public/app.js`. It counts writes and fails on one: the
+  claim it exists to defend is that a chip fills the box and never sends, and the
+  refactor that would break that — routing a chip through the `option` handler —
+  reads like tidying up a duplicate. `--baseline` serves the committed `public/`,
+  where it must score 7/23: every suggestion case failing, every control passing.
+  Not in `npm test` — it needs Chrome.
 
 ## Spaces — keeping work out of your evening
 
@@ -419,6 +492,48 @@ children" is not a decision to take from a lock screen, and a `force` flag that
 skipped the check would only reach the same refusal from bd a moment later, since
 `respond` does not pass `--force` either.
 
+### The best refusal is a button that was never there
+
+Refusing before anything is written fixed the damage. It did not fix the shape:
+you still opened an epic with thirty open children, read it, typed a paragraph,
+pressed **Answer & close**, and *then* learned the tracker was never going to
+allow it. That is a lot of work to be told no, and on the beads it happens to —
+the epic that is a whole feature's worth of children — it happens every single
+time.
+
+So the card asks when it **opens** instead. `/api/question` already does a
+`bd show` to build the detail; it now runs the same gate check off that record and
+sends the answer with it. Free for anything that is not an epic, because the
+blockers are on the record already; one `bd list --parent` for one that is.
+Deliberately **not** on `/api/questions` — there it would be a child list per epic
+row on every 25-second poll, for cards nobody has opened.
+
+Knowing it, an open card on a gated bead **draws no *Answer & close* at all**.
+What is in its place:
+
+- **Comment**, promoted to the primary button, because it is now the only thing
+  the box does. The placeholder changes with it — *Say something on the thread…*
+  rather than *Answer in your own words…*, which would be inviting a decision the
+  screen cannot record.
+- **A dashed amber note** where the button would have been, naming the reason and
+  linking the children into the graph. Quieter than the `409` note above it —
+  dashed and unfilled, with no buttons — because nothing has gone wrong and
+  nothing is waiting on you: it is a fact about the bead, and the buttons on the
+  refusal note exist only to rescue words you had already typed.
+- **Set aside**, unchanged. It closes nothing, so it was never gated, and the bead
+  you can least close is the one you most want off the screen.
+
+The `409` path stays exactly as it is, and is now the rare one: what reaches it is
+a gate that appeared **between** the card opening and the press — a child reopened,
+a blocker filed while you were reading. That window is real, so nothing about the
+server-side check is relaxed on the strength of the card having asked first.
+
+Two known limits, both deliberate: a **decision block's option buttons** and a
+**proposal's Create-all** also close the bead and are still drawn on a gated card,
+falling back to the `409` note when pressed — hiding them would leave a decision
+card with no visible way to decide. And a **delivery** keeps its three buttons,
+because those are about a pull request rather than about the bead.
+
 ### What is gated, and what is deliberately not
 
 The gate belongs to **closing**, and only one of the three ways out of a card
@@ -426,7 +541,7 @@ closes anything:
 
 | | closes the bead? | gated? |
 |---|---|---|
-| **Answer & close** | yes | yes — this section |
+| **Answer & close** | yes | yes — and not even drawn when the card knew in advance |
 | **Comment only** | no | no |
 | **Set aside** | **no** — see [above](#setting-a-card-aside-is-not-answering-it) | no |
 
@@ -443,7 +558,7 @@ be reporting the merge as a failure.
 
 ### Checking it
 
-Three, because the three things that can break here are different things:
+Four, because the things that can break here are different things:
 
 - **`node test/closegate.mjs`** — the gate itself: the two refusals, and, the
   expensive half, the six cases that must **not** be refused. A question bd would
@@ -464,6 +579,12 @@ Three, because the three things that can break here are different things:
   server would send them. That is `closepaths`' job, and the reason it exists.
   `--baseline` serves the committed `app.js`/`style.css`; `--out=<dir>` writes the
   note.
+- **`node scripts/card-thread-check.mjs`** — the other half of the same story: that
+  a gated epic never draws the button at all, that the comment takes its place as the
+  primary, that the note names the children, and — the control that matters most —
+  that an ordinary question keeps every button it had. The same script covers the
+  folded thread below, since both are about what an opened card spends your attention
+  on.
 
 ### Where the answer goes
 
@@ -676,6 +797,58 @@ fixtures way as the scroll check, over the inbox card and the graph sheet: a fol
 paragraph comes back as one sentence with no break in it, a folded list item stays
 one item, and a three-line comment still has its two breaks. `--baseline` serves
 `HEAD:public/app.js` and `HEAD:public/graph.js`, where the bd-prose cases must fail.
+
+### The thread is folded to the last exchange, and opens on your half of it
+
+A bead that has been round four times has a thread that is mostly history, and a
+card that draws all of it spends the screen on the part you have already read.
+Every entry is folded to its author line except **two: the last thing you said, and
+the last thing the other side said.**
+
+Two rather than one, and one from each side rather than the last two:
+
+- The recent exchange **is** a pair. The last reply only means anything next to what
+  it was replying to.
+- Taking "the last two comments" would leave nothing of yours on screen whenever the
+  final two are both an agent's, which on a thread where an agent answered and then
+  followed up is the ordinary case.
+
+A folded entry keeps its author, its age and **one clipped line of what it said** —
+enough to recognise, never enough to wrap, because two lines is not folded. The
+author line *is* the toggle: a 12px chevron of its own would be a second target on a
+bubble whose whole point is the sentence inside it, and the who-and-when line is
+already what your eye uses to decide whether this is the comment you were after.
+Yours are still the plain bubbles and an agent's still carry the teal stripe, folded
+or not — the fold changes what is shown, never who said it.
+
+**Opening a card lands you on your last message.** The top of a card is the question,
+and the question is the part you already know — it is why you tapped. What you have
+lost is the conversation. So the brief scrolls to your last comment with the reply to
+it just below, and the description is above you, still there when you swipe back. If
+there is nothing of yours on the thread — a question you have not answered yet, the
+common case — the card opens at the top as it always did. The jump happens **only on
+the way in**: a card already open stays exactly where you put it, because a poll that
+dragged you back down to your own comment every 25 seconds would undo the whole of
+[keeping your place](#keeping-your-place-in-a-long-brief). It re-measures as the
+diagrams draw, for the same reason the restore does.
+
+Both halves are **repaint-proof**, which is the part that took the care. Opening a
+folded comment is a class flipped on that one bubble — never a `render()`, because
+the answer box under the thread is holding a draft and possibly the caret — and the
+choice is recorded in `state.thread`, keyed by the comment's own uuid, so the next
+poll paints it back the way you left it. A comment you opened to read folding up
+again under a background refresh is the same category of loss as a half-typed answer
+disappearing.
+
+`node scripts/card-thread-check.mjs` covers this and the missing *Answer & close*
+above, in the same headless-Chrome-at-phone-size way: that all seven comments are on
+the card but only two have a body on screen, that they are the right two, that each
+folded one shows a single line, that the card opened somewhere other than the top
+with your last message at the fold, that a tap opens one in place without touching
+the draft or the caret, and that a refresh leaves it open. `--baseline` serves
+`HEAD:public/app.js` and `HEAD:public/style.css`, where every comment is open, the
+epic offers to close itself and the card opens at the top — so baseline must fail.
+`--out=<dir>` writes the two screenshots.
 
 ## Who you are talking to
 
@@ -1446,34 +1619,42 @@ way **What this is blocking** does and asserts that bead ends up under it.
 
 The standing views — it started as four: the **inbox**, the **chat session**, the
 **sessions** and the **advocates**, with the **pull requests** and the **admin**
-screen since. The bar labels the second one just **Chat**, because six
-tabs leave no room for two words at 360px. They are separate pages, and each one used to end in an ✕
-in the top right that hard-navigated back to `/`. That made the inbox a hallway —
-chat session to advocates was two taps through a page you did not want — and the ad-hoc
-cross-links that grew to paper over it (sessions → advocates, advocates → sessions)
-were the same complaint, admitting itself.
+screen since, and Sessions gone again because it and Advocates turned out to be one
+view drawn twice. The bar labels the chat session just **Chat**, because five tabs
+leave no room for two words at 360px. They are separate pages, and each one used to
+end in an ✕ in the top right that hard-navigated back to `/`. That made the inbox a
+hallway — chat session to advocates was two taps through a page you did not want — and
+the ad-hoc cross-links that grew to paper over it (sessions → advocates, advocates →
+sessions) were the same complaint, admitting itself.
 
 So all of them carry the same bar along the bottom, where a thumb already is:
 
 ```
-  📥      🧾       🤖        🔀         📣         ⏸
- Inbox   Chat  Sessions    PRs    Advocates   Admin
+  📥      🧾       🔀         📣         ⏸
+ Inbox   Chat    PRs    Advocates   Admin
  ▔▔▔▔▔
 ```
 
-Six tabs is 60px each at 360px, which "Advocates" does not fit at the bar's normal
-type size — so the stylesheet steps the type down when a sixth tab is there
+Five tabs is 72px each at 360px, which "Advocates" fits. Six would be 60px, which it
+does not — so the stylesheet steps the type down when a sixth tab is there
 (`.tabbar:has(.tab-item:nth-child(6))`), keyed off the bar's own contents rather than
 off a count written down somewhere, so adding or removing a tab needs nothing else.
+It is dormant at five and will come back on its own if a tab does.
 
-Sessions and Advocates carry a **badge** when there is something behind them — how
-many agents are running, how many advocates are waiting on an answer. Both numbers
-ride the inbox's own poll (`/api/questions` carries them; see [the three counts on
-the poll](#the-three-counts-on-the-poll)), so they are live while you are on the
-inbox and simply absent on a page that has no way to refresh them — which beats a
-stale number that looks live. Zero shows nothing. The badge sits inside the tab's
-`aria-hidden` icon, so the tab takes an `aria-label` saying what the number counts:
-"2" read out after "Sessions" says nothing about two of what.
+Advocates carries a **badge** when there is something behind it — how many advocates
+are waiting on an answer. The number rides the inbox's own poll (`/api/questions`
+carries it; see [the three counts on the poll](#the-three-counts-on-the-poll)), so it
+is live while you are on the inbox and simply absent on a page that has no way to
+refresh it — which beats a stale number that looks live. Zero shows nothing. The badge
+sits inside the tab's `aria-hidden` icon, so the tab takes an `aria-label` saying what
+the number counts: "2" read out after "Advocates" says nothing about two of what.
+
+**One badge, and it is the proposals.** Sessions used to carry the count of running
+agents beside it, and dropping it was deliberate rather than a casualty of the merge:
+a badge on a tab you are not looking at means *needs you*, and a running agent needs
+nothing — it is a fact about the machine. The count is still served and still on
+screen, in the advocate console's own tally ("3 working · 1 to answer"), beside the
+repo it belongs to instead of standing in for all of them.
 
 Any view is one tap from any other, and nothing closes any more. The current tab is
 a `<span>` rather than a link — tapping where you already are should do nothing, not
@@ -1489,9 +1670,9 @@ and come back from, not views you live in.
 An **open question is the exception**: a card you have opened takes the whole screen,
 tab bar included, because the answer buttons at its foot must not sit under anything.
 Collapsing it gives the bar back. That behaviour belongs to `.card.open` and to the
-inbox alone — the accordions on the sessions and pull request views mark their
-unfolded card `unfolded` instead, because a workspace card that took the screen over
-the bar was a page you could not leave, on a view whose first load unfolds one.
+inbox alone — the accordion on the pull request view marks its unfolded card
+`unfolded` instead, because a card that took the screen over the bar was a page you
+could not leave, on a view whose first load unfolds one.
 
 `node scripts/tabbar-check.mjs` checks it, headless at phone size against fixtures
 the script serves itself: the bar is on every page and pinned to the bottom,
@@ -1499,6 +1680,14 @@ exactly one tab is current and it is the right one, the current tab is not a lin
 and the last row of the list, the chat session's composer and the last advocate card all
 clear it — in both colour schemes. `--fake-inset` re-runs the safe-area sums with a
 notch substituted in, for the Chromes with no `Emulation.setSafeAreaInsets`.
+
+The *paths* are checked separately, in `npm test`: `node test/pagepaths.mjs` asks a
+real server for every URL a phone might still have on its home screen and checks which
+document came back — all five that reach the advocate console, both that reach the pull
+request board, and so on — plus that `/work.js`, deleted with the sessions view, 404s
+rather than lingering. The aliases live in a run of one-line `if`s in `serveStatic`,
+which is exactly the shape a merge eats, and a broken one is silent: the page is fine,
+the shortcut is not.
 
 ## Detail opens over the tab, not instead of it
 
@@ -1510,16 +1699,22 @@ gesture landed on whatever the browser felt like. They are not destinations. The
 are detail about the thing you just tapped, so they **slide in from the right over
 the current tab** and dismiss back to it.
 
+There are three of them: `/graph?ws=…&id=…`, `/doc?p=…`, and
+[`/session?pid=…`](#tap-a-session-to-see-what-it-is-actually-doing). The third is here
+for a second reason on top of the first — a session is listed in four places, and until
+it had an address of its own the detail behind it could only exist in whichever list had
+been taught to fold it open.
+
 `public/drawer.js` is one file loaded by both sides of it, picking its half at load:
 
-- **On a tab**, it intercepts clicks on `/graph?` and `/doc?` links and loads the
-  page that already exists into an iframe in the panel. The iframe is the whole
-  trick — it keeps d3 out of the inbox's bundle and marked out of the graph's, and
+- **On a tab**, it intercepts clicks on `/graph?`, `/doc?` and `/session?` links and
+  loads the page that already exists into an iframe in the panel. The iframe is the
+  whole trick — it keeps d3 out of the inbox's bundle and marked out of the graph's, and
   no page had to learn to render the other one. The anchors keep their real `href`,
-  so long-press → open in new tab still works, and a pasted `/graph?ws=…` or
-  `/doc?p=…` URL still loads the standalone page exactly as before. (A detail page
-  opened on its own installs nothing: no drawer over a drawer's worth of the same
-  thing.)
+  so long-press → open in new tab still works, and a pasted `/graph?ws=…`,
+  `/doc?p=…` or `/session?pid=…` URL still loads the standalone page exactly as before.
+  (A detail page opened on its own installs nothing: no drawer over a drawer's worth of
+  the same thing.)
 - **Inside the drawer**, the page stops being a page: it puts its own top bar away,
   hands its title up to the panel's header, and retargets a link from one document to
   the next instead of escaping to a new tab.
@@ -1587,6 +1782,15 @@ the sessions tab with a graph, that the panel is full width on a phone and inset
 a working backdrop on a wide screen, and that a pasted `/graph` URL still loads the
 page itself.
 
+The session detail gets the same treatment plus the two things only it can get wrong.
+**One address from three lists**: it reads the `href` off the session row on
+`/sessions`, off the advocate's worker row and its "Claude sessions" row on
+`/advocates`, and off the mirror's — and asserts all four are the same
+`/session?pid=…`. Right in one list and forgotten in the other two is exactly how this
+breaks, and it is invisible from anywhere else. And **a pid whose process has gone says
+it finished** rather than showing an empty transcript, which is the one state the page
+has to distinguish and the one a fixture can actually stage.
+
 It counts the chrome, too, because that is the part a screenshot flatters: exactly
 one header and one ✕ inside the drawer, both the panel's, with a long filename clipped
 to the one row rather than shoving the ✕ off the edge; the header saying what the page
@@ -1610,30 +1814,32 @@ it carries the `human` label — which means everything the sessions on the Mac 
 actually doing was invisible from the phone. Nine beads claimed in sophab five
 minutes ago showed up nowhere at all.
 
-**🤖 Sessions in the tab bar** opens `/sessions`: one card per workspace, busiest
-first. (`/work`, what this used to be called, still resolves to the same page.)
+This used to be its own page — 🤖 Sessions, at `/sessions`. It is **the advocate
+console** now (📣 in the tab bar). The two were one view drawn twice: the same
+`/api/work` payload, one card per repo, the same claimed beads, the same live `claude`
+rows, an advocate state line on each. Everything below is on the console's cards, and
+`/sessions`, `/work` and `/work.html` all serve it, because those paths are on the
+phone's home screen and in the Android shell's history.
 
-**The cards are an accordion — one open at a time.** Six workspaces of beads and
-sessions is several screens on a phone, and the whole page had to be paged through to
-reach the one repo you opened it for. Collapsed, a heading still carries its own
-summary, so the scan happens in one screen and only the card you want unfolds. The
-busiest card (the first one) opens itself on arrival, because six closed headings
-would charge you a tap on every visit for nothing.
+Which is also the better answer to the question. "What is running" is almost always
+"what is running *in this repo*" — and on the console the sessions sit inside the repo
+they are running in, under **Other work in this repo**, beside the advocate that may
+have opened them and the queue they came off.
 
 ```
-climative                        5 on a bead · 5 sessions ⌄
-  ◗ pipeline-service: client built without retry…      11h
-    cl-1jw  adam.morgan
-  ◗ TECH-5989 fanout: downmerge 25 service repos       17h
-    cl-wyv  adam.morgan
-  CLAUDE SESSIONS  Which of these is on which bead is not recorded.
-  ● Climative - newrelic v14 override fix           11h  ›
-    dms-client-retry-4e7 · pid 90310 · idle
-  54 open · 51 ready · 3 blocked            [ Graph → ]
-
-deluvia                                     2 sessions ›
-sophab                                      1 session  ›
-ehatt                                              idle ›
+climative                                   2 of 3 sessions
+  54 open · 51 ready · 3 in progress · 4 for the advocate
+  ▾ Working now                                        2/3
+  ▸ Up next                                              4
+  ▸ Thinking
+  ▾ Other work in this repo                               3
+      CLAIMED BEADS  Not opened by the advocate.
+      ◗ pipeline-service: client built without retry…   11h
+        cl-1jw  adam.morgan
+      CLAUDE SESSIONS  Which is on which bead is not recorded.
+      ● Climative - newrelic v14 override fix           11h
+        dms-client-retry-4e7 · pid 90310 · idle
+  surveyed 4m ago · launched 11h ago       [ Graph → ]
 ```
 
 A session reaches this page through **either of two independent signals**, and the
@@ -1675,27 +1881,48 @@ A session row used to be a dead end. It said a name, a pid and the word "busy" �
 on a permission prompt for an hour. The pid was on screen precisely because there was
 nothing better to show.
 
-Tapping one now unfolds what the process record knows — its full directory, its
-workspace, when it started, when it last spoke — and under that, **its own Claude Code
-transcript, tailed live**:
+Tapping one now opens **`/session?pid=…`**: what the process record knows — its full
+directory, its workspace, when it started, when it last spoke — and under that, **its
+own Claude Code transcript, tailed live**. It arrives in the [detail
+drawer](#detail-opens-over-the-tab-not-instead-of-it), over whichever list you tapped
+from, and back puts you straight back in it.
 
 ```
-  ● Beadcause - bc-76c Sessions tab: accordion cards    22m ⌄
-    sessions-accordion-log-5f7 · pid 30342 · busy
-      WHERE      /Users/…/beadcause/.claude/worktrees/sessions-accordion-log-5f7
-      WORKSPACE  beadcause
-      PROCESS    pid 30342 · interactive · busy
-      STARTED    Aug 8, 12:03 PM · 22m ago
-      ACTIVE     Aug 8, 12:03 PM · 22m ago
-      SESSION    a60224c4
-    TRANSCRIPT  Its own log, as the terminal showed it.
-    ┌──────────────────────────────────────────────────────────┐
-    │ ❯ run whatever this repo calls its tests                 │
-    │ ✻ thinking                                               │
-    │   > Bash node --check lib/transcript.js                  │
-    │     check=0                                              │
-    └──────────────────────────────────────────────────────────┘
+  ┌ Beadcause - bc-76c Sessions tab: accordion cards      ✕ ┐
+  │  WHERE      /Users/…/beadcause/.claude/worktrees/…-5f7   │
+  │  WORKSPACE  beadcause                                    │
+  │  PROCESS    ● pid 30342 · interactive · busy             │
+  │  STARTED    Aug 8, 12:03 PM · 22m ago                    │
+  │  ACTIVE     Aug 8, 12:03 PM · 22m ago                    │
+  │  SESSION    a60224c4                                     │
+  │  TRANSCRIPT  Its own log, as the terminal showed it.     │
+  │  ┌────────────────────────────────────────────────────┐  │
+  │  │ ❯ run whatever this repo calls its tests           │  │
+  │  │ ✻ thinking                                         │  │
+  │  │   > Bash node --check lib/transcript.js            │  │
+  │  │     check=0                                        │  │
+  │  └────────────────────────────────────────────────────┘  │
+  └──────────────────────────────────────────────────────────┘
 ```
+
+**It is a page, not a pane, and that is the whole of what changed.** The detail used to
+fold open inline under the row on `/sessions` — which meant it existed in exactly one of
+the four places a session was listed. The same session is an advocate worker row and a
+"Claude sessions" row on the console, a row in the *Elsewhere* card, and a row in the
+mirror, and in all three of those the tap did nothing at all: inline detail can only
+ever exist in the list that was taught to fold it. Now every one of those rows is a link
+to the same `/session?pid=…`, so the tap means the same thing wherever your thumb landed.
+
+That is also what made `/sessions` redundant — the fold was the only thing it had that
+the console did not — which is why there are three places now rather than four, and why
+`/sessions` serves the console.
+
+The pid is the whole address, because nothing else identifies a running process — and a
+URL that named a *file* instead would be a way to read anything on the Mac. The one row
+that deliberately does **not** link here is an advocate worker whose window has gone: a
+worker is a window we opened rather than a process we can see, and where the pid it
+recorded no longer names anything running, the row keeps its link to the bead. Promising
+a session that cannot be shown would be worse than the dead end it replaced.
 
 Claude Code already writes the whole conversation to
 `~/.claude/projects/<slug>/<session-id>.jsonl`, one JSON object per line, appended as
@@ -1727,12 +1954,18 @@ Four things worth knowing:
   `/api/` and no further — but it is the most sensitive thing this daemon serves, and
   `claudeSessions: false` turns it off along with the rest of the session reading.
 
-Only one session is open at a time, and folding a card closes the session inside it —
-a pane left open behind a fold would reappear on its own when you came back. The pane
-polls every two seconds while it is open and never otherwise, and it keeps its scroll
-position across the card refresh: following the tail is only right if you were already
-at the bottom, and a pane that jumped to the end every 45 seconds would make reading
-back through a run impossible.
+The page polls every two seconds while it is open and stops for good on the 404 —
+there is no point asking again about a pid that will never come back. It follows the
+tail only if you were already at the bottom, so scrolling back to read something is not
+yanked away by the next line. The console behind it refreshes on its own 20-second
+cycle and, because the detail is in a drawer rather than folded into that list, a
+repaint there can no longer disturb what you are reading.
+
+**That is also what let the sessions view go.** The detail had to be folded into the one
+list that was taught to fold it, and that fold was the only thing `/sessions` had which
+the advocate console did not. Once every row anywhere in the app reached the same
+address, the two pages were the same page — see [the tab
+bar](#getting-around--the-tab-bar).
 
 Every card has a **Graph →** into the whole workspace — which is also the answer to
 "how do I see what another session just created", since the graph draws every open
@@ -1742,11 +1975,12 @@ Two `bd` calls per workspace (`status --json` for the counts, `list
 --status=in_progress --limit 0 --json` for the beads — `--limit 0` because bd's own
 default is 50, and a silently truncated list here would read as the whole truth),
 run in parallel across all of them:
-about two seconds for six. It refreshes every 45s and on ⟳, deliberately not on the
+about two seconds for six. It refreshes every 20s and on ⟳, deliberately not on the
 inbox's 30s cycle — the inbox is polled by every client all day, and this is opened
-when you want it. A workspace that fails reports its error in place rather than
-vanishing from the list; a missing row would read as "nothing happening there",
-which is the one thing it doesn't mean.
+when you want it. It also stops while the Mirror pane is the one showing, because a
+hidden page must not keep sweeping every tracker on the Mac. A workspace that fails
+reports its error in place rather than vanishing from the list; a missing row would
+read as "nothing happening there", which is the one thing it doesn't mean.
 
 ## Pull requests — merged, pushed, deployed
 
@@ -2022,10 +2256,14 @@ and at most one every `proposeCooldownHours`.
 
 ### What you see, and where
 
-- **The sessions page** (🤖 in the tab bar) grows an **Advocate** block on each repo's
-  card: what it is doing, the beads it has windows open on, what it will pick up
-  next, and **Pause** / **Reclaim sessions**. *Reclaim sessions* asks each open window
-  whether it is still working — see below.
+- **The advocate console** (📣 in the tab bar, at `/monitor` — and at `/sessions` and
+  `/work`, which it absorbed) is one card per repo: what the advocate is doing, the
+  beads it has windows open on, what it will pick up next, its survey transcript, the
+  proposals waiting on you, what its finished sessions left behind, and the other work
+  in that repo — your own claimed beads and every live `claude` process, each one
+  tappable for its transcript. Plus **Pause** / **Reclaim sessions** / **Forget
+  attempts**. *Reclaim sessions* asks each open window whether it is still working —
+  see below.
 - **The monitor** (`npm run monitor`) has an advocates pane above the questions, and
   every launch, close, lapse and proposal appears in its event log.
 - **The launchd log** (`~/Library/Logs/beadcause.log`) carries the same events as
@@ -3279,7 +3517,7 @@ event instead, so `node bin/monitor.js >> somewhere.log` does something sensible
 Static files are read from disk on every request. Server code is read **once**, at
 startup. So an edit to `lib/` leaves a running daemon serving today's pages against
 yesterday's routes, and nothing about it looks wrong: the files are correct, the
-process is healthy, and `/sessions` returns 404 to a page that plainly asks for it.
+process is healthy, and a path the page plainly asks for returns 404.
 That happened against a ten-hour-old process, and "remember to restart" is not a fix
 — forgetting is the entire bug.
 
@@ -3373,8 +3611,9 @@ Auth on everything under `/api/` except `/api/health`: header
 | GET | `/api/advocate-log` | `?workspace=` | the survey agent's transcript, as the CLI would have shown it |
 | GET | `/api/session-archive` | `?workspace=&id=` | the archived sessions for a bead |
 | GET | `/api/session-archive` | `?workspace=&commit=&file=` | one archived `session.log`, `meta.json` or `transcript.jsonl` |
-| GET | `/api/session-log` | `?pid=` | `{pid, sessionId, status, file, lines[]}` — the tail of that live session's own transcript. 404 for a pid that is not running |
-| GET | `/sessions`, `/work` | — | the current-sessions page (same page, two paths) |
+| GET | `/api/session-log` | `?pid=` | the whole session record — `{pid, sessionId, name, cwd, where, workspace, status, kind, at, startedAt}` — plus `{file, lines[]}`, the tail of its own transcript. 404 for a pid that is not running |
+| GET | `/monitor`, `/advocates`, `/sessions`, `/work`, `/work.html` | — | the advocate console — and the sessions view it absorbed (one page, five paths) |
+| GET | `/session` | `?pid=` | the HTML page for one live session: its facts and its transcript |
 | GET | `/graph` | `?ws=&id=` | the HTML graph page |
 | GET | `/api/consoles` | — | `{consoles[], workspaces[]}` — every chat session, newest first; `closedAt` set on the finished ones |
 | POST | `/api/console/close` | `{id}` | soft-closes it and returns the new list. `409` mid-turn; saying anything to it reopens it |
@@ -3425,7 +3664,9 @@ it, not fine every thirty seconds on a phone.
 These three are the exception because none of them costs a `bd` call. `sessions` is a
 readdir of `~/.claude/sessions` plus a JSON parse per record — every live session on
 the Mac, including ones in no configured workspace, which is exactly the set the
-sessions page lists. `proposals` counts **advocates**, not beads: one open ask per
+advocate console lists (the ones outside every workspace under **Elsewhere**). It is
+no longer a tab badge — see [the tab bar](#getting-around--the-tab-bar) — but the
+console's tally is drawn from it. `proposals` counts **advocates**, not beads: one open ask per
 advocate is the rule `propose()` enforces, so a repo with two proposal-shaped beads
 in it is still one repo waiting on you.
 
@@ -3493,7 +3734,7 @@ the fields it always read and renders exactly as it did.
 | `agents[].tools` | the allowlist that agent may be *armed* with, for one reply at a time. Config-file only — see [Allow tools](#allow-tools--for-one-comment-and-only-that-one) |
 | `agentToolsAcknowledged` | agents whose extended-tools warning you have accepted; written when you accept it |
 | `spaces` | groups of workspaces sharing a notification policy — see [Spaces](#spaces--keeping-work-out-of-your-evening) |
-| `claudeSessions` | `false` to stop reading `~/.claude/sessions` for the current-sessions page (default on; absent directory is not an error) |
+| `claudeSessions` | `false` to stop reading `~/.claude/sessions` for the session rows on the advocate console (default on; absent directory is not an error) |
 | `claudeSessionsDir` | where those per-process records live, if not `$CLAUDE_CONFIG_DIR/sessions` or `~/.claude/sessions` |
 | `claudeProjectsDir` | where session transcripts live, if not the `projects` folder of every `~/.claude…` directory. Takes a list. Governed by `claudeSessions` — off there means no transcripts either |
 | `assetRoots` | the only directories `/api/asset` will read images from |
@@ -3650,8 +3891,9 @@ controls.
 
 ### `npm test`
 
-Seven suites: `scripts/selftest.mjs`, then `test/observe.mjs`, `test/atomic.mjs`,
-`test/memory.mjs`, `test/summary.mjs`, `test/terminal.mjs` and `test/queue.mjs`. What they have in common is that each covers something whose
+`scripts/selftest.mjs`, then every suite under `test/`, then `scripts/test-swap.js` —
+the exact list, in order, is the `test` script in `package.json`, which is the one place
+worth keeping current. What they have in common is that each covers something whose
 failure is *silent* — a flag that does nothing, a state file that comes back empty,
 a message that was never written. The loud failures are still covered by
 `node --check` on changed files and by booting an observer instance and driving it.
@@ -3690,6 +3932,18 @@ something that cannot be delivered, and that the flags are `--session-id` first 
 `--resume` after. The pty itself is a named `skip` — `expect` and `claude` both being on
 PATH is not something a test should assume, and a test that opened one would leave a
 Claude session running in a temp directory.
+
+`test/session.mjs` covers the one address a session has, because every way that breaks
+is invisible until you tap a row and get nothing. The session it reads is the test
+process itself — `liveSessions` liveness-checks every pid, so a made-up one is filtered
+out before the endpoint sees it. It holds that `/api/session-log` answers with the
+*whole* record and not the three fields the folded pane happened to need (the regression
+that would leave the facts pane blank with nothing on screen to say why), that a dead pid
+is a 404 naming it, that `file` comes back even when nothing has rendered yet, that a
+transcript needs a token and the page does not, that `public/drawer.js` still owns
+`/session` — one line, and nothing about it is visible from the server — and, last, that
+`/api/session-log` has exactly one reader in `public/`. That last one *is* the bead: a
+second reader is a second detail view growing back.
 
 `test/queue.mjs` covers what happens to words typed while a turn is running, because
 every way that breaks is silent from the outside: a message queued and never sent

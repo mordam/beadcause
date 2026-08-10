@@ -61,6 +61,10 @@
     graph: 'the graph',
     console: 'a chat session',
     sessions: 'the sessions view',
+    // One session's own detail — the transcript pane. Streamed off the Mac rather
+    // than read out of the tracker, so the mirror points at the same one rather than
+    // drawing a second copy of it; see pointerHtml.
+    session: 'a session',
     // No richer pane behind it here — the mirror falls through to its own "nowhere
     // richer than this" line, which is the honest answer. Named anyway, so the header
     // reads "has the pull requests open" rather than the raw view id.
@@ -109,6 +113,20 @@
   }
 
   /* -------------------------------------------------------------------- target */
+
+  /**
+   * Every device except the one this tab is running on.
+   *
+   * The page around this pane reports its own view now (it is the advocates *and* the
+   * sessions view, so a mirror elsewhere should be able to follow a phone sitting on
+   * it). Without this filter that report comes straight back down the bus, sorts to
+   * the front of the list on its next heartbeat because the list is newest-first, and
+   * this pane starts following the device it is drawn on — a mirror showing "Mac has
+   * the sessions view open" and nothing richer behind it. `presence.device` is stable
+   * per browser profile, which is exactly the granularity that makes "me" decidable
+   * here; with presence.js absent, nothing reports and nothing is dropped.
+   */
+  const notMe = (d) => d.device !== window.beadcause?.presence?.device;
 
   const following = () =>
     (state.pin && state.devices.find((d) => d.device === state.pin)) || (state.pin ? null : state.devices[0]) || null;
@@ -402,30 +420,52 @@
             .filter(Boolean)
             .join('')}</div>
           ${(w.sessions || [])
-            .map(
-              (s) => `<div class="work-row">
-                <span class="work-phase">${s.status === 'busy' ? '<span class="spark"></span>' : '○'}</span>
+            .map((s) => {
+              const body = `<span class="work-phase">${s.status === 'busy' ? '<span class="spark"></span>' : '○'}</span>
                 <span class="work-main">
                   <span class="work-title">${esc(s.name || s.bead || '(unnamed session)')}</span>
                   <span class="work-sub">${esc(s.where || s.cwd || '')}${s.pid ? ` · pid ${esc(s.pid)}` : ''}</span>
                 </span>
-                <time>${esc(age(s.at))}</time>
-              </div>`
-            )
+                <time>${esc(age(s.at))}</time>`;
+              // The same `/session?pid=…` every other list in the app links to, opening
+              // in the drawer over this tab. A row here used to be a plain div, which on
+              // the one screen with room to read a transcript was the worst place for
+              // the detail to be out of reach. Still a div without a pid, because the
+              // pid *is* the address — `?pid=undefined` would be a link to a page that
+              // can only tell you it was given nothing.
+              return s.pid
+                ? `<a class="work-row session-row" href="/session?pid=${encodeURIComponent(s.pid)}">${body}</a>`
+                : `<div class="work-row session-row">${body}</div>`;
+            })
             .join('')}
         </article>`
       )
       .join('');
   }
 
+  /**
+   * The three views that stream off the Mac: point at the same one, don't copy it.
+   *
+   * A terminal, a document and a session's transcript are all files or pipes on the
+   * Mac rather than rows in a tracker, and a second renderer of any of them here would
+   * be a second thing to keep in step for no gain — the phone is not showing a
+   * cut-down version that this screen could improve on. So the mirror says what the
+   * phone is looking at and offers the same address, which for a session is the very
+   * one every list in the app already links to.
+   */
+  const POINTS_AT = {
+    terminal: { what: 'a terminal', href: (t) => `/terminal?id=${encodeURIComponent(t.id)}` },
+    doc: { what: 'a document', href: (t) => `/doc?p=${encodeURIComponent(t.id)}` },
+    session: { what: "a session's transcript", href: (t) => `/session?pid=${encodeURIComponent(t.id)}` },
+  };
+
   function pointerHtml(t) {
-    const href = t.view === 'terminal' ? `/terminal?id=${encodeURIComponent(t.id)}` : `/doc?p=${encodeURIComponent(t.id)}`;
-    const what = t.view === 'terminal' ? 'a terminal' : 'a document';
+    const at = POINTS_AT[t.view] || POINTS_AT.doc;
     return `<article class="card mir-card">
-      <h2>${esc(t.detail || t.id || what)}</h2>
-      <p class="subtitle">The phone is in ${what}. It streams from the Mac rather than from the tracker, so the
+      <h2>${esc(t.detail || t.id || at.what)}</h2>
+      <p class="subtitle">The phone is in ${esc(at.what)}. It streams from the Mac rather than from the tracker, so the
         mirror points at it rather than copying it — open the same one here.</p>
-      <div class="mir-links"><a href="${esc(href)}" target="_blank" rel="noopener">Open ${esc(what)} →</a></div>
+      <div class="mir-links"><a href="${esc(at.href(t))}" target="_blank" rel="noopener">Open ${esc(at.what)} →</a></div>
     </article>`;
   }
 
@@ -446,6 +486,7 @@
         return state.detail === null ? loading() : sessionsHtml(state.detail);
       case 'terminal':
       case 'doc':
+      case 'session':
         return pointerHtml(t);
       default:
         return `<div class="empty">The phone is somewhere this page has no richer version of.</div>`;
@@ -606,7 +647,7 @@
         const data = await api(`/api/poll?since=${state.seq}&wait=25&want=presence`);
         state.seq = data.seq ?? state.seq;
         const before = targetKey(target());
-        if (Array.isArray(data.presence)) state.devices = data.presence;
+        if (Array.isArray(data.presence)) state.devices = data.presence.filter(notMe);
         const after = targetKey(target());
         if (after !== before) {
           if (state.active) await ensureDetail();
@@ -641,6 +682,11 @@
     advPane.hidden = state.active;
     pane.hidden = !state.active;
     for (const b of tabsEl.querySelectorAll('[data-tab]')) b.setAttribute('aria-pressed', String(b.dataset.tab === which));
+    // What this device is looking at, which the chip just changed. On the mirror pane
+    // you are looking at *another* device, so this one is nowhere — `null` keeps the
+    // record and marks it idle rather than dropping it, which is what a mirror on a
+    // third screen should see. See the presence note at the foot of monitor.js.
+    window.beadcause?.presence?.report({ view: state.active ? null : 'sessions' });
     if (state.active) {
       state.moved = false;
       dot.hidden = true;

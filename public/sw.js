@@ -1,6 +1,12 @@
 /* Cache the shell so the inbox opens instantly and the 3.5 MB mermaid bundle is
    fetched once. API traffic is never cached — an answered question must vanish. */
-const CACHE = 'beadcause-v16';
+/* v18: /session became a page of its own (v17), and then the sessions page it was
+   folded inside went away and `/sessions` began serving the advocate console. Both
+   changed this list, so both had to move the version — an installed worker would
+   otherwise go on handing the phone the cached /work.html shell, and a document
+   deleted from the repo would keep opening from the home screen for as long as the
+   cache lived. */
+const CACHE = 'beadcause-v18';
 const SHELL = [
   '/',
   '/index.html',
@@ -12,7 +18,7 @@ const SHELL = [
   '/absorb.js',
   // The bottom tab bar, on every standing view. Every one of them is useless
   // without it now — it is the only way off a page — so it belongs in the shell
-  // rather than being fetched four times over a phone link.
+  // rather than being fetched once per page over a phone link.
   '/tabbar.js',
   // On every page that can open a detail drawer, and on both pages that can be one.
   '/drawer.js',
@@ -20,13 +26,15 @@ const SHELL = [
   '/doc.js',
   '/graph.html',
   '/graph.js',
-  // Both paths for the current-sessions page: '/work' is what the phone's home
-  // screen and the Android shell's history still point at.
-  '/sessions',
-  '/work.html',
-  '/work.js',
-  // The pull request board. Both paths, the same way /work and /sessions are: /pulls
-  // is what you type when GitHub's own word for the tab is the one in your head.
+  // The third page a drawer can be: one session's facts and its transcript, linked
+  // from every list in the app that names a session. In the shell for the same reason
+  // /graph and /doc are — it is opened by a tap on a row, over a page you are already
+  // reading, and fetching it fresh on that tap is the slowest moment to do it.
+  '/session',
+  '/session.html',
+  '/session.js',
+  // The pull request board. Both paths, the same way the advocate console has five:
+  // /pulls is what you type when GitHub's own word for the tab is the one in your head.
   '/prs',
   '/pulls',
   '/prs.html',
@@ -38,9 +46,16 @@ const SHELL = [
   // be a blank screen rather than a degraded one, which is why it is in the shell
   // and not left to network-first.
   '/sendqueue.js',
-  // The advocate console. Two paths for one page, the same way /work and /sessions
-  // are: launchd opens '/monitor', and '/advocates' is what you guess when typing.
+  // The advocate console, and the sessions view it absorbed. Five paths for one page:
+  // launchd opens '/monitor', '/advocates' is what you guess when typing, and
+  // '/sessions', '/work' and '/work.html' are on the phone's home screen and in the
+  // Android shell's history. All five are precached, because a redirect target left
+  // out of the shell is a home-screen shortcut that only works with a signal.
   '/monitor',
+  '/advocates',
+  '/sessions',
+  '/work',
+  '/work.html',
   '/monitor.html',
   '/monitor.js',
   // Pause all / resume all. In the shell for the reason the terminal is: you open

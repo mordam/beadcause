@@ -94,6 +94,13 @@
     // button, because a decline can carry direction for the next attempt and typing
     // a paragraph would outlive any arm timer — see declineHtml.
     prDecline: new Set(),
+    // Comments you have opened or shut by hand, as `${key}|${comment id}` → true
+    // when shut. Only the exceptions live here; the default — the last thing each
+    // side said, open, everything above it collapsed — is derived at render time by
+    // openThreadIndexes(). Out here with the picks and the drafts for the same
+    // reason they are: a 25-second poll rebuilds the list, and a comment you opened
+    // to read must not fold up again underneath you.
+    thread: new Map(),
   };
 
   /* ---------------------------------------------------------------- token */
@@ -358,13 +365,101 @@
     return null;
   }
 
-  /** One message in a bead's thread. Shared with the agent-bead card, which has a
-   *  thread but no decision and nothing to answer. */
-  function commentHtml(c) {
-    return `<div class="comment${c.author && c.author !== 'beadcause' ? ' from-agent' : ''}">
-      <span class="who">${esc(c.author || '')} · ${esc(relTime(c.created_at))}</span>
+  /**
+   * Written from here, rather than by something on the other end.
+   *
+   * Every comment beadcause files carries `--actor beadcause` (see bd.js), so this
+   * is exact rather than a guess — and it is the same test `.from-agent` has always
+   * been painted from, which is why the collapse and the jump below agree with the
+   * accent stripe down the side of the bubble. A comment typed into `bd` on the Mac
+   * is somebody else's as far as this screen is concerned, because that is not a
+   * message this app sent.
+   */
+  const fromMe = (c) => !c.author || c.author === 'beadcause';
+
+  /** Enough of a collapsed comment to recognise it by, on one line. */
+  const peek = (text) => {
+    const flat = String(text || '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    return flat.length > 100 ? `${flat.slice(0, 100)}…` : flat;
+  };
+
+  /**
+   * Which entries in a thread are open: the last thing I said, and the last thing
+   * the other side said.
+   *
+   * A thread on a bead that has been round a few times is mostly history, and read
+   * on a phone that history is what stands between you and the exchange you are
+   * actually in. Two is the right number rather than one because the recent
+   * exchange *is* a pair — the last reply only means something next to what it was
+   * replying to — and the one from each side is what guarantees you get the pair
+   * even when the last four comments are all an agent's.
+   *
+   * Returned as a Set of indexes. Indexes are safe as identity here because a
+   * thread only ever gains entries at the end, and `state.thread` keys off the
+   * comment's own uuid anyway; this is only about which ones start open.
+   */
+  function openThreadIndexes(comments) {
+    const open = new Set();
+    for (const mine of [true, false]) {
+      for (let i = comments.length - 1; i >= 0; i--) {
+        if (fromMe(comments[i]) === mine) {
+          open.add(i);
+          break;
+        }
+      }
+    }
+    return open;
+  }
+
+  /** A comment's identity for `state.thread`, which remembers what you opened. */
+  const commentId = (key, c, i) => `${key}|${c.id || i}`;
+
+  /**
+   * Is this entry collapsed? Your own tap wins over the default, for as long as the
+   * tab lives.
+   *
+   * It has to be state rather than a class left on the DOM: the list is rebuilt by
+   * every 25-second poll, and a comment you opened to read closing again under a
+   * background refresh is the same category of loss as a half-typed answer
+   * disappearing. Toggling writes here and flips the class in place — never through
+   * render(), for exactly that reason.
+   */
+  const isShut = (key, c, i, open) => state.thread.get(commentId(key, c, i)) ?? !open.has(i);
+
+  /**
+   * One message in a bead's thread. Shared with the agent-bead card, which has a
+   * thread but no decision and nothing to answer.
+   *
+   * The author line is the toggle. A separate chevron button would be a second tap
+   * target on a bubble whose whole point is the one sentence inside it, and the line
+   * saying who and when is already the thing your eye uses to decide whether this is
+   * the comment you were looking for — so it is what you press. The body stays in
+   * the DOM while collapsed (hidden by CSS) so opening it costs no re-render, and
+   * `data-mine` is on the element because the jump below has to find the last one.
+   */
+  function commentHtml(c, { shut = false, key = '', i = 0 } = {}) {
+    const mine = fromMe(c);
+    return `<div class="comment${mine ? '' : ' from-agent'}${shut ? ' shut' : ''}"${
+      mine ? ' data-mine="1"' : ''
+    } data-comment="${esc(commentId(key, c, i))}">
+      <button class="who" type="button" data-act="comment" aria-expanded="${!shut}">
+        <span class="caret" aria-hidden="true"></span>
+        <span class="who-name">${esc(c.author || 'you')} · ${esc(relTime(c.created_at))}</span>
+        <span class="peek">${esc(peek(c.text))}</span>
+      </button>
       <div class="md">${renderMarkdown(c.text || '')}</div>
     </div>`;
+  }
+
+  /** A whole thread, with everything but the recent exchange collapsed. */
+  function threadHtml(q) {
+    const comments = q.comments || [];
+    const open = openThreadIndexes(comments);
+    return comments
+      .map((c, i) => commentHtml(c, { shut: isShut(q.key, c, i, open), key: q.key, i }))
+      .join('');
   }
 
   /** A placeholder shaped like the agent comment that is about to land here. */
@@ -1208,10 +1303,15 @@
         const armed = state.armed === `${q.key}|${o.id}`;
         // The arm/disarm state is painted in place by paintArmed() — it must never
         // go through render(), which would rebuild the list under a half-typed answer.
-        return `<button class="option${armed ? ' confirm' : ''}" data-act="option" data-key="${esc(q.key)}" data-opt="${esc(
-          o.id
-        )}" data-label="${esc(o.label)}">
+        //
+        // The recommended tag is a *sibling* of `.label`, never inside it, because
+        // paintArmed writes `label.textContent` — a badge nested in there would
+        // survive until the first tap and then silently vanish.
+        return `<button class="option${o.recommended ? ' rec' : ''}${
+          armed ? ' confirm' : ''
+        }" data-act="option" data-key="${esc(q.key)}" data-opt="${esc(o.id)}" data-label="${esc(o.label)}">
           <span class="label">${armed ? 'Tap again to confirm · ' : ''}${esc(o.label)}</span>
+          ${o.recommended ? '<span class="rec-tag">★ recommended</span>' : ''}
           ${o.hint ? `<span class="hint">${esc(o.hint)}</span>` : ''}
         </button>`;
       })
@@ -1288,15 +1388,30 @@
    * here — so it says which. A button labelled "Answer & close" over a pull request
    * invites a sentence that reads like approval and lands as a rejection.
    *
+   * **A close bd will refuse is not offered at all.** `/api/question` now says
+   * whether this bead is gated (an epic with open children, or something still
+   * blocking it), so the primary button is simply not drawn and the comment takes
+   * its place — see gateWhyHtml for what stands in for it. A button that cannot do
+   * what its label says is worse than no button: the old shape took the answer you
+   * typed, took the press, and only then said the tracker was never going to allow
+   * it, which is a lot of work to be told no.
+   *
    * Only rendered for an open card, which is also what the landscape split keys off:
    * `.card:has(> .brief:not([hidden]))`.
    */
   function freeformHtml(q) {
     const declining = q.delivery && state.prDecline.has(q.key);
+    // Only the plain answer path. A delivery's buttons are about a pull request and
+    // carry their own machinery, and `closeGate` already on the card means a refusal
+    // has just been reported in full above — a second telling under it would be the
+    // card saying the same thing twice.
+    const gated = !q.delivery && !q.closeGate ? q.gate : null;
     const boxPlaceholder = declining
       ? 'Optional — what should the next attempt do instead?'
       : q.delivery
       ? 'What needs changing before this can merge…'
+      : gated
+      ? 'Say something on the thread…'
       : 'Answer in your own words…';
     const boxLabel = declining
       ? `Decline #${q.delivery.number} &amp; close`
@@ -1306,14 +1421,97 @@
     return `<div class="freeform${declining ? ' declining' : ''}">
       ${replyBarHtml(q.key)}
       ${gateNoteHtml(q)}
+      ${gated ? gateWhyHtml(q, gated) : ''}
+      ${declining ? '' : suggestedHtml(q)}
       <textarea data-role="answer" placeholder="${boxPlaceholder}" rows="3">${esc(getDraft(q.key))}</textarea>
       <div class="row">
-        <button class="primary${declining ? ' danger' : ''}" data-act="${
-      declining ? 'pr-decline-go' : 'answer'
-    }" data-key="${esc(q.key)}">${boxLabel}</button>
-        <button class="secondary" data-act="note" data-key="${esc(q.key)}">Comment only</button>
+        ${
+          gated
+            ? ''
+            : `<button class="primary${declining ? ' danger' : ''}" data-act="${
+                declining ? 'pr-decline-go' : 'answer'
+              }" data-key="${esc(q.key)}">${boxLabel}</button>`
+        }
+        <button class="${gated ? 'primary' : 'secondary'}" data-act="note" data-key="${esc(q.key)}">${
+      gated ? 'Comment' : 'Comment only'
+    }</button>
       </div>
       ${declining ? '' : dismissHtml(q)}
+    </div>`;
+  }
+
+  /**
+   * Why this card has no *Answer & close* — said before you type, not after.
+   *
+   * The quiet twin of gateNoteHtml below. That one is a refusal: you pressed, the
+   * tracker said no, and it has buttons because something has to happen to the
+   * words you had already written. This one is a fact about the bead, standing where
+   * the button would have been, so it has nothing to offer and nothing to dismiss —
+   * the comment underneath is the whole offer.
+   *
+   * The children are named and linked for the same reason as in the refusal: "an
+   * epic with four open children" with no ids is a dead end, and the way out of it
+   * starts with reading them.
+   */
+  function gateWhyHtml(q, gate) {
+    const until = gate.kind === 'epic' ? 'its children are closed' : 'its blockers are closed';
+    return `<div class="gate-why">
+      <strong>${esc(q.id)} can't be closed from here — ${esc(gate.reason)}</strong>
+      <p>A comment is what this box can do; it stays on the thread and the bead closes when ${until}.</p>
+      ${gateBlockersHtml(q, gate)}
+    </div>`;
+  }
+
+  /** The beads behind a gate, as links into the graph. Shared by both gate blocks. */
+  function gateBlockersHtml(q, gate) {
+    const blockers = (gate.blockers || [])
+      .map(
+        (b) =>
+          `<a class="pill id" href="${esc(graphUrl({ workspace: q.workspace, id: b.id }))}&amp;open=1"
+            target="_blank" rel="noopener" title="${esc(b.title || '')}">${esc(b.id)}</a>`
+      )
+      .join(' ');
+    return blockers ? `<div class="gate-blockers">${blockers}</div>` : '';
+  }
+
+  /**
+   * The answers this question looks like it has, when nobody wrote it any.
+   *
+   * A `decision` block gets `.options`: full-width buttons above the fold that
+   * answer and close on two taps, because an agent wrote the sentence each one
+   * sends. These are the other case — lib/suggest.js read them out of the prose —
+   * and three things follow from that difference.
+   *
+   * **They live in the answer box, not above the card.** Their whole job is to
+   * save you typing into the box under them, and a chip several screens away from
+   * the thing it fills is a chip you have to scroll back from to check.
+   *
+   * **They are chips, not buttons.** The visual weight has to say which kind of
+   * thing this is without a word of explanation, and `.options` already owns the
+   * shape that means "this closes the bead".
+   *
+   * **A tap fills; it never sends.** The words came out of a paragraph rather than
+   * out of an agent's `response:` field, so they go where you can read and edit
+   * them, and *Answer & close* is still the thing that commits them. One tap, no
+   * arming: filling a box you are looking at is not a gesture that needs guarding.
+   *
+   * Only ever drawn on an open card, which is the same as saying you have had the
+   * chance to read the brief the chips were lifted from.
+   */
+  function suggestedHtml(q) {
+    const options = q.suggested?.options || [];
+    if (!options.length) return '';
+    const draft = getDraft(q.key).trim();
+    return `<div class="suggested" data-key="${esc(q.key)}">
+      <div class="section-label">Suggested · from the ${esc(q.suggested.from)} <span>tap to fill the box</span></div>
+      <div class="chips">${options
+        .map(
+          (o) => `<button class="chip${o.recommended ? ' rec' : ''}" data-act="suggest" data-key="${esc(
+            q.key
+          )}" data-opt="${esc(o.id)}" aria-pressed="${draft === o.response.trim()}"
+            title="${esc(o.response)}">${o.recommended ? '<span class="star">★</span>' : ''}${esc(o.label)}</button>`
+        )
+        .join('')}</div>
     </div>`;
   }
 
@@ -1367,6 +1565,12 @@
    * The beads behind it are named and linked, because "blocked by open issues" with
    * no ids is a dead end, and the fix — close those first — starts with reading them.
    *
+   * **This is now the rare path, not the ordinary one.** A gate the card already knew
+   * about when it opened draws no answer button at all (gateWhyHtml), so what is left
+   * to arrive here is a gate that appeared in between: a child reopened, a blocker
+   * filed while you were reading. The card is minutes old by then, and the refusal is
+   * the only thing that can say so.
+   *
    * **Answering and dismissing both land here**, because both of them close the bead
    * and bd gates the close, not the reason for it. What differs is the offer. An
    * answer always has something worth keeping, so it is always offered; a dismissal
@@ -1378,13 +1582,6 @@
   function gateNoteHtml(q) {
     const gate = q.closeGate;
     if (!gate) return '';
-    const blockers = (gate.blockers || [])
-      .map(
-        (b) =>
-          `<a class="pill id" href="${esc(graphUrl({ workspace: q.workspace, id: b.id }))}&amp;open=1"
-            target="_blank" rel="noopener" title="${esc(b.title || '')}">${esc(b.id)}</a>`
-      )
-      .join(' ');
     const verb = gate.from === 'dismiss' ? 'dismissed' : 'closed';
     const until = gate.kind === 'epic' ? 'its children are' : 'its blockers are';
     const offer = gate.canComment !== false;
@@ -1397,7 +1594,7 @@
               gate.kind === 'epic' ? 'the children' : 'the blockers'
             } and this one goes with them.`
       }</p>
-      ${blockers ? `<div class="gate-blockers">${blockers}</div>` : ''}
+      ${gateBlockersHtml(q, gate)}
       <div class="row">
         ${offer ? `<button class="primary" data-act="gate-comment" data-key="${esc(q.key)}">Save as a comment</button>` : ''}
         <button class="${offer ? 'secondary' : 'primary'}" data-act="gate-dismiss" data-key="${esc(
@@ -1466,7 +1663,7 @@
 
     if (q.comments?.length) {
       parts.push('<div class="section-label">Thread</div>');
-      parts.push(`<div class="comments">${q.comments.map(commentHtml).join('')}</div>`);
+      parts.push(`<div class="comments">${threadHtml(q)}</div>`);
     }
 
     // Nothing on this card writes to the bead, so the way to act on it is a session
@@ -1541,9 +1738,7 @@
     if (q.comments?.length || working) {
       parts.push('<div class="section-label">Thread</div>');
       parts.push(
-        `<div class="comments">${(q.comments || []).map(commentHtml).join('')}${
-          working ? pendingHtml(working) : ''
-        }</div>`
+        `<div class="comments">${threadHtml(q)}${working ? pendingHtml(working) : ''}</div>`
       );
     }
 
@@ -1716,14 +1911,19 @@
       );
     }
 
-    // Both tabs live at the foot of every page, but only this one has the numbers:
+    // The tabs live at the foot of every page, but only this one has the numbers:
     // they ride the inbox's poll. A page that never sets a badge shows none, which
     // is better than a number it has no way to refresh.
+    //
+    // One badge, and it is the proposals. A badge means *needs you* — that is what
+    // makes it worth putting a number on a tab you are not looking at — and a running
+    // agent needs nothing; it is a fact about the machine. `summary.sessions` is still
+    // served and still worth reading, and it is read on the page itself, in the
+    // advocate console's tally ("N working · M to answer"), where it sits beside the
+    // repo it belongs to instead of standing for every repo at once.
     const badge = window.beadcause?.tabBadge;
     if (!badge) return;
-    const sessions = Number(s.sessions) || 0;
     const proposals = Number(s.proposals) || 0;
-    badge('sessions', sessions, `Sessions — ${sessions} agent${sessions === 1 ? '' : 's'} running`);
     badge('advocates', proposals, `Advocates — ${proposals} proposal${proposals === 1 ? '' : 's'} waiting`);
   }
 
@@ -1760,6 +1960,23 @@
   function paintDraftMark(key) {
     const card = listEl.querySelector(`.card[data-key="${CSS.escape(key)}"]`);
     card?.classList.toggle('has-draft', Boolean(getDraft(key)));
+  }
+
+  /**
+   * Light the suggested chip whose words are currently in the box, and only that
+   * one. Derived from the text rather than remembered from the tap, so it stays
+   * true after a keystroke, after a draft is restored on reopening a card, and
+   * after two chips in a row.
+   */
+  function paintSuggested(key, text) {
+    const block = listEl.querySelector(`.suggested[data-key="${CSS.escape(key)}"]`);
+    if (!block) return;
+    const options = byKey(key)?.suggested?.options || [];
+    const now = String(text ?? '').trim();
+    for (const chip of block.querySelectorAll('.chip')) {
+      const opt = options.find((o) => o.id === chip.dataset.opt);
+      chip.setAttribute('aria-pressed', String(Boolean(opt) && opt.response.trim() === now));
+    }
   }
 
   /** Which space a question belongs to. Unassigned workspaces collect under "Other". */
@@ -2080,6 +2297,51 @@
     if (Math.abs(delta) > 1) scroller.scrollTop += delta;
   }
 
+  // The card that has just been opened, waiting for the render that will draw it.
+  // One shot, set by expand() and consumed by render().
+  let openOn = '';
+
+  /**
+   * A card just opened: start it on the last thing I said.
+   *
+   * The top of a card is the question, and the question is the part you already know
+   * — it is why you opened it. What you have lost is the conversation: what you asked
+   * for last time, and what came back. So an opening card lands on your last message,
+   * with the reply to it just below, and the description scrolled up out of the way
+   * but still there when you swipe back.
+   *
+   * Only on the way in. A card already open stays exactly where the reader put it —
+   * capturePlace/restorePlace exist to guarantee that, and a poll that jumped you
+   * back down to your own comment every 25 seconds would undo them.
+   *
+   * Re-run as the layout settles, for the same reason restorePlace is: mermaid draws
+   * after the repaint, and every diagram above the thread pushes it further down than
+   * it was when we measured.
+   */
+  function jumpToMine(key, drawn) {
+    const card = listEl.querySelector(`.card[data-key="${CSS.escape(key)}"]`);
+    const target = [...(card?.querySelectorAll('.comment[data-mine]') || [])].pop();
+    // Nothing of mine on this thread — a question I have not answered yet, which is
+    // the common case. The top of the card is right for that one.
+    if (!target) return;
+    const go = () => {
+      // Asked each time rather than once: straight after the repaint the card is at
+      // its shortest and may not be overflowing yet, and nothing that does not
+      // overflow needs scrolling — everything in it is already on screen.
+      const self = scrollerOf(card);
+      const scroller = self ? SCROLLER_IN[self](card) : null;
+      if (!scroller) return;
+      const delta = target.getBoundingClientRect().top - scroller.getBoundingClientRect().top - ANCHOR_SLOP;
+      scroller.scrollTop += delta;
+    };
+    // This scroll is the point of opening the card, so it outranks the restore that
+    // the same render() has just queued — exactly as the collapse button does.
+    releasePlace();
+    go();
+    requestAnimationFrame(go);
+    drawn.then(go).catch(() => {});
+  }
+
   /**
    * Put the caret back where it was.
    *
@@ -2171,9 +2433,18 @@
     for (const q of visible) if (q.delivery) ensurePr(q);
 
     openLinksInNewTab(listEl);
+    const drawn = drawDiagrams(listEl);
     // Puts the caret and the scroll position back — immediately, and again as the
     // diagrams and images size themselves afterwards.
-    settlePlace(place, drawDiagrams(listEl));
+    settlePlace(place, drawn);
+    // Unless a card has just been opened, in which case where to be is not where you
+    // were — it is the last thing you said on the thread. One shot: cleared here so
+    // the next poll's repaint restores your place like any other.
+    if (openOn) {
+      const key = openOn;
+      openOn = '';
+      jumpToMine(key, drawn);
+    }
     // The list it describes has just been replaced, so its counts are stale — but a
     // 25s poll must not make it flash on screen at someone who isn't scrolling.
     paintScrollPos(false);
@@ -2503,6 +2774,9 @@
   async function expand(key, force = false) {
     const q = byKey(key);
     if (!q) return;
+    // Opening, as opposed to refreshing one that is already up. Only the first of
+    // those gets to move the reader — see jumpToMine.
+    const opening = !state.open.has(key);
     const ws = encodeURIComponent(q.workspace);
     const id = encodeURIComponent(q.id);
     if (q.agent) {
@@ -2526,6 +2800,7 @@
       }
     }
     openOnly(key);
+    if (opening) openOn = key;
     render(true);
   }
 
@@ -2685,6 +2960,21 @@
         // the foot of it can land below that column's fold.
         panel.scrollIntoView({ block: 'nearest' });
       }
+      return;
+    }
+
+    /*
+      Open or shut one comment. DOM surgery on that one bubble, never a render():
+      the answer box is below the thread with your draft and possibly the caret in
+      it, and rebuilding the list to hide a paragraph would cost both. The choice is
+      recorded in state.thread so the next poll paints it back the way you left it.
+    */
+    if (act === 'comment') {
+      const box = btn.closest('.comment');
+      if (!box) return;
+      const shut = box.classList.toggle('shut');
+      btn.setAttribute('aria-expanded', String(!shut));
+      if (box.dataset.comment) state.thread.set(box.dataset.comment, shut);
       return;
     }
 
@@ -3021,6 +3311,40 @@
       return;
     }
 
+    /**
+     * A suggested answer, tapped: put its words in the box.
+     *
+     * Nothing is sent and nothing is armed — see suggestedHtml for why this half of
+     * the feature deliberately stops short of answering.
+     *
+     * The one rule with teeth is what happens to text already in the box. Replacing
+     * it wholesale would let a tap destroy a sentence you typed, which is the thing
+     * this app protects hardest; appending always would turn changing your mind into
+     * "Restore at promotion\nRestore at startup", two contradictory answers on one
+     * thread. So: swap when what is there is a suggestion (you are picking again),
+     * append when it is yours (you are adding a choice to a caveat you wrote).
+     *
+     * Painted in place for the usual reason — render() would rebuild the card under
+     * the textarea and take the keyboard down with it.
+     */
+    if (act === 'suggest') {
+      const q = byKey(key);
+      const opts = q?.suggested?.options || [];
+      const opt = opts.find((o) => o.id === btn.dataset.opt);
+      const box = listEl.querySelector(`.card[data-key="${CSS.escape(key)}"] [data-role="answer"]`);
+      if (!opt || !box) return;
+
+      const current = box.value.trim();
+      const mine = current && !opts.some((o) => o.response.trim() === current);
+      box.value = mine ? `${current}\n${opt.response}` : opt.response;
+      setDraft(key, box.value);
+      paintDraftMark(key);
+      paintSuggested(key, box.value);
+      box.focus();
+      box.setSelectionRange(box.value.length, box.value.length);
+      return;
+    }
+
     // Opens iTerm2 on the Mac with `claude` already reading this bead. Writes
     // nothing here, so — unlike answering — it deliberately never calls render():
     // the card stays exactly as it is, half-typed answer and all.
@@ -3163,6 +3487,10 @@
     // the box the moment there is anything in it. In place for the same reason the
     // mark is: a render() here would rebuild the card under the keystroke.
     paintArmed();
+    // A pressed chip is a claim about what the box says. Edit one word of it and
+    // the claim stops being true, so it lets go rather than sitting there lit under
+    // an answer that is now yours.
+    paintSuggested(key, box.value);
   });
 
   listEl.addEventListener('change', (ev) => {
