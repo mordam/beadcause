@@ -354,6 +354,28 @@
   }
 
   /**
+   * A window whose bead is closed and whose process is still up.
+   *
+   * Deliberately not a `workerRow`: the slot is already back, the bead is already
+   * closed, and the only live question is whether the window has taken its signal
+   * yet. Links to the session rather than the bead for the same reason — the bead has
+   * nothing left to say and the process is the thing that is still there.
+   */
+  function closingRow(c) {
+    return `<a class="work-row adv-worker" href="${esc(sessionUrl(c.pid))}">
+      <span class="work-phase">◍</span>
+      <span class="work-main">
+        <span class="work-title">${esc(c.title || c.id)}</span>
+        <span class="work-sub"><span class="pill id">${esc(c.id)}</span>
+          <span class="tag dim">pid ${esc(c.pid)}</span>
+          ${c.signalled ? '<span class="tag warn">signalled</span>' : '<span class="tag">waiting for it to settle</span>'}
+        </span>
+      </span>
+      <time>${esc(age(c.at))}</time>
+    </a>`;
+  }
+
+  /**
    * What it would pick up next, in the order it would take it.
    *
    * Always drawn, including while sessions are open — public/work.js hides this the
@@ -555,6 +577,19 @@
           : '<p class="subtitle">No sessions open from this advocate.</p>',
         { tone: a.workers.length ? 'live' : '' }
       ),
+      // Only drawn when there is one, and there usually is not: a window sits here for
+      // the grace period and then goes. It is the one state where the advocate is
+      // about to signal a process, and a number that appears and clears within a
+      // minute or two is how you see the thing working without reading the log.
+      (a.closing || []).length
+        ? section(
+            `${key}:closing`,
+            'Closing',
+            String(a.closing.length),
+            a.closing.map(closingRow).join(''),
+            { tone: 'warn' }
+          )
+        : '',
       section(`${key}:next`, 'Up next', a.queue ? String(a.queue) : '', nextHtml(a), { tone: a.queue ? 'warn' : '' }),
       section(`${key}:log`, 'Thinking', '', thinkingHtml(a), {
         badge: a.surveying ? '<span class="tag live"><span class="spark"></span>live</span>' : '',

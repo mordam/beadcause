@@ -2753,6 +2753,50 @@ a bead, and that is all it knows. So:
   the brief asks it to do. Where it didn't, the row says when the window was opened
   and nothing more.
 
+#### Closing the window — a session that has finished should not still be on screen
+
+The `exit` above only runs **when `claude` exits**, and a session that has finished its
+work does not exit. `claude "$P"` is interactive — the brief is its first prompt, not
+its whole life — so when the last turn ends the TUI goes back to waiting for a human
+who, by construction, is not there. The bead is closed, the pull request is merged, and
+the window is still open.
+
+The cost is not the window. It is that a screen of them is indistinguishable from a
+screen of sessions that stopped to ask something, so every one has to be read before
+any can be dismissed — which is the whole of what beadcause exists to stop. Seven of
+them were sitting here when this was written, all named `DONE-…`, all idle, every bead
+closed hours earlier.
+
+So the daemon finishes the sentence the session could not. When a worker's bead is
+**closed** and its process is still running, the advocate signals it: `claude` exits,
+the shell runs the two commands after it, the done file lands, and iTerm closes the
+window exactly as it does for a session that ended on its own.
+
+Everything about it is a guard against signalling the wrong thing, because a signal is
+the one act here with no undo:
+
+| before anything is sent | why |
+|---|---|
+| the bead is **closed** | not delivered, not handed back, not timed out. Those four endings all have something on screen worth reading; a closed bead does not |
+| Claude Code still reports that pid as a live session **named after this bead** | records in `~/.claude/sessions` outlive their process and pids get reused, so the pid alone is worthless. A subtask id (`<bead>.1`) is not its parent, either — the id has to stand on its own in the name |
+| the session is **idle** | it goes on working for a moment after its delivery closes the bead — the `DONE-` rename, the last message — and that moment is `busy` |
+| and has been for `closeGraceSeconds` | "idle" is a status file the session writes itself, and the gap between two turns looks exactly like the end of the last one |
+
+Then `SIGTERM`; then `SIGKILL` if that was ignored for `closeHardSeconds`; then, after
+`closeGiveUpMinutes`, it stops and leaves the window alone. Giving up is a real
+outcome: a session that will not take a signal is one worth looking at by hand, and a
+daemon that escalated forever would be worse than the windows. A busy session that
+never goes idle is left open for the same reason, and costs nothing but a line in the
+log.
+
+The waiting list survives a restart, alongside the workers and for the same reason —
+the windows are still open, and a daemon that forgot them would leave the pile this
+was written to clear. An observer instance signals nothing at all.
+
+Windows already open when this shipped are not swept up: their workers left the slot
+list long ago, so nothing knows their pids. Close them by hand once; everything from
+then on closes itself.
+
 #### Reclaiming a slot, by asking
 
 The inference above is what the daemon can work out on its own. **Reclaim sessions** is
@@ -4669,6 +4713,9 @@ the fields it always read and renders exactly as it did.
 | `advocates.tidyIntervalMinutes` | how often it sweeps when nothing has just finished (default 15) |
 | `advocates.sessionLog` | archive each finished session to `refs/beadcause/sessions/<bead>` and note its commits (default `true`) |
 | `advocates.sessionTranscripts` | also store the raw Claude Code transcript — megabytes, and it carries paths and tool output (default `false`; set per repo in `perWorkspace`) |
+| `advocates.closeFinishedSessions` | [close a work session's window once its bead is closed](#closing-the-window--a-session-that-has-finished-should-not-still-be-on-screen) (default `true`). `false` leaves every window open, which is what it did before |
+| `advocates.closeGraceSeconds` | how long an idle session gets between its bead closing and the first signal (default 90) |
+| `advocates.closeHardSeconds`, `advocates.closeGiveUpMinutes` | how long `SIGTERM` gets before `SIGKILL` (default 45), and how long the whole thing gets before it gives up and leaves the window for you (default 30 min) |
 | `agents` | extra reply agents beyond the four built in — `{id, name, emoji, description}`, plus `tools`/`model` if you set them by hand |
 | `defaultAgent` | which one answers when you haven't picked (default `answerer`) |
 | `agents[].tools` | the allowlist that agent may be *armed* with, for one reply at a time. Config-file only — see [Allow tools](#allow-tools--for-one-comment-and-only-that-one) |
