@@ -231,6 +231,44 @@
   }
 
   /**
+   * How many sessions this advocate may open at once — and the way to change it.
+   *
+   * The number it steps is `limit`, the same field the chip above quotes, and pressing
+   * a button changes it on the running daemon: no config edit, no restart. So the
+   * control has to be honest about three things a plain `−  3  +` would hide:
+   *
+   * - **the range**, which is the daemon's `MAX_WORKERS_CEILING` and travels in the
+   *   snapshot rather than being written here. An end of the range is a *disabled*
+   *   button, not one that silently does nothing;
+   * - **what it costs**, which is why the title says the number is windows on this
+   *   Mac. Nine sessions is a decision, not a slider position;
+   * - **the cap it cannot argue with.** `globalMaxWorkers` is a total across every
+   *   advocate, so a repo stepped to 5 under a global 3 will still only get 3. The
+   *   press worked and the number is real — it is the *other* number that is binding,
+   *   and saying so is the difference between a control that looks broken and one
+   *   that explains itself. `tickOne` writes the same sentence into the note once it
+   *   is actually blocked; this says it the moment you press, which is when you are
+   *   looking.
+   */
+  function limitStepper(a) {
+    const key = esc(a.workspace);
+    const ceiling = a.ceiling || 9;
+    const step = (delta, label, title, off) =>
+      `<button class="adv-btn adv-step" data-adv="limit" data-ws="${key}" data-value="${a.limit + delta}" title="${esc(
+        title
+      )}"${off ? ' disabled' : ''}>${label}</button>`;
+    return `<span class="adv-limit${a.globalHeld ? ' held' : ''}" title="${esc(
+      a.globalHeld
+        ? `${a.limit} sessions at once — but globalMaxWorkers is ${a.globalMax} across every advocate, so this repo will not get more than that`
+        : `How many sessions this advocate may open at once — one iTerm window each, on this Mac`
+    )}">
+      ${step(-1, '−', 'One fewer session at a time', a.limit <= 1)}
+      <b>${a.limit}</b>
+      ${step(1, '+', `One more session at a time (up to ${ceiling})`, a.limit >= ceiling)}
+    </span>`;
+  }
+
+  /**
    * The repo the advocate is arguing for, and how much of it is its business.
    *
    * This is the "relates to its domain" half. The tracker's own numbers come first,
@@ -488,6 +526,7 @@
     const others = (w?.working || []).filter((x) => !mine.has(x.id));
 
     const controls = [
+      limitStepper(a),
       `<button class="adv-btn" data-adv="${a.paused ? 'resume' : 'pause'}" data-ws="${esc(key)}">${
         a.paused ? 'Resume' : 'Pause'
       }</button>`,
@@ -575,6 +614,15 @@
       </div>
       ${domainHtml(w, a)}
       ${note ? `<div class="adv-note">${esc(note)}</div>` : ''}
+      ${
+        // A limit the global cap will not honour. Said here rather than left to the
+        // note, because the note only appears once a tick has actually been blocked
+        // — which can be half an hour after the press that caused it, and until then
+        // the stepper reads as though 5 were in force when 3 is.
+        a.globalHeld
+          ? `<div class="adv-note warn">Held by globalMaxWorkers (${a.globalMax}) — that is a total across every advocate, so this repo will not open more than ${a.globalMax} at once whatever its own limit says.</div>`
+          : ''
+      }
       ${
         // The workspace's own error, and only when it is not the advocate's error
         // said twice. They are separate facts — the advocate holds its last failure
@@ -756,13 +804,19 @@
 
   /* ------------------------------------------------------------------ actions */
 
-  /** Pause, resume, free the slots, or forget the attempt counters. */
-  async function control(ws, action, btn) {
+  /** Pause, resume, free the slots, forget the attempt counters, or set the limit. */
+  async function control(ws, action, btn, value) {
     const was = btn.textContent;
     btn.disabled = true;
     btn.textContent = '…';
     try {
-      await api('/api/advocate', { method: 'POST', body: JSON.stringify({ workspace: ws, action }) });
+      await api('/api/advocate', {
+        method: 'POST',
+        // `value` is sent as a number or not at all. A `"4"` string would be clamped
+        // to the same 4 by the daemon, but the endpoint is the contract and a
+        // stringly-typed count is the sort of thing that stays wrong quietly.
+        body: JSON.stringify({ workspace: ws, action, ...(value == null ? {} : { value: Number(value) }) }),
+      });
       await load();
     } catch (err) {
       btn.textContent = was;
@@ -847,7 +901,9 @@
     const adv = e.target.closest('[data-adv]');
     if (adv) {
       e.preventDefault();
-      control(adv.dataset.ws, adv.dataset.adv, adv);
+      // `value` only exists on the stepper. Undefined for every other action, which
+      // is what the server expects — nothing else here carries a number.
+      control(adv.dataset.ws, adv.dataset.adv, adv, adv.dataset.value);
       return;
     }
 
