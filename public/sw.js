@@ -6,7 +6,11 @@
    otherwise go on handing the phone the cached /work.html shell, and a document
    deleted from the repo would keep opening from the home screen for as long as the
    cache lived. */
-const CACHE = 'beadcause-v18';
+/* v19: /session grew a composer. No new path — the code is in session.js and the styles
+   in style.css, both already here — but a phone holding v18 would cache a page that
+   offers no way to answer a session, and the one thing worse than not having the box is
+   having it on the laptop and not on the phone. */
+const CACHE = 'beadcause-v19';
 const SHELL = [
   '/',
   '/index.html',
