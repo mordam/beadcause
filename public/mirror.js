@@ -269,6 +269,7 @@
     return `<div class="mir-composer">
       <textarea class="mir-input" data-draft="${esc(key)}" rows="3" placeholder="${esc(placeholder)}">${esc(text)}</textarea>
       <div class="mir-actions">
+        ${window.beadcause?.dictation?.buttonHtml({ label: 'Dictate this answer' }) || ''}
         <button class="mir-btn" data-mact="comment" ${text.trim() ? '' : 'disabled'}>Comment &amp; ask an agent</button>
         <button class="mir-btn primary" data-mact="respond" ${text.trim() ? '' : 'disabled'}>Answer &amp; close</button>
       </div>
@@ -397,6 +398,7 @@
       <div class="mir-composer">
         <textarea class="mir-input" data-draft="console:${esc(c.id)}" rows="3" placeholder="Say something to it…">${esc(draft)}</textarea>
         <div class="mir-actions">
+          ${window.beadcause?.dictation?.buttonHtml({ label: 'Dictate this message' }) || ''}
           ${c.closedAt ? '' : '<button class="mir-btn" data-mact="close-console" data-id="' + esc(c.id) + '">Close it</button>'}
           <button class="mir-btn primary" data-mact="send" data-id="${esc(c.id)}" ${draft.trim() ? '' : 'disabled'}>Send</button>
         </div>

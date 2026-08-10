@@ -103,6 +103,11 @@
        `beadcause` and touches nothing else, so a page that drops it still answers
        questions — just without the flight. -->
   <script src="/absorb.js"></script>
+  <!-- Speaking an answer instead of thumbing it. Before app.js, and for the same
+       reason absorb.js is: the answer box asks it at render time whether a
+       microphone can work here at all, and a page that drops it draws the box with
+       no mic in it rather than one that fails on tap. -->
+  <script src="/dictate.js"></script>
   <script src="/app.js"></script>
   <!-- Graph and doc links open over this tab instead of navigating away from it.
        Last, and needing nothing from app.js: it works on the anchors, not the app. -->

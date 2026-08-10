@@ -99,6 +99,10 @@
   <script src="/vendor/marked.js"></script>
   <script src="/vendor/purify.js"></script>
   <script src="/sendqueue.js"></script>
+  <!-- Speaking into the box beside it instead of thumbing it. Before the page's
+       own script, which asks it at boot — or at render — whether a microphone can
+       work here at all; a page that drops it draws no mic rather than a dead one. -->
+  <script src="/dictate.js"></script>
   <script src="/foundations.js"></script>
 </body>
 </html>

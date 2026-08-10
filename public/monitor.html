@@ -53,6 +53,10 @@
   <script src="/vendor/marked.js"></script>
   <script src="/vendor/purify.js"></script>
   <script src="/monitor.js"></script>
+  <!-- Speaking into the box beside it instead of thumbing it. Before the page's
+       own script, which asks it at boot — or at render — whether a microphone can
+       work here at all; a page that drops it draws no mic rather than a dead one. -->
+  <script src="/dictate.js"></script>
   <script src="/mirror.js"></script>
   <!-- The advocates' rows all point into the graph; the drawer keeps them here. -->
   <script src="/drawer.js"></script>

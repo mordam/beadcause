@@ -42,10 +42,24 @@ class MainActivity : AppCompatActivity() {
     private lateinit var binding: ActivityMainBinding
     private var serverHost: String? = null
     private var loaded = false
+    /** The microphone behind the answer box's mic button. See Dictation. */
+    private lateinit var dictation: Dictation
 
     private val pairing = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         if (Prefs.isPaired(this)) startUp() else finish()
     }
+
+    /**
+     * RECORD_AUDIO, asked for on the first tap of the mic rather than at startup.
+     *
+     * Registered here because a launcher has to be created before the activity is
+     * STARTED, which rules out asking from inside [Dictation] at the moment the tap
+     * happens — so the activity owns the dialog and hands the answer back.
+     */
+    private val microphonePermission =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            dictation.onPermission(granted)
+        }
 
     private val notificationPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -63,6 +77,7 @@ class MainActivity : AppCompatActivity() {
         setContentView(binding.root)
         Notifications.ensureChannels(this)
         configureWebView()
+        dictation = Dictation(this, binding.webView) { microphonePermission.launch(Manifest.permission.RECORD_AUDIO) }
 
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
@@ -169,6 +184,36 @@ class MainActivity : AppCompatActivity() {
         fun version(): String = BuildConfig.VERSION_NAME
 
         /**
+         * Whether the answer box draws a mic at all.
+         *
+         * Asked at render time by public/dictate.js, once per card. False on a device
+         * with no recognition service, and on a shell too old to have this method —
+         * which the page detects by the method simply not being there, so an APK that
+         * predates dictation keeps working with no mic rather than a broken one.
+         */
+        @JavascriptInterface
+        fun dictationAvailable(): Boolean = dictation.available()
+
+        /**
+         * Open the microphone and push what it hears into the page.
+         *
+         * Everything about *where* the words go — which box, which caret, which draft
+         * — stays in the page, which is the only side that knows. This is the audio
+         * and nothing else. See Dictation for the five events that come back.
+         */
+        @JavascriptInterface
+        fun startDictation() {
+            // SpeechRecognizer is main-thread-only and a @JavascriptInterface method
+            // arrives on the JavaBridge thread — the same reason openInBrowser hops.
+            runOnUiThread { dictation.start() }
+        }
+
+        @JavascriptInterface
+        fun stopDictation() {
+            runOnUiThread { dictation.stop() }
+        }
+
+        /**
          * Hand the page you are looking at to Chrome.
          *
          * There is otherwise no way out. `shouldOverrideUrlLoading` returns false for
@@ -270,11 +315,16 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onPause() {
+        // The screen you were dictating into is no longer in front of you, and an app
+        // that goes on holding the microphone from the background is the one thing a
+        // feature like this must never do.
+        dictation.stop()
         binding.webView.onPause()
         super.onPause()
     }
 
     override fun onDestroy() {
+        dictation.destroy()
         binding.webView.destroy()
         super.onDestroy()
     }

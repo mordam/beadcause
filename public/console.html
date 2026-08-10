@@ -111,6 +111,10 @@
   <!-- What happens when you say something while a turn is running. Shared with the
        agent chat on /foundations, which does exactly the same thing. -->
   <script src="/sendqueue.js"></script>
+  <!-- Speaking into the box beside it instead of thumbing it. Before the page's
+       own script, which asks it at boot — or at render — whether a microphone can
+       work here at all; a page that drops it draws no mic rather than a dead one. -->
+  <script src="/dictate.js"></script>
   <script src="/console.js"></script>
   <!-- A bead you just filed, or a document in the conversation, opens over the
        chat session rather than throwing away the conversation to show you one. -->

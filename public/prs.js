@@ -174,7 +174,10 @@
         <textarea data-say="${esc(p.key)}" rows="2" placeholder="Say something on #${esc(p.number)}…">${esc(
           state.draft
         )}</textarea>
-        <button class="board-btn send" data-act="send" data-key="${esc(p.key)}">Send to GitHub</button>
+        <div class="board-say-row">
+          <button class="board-btn send" data-act="send" data-key="${esc(p.key)}">Send to GitHub</button>
+          ${window.beadcause?.dictation?.buttonHtml({ label: 'Dictate this comment' }) || ''}
+        </div>
       </div>
       ${said}
     </div>`;

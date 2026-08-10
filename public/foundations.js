@@ -569,6 +569,9 @@
         renderDetail();
       });
     }
+    // Same composer as the bead console's, so the same mic in the same corner — see
+    // the note there for why the status line sits above it rather than inside it.
+    window.beadcause?.dictation?.attach($('#chat-say'), { note: '#chat-queued', label: 'Dictate this' });
     $('#chat-composer').addEventListener('submit', sendChat);
     $('#chat-say').addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat(e); }
