@@ -2412,7 +2412,7 @@ that opens Claude sessions on your Mac unprompted should never be a surprise:
   "workspaces": ["sophab", "beadcause"],
   "maxWorkers": 1,
   "maxWorkersLimit": 3,
-  "globalMaxWorkers": 3,
+  "globalMaxWorkers": 10,
   "perWorkspace": { "sophab": { "maxWorkers": 2 } }
 }
 ```
@@ -2444,7 +2444,7 @@ When that set is empty the advocate says **clear** and stops. That is the whole 
 `maxWorkers` is how many sessions one advocate may have open at once; it is clamped
 to `maxWorkersLimit` (default 3, and a config asking for six gets three *and a log
 line*, rather than failing to start). `globalMaxWorkers` caps every advocate
-together, so four repos each allowed 3 cannot open twelve windows.
+together (default 10), so six repos each allowed 3 cannot open eighteen windows.
 
 Whenever a cap is what stopped a launch, it says so — on the card and in the log —
 because a slot limit that quietly drops a launch reads exactly like an advocate that
@@ -4189,7 +4189,7 @@ the fields it always read and renders exactly as it did.
 | `advocates.workspaces` | which repos get an [advocate](#advocates--an-agent-per-repo-whose-job-is-the-queue-reaching-zero). **Empty by default**; `["*"]` for every one |
 | `advocates.maxWorkers` | sessions one advocate may have open at once (default 1), clamped to `maxWorkersLimit` |
 | `advocates.maxWorkersLimit` | the ceiling that clamps it (default 3). A larger `maxWorkers` is clamped **and logged**, never silently applied |
-| `advocates.globalMaxWorkers` | across every advocate (default 3), so four repos can't open twelve windows |
+| `advocates.globalMaxWorkers` | across every advocate (default 10), so six repos can't open eighteen windows |
 | `advocates.perWorkspace` | per-repo overrides, e.g. `{"sophab": {"maxWorkers": 2}}` |
 | `advocates.minPriority` | beads above this priority aren't work (default 3 — P4 is a backlog) |
 | `advocates.propose` | ask to create beads when the queue empties (default `true`; **nothing is ever created without your approval**) |
