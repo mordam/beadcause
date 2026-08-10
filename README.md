@@ -141,6 +141,10 @@ images:
 
 - `options[].response` is the exact text recorded as the answer — write it so a
   future agent can act on it without re-reading the question.
+- `recommended: true` on one option puts a ★ and a tag on its button. `recommend:
+  <id or label>` beside the list is the same thing said once instead of per row,
+  and wins if both are written. Only one option is ever starred: two is the block
+  contradicting itself, and a card is the wrong place to discover that.
 - `diagram` is mermaid, rendered on the phone. ` ```mermaid ` fences in the prose
   render too.
 - `docs` are files on the Mac you need to read before answering. Each opens in the
@@ -176,6 +180,75 @@ node bin/ask.js -w acme -t "Which auth flow?" -b ac-abc < brief.md   # -b blocks
 
 `-b <id>` makes the named issue depend on the question, so it stays out of
 `bd ready` until you answer.
+
+### Suggested answers — when there is no block
+
+Most beads are not filed by anything that has heard of beadcause. A session ends,
+writes its open question into `bd` as ordinary prose with the choices in a list,
+and the card used to render that as paragraphs with an empty box under them — the
+answer visible on screen and still needing to be typed out with a thumb.
+
+So when a bead carries **no** `decision` block, beadcause reads the prose and
+offers what it finds as chips on the top edge of the answer box:
+
+```
+Suggested — read out of the design            tap to fill the box
+[ ★ Restore at promotion ]  [ Restore at startup ]
+```
+
+**A chip fills the box; it never sends.** That is the whole difference between
+these and the buttons above. An `options[].response` was written by an agent as
+the answer, so tapping it twice answers and closes. A suggestion is a sentence
+this parser lifted out of a paragraph, so it goes where you can read it, edit it
+and add a caveat, and *Answer & close* is still what commits it. Tapping a second
+chip swaps your pick; tapping one after you have typed something appends, because
+the words you wrote are never thrown away.
+
+**Write the list and it will be found.** Any of these parse, in this order:
+
+- `**Bold label** — the rest.` as a bulleted or numbered list. The bold run
+  becomes the chip; everything after it rides along in the answer.
+- `Option A — …`, `Option B: …`, anywhere — list, heading or bare paragraph.
+- A plain list directly under a lead-in line: *The options:*, *Choices:*,
+  *Candidates:*, *Two ways forward:*.
+
+**Say which one you would pick** with `(recommended)` in the item, or a closing
+line — `RECOMMEND Restore at promotion — the swap read is cheap`, which is the
+spelling the `handoff` skill already tells every session to write. A closing line
+beats an inline marker, because it is the later thought. `not recommended` never
+stars anything, which matters more than it sounds: it is ordinary prose, and a ★
+on it would be the app recommending the thing the brief warned you off.
+
+**It fails towards silence**, and that is deliberate — a card with no chips is
+the card you have today, while chips scraped off an unrelated bullet list invite
+the wrong tap. Nothing is offered for: one item, more than six, a `- [ ]`
+checklist, a list inside a fenced block, two candidate lists with no question
+between them to say which one is being asked, or two items that read the same.
+Nor for a proposal, an amendment or a delivery — those draw their own controls,
+and a second set of chips beside them would be two answers to one question
+disagreeing about what the question is.
+
+**A `decision` block is still better** and is what to write when you know the
+question is going to a phone: it gets full-width buttons above the fold, the
+exact sentence you chose recorded as the answer, and one tap fewer. This is the
+safety net under everything else.
+
+#### Checking it
+
+Two, because the parser and the gesture fail in different ways:
+
+- **`node test/suggest.mjs`** — the parser, in `npm test`. Every shape it reads,
+  and — the half that carries the weight — every shape it must refuse, since a
+  card with no chips is the card you have today while chips scraped off the wrong
+  list invite the wrong tap. Both directions of the ★, including `not
+  recommended`.
+- **`node scripts/suggest-check.mjs`** — the tap, in headless Chrome at phone
+  size, driving the real `public/app.js`. It counts writes and fails on one: the
+  claim it exists to defend is that a chip fills the box and never sends, and the
+  refactor that would break that — routing a chip through the `option` handler —
+  reads like tidying up a duplicate. `--baseline` serves the committed `public/`,
+  where it must score 7/23: every suggestion case failing, every control passing.
+  Not in `npm test` — it needs Chrome.
 
 ## Spaces — keeping work out of your evening
 
