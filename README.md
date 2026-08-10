@@ -2398,6 +2398,60 @@ stops the whole deploy before anything is built, because six sessions edit these
 checkouts and a deploy that quietly stashed one of them would be the worst kind of
 helpful.
 
+#### Restarting a label is not the same as deploying a tree
+
+`["launchctl", "kickstart", "-k", "gui/{uid}/m4m.beadcause"]` restarts whatever job is
+loaded **under that label**, which is not necessarily the checkout the two steps above it
+just brought up to date. That is not hypothetical: it is
+[the three-day bug](#the-router--why-you-never-restart-it) in a form a deploy walks into
+on its own. The plist in `~/Library/LaunchAgents` is generated once by
+`scripts/install.sh` and is the one file in the chain `git pull` never touches, so a
+deploy can fast-forward the tree, rebuild the APK, restart the label, exit 0 — and have
+restarted the program the label was pointed at in March.
+
+So the runner checks the label before it restarts it, and **refuses** rather than
+rewriting anything:
+
+```
+refusing to restart m4m.beadcause: the LaunchAgent is not in step with /Users/you/beadcause.
+launchd would have restarted /Users/you/beadcause/bin/beadcause.js.
+launchd runs bin/beadcause.js directly, not bin/router.js.
+...
+fix it: npm run install-service
+```
+
+The verdict is `lib/service.js`'s, whole — the same one the daemon prints as a banner and
+`npm run swap:status` names — because the actual bug is a plist pointing at *the right
+checkout's wrong file*, which no "is the program under this directory" test would ever
+catch. Any **other** label gets that weaker test instead, since there is no router to
+expect: the program launchd starts must live inside the directory the deploy just
+fast-forwarded, or the restart puts back exactly what was already running.
+
+It judges only a command that restarts an already-loaded user job — `launchctl
+kickstart|kill|stop` against `gui/<uid>/<label>` or `user/<uid>/<label>`. `fly deploy` has
+no label; `bootout`/`bootstrap` *are* the reload and second-guessing them would refuse the
+command that fixes the drift; `system/<label>` is a LaunchDaemon this daemon has no view
+of. Two keys move it: `"launchAgent": "bin/router.js"` names the program exactly (stricter
+than containment, and relative to the deployed directory), and `"launchAgent": false`
+turns the check off for a job loaded some way this cannot see.
+
+**The other way out is a rebuild step, and needs no code:**
+
+```json
+"rebuild": [{ "label": "launchagent", "when": ["scripts/install.sh", "bin/router.js"],
+              "command": ["bash", "scripts/install.sh"] }]
+```
+
+`install.sh` is idempotent and already boots the job out and back in, so the drift is
+gone and the check then passes — which is why the check runs *after* the rebuilds rather
+than before them. It is the right shape for the repo that wants it and the wrong default
+for everyone: rewriting a LaunchAgent from inside an unattended deploy at three in the
+morning is a big hammer for a failure a sentence names perfectly well.
+
+`node test/launchagent.mjs` covers the verdicts against plists it writes in a temp home,
+so it never reads the real `~/Library/LaunchAgents`; `node test/deploy.mjs` covers the
+runner acting on one — the command never runs, the rebuild before it did.
+
 #### The awkward part: a beadcause deploy kills beadcause
 
 `launchctl kickstart -k gui/<uid>/m4m.beadcause` SIGKILLs the process that asked for it.
@@ -4079,14 +4133,16 @@ The limits, stated plainly:
   router for 60 seconds exits. `npm run start:bare` has no router and is exempt.
 - **None of it is live until `npm run install-service` has been re-run.** The plist in
   `~/Library/LaunchAgents` is generated once and never touched by `git pull`, and a
-  deploy `kickstart`s a *label* without looking at what the label points to. So the
-  router landed, the installer was updated, this section was written, and launchd went
+  deploy used to `kickstart` a *label* without looking at what the label points to. So
+  the router landed, the installer was updated, this section was written, and launchd went
   on restarting `bin/beadcause.js` for three days with the port answering perfectly the
-  whole time. Nothing was broken; nothing was live. It is now checked in three places,
-  because the two halves fail apart: the installer reads back from `launchctl print`
+  whole time. Nothing was broken; nothing was live. It is now checked in four places,
+  because the halves fail apart: the installer reads back from `launchctl print`
   what it actually loaded, the daemon prints a `HOT-SWAP IS NOT LIVE` banner when
-  launchd started *it* rather than the router, and `npm run swap:status` names the
-  installed program instead of only reporting that nothing answered. A plist rewritten
+  launchd started *it* rather than the router, `npm run swap:status` names the
+  installed program instead of only reporting that nothing answered, and
+  [a deploy refuses to restart a label](#restarting-a-label-is-not-the-same-as-deploying-a-tree)
+  whose plist has drifted from the tree it just pulled. A plist rewritten
   without a bootout counts as stale too — launchd keeps the argv it bootstrapped with,
   so editing the file changes nothing on its own.
 
