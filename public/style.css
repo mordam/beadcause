@@ -818,6 +818,15 @@ body {
 .pr-merge.confirm { background: var(--warn); color: var(--accent-ink); }
 .pr-merge:disabled { opacity: 0.45; }
 .pr-actions .secondary { width: 100%; }
+/* Ship carries a second line, because "deploy" means something different in every
+   repo and the whole point of the button is saying which. Two lines rather than one
+   long label: at 393px a single line wraps into something that reads as a paragraph
+   somebody left in a button. */
+.pr-ship { display: flex; flex-direction: column; gap: 2px; line-height: 1.25; }
+.pr-ship .pr-ship-what { font-size: 0.78em; font-weight: 400; opacity: 0.72; }
+.pr-ship.confirm { background: var(--warn); color: var(--accent-ink); border-color: var(--warn); }
+.pr-ship.confirm .pr-ship-what { opacity: 0.85; }
+.pr-ship:disabled { opacity: 0.45; }
 /* Declining is rare and throws a session's work away: last, quiet, and never the
    thing a thumb lands on by accident. */
 .pr-actions .linkish.danger { align-self: center; color: var(--danger); }

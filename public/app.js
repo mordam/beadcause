@@ -885,12 +885,47 @@
           ${live?.pr && !canMerge(live.pr) ? 'disabled' : ''}>
           ${armed ? 'Tap again to confirm · ' : ''}${esc(mergeLabel(d, live))}
         </button>
+        ${shipHtml(q, d, live)}
         <button class="secondary" data-act="pr-changes" data-key="${esc(q.key)}">Request changes</button>
         <button class="linkish danger" data-act="pr-decline" data-key="${esc(q.key)}">Decline it</button>
       </div>`
       }
     </div>`;
   }
+
+  /**
+   * The repo's deploy, if it has one — offered here, on the card, or not at all.
+   *
+   * Merging is the same act in every repo; deploying is not. beadcause restarts under
+   * launchd, sophab runs `fly deploy`, most repos have no declaration at all — so the
+   * option only exists when the worker that filed this card found one, and the button
+   * says what that deploy will actually run rather than promising "deploy" and meaning
+   * something different per repo. See lib/deploy.js and `deployHint`.
+   *
+   * Read out of the decision block rather than out of the `beadpr` block, because the
+   * decision block is the list of answers this card offers and this is one of them:
+   * the same list an ntfy action button sends from, so the phone and the notification
+   * cannot come to different conclusions about whether Ship exists. The response text
+   * is built here for the same reason `pr-merge` builds its own — the server consents
+   * on the marker, and this card has just re-read GitHub.
+   */
+  function shipOptionFor(q) {
+    return (q?.decision?.options || []).find((o) => o.id === 'ship') || null;
+  }
+
+  function shipHtml(q, d, live) {
+    const opt = shipOptionFor(q);
+    if (!opt) return '';
+    const armed = state.armed === `${q.key}|ship`;
+    return `<button class="secondary pr-ship${armed ? ' confirm' : ''}" data-act="pr-ship" data-key="${esc(q.key)}"
+      ${live?.pr && !canMerge(live.pr) ? 'disabled' : ''}>
+      <span class="pr-ship-do">${armed ? 'Tap again to confirm · ' : ''}Ship #${d.number}</span>
+      <span class="pr-ship-what">${esc(shipWhat(opt))}</span>
+    </button>`;
+  }
+
+  /** The hint, minus the backticks — this is a button, not a paragraph of markdown. */
+  const shipWhat = (opt) => String(opt?.hint || 'merge, then deploy').replace(/`/g, '');
 
   /**
    * Declining, once you have said you mean to.
@@ -1076,6 +1111,16 @@
       const armed = state.armed === `${key}|merge`;
       go.textContent = `${armed ? 'Tap again to confirm · ' : ''}${mergeLabel(q.delivery, live)}`;
       go.classList.toggle('confirm', armed);
+    }
+    // Ship arms and disables on exactly the same facts as merge, because it *is* the
+    // merge plus a deploy — a PR GitHub will not take is not one to ship either.
+    const ship = block.querySelector('.pr-ship');
+    if (ship) {
+      ship.disabled = Boolean(live?.pr && !canMerge(live.pr));
+      const armed = state.armed === `${key}|ship`;
+      const doing = ship.querySelector('.pr-ship-do');
+      if (doing) doing.textContent = `${armed ? 'Tap again to confirm · ' : ''}Ship #${q.delivery.number}`;
+      ship.classList.toggle('confirm', armed);
     }
   }
 
@@ -3237,6 +3282,38 @@
       // consents on the marker alone, and a card that has just re-read GitHub knows
       // more about this PR than the block written when the session ended.
       await submit(key, `MERGE: ${d.method} and merge #${d.number}${d.bead ? `, then close ${d.bead}` : ''}.`, { close: true });
+      return;
+    }
+
+    /**
+     * Ship it: the same merge, and then the repo's deploy on top.
+     *
+     * Two taps like merge, and for a bigger reason. A merge changes what is on
+     * `origin` and is undone by another commit; this changes what is *running*, and on
+     * this repo it restarts the daemon you are tapping — so the confirm step is the
+     * last chance to notice you meant the button above.
+     *
+     * The answer is a distinct marker rather than a flag on `MERGE:`. The wire carries
+     * the response string and nothing else, and a merge must never widen into a deploy
+     * because a sentence got appended to it. See lib/delivery.js.
+     */
+    if (act === 'pr-ship') {
+      const q = byKey(key);
+      const d = q?.delivery;
+      if (!d) return;
+      const token = `${key}|ship`;
+      if (state.armed !== token) {
+        state.armed = token;
+        clearTimeout(state.armedTimer);
+        state.armedTimer = setTimeout(() => {
+          disarm();
+          paintPr(key);
+        }, 6000);
+        paintPr(key);
+        return;
+      }
+      disarm();
+      await submit(key, `SHIP: ${d.method} and merge #${d.number}, then deploy ${d.workspace || 'it'}.`, { close: true });
       return;
     }
 
