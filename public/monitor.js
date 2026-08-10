@@ -678,6 +678,58 @@
     </article>`;
   }
 
+  /**
+   * What launchd is running — the line that would have caught the three-day bug.
+   *
+   * bin/router.js landed, the installer was updated to point the LaunchAgent at it,
+   * and the plist in ~/Library/LaunchAgents went on naming bin/beadcause.js. Every
+   * deploy kickstarted that label, the port answered every request, and the hot-swap
+   * had never once run. The detection existed within a day — a banner at daemon
+   * startup and a diagnosis on `npm run swap:status` — and both landed somewhere
+   * nobody stands: launchd's log file, and a command you type only once you already
+   * suspect something.
+   *
+   * This is the same verdict on a surface that gets looked at. Two shapes, because
+   * they are two different jobs:
+   *
+   *   - **Fine** — one dim line, above the cards, saying which program launchd runs.
+   *     It is here on a good day precisely so that its absence means nothing and its
+   *     text means something. A health line you only ever see when broken teaches you
+   *     to read "no line" as "healthy", which is exactly what the console said for
+   *     three days while it was wrong.
+   *   - **Not fine** — a loud block in the same place, with what launchd is actually
+   *     running, why that means the hot-swap is not live, and the one command that
+   *     fixes it, selectable so it can be copied off a phone.
+   *
+   * Inside `#mon` rather than beside it, so it hides with the advocates tab when the
+   * mirror pane comes up over this one — see showTab in public/mirror.js.
+   */
+  function serviceHtml(svc) {
+    if (!svc) return ''; // An older daemon behind a newer page: say nothing, invent nothing.
+    if (svc.ok) {
+      return `<div class="svc ok" title="${esc(svc.plist)}">
+        <span class="svc-dot">✓</span>
+        <span>launchd runs <code>${esc(svc.label || svc.program || 'nothing')}</code> — hot-swap live</span>
+      </div>`;
+    }
+    return `<div class="svc bad">
+      <div class="svc-head"><span class="svc-dot">⚠</span>HOT-SWAP IS NOT LIVE<span class="pill id">${esc(svc.code)}</span></div>
+      ${
+        // The headline fact, and the whole of the acceptance this was filed for. Only
+        // when there is one: `not-installed` and `unreadable` have no program to name,
+        // and the sentence below says which of the two it is.
+        svc.label ? `<div class="svc-what">launchd runs <code>${esc(svc.label)}</code></div>` : ''
+      }
+      <div class="svc-line">${esc(svc.detail)}</div>
+      ${
+        svc.fix
+          ? `<div class="svc-fix">${esc(svc.fixBefore || 'fix it:')} <code>${esc(svc.fix)}</code> ${esc(svc.fixAfter)}</div>`
+          : ''
+      }
+      <div class="svc-foot">${esc(svc.plist)}</div>
+    </div>`;
+  }
+
   /* ------------------------------------------------------------------- render */
 
   function render() {
@@ -715,7 +767,10 @@
       without.map(plainCard).join('') +
       elsewhereHtml(data.elsewhere || []);
 
-    out.innerHTML = cards || '<div class="empty">No workspaces configured.</div>';
+    // Above every card, including the "nothing configured" case: a daemon serving the
+    // wrong program is the one thing you want said before anything it goes on to say
+    // about the repos.
+    out.innerHTML = serviceHtml(data.service) + (cards || '<div class="empty">No workspaces configured.</div>');
 
     const live = [...advocates.values()].reduce((n, a) => n + a.workers.length, 0);
     const waiting = [...state.proposals.values()].reduce((n, qs) => n + qs.length, 0);

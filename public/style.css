@@ -2822,9 +2822,24 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
 .chat-panel .thread { flex: 1; }
 .chat-panel .composer { position: sticky; bottom: 0; }
 
+/* Truncated once already, and it took the rest of the file with it: the closing brace
+   and everything after `padding` went missing in a merge, and CSS nesting made the
+   wreck silent — every rule below this point parsed as a *nested* rule of this one and
+   applied to nothing, so the advocate console and the admin page lost their styling
+   with no error anywhere. test/css.mjs is the thing that says so now. */
 #save-dialog textarea {
   width: 100%;
   padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  font-size: 14.5px;
+  margin-bottom: 12px;
+  resize: vertical;
+}
+
 /* ------------------------------------------------------------ the advocate console
 
    /monitor. One card per repo, and inside it the whole of `advocates.snapshot()` —
@@ -2836,6 +2851,45 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
 .mon-card .work-head { align-items: center; flex-wrap: wrap; }
 .mon-card.bad { border-color: color-mix(in srgb, var(--danger) 45%, var(--line)); }
 .mon-card.plain { opacity: 0.82; }
+
+/* What launchd is actually running, above every card — see serviceHtml in
+   public/monitor.js for why this is drawn on a good day as well as a bad one.
+
+   Two shapes on purpose. Healthy is a borderless dim line that reads as a caption:
+   present, checkable, and costing none of the attention the cards below it want.
+   Broken is a bordered tinted block in the same place, because the failure it names
+   is the one where every *other* thing on this page is telling the truth about a
+   daemon that is running last week's code. `.work` is a flex column with its own gap,
+   so neither needs a margin. */
+.svc { border-radius: var(--radius); font-size: 12.5px; line-height: 1.5; }
+.svc code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; word-break: break-all; }
+.svc-dot { flex: none; }
+
+.svc.ok {
+  display: flex; align-items: baseline; gap: 8px;
+  padding: 0 4px; color: var(--muted);
+}
+.svc.ok .svc-dot { color: var(--accent); }
+
+.svc.bad {
+  padding: 10px 12px; color: var(--text);
+  border: 1px solid color-mix(in srgb, var(--danger) 55%, var(--line));
+  background: color-mix(in srgb, var(--danger) 10%, var(--surface));
+}
+.svc-head {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  font-size: 13.5px; font-weight: 700; letter-spacing: 0.02em; color: var(--danger);
+}
+.svc-what { margin-top: 6px; font-weight: 600; }
+.svc-line { margin-top: 4px; color: var(--prose); }
+.svc-fix { margin-top: 8px; font-weight: 600; }
+/* Selectable in one tap: the whole value of naming the command is that it can be
+   copied to the Mac that has to run it. */
+.svc-fix code {
+  user-select: all; -webkit-user-select: all;
+  padding: 2px 6px; border-radius: 6px; background: var(--surface-2); font-size: 12px;
+}
+.svc-foot { margin-top: 8px; font-size: 11px; color: var(--muted); word-break: break-all; }
 
 /* The one line that says what it is doing. Colour carries the difference between
    "held on purpose" and "should be moving and isn't" — amber is the one that wants
@@ -3073,10 +3127,6 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
   background: var(--surface-2);
   color: var(--text);
   font: inherit;
-  font-size: 14.5px;
-  margin-bottom: 12px;
-  resize: vertical;
-}
   font-size: 14px;
   font-weight: 600;
   /* No selection and no callout: these get held down and mashed, and a long-press

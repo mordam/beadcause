@@ -2614,7 +2614,10 @@ and at most one every `proposeCooldownHours`.
   in that repo — your own claimed beads and every live `claude` process, each one
   tappable for its transcript. Plus **Pause** / **Reclaim sessions** / **Forget
   attempts**. *Reclaim sessions* asks each open window whether it is still working —
-  see below.
+  see below. Above every card, one line saying **which program launchd is running** —
+  dim when it is this checkout's `bin/router.js`, and a red block with the fix when it
+  is not; see [the router](#the-router--why-you-never-restart-it) for why that line is
+  there on a good day too.
 - **The monitor** (`npm run monitor`) has an advocates pane above the questions, and
   every launch, close, lapse and proposal appears in its event log.
 - **The launchd log** (`~/Library/Logs/beadcause.log`) carries the same events as
@@ -4089,6 +4092,20 @@ The limits, stated plainly:
   installed program instead of only reporting that nothing answered. A plist rewritten
   without a bootout counts as stale too — launchd keeps the argv it bootstrapped with,
   so editing the file changes nothing on its own.
+- **And it says so where somebody is standing.** All three of those checks land
+  somewhere nobody looks: `~/Library/Logs/beadcause.log`, and a command you only type
+  once you already suspect something. The reason the original bug survived three days is
+  that the inbox and the advocate console — the two surfaces actually read, from a phone,
+  every day — reported nothing at all, because from their point of view the port was
+  answering perfectly. So **the advocate console carries the same verdict**, above every
+  card, on `/api/work`'s `service`: one dim line naming the program launchd runs when it
+  is the right one, and a red block with the diagnosis and `npm run install-service` when
+  it is not. It is drawn on a good day deliberately — a health line that appears only
+  when something is wrong teaches you to read its absence as health, which is exactly
+  what that console did while it was wrong. The one wrinkle is that the process serving
+  the console is a *grandchild* of launchd, so the router passes down what it was handed
+  in `BEADCAUSE_LAUNCHD_PROGRAM`; a backend reading its own `argv` would call every
+  healthy install stale.
 
 ## HTTPS on the tailnet name
 
@@ -4434,7 +4451,7 @@ cookie says so), and `/auth/signout` ends the session.
 | GET | `/doc` | `?p=<abs path>` | the HTML reader page |
 | GET | `/api/graph` | `?workspace=&id=` | `{nodes, links}` — the whole workspace with no `id` |
 | GET | `/api/bead` | `?workspace=&id=` | one issue in full, plus `comments[]` — for the graph's detail sheet |
-| GET | `/api/work` | — | `{workspaces[], elsewhere[], advocates[]}` — per workspace: claimed beads, live `claude` sessions, counts, errors |
+| GET | `/api/work` | — | `{workspaces[], elsewhere[], advocates[], service}` — per workspace: claimed beads, live `claude` sessions, counts, errors. `service` is what launchd is running — see the router section |
 | GET | `/api/agents` | — | `{agents[], default}` — the roster you can address a comment to |
 | POST | `/api/agents` | `{name, description}` | creates one and returns the new roster. `tools` is never accepted here |
 | POST | `/api/agent-arm` | `{id, acknowledge?, disarm?}` | arms that agent's configured tools override for **one** reply. `428` the first time, carrying the warning to show; `409` while it is answering; `400` if it has no override |
@@ -4846,6 +4863,30 @@ refusing 1.1, and **a WebSocket opened before the swap still echoing a message a
 it**, which is the acceptance criterion no amount of reading the code proves. And behind
 the router, where the listener is loopback-only plain http, the whole thing is a no-op
 that starts no timer.
+
+`test/service.mjs` covers whether anything notices that launchd is running the wrong
+program — the [three-day bug](#the-router--why-you-never-restart-it) — in two halves.
+Detection: a plist written into a fake home, and the verdict `lib/service.js` reaches
+about it, including the case where the file is right and the *job* is stale. Delivery,
+which is the half that was actually missing: the verdict on `/api/work` from a real
+daemon booted with `HOME` pointed at a plist naming `bin/beadcause.js`, so the assertion
+is the diagnosis and not merely a field being present. Plus the hop that makes it
+possible — the process serving the console is a grandchild of launchd, so passing down
+`BEADCAUSE_LAUNCHD_PROGRAM` is what stops a healthy install being reported as stale, and
+an *empty* value has to mean "not a launchd job" rather than "read your own argv".
+
+`test/css.mjs` covers something nothing else in this repo would ever say a word about: a
+rule in `public/style.css` that has lost its closing brace. Under CSS nesting that is not
+a parse error — every rule after it becomes a *nested* rule of it and applies to nothing,
+so the file stays valid, the brace count can still balance, no browser console complains,
+and the page merely looks a bit plain. It happened: a merge took seven declarations and
+the closing brace off `#save-dialog textarea` and gave them to `.key` a hundred lines
+below, which killed the last five hundred lines of the stylesheet — the whole advocate
+console and the admin page — until bc-4irq tried to add a rule there and could not make
+it apply. So the invariant is that a selector block contains no other block, which
+forbids nested syntax on purpose: that is the price of a truncated rule failing on the
+next `npm test` rather than quietly for a week. The detector is shown the exact wreck, so
+a guard that cannot fail is not mistaken for a file that is fine.
 
 ## Notes on bd
 
