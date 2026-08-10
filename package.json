@@ -26,6 +26,7 @@
     "postinstall": "node scripts/vendor.js",
     "monitor": "node bin/monitor.js",
     "check": "node scripts/check-agent-log.js",
+    "secrets": "node scripts/secret-scan.mjs",
     "demo": "node scripts/demo-question.js",
     "configure": "node scripts/configure.js",
     "install-service": "bash scripts/install.sh",

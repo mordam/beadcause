@@ -50,6 +50,7 @@ always safe.
 ```bash
 npm run monitor              # live view of what the daemon is doing
 npm run check                # the checks around the agent log — safe with the daemon up
+npm run secrets              # has a secret ever reached the config repo's history?
 npm run swap:status          # which build is actually answering the port
 npm run uninstall-service    # remove the service (keeps your config and token)
 tail -f ~/Library/Logs/beadcause.log
@@ -1358,6 +1359,20 @@ remove. So the ignore file lands first, *and* every commit re-checks the staged 
 against a denylist and aborts rather than dropping the file quietly. An ignore rule
 is one `git add -f` away from not applying; the cost of being wrong once is a
 rotated key.
+
+**A name is no protection at all for a secret written inside a file that is meant to
+be committed, so the commit greps as well as reading names.** `config.json` is
+snapshotted on every write on purpose — the history of the state files is half the
+reason this repo exists — which makes it the one file here guaranteed to be in the
+history, and Google sign-in arrived with a `clientSecret` field in it. So every
+snapshot searches its staged blobs for a secret written in as a field, and for the
+literal contents of every secret file in that directory; a hit aborts the commit and
+leaves nothing staged. The second half is not paranoia — `consoles/` is committed and
+holds whatever was typed into a chat, and a secret pasted into a chat is the most
+ordinary leak there is. Only the *staged* files are searched, so this guards what is
+about to go in and never re-litigates what is already there; `npm run secrets` is the
+tool for that question, and [rotation](#where-the-two-secrets-live-and-how-to-rotate-them)
+is the answer to it.
 
 **And an existing ignore file is topped up, because the pair of those rules had a
 gap.** The file was written once and never looked at again, so a rule added to
@@ -4215,10 +4230,15 @@ id, a secret and a non-empty allowlist, *and* something to serve an https callba
 "auth": {
   "google": {
     "clientId": "1234-abc.apps.googleusercontent.com",
-    "clientSecretFile": "/Users/you/.config/beadcause/google.secret",
     "allowed": ["you@gmail.com"]
   }
 }
+```
+
+```bash
+# the secret goes in a file, never in config.json — see below for why
+printf '%s' 'GOCSPX-…' > ~/.config/beadcause/google-client-secret.key
+chmod 600 ~/.config/beadcause/google-client-secret.key
 ```
 
 Anything less and the token stays the only credential, with the reason in the log
@@ -4275,13 +4295,55 @@ What that costs is per-session revocation, so be clear about what each act does:
 - **Rotate the token** — a separate act entirely, and it does not touch sign-in. Delete
   `token` from `config.json` and re-pair every device.
 
-The key file is called `session.key` on purpose: `~/.config/beadcause` is
-[a git repo](#where-it-lives-configbeadcause-is-a-git-repo), and `*.key` is both ignored
-there **and** in that snapshotter's `FORBIDDEN` list — so the signing key cannot reach
-that history even if somebody edits the ignore file. The Google **client secret** has no
-such protection if you put it in `config.json`, which is why
-`BEADCAUSE_GOOGLE_CLIENT_SECRET` (no copy on disk at all) and `clientSecretFile` (a path
-you choose) are both accepted and preferred.
+### Where the two secrets live, and how to rotate them
+
+Both of them are named so that the git repo in that directory *cannot* commit them, and
+that is the design rather than a habit. `~/.config/beadcause` is
+[a repo](#where-it-lives-configbeadcause-is-a-git-repo) that snapshots `config.json`
+after every write — which is the point of it — so a secret in that file is not "on disk
+in the clear", it is in a **history**, and a rotation cannot reach back into a history.
+
+| | where it lives | rotate it by |
+|---|---|---|
+| **Session signing key** | `~/.config/beadcause/session.key`, generated on first use at 0600. `BEADCAUSE_SESSION_KEY` overrides it | deleting the file — every browser everywhere is signed out, and the next swap makes a new one |
+| **Google client secret** | `~/.config/beadcause/google-client-secret.key`, or wherever `clientSecretFile` points, or `BEADCAUSE_GOOGLE_CLIENT_SECRET` (no copy on disk at all) | regenerating it in the [Google Cloud console](https://console.cloud.google.com/apis/credentials) and writing the new one to that file. Sign-in picks it up within 30 seconds; nobody is signed out |
+| **Shared token** | `token` in `config.json`, and it is *meant* to be there — every non-browser caller needs it | deleting the field and re-pairing every device |
+
+Both secret files end in `.key`, and the extension is doing the work: `*.key` is ignored
+in that repo **and** on its `FORBIDDEN` list, so one cannot reach the history even if
+somebody edits the ignore file. `*.secret` and `google-client-secret*` are on both lists
+too, because an earlier version of this page suggested `google.secret`.
+
+**There is no `clientSecret` field any more.** There was, briefly, documented as the
+convenient-and-worst option — and a secret there would have been committed within seconds
+of being saved. Three things replaced it, and the third is the one that makes the first
+two true:
+
+- it is not read. A secret in that field configures nothing.
+- it is not merely ignored, either: **any that is still there is moved.** Every process
+  that loads the config empties the field into the secret file at 0600 and writes the
+  config back without it, so an install that had one keeps working and stops leaking. The
+  log says where it went.
+- and **the commit itself refuses.** Every snapshot greps its staged blobs, not just their
+  names: a secret written into any committed file as a field, and the literal contents of
+  every secret file in that directory — the second of which is what catches one pasted
+  into a bead console, since `consoles/` is committed too. The commit aborts and nothing
+  is left staged. That is the guard that covers the window between a hand-edit and the
+  next load, and it needs nothing to have gone right first.
+
+```bash
+npm run secrets   # has one EVER been in the history? every commit, every ref
+```
+
+That last one is the question the guard cannot answer, because a guard is a promise about
+the future. If it finds something, the fix is to **rotate that credential** using the
+table above — not to rewrite the history. A commit cannot be honestly unmade, and the one
+thing you can be certain of afterwards is that the old value no longer works.
+
+If `clientSecretFile` points at a file *inside* `~/.config/beadcause` whose name none of
+those rules match — `google-secret.txt`, say — the secret in it will be committed, and
+nothing stops it, because refusing would turn a working sign-in off over a filename. What
+happens instead is a line in the log every time sign-in is checked, and it names the file.
 
 ### What is checked, and what is not
 
@@ -4427,8 +4489,7 @@ the fields it always read and renders exactly as it did.
 | `tls.name` | the name to get a certificate for, if not the MagicDNS name `tailscale status` reports (default `null` — ask). The protocol floor is deliberately not a setting |
 | `token` | required on every `/api/*` call; regenerate by deleting the file |
 | `auth.google.clientId` | the OAuth **Web application** client for this Mac (default `null` — sign-in off). All of this key, a secret and a non-empty `allowed` are needed before sign-in switches on at all — see [Signing in with Google](#signing-in-with-google) |
-| `auth.google.clientSecret` | the client secret, and the **worst** of the three places to put it: this file is committed to the git repo in that directory. Prefer `clientSecretFile` or `BEADCAUSE_GOOGLE_CLIENT_SECRET` |
-| `auth.google.clientSecretFile` | a path to read the secret from instead (default `null`) |
+| `auth.google.clientSecretFile` | where to read the client secret from. Default `null`, meaning `~/.config/beadcause/google-client-secret.key`. **There is deliberately no `clientSecret` field** — this file is committed to the git repo in that directory, so one there would be in a history a rotation cannot reach; any left over from an older version is moved into the file on load. See [rotating them](#where-the-two-secrets-live-and-how-to-rotate-them) |
 | `auth.google.allowed` | the addresses allowed in, case-insensitive. Empty — the default — means sign-in is off, because a login screen nobody can pass is worse than none |
 | `auth.google.redirectUri` | the callback registered with Google. Derived from the certificate's MagicDNS name and normally left `null`; sign-in cannot switch on without one, because Google refuses a plain-http callback |
 | `auth.google.sessionDays` | how long a signed-in browser stays signed in (default `30`) |
@@ -4496,7 +4557,7 @@ written — fix the IP in the file if the phone can't connect.
 | `BEADCAUSE_OBSERVE` | watch and never act: no sessions, proposals, sweeps, session logs, reply agents or pushes. `BEADCAUSE_READONLY` is the same flag |
 | `BEADCAUSE_NODE` | the `node` the LaunchAgent runs (`scripts/install.sh`, `scripts/open-monitor.sh`) |
 | `BEADCAUSE_BROWSER` | which browser `scripts/open-monitor.sh` opens the console in |
-| `BEADCAUSE_GOOGLE_CLIENT_SECRET` | the Google OAuth client secret, taking precedence over both config fields. The one place it leaves no copy on disk — see [Signing in with Google](#signing-in-with-google) |
+| `BEADCAUSE_GOOGLE_CLIENT_SECRET` | the Google OAuth client secret, taking precedence over the secret file. The one place it leaves no copy on disk — see [rotating the two secrets](#where-the-two-secrets-live-and-how-to-rotate-them) |
 | `BEADCAUSE_SESSION_KEY` | the HMAC key sessions are signed with, instead of `~/.config/beadcause/session.key`. Setting it to a new value signs everybody out |
 | `BEADCAUSE_TAILSCALE` | the `tailscale` binary, overriding the three macOS paths that are searched by default. Has to exist to count — a path typed wrong reads as "no tailscale" rather than failing mysteriously later. See [renewing the certificate](#renewing-it-before-it-expires) |
 
