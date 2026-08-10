@@ -52,6 +52,12 @@
            in the list below, so without this the only sign one is waiting would be a
            notification you may have already swiped away. -->
       <a href="/foundations" class="icon-btn" id="foundations-link" aria-label="Foundations — what each agent kind is, and what it may do">⚖️<span class="badge" id="req-badge" hidden></span></a>
+      <!-- The way out to a real browser, and the only one there is: a link to our own
+           host is kept inside the app's WebView on purpose, so nothing short of the
+           native bridge can leave. Hidden unless that bridge is on the page — in a
+           browser you are already in one, and an APK built before this existed has no
+           `openInBrowser` to call. See the Bridge in MainActivity.kt. -->
+      <button id="open-chrome" class="icon-btn" hidden aria-label="Open this page in Chrome">🌐</button>
       <button id="refresh" class="icon-btn" aria-label="Refresh">⟳</button>
     </div>
   </header>

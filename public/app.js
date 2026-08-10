@@ -3336,6 +3336,26 @@
   }
 
   $('#refresh').addEventListener('click', load);
+
+  /*
+    Open this page in Chrome — shown only where there is somewhere to go.
+
+    In a browser the button would offer to put you in the browser you are already in,
+    so its default is hidden and the Android shell's bridge is what reveals it. Tested
+    for the method rather than the object: an APK built before this shipped injects a
+    `BeadcauseNative` with `answered` and `version` and nothing else, and a button that
+    appeared there would do nothing when tapped.
+
+    Nothing is passed. The shell builds the URL from its own prefs and this WebView's
+    address — so the token comes from where the token lives, and this page has no say
+    in where the intent points.
+  */
+  if (typeof window.BeadcauseNative?.openInBrowser === 'function') {
+    const chrome = $('#open-chrome');
+    chrome.hidden = false;
+    chrome.addEventListener('click', () => window.BeadcauseNative.openInBrowser());
+  }
+
   addEventListener('hashchange', () => {
     hashHandled = '';
     focusHash();
