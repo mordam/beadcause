@@ -47,6 +47,23 @@ whether commenting should **spawn an agent** to answer you, and whether to open 
 with `npm run configure`; nothing is written until the last answer, so Ctrl+C is
 always safe.
 
+**Nothing to answer? Say so.** `npm run install-service -- --non-interactive` (or
+`SKIP_CONFIGURE=1`) prints the configuration on file and changes none of it. An agent
+session or CI is assumed to mean that already — `--interactive` asks anyway. The
+questions are read from `/dev/tty` rather than stdin, because `npm run` pipes stdin;
+but `/dev/tty` is the *controlling terminal*, not a person, so in an agent session
+they are asked of nobody and the install waits forever on the first one. Working
+around that by dropping the terminal (`setsid`) leaves the GUI session too, and
+`launchctl bootstrap gui/<uid>` then fails — after the bootout, so the daemon ends up
+unloaded. The flag exists so neither workaround is needed.
+
+Relatedly, a load that fails now puts back what it replaced. The installer bootstraps
+a job that does nothing before it boots the real one out, so a session that cannot
+load launchd jobs at all is found out while the service is still running rather than
+after it has been stopped; and a plist launchd refuses is set aside as
+`m4m.beadcause.plist.rejected` while the previous one is restored and loaded again.
+It still exits non-zero — it just never exits with nothing running.
+
 ```bash
 npm run monitor              # live view of what the daemon is doing
 npm run check                # the checks around the agent log — safe with the daemon up
@@ -2739,6 +2756,50 @@ a bead, and that is all it knows. So:
   the brief asks it to do. Where it didn't, the row says when the window was opened
   and nothing more.
 
+#### Closing the window — a session that has finished should not still be on screen
+
+The `exit` above only runs **when `claude` exits**, and a session that has finished its
+work does not exit. `claude "$P"` is interactive — the brief is its first prompt, not
+its whole life — so when the last turn ends the TUI goes back to waiting for a human
+who, by construction, is not there. The bead is closed, the pull request is merged, and
+the window is still open.
+
+The cost is not the window. It is that a screen of them is indistinguishable from a
+screen of sessions that stopped to ask something, so every one has to be read before
+any can be dismissed — which is the whole of what beadcause exists to stop. Seven of
+them were sitting here when this was written, all named `DONE-…`, all idle, every bead
+closed hours earlier.
+
+So the daemon finishes the sentence the session could not. When a worker's bead is
+**closed** and its process is still running, the advocate signals it: `claude` exits,
+the shell runs the two commands after it, the done file lands, and iTerm closes the
+window exactly as it does for a session that ended on its own.
+
+Everything about it is a guard against signalling the wrong thing, because a signal is
+the one act here with no undo:
+
+| before anything is sent | why |
+|---|---|
+| the bead is **closed** | not delivered, not handed back, not timed out. Those four endings all have something on screen worth reading; a closed bead does not |
+| Claude Code still reports that pid as a live session **named after this bead** | records in `~/.claude/sessions` outlive their process and pids get reused, so the pid alone is worthless. A subtask id (`<bead>.1`) is not its parent, either — the id has to stand on its own in the name |
+| the session is **idle** | it goes on working for a moment after its delivery closes the bead — the `DONE-` rename, the last message — and that moment is `busy` |
+| and has been for `closeGraceSeconds` | "idle" is a status file the session writes itself, and the gap between two turns looks exactly like the end of the last one |
+
+Then `SIGTERM`; then `SIGKILL` if that was ignored for `closeHardSeconds`; then, after
+`closeGiveUpMinutes`, it stops and leaves the window alone. Giving up is a real
+outcome: a session that will not take a signal is one worth looking at by hand, and a
+daemon that escalated forever would be worse than the windows. A busy session that
+never goes idle is left open for the same reason, and costs nothing but a line in the
+log.
+
+The waiting list survives a restart, alongside the workers and for the same reason —
+the windows are still open, and a daemon that forgot them would leave the pile this
+was written to clear. An observer instance signals nothing at all.
+
+Windows already open when this shipped are not swept up: their workers left the slot
+list long ago, so nothing knows their pids. Close them by hand once; everything from
+then on closes itself.
+
 #### Reclaiming a slot, by asking
 
 The inference above is what the daemon can work out on its own. **Reclaim sessions** is
@@ -4669,6 +4730,9 @@ the fields it always read and renders exactly as it did.
 | `advocates.tidyIntervalMinutes` | how often it sweeps when nothing has just finished (default 15) |
 | `advocates.sessionLog` | archive each finished session to `refs/beadcause/sessions/<bead>` and note its commits (default `true`) |
 | `advocates.sessionTranscripts` | also store the raw Claude Code transcript — megabytes, and it carries paths and tool output (default `false`; set per repo in `perWorkspace`) |
+| `advocates.closeFinishedSessions` | [close a work session's window once its bead is closed](#closing-the-window--a-session-that-has-finished-should-not-still-be-on-screen) (default `true`). `false` leaves every window open, which is what it did before |
+| `advocates.closeGraceSeconds` | how long an idle session gets between its bead closing and the first signal (default 90) |
+| `advocates.closeHardSeconds`, `advocates.closeGiveUpMinutes` | how long `SIGTERM` gets before `SIGKILL` (default 45), and how long the whole thing gets before it gives up and leaves the window for you (default 30 min) |
 | `agents` | extra reply agents beyond the four built in — `{id, name, emoji, description}`, plus `tools`/`model` if you set them by hand |
 | `defaultAgent` | which one answers when you haven't picked (default `answerer`) |
 | `agents[].tools` | the allowlist that agent may be *armed* with, for one reply at a time. Config-file only — see [Allow tools](#allow-tools--for-one-comment-and-only-that-one) |
@@ -4696,6 +4760,7 @@ written — fix the IP in the file if the phone can't connect.
 | `BEADCAUSE_OBSERVE` | watch and never act: no sessions, proposals, sweeps, session logs, reply agents or pushes. `BEADCAUSE_READONLY` is the same flag |
 | `BEADCAUSE_NODE` | the `node` the LaunchAgent runs (`scripts/install.sh`, `scripts/open-monitor.sh`) |
 | `BEADCAUSE_BROWSER` | which browser `scripts/open-monitor.sh` opens the console in |
+| `SKIP_CONFIGURE` | `scripts/install.sh` asks nothing and keeps the answers on file — the same as `--non-interactive`. `CLAUDECODE`, `AI_AGENT` and `CI` imply it, because a question asked of a terminal nobody is watching is a hang; `--interactive` asks anyway |
 | `BEADCAUSE_GOOGLE_CLIENT_SECRET` | the Google OAuth client secret, taking precedence over the secret file. The one place it leaves no copy on disk — see [rotating the two secrets](#where-the-two-secrets-live-and-how-to-rotate-them) |
 | `BEADCAUSE_SESSION_KEY` | the HMAC key sessions are signed with, instead of `~/.config/beadcause/session.key`. Setting it to a new value signs everybody out |
 | `BEADCAUSE_TAILSCALE` | the `tailscale` binary, overriding the three macOS paths that are searched by default. Has to exist to count — a path typed wrong reads as "no tailscale" rather than failing mysteriously later. See [renewing the certificate](#renewing-it-before-it-expires) |
@@ -4834,12 +4899,39 @@ controls.
 
 ### `npm test`
 
-`scripts/selftest.mjs`, then every suite under `test/`, then `scripts/test-swap.js` —
-the exact list, in order, is the `test` script in `package.json`, which is the one place
-worth keeping current. What they have in common is that each covers something whose
+`test/lockfile.mjs`, then `scripts/selftest.mjs`, then every suite under `test/` in
+alphabetical order, then `scripts/test-swap.js`. **Nothing lists them** — `scripts.test`
+is `node scripts/test.mjs`, and the runner reads the directory, so adding a suite is
+adding a file and nothing else. `node scripts/test.mjs --list` prints what would run
+without running it. What the suites have in common is that each covers something whose
 failure is *silent* — a flag that does nothing, a state file that comes back empty,
 a message that was never written. The loud failures are still covered by
 `node --check` on changed files and by booting an observer instance and driving it.
+
+**Discovery is a merge fix, not a tidying-up.** The list used to be a single line in
+`package.json` naming every suite in order, and adding a suite meant editing that one
+line — so a dozen concurrent sessions all edited the same line, and git cannot merge
+that: two changes to one line is a conflict however far apart the two insertions read.
+bc-ec6 hit it three times in twenty minutes on that line and nothing else, and each
+collision cost a downmerge, a resolution and a four-minute suite — by which time main
+had moved again, so a branch could lose that race indefinitely while every step it took
+was correct. Only three suites are still named in the runner, because only three have an
+order that matters: the lockfile check first (a lock that disagrees with `package.json`
+makes every later failure suspect), the smoke test second (if the daemon cannot start,
+the 30-odd suites after it fail for the same uninteresting reason), and the swap under
+load last (it is slower than everything else together). The long tail — where every
+collision happened — is unordered, sorted only so the output is stable.
+
+`test/testrunner.mjs` covers that, and the check that matters is not about running tests
+at all: it builds two branches in a temp repo that each add a suite and merges them with
+a real `git merge-tree` — the same three-way merge GitHub refuses a pull request over —
+asserting the merge is clean, with the old one-line chain as the control, asserted to
+conflict. Without the control the clean case proves nothing, since two branches adding
+two different files were never going to collide. The rest is what discovery can newly
+get wrong in silence: that every `test/*.mjs` on disk is in the list (the chain used to
+*be* the inventory; the directory is now), that the two `scripts/` entries which are not
+`test/*.mjs` survive, that the three pinned positions hold, and that a failure still
+stops the run, propagates its exit code, and does not run what comes after it.
 
 `test/observe.mjs` is about observer mode only, and it is the oldest of them —
 because this is the switch here that fails most quietly. Turn off the terminal
