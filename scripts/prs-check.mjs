@@ -703,7 +703,7 @@ try {
     `and says which repo, which step, and that this page is about to go — "${strip[0]}"`
   );
   ok(
-    (await evalJs(s, `document.querySelectorAll('#prs .board-pr').length`)) === 4,
+    (await evalJs(s, `document.querySelectorAll('#prs .board-pr').length`)) === 5,
     'the board underneath is untouched'
   );
 
@@ -728,7 +728,7 @@ try {
   await sleep(6000);
   ok(/restarting/.test(await evalJs(s, BANNER)), `the dropped connection reads as the deploy — "${await evalJs(s, BANNER)}"`);
   ok(
-    (await evalJs(s, `document.querySelectorAll('#prs .board-pr').length`)) === 4,
+    (await evalJs(s, `document.querySelectorAll('#prs .board-pr').length`)) === 5,
     'and the board that was already drawn is still there to come back to'
   );
   ok(
