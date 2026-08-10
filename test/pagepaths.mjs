@@ -13,10 +13,10 @@
  * exactly the shape a merge conflict eats.
  *
  * The case that made this worth a test: when the sessions view was merged into the
- * advocate console, `public/work.html` was deleted. Four of its paths were aliases and
- * were repointed; `/work.html` had never *been* an alias — it resolved as a file on
- * disk — so deleting the file broke it, and it is the one path a service worker had
- * been precaching by name. Nothing in the app would have said so.
+ * advocate console, `public/work.html` was deleted. `/work` and `/sessions` were already
+ * aliases and were simply repointed; `/work.html` never *had* been one — it resolved as
+ * a file on disk — so deleting the file broke it, and it is the one of the three a
+ * service worker had been precaching by name. Nothing in the app would have said so.
  *
  * Static serving only, so no `bd`, no advocates and no poller: `createApp` is handed a
  * config with all of that off.
@@ -130,6 +130,9 @@ const PAGES = [
     marker: '/monitor.js',
     paths: ['/monitor', '/advocates', '/monitor.html', '/sessions', '/work', '/work.html'],
   },
+  // One live session's facts and its transcript — the page every session row in the app
+  // links to, and the reason the console could absorb the sessions view at all.
+  { what: 'one session', marker: '/session.js', paths: ['/session', '/session.html'] },
   { what: 'the pull request board', marker: '/prs.js', paths: ['/prs', '/pulls', '/prs.html'] },
   { what: 'the chat session', marker: '/console.js', paths: ['/console', '/console.html'] },
   { what: 'the in-app terminal', marker: '/term.js', paths: ['/terminal', '/term.html'] },

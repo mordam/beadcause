@@ -11,13 +11,15 @@
  * things the snapshot can only point at: the survey agent's live transcript, the
  * proposals waiting on you, and the session logs it pushed to refs.
  *
- * **It is also the sessions view.** `/sessions` used to be a second page over the
- * same `/api/work` payload — the same cards, the same claimed beads, the same live
- * `claude` rows, one state line each — and every question it answered is answered
- * here per repo, which is the way you actually arrive: "what is running" is nearly
- * always "what is running *in this repo*". The one thing it had that this page did
- * not is the pane below each session row, and that came over with it — so `/sessions`,
- * `/work` and `/work.html` all serve this page now, and public/work.js is gone.
+ * **It is also the sessions view.** `/sessions` was a second page over the same
+ * `/api/work` payload — the same card per repo, the same claimed beads, the same live
+ * `claude` rows, one advocate state line each — and every question it answered is
+ * answered here, per repo, which is the way you actually arrive: "what is running" is
+ * nearly always "what is running *in this repo*". The one thing it had that this page
+ * did not was somewhere for a session row to go, and that stopped being true when the
+ * detail moved out to `/session?pid=` and every list in the app got the same link. So
+ * `/sessions`, `/work` and `/work.html` all serve this page now, and public/work.js is
+ * gone.
  *
  * **It reads and it does not instrument.** Everything here comes from endpoints the
  * daemon already served — `/api/work`, `/api/questions`, `/api/advocate-log`,
@@ -35,6 +37,14 @@
  *   - **A held-off advocate is drawn, never hidden.** Paused, quiet, cooling down and
  *     out-of-slots each say so in full, because an advocate you cannot see is
  *     indistinguishable from a repo with nothing left to do.
+ *
+ * Every session listed here — a worker row whose window is still running, a "Claude
+ * sessions" row, an Elsewhere row — links to `/session?pid=…`, the same detail the
+ * mirror sends you to, and it opens in the drawer over this console. The rows on this
+ * page used to be inert `<div>`s, and the detail behind them existed in exactly one
+ * place: folded inline under the row on /sessions. Giving every row the one address is
+ * what made that page a strict duplicate of this one, and so what let it go. See
+ * public/session.js.
  */
 (() => {
   'use strict';
@@ -95,29 +105,10 @@
     return `${verb} ${esc(a)}${a === 'just now' ? '' : ' ago'}`;
   }
 
-  /**
-   * "14m ago" — the same phrase with no verb in front of it, for the session facts.
-   *
-   * Its own function rather than `ago(iso, '')`, which would leave a leading space,
-   * and emphatically not an optional second argument on `ago`: two call shapes for
-   * one name, one of them producing "surveyed" and the other not, is the bug that
-   * gets found three weeks later in the one field nobody reads twice.
-   */
-  const elapsed = (iso) => {
-    const a = age(iso);
-    return !a || a === 'just now' ? a : `${a} ago`;
-  };
-
-  /** The clock time, for the session facts — "17h" doesn't say whether it spanned lunch. */
-  const clock = (iso) => {
-    if (!iso) return '';
-    const d = new Date(iso);
-    return Number.isNaN(d.getTime())
-      ? ''
-      : d.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-  };
-
   const graphUrl = (ws, id) => `/graph?ws=${encodeURIComponent(ws)}${id ? `&id=${encodeURIComponent(id)}` : ''}`;
+
+  /** The one address a session has anywhere in the app — see public/session.js. */
+  const sessionUrl = (pid) => `/session?pid=${encodeURIComponent(pid)}`;
 
   const P_LABEL = ['P0', 'P1', 'P2', 'P3', 'P4'];
 
@@ -137,10 +128,6 @@
     archives: new Map(), // workspace → { bead, ref, sessions } or { text }
     open: new Set(readOpen()),
     picks: new Map(), // question key → Map(1-based bead index → 'yes' | 'no')
-    /** The pid of the session whose transcript is open, if any. At most one. */
-    session: null,
-    /** Its transcript, kept out here so a repaint doesn't blank the pane. */
-    logText: '',
     error: null,
   };
 
@@ -164,6 +151,52 @@
     if (!state.picks.has(key)) state.picks.set(key, new Map());
     return state.picks.get(key);
   };
+
+  /**
+   * Is there a process behind this pid *in the payload we are drawing*?
+   *
+   * Only the worker rows need to ask. A session row came out of `sessions` and is live
+   * by construction; a worker's `pid` is whatever the last advocate tick found by
+   * matching a session name against the bead id, and the window may have gone since.
+   * So a worker with a live pid goes to `/session?pid=…` and one without keeps its bead
+   * link, which is the one honest thing left to point at.
+   */
+  function livePid(pid) {
+    if (pid == null || pid === '') return false;
+    const want = Number(pid);
+    if (!Number.isInteger(want) || want <= 0 || !state.work) return false;
+    return (
+      (state.work.elsewhere || []).some((s) => s.pid === want) ||
+      (state.work.workspaces || []).some((w) => (w.sessions || []).some((s) => s.pid === want))
+    );
+  }
+
+  /**
+   * A live `claude` process, wherever on this page it is listed.
+   *
+   * One function for what used to be three near-identical blocks — the "other work in
+   * this repo" section, a repo with no advocate, and the Elsewhere card — because they
+   * had drifted into three slightly different rows for the same thing, and because
+   * making a row a link to somewhere was exactly the change that must not be made in
+   * two of three places.
+   */
+  function sessionRow(s) {
+    // The label names the session as well as the destination: `aria-label` replaces the
+    // row's text outright, so one saying only "what pid 30342 is doing" would take the
+    // session's own name away from the reader who needs it most.
+    return `<a class="work-row session-row" href="${esc(sessionUrl(s.pid))}" aria-label="${esc(
+      s.name || `pid ${s.pid}`
+    )} — what it is doing">
+      <span class="work-phase">${s.status === 'busy' ? '<span class="spark"></span>' : '○'}</span>
+      <span class="work-main">
+        <span class="work-title">${esc(s.name || '(unnamed session)')}</span>
+        <span class="work-sub">${esc(s.where || s.cwd)} · pid ${esc(s.pid)}${
+          s.status ? ` · ${esc(s.status)}` : ''
+        }</span>
+      </span>
+      <time>${esc(age(s.at))}</time>
+    </a>`;
+  }
 
   async function api(path, opts = {}) {
     const res = await fetch(path, {
@@ -265,7 +298,14 @@
       // looking identical to a window that answers.
       w.reachable === false ? '<span class="tag dim">no window handle</span>' : '',
     ].filter(Boolean);
-    return `<a class="work-row adv-worker" href="${esc(graphUrl(a.workspace, w.id))}">
+    // Where the pid names a process that is still running, the row goes to that
+    // session's own detail — the transcript is the answer to "is this moving", and it is
+    // why you were reading this section. Where it does not, the bead stays the
+    // destination: a worker whose window has exited has no session to show, and
+    // `/session?pid=…` for a dead pid is a 404, which is a worse row than the one it
+    // replaced.
+    const live = livePid(w.pid);
+    return `<a class="work-row adv-worker" href="${esc(live ? sessionUrl(w.pid) : graphUrl(a.workspace, w.id))}">
       <span class="work-phase">${w.claimed && !w.ended ? '<span class="spark"></span>' : w.ended ? '◍' : '◔'}</span>
       <span class="work-main">
         <span class="work-title">${esc(w.title || w.id)}</span>
@@ -276,71 +316,12 @@
   }
 
   /**
-   * What one live session is, and what it is saying.
-   *
-   * Every fact here comes off the process record — no bead, because nothing on this
-   * machine records which bead a process is on. That is why the pane matters: the row
-   * above it can only say "busy", which reads the same for a session mid-thought as
-   * for one wedged an hour ago on a permission prompt, and the transcript is the
-   * honest answer to the question the row raises and cannot close.
-   */
-  function sessionDetail(s) {
-    // Short labels on purpose: the column is a fixed width so the values line up, and
-    // on a 390px screen every character spent on the label is one taken off a path
-    // that is already going to wrap.
-    const facts = [
-      ['where', s.cwd || 'not recorded'],
-      ['workspace', s.workspace || 'not in a configured workspace'],
-      ['process', `pid ${s.pid}${s.kind ? ` · ${s.kind}` : ''}${s.status ? ` · ${s.status}` : ''}`],
-      ['started', s.startedAt ? `${clock(s.startedAt)} · ${elapsed(s.startedAt)}` : 'not recorded'],
-      ['active', s.at ? `${clock(s.at)} · ${elapsed(s.at)}` : 'not recorded'],
-      // Eight characters is what identifies a session in Claude Code's own output,
-      // and the rest of the uuid is no more useful on a phone.
-      ['session', s.sessionId ? s.sessionId.slice(0, 8) : 'not recorded'],
-    ];
-    return `<div class="session-detail">
-      <dl class="session-facts">${facts
-        .map(([k, v]) => `<div><dt>${esc(k)}</dt><dd>${esc(v)}</dd></div>`)
-        .join('')}</dl>
-      <div class="session-label">Transcript <span>Its own log, as the terminal showed it.</span></div>
-      <pre class="agent-log" data-session-log="${esc(s.pid)}">${esc(state.logText || 'opening the transcript…')}</pre>
-    </div>`;
-  }
-
-  /**
-   * One live `claude` process, wherever it turns up.
-   *
-   * One function for all three sites — inside an advocate card, on a repo with no
-   * advocate, and under Elsewhere — because the rows were already near-identical
-   * copies of each other and only one of them is ever the one you tap.
-   *
-   * Deliberately not `.mon-log` on the pane below it: `pumpLogs` pins every `.mon-log`
-   * on the page to its foot after an advocate transcript changes, which is right for
-   * a survey you are watching arrive and wrong for a session log you are reading back
-   * through.
-   */
-  function sessionRow(s) {
-    const open = state.session === s.pid;
-    return `<button class="work-row session-row" type="button" data-session="${esc(s.pid)}" aria-expanded="${open}">
-      <span class="work-phase">${s.status === 'busy' ? '<span class="spark"></span>' : '○'}</span>
-      <span class="work-main">
-        <span class="work-title">${esc(s.name || '(unnamed session)')}</span>
-        <span class="work-sub">${esc(s.where || s.cwd)} · pid ${esc(s.pid)}${
-          s.status ? ` · ${esc(s.status)}` : ''
-        }</span>
-      </span>
-      <time>${esc(age(s.at))}</time>
-      <span class="chev" aria-hidden="true">›</span>
-    </button>${open ? sessionDetail(s) : ''}`;
-  }
-
-  /**
    * What it would pick up next, in the order it would take it.
    *
-   * Always drawn, including while sessions are open. The page this absorbed hid it
-   * the moment anything was running, which is exactly when "and then what" is the
-   * question you have. The note underneath is the advocate's own sentence about why
-   * the head of this list has not been started yet.
+   * Always drawn, including while sessions are open — public/work.js hides this the
+   * moment anything is running, which is exactly when "and then what" is the question
+   * you have. The note underneath is the advocate's own sentence about why the head
+   * of this list has not been started yet.
    */
   function nextHtml(a) {
     if (!a.next?.length) {
@@ -655,17 +636,6 @@
     const data = state.work;
     if (!data) return;
 
-    // Where the open transcript was, before the cards it lives in are thrown away.
-    // This page repaints every twenty seconds, after every control press and after
-    // every change in an advocate's own transcript — so a pane that jumped to the
-    // tail each time would make reading back through a run impossible, and one that
-    // jumped to the *top* would lose your place three times a minute. Following the
-    // tail is only right if you were already at the bottom.
-    const pre = out.querySelector('[data-session-log]');
-    const pane = pre
-      ? { top: pre.scrollTop, atBottom: pre.scrollHeight - pre.scrollTop - pre.clientHeight < 40 }
-      : null;
-
     // Which daemon am I looking at? Two consoles side by side are otherwise
     // identical, and the one that acts is not the one you have been clicking.
     // `hidden` rather than absent text: the live instance must show nothing at all,
@@ -698,17 +668,6 @@
       elsewhereHtml(data.elsewhere || []);
 
     out.innerHTML = cards || '<div class="empty">No workspaces configured.</div>';
-
-    const next = out.querySelector('[data-session-log]');
-    if (next) {
-      next.scrollTop = !pane || pane.atBottom ? next.scrollHeight : pane.top;
-    } else if (state.session != null) {
-      // The session you were watching has exited, or the section holding its row was
-      // folded. Either way the pane is not on the page any more, so stop tailing it —
-      // and stop it reappearing on its own the next time the fold opens.
-      state.session = null;
-      state.logText = '';
-    }
 
     const live = [...advocates.values()].reduce((n, a) => n + a.workers.length, 0);
     const waiting = [...state.proposals.values()].reduce((n, qs) => n + qs.length, 0);
@@ -790,48 +749,9 @@
     if (changed) {
       render();
       // Pin the transcript to its foot, the way a terminal does: this is a live log,
-      // and the newest line is the one you are here for. `.mon-log` and not
-      // `.agent-log`, which would take the open session pane with it — see
-      // `sessionRow`.
+      // and the newest line is the one you are here for.
       for (const el of out.querySelectorAll('.mon-log')) el.scrollTop = el.scrollHeight;
     }
-  }
-
-  /**
-   * Tail the open session's transcript.
-   *
-   * Written straight into the `<pre>` rather than through `render()`: no card has
-   * changed just because a session typed another line, and rebuilding all of them
-   * twice a second to find out would be absurd.
-   *
-   * Its own try/catch rather than letting `api()` throw, because the failure belongs
-   * in the pane. A transcript that cannot be read is one line of `⚠` under a row you
-   * can still see the state of — not a reason to take the advocate card down with it.
-   */
-  async function pollLog() {
-    const pid = state.session;
-    if (pid == null) return;
-    let text;
-    try {
-      const data = await api(`/api/session-log?pid=${encodeURIComponent(pid)}`);
-      text =
-        (data.lines || []).join('\n') ||
-        // Where it looked, so an empty pane says why it is empty rather than implying
-        // the session has done nothing.
-        (data.file ? `Nothing to show yet.\n${data.file}` : 'No transcript file for this session.');
-    } catch (err) {
-      text = `⚠ ${err.message}`;
-    }
-    // You closed it, or opened another, while this was in flight.
-    if (state.session !== pid) return;
-    state.logText = text;
-    const pre = out.querySelector(`[data-session-log="${CSS.escape(String(pid))}"]`);
-    if (!pre) return;
-    const atBottom = pre.scrollHeight - pre.scrollTop - pre.clientHeight < 40;
-    pre.textContent = text;
-    // Follow the tail only if you were already at the bottom, so scrolling back to
-    // read something isn't yanked away by the next line.
-    if (atBottom) pre.scrollTop = pre.scrollHeight;
   }
 
   /* ------------------------------------------------------------------ actions */
@@ -924,20 +844,6 @@
       return;
     }
 
-    // One session open at a time, and tapping the open one shuts it. `logText` is
-    // cleared on the way in so the pane never opens showing the previous session's
-    // words for the second and a half before its own arrive.
-    const row = e.target.closest('[data-session]');
-    if (row) {
-      const pid = Number(row.dataset.session);
-      state.session = state.session === pid ? null : pid;
-      state.logText = '';
-      render();
-      // Don't make you wait two and a half seconds for the first line.
-      if (state.session != null) pollLog();
-      return;
-    }
-
     const adv = e.target.closest('[data-adv]');
     if (adv) {
       e.preventDefault();
@@ -995,29 +901,22 @@
   // you are looking at and nothing else — the mirror tab sits over this one, and a
   // hidden page must not keep sweeping every tracker on the Mac.
   setInterval(() => !out.hidden && load(), REFRESH_MS);
-  // Both transcripts on one tick — the advocates' and the open session's. They are
-  // both a file read on the Mac, which is why this can be this fast, and a fourth
-  // timer for the second one would buy nothing but another thing to reason about.
-  setInterval(() => {
-    if (out.hidden) return;
-    pumpLogs();
-    if (state.session != null) pollLog();
-  }, LOG_MS);
+  setInterval(() => !out.hidden && pumpLogs(), LOG_MS);
 
   // How the tab bar brings this pane back up to date when you return to it.
   window.beadcause = window.beadcause || {};
   window.beadcause.monitor = { refresh: load };
 
   /* Where this device is, for a mirror on some other screen. There is no selection to
-     publish — being here is the whole report — and the id stays `sessions` because
-     that is what lib/presence.js whitelists and what the mirror already has a name
-     for; this page is simply what the name now points at.
+     publish — being here is the whole report — and the id stays `sessions` because that
+     is what lib/presence.js whitelists and what the mirror already has a name for; this
+     page is simply what the name now points at.
 
-     This page can also be a mirror, and presence.js's own header is right that a
+     This page can also *be* a mirror, and presence.js's own header was right that a
      device which followed itself would be absurd — so `showTab` in mirror.js revises
-     this to `null` while the mirror pane is up, and mirror.js drops its own device
-     from the list it follows. Both halves are needed: the report is honest about which
-     pane you are on, and the list cannot circle back on this one even mid-switch. */
+     this to `null` while the mirror pane is up, and mirror.js drops its own device from
+     the list it follows. Both halves are needed: the report is honest about which pane
+     you are on, and the list cannot circle back on this one even mid-switch. */
   window.beadcause?.presence?.report({ view: 'sessions' });
 
   if (!token) {

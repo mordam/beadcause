@@ -1,10 +1,12 @@
 /* Cache the shell so the inbox opens instantly and the 3.5 MB mermaid bundle is
    fetched once. API traffic is never cached — an answered question must vanish. */
-/* v17: the sessions page is gone and `/sessions` now serves the advocate console.
-   The version has to move for that — an installed worker would otherwise keep
-   handing the phone the cached /work.html shell, and a page deleted from the repo
-   would go on opening from the home screen for as long as the cache lived. */
-const CACHE = 'beadcause-v17';
+/* v18: /session became a page of its own (v17), and then the sessions page it was
+   folded inside went away and `/sessions` began serving the advocate console. Both
+   changed this list, so both had to move the version — an installed worker would
+   otherwise go on handing the phone the cached /work.html shell, and a document
+   deleted from the repo would keep opening from the home screen for as long as the
+   cache lived. */
+const CACHE = 'beadcause-v18';
 const SHELL = [
   '/',
   '/index.html',
@@ -24,7 +26,14 @@ const SHELL = [
   '/doc.js',
   '/graph.html',
   '/graph.js',
-  // The pull request board. Both paths, the same way the advocate console has four:
+  // The third page a drawer can be: one session's facts and its transcript, linked
+  // from every list in the app that names a session. In the shell for the same reason
+  // /graph and /doc are — it is opened by a tap on a row, over a page you are already
+  // reading, and fetching it fresh on that tap is the slowest moment to do it.
+  '/session',
+  '/session.html',
+  '/session.js',
+  // The pull request board. Both paths, the same way the advocate console has five:
   // /pulls is what you type when GitHub's own word for the tab is the one in your head.
   '/prs',
   '/pulls',
