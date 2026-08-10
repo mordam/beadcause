@@ -5,6 +5,13 @@ message in the protocol that starts a turn, and the CLI does not error when you 
 one — it ignores it and stays connected, which is the failure mode that makes this worth
 writing down rather than discovering twice.
 
+**And it is not worth building anyway.** The one thing the spike thought the channel
+bought — multi-line text into a live session — turned out to be two statements of
+AppleScript on the channel beadcause already has. See [What this is
+worth](#what-this-is-worth-nothing-applescript-can-do-multi-line-on-its-own) for the
+proof and the verdict; the protocol notes below stand as the record of what was
+actually observed.
+
 Spike for `bc-g1l`, against **Claude Code 2.1.226** on macOS 15.1. Everything below was
 observed, not inferred: the CLI ships as a Bun binary with the JS compiled to bytecode,
 so the source is not readable and string archaeology runs out after about ten minutes.
@@ -121,22 +128,69 @@ is mid-brief treats a bossy line arriving that way as exactly what it is. Ordina
 messages get through; instructions that read like they are overriding the session's
 orders do not, and should not.
 
-## What this is worth
+## What this is worth: nothing. AppleScript can do multi-line on its own.
 
-The channel adds one thing over what beadcause already has: **multi-line text with no
-quoting**. `scripts/message-session.applescript` already puts words into a live worker
-and presses return today, and it works — but `write text` ends with a return, so the
-message must be flattened to a single line before it goes anywhere near AppleScript. The
-hybrid removes that limit: compose in the box over the WebSocket, press Return over
-AppleScript.
+The spike closed by claiming the channel buys exactly one thing over what beadcause
+already has — **multi-line text with no quoting** — because
+`scripts/message-session.applescript` puts words into a live worker and presses return
+today, but `write text` ends with a return, so the message is flattened to one line
+first. That was the whole case for a second channel.
 
-Everything else it does not do. It cannot deliver a prompt on its own, it cannot reach a
-session outside its `workspaceFolders`, and it needs the AppleScript path anyway for the
-Return — so it is a second channel bolted alongside the first, not a replacement for it.
+**The claim was wrong.** The flattening is not a property of AppleScript; it is a
+property of the *default* on one parameter. iTerm's `write` command takes a `newline`
+boolean — `Contents/Resources/iTerm2.sdef`, code `Wtnl`, *"If newline should be added to
+end of text (default: yes)"*. With `newline no`, `write text` sends bytes to the pty and
+stops. Nothing submits until you choose to submit.
+
+So the multi-line send is two statements on the channel that already exists:
+
+```applescript
+tell s to write text (esc & "[200~" & theText & esc & "[201~") newline no  -- the paste
+tell s to write text ""                                                    -- the Return
+```
+
+`ESC[200~` / `ESC[201~` is bracketed paste. iTerm passes the bytes through verbatim —
+a raw-stdin reader in an iTerm window receives
+`"[200~line one\nline two[201~"` as one chunk and then `"\r"` as a second,
+which is exactly the two halves of the hybrid arriving down one wire. Claude Code
+honours the markers: a seven-line message with blank lines and a list landed in the
+composer as `[Pasted text #1 +6 lines]`, and one bare Return submitted it as a single
+turn whose text had every line, blank line and indent intact.
+
+Two details worth keeping:
+
+- **Over a few lines, the composer shows a placeholder, not the text.** `[Pasted text #1
+  +6 lines]` with *"paste again to expand"* underneath. The full message is there and
+  submits in full — but anything that reads the composer back to confirm what was typed
+  is reading a placeholder, not the words.
+- **Bracketed paste is belt and braces, and worth wearing anyway.** Claude Code submits
+  on CR (`0x0d`) only, so a bare LF (`0x0a`) sent with `newline no` *also* lands as a
+  line break rather than a send. That works, but it rests on how the TUI happens to
+  classify one byte. The markers say "this is pasted text" out loud, which is the thing
+  that is actually true.
+
+### The refusal problem goes away too
+
+The WebSocket's other limit was that everything arrives `@`-prefixed as file content, so
+a session mid-brief correctly refuses imperative text sent that way. Over AppleScript
+there is no prefix and no framing — it is typed input, indistinguishable from the
+keyboard. The end-to-end message above ended *"Reply with exactly: GOT ALL SIX LINES"*
+and the session replied `GOT ALL SIX LINES`. So the one-channel route is not merely
+cheaper than the hybrid; it is the only one of the two that can carry an instruction.
+
+### Verdict on the hybrid
+
+Declined. Against two AppleScript statements, the WebSocket path costs a WS server in
+the daemon, a lock file whose `workspaceFolders` must enumerate every directory sessions
+run in (~70 worktrees, and the list is not static), stale-lock hygiene where a stale lock
+is worse than none — and it *still* needs AppleScript for the Return. It buys nothing
+that is left.
 
 **The bead said to stop and report if it turned out to be context-only. It is
-context-only.** Whether multi-line phone messages are worth wiring a second channel for
-is Adam's call, not the spike's.
+context-only, and it does not matter, because the feature it was wanted for does not
+need it.** Settled on `bc-62e`. Nothing in this repo speaks the IDE WebSocket, and on
+this evidence nothing should; `scripts/ide-ws-probe.mjs` stays what it always was — an
+inert prover kept so this is not rediscovered a third time.
 
 ## Reproducing it
 
@@ -151,3 +205,26 @@ echo '{"jsonrpc":"2.0","method":"at_mentioned","params":{"filePath":"hello from 
 Kill the probe with SIGINT/SIGTERM so it removes its lock. **A stale lock is worse than
 none** — the filename is the port, so every later session will offer to connect to a
 port that is not there.
+
+### And reproducing the thing that replaced it
+
+No probe, no server, no lock — one `osascript`, against any Claude Code session already
+open in iTerm. Point it at a live window instead of opening its own by swapping the
+`create window` line for the handle match in
+`scripts/message-session.applescript`.
+
+```applescript
+set esc to (ASCII character 27)
+set body to "first line" & linefeed & linefeed & "third line, after a blank one"
+tell application id "com.googlecode.iterm2"
+	set s to current session of (create window with default profile)
+	tell s to write text "claude"
+	delay 12
+	tell s to write text (esc & "[200~" & body & esc & "[201~") newline no
+	delay 2
+	return contents of s      -- both lines in the composer, nothing submitted
+end tell
+```
+
+Then `tell s to write text ""` to submit it. Verified against **Claude Code 2.1.226** on
+macOS 15.1, the same build the WebSocket work above was done on.
