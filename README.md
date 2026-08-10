@@ -3953,6 +3953,18 @@ The limits, stated plainly:
   its children survive it — and a stranded backend still holds a poller while the
   replacement router starts a fresh one. So a backend that has heard nothing from a
   router for 60 seconds exits. `npm run start:bare` has no router and is exempt.
+- **None of it is live until `npm run install-service` has been re-run.** The plist in
+  `~/Library/LaunchAgents` is generated once and never touched by `git pull`, and a
+  deploy `kickstart`s a *label* without looking at what the label points to. So the
+  router landed, the installer was updated, this section was written, and launchd went
+  on restarting `bin/beadcause.js` for three days with the port answering perfectly the
+  whole time. Nothing was broken; nothing was live. It is now checked in three places,
+  because the two halves fail apart: the installer reads back from `launchctl print`
+  what it actually loaded, the daemon prints a `HOT-SWAP IS NOT LIVE` banner when
+  launchd started *it* rather than the router, and `npm run swap:status` names the
+  installed program instead of only reporting that nothing answered. A plist rewritten
+  without a bootout counts as stale too — launchd keeps the argv it bootstrapped with,
+  so editing the file changes nothing on its own.
 
 ## HTTP API
 

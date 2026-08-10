@@ -149,6 +149,23 @@ fi
 WORKSPACES="$(curl -fsS -m 5 http://127.0.0.1:4318/api/health | sed 's/.*"workspaces":\[//;s/\].*//')"
 say "running — workspaces: ${WORKSPACES:-none}"
 
+# Prove what got loaded, rather than assume the heredoc above is what launchd is
+# holding. It went wrong exactly this way once: a plist written before bin/router.js
+# existed stayed loaded for weeks, every kickstart restarted bin/beadcause.js, and the
+# port answered perfectly the whole time — so nothing anyone could see was broken.
+# launchd keeps the arguments it bootstrapped with, so this reads them back from it
+# and not from the file.
+LOADED="$(launchctl print "gui/$(id -u)/$LABEL" 2>/dev/null | grep -oE '[^[:space:]]+/bin/[A-Za-z0-9._-]+\.js' | head -1 || true)"
+if [ "$LOADED" = "$ROOT/bin/router.js" ]; then
+  say "launchd is running bin/router.js — editing lib/ swaps under the port, no restart"
+elif [ -n "$LOADED" ]; then
+  warn "launchd is running $LOADED, not $ROOT/bin/router.js"
+  warn "the hot-swap is NOT live — edits to lib/ will need a restart. Re-run this script."
+else
+  warn "could not read back what launchd loaded for $LABEL; check with:"
+  warn "  launchctl print gui/$(id -u)/$LABEL | grep -A3 arguments"
+fi
+
 # ------------------------------------------------------------- the monitor agent
 
 # Always tear the old one down first, so answering "no" in configure actually

@@ -35,6 +35,7 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { loadConfig } from '../lib/config.js';
 import { buildStamp, routerStamp } from '../lib/build.js';
+import { hotSwapProblem } from '../lib/service.js';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const BACKEND = path.join(ROOT, 'bin', 'beadcause.js');
@@ -528,13 +529,28 @@ function listen() {
 
 // ---------------------------------------------------------------- the CLI modes
 
-/** Ask the running router something, and exit if there isn't one. */
+/**
+ * Ask the running router something, and exit if there isn't one.
+ *
+ * "No router answering" used to be the whole message, and it is the least useful
+ * half of the answer: something *was* answering on 4318 for three days — the plain
+ * server, which has no control plane — and a bare connection refused reads as "the
+ * daemon is down" rather than "the daemon is the wrong program". So a failure asks
+ * the installed LaunchAgent what it runs, and reports that instead when it is the
+ * reason. `npm run swap:status` is the line install.sh prints on its way out, so this
+ * is where somebody following the installer's own advice ends up.
+ */
 async function askRunningRouter(pathname, method) {
   try {
     // Generous: --swap waits out a whole spawn and health check.
     return await localJson(cfg.port, pathname, { method, timeout: 45000 });
   } catch (err) {
     console.error(`no router answering on 127.0.0.1:${cfg.port} — ${err.message}`);
+    const problem = hotSwapProblem({ root: ROOT });
+    if (problem) {
+      console.error('');
+      for (const line of problem.lines) console.error(`  ${line}`);
+    }
     return process.exit(1);
   }
 }
