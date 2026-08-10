@@ -47,6 +47,23 @@ whether commenting should **spawn an agent** to answer you, and whether to open 
 with `npm run configure`; nothing is written until the last answer, so Ctrl+C is
 always safe.
 
+**Nothing to answer? Say so.** `npm run install-service -- --non-interactive` (or
+`SKIP_CONFIGURE=1`) prints the configuration on file and changes none of it. An agent
+session or CI is assumed to mean that already — `--interactive` asks anyway. The
+questions are read from `/dev/tty` rather than stdin, because `npm run` pipes stdin;
+but `/dev/tty` is the *controlling terminal*, not a person, so in an agent session
+they are asked of nobody and the install waits forever on the first one. Working
+around that by dropping the terminal (`setsid`) leaves the GUI session too, and
+`launchctl bootstrap gui/<uid>` then fails — after the bootout, so the daemon ends up
+unloaded. The flag exists so neither workaround is needed.
+
+Relatedly, a load that fails now puts back what it replaced. The installer bootstraps
+a job that does nothing before it boots the real one out, so a session that cannot
+load launchd jobs at all is found out while the service is still running rather than
+after it has been stopped; and a plist launchd refuses is set aside as
+`m4m.beadcause.plist.rejected` while the previous one is restored and loaded again.
+It still exits non-zero — it just never exits with nothing running.
+
 ```bash
 npm run monitor              # live view of what the daemon is doing
 npm run check                # the checks around the agent log — safe with the daemon up
@@ -4679,6 +4696,7 @@ written — fix the IP in the file if the phone can't connect.
 | `BEADCAUSE_OBSERVE` | watch and never act: no sessions, proposals, sweeps, session logs, reply agents or pushes. `BEADCAUSE_READONLY` is the same flag |
 | `BEADCAUSE_NODE` | the `node` the LaunchAgent runs (`scripts/install.sh`, `scripts/open-monitor.sh`) |
 | `BEADCAUSE_BROWSER` | which browser `scripts/open-monitor.sh` opens the console in |
+| `SKIP_CONFIGURE` | `scripts/install.sh` asks nothing and keeps the answers on file — the same as `--non-interactive`. `CLAUDECODE`, `AI_AGENT` and `CI` imply it, because a question asked of a terminal nobody is watching is a hang; `--interactive` asks anyway |
 | `BEADCAUSE_GOOGLE_CLIENT_SECRET` | the Google OAuth client secret, taking precedence over the secret file. The one place it leaves no copy on disk — see [rotating the two secrets](#where-the-two-secrets-live-and-how-to-rotate-them) |
 | `BEADCAUSE_SESSION_KEY` | the HMAC key sessions are signed with, instead of `~/.config/beadcause/session.key`. Setting it to a new value signs everybody out |
 | `BEADCAUSE_TAILSCALE` | the `tailscale` binary, overriding the three macOS paths that are searched by default. Has to exist to count — a path typed wrong reads as "no tailscale" rather than failing mysteriously later. See [renewing the certificate](#renewing-it-before-it-expires) |
