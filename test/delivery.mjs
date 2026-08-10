@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * lib/delivery.js — the `beadpr` block, and the three words that act on it.
+ * lib/delivery.js — the `beadpr` block, and the four words that act on it.
  *
  *     npm test
  *     node test/delivery.mjs
@@ -36,6 +36,14 @@
  * for every ordinary question in the inbox, so a delivery that degrades to null does
  * not look broken — it looks like an ordinary question, and pressing merge on it
  * silently does nothing, on the one card where that matters most.
+ *
+ * Fifth, and newest: **`MERGE:` must never widen into `SHIP:`**. Ship is the same merge
+ * plus the repo's declared deploy, so it changes what is *running* — and on this repo
+ * that means SIGKILLing the daemon. Two things are pinned here because of it: the
+ * markers are distinct prefixes and neither is a prefix of the other, and the Ship
+ * option only appears when a deploy was actually found. A card that offers Ship in a
+ * repo with nothing declared is a button that merges and then reports a failure,
+ * which is the worst of both answers.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -60,9 +68,13 @@ const {
   deliveryTitle,
   DELIVERY_LABEL,
   MERGE_MARKER,
+  SHIP_MARKER,
   CHANGES_MARKER,
   DECLINE_MARKER,
 } = await import(LIB);
+
+/** What `deployHint` hands over for this repo. The card never invents its own. */
+const HINT = 'runs `launchctl` · rebuilds apk · restarts beadcause';
 
 /** A delivery as a worker files it. */
 const D = (over = {}) => ({
@@ -90,7 +102,22 @@ console.log('\nwhat counts as consent');
 check('MERGE: merges', deliveryAction('MERGE: squash and merge #42.').action === 'merge');
 check('CHANGES: asks for changes', deliveryAction('CHANGES: not yet.').action === 'changes');
 check('DECLINE: declines it', deliveryAction('DECLINE: close #42 — not this approach.').action === 'decline');
-check('and the exported markers are the ones it matches', MERGE_MARKER === 'MERGE:' && CHANGES_MARKER === 'CHANGES:' && DECLINE_MARKER === 'DECLINE:');
+check('SHIP: merges and deploys', deliveryAction('SHIP: squash and merge #42, then deploy beadcause.').action === 'ship');
+check(
+  'and the exported markers are the ones it matches',
+  MERGE_MARKER === 'MERGE:' && SHIP_MARKER === 'SHIP:' && CHANGES_MARKER === 'CHANGES:' && DECLINE_MARKER === 'DECLINE:'
+);
+// The widening that matters. Ship is merge *and a deploy*, so an answer that means one
+// must never resolve to the other — not by prefix, not by a sentence appended to it.
+check(
+  'the four markers are four distinct prefixes, none of them a prefix of another',
+  [MERGE_MARKER, SHIP_MARKER, CHANGES_MARKER, DECLINE_MARKER].every(
+    (a, i, all) => all.filter((b, j) => j !== i && (a.startsWith(b) || b.startsWith(a))).length === 0
+  )
+);
+check('a merge that mentions shipping is still only a merge', deliveryAction('MERGE: ship it after').action === 'merge');
+check('and typing SHIP mid-sentence deploys nothing', deliveryAction('yes, SHIP: it') === null);
+check('nor does the lowercase spelling', deliveryAction('ship: go on then') === null);
 
 // The direction for the next attempt is the whole value of a decline, so it has to
 // survive verbatim — and an empty one is still a valid decline.
@@ -282,6 +309,9 @@ console.log('\nthe options the card offers are answers this file accepts');
 
 const options = [...body.matchAll(/response: "([^"]+)"/g)].map((m) => m[1]);
 check('the body offers three responses', options.length === 3, JSON.stringify(options));
+// The default fixture declares no deploy, which is what most repos are. Offering Ship
+// there would be offering a button whose whole content is a failure message.
+check('and no Ship among them, because this fixture declares no deploy', !/SHIP:/.test(body), body);
 for (const response of options) {
   const action = deliveryAction(response);
   check(`"${response.slice(0, 34)}…" is an action, not a comment`, action !== null, response);
@@ -295,6 +325,53 @@ check('the merge button carries the method the block asked for', /squash/.test(o
 
 const rebaseOptions = [...deliveryBody(D({ method: 'rebase' })).matchAll(/response: "([^"]+)"/g)].map((m) => m[1]);
 check('and follows it when the block says rebase', /rebase/.test(rebaseOptions[0]), rebaseOptions[0]);
+
+/* ------------------------------------------------- the fourth option, when there is one */
+
+console.log('\nShip it — offered only where there is a deploy to run');
+
+const shipBody = deliveryBody(D(), { ship: HINT });
+const shipOptions = [...shipBody.matchAll(/response: "([^"]+)"/g)].map((m) => m[1]);
+check('a repo with a deploy gets four responses, not three', shipOptions.length === 4, JSON.stringify(shipOptions));
+check(
+  'and they are four distinct actions, so no button is a no-op or a duplicate',
+  new Set(shipOptions.map((r) => deliveryAction(r)?.action)).size === 4,
+  JSON.stringify(shipOptions.map((r) => deliveryAction(r)?.action))
+);
+// Four is what a phone can show. A fifth would make the card a menu, so the count is
+// pinned rather than left to whoever adds the next lane.
+check('four is the ceiling — nothing else crept in', shipOptions.length <= 4);
+check(
+  'merge is still first and ship is second, so the wider answer is not under the thumb',
+  deliveryAction(shipOptions[0]).action === 'merge' && deliveryAction(shipOptions[1]).action === 'ship',
+  JSON.stringify(shipOptions.slice(0, 2))
+);
+check('the ship response carries the workspace, so the card can say what it deploys', /deploy beadcause/.test(shipOptions[1]), shipOptions[1]);
+check('and the method the block asked for, exactly as merge does', /squash and merge #42/.test(shipOptions[1]), shipOptions[1]);
+check(
+  'the hint on the button is what the deploy will actually run, not the word "deploy"',
+  /hint: merge, then runs `launchctl` · rebuilds apk · restarts beadcause/.test(shipBody),
+  (shipBody.match(/.*hint: merge.*/) || [])[0]
+);
+check(
+  'the opening sentence names Ship only where it is offered',
+  /\*\*Ship it\*\*/.test(shipBody) && !/\*\*Ship it\*\*/.test(body),
+  shipBody.split('\n')[0]
+);
+check(
+  'and the block underneath is unchanged — a deploy is not identity, it is this machine',
+  !/ship|deploy/i.test(shipBody.split('```beadpr')[1] || ''),
+  (shipBody.split('```beadpr')[1] || '').slice(0, 200)
+);
+check(
+  'a ship body still parses back to the same delivery a merge body does',
+  JSON.stringify(parseDelivery(shipBody)) === JSON.stringify(parseDelivery(body)),
+  JSON.stringify(parseDelivery(shipBody))
+);
+check(
+  'and the decision block survives the split, four options and all',
+  /- id: ship/.test(splitDelivery(shipBody).body) && /- id: decline/.test(splitDelivery(shipBody).body)
+);
 
 check('the PR link is in the body for when the answer is "I need to see the diff"', body.includes('https://github.com/mordam/beadcause/pull/42'));
 check('and the branch and base are shown, since that is what merging acts on', /bead\/bc-7qo-delivery/.test(body) && /main/.test(body));
@@ -355,6 +432,10 @@ check(
 check(
   'and every opening still ends up offering the same three answers',
   [refusedBody, askedBody, plainBody].every((b) => /id: merge/.test(b) && /id: changes/.test(b) && /id: decline/.test(b))
+);
+check(
+  'and each of them gains Ship in a repo that has a deploy — the reason the card exists does not decide that',
+  [{ refused: 'it conflicts' }, { asked: true }, {}].every((o) => /id: ship/.test(deliveryBody(D(), { ...o, ship: HINT })))
 );
 check(
   'the merge wording follows the block’s method rather than saying squash regardless',
