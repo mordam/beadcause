@@ -22,6 +22,14 @@ on run argv
 			-- this is what labels the window until it does.
 			set name to theName
 			write text theCommand
+			-- The session's own id, printed on stdout for the caller to keep.
+			--
+			-- It is the only durable handle on this window: the tab name is gone the
+			-- moment Claude renames itself, and the pid belongs to the shell rather
+			-- than to iTerm. scripts/message-session.applescript takes this id back,
+			-- which is what lets the daemon say something to a session it started —
+			-- see `messageSession` in lib/session.js.
+			return id
 		end tell
 	end tell
 end run

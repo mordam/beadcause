@@ -256,10 +256,12 @@
       `<button class="adv-btn" data-adv="${a.paused ? 'resume' : 'pause'}" data-ws="${esc(a.workspace)}">${
         a.paused ? 'Resume' : 'Pause'
       }</button>`,
-      // "I closed those windows myself" — the sessions belong to iTerm, so nothing
-      // here can see them go, and without this the slots stay held until they lapse.
+      // Asks each open session whether it is still working — the sessions belong to
+      // iTerm, so nothing here can see one go, and a window that has been closed holds
+      // its slot until it lapses. The ones that answer keep their slots; see `reclaim`
+      // in lib/advocate.js.
       a.workers.length
-        ? `<button class="adv-btn" data-adv="release" data-ws="${esc(a.workspace)}">Free slots</button>`
+        ? `<button class="adv-btn" data-adv="reclaim" data-ws="${esc(a.workspace)}" title="Ask each open session whether it is still working. Windows that have gone give their slots back.">Reclaim sessions</button>`
         : '',
     ]
       .filter(Boolean)

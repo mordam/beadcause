@@ -1891,8 +1891,8 @@ and at most one every `proposeCooldownHours`.
 
 - **The sessions page** (🤖 in the tab bar) grows an **Advocate** block on each repo's
   card: what it is doing, the beads it has windows open on, what it will pick up
-  next, and **Pause** / **Free slots**. *Free slots* is for "I closed those windows
-  myself" — the sessions belong to iTerm, so nothing here can see them go.
+  next, and **Pause** / **Reclaim sessions**. *Reclaim sessions* asks each open window
+  whether it is still working — see below.
 - **The monitor** (`npm run monitor`) has an advocates pane above the questions, and
   every launch, close, lapse and proposal appears in its event log.
 - **The launchd log** (`~/Library/Logs/beadcause.log`) carries the same events as
@@ -1936,6 +1936,44 @@ a bead, and that is all it knows. So:
 - A pid is shown only where the session took the bead id into its own name, which
   the brief asks it to do. Where it didn't, the row says when the window was opened
   and nothing more.
+
+#### Reclaiming a slot, by asking
+
+The inference above is what the daemon can work out on its own. **Reclaim sessions** is
+what it can find out by asking, and it exists because the button before it — *Free
+slots* — could only assume: it emptied the slot list on the strength of you having
+pressed it, so a session three hours into a bead lost its slot to the next launch, and
+one whose window you had closed looked exactly the same.
+
+There is no socket to an advocate's session; it is an iTerm window, and the daemon owns
+neither the window nor the shell in it. What it does own is the window's **iTerm session
+id**, captured from `scripts/open-session.applescript` at launch. That is the channel:
+`scripts/message-session.applescript` writes one line into that session, exactly as if
+it had been typed, and Claude Code takes input mid-turn and answers it when the turn
+lands. Three outcomes per open session, each a fact rather than a guess:
+
+| addressing the window… | reading |
+|---|---|
+| no session carries that id | **gone** — the slot frees immediately, proven rather than assumed |
+| the line lands | **asked** — the slot is **held**, and the session has `checkinMinutes` (default 10) to answer |
+| macOS refuses the Apple event | **unreachable** — the slot is held; a refusal is evidence about iTerm, not about the session |
+
+An asked session has two honest answers, and both already existed. It can check in —
+`beadcause-checkin -w <repo> -i <bead> -m "what you are doing"`, which writes
+`~/.config/beadcause/workers/<repo>-<bead>.checkin` beside the done file, for the same
+reason: the reply comes minutes later, from a process the daemon does not own, possibly
+across a restart. Or it can finish, doing the `** BEAD WORK DONE **` steps its brief
+already specifies and exiting, which the done file above catches unchanged.
+
+Say nothing for `checkinMinutes` and the slot goes back — and the bead is charged **no
+attempt**, because silence is evidence about the window, not about the work. A bead that
+lost two attempts to unanswered questions would be given up on for something no session
+did wrong. A check-in older than the question never answers it, so a session that
+answered once and hung since does not keep its slot forever.
+
+A worker launched before any of this has no window id recorded; the card says *no window
+handle*, and reclaiming frees its slot without asking, which is all the old button ever
+did.
 
 Those four endings are what the *daemon* can tell apart. What **you** read is the last
 line the session printed, and the brief asks for it in fixed words so it can be

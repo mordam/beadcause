@@ -215,9 +215,21 @@
     const chips = [
       w.claimed ? '<span class="tag ok">claimed</span>' : '<span class="tag">not claimed yet</span>',
       w.ended ? '<span class="tag warn">the window has exited</span>' : '',
+      // Where a reclaim got to. Asked and unanswered is the state worth seeing: the
+      // clock is running on that slot, and the row is the only place it shows.
+      w.asked ? `<span class="tag warn">asked to check in ${esc(age(w.asked))} ago</span>` : '',
+      w.checkedInAt
+        ? `<span class="tag ok">checked in ${esc(age(w.checkedInAt))} ago${
+            w.checkinNote ? ` · ${esc(w.checkinNote)}` : ''
+          }</span>`
+        : '',
       w.sessionStatus ? `<span class="tag">${esc(w.sessionStatus)}</span>` : '',
       w.pid ? `<span class="tag dim">pid ${esc(w.pid)}</span>` : '',
       w.attempt > 1 ? `<span class="tag warn">attempt ${esc(w.attempt)}</span>` : '',
+      // Nothing to address, so Reclaim cannot ask about this one — it will free the
+      // slot on your word alone, the way the old button did. Says so rather than
+      // looking identical to a window that answers.
+      w.reachable === false ? '<span class="tag dim">no window handle</span>' : '',
     ].filter(Boolean);
     return `<a class="work-row adv-worker" href="${esc(graphUrl(a.workspace, w.id))}">
       <span class="work-phase">${w.claimed && !w.ended ? '<span class="spark"></span>' : w.ended ? '◍' : '◔'}</span>
@@ -405,7 +417,13 @@
       `<button class="adv-btn" data-adv="${a.paused ? 'resume' : 'pause'}" data-ws="${esc(key)}">${
         a.paused ? 'Resume' : 'Pause'
       }</button>`,
-      a.workers.length ? `<button class="adv-btn" data-adv="release" data-ws="${esc(key)}">Free slots</button>` : '',
+      // Not "free slots" any more, because it no longer just frees them: it asks each
+      // open session whether it is still working and takes back only the slots whose
+      // window has gone. The label is the promise — a button called "free slots" that
+      // sometimes keeps them all would be worse than either behaviour.
+      a.workers.length
+        ? `<button class="adv-btn" data-adv="reclaim" data-ws="${esc(key)}" title="Ask each open session whether it is still working. Windows that have gone give their slots back; the rest keep them and are asked to check in or finish.">Reclaim sessions</button>`
+        : '',
       // Clears the attempt counters, so beads it gave up on are eligible again. Only
       // offered when it has actually given up on something — otherwise it is a button
       // that does nothing and reads as though it might.
