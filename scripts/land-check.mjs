@@ -178,6 +178,13 @@ fs.writeFileSync(
   )
 );
 
+// `squash` above is a deliberate choice, so it needs the receipt that says the one-time
+// move of an *inherited* squash has already had its turn — otherwise the first
+// `loadConfig` in scenario 1 would move this harness's config out from under it. Which
+// is the whole semantics of that migration, and scenario 6 takes the flag away again to
+// watch it fire.
+fs.writeFileSync(path.join(CONFIG_DIR, 'state.json'), JSON.stringify({ squashDefaultMoved: true }, null, 2));
+
 const env = {
   ...process.env,
   PATH: `${BIN}${path.delimiter}${process.env.PATH}`,
@@ -238,6 +245,9 @@ function deliver(name, { checks = 'green', refuseMerge = null, extra = [] } = {}
     id,
     branch,
     stdout: said,
+    // Everything it printed, for the one assertion that is about a line *above* the
+    // answer: a config migration narrating itself on the way past.
+    rawStdout: stdout,
     stderr: stderr.trim(),
     code,
     log,
@@ -261,6 +271,8 @@ check('and says what it did, with the number and the merge commit', /^landed #7 
 check('it pushed the branch to origin for real', run('git', ['branch', '--list', landed.branch], { cwd: ORIGIN }).includes(landed.branch));
 check('it opened a pull request', landed.log.some((c) => c[0] === 'pr' && c[1] === 'create'));
 check('and merged it', landed.merges.length === 1, JSON.stringify(landed.log.map((c) => c.slice(0, 2))));
+// `--squash` because that is what this harness's config asks for, not because it is the
+// default — scenario 6 below is the one that pins the default and the override.
 check('with the configured method', landed.merges[0]?.includes('--squash'), JSON.stringify(landed.merges[0]));
 check(
   'and never --delete-branch, which gh cannot do from the worktree that branch is checked out in',
@@ -333,6 +345,66 @@ console.log('\n--owed: what is still outstanding after the merge');
 const owed = deliver('owes a deploy', { extra: ['--owed', 'deploy, rebuild'] });
 check('it landed', /^landed #7/.test(owed.stdout), owed.stdout);
 check('and the close reason carries what is still owed', /still owed: deploy, rebuild/.test(owed.issue.close_reason || ''), owed.issue.close_reason);
+
+/* ------------------------------------------------- 6. where the merge method comes from */
+
+console.log('\nthe merge method: the config decides it, and its default is a merge commit');
+
+// The assertion in scenario 1 — `--squash`, from a config that asks for it — is only
+// meaningful because of the two below it. `pr.mergeMethod` used to reach lib/session.js,
+// where it shapes the brief's sentence about this command, and reach nothing that merges:
+// deliver.js held its own literal `squash`, so the setting changed the promise and never
+// the act, and the two agreed only by coincidence.
+//
+// The default has to show through as a merge commit, and that is not a matter of taste.
+// A squash merge writes a new commit with the branch's tree and none of its history, so
+// the branch is never an ancestor of main — and the attic sweep re-checks exactly that
+// before removing an aged worktree, keeping forever anything that fails it. A squash
+// default meant every delivered worktree became a permanent attic resident.
+const cfgFile = path.join(CONFIG_DIR, 'config.json');
+const saved = JSON.parse(fs.readFileSync(cfgFile, 'utf8'));
+const { mergeMethod: _asked, ...prNoMethod } = saved.pr;
+fs.writeFileSync(cfgFile, JSON.stringify({ ...saved, pr: prNoMethod }, null, 2));
+
+const dflt = deliver('takes the default method');
+check('with nothing in the config it still lands', /^landed #7/.test(dflt.stdout), dflt.stdout);
+check(
+  'and merges with a merge commit, which keeps the branch an ancestor of main',
+  dflt.merges[0]?.includes('--merge'),
+  JSON.stringify(dflt.merges[0])
+);
+
+// And the stored value that has to move for any of the above to matter on a machine
+// that already has a config. Scenario 1 ran with `squash` *and* the receipt saying the
+// move is spent, which is a deliberate choice being honoured. Take the receipt away and
+// the same config is an inherited default: the next `loadConfig` moves it, once, writes
+// the config back, and the merge that follows is a merge commit.
+const stateFile = path.join(CONFIG_DIR, 'state.json');
+fs.writeFileSync(cfgFile, JSON.stringify(saved, null, 2));
+fs.writeFileSync(stateFile, JSON.stringify({}, null, 2));
+
+const migrated = deliver('an inherited squash moves');
+check('it landed', /^landed #7/.test(migrated.stdout), migrated.stdout);
+check('with a merge commit, not the squash the config still said', migrated.merges[0]?.includes('--merge'), JSON.stringify(migrated.merges[0]));
+check(
+  'the config on disk was rewritten, so the daemon and every CLI agree from now on',
+  JSON.parse(fs.readFileSync(cfgFile, 'utf8')).pr.mergeMethod === 'merge',
+  JSON.parse(fs.readFileSync(cfgFile, 'utf8')).pr.mergeMethod
+);
+check('and the move is recorded, so it happens once and not on every run', JSON.parse(fs.readFileSync(stateFile, 'utf8')).squashDefaultMoved === true);
+check(
+  'and only that value moved — the file was edited, not replaced with a dump of every default',
+  Object.keys(JSON.parse(fs.readFileSync(cfgFile, 'utf8'))).length === Object.keys(saved).length &&
+    Object.keys(JSON.parse(fs.readFileSync(cfgFile, 'utf8')).pr).length === Object.keys(saved.pr).length,
+  Object.keys(JSON.parse(fs.readFileSync(cfgFile, 'utf8'))).join(', ')
+);
+check('and it said so on stdout rather than moving a setting silently', /pr\.mergeMethod/.test(migrated.stderr + migrated.rawStdout), migrated.rawStdout.split('\n')[0]);
+
+// `--method` is the per-delivery override, and it has to beat both of the above.
+// `rebase` because it is neither the config's answer nor the built-in one, so a passing
+// check cannot be either of them leaking through.
+const forced = deliver('overrides the method', { extra: ['--method', 'rebase'] });
+check('--method on the command line wins over the config', forced.merges[0]?.includes('--rebase'), JSON.stringify(forced.merges[0]));
 
 /* ------------------------------------------------------------------ verdict */
 

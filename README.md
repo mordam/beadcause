@@ -2751,6 +2751,13 @@ worktree would sit there unswept. GitHub is asked only when the local test has a
 said no, and only for a branch that has a PR — so a repo with no `gh` behaves exactly
 as it did.
 
+The default has since moved to a merge commit (`pr.mergeMethod`), which makes the local
+half true again and turns this second half into the belt beside those braces: it is
+what covers a workspace that asks for `squash` on purpose. The reason the default
+moved is that this sweep is not the only thing gating on ancestry — the `ship` skill
+and its attic sweep do too, they live outside this repo, and nothing here can teach
+them to ask GitHub.
+
 **Retired means moved, not deleted**: `git worktree move` into
 `.claude/worktrees-retired/`, the same soft delete the `ship` skill does by hand, so
 it is resumable. The branch is kept deliberately — `git branch -d` refuses a branch
@@ -2864,7 +2871,7 @@ session finishes ──► beadcause-deliver ──► pushes the branch ──�
                                                                      │
                         ┌────────── they went green ────────────────┴───── they did not ─────────┐
                         ▼                                                                        ▼
-              gh pr merge --squash                                                   question with the PR link
+              gh pr merge --merge                                                    question with the PR link
               bead closes: it landed                                                        ──► your phone
               ✅ push, nothing to answer                                   Merge · Ship · Request changes · Decline
                         │
@@ -3089,7 +3096,7 @@ is treated as consent.
 
 | marker | what it does |
 |---|---|
-| `MERGE:` | `gh pr merge --squash --delete-branch`, then closes the work bead with the PR number in its reason |
+| `MERGE:` | `gh pr merge --merge --delete-branch` (whatever `pr.mergeMethod` says), then closes the work bead with the PR number in its reason |
 | `SHIP:` | the same merge, and then the repo's declared deploy — started after the answer is written, never before |
 | `CHANGES:` | comments on the PR and the bead, reopens the bead, leaves the branch alone |
 | `DECLINE:` | closes the PR unmerged, abandons the branch, reopens the bead — and writes whatever direction you gave onto it |
@@ -3205,15 +3212,47 @@ channel would have.
 "pr": {
   "enabled": true,
   "base": "main",
-  "mergeMethod": "squash",
+  "mergeMethod": "merge",
   "autoMerge": true,
   "mergeWaitMs": 300000,
   "tidyMerged": true
 }
 ```
 
-`squash` because a session's branch is thirty commits of an agent thinking out loud
-and `main` should carry the conclusion.
+`merge` — a merge commit — because ancestry is load-bearing here, and this is the one
+setting where the obvious answer is the wrong one.
+
+The obvious answer was `squash`: a session's branch is thirty commits of an agent
+thinking out loud, and `main` should carry the conclusion. That is right about the log
+and wrong about the cost. A squash merge writes a *new* commit with the branch's tree
+and none of its history, so the branch never becomes an ancestor of anything — and the
+worktree cleanup asks exactly that question, in two places, before it will remove a
+directory: the `ship` skill's retirement gate, and the attic sweep that re-checks it
+before deleting an entry that has aged out. Both keep anything that fails, with "NOT
+merged into main — removing it destroys its only copy", and both are *right* to: that
+gate is the only thing standing between the sweep and the sole copy of unmerged work.
+
+So under `squash` every delivered worktree became a permanent attic resident, kept
+forever over work that shipped last week. `merge` is the way out that needs no gate
+weakened anywhere, and it matches what this repo has always actually done — every
+`ship` produces a merge commit, and the log is wall-to-wall `Merge branch
+'worktree-…'`. The log stays readable too: `git log --first-parent` reads exactly like
+a squash history, one line per branch, with the thirty commits still there when you
+want them.
+
+`squash` is still supported and still honoured — `--method` overrides per delivery, and
+the daemon's own worktree sweep covers it by asking GitHub whether the PR merged (see
+`tidyMerged`). What it costs is that the attic keeps its worktrees, because nothing can
+make an external `--is-ancestor` say yes.
+
+**A stored `"squash"` is moved once, and says so.** Changing a default fixes nothing on a
+machine that already has a config, because the stored value wins the merge — and this one
+said `"squash"` from the day the key existed, when that *was* the default. So the first
+`loadConfig` after this change edits that one value in the file, prints a line saying it
+did, and records in `state.json` that the move has happened. It happens once, ever: set
+`squash` back on purpose and it stays, because the receipt has been spent. The file is
+edited rather than rewritten — the other settings in it are left exactly as they were,
+including the ones you never set.
 
 `autoMerge: false` is the one knob worth knowing about: it puts every delivery back on
 the ask-first ending, where the worker stops after opening the pull request and the merge
@@ -3256,7 +3295,9 @@ commit on main with the branch's tree and none of its history — so that test i
 forever. Every delivered worktree would have piled up unswept while the log said "not
 merged into main" about work that shipped last week. So when the cheap local test says
 no, and only then, the sweep asks GitHub whether the branch's PR merged. The other four
-conditions are unchanged, and a repo with no `gh` behaves exactly as it did.
+conditions are unchanged, and a repo with no `gh` behaves exactly as it did. (The
+default is now a merge commit, so the local test usually answers on its own; this path
+is what a deliberate `squash` still rides on.)
 
 The retirement note says which answered: `retired by beadcause after #42` and `retired
 by beadcause after a1b2c3d` are different stories, and only one of them is findable
@@ -4511,10 +4552,10 @@ the fields it always read and renders exactly as it did.
 | `autoDispatchTimeoutMs` | kill a dispatched agent after this long (default 10 min) |
 | `pr.enabled` | land finished work as [a pull request the worker merges](#landing-work--a-branch-a-pull-request-and-the-workers-own-merge) (default `true`). `false` puts every workspace back on the oldest ending — work the bead, close the bead. A workspace with no `gh` or no GitHub remote gets that ending anyway, without needing to be named |
 | `pr.base` | what a PR is opened against and merged into (default `main`) |
-| `pr.mergeMethod` | `squash` (default), `merge` or `rebase`. Squash because a session's branch is thirty commits of an agent thinking out loud |
+| `pr.mergeMethod` | `merge` (default), `squash` or `rebase`. A merge commit because a squash-merged branch is never an ancestor of `main`, and the worktree cleanup will not remove a worktree that fails that test |
 | `pr.autoMerge` | the worker merges its own pull request once the checks report (default `true`). `false` stops it after opening the PR and makes the merge your tap, which is what every delivery used to do. A worker can choose the same for one delivery with `--review` |
 | `pr.mergeWaitMs` | how long a worker waits for its checks before handing the PR over instead (default 5 min). A PR is at its most pending the second after it is opened, so without this a repo with CI would ask you about every delivery |
-| `pr.tidyMerged` | let the worktree sweep ask GitHub whether a branch's PR merged, since a squash-merge never makes it an ancestor of main (default `true`) |
+| `pr.tidyMerged` | let the worktree sweep ask GitHub whether a branch's PR merged, since a squash-merge never makes it an ancestor of main (default `true`; belt beside `mergeMethod`'s braces) |
 | `advocates.workspaces` | which repos get an [advocate](#advocates--an-agent-per-repo-whose-job-is-the-queue-reaching-zero). **Empty by default**; `["*"]` for every one |
 | `advocates.maxWorkers` | sessions one advocate may have open at once (default 1), clamped to `maxWorkersLimit` |
 | `advocates.maxWorkersLimit` | the ceiling that clamps it (default 3). A larger `maxWorkers` is clamped **and logged**, never silently applied |

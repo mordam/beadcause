@@ -693,7 +693,10 @@ check(
   JSON.stringify({ already: merged.alreadyMerged, state: merged.state })
 );
 check('and comes back re-read, with the merge commit gh recorded', merged.mergeCommit === '0ff1ce0ff1ce' && merged.mergedAt !== null);
-check('squash is the default', mergeCalls()[0].args.includes('--squash'));
+// A merge commit, not a squash, and the reason is worktree cleanup rather than taste:
+// a squash-merged branch is never an ancestor of main, and both the daemon's sweep and
+// the attic sweep outside this repo gate on exactly that. See lib/config.js.
+check('a merge commit is the default', mergeCalls()[0].args.includes('--merge'));
 check('the branch is deleted by default', mergeCalls()[0].args.includes('--delete-branch'));
 check(
   'and the merge is never queued with --auto — a tap on the phone is an act, not a promise',
@@ -723,8 +726,8 @@ world({ prs: { 42: rawPR() } });
 resetLog();
 await pr.merge(REPO, 42, { method: 'fast-forward-if-you-please' });
 check(
-  'an unrecognised method falls back to squash rather than reaching the CLI as a usage error',
-  mergeCalls()[0].args.includes('--squash'),
+  'an unrecognised method falls back to the default rather than reaching the CLI as a usage error',
+  mergeCalls()[0].args.includes('--merge'),
   JSON.stringify(mergeCalls()[0].args)
 );
 

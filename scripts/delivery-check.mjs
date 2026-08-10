@@ -558,6 +558,26 @@ try {
     posted[0]?.response
   );
 
+  /* ------------------------------------ 3a. what the button calls the merge it will do */
+
+  console.log('\nand the button names the merge it is going to do\n');
+
+  // `mergeLabel` maps the method onto GitHub's own three words. Its fallback used to be
+  // `${method} and merge`, which reads as "merge and merge #42" for the plain merge
+  // commit — invisible while `squash` was the default, and the label on nearly every
+  // card once it stopped being (`pr.mergeMethod` in lib/config.js). Mutating the parsed
+  // delivery is enough to pin the mapping: the label is the only thing that reads it.
+  for (const [method, label] of [
+    ['merge', 'Merge #42'],
+    ['rebase', 'Rebase and merge #42'],
+    ['squash', 'Squash and merge #42'],
+  ]) {
+    DELIVERY_Q.delivery.method = method;
+    await reload('clean');
+    const shown = await evalJs(s, PR_VIEW);
+    check(`a ${method} delivery's button reads "${label}"`, (shown?.merge?.text || '').trim() === label, shown?.merge?.text);
+  }
+
   /* -------------------------------------------------- 3b. shipping is the wider one */
 
   console.log('\nand shipping is the same two taps, with a different word\n');
