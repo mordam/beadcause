@@ -174,8 +174,43 @@ object Notifications {
 
     /* ---------------------------------------------------------- notifications */
 
+    /**
+     * "an hour ago", for a card that says when you last answered this bead.
+     *
+     * Coarse deliberately: what is being judged is whether this came straight back
+     * (the reopen this guards against) or has been away long enough to be a new
+     * question. Empty for a timestamp that will not parse, so the caller leaves the
+     * phrase out rather than printing a stack trace's worth of nothing.
+     */
+    private fun ago(iso: String?): String {
+        val then = try {
+            java.time.Instant.parse(iso ?: return "")
+        } catch (e: Exception) {
+            return ""
+        }
+        val mins = java.time.Duration.between(then, java.time.Instant.now()).toMinutes()
+        return when {
+            mins < 2L -> "just now"
+            mins < 60L -> "$mins minutes ago"
+            mins < 48L * 60L -> "${mins / 60L} hours ago"
+            else -> "${mins / (60L * 24L)} days ago"
+        }
+    }
+
     fun question(ctx: Context, q: Question) {
         val body = buildString {
+            // First, above everything — including the title and the option list. The
+            // buttons on this card answer and close from the lock screen, so anything
+            // that could stop you sending the same answer twice has to be read before
+            // the thumb moves. See [Question.answeredBefore].
+            if (q.answeredBefore) {
+                val when_ = ago(q.answeredAt)
+                append("⟳ You answered this ").append(if (when_.isBlank()) "before" else when_)
+                if (q.answeredCount > 1) append(" · answered ${q.answeredCount} times already")
+                append(":\n")
+                append(q.answeredResponse ?: "(the answer is on the bead)")
+                append("\n\n")
+            }
             if (q.title.isNotBlank() && q.title != q.question) append(q.title).append("\n\n")
             if (q.options.size > MAX_OPTION_ACTIONS) {
                 append("Options:\n")
@@ -189,7 +224,11 @@ object Notifications {
             Tray.Entry(
                 key = q.key,
                 line = q.question.ifBlank { q.title },
-                subtitle = "${q.workspace}${q.priority?.let { " · P$it" } ?: ""}",
+                // The one-line summary is what a stacked card shows, so the marker goes
+                // here too: with three questions in the shade the body above is not on
+                // screen at all until the card is expanded.
+                subtitle = "${q.workspace}${q.priority?.let { " · P$it" } ?: ""}" +
+                    if (q.answeredBefore) " · asked again" else "",
                 big = body.ifBlank { q.question },
                 question = q,
                 isReply = false,
