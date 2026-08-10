@@ -65,7 +65,7 @@ function summary(c) {
     `  advocates         : ${
       (c.advocates?.workspaces || []).length && c.advocates?.enabled !== false
         ? `${(c.advocates.workspaces || []).join(', ')} — up to ${c.advocates.maxWorkers ?? 1} session(s) each, ${
-            c.advocates.globalMaxWorkers ?? 3
+            c.advocates.globalMaxWorkers ?? 10
           } in total`
         : 'off'
     }`,
