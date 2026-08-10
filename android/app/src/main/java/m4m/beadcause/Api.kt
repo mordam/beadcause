@@ -164,13 +164,20 @@ data class Event(
     /** The space this belongs to, or null when spaces aren't configured. */
     val space: String?,
     /**
-     * The owning space is muted or inside its quiet hours right now.
+     * Nothing should light up the phone for this one.
      *
      * The event still arrives — the question must appear in the list and the badge
      * — but nothing should light up the phone for it. Suppressing the event instead
      * would hide the question outright, which is a far worse failure than a buzz.
      */
     val quiet: Boolean,
+    /**
+     * Why: `"filtered"` (outside what the inbox is narrowed to) or `"muted"` (the
+     * owning space is muted or inside its quiet hours). Null when it made a noise,
+     * and null from a server too old to say — which is why [quiet] stays the field
+     * anything acts on, and this one only says how to describe it.
+     */
+    val quietReason: String?,
 )
 
 data class Poll(
@@ -229,6 +236,7 @@ private fun JSONObject.toEvent() = Event(
     text = optStringOrNull("text"),
     space = optStringOrNull("space"),
     quiet = optBoolean("quiet"),
+    quietReason = optStringOrNull("quietReason"),
 )
 
 private fun JSONObject.toQuestion(): Question {

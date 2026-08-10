@@ -196,6 +196,20 @@ interrupt you*:
 The phone then shows a space row above the workspace chips, and picking a space
 narrows both the list and the chips below it.
 
+**And it narrows the notifications, not just the view.** The filter is stored on the
+server rather than per device, so the poller reads the same value the list is drawn
+from: a bead outside what you are filtered to arrives without a push. It still files,
+still counts, and turns up the moment you widen the filter — the same contract a
+muted space gets, for the same reason. A filter that was only a view meant narrowing
+to one workspace and still being buzzed about every other one. The log says which of
+the two kinds of quiet it was, because one ends on a clock and the other ends when
+you press **All**:
+
+```
+[beadcause] sophab/sp-4kd arrived quietly (outside the inbox filter: Work / acme)
+[beadcause] acme/cl-9x2 arrived quietly (Work is muted right now)
+```
+
 **A quiet space is quiet, not hidden.** Its questions still arrive, still appear in
 the list, still count towards the badge — they just don't light up your phone, and
 the chip shows 🔕 so the silence is legible rather than looking like a fault. That
