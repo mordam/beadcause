@@ -1021,6 +1021,24 @@ body {
 .gate-note .row { display: flex; gap: 8px; }
 
 /*
+  The same fact, said before you type instead of after you press — so it is drawn
+  quieter than the refusal above. No fill and a dashed edge: nothing has gone wrong
+  and nothing is waiting on you here, it is a note about what this bead can do. The
+  amber stays, at the edge only, because it is still the reason a button you expected
+  to find is missing.
+*/
+.gate-why {
+  padding: 10px 12px;
+  border: 1px dashed color-mix(in srgb, var(--warn) 55%, var(--line));
+  border-radius: 11px;
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+.gate-why strong { display: block; color: var(--text); font-size: 14px; margin-bottom: 3px; }
+.gate-why p { margin: 0 0 8px; color: var(--muted); }
+.gate-why .gate-blockers { margin-bottom: 0; }
+
+/*
   Suggested answers, sitting on the top edge of the box they fill.
 
   Chips rather than buttons, and quieter than `.option` on purpose: these were
@@ -1219,6 +1237,57 @@ body {
 }
 .comment .md { font-size: 14.5px; line-height: 1.6; }
 .comment .md > *:last-child { margin-bottom: 0; }
+
+/*
+  A thread is mostly history, and on a phone that history is what stands between you
+  and the exchange you are in — so everything but the last thing each side said is
+  folded to its author line (see openThreadIndexes in app.js).
+
+  The author line is the toggle, which is why it is a button here. It keeps every
+  pixel of the span it replaced: same size, same colour, same margin, so a thread
+  where nothing is folded looks exactly as it did. Full width because the whole line
+  is the tap target — a 12px chevron is not something you hit on a moving bus — and
+  min-height is deliberately *not* --tap, because that would space a run of folded
+  comments out like a list of buttons instead of reading like a transcript.
+
+  The body stays in the DOM while folded and is hidden here rather than removed, so
+  opening one is a class flip on a single bubble and never a repaint of the list
+  underneath the answer box.
+*/
+.comment button.who {
+  width: 100%;
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--muted);
+  text-align: left;
+  cursor: pointer;
+}
+.comment .caret { flex: none; font-size: 9px; opacity: 0.8; }
+.comment .caret::before { content: "▾"; }
+.comment.shut .caret::before { content: "▸"; }
+.comment .who-name { flex: none; }
+/* The first line of what was said, so a folded comment is still recognisable —
+   clipped rather than wrapped, because two folded lines is not folded. */
+.comment .peek {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 450;
+  color: var(--prose);
+}
+.comment:not(.shut) .peek { display: none; }
+.comment.shut { padding: 8px 13px; }
+.comment.shut button.who { margin-bottom: 0; }
+.comment.shut .md { display: none; }
 
 /*
   The reply that hasn't landed yet, sitting where it will appear. Dashed and
