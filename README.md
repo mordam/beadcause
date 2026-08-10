@@ -162,6 +162,15 @@ images:
   <id or label>` beside the list is the same thing said once instead of per row,
   and wins if both are written. Only one option is ever starred: two is the block
   contradicting itself, and a card is the wrong place to discover that.
+- **`closes: false` on an option that commissions work rather than settling it.**
+  Answering normally closes the bead, which is right for a verdict and wrong for a
+  build order: "Build both as written" is an instruction, and closing on it files
+  the work as finished at the moment it is ordered. An option marked this way
+  comments the answer, drops the `human` label and leaves the bead open and
+  unclaimed — so it goes straight into `bd ready` and an advocate picks it up as
+  work, instead of a session having to reopen it by hand and put the card back in
+  your inbox. Everything else about the tap is the same, including the card
+  leaving the inbox; the toast says which of the two happened.
 - `diagram` is mermaid, rendered on the phone. ` ```mermaid ` fences in the prose
   render too.
 - `docs` are files on the Mac you need to read before answering. Each opens in the

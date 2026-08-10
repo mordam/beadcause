@@ -108,10 +108,24 @@ object Api {
     fun questions(conn: Conn): List<Question> =
         get(conn, "/api/questions").optJSONArray("questions").toQuestions()
 
-    /** Answer and close. */
-    fun respond(conn: Conn, workspace: String, id: String, response: String) {
-        post(conn, "/api/respond", JSONObject().put("workspace", workspace).put("id", id).put("response", response))
-    }
+    /**
+     * Answer, and close unless the bead says otherwise.
+     *
+     * [option] is the id of the tapped option button, absent for a typed reply. It
+     * exists for the one thing the sentence cannot carry: an option marked
+     * `closes: false` commissions work rather than settling it, and answering with
+     * one leaves the bead open and hands it back. The server reads that off the bead
+     * — the id is all this has to send. Returns the response so the caller can say
+     * which of the two happened; `closed` is false on a hand-back.
+     */
+    fun respond(conn: Conn, workspace: String, id: String, response: String, option: String? = null): JSONObject =
+        post(
+            conn,
+            "/api/respond",
+            JSONObject().put("workspace", workspace).put("id", id).put("response", response).apply {
+                option?.takeIf { it.isNotBlank() }?.let { put("option", it) }
+            },
+        )
 
     /** Comment without closing — flags the bead `human-replied` for an agent. */
     fun comment(conn: Conn, workspace: String, id: String, text: String) {
@@ -131,7 +145,12 @@ object Api {
 
 /* ------------------------------------------------------------------ models */
 
-data class Option(val id: String, val label: String, val response: String, val hint: String?)
+/**
+ * [closes] is false for an option that commissions work — "Build both as written" —
+ * which answers without closing the bead. The shade only has to carry the flag as
+ * far as the label it draws; the decision itself is the server's, off the bead.
+ */
+data class Option(val id: String, val label: String, val response: String, val hint: String?, val closes: Boolean = true)
 
 data class Question(
     val workspace: String,
@@ -294,6 +313,9 @@ private fun JSONObject.toQuestion(): Question {
                 // An option with no explicit response answers with its own label.
                 response = it.optStringOrNull("response") ?: it.optString("label"),
                 hint = it.optStringOrNull("hint"),
+                // Absent on a server older than this field, and absence has to mean
+                // "closes" — that was the only behaviour there has ever been.
+                closes = it.optBoolean("closes", true),
             )
         },
         allowFreeText = decision?.optBoolean("allowFreeText", true) ?: true,
