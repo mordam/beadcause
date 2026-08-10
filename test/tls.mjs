@@ -42,7 +42,9 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'beadcause-tls-'));
 // Before lib/config.js is imported: CONFIG_DIR resolves once, at module load.
 process.env.BEADCAUSE_CONFIG_DIR = path.join(tmp, 'config');
 
-const { MIN_VERSION, certificate, closeServer, isSecure, secureServer, serverOptions } = await import(LIB('tls.js'));
+const { MIN_VERSION, certificate, certificateName, closeServer, isSecure, publicBaseUrl, secureServer, serverOptions } =
+  await import(LIB('tls.js'));
+const { reconcileBaseUrl } = await import(LIB('config.js'));
 
 /* ------------------------------------------------------------------- harness */
 
@@ -269,6 +271,113 @@ await check('loopback is never TLS, even when a certificate is available', async
   } finally {
     servers.forEach(closeServer);
   }
+});
+
+/* ------------------------------------------- the URL the phone is actually given */
+
+/**
+ * `baseUrl` follows the certificate, and only the certificate.
+ *
+ * The failure this pins is silent and total: an `https://` link generated on a machine
+ * whose tailnet has no **HTTPS Certificates** would reach a port serving plain HTTP,
+ * and a TLS parse error is not a page anyone can read. Nothing in the app would notice
+ * — the daemon comes up, the log says http, and only the phone finds out. So the rule
+ * is that holding a servable pair on disk is the *only* thing that produces an https
+ * URL, and every way of not holding one lands back on the address that works.
+ *
+ * The other half is that a `baseUrl` you set yourself is yours. `reconcileBaseUrl`
+ * runs on every `loadConfig()`, in every CLI, so an over-eager match would overwrite a
+ * reverse proxy or a real domain on the next `beadcause-ask` and never mention it.
+ */
+const NAME = material.name;
+const CFG = { port: 4318, tls: { enabled: true, name: NAME } };
+const tlsCache = path.join(tmp, 'config', 'tls');
+/** The Tailscale address, or loopback where there is no tailnet — either is fine. */
+const PLAIN = /^http:\/\/(?:100\.\d{1,3}\.\d{1,3}\.\d{1,3}|127\.0\.0\.1):4318$/;
+
+/** Put the pair `certificateName` looks for on disk, or take it away. */
+function plant({ cert = null, key = null } = {}) {
+  fs.mkdirSync(tlsCache, { recursive: true });
+  for (const [file, bytes] of [
+    [`${NAME}.crt`, cert],
+    [`${NAME}.key`, key],
+  ]) {
+    const at = path.join(tlsCache, file);
+    if (bytes) fs.writeFileSync(at, bytes);
+    else fs.rmSync(at, { force: true });
+  }
+}
+
+/** `reconcileBaseUrl` narrates on stderr; a passing test should not. */
+function quietly(fn) {
+  const real = console.error;
+  console.error = () => {};
+  try {
+    return fn();
+  } finally {
+    console.error = real;
+  }
+}
+
+await check('with no certificate the URL is the address over plain http, not a broken https one', () => {
+  plant({});
+  assert.equal(certificateName(CFG), null);
+  assert.match(publicBaseUrl(CFG), PLAIN);
+});
+
+await check('half a pair is not a certificate', () => {
+  plant({ cert: material.cert });
+  assert.equal(certificateName(CFG), null, 'a fetch interrupted between the two files must not read as success');
+  assert.match(publicBaseUrl(CFG), PLAIN);
+});
+
+await check('a cached pair moves the URL onto the name it is for, on the configured port', () => {
+  plant(material);
+  assert.equal(certificateName(CFG), NAME);
+  assert.equal(publicBaseUrl(CFG), `https://${NAME}:4318`);
+  assert.equal(publicBaseUrl({ ...CFG, port: 4444 }), `https://${NAME}:4444`);
+});
+
+await check('and tls.enabled false is never an https URL, certificate or no certificate', () => {
+  plant(material);
+  assert.equal(certificateName({ ...CFG, tls: { enabled: false, name: NAME } }), null);
+  assert.match(publicBaseUrl({ ...CFG, tls: { enabled: false, name: NAME } }), PLAIN);
+});
+
+await check('a saved address is moved across — including one that is no longer this machine', () => {
+  plant(material);
+  for (const was of ['http://100.96.105.106:4318', 'http://100.70.1.2:4318', 'http://127.0.0.1:4318']) {
+    const cfg = { ...CFG, baseUrl: was };
+    quietly(() => reconcileBaseUrl(cfg));
+    assert.equal(cfg.baseUrl, `https://${NAME}:4318`, `${was} should have moved`);
+  }
+});
+
+await check('and moved back the moment the certificate is gone', () => {
+  plant({});
+  const cfg = { ...CFG, baseUrl: `https://${NAME}:4318` };
+  quietly(() => reconcileBaseUrl(cfg));
+  assert.match(cfg.baseUrl, PLAIN, 'an https URL with nothing to serve it is the one thing worse than the address');
+});
+
+await check('a baseUrl you set yourself is never touched', () => {
+  plant(material);
+  // A real domain, a LAN address, a tunnel, a proxy on 443 — none of these came out of
+  // this repo, and every one of them is a deliberate answer to "how do I reach it".
+  for (const mine of ['https://beads.example.com', 'http://192.168.1.10:4318', 'https://beads.example.com:8443', 'http://mac.local:4318']) {
+    const cfg = { ...CFG, baseUrl: mine };
+    quietly(() => reconcileBaseUrl(cfg));
+    assert.equal(cfg.baseUrl, mine, `${mine} is not ours to rewrite`);
+  }
+});
+
+await check('reconciling persists nothing unless it is asked to', () => {
+  plant(material);
+  const written = path.join(tmp, 'config', 'config.json');
+  fs.rmSync(written, { force: true });
+  const cfg = { ...CFG, baseUrl: 'http://100.96.105.106:4318' };
+  quietly(() => reconcileBaseUrl(cfg));
+  assert.equal(fs.existsSync(written), false, 'a CLI that only wanted to print a URL must not rewrite the config');
 });
 
 // The one thing on the bead that no test on this machine can answer: whether a phone

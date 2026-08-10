@@ -74,10 +74,14 @@ otherwise its poller would keep firing notifications with no listener behind the
    stripped from the address bar on first load. `npm run qr` prints **two** codes —
    the pairing link, then the APK with its size and build time, whenever one has
    been published; `npm run android` ends with the same install code, because a
-   build ends where the install begins and nobody should thumb a tailnet IP, a port
-   and a path into a phone. Every device needs this once — a
+   build ends where the install begins and nobody should thumb a tailnet name, a port
+   and a path into a phone. The link is `https://<host>.<tailnet>.ts.net:4318` once
+   the tailnet can issue certificates, and the Tailscale address over plain http until
+   then — see [the URL you are given](#the-url-you-are-given-and-what-happens-to-a-phone-that-already-has-one).
+   Every device needs this once — a
    notification opened on an unpaired phone lands on the token prompt, which is the
-   tell.
+   tell. **A phone paired before the URL moved needs it a second time**, because the
+   token is stored per origin and the name is a different origin from the address.
 3. **Share → Add to Home Screen**, and it installs as a standalone app. Android
    users can instead install the native app — see [The Android app](#the-android-app).
 4. **Push:** the Android app posts its own notifications over the tailnet and needs
@@ -3896,7 +3900,7 @@ what to click. The agent fires once and exits; the window it opened outlives it.
 ```bash
 npm run monitor                  # foreground, any terminal, no install needed
 node bin/monitor.js --once       # one frame and exit
-node bin/monitor.js --url http://100.x.y.z:4318   # watch another machine's daemon
+node bin/monitor.js --url https://<host>.<tailnet>.ts.net:4318   # another machine's daemon
 launchctl kickstart -k gui/$(id -u)/m4m.beadcause.monitor   # reopen the window now
 ```
 
@@ -4047,9 +4051,42 @@ curl -sI http://127.0.0.1:4318/api/health          # still plain, still the cont
 openssl s_client -connect <name>:4318 -tls1_1      # refused: alert 70, protocol version
 ```
 
-One thing it does not do yet, and it has its own bead: `baseUrl` still names the
-Tailscale IP — which works, because of the redirect above, but means the QR and every
-notification link take one extra hop.
+### The URL you are given, and what happens to a phone that already has one
+
+`baseUrl` is the one string every generated link is built from — the pairing QR, the
+APK install code, the click target on every ntfy notification, the action buttons that
+POST back to `/api/respond`, the terminal's `wss://`. It names the certificate now:
+
+```
+https://<host>.<tailnet>.ts.net:4318      what the phone is given
+http://127.0.0.1:4318                     the control plane, unchanged and still plain
+```
+
+**It follows the certificate, and only the certificate.** If there is no servable pair
+in `~/.config/beadcause/tls/` — the tailnet has no *HTTPS Certificates*, `tailscale` is
+down, `tls.enabled` is false — every one of those links is the Tailscale address over
+plain http exactly as before. This is not caution for its own sake: an `https://` link
+to a port serving plain HTTP is a TLS parse error with nothing on screen, and it would
+be generated precisely on the machines that cannot fix it. So the address is not a
+fallback so much as the honest answer to what the daemon is actually serving.
+
+The move happens on its own, in two places. Every `loadConfig()` — so every `npm run
+qr`, every `--url`, every `beadcause-ask` — reads the cached certificate off disk and
+builds the URL from it; that costs nothing and never fetches. And the daemon asks again
+straight after `listen()`, because that is the one moment a certificate can *appear*:
+the first boot after you switch HTTPS on obtains one, and the config is rewritten then
+so the next `npm run qr` in a different process agrees. A saved `baseUrl` only moves if
+this repo generated it — a Tailscale address, loopback, or a `.ts.net` name. A real
+domain, a LAN address or a proxy is yours and is never rewritten.
+
+**An already-paired device keeps working, and should be re-paired once anyway.**
+Nothing breaks: the URL saved in its home-screen shortcut still names the address, and
+the TLS front 307s it to the name with the path and query intact. But the token lives
+in `localStorage`, which is scoped to an *origin*, and `https://<name>:4318` is a
+different origin from `http://100.x.y.z:4318` — so the redirect lands on a page that
+asks for a token it cannot see. **Scan the QR from `npm run qr` again**, once per
+device, and the new origin captures the token the same way the first one did. The old
+shortcut can then be deleted; leaving it costs a redirect and a token prompt.
 
 ### Renewing it before it expires
 
@@ -4216,7 +4253,8 @@ the fields it always read and renders exactly as it did.
 | key | meaning |
 |---|---|
 | `owner` | what the agents call you. It goes into every agent prompt ("*<name>* is not at the keyboard", "*<name>* approves every bead before it exists"), the body of every pull request an agent opens, and the notes that land on a bead. Asked first by `npm run configure`; guessed from your git `user.name` (first word) when it has never been set |
-| `port`, `host` | listens on `127.0.0.1` **and** the Tailscale IP only — never the LAN |
+| `port`, `host` | listens on `127.0.0.1` **and** the Tailscale IP only — never the LAN. The *address* is what gets bound; `baseUrl` is what gets handed out, and they differ on purpose |
+| `baseUrl` | the origin every generated link is built from — the pairing QR, the APK code, every notification's click target and action button, the terminal's `wss://`. Maintained for you: `https://<host>.<tailnet>.ts.net:<port>` when there is a certificate to serve it, the Tailscale address over plain http when there is not, and moved between the two on its own. Set it to something else — a real domain, a proxy — and it is never rewritten. See [the URL you are given](#the-url-you-are-given-and-what-happens-to-a-phone-that-already-has-one) |
 | `tls.enabled` | HTTPS on the tailnet address with a `tailscale cert` certificate and a TLS 1.2 floor (default `true`). Loopback is never TLS whatever this says, and a tailnet without *HTTPS Certificates* enabled falls back to plain http with the reason in the log — see [HTTPS on the tailnet name](#https-on-the-tailnet-name) |
 | `tls.name` | the name to get a certificate for, if not the MagicDNS name `tailscale status` reports (default `null` — ask). The protocol floor is deliberately not a setting |
 | `token` | required on every `/api/*` call; regenerate by deleting the file |
@@ -4498,6 +4536,18 @@ over `wss` still gated by the token subprotocol — accepted-then-closed `1008` 
 unknown id, refused with a `401` for a wrong token. Whether a *phone* trusts the real
 certificate is a named `skip`: that is a fact about Let's Encrypt and `tailscale cert`,
 and no test on this machine can answer it.
+
+The same file covers the other silent failure in that neighbourhood — [the URL the
+phone is given](#the-url-you-are-given-and-what-happens-to-a-phone-that-already-has-one).
+An `https://` link built on a machine that cannot issue certificates reaches a port
+serving plain HTTP, and a TLS parse error is not a page anyone can read; nothing in the
+app would notice, because the daemon comes up and the log says http. So the pair on
+disk is planted and taken away, and `baseUrl` is asserted to follow it in both
+directions — including the halfway states, a fetch interrupted between the two files
+and `tls.enabled: false`. The other half is that a `baseUrl` *you* set is never
+rewritten: `reconcileBaseUrl` runs on every `loadConfig()`, in every CLI, so a
+too-generous match would quietly overwrite a reverse proxy or a real domain on the next
+`beadcause-ask`.
 
 `test/certrenew.mjs` covers [the renewal](#renewing-it-before-it-expires), which is
 quieter still — the failure it prevents has no symptom for 89 days and then takes the

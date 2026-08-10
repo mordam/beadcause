@@ -33,7 +33,7 @@ import net from 'node:net';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { loadConfig } from '../lib/config.js';
+import { loadConfig, reconcileBaseUrl } from '../lib/config.js';
 import { buildStamp, routerStamp } from '../lib/build.js';
 import { hotSwapProblem } from '../lib/service.js';
 import { certificate, closeServer, secureServer, startRenewal, MIN_VERSION } from '../lib/tls.js';
@@ -609,6 +609,12 @@ if (process.argv.includes('--swap')) {
 const routerBuildAtStart = routerStamp();
 
 const servers = listen();
+// In the installed configuration this process is what terminates TLS, so it is also
+// what may have just fetched the first certificate — and therefore what has to move
+// `baseUrl` onto the name. Its backends bind loopback and deliberately do not. Before
+// the renewal loop, because this is about the certificate `listen()` has already got
+// and that one is about the next one.
+reconcileBaseUrl(cfg, { persist: true });
 // The router is what holds the certificate on the real port, so the router is what has
 // to keep it alive — a 90-day certificate outlives no restart this process ever gets.
 startRenewal(cfg, servers, { notify: notifyCertificate, log, warn });
