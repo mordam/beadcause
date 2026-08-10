@@ -1547,6 +1547,22 @@ button.work-row {
   cursor: pointer;
 }
 .adv-btn:disabled { opacity: 0.5; }
+/* How many sessions this advocate may open, as a stepper rather than a config edit.
+   One pill for the whole control — the two buttons and the number they change are one
+   thing, and a gap between them would read as three separate actions beside Pause.
+   The number is `min-width`ed so 1 → 2 does not shuffle the buttons under your thumb,
+   and the buttons are square-ish and thumb-sized because on the phone this sits in a
+   row of pills you are pressing repeatedly. Amber when a limit is real but not what
+   the global cap will honour: nothing is broken, so this is not `bad`. */
+.adv-limit {
+  display: inline-flex; align-items: center; gap: 2px;
+  border: 1px solid var(--line); border-radius: 999px;
+  padding: 0 2px;
+}
+.adv-limit > b { min-width: 1.4em; text-align: center; font-size: 12.5px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.adv-limit .adv-step { border: 0; padding: 4px 8px; min-width: 30px; font-size: 15px; line-height: 1; }
+.adv-limit.held { border-color: color-mix(in srgb, var(--warn) 55%, transparent); }
+.adv-limit.held > b { color: var(--warn); }
 /* A window we opened, not a process we can see — dotted while it is only that, solid
    once the session claimed the bead and the tracker can confirm it. */
 .adv-worker .work-phase { display: flex; align-items: center; justify-content: center; color: var(--accent); }
@@ -1557,6 +1573,9 @@ button.work-row {
 }
 .adv-next .pill.id { margin-right: 4px; }
 .adv-note.bad { color: var(--danger); white-space: normal; }
+/* `warn` wraps for the same reason `bad` does: it is a sentence explaining a number,
+   not a status word, and an ellipsis would cut it off exactly where the reason is. */
+.adv-note.warn { color: var(--warn); white-space: normal; }
 
 /* What one session actually is — /session?pid=…, the detail every list in the app links
    to. It was a pane folded under the row on /sessions, which is why the labels are as
