@@ -2025,12 +2025,12 @@ And the one surprise the channel has: **`write text` presses return at the end o
 line**, so a second line would submit as a second message — half a sentence into a
 running agent. A multi-line message is closed up to one line, warned about while you are
 still typing it, and confirmed after it has gone. That flattening is the whole reason
-Claude Code's IDE WebSocket was investigated first (`bc-g1l`), and the reason it is not
-what this is built on: it *can* put multi-line text in a live session's input box, but
-there is no message in that protocol which submits one, so it would still need a return
-keystroke from AppleScript — a second channel bolted alongside this one rather than a
-replacement for it, and one that reaches only sessions inside its declared workspace
-folders.
+Claude Code's IDE WebSocket was investigated first ([`docs/ide-websocket-spike.md`](docs/ide-websocket-spike.md),
+on `bc-g1l`), and the reason it is not what this is built on: it *can* put multi-line
+text in a live session's input box, but there is no message in that protocol which
+submits one, so it would still need a return keystroke from AppleScript — a second
+channel bolted alongside this one rather than a replacement for it, and one that reaches
+only sessions inside its declared `workspaceFolders`.
 
 `POST /api/session-say` is token-authenticated like everything else under `/api/`, and
 it is *not* refused in observe mode: `BEADCAUSE_OBSERVE` is about the daemon acting on
