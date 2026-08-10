@@ -305,20 +305,42 @@
     row.querySelector('.chip')?.focus();
   }
 
+  /**
+   * Which agent this conversation is with, or null for a chat session.
+   *
+   * The agents screen starts conversations against the same record type, in the same
+   * workspace, and they land in this list beside the ones started here — so without
+   * this the Critic's chat is a row whose only tell is its title. The server names
+   * the agent (lib/agents.js `withAgentNames`); a record written before agent chats
+   * existed carries no `agent` at all, and those are all chat sessions.
+   */
+  const chatAgent = (c) => {
+    const id = c.agent || 'console';
+    return id === 'console' ? null : { name: c.agentName || id, emoji: c.agentEmoji || '🤖' };
+  };
+
   function consoleRowHtml(c) {
     const bits = [];
     if (c.beadCount) bits.push(`${c.beadCount} proposed`);
     if (c.created?.length) bits.push(`${c.created.length} created`);
     if (c.seed) bits.push(`from ${c.seed.id}`);
     const done = Boolean(c.closedAt);
-    return `<div class="console-row${done ? ' closed' : ''}">
+    const agent = chatAgent(c);
+    // Two marks, because the one that is loudest is also the one that gets taken
+    // over: the phase slot says 💬 for a chat session and the agent's own emoji for
+    // an agent chat, but a running turn draws a spark there and a finished one a
+    // tick — so the pill beside the repo is what holds when the slot is busy.
+    const phase = c.status === 'thinking' ? '<span class="spark"></span>' : done ? '✓' : agent ? esc(agent.emoji) : '💬';
+    return `<div class="console-row${done ? ' closed' : ''}${agent ? ' agent-chat' : ''}">
       <a class="work-row" href="/console?id=${encodeURIComponent(c.id)}">
-        <span class="work-phase">${c.status === 'thinking' ? '<span class="spark"></span>' : done ? '✓' : '💬'}</span>
+        <span class="work-phase">${phase}</span>
         <span class="work-main">
           <span class="work-title">${esc(c.title || 'Untitled')}</span>
           <span class="work-sub"><span class="pill">${esc(c.workspace)}</span>${
-            done ? '<span class="pill">closed</span>' : ''
-          }${bits.length ? ` ${esc(bits.join(' · '))}` : ''}</span>
+            agent ? `<span class="pill agent">${esc(agent.emoji)} ${esc(agent.name)}</span>` : ''
+          }${done ? '<span class="pill">closed</span>' : ''}${
+            bits.length ? ` ${esc(bits.join(' · '))}` : ''
+          }</span>
         </span>
         <time>${esc(relTime(c.updatedAt))}</time>
       </a>
@@ -327,7 +349,9 @@
           ? // Nothing to close, and no "reopen" button either: saying anything to a
             // closed chat session reopens it, so the way back in is the row itself.
             ''
-          : `<button class="row-x" data-close="${esc(c.id)}" aria-label="Close this chat session">✕</button>`
+          : `<button class="row-x" data-close="${esc(c.id)}" aria-label="${
+              agent ? `Close this chat with the ${esc(agent.name)}` : 'Close this chat session'
+            }">✕</button>`
       }
     </div>`;
   }
