@@ -88,6 +88,13 @@
     // button, because a decline can carry direction for the next attempt and typing
     // a paragraph would outlive any arm timer — see declineHtml.
     prDecline: new Set(),
+    // Comments you have opened or shut by hand, as `${key}|${comment id}` → true
+    // when shut. Only the exceptions live here; the default — the last thing each
+    // side said, open, everything above it collapsed — is derived at render time by
+    // openThreadIndexes(). Out here with the picks and the drafts for the same
+    // reason they are: a 25-second poll rebuilds the list, and a comment you opened
+    // to read must not fold up again underneath you.
+    thread: new Map(),
   };
 
   /* ---------------------------------------------------------------- token */
@@ -352,13 +359,101 @@
     return null;
   }
 
-  /** One message in a bead's thread. Shared with the agent-bead card, which has a
-   *  thread but no decision and nothing to answer. */
-  function commentHtml(c) {
-    return `<div class="comment${c.author && c.author !== 'beadcause' ? ' from-agent' : ''}">
-      <span class="who">${esc(c.author || '')} · ${esc(relTime(c.created_at))}</span>
+  /**
+   * Written from here, rather than by something on the other end.
+   *
+   * Every comment beadcause files carries `--actor beadcause` (see bd.js), so this
+   * is exact rather than a guess — and it is the same test `.from-agent` has always
+   * been painted from, which is why the collapse and the jump below agree with the
+   * accent stripe down the side of the bubble. A comment typed into `bd` on the Mac
+   * is somebody else's as far as this screen is concerned, because that is not a
+   * message this app sent.
+   */
+  const fromMe = (c) => !c.author || c.author === 'beadcause';
+
+  /** Enough of a collapsed comment to recognise it by, on one line. */
+  const peek = (text) => {
+    const flat = String(text || '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    return flat.length > 100 ? `${flat.slice(0, 100)}…` : flat;
+  };
+
+  /**
+   * Which entries in a thread are open: the last thing I said, and the last thing
+   * the other side said.
+   *
+   * A thread on a bead that has been round a few times is mostly history, and read
+   * on a phone that history is what stands between you and the exchange you are
+   * actually in. Two is the right number rather than one because the recent
+   * exchange *is* a pair — the last reply only means something next to what it was
+   * replying to — and the one from each side is what guarantees you get the pair
+   * even when the last four comments are all an agent's.
+   *
+   * Returned as a Set of indexes. Indexes are safe as identity here because a
+   * thread only ever gains entries at the end, and `state.thread` keys off the
+   * comment's own uuid anyway; this is only about which ones start open.
+   */
+  function openThreadIndexes(comments) {
+    const open = new Set();
+    for (const mine of [true, false]) {
+      for (let i = comments.length - 1; i >= 0; i--) {
+        if (fromMe(comments[i]) === mine) {
+          open.add(i);
+          break;
+        }
+      }
+    }
+    return open;
+  }
+
+  /** A comment's identity for `state.thread`, which remembers what you opened. */
+  const commentId = (key, c, i) => `${key}|${c.id || i}`;
+
+  /**
+   * Is this entry collapsed? Your own tap wins over the default, for as long as the
+   * tab lives.
+   *
+   * It has to be state rather than a class left on the DOM: the list is rebuilt by
+   * every 25-second poll, and a comment you opened to read closing again under a
+   * background refresh is the same category of loss as a half-typed answer
+   * disappearing. Toggling writes here and flips the class in place — never through
+   * render(), for exactly that reason.
+   */
+  const isShut = (key, c, i, open) => state.thread.get(commentId(key, c, i)) ?? !open.has(i);
+
+  /**
+   * One message in a bead's thread. Shared with the agent-bead card, which has a
+   * thread but no decision and nothing to answer.
+   *
+   * The author line is the toggle. A separate chevron button would be a second tap
+   * target on a bubble whose whole point is the one sentence inside it, and the line
+   * saying who and when is already the thing your eye uses to decide whether this is
+   * the comment you were looking for — so it is what you press. The body stays in
+   * the DOM while collapsed (hidden by CSS) so opening it costs no re-render, and
+   * `data-mine` is on the element because the jump below has to find the last one.
+   */
+  function commentHtml(c, { shut = false, key = '', i = 0 } = {}) {
+    const mine = fromMe(c);
+    return `<div class="comment${mine ? '' : ' from-agent'}${shut ? ' shut' : ''}"${
+      mine ? ' data-mine="1"' : ''
+    } data-comment="${esc(commentId(key, c, i))}">
+      <button class="who" type="button" data-act="comment" aria-expanded="${!shut}">
+        <span class="caret" aria-hidden="true"></span>
+        <span class="who-name">${esc(c.author || 'you')} · ${esc(relTime(c.created_at))}</span>
+        <span class="peek">${esc(peek(c.text))}</span>
+      </button>
       <div class="md">${renderMarkdown(c.text || '')}</div>
     </div>`;
+  }
+
+  /** A whole thread, with everything but the recent exchange collapsed. */
+  function threadHtml(q) {
+    const comments = q.comments || [];
+    const open = openThreadIndexes(comments);
+    return comments
+      .map((c, i) => commentHtml(c, { shut: isShut(q.key, c, i, open), key: q.key, i }))
+      .join('');
   }
 
   /** A placeholder shaped like the agent comment that is about to land here. */
@@ -1282,15 +1377,30 @@
    * here — so it says which. A button labelled "Answer & close" over a pull request
    * invites a sentence that reads like approval and lands as a rejection.
    *
+   * **A close bd will refuse is not offered at all.** `/api/question` now says
+   * whether this bead is gated (an epic with open children, or something still
+   * blocking it), so the primary button is simply not drawn and the comment takes
+   * its place — see gateWhyHtml for what stands in for it. A button that cannot do
+   * what its label says is worse than no button: the old shape took the answer you
+   * typed, took the press, and only then said the tracker was never going to allow
+   * it, which is a lot of work to be told no.
+   *
    * Only rendered for an open card, which is also what the landscape split keys off:
    * `.card:has(> .brief:not([hidden]))`.
    */
   function freeformHtml(q) {
     const declining = q.delivery && state.prDecline.has(q.key);
+    // Only the plain answer path. A delivery's buttons are about a pull request and
+    // carry their own machinery, and `closeGate` already on the card means a refusal
+    // has just been reported in full above — a second telling under it would be the
+    // card saying the same thing twice.
+    const gated = !q.delivery && !q.closeGate ? q.gate : null;
     const boxPlaceholder = declining
       ? 'Optional — what should the next attempt do instead?'
       : q.delivery
       ? 'What needs changing before this can merge…'
+      : gated
+      ? 'Say something on the thread…'
       : 'Answer in your own words…';
     const boxLabel = declining
       ? `Decline #${q.delivery.number} &amp; close`
@@ -1300,15 +1410,56 @@
     return `<div class="freeform${declining ? ' declining' : ''}">
       ${replyBarHtml(q.key)}
       ${gateNoteHtml(q)}
+      ${gated ? gateWhyHtml(q, gated) : ''}
       <textarea data-role="answer" placeholder="${boxPlaceholder}" rows="3">${esc(getDraft(q.key))}</textarea>
       <div class="row">
-        <button class="primary${declining ? ' danger' : ''}" data-act="${
-      declining ? 'pr-decline-go' : 'answer'
-    }" data-key="${esc(q.key)}">${boxLabel}</button>
-        <button class="secondary" data-act="note" data-key="${esc(q.key)}">Comment only</button>
+        ${
+          gated
+            ? ''
+            : `<button class="primary${declining ? ' danger' : ''}" data-act="${
+                declining ? 'pr-decline-go' : 'answer'
+              }" data-key="${esc(q.key)}">${boxLabel}</button>`
+        }
+        <button class="${gated ? 'primary' : 'secondary'}" data-act="note" data-key="${esc(q.key)}">${
+      gated ? 'Comment' : 'Comment only'
+    }</button>
       </div>
       ${declining ? '' : dismissHtml(q)}
     </div>`;
+  }
+
+  /**
+   * Why this card has no *Answer & close* — said before you type, not after.
+   *
+   * The quiet twin of gateNoteHtml below. That one is a refusal: you pressed, the
+   * tracker said no, and it has buttons because something has to happen to the
+   * words you had already written. This one is a fact about the bead, standing where
+   * the button would have been, so it has nothing to offer and nothing to dismiss —
+   * the comment underneath is the whole offer.
+   *
+   * The children are named and linked for the same reason as in the refusal: "an
+   * epic with four open children" with no ids is a dead end, and the way out of it
+   * starts with reading them.
+   */
+  function gateWhyHtml(q, gate) {
+    const until = gate.kind === 'epic' ? 'its children are closed' : 'its blockers are closed';
+    return `<div class="gate-why">
+      <strong>${esc(q.id)} can't be closed from here — ${esc(gate.reason)}</strong>
+      <p>A comment is what this box can do; it stays on the thread and the bead closes when ${until}.</p>
+      ${gateBlockersHtml(q, gate)}
+    </div>`;
+  }
+
+  /** The beads behind a gate, as links into the graph. Shared by both gate blocks. */
+  function gateBlockersHtml(q, gate) {
+    const blockers = (gate.blockers || [])
+      .map(
+        (b) =>
+          `<a class="pill id" href="${esc(graphUrl({ workspace: q.workspace, id: b.id }))}&amp;open=1"
+            target="_blank" rel="noopener" title="${esc(b.title || '')}">${esc(b.id)}</a>`
+      )
+      .join(' ');
+    return blockers ? `<div class="gate-blockers">${blockers}</div>` : '';
   }
 
   /**
@@ -1361,6 +1512,12 @@
    * The beads behind it are named and linked, because "blocked by open issues" with
    * no ids is a dead end, and the fix — close those first — starts with reading them.
    *
+   * **This is now the rare path, not the ordinary one.** A gate the card already knew
+   * about when it opened draws no answer button at all (gateWhyHtml), so what is left
+   * to arrive here is a gate that appeared in between: a child reopened, a blocker
+   * filed while you were reading. The card is minutes old by then, and the refusal is
+   * the only thing that can say so.
+   *
    * **Answering and dismissing both land here**, because both of them close the bead
    * and bd gates the close, not the reason for it. What differs is the offer. An
    * answer always has something worth keeping, so it is always offered; a dismissal
@@ -1372,13 +1529,6 @@
   function gateNoteHtml(q) {
     const gate = q.closeGate;
     if (!gate) return '';
-    const blockers = (gate.blockers || [])
-      .map(
-        (b) =>
-          `<a class="pill id" href="${esc(graphUrl({ workspace: q.workspace, id: b.id }))}&amp;open=1"
-            target="_blank" rel="noopener" title="${esc(b.title || '')}">${esc(b.id)}</a>`
-      )
-      .join(' ');
     const verb = gate.from === 'dismiss' ? 'dismissed' : 'closed';
     const until = gate.kind === 'epic' ? 'its children are' : 'its blockers are';
     const offer = gate.canComment !== false;
@@ -1391,7 +1541,7 @@
               gate.kind === 'epic' ? 'the children' : 'the blockers'
             } and this one goes with them.`
       }</p>
-      ${blockers ? `<div class="gate-blockers">${blockers}</div>` : ''}
+      ${gateBlockersHtml(q, gate)}
       <div class="row">
         ${offer ? `<button class="primary" data-act="gate-comment" data-key="${esc(q.key)}">Save as a comment</button>` : ''}
         <button class="${offer ? 'secondary' : 'primary'}" data-act="gate-dismiss" data-key="${esc(
@@ -1460,7 +1610,7 @@
 
     if (q.comments?.length) {
       parts.push('<div class="section-label">Thread</div>');
-      parts.push(`<div class="comments">${q.comments.map(commentHtml).join('')}</div>`);
+      parts.push(`<div class="comments">${threadHtml(q)}</div>`);
     }
 
     // Nothing on this card writes to the bead, so the way to act on it is a session
@@ -1535,9 +1685,7 @@
     if (q.comments?.length || working) {
       parts.push('<div class="section-label">Thread</div>');
       parts.push(
-        `<div class="comments">${(q.comments || []).map(commentHtml).join('')}${
-          working ? pendingHtml(working) : ''
-        }</div>`
+        `<div class="comments">${threadHtml(q)}${working ? pendingHtml(working) : ''}</div>`
       );
     }
 
@@ -2030,6 +2178,51 @@
     if (Math.abs(delta) > 1) scroller.scrollTop += delta;
   }
 
+  // The card that has just been opened, waiting for the render that will draw it.
+  // One shot, set by expand() and consumed by render().
+  let openOn = '';
+
+  /**
+   * A card just opened: start it on the last thing I said.
+   *
+   * The top of a card is the question, and the question is the part you already know
+   * — it is why you opened it. What you have lost is the conversation: what you asked
+   * for last time, and what came back. So an opening card lands on your last message,
+   * with the reply to it just below, and the description scrolled up out of the way
+   * but still there when you swipe back.
+   *
+   * Only on the way in. A card already open stays exactly where the reader put it —
+   * capturePlace/restorePlace exist to guarantee that, and a poll that jumped you
+   * back down to your own comment every 25 seconds would undo them.
+   *
+   * Re-run as the layout settles, for the same reason restorePlace is: mermaid draws
+   * after the repaint, and every diagram above the thread pushes it further down than
+   * it was when we measured.
+   */
+  function jumpToMine(key, drawn) {
+    const card = listEl.querySelector(`.card[data-key="${CSS.escape(key)}"]`);
+    const target = [...(card?.querySelectorAll('.comment[data-mine]') || [])].pop();
+    // Nothing of mine on this thread — a question I have not answered yet, which is
+    // the common case. The top of the card is right for that one.
+    if (!target) return;
+    const go = () => {
+      // Asked each time rather than once: straight after the repaint the card is at
+      // its shortest and may not be overflowing yet, and nothing that does not
+      // overflow needs scrolling — everything in it is already on screen.
+      const self = scrollerOf(card);
+      const scroller = self ? SCROLLER_IN[self](card) : null;
+      if (!scroller) return;
+      const delta = target.getBoundingClientRect().top - scroller.getBoundingClientRect().top - ANCHOR_SLOP;
+      scroller.scrollTop += delta;
+    };
+    // This scroll is the point of opening the card, so it outranks the restore that
+    // the same render() has just queued — exactly as the collapse button does.
+    releasePlace();
+    go();
+    requestAnimationFrame(go);
+    drawn.then(go).catch(() => {});
+  }
+
   /**
    * Put the caret back where it was.
    *
@@ -2117,9 +2310,18 @@
     for (const q of visible) if (q.delivery) ensurePr(q);
 
     openLinksInNewTab(listEl);
+    const drawn = drawDiagrams(listEl);
     // Puts the caret and the scroll position back — immediately, and again as the
     // diagrams and images size themselves afterwards.
-    settlePlace(place, drawDiagrams(listEl));
+    settlePlace(place, drawn);
+    // Unless a card has just been opened, in which case where to be is not where you
+    // were — it is the last thing you said on the thread. One shot: cleared here so
+    // the next poll's repaint restores your place like any other.
+    if (openOn) {
+      const key = openOn;
+      openOn = '';
+      jumpToMine(key, drawn);
+    }
     // The list it describes has just been replaced, so its counts are stale — but a
     // 25s poll must not make it flash on screen at someone who isn't scrolling.
     paintScrollPos(false);
@@ -2449,6 +2651,9 @@
   async function expand(key, force = false) {
     const q = byKey(key);
     if (!q) return;
+    // Opening, as opposed to refreshing one that is already up. Only the first of
+    // those gets to move the reader — see jumpToMine.
+    const opening = !state.open.has(key);
     const ws = encodeURIComponent(q.workspace);
     const id = encodeURIComponent(q.id);
     if (q.agent) {
@@ -2472,6 +2677,7 @@
       }
     }
     openOnly(key);
+    if (opening) openOn = key;
     render(true);
   }
 
@@ -2588,6 +2794,21 @@
         // the foot of it can land below that column's fold.
         panel.scrollIntoView({ block: 'nearest' });
       }
+      return;
+    }
+
+    /*
+      Open or shut one comment. DOM surgery on that one bubble, never a render():
+      the answer box is below the thread with your draft and possibly the caret in
+      it, and rebuilding the list to hide a paragraph would cost both. The choice is
+      recorded in state.thread so the next poll paints it back the way you left it.
+    */
+    if (act === 'comment') {
+      const box = btn.closest('.comment');
+      if (!box) return;
+      const shut = box.classList.toggle('shut');
+      btn.setAttribute('aria-expanded', String(!shut));
+      if (box.dataset.comment) state.thread.set(box.dataset.comment, shut);
       return;
     }
 

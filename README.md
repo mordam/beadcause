@@ -362,6 +362,48 @@ children" is not a decision to take from a lock screen, and a `force` flag that
 skipped the check would only reach the same refusal from bd a moment later, since
 `respond` does not pass `--force` either.
 
+### The best refusal is a button that was never there
+
+Refusing before anything is written fixed the damage. It did not fix the shape:
+you still opened an epic with thirty open children, read it, typed a paragraph,
+pressed **Answer & close**, and *then* learned the tracker was never going to
+allow it. That is a lot of work to be told no, and on the beads it happens to —
+the epic that is a whole feature's worth of children — it happens every single
+time.
+
+So the card asks when it **opens** instead. `/api/question` already does a
+`bd show` to build the detail; it now runs the same gate check off that record and
+sends the answer with it. Free for anything that is not an epic, because the
+blockers are on the record already; one `bd list --parent` for one that is.
+Deliberately **not** on `/api/questions` — there it would be a child list per epic
+row on every 25-second poll, for cards nobody has opened.
+
+Knowing it, an open card on a gated bead **draws no *Answer & close* at all**.
+What is in its place:
+
+- **Comment**, promoted to the primary button, because it is now the only thing
+  the box does. The placeholder changes with it — *Say something on the thread…*
+  rather than *Answer in your own words…*, which would be inviting a decision the
+  screen cannot record.
+- **A dashed amber note** where the button would have been, naming the reason and
+  linking the children into the graph. Quieter than the `409` note above it —
+  dashed and unfilled, with no buttons — because nothing has gone wrong and
+  nothing is waiting on you: it is a fact about the bead, and the buttons on the
+  refusal note exist only to rescue words you had already typed.
+- **Set aside**, unchanged. It closes nothing, so it was never gated, and the bead
+  you can least close is the one you most want off the screen.
+
+The `409` path stays exactly as it is, and is now the rare one: what reaches it is
+a gate that appeared **between** the card opening and the press — a child reopened,
+a blocker filed while you were reading. That window is real, so nothing about the
+server-side check is relaxed on the strength of the card having asked first.
+
+Two known limits, both deliberate: a **decision block's option buttons** and a
+**proposal's Create-all** also close the bead and are still drawn on a gated card,
+falling back to the `409` note when pressed — hiding them would leave a decision
+card with no visible way to decide. And a **delivery** keeps its three buttons,
+because those are about a pull request rather than about the bead.
+
 ### What is gated, and what is deliberately not
 
 The gate belongs to **closing**, and only one of the three ways out of a card
@@ -369,7 +411,7 @@ closes anything:
 
 | | closes the bead? | gated? |
 |---|---|---|
-| **Answer & close** | yes | yes — this section |
+| **Answer & close** | yes | yes — and not even drawn when the card knew in advance |
 | **Comment only** | no | no |
 | **Set aside** | **no** — see [above](#setting-a-card-aside-is-not-answering-it) | no |
 
@@ -386,7 +428,7 @@ be reporting the merge as a failure.
 
 ### Checking it
 
-Three, because the three things that can break here are different things:
+Four, because the things that can break here are different things:
 
 - **`node test/closegate.mjs`** — the gate itself: the two refusals, and, the
   expensive half, the six cases that must **not** be refused. A question bd would
@@ -407,6 +449,12 @@ Three, because the three things that can break here are different things:
   server would send them. That is `closepaths`' job, and the reason it exists.
   `--baseline` serves the committed `app.js`/`style.css`; `--out=<dir>` writes the
   note.
+- **`node scripts/card-thread-check.mjs`** — the other half of the same story: that
+  a gated epic never draws the button at all, that the comment takes its place as the
+  primary, that the note names the children, and — the control that matters most —
+  that an ordinary question keeps every button it had. The same script covers the
+  folded thread below, since both are about what an opened card spends your attention
+  on.
 
 ### Where the answer goes
 
@@ -619,6 +667,58 @@ fixtures way as the scroll check, over the inbox card and the graph sheet: a fol
 paragraph comes back as one sentence with no break in it, a folded list item stays
 one item, and a three-line comment still has its two breaks. `--baseline` serves
 `HEAD:public/app.js` and `HEAD:public/graph.js`, where the bd-prose cases must fail.
+
+### The thread is folded to the last exchange, and opens on your half of it
+
+A bead that has been round four times has a thread that is mostly history, and a
+card that draws all of it spends the screen on the part you have already read.
+Every entry is folded to its author line except **two: the last thing you said, and
+the last thing the other side said.**
+
+Two rather than one, and one from each side rather than the last two:
+
+- The recent exchange **is** a pair. The last reply only means anything next to what
+  it was replying to.
+- Taking "the last two comments" would leave nothing of yours on screen whenever the
+  final two are both an agent's, which on a thread where an agent answered and then
+  followed up is the ordinary case.
+
+A folded entry keeps its author, its age and **one clipped line of what it said** —
+enough to recognise, never enough to wrap, because two lines is not folded. The
+author line *is* the toggle: a 12px chevron of its own would be a second target on a
+bubble whose whole point is the sentence inside it, and the who-and-when line is
+already what your eye uses to decide whether this is the comment you were after.
+Yours are still the plain bubbles and an agent's still carry the teal stripe, folded
+or not — the fold changes what is shown, never who said it.
+
+**Opening a card lands you on your last message.** The top of a card is the question,
+and the question is the part you already know — it is why you tapped. What you have
+lost is the conversation. So the brief scrolls to your last comment with the reply to
+it just below, and the description is above you, still there when you swipe back. If
+there is nothing of yours on the thread — a question you have not answered yet, the
+common case — the card opens at the top as it always did. The jump happens **only on
+the way in**: a card already open stays exactly where you put it, because a poll that
+dragged you back down to your own comment every 25 seconds would undo the whole of
+[keeping your place](#keeping-your-place-in-a-long-brief). It re-measures as the
+diagrams draw, for the same reason the restore does.
+
+Both halves are **repaint-proof**, which is the part that took the care. Opening a
+folded comment is a class flipped on that one bubble — never a `render()`, because
+the answer box under the thread is holding a draft and possibly the caret — and the
+choice is recorded in `state.thread`, keyed by the comment's own uuid, so the next
+poll paints it back the way you left it. A comment you opened to read folding up
+again under a background refresh is the same category of loss as a half-typed answer
+disappearing.
+
+`node scripts/card-thread-check.mjs` covers this and the missing *Answer & close*
+above, in the same headless-Chrome-at-phone-size way: that all seven comments are on
+the card but only two have a body on screen, that they are the right two, that each
+folded one shows a single line, that the card opened somewhere other than the top
+with your last message at the fold, that a tap opens one in place without touching
+the draft or the caret, and that a refresh leaves it open. `--baseline` serves
+`HEAD:public/app.js` and `HEAD:public/style.css`, where every comment is open, the
+epic offers to close itself and the card opens at the top — so baseline must fail.
+`--out=<dir>` writes the two screenshots.
 
 ## Who you are talking to
 
