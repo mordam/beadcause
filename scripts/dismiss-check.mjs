@@ -4,14 +4,13 @@
 //
 //   node scripts/dismiss-check.mjs [--baseline] [--shots]
 //
-// Dismissing is the only thing the inbox does that closes a bead with nothing
-// written on it, and it is one tap away from the two buttons you press all day. So
-// what is worth testing is not that it works — it is everything that stops it
-// working by accident:
+// Dismissing takes a card out of the inbox without answering it, and it is one tap
+// away from the two buttons you press all day. So what is worth testing is not that
+// it works — it is everything that stops it working by accident:
 //
 //   • one tap must do NOTHING but arm. A card sits open in a pocket.
-//   • the arm has to expire, or a card left open for an hour is one tap from a
-//     closed bead, with the button still promising it will confirm first.
+//   • the arm has to expire, or a card left open for an hour is one tap from
+//     vanishing, with the button still promising it will confirm first.
 //   • what is in the box rides along as the reason, and the label has to say so
 //     before you commit — a note silently thrown away is worse than no note.
 //   • it must reach `/api/dismiss` and nowhere else. Routed to `/api/respond` it
@@ -19,6 +18,12 @@
 //     a pull request.
 //   • a refused write must give the card back with the text still in it, like every
 //     other write here.
+//
+// **It used to close the bead**, and the labels here pinned that: "Dismiss without
+// answering", "Tap again — closes dm-1 unanswered". It closes nothing now — the
+// acknowledgement lives in beadcause's own state — so what those cases pin instead
+// is that no label anywhere claims otherwise, and that the toast says when the card
+// comes back. See `test/closepaths.mjs` for the writes themselves.
 //
 // Real public/app.js and public/style.css in a headless Chrome the size of a phone,
 // against fixtures served from this process. Nothing here touches a real bead.
@@ -342,8 +347,12 @@ try {
   await shot(s, 'at-rest');
   check('the answer box has a dismiss button', !!st, st ? st.text : 'no .dismiss in the card');
   check(
-    'it says what it does, without a word about answering',
-    !!st && /dismiss/i.test(st.text) && /without answering/i.test(st.text),
+    // It used to read "Dismiss without answering", which was accurate about the
+    // answering and wrong about everything else: it closed the bead. Now it sets
+    // the card aside and the bead does not move, so the one word the label must
+    // never contain is "close".
+    'it says what it does, and never that it closes anything',
+    !!st && /aside/i.test(st.text) && !/close/i.test(st.text),
     st ? `"${st.text}"` : ''
   );
   check(
@@ -368,13 +377,15 @@ try {
   check('one tap writes nothing at all', write.calls.length === 0, `${write.calls.length} write(s) went out`);
   check('the card is still in the list', await evalJs(s, `!!document.querySelector(${JSON.stringify(CARD)})`), '');
   check(
-    'the button now says the next tap is the one that closes it',
+    'the button now says the next tap is the one that does it',
     !!st && st.armed && /tap again/i.test(st.text),
     st ? `"${st.text}"` : ''
   );
   check(
-    'and names the bead it would close, unanswered',
-    !!st && st.text.includes(ID) && /unanswered/i.test(st.text),
+    // Names the bead, and says *hides* — because the thing the second tap must not
+    // be mistaken for is closing a question nobody has answered.
+    'and names the bead it would hide, without claiming to close it',
+    !!st && st.text.includes(ID) && /hides/i.test(st.text) && !/close/i.test(st.text),
     st ? `"${st.text}"` : ''
   );
 
@@ -475,10 +486,15 @@ try {
     write.calls.length === 1 && write.calls[0].path === '/api/dismiss',
     JSON.stringify(write.calls.map((c) => c.path))
   );
+  const said = await evalJs(s, `(document.querySelector('#toast') || {}).textContent || ''`);
+  check('the toast does not say the question was answered', !/answered/i.test(said), said);
   check(
-    'the toast says dismissed, not answered',
-    /dismissed/i.test(await evalJs(s, `(document.querySelector('#toast') || {}).textContent || ''`)),
-    await evalJs(s, `(document.querySelector('#toast') || {}).textContent || ''`)
+    // A card that vanishes under the word "Dismissed" reads as gone for good, and it
+    // is not — the bead is still open and something will bring it back. The toast is
+    // the only place that can say so before the card is off the screen.
+    'and says when it comes back, because setting aside is not losing',
+    /set aside/i.test(said) && /back when/i.test(said),
+    said
   );
 } finally {
   close();

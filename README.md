@@ -237,33 +237,78 @@ set.
   reset scroll, which reads exactly like the answer being thrown away. Repaints
   are deferred until the box is empty and unfocused; the armed-option state is
   painted in place instead.
-- **Or dismiss it**, under the two buttons: the question you are never going to
-  answer, closed with nothing written on it. Two taps like everything else that
-  closes a bead, and the second one spells out what it is about to do — *Tap again —
-  closes bc-7qo unanswered*. Anything already in the box rides along as the reason,
-  and the label says so before you commit rather than after. It closes the question
-  and **nothing else**: no proposal is created, no amendment committed, no pull
-  request merged or declined — "I am never going to answer this" is not consent to
-  any of them, so a dismissed delivery leaves its PR open on GitHub. The one thing
-  it does record is a refusal, when the question was an agent asking to be changed;
-  without that the request is not refused but unheard, and it comes back next week.
+- **Or set it aside**, under the two buttons — see [Setting a card
+  aside](#setting-a-card-aside-is-not-answering-it) below. Two taps like everything
+  else that makes something disappear, and the second one spells out what it is
+  about to do: *Tap again — hides bc-7qo*.
 - **From the notification**, when a question has ≤3 options: ntfy's action buttons
   POST the answer straight to the daemon over the tailnet.
 
-Either way the answer lands as a comment authored by `beadcause` and the bead
-closes with reason "Answered via Beadcause" — or "Dismissed via Beadcause", with
-your note after it, for the one that was never answered. Both write the line as a
-comment *and* as the close reason, because `bd show` prints the reason months later
-and an agent watching the thread only ever sees comments.
+An answer lands as a comment authored by `beadcause` and the bead closes with reason
+"Answered via Beadcause".
 
-`node scripts/dismiss-check.mjs` holds the dismissal to all of that in headless
+### Setting a card aside is not answering it
+
+**Dismissing closes nothing.** It used to — comment the reason, then `bd close
+--reason "Dismissed via Beadcause"` — and that was the wrong shape rather than a
+broken one. It read like the tracker's own `bd human dismiss` and it passed its
+tests. What it could not survive was the card you most want gone: an **epic with
+thirty open children**, which bd flatly refuses to close. Three taps, three
+duplicate comments, no dismissal.
+
+The fix was not to make the close work. *"I am not dealing with this now"* is not
+*"this is decided"*, and closing the bead to clear the card throws away the thing it
+was tracking. So the acknowledgement lives in beadcause's own state, keyed
+`workspace/id`, and the tracker never hears about it:
+
+| you typed | what bd is told |
+|---|---|
+| nothing | **nothing at all** — bd has no idea it happened |
+| a note | one comment, verbatim, no wrapper — and no close |
+
+The note is a comment rather than a close reason because an agent watching the
+thread reads comments; a close reason is a line only `bd show` prints. And it is
+recorded **verbatim**: the bead is not dismissed, you are, so an agent should see
+what you wrote rather than a status word beadcause invented.
+
+Dismissing still consents to nothing else. No proposal is created, no amendment
+committed, no pull request merged or declined, so a dismissed delivery leaves its PR
+open on GitHub. It no longer records a *refusal* against an agent's amendment
+request either — that was bookkeeping a close owed, and setting a card aside decides
+nothing to record.
+
+#### What brings it back
+
+A card that never returned would be the silent loss this whole app exists to
+prevent, so every dismissal is stored with the condition that ends it, decided once
+at the moment you dismiss rather than re-derived on every sweep:
+
+| the bead | comes back when |
+|---|---|
+| an **epic** with open children | every child is closed |
+| **blocked** by open dependencies | every blocker is closed |
+| anything else | somebody comments on it |
+
+The first two are the same question the answer path's gate asks, which is why they
+share `closeGate` — the moment a bead stops being un-closeable is the moment it
+stops being a question's *future* and becomes a question. The third is the honest
+fallback: nothing about an unblocked bead will change on its own, so a new comment
+is the only trigger there is. The toast says which, because a card that vanishes
+under the word *Dismissed* reads as gone for good.
+
+The recheck costs one `bd show` per dismissed bead per sweep, and only for beads
+still in the inbox — a handful, usually none. A bead that has left the sweep was
+answered or closed elsewhere, so its record goes with it rather than accumulating.
+
+`node scripts/dismiss-check.mjs` holds the interaction to its promises in headless
 Chrome at phone size: that one tap writes nothing, that the arm expires and any
 other armed control steals it, that the note reaches the wire as a `reason` and
-never as a `response` — a dismissal read as an answer would be read for markers,
-and `MERGE:` in the box would merge a pull request you meant to walk away from.
-`node test/dismiss.mjs` is the other end: the argv `bd` actually receives, pinned
-because `bd human dismiss` — the subcommand this obviously wants — is broken in bd
-1.1.2 the same way `bd human respond` is.
+never as a `response` — a dismissal read as an answer would be read for markers, and
+`MERGE:` in the box would merge a pull request you meant to walk away from.
+`node test/dismiss.mjs` is the other end: the argv `bd` actually receives, pinned so
+that a wordless dismissal stays a no-op and nothing here drifts back into being a
+close. `node test/closepaths.mjs` is what keeps answering and dismissing from being
+confused for each other again.
 
 ### When bd will not close the bead
 
@@ -303,22 +348,22 @@ children" is not a decision to take from a lock screen, and a `force` flag that
 skipped the check would only reach the same refusal from bd a moment later, since
 `respond` does not pass `--force` either.
 
-### Dismissing is a close too
+### What is gated, and what is deliberately not
 
-**Every path that closes a bead has to ask, not just the one that answers it.** The
-answer path was fixed first, and `/api/dismiss` — *Dismiss without answering* — was
-written in the same week, did the same two writes in the same order, and asked
-nothing. So it shipped carrying the identical bug, and dv-gr6 collected three
-`Dismissed via Beadcause` comments, one per attempt.
+The gate belongs to **closing**, and only one of the three ways out of a card
+closes anything:
 
-It gates the same way now, ahead of the refusal record it owes an amendment
-request as well as ahead of the write — a dismissal that never happened must not
-tell an agent its request was refused. What differs is the offer. An answer always
-has something worth keeping; a dismissal is usually wordless, which is the ordinary
-case, and a **Save as a comment** button over an empty box would save nothing and
-say it had. The server decides which in `canComment`, because it is the side that
-knows whether a note came with the request, and the note says *cannot be dismissed*
-rather than *cannot be closed*.
+| | closes the bead? | gated? |
+|---|---|---|
+| **Answer & close** | yes | yes — this section |
+| **Comment only** | no | no |
+| **Set aside** | **no** — see [above](#setting-a-card-aside-is-not-answering-it) | no |
+
+Dismissing briefly *was* gated, and that was a mistake worth recording: it made the
+card bd would least let you close also the card you could not get off your screen.
+Fixing the answer path and then applying the same fix to dismiss looked consistent
+and was exactly backwards — the two acts are not the same act, and gating both is
+what proved it.
 
 The one close that is deliberately **not** gated is the work bead a merged pull
 request finishes. That one is already `.catch`-ed and logged: the merge has
@@ -333,19 +378,21 @@ Three, because the three things that can break here are different things:
   expensive half, the six cases that must **not** be refused. A question bd would
   close happily becoming unanswerable from the phone is a worse bug than the one
   this fixes, and a silent one.
-- **`node test/closepaths.mjs`** — that the endpoints actually *ask* it. A
-  different claim, and the one that broke: `closeGate` was correct the whole time
-  `/api/dismiss` was not calling it. Both endpoints are driven over real HTTP with
-  `cfg.bdBin` pointed at a fake `bd`, so *"nothing was written"* is asserted
-  against the argv bd would have been given. It fails 7/12 against the version
-  before this section was written.
+- **`node test/closepaths.mjs`** — what each of the two ways out is allowed to
+  write, which is a different claim and the one that kept breaking. Both endpoints
+  are driven over real HTTP with `cfg.bdBin` pointed at a fake `bd`, so *"wrote
+  nothing"* is asserted against the argv bd would have been given: the answer path
+  refusing before it writes, the dismiss path succeeding on the same bead and
+  writing at most a comment, the card leaving the inbox, and — the promise that
+  makes setting aside safe — coming back once what it was waiting on clears.
 - **`node scripts/gate-check.mjs`** — what it looks like in your hand: headless
   Chrome at phone size driving the real `public/app.js`, asserting mostly what must
-  *not* happen — no error toast, no write, the draft still in the box. Note what it
-  cannot tell you: the fixture supplies the 409 itself, so it passes whether or not
-  the real server would send one. That is `closepaths`' job, and the reason it
-  exists. `--baseline` serves the committed `app.js`/`style.css`; `--out=<dir>`
-  writes the note.
+  *not* happen — no error toast, no write, the draft still in the box, and the
+  dismiss button never claiming to close anything. Note what it cannot tell you:
+  the fixture supplies the responses itself, so it passes whether or not the real
+  server would send them. That is `closepaths`' job, and the reason it exists.
+  `--baseline` serves the committed `app.js`/`style.css`; `--out=<dir>` writes the
+  note.
 
 ### Where the answer goes
 

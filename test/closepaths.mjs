@@ -1,24 +1,28 @@
 #!/usr/bin/env node
 /**
- * Every endpoint that closes a bead asks the gate first — and writes nothing if
- * bd would refuse.
+ * What each of the two ways out of a card is allowed to write.
  *
  *     npm test
  *     node test/closepaths.mjs
  *
+ * They are not the same act, and the whole history here is of them being treated as
+ * one:
+ *
+ *   - **Answering** closes the bead, so it has to ask bd's gate first — a bead
+ *     blocked by open dependencies, or an epic with open children, cannot be
+ *     closed, and finding that out *after* the comment is what put the same answer
+ *     on five beads two and three times over.
+ *   - **Dismissing closes nothing.** It used to, which was both a promise bd would
+ *     refuse and the wrong intent: "I am not dealing with this now" is not "this is
+ *     decided", and the card you most want gone — an epic with thirty open children
+ *     — is the one bd will least let you close. So it writes your note if you typed
+ *     one, writes *nothing at all* if you did not, and never touches the status.
+ *
  * `test/closegate.mjs` proves `Bd.closeGate` answers correctly. This proves the
- * endpoints actually *ask* it, which is a different claim and the one that broke.
- *
- * The answer path was fixed first. `/api/dismiss` arrived in the same merge window,
- * did the same two writes in the same order — comment, then close — and asked
- * nothing, so it shipped with the identical bug: dv-gr6 collected three
- * "Dismissed via Beadcause" comments, one per attempt, because the comment landed
- * and the close threw and the card came back looking untouched.
- *
- * A per-endpoint assertion is the only shape that catches that. The gate being
- * *correct* said nothing about a caller that never called it, and neither did the
- * browser check — that one drives the phone against a fixture which supplies the
- * 409 itself, so it passes whether or not the real server would send one.
+ * endpoints do the right thing with the answer, which is a different claim and the
+ * one that kept breaking — the gate was correct the whole time `/api/dismiss` was
+ * not calling it, and the browser check could not see that either, because its
+ * fixture supplies the response itself.
  *
  * The real `bd` is never run: `cfg.bdBin` points at a fake that records every
  * invocation, so "wrote nothing" is checked against the argv it would have used
@@ -59,6 +63,15 @@ const check = (fn, name) => {
     bad(name, err.message);
   }
 };
+/** The same, for an assertion that has to sweep the inbox to make it. */
+const checkAsync = async (fn, name) => {
+  try {
+    await fn();
+    ok(name);
+  } catch (err) {
+    bad(name, err.message);
+  }
+};
 
 /* -------------------------------------------------------------- the fake bd */
 
@@ -75,9 +88,18 @@ const args = process.argv.slice(2);
 fs.appendFileSync(${JSON.stringify(CALLS)}, JSON.stringify(args) + '\\n');
 if (args[0] === 'show') {
   process.stdout.write(JSON.stringify([{
-    id: args[1], issue_type: 'task', status: 'open', title: 'Gated',
+    id: args[1], issue_type: 'task', status: 'open', title: 'Gated', comment_count: 0,
     dependencies: [{ id: 'zz-9', status: 'open', title: 'Still open', dependency_type: 'blocks' }],
   }]));
+  process.exit(0);
+}
+// The inbox itself. Two questions, so "the dismissed one leaves" can be told apart
+// from "the sweep returned nothing".
+if (args[0] === 'human' && args[1] === 'list') {
+  process.stdout.write(JSON.stringify([
+    { id: 'zz-1', title: 'The gated one', status: 'open', priority: 1, issue_type: 'task', labels: ['human'], description: '' },
+    { id: 'zz-2', title: 'An ordinary one', status: 'open', priority: 2, issue_type: 'task', labels: ['human'], description: '' },
+  ]));
   process.exit(0);
 }
 if (args[0] === 'comments') { process.stdout.write('[]'); process.exit(0); }
@@ -194,34 +216,50 @@ check(
 
 /* ----------------------------------------------------------------- dismiss */
 
-// The regression. This endpoint did the same two writes and asked nothing.
+// The bead you most want off the screen is the one bd will least let you close. It
+// succeeds anyway now, because it is not a close.
 reset();
 const binned = await call('/api/dismiss', { workspace: 'demo', id: 'zz-1' });
-check(() => assert.equal(binned.status, 409), '/api/dismiss refuses it too');
-check(() => assert.ok(binned.json.gate, `no gate in ${JSON.stringify(binned.json)}`), 'and says which gate');
+check(() => assert.equal(binned.status, 200), 'dismissing a gated bead succeeds — it is not a close');
+check(() => assert.equal(binned.json.closed, false), 'and says so: nothing was closed');
+check(
+  // The fixture is a blocked bead; `closegate.mjs` covers the epic wording. What is
+  // asserted here is that the condition reaches the phone at all — the toast says
+  // when the card comes back, and a dismissal that could not say would read as gone.
+  () => assert.match(String(binned.json.until || ''), /blocked by zz-9/),
+  'naming what it is waiting on, so the toast can say when it comes back'
+);
 check(
   () => assert.deepEqual(writes(), [], `bd was told to: ${JSON.stringify(writes())}`),
-  'having written nothing — the three duplicate dismissals came from here'
-);
-check(
-  () => assert.equal(binned.json.canComment, false),
-  'a wordless dismissal offers no comment to save'
+  'a wordless dismissal writes NOTHING to bd — no comment, and above all no close'
 );
 
+// The note is the one mark a dismissal leaves, and it is a comment, never a close.
 reset();
-const withNote = await call('/api/dismiss', { workspace: 'demo', id: 'zz-1', reason: 'Not doing this' });
-check(() => assert.equal(withNote.status, 409), 'a dismissal carrying a note is refused the same way');
-check(() => assert.equal(withNote.json.canComment, true), 'but that one is worth offering to save');
+const withNote = await call('/api/dismiss', { workspace: 'demo', id: 'zz-1', reason: 'Not until the children land' });
+check(() => assert.equal(withNote.status, 200), 'a dismissal carrying a note succeeds too');
 check(
-  () => assert.deepEqual(writes(), [], `bd was told to: ${JSON.stringify(writes())}`),
-  'and it is still not written until you ask for it'
+  () => assert.deepEqual(writes().map((a) => a[0]), ['comment'], `bd was told to: ${JSON.stringify(writes())}`),
+  'and writes the note as a comment — one write, and it is not a close'
+);
+check(
+  () => assert.equal(writes()[0][2], 'Not until the children land'),
+  'verbatim, with no "Dismissed via Beadcause" wrapper around it'
 );
 
-/* ------------------------------------------------------- and it is not blanket */
+/* -------------------------------------------------- and the card actually goes */
 
-// The gate must be a gate, not a wall: with nothing blocking it, the same call goes
-// through to bd. The fake still fails the close, so this asserts on what bd was
-// ASKED to do rather than on the status — reaching `close` at all is the point.
+const seen = async () => (await app.allQuestions()).map((r) => r.id);
+
+await checkAsync(async () => {
+  const ids = await seen();
+  assert.ok(!ids.includes('zz-1'), `still in the inbox: ${ids.join(',')}`);
+  assert.ok(ids.includes('zz-2'), `took the wrong one out: ${ids.join(',')}`);
+}, 'the dismissed card leaves the inbox, and only that one');
+
+// The gate it was waiting on clears — every child closed — and it comes back. This
+// is the whole promise: setting aside is not losing, and a card that never returned
+// would be the silent loss this app exists to prevent.
 fs.writeFileSync(
   FAKE,
   fs.readFileSync(FAKE, 'utf8').replace(
@@ -230,12 +268,10 @@ fs.writeFileSync(
   ),
   { mode: 0o755 }
 );
-reset();
-await call('/api/dismiss', { workspace: 'demo', id: 'zz-2' });
-check(
-  () => assert.ok(calls().some((a) => a[0] === 'close'), `bd was told to: ${JSON.stringify(calls())}`),
-  'an unblocked bead still reaches the close — the gate is not a wall'
-);
+await checkAsync(async () => {
+  const ids = await seen();
+  assert.ok(ids.includes('zz-1'), `did not come back: ${ids.join(',')}`);
+}, 'and comes back when what it was waiting on clears');
 
 for (const s of servers || []) s.close?.();
 fs.rmSync(tmp, { recursive: true, force: true });

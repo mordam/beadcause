@@ -1312,19 +1312,22 @@
   }
 
   /**
-   * The third thing you can do with a question: decide it is not one.
+   * The third thing you can do with a question: set it aside.
    *
    * Under the two buttons rather than beside them, and quiet. Three equal buttons in
    * one row on a 360px phone leaves "Answer & close" too narrow to fit its own label,
-   * and the ranking is real anyway — this is the rare one, and it is the one that
-   * closes a bead with nothing written on it. Same reasoning as the decline link on a
-   * delivery: last, centred, and never where a thumb lands by accident.
+   * and the ranking is real anyway — this is the rare one. Same reasoning as the
+   * decline link on a delivery: last, centred, and never where a thumb lands by
+   * accident.
    *
-   * Two taps, like every other button here that closes a bead. What the second tap
-   * says is the point: the label spells out that the question closes *unanswered*,
-   * because that is the part no icon or colour can convey — and if you have typed
-   * something, it says so instead, since anything in the box rides along as the
-   * reason rather than being thrown away.
+   * **It no longer closes the bead**, and the label is where that has to be visible.
+   * It used to say *closes `dv-gr6` unanswered*, which was both a promise the tracker
+   * would refuse — an epic with thirty open children cannot be closed — and the wrong
+   * intent: "I am not dealing with this now" is not "this is decided". So the second
+   * tap says what actually happens, which is that the card leaves the inbox and the
+   * bead does not move. Still two taps, because a card sitting open in a pocket must
+   * not be cleared by a stray thumb, and still `.danger`-coloured, because it is the
+   * one button here that makes something disappear.
    */
   function dismissHtml(q) {
     const armed = state.armed === `${q.key}|dismiss`;
@@ -1335,8 +1338,10 @@
   /** What the dismiss button says, given the draft under it and whether it is armed. */
   const dismissLabel = (key, id, armed) => {
     const noted = Boolean(getDraft(key).trim());
-    if (armed) return `Tap again — closes ${id} ${noted ? 'with your note' : 'unanswered'}`;
-    return noted ? 'Dismiss with this note' : 'Dismiss without answering';
+    // "Hides", never "closes": the bead stays exactly as open as it was, and the one
+    // thing this label must not do is imply the question has been dealt with.
+    if (armed) return `Tap again — hides ${id}${noted ? ', with your note on the thread' : ''}`;
+    return noted ? 'Set aside with this note' : 'Set aside for now';
   };
 
   /**
@@ -2268,6 +2273,10 @@
     // Fired on the tap. An answer closes its bead, so its flight ends in the mark;
     // a comment does not, and absorbing a bead that is still open would be a lie —
     // so that one flies to the row it is about to come back to, and settles there.
+    //
+    // A dismissal absorbs too, and that is not the same lie: the mark is the inbox,
+    // not the tracker, and the card genuinely is leaving it. The bead stays open,
+    // which is what the toast underneath says and what brings the card back later.
     const flight = window.beadcause?.absorb?.launch({
       from: card,
       made: close && create ? create.length : 0,
@@ -2345,7 +2354,15 @@
         // Otherwise it sits in the shade with buttons that would answer a bead that
         // is already closed.
         window.BeadcauseNative?.answered?.(key);
-        toast(dismiss ? `Dismissed ${q.id}` : `Answered ${q.id}`);
+        // The dismissal toast says when it comes back, because a card that vanishes
+        // with "Dismissed" on screen reads as gone for good — and it is not. The
+        // server names the condition it is waiting on; without one, a new comment
+        // is what brings it back.
+        toast(
+          dismiss
+            ? `${q.id} set aside — back when ${res?.until ? `${res.until} clears` : 'someone comments'}`
+            : `Answered ${q.id}`
+        );
         render(true);
         // The tracker took it, so it may be swallowed. Awaited rather than fired and
         // forgotten so a caller that answers two questions in a row cannot have the
