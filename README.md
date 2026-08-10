@@ -1683,16 +1683,22 @@ gesture landed on whatever the browser felt like. They are not destinations. The
 are detail about the thing you just tapped, so they **slide in from the right over
 the current tab** and dismiss back to it.
 
+There are three of them: `/graph?ws=…&id=…`, `/doc?p=…`, and
+[`/session?pid=…`](#tap-a-session-to-see-what-it-is-actually-doing). The third is here
+for a second reason on top of the first — a session is listed in four places, and until
+it had an address of its own the detail behind it could only exist in whichever list had
+been taught to fold it open.
+
 `public/drawer.js` is one file loaded by both sides of it, picking its half at load:
 
-- **On a tab**, it intercepts clicks on `/graph?` and `/doc?` links and loads the
-  page that already exists into an iframe in the panel. The iframe is the whole
-  trick — it keeps d3 out of the inbox's bundle and marked out of the graph's, and
+- **On a tab**, it intercepts clicks on `/graph?`, `/doc?` and `/session?` links and
+  loads the page that already exists into an iframe in the panel. The iframe is the
+  whole trick — it keeps d3 out of the inbox's bundle and marked out of the graph's, and
   no page had to learn to render the other one. The anchors keep their real `href`,
-  so long-press → open in new tab still works, and a pasted `/graph?ws=…` or
-  `/doc?p=…` URL still loads the standalone page exactly as before. (A detail page
-  opened on its own installs nothing: no drawer over a drawer's worth of the same
-  thing.)
+  so long-press → open in new tab still works, and a pasted `/graph?ws=…`,
+  `/doc?p=…` or `/session?pid=…` URL still loads the standalone page exactly as before.
+  (A detail page opened on its own installs nothing: no drawer over a drawer's worth of
+  the same thing.)
 - **Inside the drawer**, the page stops being a page: it puts its own top bar away,
   hands its title up to the panel's header, and retargets a link from one document to
   the next instead of escaping to a new tab.
@@ -1759,6 +1765,15 @@ closes it however many documents were read in there, that the same module behave
 the sessions tab with a graph, that the panel is full width on a phone and inset with
 a working backdrop on a wide screen, and that a pasted `/graph` URL still loads the
 page itself.
+
+The session detail gets the same treatment plus the two things only it can get wrong.
+**One address from three lists**: it reads the `href` off the session row on
+`/sessions`, off the advocate's worker row and its "Claude sessions" row on
+`/advocates`, and off the mirror's — and asserts all four are the same
+`/session?pid=…`. Right in one list and forgotten in the other two is exactly how this
+breaks, and it is invisible from anywhere else. And **a pid whose process has gone says
+it finished** rather than showing an empty transcript, which is the one state the page
+has to distinguish and the one a fixture can actually stage.
 
 It counts the chrome, too, because that is the part a screenshot flatters: exactly
 one header and one ✕ inside the drawer, both the panel's, with a long filename clipped
@@ -1848,27 +1863,44 @@ A session row used to be a dead end. It said a name, a pid and the word "busy" �
 on a permission prompt for an hour. The pid was on screen precisely because there was
 nothing better to show.
 
-Tapping one now unfolds what the process record knows — its full directory, its
-workspace, when it started, when it last spoke — and under that, **its own Claude Code
-transcript, tailed live**:
+Tapping one now opens **`/session?pid=…`**: what the process record knows — its full
+directory, its workspace, when it started, when it last spoke — and under that, **its
+own Claude Code transcript, tailed live**. It arrives in the [detail
+drawer](#detail-opens-over-the-tab-not-instead-of-it), over whichever list you tapped
+from, and back puts you straight back in it.
 
 ```
-  ● Beadcause - bc-76c Sessions tab: accordion cards    22m ⌄
-    sessions-accordion-log-5f7 · pid 30342 · busy
-      WHERE      /Users/…/beadcause/.claude/worktrees/sessions-accordion-log-5f7
-      WORKSPACE  beadcause
-      PROCESS    pid 30342 · interactive · busy
-      STARTED    Aug 8, 12:03 PM · 22m ago
-      ACTIVE     Aug 8, 12:03 PM · 22m ago
-      SESSION    a60224c4
-    TRANSCRIPT  Its own log, as the terminal showed it.
-    ┌──────────────────────────────────────────────────────────┐
-    │ ❯ run whatever this repo calls its tests                 │
-    │ ✻ thinking                                               │
-    │   > Bash node --check lib/transcript.js                  │
-    │     check=0                                              │
-    └──────────────────────────────────────────────────────────┘
+  ┌ Beadcause - bc-76c Sessions tab: accordion cards      ✕ ┐
+  │  WHERE      /Users/…/beadcause/.claude/worktrees/…-5f7   │
+  │  WORKSPACE  beadcause                                    │
+  │  PROCESS    ● pid 30342 · interactive · busy             │
+  │  STARTED    Aug 8, 12:03 PM · 22m ago                    │
+  │  ACTIVE     Aug 8, 12:03 PM · 22m ago                    │
+  │  SESSION    a60224c4                                     │
+  │  TRANSCRIPT  Its own log, as the terminal showed it.     │
+  │  ┌────────────────────────────────────────────────────┐  │
+  │  │ ❯ run whatever this repo calls its tests           │  │
+  │  │ ✻ thinking                                         │  │
+  │  │   > Bash node --check lib/transcript.js            │  │
+  │  │     check=0                                        │  │
+  │  └────────────────────────────────────────────────────┘  │
+  └──────────────────────────────────────────────────────────┘
 ```
+
+**It is a page, not a pane, and that is the whole of what changed.** The detail used to
+fold open inline under the row on `/sessions` — which meant it existed in exactly one of
+the four places a session is listed. The same session is an advocate worker row and a
+"Claude sessions" row on `/advocates`, a row in the *Elsewhere* card, and a row in the
+mirror, and in all three of those the tap did nothing at all: inline detail can only
+ever exist in the list that was taught to fold it. Now every one of those rows is a link
+to the same `/session?pid=…`, so the tap means the same thing wherever your thumb landed.
+
+The pid is the whole address, because nothing else identifies a running process — and a
+URL that named a *file* instead would be a way to read anything on the Mac. The one row
+that deliberately does **not** link here is an advocate worker whose window has gone: a
+worker is a window we opened rather than a process we can see, and where the pid it
+recorded no longer names anything running, the row keeps its link to the bead. Promising
+a session that cannot be shown would be worse than the dead end it replaced.
 
 Claude Code already writes the whole conversation to
 `~/.claude/projects/<slug>/<session-id>.jsonl`, one JSON object per line, appended as
@@ -1900,12 +1932,12 @@ Four things worth knowing:
   `/api/` and no further — but it is the most sensitive thing this daemon serves, and
   `claudeSessions: false` turns it off along with the rest of the session reading.
 
-Only one session is open at a time, and folding a card closes the session inside it —
-a pane left open behind a fold would reappear on its own when you came back. The pane
-polls every two seconds while it is open and never otherwise, and it keeps its scroll
-position across the card refresh: following the tail is only right if you were already
-at the bottom, and a pane that jumped to the end every 45 seconds would make reading
-back through a run impossible.
+The page polls every two seconds while it is open and stops for good on the 404 —
+there is no point asking again about a pid that will never come back. It follows the
+tail only if you were already at the bottom, so scrolling back to read something is not
+yanked away by the next line. The list behind it refreshes on its own 45-second cycle
+and, because the detail is in a drawer rather than folded into that list, a repaint
+there can no longer disturb what you are reading.
 
 Every card has a **Graph →** into the whole workspace — which is also the answer to
 "how do I see what another session just created", since the graph draws every open
@@ -3424,8 +3456,9 @@ Auth on everything under `/api/` except `/api/health`: header
 | GET | `/api/advocate-log` | `?workspace=` | the survey agent's transcript, as the CLI would have shown it |
 | GET | `/api/session-archive` | `?workspace=&id=` | the archived sessions for a bead |
 | GET | `/api/session-archive` | `?workspace=&commit=&file=` | one archived `session.log`, `meta.json` or `transcript.jsonl` |
-| GET | `/api/session-log` | `?pid=` | `{pid, sessionId, status, file, lines[]}` — the tail of that live session's own transcript. 404 for a pid that is not running |
+| GET | `/api/session-log` | `?pid=` | the whole session record — `{pid, sessionId, name, cwd, where, workspace, status, kind, at, startedAt}` — plus `{file, lines[]}`, the tail of its own transcript. 404 for a pid that is not running |
 | GET | `/sessions`, `/work` | — | the current-sessions page (same page, two paths) |
+| GET | `/session` | `?pid=` | the HTML page for one live session: its facts and its transcript |
 | GET | `/graph` | `?ws=&id=` | the HTML graph page |
 | GET | `/api/consoles` | — | `{consoles[], workspaces[]}` — every chat session, newest first; `closedAt` set on the finished ones |
 | POST | `/api/console/close` | `{id}` | soft-closes it and returns the new list. `409` mid-turn; saying anything to it reopens it |
@@ -3699,8 +3732,9 @@ controls.
 
 ### `npm test`
 
-Seven suites: `scripts/selftest.mjs`, then `test/observe.mjs`, `test/atomic.mjs`,
-`test/memory.mjs`, `test/summary.mjs`, `test/terminal.mjs` and `test/queue.mjs`. What they have in common is that each covers something whose
+`scripts/selftest.mjs`, then every suite under `test/`, then `scripts/test-swap.js` —
+the exact list, in order, is the `test` script in `package.json`, which is the one place
+worth keeping current. What they have in common is that each covers something whose
 failure is *silent* — a flag that does nothing, a state file that comes back empty,
 a message that was never written. The loud failures are still covered by
 `node --check` on changed files and by booting an observer instance and driving it.
@@ -3739,6 +3773,18 @@ something that cannot be delivered, and that the flags are `--session-id` first 
 `--resume` after. The pty itself is a named `skip` — `expect` and `claude` both being on
 PATH is not something a test should assume, and a test that opened one would leave a
 Claude session running in a temp directory.
+
+`test/session.mjs` covers the one address a session has, because every way that breaks
+is invisible until you tap a row and get nothing. The session it reads is the test
+process itself — `liveSessions` liveness-checks every pid, so a made-up one is filtered
+out before the endpoint sees it. It holds that `/api/session-log` answers with the
+*whole* record and not the three fields the folded pane happened to need (the regression
+that would leave the facts pane blank with nothing on screen to say why), that a dead pid
+is a 404 naming it, that `file` comes back even when nothing has rendered yet, that a
+transcript needs a token and the page does not, that `public/drawer.js` still owns
+`/session` — one line, and nothing about it is visible from the server — and, last, that
+`/api/session-log` has exactly one reader in `public/`. That last one *is* the bead: a
+second reader is a second detail view growing back.
 
 `test/queue.mjs` covers what happens to words typed while a turn is running, because
 every way that breaks is silent from the outside: a message queued and never sent

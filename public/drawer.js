@@ -1,4 +1,4 @@
-/* The detail drawer: a graph or a document opens *over* the tab you were reading.
+/* The detail drawer: a graph, a document or a session opens *over* the tab you were reading.
  *
  * `/graph?ws=…&id=…` and `/doc?p=…` were full-page navigations, linked from all four
  * views. They are not destinations — they are detail about the thing you just
@@ -6,11 +6,16 @@
  * back is an ✕ to the inbox, is the wrong trade on a phone. They slide in from the
  * right instead, and dismiss back to the tab that was underneath.
  *
+ * `/session?pid=…` is the third, and it is here for a second reason on top of that
+ * one: a session is listed in four places, and until it had one address the detail
+ * behind it could only ever exist in whichever list had been taught to fold it open.
+ * See public/session.js.
+ *
  * One file, loaded by both sides of the drawer, picking its half at load:
  *
  *   - **the tab** (inbox, sessions, advocates, chat session) intercepts clicks on
- *     `/graph?` and `/doc?` links and loads the page that already exists into an
- *     iframe inside the panel. The iframe is the point: it keeps d3 out of the
+ *     `/graph?`, `/doc?` and `/session?` links and loads the page that already exists
+ *     into an iframe inside the panel. The iframe is the point: it keeps d3 out of the
  *     inbox's bundle and marked out of the graph's, and no page had to learn how to
  *     render the other one. The anchors keep their real hrefs, so long-press →
  *     open in new tab, and a pasted URL, still land on the standalone page.
@@ -47,7 +52,7 @@
   const CLOSE = 'beadcause:drawer-close';
   const OPEN = 'beadcause:drawer-open';
   const TITLE = 'beadcause:drawer-title';
-  const DETAIL = new Set(['/graph', '/graph.html', '/doc', '/doc.html']);
+  const DETAIL = new Set(['/graph', '/graph.html', '/doc', '/doc.html', '/session', '/session.html']);
   const SLIDE_MS = 240;
 
   /** The href of a link the drawer owns, normalised — null for everything else. */
@@ -258,7 +263,11 @@
     // read once: the graph renames itself every time the scope toggle moves between
     // one bead and the whole workspace, and a header that froze on the first name
     // would be quietly lying from the second tap on.
-    const kind = location.pathname.startsWith('/doc') ? 'doc' : 'graph';
+    const kind = location.pathname.startsWith('/doc')
+      ? 'doc'
+      : location.pathname.startsWith('/session')
+        ? 'session'
+        : 'graph';
     const heading = document.querySelector('.topbar h1');
     const sendTitle = () => post({ type: TITLE, kind, title: (heading ? heading.textContent : document.title).trim() });
     sendTitle();

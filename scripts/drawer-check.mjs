@@ -26,6 +26,13 @@
 //   - full width on a phone, inset on a wide screen, backdrop dismisses;
 //   - a pasted /graph URL still loads the standalone page, with no drawer in it.
 //
+// `/session?pid=…` is the drawer's third page and gets the same treatment, plus the
+// two things only it can get wrong: a session row on /sessions and the advocate
+// console's own rows must reach the *same* address — that is the whole of what the
+// bead asked for, and it is the kind of thing that is right in one list and forgotten
+// in the other two — and a pid whose process has gone has to say it finished rather
+// than showing an empty transcript.
+//
 // Real public/*.js in a headless Chrome at phone size, against fixtures served from
 // this process, so nothing here touches a real bead or needs the daemon.
 // `--baseline` serves the committed copies of the changed files instead of the
@@ -124,15 +131,47 @@ const BEAD = {
 const QUESTIONS = [{ ...toQuestion(WS, BEAD), comments: [] }];
 const KEY = QUESTIONS[0].key;
 
+/* One live session, listed in three places at once: as a `sessions` row on /sessions
+   and on the advocate console, and as the advocate's own worker row for the bead it is
+   on. Every one of them has to reach `/session?pid=4242`. */
+const PID = 4242;
+const SESSION_NAME = 'Demo - dr-one the session detail';
+const IN_TRANSCRIPT = 'ONLY-IN-THE-TRANSCRIPT';
+
+const SESSION = {
+  pid: PID,
+  sessionId: 'aaaabbbb-cccc-dddd-eeee-ffff00001111',
+  name: SESSION_NAME,
+  cwd: '/Users/someone/dev/demo/.claude/worktrees/a-thing-4e7',
+  where: 'a-thing-4e7',
+  workspace: WS,
+  status: 'busy',
+  kind: 'claude',
+  at: '2026-08-01T10:59:00Z',
+  startedAt: '2026-08-01T09:30:00Z',
+};
+
+const ADVOCATE = {
+  workspace: WS,
+  limit: 3,
+  queue: 1,
+  paused: false,
+  quiet: false,
+  surveying: false,
+  workers: [{ id: 'dr-one', title: BEAD.title, at: '2026-08-01T10:00:00Z', attempt: 1, claimed: true, pid: PID }],
+  next: [],
+  note: '',
+};
+
 const WORK = {
   observing: false,
-  advocates: [],
+  advocates: [ADVOCATE],
   elsewhere: [],
   workspaces: [
     {
       name: WS,
-      counts: { open: 3, ready: 1, blocked: 0 },
-      sessions: [],
+      counts: { open: 3, ready: 1, blocked: 0, inProgress: 1 },
+      sessions: [SESSION],
       working: [{ id: 'dr-one', title: BEAD.title, actor: 'someone', since: '2026-08-01T10:00:00Z' }],
     },
   ],
@@ -163,7 +202,20 @@ const TYPES = {
 // checkout so the comparison is against HEAD of this very worktree. A file that does
 // not exist at HEAD is not served at all — which for a new one is exactly the
 // baseline: the behaviour it brings has to fail without it.
-const BASE_FILES = ['/index.html', '/work.html', '/doc.html', '/graph.html', '/style.css', '/drawer.js'];
+const BASE_FILES = [
+  '/index.html',
+  '/work.html',
+  '/work.js',
+  '/doc.html',
+  '/graph.html',
+  '/monitor.html',
+  '/monitor.js',
+  '/mirror.js',
+  '/session.html',
+  '/session.js',
+  '/style.css',
+  '/drawer.js',
+];
 const committed = (p) => {
   try {
     return execFileSync('git', ['show', `HEAD:public${p}`], { cwd: ROOT, stdio: ['ignore', 'pipe', 'ignore'] });
@@ -171,6 +223,10 @@ const committed = (p) => {
     return null;
   }
 };
+
+/** Answered once, then parked — see the `/api/poll` branch below. */
+let polled = false;
+const NOW = new Date().toISOString();
 
 function serve() {
   const server = http.createServer((req, res) => {
@@ -189,6 +245,15 @@ function serve() {
     }
     if (p === '/api/work') return json(WORK);
     if (p === '/api/graph') return json(GRAPH);
+    // The record and the tail of its transcript, in one response — and a 404 for a pid
+    // that is not running, which is what the "it finished" case reads.
+    if (p === '/api/session-log') {
+      if (Number(url.searchParams.get('pid')) !== PID) {
+        res.writeHead(404, { 'content-type': 'application/json' });
+        return res.end(JSON.stringify({ error: `no session running as pid ${url.searchParams.get('pid')}` }));
+      }
+      return json({ ...SESSION, file: '/tmp/whatever.jsonl', lines: [`❯ ${IN_TRANSCRIPT}`, '● said something back'] });
+    }
     // What the graph's detail sheet fetches when you ask a node for its text.
     if (p === '/api/bead') return json({ ...BEAD, comments: [] });
     if (p === '/api/asset') {
@@ -200,6 +265,20 @@ function serve() {
       res.writeHead(200, { 'content-type': 'text/markdown; charset=utf-8' });
       return res.end(body);
     }
+    // The mirror's parked long-poll. It answers once with a phone sitting on the
+    // sessions view — which is what makes the mirror's own session rows render at all —
+    // and then holds every request after it, exactly as the real endpoint does. Holding
+    // matters: `feed()` restarts the moment it returns, so an endpoint that answered
+    // instantly would be a tight loop on the fixture server for as long as the run.
+    if (p === '/api/poll') {
+      if (polled) return; // parked for the rest of the run
+      polled = true;
+      return json({
+        seq: 1,
+        events: [],
+        presence: [{ device: 'phone-1', label: 'iPhone', view: 'sessions', at: NOW, since: NOW, hidden: false }],
+      });
+    }
     // Everything else the pages poke at on boot. An empty body answers all of it.
     if (p.startsWith('/api/')) return json({});
 
@@ -210,7 +289,15 @@ function serve() {
       return res.end(body);
     }
     // The daemon serves these as pages, not as files on disk.
-    const PAGES = { '/': 'index.html', '/work': 'work.html', '/graph': 'graph.html', '/doc': 'doc.html' };
+    const PAGES = {
+      '/': 'index.html',
+      '/work': 'work.html',
+      '/sessions': 'work.html',
+      '/graph': 'graph.html',
+      '/doc': 'doc.html',
+      '/session': 'session.html',
+      '/advocates': 'monitor.html',
+    };
     const file = path.join(PUBLIC, PAGES[p] || p.replace(/^\/+/, ''));
     if (!file.startsWith(PUBLIC) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) {
       res.writeHead(404).end('no');
@@ -388,7 +475,11 @@ const STATE = `(() => {
         if (!frame) return null;
         const d = frame.contentDocument;
         const seen = (sel) => [...d.querySelectorAll(sel)].filter((el) => el.getClientRects().length > 0).length;
-        return { bars: seen('.topbar'), closes: seen('#doc-close, #graph-close'), scope: seen('.scope-btn') };
+        return {
+          bars: seen('.topbar'),
+          closes: seen('#doc-close, #graph-close, #session-close'),
+          scope: seen('.scope-btn'),
+        };
       } catch (e) {
         return null;
       }
@@ -688,6 +779,122 @@ try {
     `at ${backTab.path}, drawer ${backTab.open ? 'still open' : 'closed'}`
   );
 
+  /* ---- a session row: the drawer's third page, and one address for it ---- */
+
+  const SESSION_HREF = `/session?pid=${PID}`;
+  const hrefs = (sel) => `[...document.querySelectorAll(${JSON.stringify(sel)})].map((a) => a.getAttribute('href'))`;
+
+  const onWork = await evalJs(s, hrefs('.session-row'));
+  check(
+    'a session row on /sessions is a link to its own detail, not an inert div',
+    onWork.length === 1 && onWork[0] === SESSION_HREF,
+    JSON.stringify(onWork)
+  );
+
+  await evalJs(s, clickSel(`.work-row[href="${SESSION_HREF}"]`));
+  await sleep(400);
+  const sessionUp = await waitFor(s, `(${STATE}).text.includes(${JSON.stringify(IN_TRANSCRIPT)})`, 60);
+  const withSession = await evalJs(s, STATE);
+  check(
+    "a session's detail opens over the list, showing what it is actually saying",
+    sessionUp && withSession.open && withSession.path === '/work' && withSession.frame?.startsWith('/session'),
+    withSession.exists ? `at ${withSession.path}, showing ${withSession.frame}` : 'no drawer — the tab navigated'
+  );
+  check(
+    "the panel's header wears the session's own name, and one ✕ is the panel's",
+    withSession.head === SESSION_NAME &&
+      withSession.headKind === 'session' &&
+      withSession.closes === 1 &&
+      !!withSession.inner &&
+      withSession.inner.bars === 0 &&
+      withSession.inner.closes === 0,
+    `header says ${JSON.stringify(withSession.head)} (${withSession.headKind}) · ${
+      withSession.inner ? withSession.inner.bars : '?'
+    } page header(s), ${withSession.inner ? withSession.inner.closes : '?'} page ✕ inside`
+  );
+  // The facts pane is the other half of the detail, and it is the half that had nowhere
+  // to come from until /api/session-log started returning the whole record.
+  check(
+    'and the facts about the process, which no other endpoint could have told it',
+    withSession.text.includes(SESSION.cwd) && withSession.text.includes(WS) && withSession.text.includes(String(PID)),
+    withSession.text ? `${withSession.text.slice(0, 90).replace(/\n/g, ' ⏎ ')}…` : 'nothing in the panel'
+  );
+  await shot(s, 'phone-session-drawer');
+
+  await back(s);
+  const backFromSession = await evalJs(s, STATE);
+  check(
+    'back dismisses it and leaves you on the list you tapped from',
+    backFromSession.exists && !backFromSession.open && backFromSession.path === '/work',
+    `at ${backFromSession.path}, drawer ${backFromSession.open ? 'still open' : 'closed'}`
+  );
+
+  /* ---- the advocate console: the same rows, the same address ---- */
+
+  await s.send('Page.navigate', { url: `${BASE}/advocates` });
+  if (!(await waitFor(s, `!!document.querySelector('.mon-card')`))) throw new Error('the advocate console never rendered');
+  // Both sections are folded by default and remember their state in localStorage, so
+  // they are opened by hand rather than assumed — and only if they are shut, because a
+  // second click would close the one a previous run left open.
+  for (const key of [`${WS}:work`, `${WS}:else`]) {
+    await evalJs(s, clickSel(`[data-toggle="${key}"][aria-expanded="false"]`));
+    await sleep(250);
+  }
+  const onAdvocates = await evalJs(s, hrefs('#mon .work-row.adv-worker, #mon .work-row.session-row'));
+  check(
+    "the advocate's worker row and its session row both reach the same detail",
+    onAdvocates.length === 2 && onAdvocates.every((h) => h === SESSION_HREF),
+    JSON.stringify(onAdvocates)
+  );
+
+  await evalJs(s, clickSel(`#mon .work-row.adv-worker[href="${SESSION_HREF}"]`));
+  await sleep(400);
+  const overConsole = await waitFor(s, `(${STATE}).text.includes(${JSON.stringify(IN_TRANSCRIPT)})`, 60);
+  const withConsole = await evalJs(s, STATE);
+  check(
+    'and it opens over the console rather than navigating away from it',
+    overConsole && withConsole.open && withConsole.path === '/advocates',
+    withConsole.exists ? `at ${withConsole.path}, showing ${withConsole.frame}` : 'no drawer — the tab navigated'
+  );
+  await back(s);
+
+  /* ---- and the mirror, which is the third list ---- */
+
+  await evalJs(s, clickSel('#mon-tabs [data-tab="mirror"]'));
+  const mirrored = await waitFor(s, `document.querySelectorAll('#mirror .session-row').length > 0`, 60);
+  const onMirror = await evalJs(s, hrefs('#mirror .session-row'));
+  check(
+    'the mirror sends its session rows to the same place too',
+    mirrored && onMirror.length === 1 && onMirror[0] === SESSION_HREF,
+    mirrored ? JSON.stringify(onMirror) : 'the mirror never listed a session'
+  );
+
+  await evalJs(s, clickSel(`#mirror .session-row[href="${SESSION_HREF}"]`));
+  await sleep(400);
+  const overMirror = await waitFor(s, `(${STATE}).text.includes(${JSON.stringify(IN_TRANSCRIPT)})`, 60);
+  const withMirror = await evalJs(s, STATE);
+  check(
+    'over the mirror as well',
+    overMirror && withMirror.open && withMirror.path === '/advocates',
+    withMirror.exists ? `at ${withMirror.path}, showing ${withMirror.frame}` : 'no drawer — the tab navigated'
+  );
+  await back(s);
+
+  /* ---- a session that has exited says so, rather than showing an empty pane ---- */
+
+  await evalJs(s, openViaLink('/session?pid=999999'));
+  const said = await waitFor(s, `(${STATE}).text.toLowerCase().includes('finished')`, 60);
+  const dead = await evalJs(s, STATE);
+  check(
+    'a pid whose process has gone says it finished rather than showing nothing',
+    said && dead.open && !dead.text.includes(IN_TRANSCRIPT),
+    dead.text ? `${dead.text.slice(0, 90).replace(/\n/g, ' ⏎ ')}…` : 'nothing in the panel'
+  );
+  await back(s);
+  await s.send('Page.navigate', { url: `${BASE}/work` });
+  if (!(await waitFor(s, `!!document.querySelector('.work-row[href^="/graph?"]')`)))
+    throw new Error('the sessions list never came back');
+
   /* ---- the graph's detail sheet, at drawer width ---- */
 
   await evalJs(s, openViaLink(`/graph?ws=${WS}&id=dr-one&open=1`));
@@ -769,6 +976,31 @@ try {
     'and it stands on its own out there — its own header, its own ✕, no drawer mode',
     chrome.bars === 1 && chrome.closes === 1 && !chrome.inDrawer && chrome.title === 'dr-one',
     `${chrome.bars} header(s), ${chrome.closes} ✕, saying ${JSON.stringify(chrome.title)}`
+  );
+
+  await s.send('Page.navigate', { url: `${BASE}${SESSION_HREF}` });
+  const pastedSession = await waitFor(s, `document.body.innerText.includes(${JSON.stringify(IN_TRANSCRIPT)})`, 60);
+  const sessionChrome = await evalJs(
+    s,
+    `(() => {
+      const seen = (sel) => [...document.querySelectorAll(sel)].filter((el) => el.getClientRects().length > 0).length;
+      const h1 = document.querySelector('.topbar h1');
+      return { drawer: !!document.querySelector('.drawer-wrap'), bars: seen('.topbar'), closes: seen('#session-close'),
+               inDrawer: document.documentElement.classList.contains('in-drawer'),
+               title: h1 ? h1.textContent.trim() : null };
+    })()`
+  );
+  check(
+    'a pasted /session URL loads the page itself, with its own header and its own ✕',
+    pastedSession &&
+      !sessionChrome.drawer &&
+      sessionChrome.bars === 1 &&
+      sessionChrome.closes === 1 &&
+      !sessionChrome.inDrawer &&
+      sessionChrome.title === SESSION_NAME,
+    `${sessionChrome.bars} header(s), ${sessionChrome.closes} ✕, saying ${JSON.stringify(sessionChrome.title)}${
+      sessionChrome.drawer ? ', with a drawer over it' : ''
+    }`
   );
 
   await s.send('Page.navigate', { url: `${BASE}/doc?p=${encodeURIComponent(SPEC)}` });

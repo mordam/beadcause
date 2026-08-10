@@ -1,6 +1,6 @@
 /* Cache the shell so the inbox opens instantly and the 3.5 MB mermaid bundle is
    fetched once. API traffic is never cached — an answered question must vanish. */
-const CACHE = 'beadcause-v16';
+const CACHE = 'beadcause-v17';
 const SHELL = [
   '/',
   '/index.html',
@@ -20,6 +20,12 @@ const SHELL = [
   '/doc.js',
   '/graph.html',
   '/graph.js',
+  // The third page a drawer can be: one session's facts and its transcript, linked
+  // from every list in the app that names a session. In the shell for the same reason
+  // /graph and /doc are — it is opened by a tap on a row, over a page you are already
+  // reading, and fetching it fresh on that tap is the slowest moment to do it.
+  '/session.html',
+  '/session.js',
   // Both paths for the current-sessions page: '/work' is what the phone's home
   // screen and the Android shell's history still point at.
   '/sessions',
