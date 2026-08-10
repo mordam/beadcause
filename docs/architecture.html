@@ -759,7 +759,13 @@ curl -sI http://127.0.0.1:4318/api/health | grep beadcause</code></pre>
 
   <pre><code>Bash(bd show:*) Bash(bd comments:*) Bash(bd comment:*) Bash(bd list:*)
 Bash(bd ready:*) Bash(bd blocked:*) Bash(bd search:*) Bash(bd stats:*)
-Bash(bd memories:*) Bash(bd dep:*) Read Grep Glob</code></pre>
+Bash(bd memories:*) Bash(bd dep tree:*) Read Grep Glob</code></pre>
+
+  <p><code>bd dep tree</code> rather than <code>bd dep:*</code> for the same reason:
+  <code>dep</code> is a family, not a read, and the glob one level up carried
+  <code>add</code>, <code>remove</code>, <code>relate</code>, <code>unrelate</code> and the
+  <code>bd dep &lt;id&gt; --blocks &lt;id&gt;</code> shorthand — four graph writes reachable from a
+  comment answered on a lock screen.</p>
 </section>
 
 <!-- ================================================================ -->
