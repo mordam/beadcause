@@ -45,6 +45,7 @@ const {
   startDeploy,
   listDeploys,
   showDeploy,
+  briefDeploy,
   runningFor,
   sweepDeploys,
   unannounced,
@@ -353,6 +354,29 @@ await check('a deploy command that exits non-zero is a failure, whatever it prin
   assert.equal(rec.status, 'failed');
   assert.match(rec.error, /exit 1/);
   assert.match(rec.steps.at(-1).output, /Deploy successful/);
+});
+
+await check('the list drops what worked and keeps the tail of what did not', () => {
+  // The record above — a deploy whose command printed and then exited 1 — is what a
+  // phone polling /api/deploys every four seconds asks for. Twenty of those carrying
+  // 4 kB per step is most of a megabyte a poll, and the only output anybody has ever
+  // read is the failing step's. So: passing steps travel with no `output` key at all,
+  // and the one that broke keeps its tail, because "why did it fail" must be
+  // answerable from the list rather than costing a second request.
+  const full = listDeploys()[0];
+  const brief = briefDeploy(full);
+  assert.equal(brief.steps.length, full.steps.length, 'a step was dropped, not just its output');
+  assert.equal(brief.steps.at(-1).code, 1);
+  assert.match(brief.steps.at(-1).output, /Deploy successful/);
+  for (const s of brief.steps.filter((x) => x.code === 0)) {
+    assert.equal('output' in JSON.parse(JSON.stringify(s)), false, `${s.name} still carries its output`);
+  }
+  // Everything else is the record as the runner wrote it — the status, the error and
+  // the commits are what the screen is actually reading.
+  assert.equal(brief.status, full.status);
+  assert.equal(brief.error, full.error);
+  assert.equal(brief.id, full.id);
+  assert.equal(briefDeploy(null), null);
 });
 
 await check('a command that is not there fails rather than counting as done', async () => {

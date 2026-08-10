@@ -24,6 +24,11 @@
 //     merged. Not greyed out — absent, so there is nothing to think about.
 //   • **A refusal is readable.** A merge GitHub will not do comes back as a sentence
 //     under the row you pressed, not a toast that has already gone.
+//   • **A deploy in flight is on the screen.** Which repo, which step, and — when it
+//     ends — which of the four endings it got, including the two that mean nobody
+//     knows. Plus the case only a browser can show: the daemon going away mid-restart
+//     has to read as the deploy working, not as the page breaking, and the board that
+//     was already drawn has to survive it.
 //
 // `--baseline` serves HEAD's prs.js and style.css instead of the working copy, so a
 // failure can be told apart from a flake. Against a main with no board at all, every
@@ -135,6 +140,34 @@ const BOARD = () => ({
   ],
 });
 
+/* One deploy record per shape the strip has to draw. The fields are the ones
+   lib/deploy.js actually writes — a fixture that invented a `step` field would prove
+   the page can read a record no daemon will ever send it. */
+const deploy = (over) => ({
+  id: 'd-abc',
+  workspace: 'demo',
+  dir: '/Users/x/repos/demo',
+  base: 'main',
+  bead: null,
+  reason: '',
+  restarts: false,
+  status: 'ok',
+  requestedAt: '2026-08-09T08:59:00Z',
+  startedAt: '2026-08-09T08:59:01Z',
+  finishedAt: '2026-08-09T08:59:41Z',
+  heartbeatAt: '2026-08-09T08:59:41Z',
+  pid: 1234,
+  from: 'c'.repeat(40),
+  to: 'd'.repeat(40),
+  changed: ['lib/thing.js'],
+  steps: [{ name: 'git fetch', command: ['git', 'fetch'], code: 0, ms: 420 }],
+  error: null,
+  ...over,
+});
+
+/** What GET /api/deploys answers with. Swapped per case; `null` makes it unreachable. */
+let DEPLOYS = { deploys: [], deployable: ['demo'] };
+
 /* ------------------------------------------------------------------- the server */
 
 const TYPES = {
@@ -178,7 +211,21 @@ function serve() {
       });
       return;
     }
-    if (p === '/api/prs') return json(BOARD());
+    if (p === '/api/prs') {
+      // The one case a stubbed board cannot fake from the outside: while the daemon is
+      // being restarted by the deploy the page is watching, *neither* endpoint answers.
+      if (!DEPLOYS) return res.destroy();
+      return json(BOARD());
+    }
+    if (p === '/api/deploys') {
+      if (!DEPLOYS) return res.destroy();
+      const id = new URL(req.url, 'http://x').searchParams.get('id');
+      if (id) {
+        const rec = (DEPLOYS.deploys || []).find((d) => d.id === id);
+        return rec ? json({ deploy: rec, log: 'the runner said this\nand then this\n' }) : json({ error: 'no' }, 404);
+      }
+      return json(DEPLOYS);
+    }
     if (p.startsWith('/api/')) return json({});
 
     let rel = p === '/prs' || p === '/pulls' ? '/prs.html' : p;
@@ -330,6 +377,40 @@ const clickAct = (act) => `(() => {
 const SAID = `(() => {
   const el = document.querySelector('#prs .board-said');
   return el ? { text: el.textContent.trim(), bad: el.classList.contains('bad') } : null;
+})()`;
+
+/**
+ * The deploy strip, one entry per row, as `tone+live|what it says`.
+ *
+ * The tone is read off the class rather than off a colour, and the sentence is read
+ * whole — including the `.sr-only` "deploy:" a reader hears, since the workspace and
+ * its state are two spans that only a screen makes into one phrase.
+ */
+const STRIP = `(() => [...document.querySelectorAll('#prs .deploy')].map((el) =>
+  [...el.classList].filter((c) => c !== 'deploy').sort().join('+') + '|' +
+  el.querySelector('.deploy-what').textContent.replace(/\\s+/g, ' ').trim()))()`;
+
+const BANNER = `document.querySelector('#prs .deploy-banner')?.textContent.trim() || ''`;
+
+/** Unfold the deploy strip's first row. */
+const OPEN_DEPLOY = `(() => {
+  const b = document.querySelector('#prs .deploy [data-deploy]');
+  if (!b) return false;
+  b.click();
+  return true;
+})()`;
+
+/** What is behind it: the sentence, every step with its verdict, and the log. */
+const DEPLOY_BODY = `(() => {
+  const el = document.querySelector('#prs .deploy-body');
+  if (!el) return null;
+  return {
+    why: el.querySelector('.deploy-why')?.textContent.trim() || '',
+    steps: [...el.querySelectorAll('.deploy-step')].map((s) =>
+      (s.classList.contains('bad') ? '✗ ' : '✓ ') + s.querySelector('.deploy-step-name').textContent.trim()),
+    out: [...el.querySelectorAll('.deploy-out')].map((p) => p.textContent.trim()),
+    log: el.querySelector('.deploy-log')?.textContent.trim() || '',
+  };
 })()`;
 
 /* ----------------------------------------------------------------------- run */
@@ -515,6 +596,135 @@ try {
   await evalJs(s, clickAct('send'));
   await sleep(400);
   ok(posted.length === 0, 'an empty one is not sent at all');
+
+  /* ---------------------------------------------------------- the deploy strip */
+
+  console.log('\nwhat is deploying right now');
+
+  ok(
+    (await evalJs(s, `document.querySelectorAll('#prs .deploy').length`)) === 0,
+    'a repo nobody has deployed from here gets no strip at all'
+  );
+
+  // A restart in flight — the case the whole strip exists for, since the deploy is
+  // about to kill the daemon serving this page.
+  DEPLOYS = {
+    deployable: ['demo'],
+    deploys: [
+      deploy({
+        id: 'd-live',
+        status: 'deploying',
+        restarts: true,
+        finishedAt: null,
+        bead: 'de-a1b',
+        reason: 'shipped from the inbox',
+        steps: [
+          { name: 'git fetch', command: ['git', 'fetch'], code: 0, ms: 380 },
+          { name: 'git merge --ff-only', command: ['git', 'merge'], code: 0, ms: 90 },
+        ],
+      }),
+    ],
+  };
+  await evalJs(s, `document.getElementById('prs-refresh').click()`);
+  await sleep(900);
+  let strip = await evalJs(s, STRIP);
+  ok(strip.length === 1 && /live/.test(strip[0]), `a deploy in flight is on the screen — ${JSON.stringify(strip)}`);
+  ok(
+    /demo deploy: running the deploy · restarting beadcause/.test(strip[0] || ''),
+    `and says which repo, which step, and that this page is about to go — "${strip[0]}"`
+  );
+  ok(
+    (await evalJs(s, `document.querySelectorAll('#prs .board-pr').length`)) === 4,
+    'the board underneath is untouched'
+  );
+
+  await evalJs(s, OPEN_DEPLOY);
+  await sleep(700);
+  let body = await evalJs(s, DEPLOY_BODY);
+  ok(
+    JSON.stringify(body?.steps) === JSON.stringify(['✓ git fetch', '✓ git merge --ff-only']),
+    `unfolding it lists what has actually run — ${JSON.stringify(body?.steps)}`
+  );
+  ok(/the runner said this/.test(body?.log || ''), 'and fetches what the runner printed');
+  ok(await evalJs(s, `!!document.querySelector('#prs .deploy-body .pill.id')`), 'the bead that asked for it is a link');
+  await evalJs(s, OPEN_DEPLOY);
+
+  /* ------------------------------------------------- the daemon going away */
+
+  console.log('\nwhen the deploy takes the daemon with it');
+
+  DEPLOYS = null;
+  // Its own clock, four seconds while something is live. Nothing is clicked here on
+  // purpose: the page has to notice the daemon is gone without being asked.
+  await sleep(6000);
+  ok(/restarting/.test(await evalJs(s, BANNER)), `the dropped connection reads as the deploy — "${await evalJs(s, BANNER)}"`);
+  ok(
+    (await evalJs(s, `document.querySelectorAll('#prs .board-pr').length`)) === 4,
+    'and the board that was already drawn is still there to come back to'
+  );
+  ok(
+    !/Can't reach the server/.test(await evalJs(s, `document.getElementById('prs').textContent`)),
+    'not the generic failure, which would have thrown away the thing that explains it'
+  );
+
+  /* ------------------------------------------------------------ the four endings */
+
+  console.log('\nhow it ended');
+
+  DEPLOYS = {
+    deployable: ['demo'],
+    deploys: [
+      deploy({
+        id: 'd-live',
+        status: 'unconfirmed',
+        restarts: true,
+        finishedAt: '2026-08-09T09:00:10Z',
+        error: 'The deploy command ran and the runner did not outlive it — which is what a restart looks like from here.',
+        steps: [{ name: 'git fetch', command: ['git', 'fetch'], code: 0, ms: 380 }],
+      }),
+      deploy({
+        id: 'd-bad',
+        status: 'failed',
+        error: 'the deploy command failed (exit 1)',
+        steps: [
+          { name: 'git fetch', command: ['git', 'fetch'], code: 0, ms: 380 },
+          { name: 'deploy', command: ['launchctl', 'kickstart'], code: 1, ms: 1200, output: 'Could not find service\n' },
+        ],
+      }),
+    ],
+  };
+  await sleep(6000);
+  strip = await evalJs(s, STRIP);
+  ok(await evalJs(s, `!${BANNER}`), 'the banner goes when the daemon answers again');
+  ok(
+    /warn/.test(strip[0] || '') && /unconfirmed/.test(strip[0] || ''),
+    `a restart nobody outlived is unconfirmed, not a tick — ${JSON.stringify(strip[0])}`
+  );
+  ok(
+    /bad/.test(strip[1] || '') && /failed/.test(strip[1] || ''),
+    `and a real failure is marked as one — ${JSON.stringify(strip[1])}`
+  );
+
+  await evalJs(s, OPEN_DEPLOY);
+  await sleep(700);
+  body = await evalJs(s, DEPLOY_BODY);
+  ok(/did not outlive it/.test(body?.why || ''), `the ending says what is not known, in words — "${body?.why}"`);
+
+  await evalJs(s, OPEN_DEPLOY);
+  await evalJs(
+    s,
+    `(() => document.querySelectorAll('#prs .deploy [data-deploy]')[1].click())()`
+  );
+  await sleep(700);
+  body = await evalJs(s, DEPLOY_BODY);
+  ok(
+    JSON.stringify(body?.steps) === JSON.stringify(['✓ git fetch', '✗ deploy']),
+    `a failed deploy shows the step it broke at — ${JSON.stringify(body?.steps)}`
+  );
+  ok(
+    body?.out.length === 1 && /Could not find service/.test(body.out[0]),
+    `with what that step printed, and nothing from the ones that worked — ${JSON.stringify(body?.out)}`
+  );
 
   if (outDir) {
     fs.mkdirSync(outDir, { recursive: true });
