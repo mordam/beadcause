@@ -2905,6 +2905,21 @@ it is resumable. The branch is kept deliberately — `git branch -d` refuses a b
 checked out in another worktree, and the branch is what makes the retirement
 reversible. Retired worktrees accumulate; nothing here ever removes one.
 
+**A `STRAY` row in the attic sweep is worth distrusting before you act on it.** The
+sweep lives outside this repo, but what it reports about `.claude/worktrees-retired/`
+is read as a statement about this one — and for a while it was wrong. It tested each
+retired directory for a registration by piping `git worktree list` into `grep -q`
+under `set -o pipefail`: grep exits at its first match, git takes SIGPIPE while it is
+still walking the rest, the pipeline reports 141, and a directory that *is* registered
+reads as one that is not. It called most of a healthy 85-entry attic unregistered, a
+different subset each run, which is what a race looks like from the outside. bc-bcdp
+was filed against the attic on that evidence; the attic was fine, and every directory
+in it had been put there by `git worktree move` exactly as this page describes.
+Two things to check before believing the next one: `git worktree list --porcelain |
+grep worktrees-retired | wc -l` against `ls -1d .claude/worktrees-retired/*/ | wc -l`,
+and whether the row survives a second run. `test/pipefail.mjs` keeps the construct out
+of this repo's own scripts, where it sat in four places.
+
 Two limits worth knowing. A session's `cwd` is recorded when it starts, so a session
 that later entered a worktree does not show as being *in* it — the lock is what
 actually protects it, which is why `EnterWorktree` taking one matters. And the sweep

@@ -20,7 +20,11 @@ if [ -f "$KEYSTORE" ]; then
 fi
 
 mkdir -p "$(dirname "$KEYSTORE")"
-PASSWORD=$(openssl rand -base64 24 | tr -d '/+=' | head -c 24)
+# Truncated in the shell rather than by `| head -c 24`: `set -euo pipefail` is on, head
+# exits the moment it has its 24 bytes, and the SIGPIPE that sends upstream would fail
+# the pipeline and abort the whole keystore generation with no message worth reading.
+PASSWORD=$(openssl rand -base64 24 | tr -d '/+=')
+PASSWORD=${PASSWORD:0:24}
 
 "$KEYTOOL" -genkeypair -v \
   -keystore "$KEYSTORE" -storepass "$PASSWORD" -keypass "$PASSWORD" \
