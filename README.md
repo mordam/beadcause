@@ -2064,14 +2064,13 @@ says **no bead named** rather than borrowing one.
   It takes **two taps**, with the consequence written into the button between them —
   the same arming pattern as the destructive control on /admin, and for the same
   reason: a `confirm()` on a phone is a system sheet you dismiss by reflex.
-- **Ship** — opens an iTerm session on the Mac with a deploy-only brief. Not a thing
-  the daemon does: what a deploy *is* lives in each repo's own CLAUDE.md (a launchd
-  kickstart here, `fly deploy` there, an APK rebuild when `android/` moved), and
-  beadcause can neither read that nor be trusted to guess it from another room. The
-  brief carries what is already true — merged, on origin, not in the running build —
-  so the session does not start by working out what this screen already knew. Offered
-  on merged rows even when all three lamps are lit, because a repo can need shipping
-  twice.
+- **Ship** — opens an iTerm session on the Mac with a deploy-only brief. The brief
+  carries what is already true — merged, on origin, not in the running build — so the
+  session does not start by working out what this screen already knew. Offered on
+  merged rows even when all three lamps are lit, because a repo can need shipping
+  twice. This still goes through a session rather than through the daemon; the daemon
+  now *can* deploy a repo that declares how ([below](#deploying-a-repo-when-it-says-how)),
+  and which of the two this button uses is a separate decision that has not been made.
 - **Comment** — goes to the pull request on GitHub and stops there. Not
   [`/api/comment`](#the-conversation-both-ways), which writes on a *bead* and puts an
   agent onto answering it.
@@ -2099,6 +2098,103 @@ a dirty checkout exactly as it found it. `node scripts/prs-check.mjs` covers the
 phone's half in headless Chrome with every POST recorded: that the first tap on merge
 sends *nothing*, that Ship is absent until it is merged, and that a refusal lands
 under the row as GitHub's own sentence.
+
+### Deploying a repo, when it says how
+
+For a long time the daemon could do everything after a merge except the last thing.
+`grep` for `launchctl` across `lib/` and `bin/` found prose in comments and nothing that
+runs: every deploy on this Mac was Adam at a keyboard, and the Ship button above is a
+window that asks him to be. `lib/deploy.js` is the missing verb.
+
+**A deploy is declared, never guessed.** `deploys` in `~/.config/beadcause/config.json`,
+keyed by workspace, empty by default and empty for most repos forever:
+
+```json
+"deploys": {
+  "beadcause": {
+    "command": ["launchctl", "kickstart", "-k", "gui/{uid}/m4m.beadcause"],
+    "restarts": true,
+    "rebuild": [{ "label": "apk", "when": ["android"], "command": ["npm", "run", "android"] }]
+  },
+  "sophab": { "command": ["fly", "deploy"] }
+}
+```
+
+beadcause restarts under launchd, sophab runs `fly deploy`, the next repo will do
+something else — there is no shape those share that could be read off a checkout, and a
+daemon that guessed would guess at three in the morning in a repo nobody was watching. A
+workspace with no entry keeps the answer the board already gives it: **no deploy
+beadcause can see.**
+
+**It is argv, and never a shell line.** `["launchctl", "kickstart", …]`, not
+`"launchctl kickstart …"`. That file is hand-edited, rewritten by `saveConfig` and
+[synced as a git repo](#where-it-lives-configbeadcause-is-a-git-repo); a string would
+make every one of those somewhere a metacharacter changes what runs. The cost is that
+`&&` and pipes are unavailable, and the answer to wanting them is a script in the repo —
+a thing you can read and test. `{uid}`, `{home}`, `{dir}` and `{base}` are substituted;
+nothing else is, and an unrecognised brace is left exactly as typed.
+
+**What it runs, in order:** fast-forward the checkout to `origin/<base>`, so what goes
+live is the merged tree rather than whatever this Mac happened to have; rebuild anything
+whose `when` paths the fast-forward actually moved; then the deploy command. Every step
+records its own exit code, and a non-zero one stops the rest — a rebuild that failed
+never reaches a restart. **It will not merge over uncommitted work:** a dirty checkout
+stops the whole deploy before anything is built, because six sessions edit these
+checkouts and a deploy that quietly stashed one of them would be the worst kind of
+helpful.
+
+#### The awkward part: a beadcause deploy kills beadcause
+
+`launchctl kickstart -k gui/<uid>/m4m.beadcause` SIGKILLs the process that asked for it.
+Run inside the daemon, that is the daemon killing itself mid-statement: the HTTP response
+never written, and whatever it was about to record about the deploy never recorded.
+
+So the daemon spawns a **detached runner** and returns. `POST /api/deploy` answers before
+the deploy has happened — a 200 there means *it is written down and a process owns it*,
+never *it worked*. The other half of the contract belongs to the caller: whatever made
+the deploy worth doing — the merge, the answer, the closed bead — is durable **first**,
+and then the deploy is asked for. Nothing in `lib/deploy.js` writes to a bead, on purpose:
+a process that may be SIGKILLed inside the next second is the wrong one to be holding the
+only copy of anything. A one-second grace on top buys the response its way out of the
+socket.
+
+#### Silence is never success
+
+Every state a deploy can be in has a name on disk, including the two that mean *we do not
+know*:
+
+- **ok** / **failed** — the runner said so, and `failed` carries which step and its exit
+  code. No output is ever scanned for reassuring strings.
+- **unconfirmed** — the runner was killed at the deploy step of a deploy declared
+  `restarts: true`. That is what a restart looks like from here: launchd takes the job's
+  processes and the runner is one of them. It means *the command ran and nothing outlived
+  it to check*, which is the whole truth available, and it is deliberately not rounded to
+  either side.
+- **lost** — the runner disappeared anywhere else, or never started at all.
+
+The last two are settled by a sweep that runs on every poll — **including the first one,
+which is process start**, and that is the case this is really for: the ordinary way a
+beadcause deploy ends is by killing the daemon that asked for it, so the process that
+comes back is the first one able to read what happened. Then it says so once, on
+`/api/deploys` and on your phone, marked on disk rather than in memory so a daemon
+replaced by the deploy it was reporting on does not push the same notification twice —
+or, if it crashed first, forget to push it at all.
+
+**The journal is a directory, one file per deploy**, not a key in `state.json`. Two
+processes are involved and they overlap, and in the middle of a restart one of them
+changes identity; a single JSON file read-modify-written by both is last-writer-wins over
+the whole document, so the daemon marking a record announced would silently drop the
+runner's last step. A file each means the runner owns its own and the daemon only reads
+it. It also keeps this clear of `loadState`'s fallback entirely — a pending-deploy flag
+parked in `state.json` would need a default there, or a corrupt file would read as a
+deploy nobody asked for, or drop one that was.
+
+`node test/deploy.mjs` runs the whole thing against real git repositories in a temp
+directory and real detached processes, with nothing restarted and no `launchctl` in
+sight: that a shell string is refused rather than run, that a dirty checkout is left
+exactly as it was found, that a rebuild fires only for the paths that moved, that
+`startDeploy` returns while its command is still running, and that a runner with a dead
+pid settles to `unconfirmed` or `lost` and never to `ok`.
 
 ## Advocates — an agent per repo, whose job is the queue reaching zero
 
