@@ -5,7 +5,8 @@ import { advocatedWorkspaces, workerLimit } from '../lib/advocate.js';
 import { buildStamp } from '../lib/build.js';
 import { hotSwapProblem, problemBanner } from '../lib/service.js';
 import { attachTerminalSocket } from '../lib/termsocket.js';
-import { closeServer } from '../lib/tls.js';
+import { closeServer, startRenewal } from '../lib/tls.js';
+import { pushCertificate } from '../lib/notify.js';
 import { flush } from '../lib/commonrepo.js';
 import { restoreTerminals, shutdownTerminals, startTerminalReaper, terminalsEnabled } from '../lib/terminal.js';
 
@@ -185,6 +186,14 @@ if (!internalPort) reconcileBaseUrl(cfg, { persist: true });
 // because `ws` is imported dynamically — an install that hasn't run `npm install`
 // since this landed loses the terminal and keeps everything else.
 await attachTerminalSocket(cfg, servers);
+/**
+ * Keep the tailnet certificate alive under `npm run start:bare`.
+ *
+ * A no-op in the installed configuration and by design: behind the router this process
+ * binds loopback only, so nothing here terminates TLS and `startRenewal` returns null.
+ * The router runs its own — it is the one holding the certificate on the port.
+ */
+const certRenewal = startRenewal(cfg, servers, { notify: (state) => pushCertificate(cfg, state) });
 // Terminals that were running when the last daemon went away. Nothing is spawned
 // here — they come back as offers to resume, and the first attach is what starts a
 // process. Before the reaper, so a restore is subject to the same idle clock.
@@ -275,6 +284,7 @@ const shutdown = () => {
   // Guarded, not bare: a standby has no poller to clear.
   if (poller) clearInterval(poller);
   if (reaper) clearInterval(reaper);
+  if (certRenewal) clearInterval(certRenewal);
   // A pty that outlived the daemon has nothing left to relay it anywhere, and it
   // holds a Claude session open against the tracker. Outliving a *socket* is the
   // point; outliving the process that owns the registry is just a leak.

@@ -36,7 +36,7 @@ import { fileURLToPath } from 'node:url';
 import { loadConfig, reconcileBaseUrl } from '../lib/config.js';
 import { buildStamp, routerStamp } from '../lib/build.js';
 import { hotSwapProblem } from '../lib/service.js';
-import { certificate, secureServer, MIN_VERSION } from '../lib/tls.js';
+import { certificate, closeServer, secureServer, startRenewal, MIN_VERSION } from '../lib/tls.js';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const BACKEND = path.join(ROOT, 'bin', 'beadcause.js');
@@ -537,9 +537,26 @@ function listen() {
       if (secure) log(`listening on https://${material.name}:${cfg.port} (${host}, ${MIN_VERSION} floor)`);
       else log(`listening on http://${host}:${cfg.port}`);
     });
-    return listener;
+    // The request-serving server, not the front — that is what carries the certificate
+    // a renewal has to replace, and it knows the front as `.front` for closing. Both
+    // are the same object when there is no TLS.
+    return server;
   });
 }
+
+/**
+ * A certificate warning that reaches the phone, without the router importing the app.
+ *
+ * lib/notify.js is not a leaf — spaces, foundation, the answered ledger — and this file
+ * holds the port, so it imports leaves only and nothing that could stop it starting.
+ * Loading it lazily, at most once a day, in a path that already has its log line
+ * written, keeps both halves: the push happens, and a broken lib/ still cannot cost you
+ * port 4318.
+ */
+const notifyCertificate = async (state) => {
+  const { pushCertificate } = await import('../lib/notify.js');
+  return pushCertificate(cfg, state);
+};
 
 // ---------------------------------------------------------------- the CLI modes
 
@@ -594,8 +611,13 @@ const routerBuildAtStart = routerStamp();
 const servers = listen();
 // In the installed configuration this process is what terminates TLS, so it is also
 // what may have just fetched the first certificate — and therefore what has to move
-// `baseUrl` onto the name. Its backends bind loopback and deliberately do not.
+// `baseUrl` onto the name. Its backends bind loopback and deliberately do not. Before
+// the renewal loop, because this is about the certificate `listen()` has already got
+// and that one is about the next one.
 reconcileBaseUrl(cfg, { persist: true });
+// The router is what holds the certificate on the real port, so the router is what has
+// to keep it alive — a 90-day certificate outlives no restart this process ever gets.
+startRenewal(cfg, servers, { notify: notifyCertificate, log, warn });
 log(`supervising ${BACKEND}`);
 await bringUp('first start').catch((err) => {
   // Keep the port. A router that exited here would be restarted by launchd into the
@@ -612,7 +634,10 @@ const shutdown = () => {
   shuttingDown = true;
   log('shutting down — stopping backends');
   for (const be of [active, ...retiring].filter(Boolean)) stop(be);
-  servers.forEach((s) => s.close());
+  // `closeServer`, because `listen()` now hands back the request server: on the tailnet
+  // address the port is held by the `net.Server` in front of it, and closing the HTTPS
+  // server alone would leave 4318 bound by a process on its way out.
+  servers.forEach(closeServer);
   // Give SIGTERM a moment to land on the children before the router's own exit
   // orphans them. Their own guard would catch it a minute later; this is tidier.
   setTimeout(() => process.exit(0), 300).unref();
