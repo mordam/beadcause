@@ -28,6 +28,13 @@ object Links {
 
     private const val TAG = "Beadcause"
 
+    /**
+     * Stable since Chrome shipped; the beta and dev channels have their own ids and
+     * are deliberately not tried — a phone with both would get the wrong one half the
+     * time, and the default-browser fallback below already covers whatever is there.
+     */
+    private const val CHROME = "com.android.chrome"
+
     fun open(context: Context, url: Uri) {
         if (url.scheme == "http" || url.scheme == "https") {
             try {
@@ -46,6 +53,40 @@ object Links {
         } catch (e: Exception) {
             Log.w(TAG, "nothing can open $url: ${e.message}")
         }
+    }
+
+    /**
+     * The opposite errand, and it lives here because this file owns handing a URL to
+     * something else.
+     *
+     * [open] keeps you in the app; this deliberately leaves it. A Custom Tab is a
+     * page borrowed for a moment — no tabs, no address bar to type in, no way to put
+     * it beside anything — and the console on a wide screen is exactly the thing you
+     * want a real browser window for. So this is `ACTION_VIEW` in its own task: the
+     * app stays untouched in the recents, and the page arrives somewhere it can be
+     * pinned, shared, bookmarked or opened again tomorrow.
+     *
+     * Chrome by name first, because that is what the button promises and because it
+     * is the browser already signed in to everything a brief links to. The default
+     * browser is the fallback — naming a package that is not installed throws rather
+     * than quietly resolving to whatever is.
+     *
+     * @return false if the phone has nothing that will take a web page, so the caller
+     *   can say so rather than leaving a tapped button looking broken.
+     */
+    fun openInChrome(context: Context, url: Uri): Boolean {
+        val view = Intent(Intent.ACTION_VIEW, url)
+            .addCategory(Intent.CATEGORY_BROWSABLE)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        for (pkg in listOf(CHROME, null)) {
+            try {
+                context.startActivity(Intent(view).setPackage(pkg))
+                return true
+            } catch (e: ActivityNotFoundException) {
+                Log.w(TAG, "cannot open $url in ${pkg ?: "the default browser"}: ${e.message}")
+            }
+        }
+        return false
     }
 
     /**

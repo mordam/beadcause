@@ -13,6 +13,7 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
@@ -166,6 +167,70 @@ class MainActivity : AppCompatActivity() {
 
         @JavascriptInterface
         fun version(): String = BuildConfig.VERSION_NAME
+
+        /**
+         * Hand the page you are looking at to Chrome.
+         *
+         * There is otherwise no way out. `shouldOverrideUrlLoading` returns false for
+         * our own host on purpose — the console *is* this app — so a link to it, from
+         * anywhere inside here, only ever reloads this WebView. That is right for
+         * everyday use and wrong for the times the console wants a real browser: the
+         * wide layouts a phone never triggers (the split card, the proposal beside the
+         * conversation, the drawer as a panel), a terminal with more than forty
+         * columns, a graph with room to be read.
+         *
+         * **The URL is rebuilt here rather than accepted from the page.** Host and
+         * token come from [Prefs] and only the path, query and fragment of what the
+         * WebView is showing are carried over, so the bridge cannot be talked into
+         * launching an arbitrary intent, and Chrome opens on the card you had open
+         * rather than at the top of the list.
+         *
+         * The token has to ride in the URL. Chrome is a different storage context —
+         * its localStorage is not this WebView's — so without `?t=` the page would
+         * greet you with the token prompt. It is the same shape `npm run qr` prints,
+         * and `bootToken()` in app.js strips it back out of the address bar on
+         * arrival.
+         */
+        @JavascriptInterface
+        fun openInBrowser() {
+            // A @JavascriptInterface method runs on the JavaBridge thread, and both
+            // `webView.url` and `startActivity` want the main one.
+            runOnUiThread {
+                val conn = Prefs.connection(this@MainActivity) ?: return@runOnUiThread
+                // A toast rather than the banner: the banner is for a state you are in
+                // — notifications off, server unreachable — and stays until something
+                // clears it. This is one tap that found nothing, and it should pass.
+                if (!Links.openInChrome(this@MainActivity, externalUrl(conn))) {
+                    Toast.makeText(this@MainActivity, R.string.no_browser, Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+    }
+
+    /**
+     * Where this WebView is, addressed so that a browser with none of its state can
+     * arrive at the same place.
+     *
+     * Every query parameter but the token is carried across, because the page may be
+     * a terminal (`/terminal?id=…`) or a graph centred on a bead (`/graph?ws=&id=`),
+     * and dropping those lands Chrome on a different screen than the one you asked to
+     * see. The token is then appended from prefs — replacing, not duplicating, the one
+     * this WebView was launched with.
+     */
+    private fun externalUrl(conn: Conn): Uri {
+        val base = Uri.parse(conn.baseUrl)
+        val here = Uri.parse(binding.webView.url ?: conn.baseUrl)
+        val out = Uri.Builder()
+            .scheme(base.scheme)
+            .encodedAuthority(base.encodedAuthority)
+            .encodedPath(here.encodedPath?.takeIf { it.isNotEmpty() } ?: "/")
+        for (name in here.queryParameterNames) {
+            if (name == "t") continue
+            here.getQueryParameters(name).forEach { out.appendQueryParameter(name, it) }
+        }
+        out.appendQueryParameter("t", conn.token)
+        here.encodedFragment?.let { out.encodedFragment(it) }
+        return out.build()
     }
 
     /* ----------------------------------------------------------------- load */

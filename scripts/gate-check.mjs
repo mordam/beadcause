@@ -127,12 +127,9 @@ function serve() {
         if (p === '/api/respond' && parsed.id === GATED.id) {
           return json({ error: `bd will not close ${GATED.id}: ${GATE.reason}`, gate: GATE, canComment: true }, 409);
         }
-        if (p === '/api/dismiss' && parsed.id === GATED.id) {
-          return json(
-            { error: `bd will not close ${GATED.id}: ${GATE.reason}`, gate: GATE, canComment: Boolean(parsed.reason) },
-            409
-          );
-        }
+        // `/api/dismiss` is deliberately NOT gated: it closes nothing, so the bead
+        // bd will least let you close is dismissed like any other.
+        if (p === '/api/dismiss') return json({ ok: true, closed: false, dismissed: true, until: GATE.reason });
         json({ ok: true, closed: p !== '/api/comment' });
       });
     }
@@ -388,11 +385,14 @@ try {
     `${after.cards} cards`
   );
 
-  /* ---- dismiss is a close too, and it shipped without the gate ---- */
+  /* ---- and dismissing the very same bead is not gated at all ---- */
   //
-  // `/api/dismiss` arrived while the answer path was being fixed and inherited the
-  // exact bug: dv-gr6 collected three "Dismissed via Beadcause" comments, one per
-  // attempt. Two taps to dismiss, because the button arms first.
+  // The gate belongs to *answering*, which closes the bead. Dismissing does not,
+  // so the bead bd will least let you close — the one you most want off the screen
+  // — is dismissed without a murmur. It briefly did 409 here too, which was fixing
+  // the wrong thing: it made the unclosable card also undismissable.
+  //
+  // Two taps, because the button arms first.
   await evalJs(s, `document.querySelector('[data-act="gate-dismiss"]')?.click()`);
   await sleep(400);
   writes.length = 0;
@@ -403,37 +403,50 @@ try {
     await evalJs(s, `${gatedCard}.querySelector('[data-act="toggle"]').click()`);
     await sleep(700);
   }
-  const dismissBtn = `${gatedCard}.querySelector('[data-act="dismiss"]')`;
-  await evalJs(s, `(() => { const b = ${dismissBtn}; if (b) { b.click(); b.click(); } })()`);
-  await waitFor(`!!document.querySelector('.gate-note')`);
-  const binned = await evalJs(s, NOTE);
-  check(
-    'dismissing a bead bd will not close says so too',
-    binned.shown && /cannot be dismissed/.test(binned.text),
-    binned.text.slice(0, 90) || 'no note'
+  const armedLabel = await evalJs(
+    s,
+    `(() => {
+      const b = ${gatedCard}.querySelector('[data-act="dismiss"]');
+      if (!b) return null;
+      const before = b.textContent.trim();
+      b.click();
+      const armed = ${gatedCard}.querySelector('[data-act="dismiss"]').textContent.trim();
+      return { before, armed };
+    })()`
   );
   check(
-    'and it went to /api/dismiss, once, writing nothing',
+    'the dismiss button never says it closes anything',
+    armedLabel && !/close/i.test(armedLabel.before) && !/close/i.test(armedLabel.armed),
+    JSON.stringify(armedLabel)
+  );
+  check(
+    'and the armed tap says what it really does — hides it',
+    armedLabel && /hides/i.test(armedLabel.armed),
+    JSON.stringify(armedLabel?.armed)
+  );
+  await evalJs(s, `${gatedCard}.querySelector('[data-act="dismiss"]')?.click()`);
+  await waitFor(`document.querySelectorAll('.card').length === 1`);
+  const binned = await evalJs(s, NOTE);
+  check(
+    'dismissing the bead bd will not close just works',
+    binned.cards === 1 && !binned.shown,
+    `${binned.cards} cards, note=${binned.shown}`
+  );
+  check(
+    'through /api/dismiss, once',
     writes.length === 1 && writes[0].path === '/api/dismiss',
     JSON.stringify(writes.map((w) => w.path))
   );
-  check('the bead is still in the list', binned.cards === 2, `${binned.cards} cards`);
-  check(
-    'a wordless dismissal is offered no comment to save',
-    !(await evalJs(s, `!!document.querySelector('[data-act="gate-comment"]')`)),
-    'the save button is absent'
-  );
-  await evalJs(s, `document.querySelector('[data-act="gate-dismiss"]')?.click()`);
-  await sleep(400);
 
   /* ---- the gate is not simply refusing everything ---- */
   writes.length = 0;
   await answerIt(FREE.id, 'Yes, go ahead.');
-  await waitFor(`document.querySelectorAll('.card').length === 1`);
+  // The gated card was set aside just above, so this one leaving empties the list.
+  await waitFor(`document.querySelectorAll('.card').length === 0`);
   const ordinary = await evalJs(s, NOTE);
   check(
     'a question bd would close still answers and leaves the list',
-    ordinary.cards === 1 && !ordinary.shown,
+    ordinary.cards === 0 && !ordinary.shown,
     `${ordinary.cards} cards, note=${ordinary.shown}`
   );
   check(
