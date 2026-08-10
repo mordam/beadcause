@@ -260,6 +260,118 @@ check('and reads it back in a later run', back.stdout.trim() === 'one bead per d
 const impostor = agentEnv({ ...consoleF, env: { BEADCAUSE_AGENT: 'advocate' } }, { BEADCAUSE_CONFIG_DIR: store });
 check('an amended env cannot change who the agent is', impostor.BEADCAUSE_AGENT === 'console', impostor.BEADCAUSE_AGENT);
 
+/* --------------------------------------- reading another agent, and only reading */
+//
+// The console reading the advocate's memory is the whole point of `--of`, and the
+// whole risk of it: the flag that lets you *read* another agent must not be a flag
+// that lets you *write* as one. `--agent` already does the second thing — it is
+// documented as a human's debugging aid — so the test that matters is that the two
+// stayed different, in the direction that costs something if it drifts.
+
+console.log('\nreading another agent, and only reading');
+
+const zsh = (line, e = env) => run('/bin/zsh', ['-lc', line], { env: e });
+
+const roster = await zsh('beadcause-memory agents');
+check(
+  'the roster lists every kind that has a memory',
+  roster.stdout.trim().split('\n').sort().join(',') === 'advocate,console',
+  roster.stdout
+);
+
+const theirs = await zsh('beadcause-memory recall --of=advocate tone');
+check(
+  "the console reads the advocate's memory",
+  theirs.stdout.trim() === 'evidence first, and name the file',
+  theirs.stdout
+);
+check(
+  'and stdout is only the value — the provenance note is on stderr, so a $( ) capture is unchanged',
+  theirs.stdout === 'evidence first, and name the file\n' && /notes to itself/.test(theirs.stderr),
+  JSON.stringify({ out: theirs.stdout, err: theirs.stderr })
+);
+
+const listed = await zsh('beadcause-memory recall --of=advocate');
+check(
+  'with no key it lists what they know',
+  listed.stdout.includes('threshold') && listed.stdout.includes('tone'),
+  listed.stdout
+);
+
+const ownRecall = await zsh('beadcause-memory recall shape');
+check(
+  'reading your own carries no such note — it is nobody else\'s to warn about',
+  !/notes to itself/.test(ownRecall.stderr),
+  ownRecall.stderr
+);
+
+// The acceptance case: `--of` on a command that writes is refused outright, rather
+// than being quietly read as "and while you are there, be them".
+const before = await memory.recall('advocate', 'tone');
+let combined;
+try {
+  await zsh('beadcause-memory remember --of=advocate tone "the console got in"');
+  combined = null;
+} catch (err) {
+  combined = err;
+}
+check('remember --of is refused', combined !== null && combined.code !== 0, String(combined));
+check(
+  'and it says why',
+  combined !== null && /cannot be combined with `remember`/.test(String(combined.stderr)),
+  String(combined?.stderr)
+);
+check(
+  "and the advocate's memory is untouched",
+  (await memory.recall('advocate', 'tone')) === before,
+  String(await memory.recall('advocate', 'tone'))
+);
+
+let posted;
+try {
+  await zsh('beadcause-memory post --of=advocate proposals "as them"');
+  posted = null;
+} catch (err) {
+  posted = err;
+}
+check('post --of is refused too — the guard is on writing, not on one command', posted !== null, String(posted));
+
+// A read attributes to nobody, so it needs no identity — which is also what stops
+// `--of` from being a back door into a write: there is no author to borrow.
+const anonymous = { ...env };
+delete anonymous.BEADCAUSE_AGENT;
+const nameless = await zsh('beadcause-memory recall --of=advocate tone', anonymous);
+check('a caller with no identity can still read', nameless.stdout.trim() === before, nameless.stdout);
+
+let namelessWrite;
+try {
+  await zsh('beadcause-memory remember tone "no identity, no write"', anonymous);
+  namelessWrite = null;
+} catch (err) {
+  namelessWrite = err;
+}
+check('but still cannot write', namelessWrite !== null && /no agent/.test(String(namelessWrite.stderr)), String(namelessWrite?.stderr));
+
+let bareOf;
+try {
+  await zsh('beadcause-memory recall --of');
+  bareOf = null;
+} catch (err) {
+  bareOf = err;
+}
+check(
+  '--of with no name is an error, not silently your own memory',
+  bareOf !== null && /--of=<agent>/.test(String(bareOf.stderr)),
+  String(bareOf?.stderr)
+);
+
+// A capability an agent has not been told about is one it does not have. `agents`
+// shipped in the first version and no agent ever ran it, for exactly this reason.
+const brief = memory.memoryBrief('Adam');
+check('the brief names the roster', brief.includes('beadcause-memory agents'), brief);
+check('and tells them the read exists', brief.includes('--of=<agent>'), brief);
+check('and that it is read-only', /only read theirs, never write it/.test(brief), brief);
+
 /* ------------------------------------------------- six writers, one topic */
 
 console.log('\nsix processes posting to one topic');
