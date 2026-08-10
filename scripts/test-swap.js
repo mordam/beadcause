@@ -27,9 +27,26 @@ import path from 'node:path';
 import http from 'node:http';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { WebSocket } from 'ws';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const TOKEN = 'test-token-not-a-secret';
+
+/**
+ * A terminal that is already over, planted on disk before anything starts.
+ *
+ * The point of it is that attaching spawns nothing. A `live` record comes back
+ * `resumable`, and the first attach to one of those runs `claude --resume` — which
+ * would leave a real Claude session running in a temp directory every time this suite
+ * ran. An `exited` record is restored, listed and attachable, and `onConnection` takes
+ * the no-pty path through it: hello, an empty scrollback, ready, then an `exit`
+ * message. That is a real WebSocket, held open by the real code, with no child process
+ * anywhere near it — which is exactly what is needed to watch the router tunnel one
+ * and then take it away at a cutover.
+ */
+const DEAD_TERMINAL = 'aaaaaaaaaaaaaaa1';
+const NO_SUCH_TERMINAL = 'ffffffffffffffff';
+const PROTOCOL = 'beadcause.term.v1';
 
 let failures = 0;
 const ok = (name) => console.log(`  [32m✓[0m ${name}`);
@@ -63,6 +80,56 @@ function get(port, pathname, { timeout = 70000, token = TOKEN } = {}) {
     });
     req.setTimeout(timeout, () => req.destroy(new Error(`timed out after ${timeout}ms`)));
     req.on('error', reject);
+  });
+}
+
+/**
+ * Open a terminal WebSocket through the router and report what happened.
+ *
+ * Resolves as soon as the exchange has settled one way or the other — the backend's
+ * `ready`, a close, or an error — and hands back `closed`, a promise for the close
+ * code, so a socket can be left open across a swap and asked afterwards how it ended.
+ *
+ * The token rides as a subprotocol, the way a browser has to send it: that is the
+ * header the router has to leave alone, and `sec-websocket-protocol` arriving stripped
+ * would look exactly like a bad token.
+ */
+function openTerminalSocket(port, { id, token = TOKEN, timeout = 15000 } = {}) {
+  return new Promise((resolve) => {
+    const protocols = [PROTOCOL];
+    if (token) protocols.push(`tok.${token}`);
+    const socket = new WebSocket(`ws://127.0.0.1:${port}/ws/terminal?id=${encodeURIComponent(id)}`, protocols);
+    let settle;
+    const result = { opened: false, error: null, hello: null, socket, closed: new Promise((r) => (settle = r)) };
+    const timer = setTimeout(() => {
+      result.error = result.error || `timed out after ${timeout}ms`;
+      resolve(result);
+    }, timeout);
+    timer.unref();
+
+    socket.on('upgrade', (res) => (result.status = res.statusCode));
+    socket.on('open', () => (result.opened = true));
+    socket.on('message', (data, isBinary) => {
+      if (isBinary) return;
+      let msg;
+      try {
+        msg = JSON.parse(data.toString());
+      } catch {
+        return;
+      }
+      if (msg.type === 'hello') result.hello = msg;
+      // Everything the backend says on an attach is in by now, and the socket stays up.
+      if (msg.type === 'ready') {
+        clearTimeout(timer);
+        resolve(result);
+      }
+    });
+    socket.on('error', (err) => (result.error = err.message));
+    socket.on('close', (code, reason) => {
+      clearTimeout(timer);
+      settle({ code, reason: reason?.toString() || '' });
+      resolve(result);
+    });
   });
 }
 
@@ -118,6 +185,30 @@ fs.writeFileSync(
     null,
     2
   )
+);
+
+// Before the router starts, so the first backend restores it as it reads the
+// directory. A record that appears later is invisible until the next promotion —
+// which is the whole subject of the standby section further down.
+fs.mkdirSync(path.join(dir, 'terminals'), { recursive: true });
+fs.writeFileSync(
+  path.join(dir, 'terminals', `${DEAD_TERMINAL}.json`),
+  JSON.stringify({
+    id: DEAD_TERMINAL,
+    workspace: 'beadcause',
+    dir: os.tmpdir(),
+    bead: { id: 'bc-dead', title: 'A terminal that has already ended' },
+    cols: 100,
+    rows: 30,
+    claudeSessionId: '99999999-8888-7777-6666-555555555555',
+    status: 'exited',
+    startedAt: new Date(Date.now() - 120000).toISOString(),
+    endedAt: new Date(Date.now() - 60000).toISOString(),
+    exitCode: 0,
+    exitSignal: null,
+    resumedAt: null,
+    savedAt: new Date().toISOString(),
+  })
 );
 
 const env = { ...process.env, BEADCAUSE_CONFIG_DIR: dir };
@@ -178,6 +269,51 @@ try {
   const wrongToken = await get(port, '/internal/router/swap', { token: 'wrong' });
   check(wrongToken.status === 403, 'and one holding the wrong token', `got ${wrongToken.status}`);
 
+  // ------------------------------------------- the terminal rides the upgrade path
+
+  // The bug this covers: the router had no `upgrade` listener and stripped `upgrade`
+  // and `connection` out of what it forwarded, so `GET /ws/terminal` reached the
+  // backend as an ordinary request and the app answered 404. Nothing about it was
+  // visible from `npm run start:bare`, which is the one configuration launchd does not
+  // run — the terminal worked perfectly in the only place nobody uses.
+  const stray = await openTerminalSocket(port, { id: NO_SUCH_TERMINAL });
+  check(stray.opened, 'a terminal upgrade is tunnelled to the backend and the handshake completes', stray.error);
+  const strayClose = await stray.closed;
+  check(strayClose.code === 1008, 'an unknown terminal id is refused after the upgrade, not by failing it', `code ${strayClose.code} ${strayClose.reason}`);
+
+  const wrongTok = await openTerminalSocket(port, { id: DEAD_TERMINAL, token: 'not-the-token' });
+  check(!wrongTok.opened, 'a bad token gets no socket', `opened: ${wrongTok.opened}`);
+  check(
+    /401/.test(wrongTok.error || ''),
+    "and sees the backend's own 401 rather than a dropped connection",
+    `error: ${wrongTok.error}`
+  );
+
+  const term = await openTerminalSocket(port, { id: DEAD_TERMINAL });
+  check(term.opened, 'a known terminal opens through the router and stays open', term.error);
+  check(
+    term.hello?.terminal?.id === DEAD_TERMINAL,
+    'the backend’s first frames survive the 101 — the hello is not eaten',
+    JSON.stringify(term.hello)?.slice(0, 160)
+  );
+  // Both directions, on the one exchange this backend will answer without a pty:
+  // `ws` replies to a ping itself, so a pong coming back is a frame that went from the
+  // client, through the tunnel, into the backend's WebSocket, and all the way back. The
+  // hello above only proved the return leg.
+  const pong = await new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(false), 8000);
+    timer.unref();
+    term.socket.once('pong', () => {
+      clearTimeout(timer);
+      resolve(true);
+    });
+    term.socket.ping();
+  });
+  check(pong, 'a frame sent from the client is answered — the tunnel carries both directions');
+
+  const withSocket = JSON.parse((await get(port, `/internal/router/state?t=${TOKEN}`)).body);
+  check(withSocket.active?.upgrades === 1, 'the router counts it in flight, so a cutover drains rather than cuts it', `upgrades: ${withSocket.active?.upgrades}`);
+
   // ------------------------------------------------- swap under continuous load
 
   // Two clients that must not notice anything: one hammering, one parked on the
@@ -221,6 +357,13 @@ try {
 
   check(pid2 !== pid1, 'a file changing on disk swaps the backend with no prompting', `${pid1} → ${pid2}`);
   check(build2 !== build1, 'the new backend reports a different build', `${build1} → ${build2}`);
+
+  // The decision the swap makes about an attached terminal, asserted: it is closed
+  // deliberately, with 1012 (Service Restart), and not left to be severed when the
+  // drain deadline runs out. The pty cannot outlive its backend, so this is the good
+  // ending — the phone reconnects onto the new one and `claude --resume` carries on.
+  const termClose = await Promise.race([term.closed, sleep(20000).then(() => ({ code: null, reason: 'still open' }))]);
+  check(termClose.code === 1012, 'the cutover closes an attached terminal with 1012 rather than severing it', `code ${termClose.code} ${termClose.reason}`);
 
   const longPollResult = await longPoll;
   check(!longPollResult.err, 'a long poll held across the cutover is not cut off', longPollResult.err?.message);
