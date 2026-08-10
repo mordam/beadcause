@@ -1,0 +1,346 @@
+#!/usr/bin/env node
+//
+// Does a worker actually land its own work — and hand it over when it cannot?
+//
+//   node scripts/land-check.mjs [--keep]
+//
+// bin/deliver.js is the one place in beadcause where an agent merges code, so it is
+// the one place worth running end to end rather than asserting about. Everything it
+// touches is real here except GitHub: a real `git` against a real bare remote, a real
+// `bd` against a scratch workspace, the real deliver.js, and a fake `gh` on PATH that
+// records every invocation. Four scenarios, which are the four endings that exist:
+//
+//   1. green checks          → it merges, closes the bead, and says `landed #n`
+//   2. GitHub refuses        → the old question, with GitHub's sentence on it
+//   3. a red check           → the old question, naming the check, and NO merge attempt
+//   4. --review              → the old question, no merge attempt, nothing red at all
+//
+// The assertions that matter most are the negative ones. `gh pr merge` must not appear
+// in the log for 3 and 4, and the work bead must still be open in 2, 3 and 4 — a bug
+// that closes a bead over work sitting in an unmerged pull request is invisible from
+// every screen in the app, and it is the exact failure this whole channel was built to
+// stop.
+//
+// Nothing here reaches the network, opens a window, or writes outside its temp
+// directory: BEADCAUSE_CONFIG_DIR points at a scratch config whose ntfy is off, so no
+// notification is sent to anyone's phone, and `--keep` leaves the lot for inspection.
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const KEEP = process.argv.includes('--keep');
+
+let failures = 0;
+const ok = (name) => console.log(`  ✓ ${name}`);
+const bad = (name, detail) => {
+  failures += 1;
+  console.log(`  ✗ ${name}\n      ${detail}`);
+};
+const check = (name, cond, detail = '') => (cond ? ok(name) : bad(name, detail));
+
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'beadcause-land-check-'));
+const BIN = path.join(tmp, 'bin');
+const REPO = path.join(tmp, 'repo');
+const ORIGIN = path.join(tmp, 'origin.git');
+const WS = path.join(tmp, 'beads');
+const BEADS_DIR = path.join(WS, '.beads');
+const CONFIG_DIR = path.join(tmp, 'config');
+const GH_LOG = path.join(tmp, 'gh.log');
+const GH_STATE = path.join(tmp, 'gh-state.json');
+
+const BD = process.env.BD_BIN || '/opt/homebrew/bin/bd';
+
+const run = (cmd, args, opts = {}) =>
+  execFileSync(cmd, args, { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024, ...opts });
+const git = (args, cwd = REPO) => run('git', args, { cwd }).trim();
+
+/* ------------------------------------------------------------------ the world */
+
+console.log(`\nbuilding a world in ${tmp}`);
+
+fs.mkdirSync(BIN, { recursive: true });
+fs.mkdirSync(WS, { recursive: true });
+fs.mkdirSync(CONFIG_DIR, { recursive: true });
+
+// A fake gh: it answers the six calls deliver.js can make, and logs all of them. Its
+// world is a JSON file the harness rewrites between scenarios, exactly as test/pr.mjs
+// does — the merge outcome and the check state are the only things that vary.
+fs.writeFileSync(
+  path.join(BIN, 'gh'),
+  `#!/usr/bin/env node
+const fs = require('fs');
+const args = process.argv.slice(2);
+fs.appendFileSync(process.env.GH_LOG, JSON.stringify(args) + '\\n');
+const state = JSON.parse(fs.readFileSync(process.env.GH_STATE, 'utf8'));
+const done = (s) => { process.stdout.write(s); process.exit(0); };
+const fail = (s) => { process.stderr.write(s + '\\n'); process.exit(1); };
+const [a, b, ...rest] = args;
+
+if (a === 'auth') done('');
+if (a === 'repo' && b === 'view') done(JSON.stringify({ nameWithOwner: 'mordam/landcheck' }));
+if (a === 'pr' && b === 'view') {
+  // A branch name finds nothing until the PR exists; a number always finds it.
+  if (!/^\\d+$/.test(String(rest[0])) && !state.opened) fail('no pull requests found for branch "' + rest[0] + '"');
+  done(JSON.stringify(state.pr));
+}
+if (a === 'pr' && b === 'create') { state.opened = true; fs.writeFileSync(process.env.GH_STATE, JSON.stringify(state)); done(state.pr.url + '\\n'); }
+if (a === 'pr' && b === 'merge') {
+  if (state.refuseMerge) fail(state.refuseMerge);
+  state.pr.state = 'MERGED';
+  state.pr.mergedAt = '2026-08-10T12:00:00Z';
+  state.pr.mergeCommit = { oid: 'la11ded11111' };
+  fs.writeFileSync(process.env.GH_STATE, JSON.stringify(state));
+  done('Merged pull request #' + state.pr.number + '\\n');
+}
+if (a === 'pr' && b === 'comment') done('https://github.com/mordam/landcheck/pull/7#issuecomment-1\\n');
+fail('unexpected gh invocation: ' + args.join(' '));
+`,
+  { mode: 0o755 }
+);
+
+const CHECKS = {
+  green: [{ name: 'build', conclusion: 'SUCCESS' }],
+  red: [{ name: 'build', conclusion: 'FAILURE' }],
+  none: [],
+};
+
+/** Replace the fake's world. `checks` and `refuseMerge` are the whole of the variation. */
+const world = ({ checks = 'green', refuseMerge = null } = {}) =>
+  fs.writeFileSync(
+    GH_STATE,
+    JSON.stringify({
+      opened: false,
+      refuseMerge,
+      pr: {
+        number: 7,
+        url: 'https://github.com/mordam/landcheck/pull/7',
+        title: 'the work',
+        state: 'OPEN',
+        isDraft: false,
+        mergeable: 'MERGEABLE',
+        mergeStateStatus: 'CLEAN',
+        headRefName: '',
+        baseRefName: 'main',
+        additions: 12,
+        deletions: 3,
+        changedFiles: 2,
+        statusCheckRollup: CHECKS[checks],
+        reviewDecision: null,
+        mergedAt: null,
+        mergeCommit: null,
+      },
+    })
+  );
+
+// A repo with a real remote, so the push in deliver.js is a real push.
+run('git', ['init', '--bare', '-b', 'main', ORIGIN]);
+run('git', ['init', '-b', 'main', REPO]);
+git(['config', 'user.email', 'landcheck@example.com']);
+git(['config', 'user.name', 'Land Check']);
+git(['remote', 'add', 'origin', ORIGIN]);
+fs.writeFileSync(path.join(REPO, 'README.md'), '# land check\n');
+git(['add', '-A']);
+git(['commit', '-qm', 'first']);
+git(['push', '-q', '-u', 'origin', 'main']);
+
+// A scratch beads workspace. `bd init` from the workspace directory with --skip-agents,
+// which is the one incantation that does not scatter AGENTS.md/CLAUDE.md into a repo.
+try {
+  run(BD, ['init', '--prefix', 'lc', '--role', 'maintainer', '--skip-agents', '--non-interactive'], {
+    cwd: WS,
+    env: { ...process.env, BEADS_DIR },
+  });
+} catch (err) {
+  console.error(`\ncannot build a scratch beads workspace with ${BD} — ${String(err.message).split('\n')[0]}`);
+  console.error('set BD_BIN if bd lives somewhere else.\n');
+  process.exit(2);
+}
+
+fs.writeFileSync(
+  path.join(CONFIG_DIR, 'config.json'),
+  JSON.stringify(
+    {
+      port: 4319,
+      baseUrl: 'http://127.0.0.1:4319',
+      bdBin: BD,
+      actor: 'landcheck',
+      owner: 'Adam',
+      workspaces: [{ name: 'landcheck', dir: BEADS_DIR }],
+      // Off, and this is the line that keeps a harness run out of a real pocket.
+      ntfy: { enabled: false, topic: '', server: 'https://ntfy.sh' },
+      pr: { enabled: true, base: 'main', mergeMethod: 'squash', autoMerge: true, mergeWaitMs: 2000 },
+    },
+    null,
+    2
+  )
+);
+
+const env = {
+  ...process.env,
+  PATH: `${BIN}${path.delimiter}${process.env.PATH}`,
+  BEADCAUSE_CONFIG_DIR: CONFIG_DIR,
+  GH_LOG,
+  GH_STATE,
+  BEADS_DIR,
+};
+
+const bd = (args) => run(BD, args, { cwd: WS, env });
+const bdJson = (args) => {
+  const out = bd(args);
+  return JSON.parse(out.slice(out.indexOf('['), out.lastIndexOf(']') + 1));
+};
+
+/** One scenario: a fresh bead, a fresh branch, a fresh gh world, one deliver run. */
+function deliver(name, { checks = 'green', refuseMerge = null, extra = [] } = {}) {
+  const created = bd(['create', '--title', name, '--description', 'Work for a land-check run.', '--type', 'task', '--json']);
+  const bead = JSON.parse(created.slice(created.indexOf('{'), created.lastIndexOf('}') + 1));
+  const id = bead.id || bead.issue?.id;
+
+  const branch = `bead/${id}-work`;
+  git(['checkout', '-q', 'main']);
+  git(['checkout', '-qb', branch]);
+  fs.writeFileSync(path.join(REPO, `${id}.txt`), `work for ${id}\n`);
+  git(['add', '-A']);
+  git(['commit', '-qm', `${id}: the work`]);
+
+  fs.writeFileSync(GH_LOG, '');
+  world({ checks, refuseMerge });
+
+  // spawnSync rather than the execFileSync above, for one reason: this is the only
+  // call whose *stderr* is an assertion. execFileSync inherits the child's stderr
+  // unless it throws, so a deliver run that exits 0 with a refusal on stderr — which
+  // is exactly scenario 2 — would print the sentence to the terminal and hand the
+  // harness an empty string to test.
+  const ran = spawnSync(
+    'node',
+    [path.join(ROOT, 'bin', 'deliver.js'), '-w', 'landcheck', '-b', id, '--tests', 'npm test — fine', ...extra],
+    { cwd: REPO, env, input: 'What changed, and why.\n', encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 }
+  );
+  const stdout = String(ran.stdout || '');
+  const stderr = String(ran.stderr || '');
+  const code = ran.status ?? 1;
+  // The *last* line, not the whole of stdout: `loadConfig` prints a `[beadcause] adding
+  // workspace …` notice the first time it discovers one, and that lands above the line
+  // this command exists to print. Everything that reads this output — an agent, a log,
+  // this harness — wants the answer, which is the last thing said.
+  const said = stdout.trim().split('\n').filter(Boolean).pop() || '';
+
+  const log = fs
+    .readFileSync(GH_LOG, 'utf8')
+    .split('\n')
+    .filter(Boolean)
+    .map((l) => JSON.parse(l));
+  const issue = bdJson(['show', id, '--json'])[0];
+  return {
+    id,
+    branch,
+    stdout: said,
+    stderr: stderr.trim(),
+    code,
+    log,
+    issue,
+    merges: log.filter((c) => c[0] === 'pr' && c[1] === 'merge'),
+    // `gh pr view <number>`, as opposed to `gh pr view <branch>`. Exactly one of these
+    // is `create()` reading back the PR it just opened; anything beyond it is the wait
+    // for the checks and the merge preflight. So the count is how you tell a delivery
+    // that intended to merge from one that stopped at opening.
+    numberViews: log.filter((c) => c[0] === 'pr' && c[1] === 'view' && /^\d+$/.test(String(c[2]))).length,
+  };
+}
+
+/* ------------------------------------------------------- 1. it lands its own work */
+
+console.log('\ngreen checks: it merges its own pull request');
+
+const landed = deliver('lands cleanly');
+check('deliver.js exits 0', landed.code === 0, `exit ${landed.code} — ${landed.stderr}`);
+check('and says what it did, with the number and the merge commit', /^landed #7 https:\/\/\S+ la11ded1/.test(landed.stdout), landed.stdout);
+check('it pushed the branch to origin for real', run('git', ['branch', '--list', landed.branch], { cwd: ORIGIN }).includes(landed.branch));
+check('it opened a pull request', landed.log.some((c) => c[0] === 'pr' && c[1] === 'create'));
+check('and merged it', landed.merges.length === 1, JSON.stringify(landed.log.map((c) => c.slice(0, 2))));
+check('with the configured method', landed.merges[0]?.includes('--squash'), JSON.stringify(landed.merges[0]));
+check(
+  'and never --delete-branch, which gh cannot do from the worktree that branch is checked out in',
+  !landed.merges[0]?.includes('--delete-branch'),
+  JSON.stringify(landed.merges[0])
+);
+check('the work bead is closed', landed.issue.status === 'closed', landed.issue.status);
+check('with a reason naming what it landed as', /^Landed as #7 as la11ded1/.test(landed.issue.close_reason || ''), landed.issue.close_reason);
+check('and a comment on the bead recording the merge', (landed.issue.comment_count ?? 0) >= 1, String(landed.issue.comment_count));
+check('no delivery question was filed — there is nothing to ask', bdJson(['list', '--label', 'pr-delivery', '--json']).length === 0);
+
+/* ------------------------------------------------------- 2. GitHub refuses the merge */
+
+console.log('\nGitHub refuses: the old question, with its sentence on it');
+
+const refused = deliver('cannot merge', { refuseMerge: 'Pull request is not mergeable: the base branch policy prohibits the merge.' });
+check('deliver.js still exits 0 — handing it over is a good ending', refused.code === 0, `exit ${refused.code} — ${refused.stderr}`);
+check('it prints a question id and the PR url instead of `landed`', /^lc-\S+ https:\/\/\S+\/pull\/7$/.test(refused.stdout), refused.stdout);
+check('it did try to merge', refused.merges.length === 1);
+check('the work bead is still open — nothing merged, so nothing is finished', refused.issue.status !== 'closed', refused.issue.status);
+const question = bdJson(['list', '--label', 'pr-delivery', '--json']).find((q) => q.id === refused.stdout.split(' ')[0]);
+check('a delivery question exists, labelled for the inbox', !!question && (question.labels || []).includes('human'), JSON.stringify(question?.labels));
+check(
+  "and carries GitHub's own refusal, so the card says why rather than that it failed",
+  /base branch policy prohibits/.test(question?.description || ''),
+  (question?.description || '').split('\n')[0]
+);
+check('the work bead is parked behind it', (refused.issue.dependency_count ?? 0) >= 1, String(refused.issue.dependency_count));
+check('and the refusal is on the pull request too, where the diff is', refused.log.some((c) => c[0] === 'pr' && c[1] === 'comment'));
+check('the stderr says it plainly, for whoever reads the session log', /not merged —/.test(refused.stderr), refused.stderr);
+
+/* ------------------------------------------------------------ 3. a red check stops it */
+
+console.log('\na red check: it does not merge, and it does not decide');
+
+const red = deliver('red build', { checks: 'red' });
+check('deliver.js exits 0', red.code === 0, `exit ${red.code} — ${red.stderr}`);
+check('it filed the question', /^lc-\S+ /.test(red.stdout), red.stdout);
+check('and never asked gh to merge at all', red.merges.length === 0, JSON.stringify(red.log.map((c) => c.slice(0, 2))));
+check('the bead is open', red.issue.status !== 'closed');
+const redQ = bdJson(['list', '--label', 'pr-delivery', '--json']).find((q) => q.id === red.stdout.split(' ')[0]);
+check('the card names the check that stopped it', /1 check failing \(build\)/.test(redQ?.description || ''), (redQ?.description || '').split('\n')[0]);
+check(
+  'and says the flake call is Adam’s, because that is the one judgement a worker should not make',
+  /that is your call to make/.test(redQ?.description || '')
+);
+
+/* ---------------------------------------------------------------- 4. --review asks */
+
+console.log('\n--review: it could have merged, and chose not to');
+
+const asked = deliver('wants review', { extra: ['--review'] });
+check('deliver.js exits 0', asked.code === 0, `exit ${asked.code} — ${asked.stderr}`);
+check('it filed the question', /^lc-\S+ /.test(asked.stdout), asked.stdout);
+check('and asked gh to merge nothing', asked.merges.length === 0, JSON.stringify(asked.log.map((c) => c.slice(0, 2))));
+check(
+  'and never waited for the checks either — there was nothing to wait for',
+  asked.numberViews === 1 && landed.numberViews > 1,
+  `--review read the PR ${asked.numberViews}×, the landing one ${landed.numberViews}×`
+);
+const askedQ = bdJson(['list', '--label', 'pr-delivery', '--json']).find((q) => q.id === asked.stdout.split(' ')[0]);
+check('the card says the worker chose this, so green checks do not read as a bug', /deliberately did not/.test(askedQ?.description || ''), (askedQ?.description || '').split('\n')[0]);
+check('and nothing on it claims a refusal', !/could not/.test(askedQ?.description || ''));
+check('the bead is open', asked.issue.status !== 'closed');
+
+/* --------------------------------------------------------------- 5. and the owed note */
+
+console.log('\n--owed: what is still outstanding after the merge');
+
+const owed = deliver('owes a deploy', { extra: ['--owed', 'deploy, rebuild'] });
+check('it landed', /^landed #7/.test(owed.stdout), owed.stdout);
+check('and the close reason carries what is still owed', /still owed: deploy, rebuild/.test(owed.issue.close_reason || ''), owed.issue.close_reason);
+
+/* ------------------------------------------------------------------ verdict */
+
+console.log('');
+if (!KEEP) fs.rmSync(tmp, { recursive: true, force: true });
+else console.log(`kept ${tmp}\n`);
+if (failures) {
+  console.log(`\x1b[31m${failures} check${failures === 1 ? '' : 's'} failed\x1b[0m`);
+  process.exit(1);
+}
+console.log('\x1b[32mall checks passed\x1b[0m');

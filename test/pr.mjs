@@ -26,6 +26,12 @@
  * 3. **`available()` turning a cached answer into traffic.** It is asked on every
  *    poll and must ask `gh` once per process. The test asserts the *absence* of a
  *    second call, which is the only way that regression is ever visible.
+ * 4. **`settle()` calling a timeout a verdict.** A worker merges its own pull request
+ *    once the checks report, so this is what stands between "CI said yes" and "CI has
+ *    not said anything for five minutes" — and those must not both come back as
+ *    something a merge can proceed on. The wait is driven by an injected `sleep` that
+ *    changes the fake's world, so the pending-then-green case is exercised in
+ *    milliseconds rather than in CI's own time.
  *
  * Nothing here touches the network, spawns an agent, runs the real `gh`, or writes
  * outside a temp directory.
@@ -466,6 +472,59 @@ check(
   refusedCreate && /No commits between/.test(refusedCreate.message),
   refusedCreate && refusedCreate.message
 );
+
+/* ------------------------------------------------------------ waiting for CI */
+
+console.log('\nwaiting for the checks to report');
+
+const pending = [{ name: 'build', status: 'IN_PROGRESS' }];
+const green = [{ name: 'build', conclusion: 'SUCCESS' }];
+const viewCalls = () => calls().filter((c) => c.args[0] === 'pr' && c.args[1] === 'view').length;
+
+// Nothing to wait for: one look, no sleep, and a verdict.
+world({ prs: { 42: rawPR({ statusCheckRollup: green }) } });
+resetLog();
+let slept = 0;
+let settled = await pr.settle(REPO, 42, { sleep: async () => (slept += 1) });
+check('checks that have already reported are not waited on', slept === 0 && settled.timedOut === false, `slept ${slept}`);
+check('and it costs exactly one gh pr view', viewCalls() === 1, `${viewCalls()} views`);
+check('the verdict travels back on the PR itself', settled.pr.checks.state === 'passing', settled.pr.checks.state);
+
+// The ordinary case, and the whole reason this exists: pending the instant the PR is
+// opened, green a moment later. The world changes *in the sleep*, which is where it
+// changes in life too.
+world({ prs: { 42: rawPR({ statusCheckRollup: pending }) } });
+resetLog();
+slept = 0;
+settled = await pr.settle(REPO, 42, {
+  sleep: async () => {
+    slept += 1;
+    world({ prs: { 42: rawPR({ statusCheckRollup: green }) } });
+  },
+});
+check('a pending check is waited for, then read again', slept === 1 && viewCalls() === 2, `slept ${slept}, ${viewCalls()} views`);
+check('and the answer is the settled one', settled.pr.checks.state === 'passing' && !settled.timedOut, settled.pr.checks.state);
+
+// A red check settles just as truthfully as a green one. `settle` does not judge —
+// it only stops waiting — and the caller is the one that refuses to merge over it.
+world({ prs: { 42: rawPR({ statusCheckRollup: [{ name: 'build', conclusion: 'FAILURE' }] }) } });
+resetLog();
+settled = await pr.settle(REPO, 42, { sleep: async () => (slept += 1) });
+check('a failing check is settled, not waited on', settled.pr.checks.state === 'failing' && !settled.timedOut);
+check('and it names which one, for the sentence that has to explain it', settled.pr.checks.failed.join() === 'build');
+
+// Checks that never report. The timeout must come back as `timedOut`, still pending —
+// not as a settled verdict, because "CI has not run in five minutes" is emphatically
+// not "safe to merge".
+world({ prs: { 42: rawPR({ statusCheckRollup: pending }) } });
+resetLog();
+settled = await pr.settle(REPO, 42, { timeoutMs: 0, sleep: async () => (slept += 1) });
+check('a zero timeout looks once and gives up', settled.timedOut === true && viewCalls() === 1, `${viewCalls()} views`);
+check('and hands back pending rather than a verdict', settled.pr.checks.state === 'pending', settled.pr.checks.state);
+
+resetLog();
+settled = await pr.settle(REPO, 42, { timeoutMs: 40, intervalMs: 1, sleep: (ms) => new Promise((r) => setTimeout(r, 25)) });
+check('a wait that never settles ends — bounded, not forever', settled.timedOut === true && viewCalls() < 6, `${viewCalls()} views`);
 
 /* -------------------------------------------------------------------- merge */
 
