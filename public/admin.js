@@ -31,6 +31,39 @@
     return localStorage.getItem('beadcause.token') || '';
   })();
 
+  /*
+    Who got in, and the way back out.
+
+    The only sign-out control in the app, on the only page that is about access to this
+    Mac rather than about beads. It draws nothing at all unless a Google session is
+    what authorised this browser: on a token-only install there is nothing to sign out
+    of, and a dead button saying so would be worse than silence.
+
+    A form POST rather than a link, so the browser's own prefetching can never sign
+    somebody out by looking at the page.
+  */
+  (async () => {
+    let who;
+    try {
+      who = await (await fetch('/auth/whoami', { headers: { accept: 'application/json' } })).json();
+    } catch {
+      return;
+    }
+    if (!who.signedIn) return;
+    const el = document.getElementById('whoami');
+    el.textContent = `Signed in as ${who.email} · `;
+    const link = document.createElement('a');
+    link.href = '/auth/signout';
+    link.textContent = 'sign out';
+    link.addEventListener('click', async (e) => {
+      e.preventDefault();
+      await fetch('/auth/signout', { method: 'POST' }).catch(() => {});
+      location.assign('/login');
+    });
+    el.append(link);
+    el.hidden = false;
+  })();
+
   const out = document.getElementById('admin');
   const pulse = document.getElementById('pulse');
   const observing = document.getElementById('observing');

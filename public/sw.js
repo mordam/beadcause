@@ -15,7 +15,13 @@
    app.js beside v20's would draw an answer box with no way to dictate into it, and a
    phone holding the new app.js without the new file would draw one every time and
    never listen. They have to arrive together, which is what a cache version is for. */
-const CACHE = 'beadcause-v20';
+/* v21: Google sign-in. Nothing new in the shell — the login page is deliberately NOT
+   cached, see fetchAndStore — but a phone holding v20's cache has app.js from before
+   `needCredential` existed, which pops the token dialog at a browser that is signed in
+   perfectly well. The version is also what evicts anything a v20 worker cached while
+   the session had expired: it was network-first, so a redirect to /login could have
+   been stored under `/`. */
+const CACHE = 'beadcause-v21';
 const SHELL = [
   '/',
   '/index.html',
@@ -118,7 +124,15 @@ self.addEventListener('fetch', (e) => {
 
 function fetchAndStore(request) {
   return fetch(request).then((res) => {
-    if (res.ok) {
+    // Never store what came back from a redirect, and never store the login page.
+    //
+    // With sign-in on, a page requested without a credential answers 302 → /login
+    // (lib/server.js). `fetch` follows that, so `res.ok` is true and the body is a
+    // login screen — which, cached under `/`, is what an offline phone would be shown
+    // for as long as the cache lived, signed in or not. The shell is only ever cached
+    // from a response that really was the page asked for.
+    const login = res.redirected || new URL(res.url || request.url).pathname === '/login';
+    if (res.ok && !login) {
       const copy = res.clone();
       caches.open(CACHE).then((c) => c.put(request, copy));
     }

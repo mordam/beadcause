@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0b0f14" media="(prefers-color-scheme: dark)">
+  <meta name="theme-color" content="#f6f7f9" media="(prefers-color-scheme: light)">
+  <title>Beadcause · sign in</title>
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<!--
+  The one page in this app with no credential in front of it, because it is how you
+  get one. It shows both of them, which is the point of the whole bead: Google for a
+  person in a browser, and the pairing token for everything else — including a person
+  whose Google account is not the one on the allowlist, or a tailnet whose certificate
+  has expired and taken sign-in with it.
+
+  Deliberately no service worker registration here, and this page is not in the shell
+  cached by public/sw.js. A login screen cached under `/` would be served to a browser
+  that is perfectly signed in, from a cache that has no idea either way.
+-->
+<body class="doc-body login-body">
+  <main class="login">
+    <div class="login-mark" aria-hidden="true">
+      <img src="/icon.svg" alt="" width="56" height="56">
+    </div>
+    <h1>Beadcause</h1>
+    <p class="login-lede">The decision inbox on this Mac. Two ways in.</p>
+
+    <!-- Above the controls, not below them: this is the sentence explaining why you are
+         looking at this page instead of the one you asked for, and it has to be read
+         before the button that would repeat the attempt. -->
+    <p id="error" class="login-error" hidden></p>
+
+    <!-- Filled by login.js from /auth/whoami: either the Google button, or the note
+         saying sign-in is not configured on this install. Nothing is drawn until the
+         daemon has answered, so the page never offers a button that cannot work. -->
+    <div id="google" class="login-google" hidden>
+      <a id="google-link" class="login-btn" href="/auth/google">Sign in with Google</a>
+      <p class="login-note">Only the accounts on this install's allowlist are let in.</p>
+    </div>
+
+    <p id="signed-in" class="login-note" hidden></p>
+
+    <!-- What every non-browser caller uses, and the fallback for a browser when Google
+         is off or refuses. Collapsed, because it is the second answer to the question
+         and putting a password box first invites pasting the token into a phone by
+         hand when a QR code would have done it. -->
+    <details class="login-token" id="token-block">
+      <summary>Use a pairing token instead</summary>
+      <p class="login-note">
+        Scan the QR code from <code>npm run qr</code>, or paste the <code>token</code> from
+        <code>~/.config/beadcause/config.json</code>. It is stored in this browser only.
+      </p>
+      <form id="token-form">
+        <input id="token-input" type="password" autocomplete="off" placeholder="token" inputmode="text">
+        <button class="primary" type="submit">Save and continue</button>
+      </form>
+    </details>
+  </main>
+
+  <script src="/login.js"></script>
+</body>
+</html>

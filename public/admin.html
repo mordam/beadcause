@@ -39,6 +39,13 @@
       resumes anything.
     </p>
 
+    <!-- Who this browser is, and the way out. Here rather than on the inbox because
+         this is the page about what you are allowed to do to this Mac, and because a
+         sign-out button on a screen you scroll past forty times a day is a sign-out
+         button you eventually press by accident. Hidden entirely unless a Google
+         session is what got you in — see lib/auth.js. -->
+    <p class="admin-said" id="whoami" hidden></p>
+
     <!-- What the last press actually did. Outside #admin so the ten-second repaint
          does not wipe the one line telling you whether it worked. -->
     <p class="admin-said" id="said" hidden></p>
