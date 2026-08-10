@@ -432,10 +432,26 @@ try {
     s,
     `Math.round(document.querySelector('.card[data-key=${JSON.stringify(KEY)}]').getBoundingClientRect().top)`
   );
-  // Not zero: the sticky top bar is ~89px tall, and the head of the card lands
-  // just under it. What matters is that it is on screen at the top, not that the
-  // number is 0.
-  check('collapsing still lands on the card head', head >= -8 && head <= 120, `card top at ${head}px`);
+  // Not zero, and not a fixed number either: on a list this short the scroll clamps
+  // before the card reaches the top, so the head comes to rest just under whatever
+  // chrome is above the list — the sticky top bar, plus the filter rows when there
+  // are any. Measured rather than hard-coded, because the chrome's height is not
+  // this check's subject: it was 120px until the scope moved into the filters and
+  // gave that nav an unconditional row, and a literal here fails on a layout change
+  // that has nothing to do with where collapsing puts you.
+  const chrome = await evalJs(
+    s,
+    `(() => {
+      const f = document.querySelector('#filters');
+      const el = f && !f.hidden ? f : document.querySelector('.topbar');
+      return Math.round(el.getBoundingClientRect().bottom);
+    })()`
+  );
+  check(
+    'collapsing still lands on the card head',
+    head >= -8 && head <= chrome + 24,
+    `card top at ${head}px, chrome ends at ${chrome}px`
+  );
 } finally {
   if (!KEEP) close();
   server.close();
