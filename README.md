@@ -586,6 +586,61 @@ Four, because the things that can break here are different things:
   folded thread below, since both are about what an opened card spends your attention
   on.
 
+### A question you have already answered, arriving again
+
+The close gate above explains four of the five beads that ended up carrying the
+same answer twice. It does not explain the fifth, and the fifth is a different
+mechanism entirely.
+
+**Answering closes the bead — and for a decision, closing is often wrong.** Three
+of bc-goo.2's four options were build orders: *build both as written*, *build the
+common repo only*, *build the API only*. An answer like that is a commission, not a
+conclusion, so the session that picks the work up reopens the bead — and a reopened
+bead still labelled `human` walks straight back into the inbox. The card is rebuilt
+from the tracker every time, so it arrives carrying the same question, the same four
+options, and no trace whatsoever of the answer given an hour earlier. It was
+answered identically at 13:33 and again at 14:35 on 2026-08-09, and the log said
+only `bc-goo.2 arrived` three times, with nothing marking two of those as the same
+question coming back.
+
+**So it still arrives, and it arrives saying what you said.** The other fix — refuse
+the second arrival, because the bead has been answered — trades a duplicated answer
+for a lost question, and nothing in the tracker distinguishes a pointless reopen
+from a bead that has genuinely come back with something new to ask. A question in
+front of you is the whole premise here. What was missing was not the card; it was
+the fact.
+
+Where that fact shows up, in the order you would meet it:
+
+- **On the card**, between the question and the buttons that answer it — on the
+  collapsed row as well as the open card, because the gesture that goes wrong is a
+  two-tap answer straight from the list. `⟳ You answered this an hour ago`, the
+  answer quoted underneath, and `answered 2 times already` once it has happened
+  twice. Nothing is disabled: re-answering is often right, and this states the fact
+  rather than making the decision.
+- **On the notification**, for the same reason and more urgently — the shade offers
+  the first three options as buttons, so a repeat can be answered from a lock screen
+  with the card never opened. The title gains `asked again` and the body leads with
+  the previous answer. A `minimal` workspace gets the marker and not the answer: *you
+  have seen this before* leaks nothing, the sentence you typed leaks as much as the
+  question does.
+- **In the log**, so this is reconstructable next time: `bc-goo.2 arrived — asked
+  again, you answered it an hour ago`.
+
+It is remembered in beadcause's own `state.json`, keyed `workspace/id` like
+`dismissed` and `ringing`, written once at the moment you answer — the answer is on
+the bead as a comment, and finding it there would be a `bd comments` call per inbox
+row per poll for cards nobody has opened. Unlike those two it is **not** pruned
+against the live inbox: an answered bead is closed and out of the sweep, so pruning
+on absence would throw the record away moments before the reopen that needs it.
+Thirty days, and 500 records, are what bound the file instead.
+
+`node test/answered.mjs` pins it end to end against a fake `bd`: a first arrival
+carrying nothing, an answer recorded, the bead leaving the inbox with its record
+surviving — the assertion that stops someone pruning it like the others — the reopen
+arriving with the answer on both the list payload and the detail fetch, and the count
+going up when it is answered again.
+
 ### Where the answer goes
 
 Answering used to end in a dead pause. The card dimmed to half opacity, a
@@ -3898,6 +3953,18 @@ The limits, stated plainly:
   its children survive it — and a stranded backend still holds a poller while the
   replacement router starts a fresh one. So a backend that has heard nothing from a
   router for 60 seconds exits. `npm run start:bare` has no router and is exempt.
+- **None of it is live until `npm run install-service` has been re-run.** The plist in
+  `~/Library/LaunchAgents` is generated once and never touched by `git pull`, and a
+  deploy `kickstart`s a *label* without looking at what the label points to. So the
+  router landed, the installer was updated, this section was written, and launchd went
+  on restarting `bin/beadcause.js` for three days with the port answering perfectly the
+  whole time. Nothing was broken; nothing was live. It is now checked in three places,
+  because the two halves fail apart: the installer reads back from `launchctl print`
+  what it actually loaded, the daemon prints a `HOT-SWAP IS NOT LIVE` banner when
+  launchd started *it* rather than the router, and `npm run swap:status` names the
+  installed program instead of only reporting that nothing answered. A plist rewritten
+  without a bootout counts as stale too — launchd keeps the argv it bootstrapped with,
+  so editing the file changes nothing on its own.
 
 ## HTTP API
 

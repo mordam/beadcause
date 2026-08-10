@@ -360,6 +360,33 @@
   }
 
   /**
+   * You have answered this bead before, and here it is again.
+   *
+   * **Above the options, and on the collapsed card as well as the open one.** Both
+   * placements are the point. Answering closes the bead, so a card can only be here a
+   * second time because something reopened it — and the card is rebuilt from the bead,
+   * so it arrives carrying the same four options and no memory at all of what you
+   * chose last time. The gesture that goes wrong is a two-tap answer from the list
+   * without ever opening the card, which is why this cannot live in the brief or the
+   * thread: by the time you would scroll to it, the answer has been sent. bc-goo.2 was
+   * answered identically at 13:33 and 14:35 on 2026-08-09 exactly this way.
+   *
+   * It does not disable anything. Re-answering is often right — the bead may have come
+   * back with something genuinely new to ask, and beadcause cannot tell the two apart —
+   * so this states the fact and leaves the decision where it belongs.
+   */
+  function answeredBeforeHtml(q) {
+    const b = q.answeredBefore;
+    if (!b) return '';
+    const when = relTime(b.at);
+    const times = b.count > 1 ? ` · answered ${b.count} times already` : '';
+    return `<div class="answered-before">
+      <strong>⟳ You answered this${when ? ` ${when}` : ' before'}${times}</strong>
+      ${b.response ? `<p>${esc(b.response)}</p>` : ''}
+    </div>`;
+  }
+
+  /**
    * The agent state worth showing as a pending reply at the foot of the thread.
    *
    * `done` is excluded deliberately: a finished agent has already left a real
@@ -1403,6 +1430,7 @@
         ${q.question && q.title !== q.question ? `<p class="subtitle">${esc(q.title)}</p>` : ''}
         ${(q.errors || []).map((e) => `<p class="subtitle bad">⚠ ${esc(e)}</p>`).join('')}
       </div>
+      ${answeredBeforeHtml(q)}
       ${proposalHtml(q)}
       ${deliveryHtml(q)}
       ${options ? `<div class="options">${options}</div>` : ''}
