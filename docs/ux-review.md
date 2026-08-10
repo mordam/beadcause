@@ -1,6 +1,7 @@
 # The beadcause UX review
 
-*bc-l8jp.1 — written 2026-08-10, against `main` at `2b68d2c`.*
+*bc-l8jp.1 — written 2026-08-10, against `main` at `2b68d2c`, checked again after merging
+`origin/main` at `c5004cc`.*
 
 This is a document, not a change. Nothing in the app moved to produce it. Read it, cross
 out what you disagree with, and the work it calls for gets filed afterwards as beads
@@ -14,10 +15,12 @@ same question and disagree), it is *dead weight* (it costs real estate or mainte
 of proportion to what it answers), or there is a *better shape* (the thing it does
 belongs somewhere else). Every verdict below names which of the three it is.
 
-**Some of what follows are facts, not opinions.** §2 is a list of defects I found while
-inventorying, each one verified rather than inferred — one of them (D1) means a whole
-four-tab screen has been unreachable in the running app for some time. Those are not
-things to have a view about. They are the first three steps of the plan.
+**Some of what follows are facts, not opinions.** §2 is a list of eight defects I found
+while inventorying, each one verified rather than inferred. Two are bad enough to read
+first: **D1**, where a whole four-tab screen has been unreachable in the running app, and
+**D2**, where the same merge reached your inbox twice this evening, got answered twice a
+minute apart, and left its bead open with a thread claiming twice over that it had closed.
+Those are not things to have a view about. They are the first three steps of the plan.
 
 ---
 
@@ -25,8 +28,9 @@ things to have a view about. They are the first three steps of the plan.
 
 I read every page in `public/`, every route in `lib/server.js`, and the file headers of
 the sixteen `lib/` modules behind them. Where a claim needed proof I got proof: D1 was
-confirmed by booting `createApp` on a scratch port and calling the route (see §2), and
-D3 by reading the two live beads it produced.
+confirmed by booting `createApp` on a scratch port and calling the route (see §2), and D2
+by reading the three delivery comments, the two answers and the dependency list they left
+on `bc-ec6`.
 
 One correction to bc-l8jp's own framing, because the plan should count the real thing:
 the app does not have "roughly ninety `/api` routes". It has **49 distinct `/api` paths
@@ -145,10 +149,60 @@ arrangement where a green suite means nothing.
 This also disposes of an argument the review might otherwise have had to make about
 whether Foundations deserves a tab. It has not been usable at all.
 
-### D2. `bc-jin` landed and was never closed, and it is blocking three beads
+### D2. A re-delivery files a *second* merge card, and the sibling then blocks the work bead from closing
+
+This is the worst thing in the review, and it happened this evening while the review was
+being written. The whole of it is in the tracker.
+
+`bin/deliver.js`'s fallback path — the one reached when the worker's own merge is refused —
+does two writes: `bd create` a question bead, then `bd dep add <work bead> <question>`, so
+the work bead waits behind the card. That second write is right and the comment beside it
+says why (without it the advocate opens a second session onto work already sitting in a PR).
+
+`bc-ec6` was delivered three times, and each delivery did both writes:
+
+```
+21:24  Delivered as #25 … Waiting on bc-a0vc for the merge.
+21:36  Delivered as #25 … Waiting on bc-ds2q for the merge.     (since deleted by hand)
+21:43  Delivered as #25 … Waiting on bc-t7wf for the merge.
+```
+
+Two of those cards were still open together, so the inbox carried the same question —
+*Merge #25?*, identical title, identical body — twice. It got answered twice, a minute
+apart:
+
+```
+21:54  bc-t7wf:  MERGE: merge and merge #25, then close bc-ec6.
+                 Merged #25 as c5004cce — closed bc-ec6.
+21:55  bc-a0vc:  MERGE: merge and merge #25, then close bc-ec6.
+                 Merged #25 as c5004cce — closed bc-ec6.
+```
+
+**`bc-ec6` is still `IN_PROGRESS`.** Both of those sentences are false, and they are false
+for a reason that only exists because there were two cards: `bd` refuses to close a bead
+that has an open dependency (`lib/bd.js:109`, asserted in `test/closegate.mjs`), and
+`bc-ec6` had been parked behind *both* cards. At 21:54 its sibling was still open, so the
+close was refused; nothing retries a refused close when the sibling closes a minute later.
+`bc-ec6` now depends on two closed beads and sits open, with a merged PR and a thread
+claiming twice over that it was closed.
+
+So the duplicate card is not a cosmetic annoyance. It cost a second answer, it left the
+work bead open, and it wrote something untrue on the thread.
+
+One thing to be careful of in the fix: filing one card per attempt is a *deliberate*
+decision, and the comment at `lib/server.js:1781` argues it well — a delivery question
+closes on all four of its answers, and the next push files a fresh one, "so the inbox
+carries one card per attempt rather than one card that quietly changes meaning under you."
+That is right. What it assumes is that every attempt follows an answer, and a re-delivery
+that nobody answered first breaks the assumption. The fix that keeps the intent is to
+*supersede*: when the fallback files a card, close any card still open for the same pull
+request first — one card per attempt, but never two at once, and never two dependencies on
+one work bead.
+
+### D3. And a second bead whose work has merged is sitting open
 
 `bc-jin` (launcher repo chips → tabs) is `IN_PROGRESS`. Its PR #1 merged — `bc-1wh`, the
-merge question, is closed, and the code is in `main`: `public/console.html:36-52` has the
+merge question, is closed — and the code is in `main`: `public/console.html:36-52` has the
 `repo-tabs` row, the `＋`, and the All-tab `#ws-pick` fallback; `public/console.js:243`
 persists the selection to `localStorage`. Every line of its acceptance criteria is
 satisfied.
@@ -156,18 +210,10 @@ satisfied.
 It still `blocks` bc-2tr, bc-es8 and bc-dmt. Three beads are parked behind work that
 shipped a day ago.
 
-### D3. A re-delivery files a second merge card instead of reusing the first
-
-There are two open beads in the tracker right now, `bc-a0vc` and `bc-t7wf`, with
-identical titles — *"Merge #25? bc-ec6: The advocate's allowlist still has Bash(bd \*)"* —
-and identical bodies, both saying #25 conflicts with main.
-
-`bin/deliver.js` is careful to *reuse* the pull request on a second delivery ("finds the
-one already open for the branch, which is the ordinary case on the second delivery after
-changes were requested"). Its fallback path then unconditionally `bd create`s a new
-question bead. So every retry of a delivery that cannot merge adds another card to your
-inbox for the same merge, and answering one leaves the other sitting there looking
-unanswered.
+Its cause is *not* D2's: `bc-jin`'s only dependency was `bc-1wh` and that is closed, so no
+gate applies and nothing visible in the tracker explains it. Worth its own look while
+someone is in that code — two landed-but-open beads in two days is a pattern, and the
+second one is the kind that quietly stops other work.
 
 ### D4. `.tabs` is defined twice in `style.css`, and each page is running with the other's values
 
@@ -397,8 +443,9 @@ out whether opening it was worth it.
 
 Twice literally, and twice structurally.
 
-**Literally: two identical merge cards.** D3. `bc-a0vc` and `bc-t7wf` are in the inbox
-right now, same PR, same question, both open.
+**Literally: the same merge, answered twice, a minute apart.** D2 — `bc-t7wf` at 21:54 and
+`bc-a0vc` at 21:55, both *Merge #25?*, both answered `MERGE:`, and the bead they were
+about still open afterwards.
 
 **Structurally: the proposal card is implemented three times.**
 
@@ -452,7 +499,7 @@ Three smaller ones, all cheap:
 
 So none is silently orphaned.
 
-**bc-jin** — *Turn the launcher's repo chips into tabs* — **close it as done.** D2: the
+**bc-jin** — *Turn the launcher's repo chips into tabs* — **close it as done.** D3: the
 code is in `main`, every acceptance line is met, PR #1 merged. It is `IN_PROGRESS` and
 blocking three beads for no reason. This is step 1 of the plan because it is free and it
 unblocks three others.
@@ -501,8 +548,9 @@ blocked by bc-jin and it is a launcher bead, so: **keep, and read it with bc-2tr
 Sequenced. Each numbered step is one bead's worth of work. The first three are defects
 and should go first regardless of what you think of the rest.
 
-**1. Close bc-jin.** No code. It shipped (D2) and it is blocking bc-2tr, bc-es8 and
-bc-dmt. *(Not a bead — a `bd close`.)*
+**1. Close bc-jin and bc-ec6.** No code. Both are merged and open (D2, D3), and bc-jin is
+blocking bc-2tr, bc-es8 and bc-dmt. *(Not a bead — two `bd close`es. Note bc-ec6 owes a
+daemon restart, per its own delivery comment: its allowlist change is daemon code.)*
 
 **2. Fix D1: give the two `GET /api/foundation` handlers different paths, and test the
 real server.** The channel is the older, broader route and the agent detail is the
@@ -513,10 +561,14 @@ server does not honour, and it is the reason this survived. Add a route-collisio
 while you are there: a startup assertion that no `(method, path)` pair is registered twice
 would have caught this at boot.
 
-**3. Fix D3: make a re-delivery reuse its open merge card.** `bin/deliver.js` already
-finds the existing PR for the branch; the fallback path should likewise look for an open
-`delivery`-labelled bead naming that PR and comment on it rather than `bd create` a
-second. Then reconcile the two that exist (`bc-a0vc`, `bc-t7wf`) by hand.
+**3. Fix D2: a re-delivery supersedes the card still open for the same pull request.**
+`bin/deliver.js` already finds the existing PR for the branch; before it files a card, the
+fallback should close any open `delivery`-labelled bead naming that PR — keeping one card
+per attempt, which is the documented intent, while making two open at once impossible.
+Two things belong in the same bead because they are the same failure: a close that `bd`
+refused must not be reported on the thread as a close that happened, and a work bead whose
+last blocking dependency closes should get one more attempt at the close that was refused.
+This is the highest-value step in the plan after step 2.
 
 **4. bc-l8jp.2 — terminal off the inbox header, onto Admin.** Already decided, already
 filed, unaffected by anything above. Independent of everything else here, so it can go in
@@ -527,8 +579,8 @@ proposal rendering and pick-state into a shared module on the `window.beadcause`
 the app already uses for `tabBadge`, `absorb` and `sendqueue`; render it from `app.js`,
 `monitor.js` and `mirror.js`; delete `monitor.js`'s duplicate `picksFor` and
 `proposalHtml`; give the mirror the real buttons instead of a sentence pointing at one of
-the two screens that has them. **This is the biggest single win in the rework and the one
-step I would not cut.**
+the two screens that has them. **Of the steps that are about the UX rather than about a
+defect, this is the biggest single win and the one I would not cut.**
 
 **6. Drop the `proposals` badge from the Advocates tab.** Follows step 5: once a proposal
 is answerable in the same form wherever you meet it, a badge sending you to the second
