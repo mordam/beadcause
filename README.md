@@ -4495,6 +4495,29 @@ What that costs is per-session revocation, so be clear about what each act does:
 - **Rotate the token** — a separate act entirely, and it does not touch sign-in. Delete
   `token` from `config.json` and re-pair every device.
 
+### Whose answer it is
+
+A session is an identity, so it is used as one: **an answer, a comment or a dismissal
+note written by a signed-in browser goes onto the bead under that address**, not under
+`beadcause`. That is `bd`'s `--actor` (and `BEADS_ACTOR`, which it has to agree with —
+see `lib/bd.js`), so it is on the comment, on the close, and in `bd show` six months
+later, which is the only place the question "who decided this" ever actually gets asked.
+
+Two rules keep it honest:
+
+- **A caller with no session is written exactly as it always was.** An ntfy action
+  button, `lib/notify.js`, the Android app, `curl` — none of them can hold a cookie and
+  none of them has an identity to name, so all of them still write as `actor` from
+  `config.json`. A request carrying **both** a token and a session is a signed-in
+  browser (the phone sends its pairing token on every fetch), and the session wins;
+  otherwise the attribution would never once apply to the device it was built for.
+- **Only what you *said* gets your name.** The `human-replied` label, the status
+  changes behind a hand-back, the beads a "yes" creates and the note a merge leaves on
+  a work bead are all the daemon's record of its own actions, and they stay
+  `beadcause`. A byline on those would read as you having done them by hand.
+
+`test/attribution.mjs` holds both halves.
+
 ### Where the two secrets live, and how to rotate them
 
 Both of them are named so that the git repo in that directory *cannot* commit them, and
