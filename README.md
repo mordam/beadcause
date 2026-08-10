@@ -4671,6 +4671,9 @@ cookie says so), and `/auth/signout` ends the session.
 | POST | `/api/agents` | `{name, description}` | creates one and returns the new roster. `tools` is never accepted here |
 | POST | `/api/agent-arm` | `{id, acknowledge?, disarm?}` | arms that agent's configured tools override for **one** reply. `428` the first time, carrying the warning to show; `409` while it is answering; `400` if it has no override |
 | DELETE | `/api/agents` | `?id=` | removes one of yours; built-ins refuse |
+| GET | `/api/foundation` | — | `{requests[], workspaces[]}` — the foundation channel on its own, without an inbox sweep. **The bare path is the channel and nothing else** |
+| GET | `/api/foundations` | `?workspace=` | `{agents[], workspace, workspaces[]}` — every agent kind, for the list on the agents screen |
+| GET | `/api/foundation/agent` | `?id=&workspace=` | `{agent, workspace}` — one agent's foundation, history and activity. `404` for an id that is not an agent kind. Named for its neighbours `/api/foundation/{amend,decline,log}`, and *not* the bare path: it was registered there too, where it never answered once |
 | GET | `/api/advocates` | — | `{advocates[]}` — per repo: queue, open sessions, note, error |
 | POST | `/api/advocate` | `{workspace, action}` | `pause` · `resume` · `release` (free the slots) · `forget` (clear attempt counters) |
 | GET | `/api/advocate-log` | `?workspace=` | the survey agent's transcript, as the CLI would have shown it |
