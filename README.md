@@ -2708,7 +2708,10 @@ and at most one every `proposeCooldownHours`.
   in that repo — your own claimed beads and every live `claude` process, each one
   tappable for its transcript. Plus **Pause** / **Reclaim sessions** / **Forget
   attempts**. *Reclaim sessions* asks each open window whether it is still working —
-  see below.
+  see below. Above every card, one line saying **which program launchd is running** —
+  dim when it is this checkout's `bin/router.js`, and a red block with the fix when it
+  is not; see [the router](#the-router--why-you-never-restart-it) for why that line is
+  there on a good day too.
 - **The monitor** (`npm run monitor`) has an advocates pane above the questions, and
   every launch, close, lapse and proposal appears in its event log.
 - **The launchd log** (`~/Library/Logs/beadcause.log`) carries the same events as
@@ -4013,6 +4016,12 @@ If the transcript has been pruned since, `claude` says `No conversation found wi
 session ID: …` and exits — the terminal ends the way any other ended session does,
 rather than silently starting a different conversation under the same name.
 
+**A hot swap is a daemon restart as far as a terminal is concerned**, and it happens
+every time you save a file in `lib/` rather than once a week — so the socket is closed
+deliberately at the cutover, with a code the page reconnects from, rather than being cut
+when the drain gives up on it. See
+[the WebSocket goes through it too](#the-websocket-goes-through-it-too-and-a-swap-ends-it-on-purpose).
+
 ### The keys a phone doesn't have
 
 Claude Code is driven by esc, ^C and shift-tab, and an Android soft keyboard offers
@@ -4231,6 +4240,64 @@ The limits, stated plainly:
   whose plist has drifted from the tree it just pulled. A plist rewritten
   without a bootout counts as stale too — launchd keeps the argv it bootstrapped with,
   so editing the file changes nothing on its own.
+- **And it says so where somebody is standing.** All three of those checks land
+  somewhere nobody looks: `~/Library/Logs/beadcause.log`, and a command you only type
+  once you already suspect something. The reason the original bug survived three days is
+  that the inbox and the advocate console — the two surfaces actually read, from a phone,
+  every day — reported nothing at all, because from their point of view the port was
+  answering perfectly. So **the advocate console carries the same verdict**, above every
+  card, on `/api/work`'s `service`: one dim line naming the program launchd runs when it
+  is the right one, and a red block with the diagnosis and `npm run install-service` when
+  it is not. It is drawn on a good day deliberately — a health line that appears only
+  when something is wrong teaches you to read its absence as health, which is exactly
+  what that console did while it was wrong. The one wrinkle is that the process serving
+  the console is a *grandchild* of launchd, so the router passes down what it was handed
+  in `BEADCAUSE_LAUNCHD_PROGRAM`; a backend reading its own `argv` would call every
+  healthy install stale.
+
+### The WebSocket goes through it too, and a swap ends it on purpose
+
+[The terminal](#the-terminal--driving-a-session-from-the-phone) is an HTTP upgrade, and
+an upgrade is not a request the proxy above can carry: `connection` and `upgrade` are
+hop-by-hop headers — they describe *this* hop — so a proxy strips them, and has to state
+them again when it means to open the next hop as a tunnel. The router did the first half
+and not the second. A server with no `upgrade` listener hands the request to its
+ordinary handler rather than refusing it, so `GET /ws/terminal` reached the backend
+looking like any other GET, missed the upgrade listener there entirely, and the app
+answered the only thing it could: `404`, reported by a browser as `Unexpected server
+response: 404`.
+
+Which made it the exact shape of the bug this whole section exists to prevent — correct
+files, a healthy process, and a path the page plainly asks for returning 404 — with one
+extra turn of the screw: it worked perfectly under `npm run start:bare`, where the phone
+reaches `lib/termsocket.js` directly, and that is the one configuration launchd never
+runs. Both halves are load-bearing, and the suite proves it by breaking each one on its
+own: a listener that forwarded the stripped headers produces the identical 404 one hop
+later.
+
+So the router tunnels it. It dials the active backend carrying the original `upgrade`,
+`connection` and `sec-websocket-*` headers, relays the `101` back along with whatever
+bytes followed it — `ws` sends its first frames immediately, and dropping them would eat
+the `hello` the page waits for — then pipes the two sockets together and never looks at
+a frame. Nothing in `lib/termsocket.js` changed and nothing should: the handshake, the
+subprotocol carrying the token, and the accepted-then-closed `1008` for an unknown id
+are the same whether the socket arrived over loopback from the router or straight off the
+tailnet. A refusal that is *not* a 101 — `401` for a bad token, `404` for a path that is
+not the terminal — is written back verbatim, because a proxy that turned that into a
+dropped socket would cost the client the one useful sentence in the exchange.
+
+**What a swap does to an attached terminal is a decision, and this is it.** The pty is a
+child of the backend and cannot outlive one, so there is no version of this where the
+terminal survives a swap — only versions where it ends well or badly. Left alone, an
+attached socket holds `inflight` above zero for the whole 60 seconds of the drain: the
+phone spends a minute typing into a process that is already condemned, and then loses it
+mid-keystroke with `1006`, which is indistinguishable from a tunnel. So the outgoing
+backend is asked to close them itself, with a real close frame carrying **1012 — Service
+Restart**. The page reconnects within a second onto the new backend, where the record has
+come back `resumable`, and `claude --resume` puts the conversation back with the note
+that [says so](#and-it-survives-the-daemon-too). The socket is counted in `inflight`
+either way, so a backend is never killed out from under one; `npm run swap:status` names
+the count beside the requests.
 
 ## HTTPS on the tailnet name
 
@@ -4478,6 +4545,29 @@ What that costs is per-session revocation, so be clear about what each act does:
 - **Rotate the token** — a separate act entirely, and it does not touch sign-in. Delete
   `token` from `config.json` and re-pair every device.
 
+### Whose answer it is
+
+A session is an identity, so it is used as one: **an answer, a comment or a dismissal
+note written by a signed-in browser goes onto the bead under that address**, not under
+`beadcause`. That is `bd`'s `--actor` (and `BEADS_ACTOR`, which it has to agree with —
+see `lib/bd.js`), so it is on the comment, on the close, and in `bd show` six months
+later, which is the only place the question "who decided this" ever actually gets asked.
+
+Two rules keep it honest:
+
+- **A caller with no session is written exactly as it always was.** An ntfy action
+  button, `lib/notify.js`, the Android app, `curl` — none of them can hold a cookie and
+  none of them has an identity to name, so all of them still write as `actor` from
+  `config.json`. A request carrying **both** a token and a session is a signed-in
+  browser (the phone sends its pairing token on every fetch), and the session wins;
+  otherwise the attribution would never once apply to the device it was built for.
+- **Only what you *said* gets your name.** The `human-replied` label, the status
+  changes behind a hand-back, the beads a "yes" creates and the note a merge leaves on
+  a work bead are all the daemon's record of its own actions, and they stay
+  `beadcause`. A byline on those would read as you having done them by hand.
+
+`test/attribution.mjs` holds both halves.
+
 ### Where the two secrets live, and how to rotate them
 
 Both of them are named so that the git repo in that directory *cannot* commit them, and
@@ -4576,7 +4666,7 @@ cookie says so), and `/auth/signout` ends the session.
 | GET | `/doc` | `?p=<abs path>` | the HTML reader page |
 | GET | `/api/graph` | `?workspace=&id=` | `{nodes, links}` — the whole workspace with no `id` |
 | GET | `/api/bead` | `?workspace=&id=` | one issue in full, plus `comments[]` — for the graph's detail sheet |
-| GET | `/api/work` | — | `{workspaces[], elsewhere[], advocates[]}` — per workspace: claimed beads, live `claude` sessions, counts, errors |
+| GET | `/api/work` | — | `{workspaces[], elsewhere[], advocates[], service}` — per workspace: claimed beads, live `claude` sessions, counts, errors. `service` is what launchd is running — see the router section |
 | GET | `/api/agents` | — | `{agents[], default}` — the roster you can address a comment to |
 | POST | `/api/agents` | `{name, description}` | creates one and returns the new roster. `tools` is never accepted here |
 | POST | `/api/agent-arm` | `{id, acknowledge?, disarm?}` | arms that agent's configured tools override for **one** reply. `428` the first time, carrying the warning to show; `409` while it is answering; `400` if it has no override |
@@ -5019,6 +5109,30 @@ refusing 1.1, and **a WebSocket opened before the swap still echoing a message a
 it**, which is the acceptance criterion no amount of reading the code proves. And behind
 the router, where the listener is loopback-only plain http, the whole thing is a no-op
 that starts no timer.
+
+`test/service.mjs` covers whether anything notices that launchd is running the wrong
+program — the [three-day bug](#the-router--why-you-never-restart-it) — in two halves.
+Detection: a plist written into a fake home, and the verdict `lib/service.js` reaches
+about it, including the case where the file is right and the *job* is stale. Delivery,
+which is the half that was actually missing: the verdict on `/api/work` from a real
+daemon booted with `HOME` pointed at a plist naming `bin/beadcause.js`, so the assertion
+is the diagnosis and not merely a field being present. Plus the hop that makes it
+possible — the process serving the console is a grandchild of launchd, so passing down
+`BEADCAUSE_LAUNCHD_PROGRAM` is what stops a healthy install being reported as stale, and
+an *empty* value has to mean "not a launchd job" rather than "read your own argv".
+
+`test/css.mjs` covers something nothing else in this repo would ever say a word about: a
+rule in `public/style.css` that has lost its closing brace. Under CSS nesting that is not
+a parse error — every rule after it becomes a *nested* rule of it and applies to nothing,
+so the file stays valid, the brace count can still balance, no browser console complains,
+and the page merely looks a bit plain. It happened: a merge took seven declarations and
+the closing brace off `#save-dialog textarea` and gave them to `.key` a hundred lines
+below, which killed the last five hundred lines of the stylesheet — the whole advocate
+console and the admin page — until bc-4irq tried to add a rule there and could not make
+it apply. So the invariant is that a selector block contains no other block, which
+forbids nested syntax on purpose: that is the price of a truncated rule failing on the
+next `npm test` rather than quietly for a week. The detector is shown the exact wreck, so
+a guard that cannot fail is not mistaken for a file that is fine.
 
 ## Notes on bd
 

@@ -4,7 +4,7 @@ import { createApp, startPoller, listen } from '../lib/server.js';
 import { advocatedWorkspaces, workerLimit } from '../lib/advocate.js';
 import { buildStamp } from '../lib/build.js';
 import { hotSwapProblem, problemBanner } from '../lib/service.js';
-import { attachTerminalSocket } from '../lib/termsocket.js';
+import { attachTerminalSocket, releaseSockets } from '../lib/termsocket.js';
 import { closeServer, startRenewal } from '../lib/tls.js';
 import { pushCertificate } from '../lib/notify.js';
 import { flush } from '../lib/commonrepo.js';
@@ -154,6 +154,17 @@ const control = (req, res) => {
       if (role !== 'standby') console.log('[beadcause] stood down — poller stopped');
       role = 'standby';
       return reply({ ok: true, role, reaping: reaper !== null });
+    case '/internal/release':
+      // The router is about to drain and kill this process, and an attached terminal
+      // socket is the one thing behind its proxy that would never end on its own. So
+      // it is ended here, with a close frame the phone can act on — see
+      // `releaseSockets`, and `release` in bin/router.js for why the alternative
+      // (waiting the socket out) is worse than closing it.
+      //
+      // Separate from `/internal/standby` on purpose: standing down happens *before*
+      // the new backend is promoted, so a phone that reconnected on the strength of it
+      // would race back to this same doomed process. Retirement is after.
+      return reply({ ok: true, closed: releaseSockets(wss) });
     default:
       res.writeHead(404, { 'content-type': 'application/json' });
       return res.end('{"error":"no such control"}');
@@ -185,7 +196,11 @@ if (!internalPort) reconcileBaseUrl(cfg, { persist: true });
 // The in-app terminal rides the same servers, on the HTTP upgrade path. Awaited
 // because `ws` is imported dynamically — an install that hasn't run `npm install`
 // since this landed loses the terminal and keeps everything else.
-await attachTerminalSocket(cfg, servers);
+//
+// The handle is kept because retirement needs it: `/internal/release` closes these
+// sockets when the router is replacing this process. Null when terminals are off or
+// `ws` is missing, which `releaseSockets` treats as nothing to release.
+const wss = await attachTerminalSocket(cfg, servers);
 /**
  * Keep the tailnet certificate alive under `npm run start:bare`.
  *
