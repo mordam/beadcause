@@ -74,16 +74,33 @@ const die = (msg, code = 1) => {
 /** An error's first line. Everything reported *after* a merge has landed uses this. */
 const first = (err) => String(err?.message || err || '').split('\n')[0];
 
-/** squash | merge | rebase, normalised once. An unknown one is a typo, not a request. */
-const mergeMethod = (m) => (['squash', 'merge', 'rebase'].includes(m) ? m : 'squash');
+/**
+ * squash | merge | rebase, normalised once. An unknown one is a typo, not a request.
+ *
+ * The fallback is `merge` rather than `squash` for the reason spelled out beside
+ * `pr.mergeMethod` in lib/config.js: a squash-merged branch never becomes an ancestor
+ * of main, and the worktree cleanup on both sides of this repo tests exactly that. A
+ * typo in the config must not quietly land the one method that strands a worktree.
+ */
+const mergeMethod = (m) => (['squash', 'merge', 'rebase'].includes(m) ? m : 'merge');
 
 const cfg = loadConfig();
 // What the pull request body and the argument errors call whoever is reviewing this.
 const owner = ownerName(cfg);
 const wsName = arg('--workspace', '-w');
 const beadId = arg('--bead', '-b');
-const base = arg('--base') || 'main';
-const method = mergeMethod((arg('--method') || 'squash').toLowerCase());
+/**
+ * Where it lands and how — the flag, then the config, then the built-in default.
+ *
+ * The config half was missing, and its absence was invisible because the literal here
+ * happened to equal the default over there. `pr.mergeMethod` reached `lib/session.js`,
+ * where it shapes the sentence the brief makes about this command ("…**merge**-merges
+ * it into `main`"), and reached nothing that merges: setting it to anything at all
+ * changed the promise and not the act. Read here, the setting means what it says, and
+ * the brief and the command cannot drift apart.
+ */
+const base = arg('--base') || cfg.pr?.base || 'main';
+const method = mergeMethod(String(arg('--method') || cfg.pr?.mergeMethod || 'merge').toLowerCase());
 const tests = arg('--tests') || '';
 const risk = arg('--risk') || '';
 const left = arg('--left') || '';
@@ -110,7 +127,7 @@ const review = has('--review') || has('--no-merge');
 const ws = cfg.workspaces.find((w) => w.name === wsName);
 if (!ws || !beadId || has('--help') || has('-h')) {
   console.error(
-    'usage: beadcause-deliver -w <workspace> -b <bead> [--base main] [--method squash] [--tests "..."]\n' +
+    'usage: beadcause-deliver -w <workspace> -b <bead> [--base main] [--method merge] [--tests "..."]\n' +
       '                        [--risk "..."] [--left "..."] [--owed "deploy, rebuild"] [--review] [-f summary.md]'
   );
   console.error(`workspaces: ${cfg.workspaces.map((w) => w.name).join(', ')}`);
