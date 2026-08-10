@@ -379,6 +379,54 @@ await check('the list drops what worked and keeps the tail of what did not', () 
   assert.equal(briefDeploy(null), null);
 });
 
+await check('a kickstart of a label whose plist is nowhere is refused, not run', async () => {
+  // The one failure a deploy could report as success: `launchctl kickstart <label>`
+  // restarts whatever is loaded under that label, and nothing in the three steps above
+  // it has any opinion about what that is. lib/launchagent.js covers the verdicts; what
+  // is worth proving here is that the runner acts on one — the command never runs, and
+  // the rebuild before it did, which is what lets a repo declare its own installer as a
+  // rebuild step and fix the drift rather than be refused for it.
+  const r = repo('label');
+  advance(r, { 'lib/a.js': 'a\n' });
+  const bin = path.join(tmp, 'fakebin');
+  fs.mkdirSync(bin, { recursive: true });
+  const kickstarted = path.join(tmp, 'label-kickstarted');
+  const rebuilt = path.join(tmp, 'label-rebuilt');
+  // Named `launchctl` because that basename is what makes this a launchd deploy as far
+  // as the check is concerned; a real one would restart something on this machine.
+  const launchctl = path.join(bin, 'launchctl');
+  fs.writeFileSync(launchctl, `#!/bin/sh\necho ran > ${kickstarted}\n`, { mode: 0o755 });
+  // A label nothing on any machine has a plist for, so this reads the real
+  // ~/Library/LaunchAgents and finds nothing, on every machine, forever.
+  const label = `m4m.beadcause.absent-${process.pid}`;
+  const cfg = config(
+    {
+      label: {
+        command: [launchctl, 'kickstart', '-k', `gui/501/${label}`],
+        graceMs: 0,
+        rebuild: [{ label: 'apk', when: [], command: node(`require('fs').writeFileSync(${JSON.stringify(rebuilt)}, 'x')`) }],
+      },
+    },
+    { label: r.checkout }
+  );
+  const rec = await settled(startDeploy(cfg, 'label', {}).id);
+  assert.equal(rec.status, 'failed');
+  assert.match(rec.error, /refusing to restart/);
+  assert.ok(rec.error.includes(label), `the refusal never named the label: ${rec.error}`);
+  assert.equal(rec.launchAgent?.code, 'not-installed');
+  assert.equal(fs.existsSync(kickstarted), false, 'it kickstarted the label anyway');
+  assert.equal(rec.steps.some((s) => s.name === 'deploy'), false);
+  assert.equal(fs.existsSync(rebuilt), true, 'the check ran before the rebuilds, so an installer step could never fix anything');
+});
+
+await check('and a deploy that restarts nothing is not asked about a plist', async () => {
+  const r = repo('nolabel');
+  const cfg = config({ nolabel: { command: node('0'), graceMs: 0, pull: false } }, { nolabel: r.checkout });
+  const rec = await settled(startDeploy(cfg, 'nolabel', {}).id);
+  assert.equal(rec.status, 'ok', rec.error || '');
+  assert.equal(rec.launchAgent, null);
+});
+
 await check('a command that is not there fails rather than counting as done', async () => {
   const r = repo('missing');
   const cfg = config({ missing: { command: ['/nonexistent/deploy-me'], graceMs: 0, pull: false } }, { missing: r.checkout });
