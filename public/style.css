@@ -517,6 +517,17 @@ body {
 .option.confirm { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
 .option.confirm .hint { color: color-mix(in srgb, var(--accent-ink) 72%, transparent); }
 
+/* The one the brief argued for. A tinted edge and a tag, never a filled button:
+   filled is what `confirm` means here, and a recommendation that looked like an
+   armed button would be read as "already pressed". */
+.option.rec { border-color: color-mix(in srgb, var(--accent) 55%, var(--line)); }
+.rec-tag {
+  align-self: flex-start;
+  font-size: 11px; font-weight: 600; letter-spacing: 0.02em;
+  color: var(--accent);
+}
+.option.confirm .rec-tag { color: color-mix(in srgb, var(--accent-ink) 80%, transparent); }
+
 .actions { display: flex; gap: 8px; padding: 0 15px 14px; }
 
 .note-line {
@@ -1026,6 +1037,60 @@ body {
 .gate-why strong { display: block; color: var(--text); font-size: 14px; margin-bottom: 3px; }
 .gate-why p { margin: 0 0 8px; color: var(--muted); }
 .gate-why .gate-blockers { margin-bottom: 0; }
+
+/*
+  Suggested answers, sitting on the top edge of the box they fill.
+
+  Chips rather than buttons, and quieter than `.option` on purpose: these were
+  read out of a paragraph, not written as answers, and the weight of the control
+  is the only honest place to say so. Nothing here closes a bead — the label of
+  the button below is still what does that.
+
+  The strip scrolls rather than growing. On a phone the answer box is pinned to
+  the bottom of an open card in a fixed budget of height, and five long chips
+  that pushed the textarea off the screen would cost more typing than they save.
+*/
+.suggested { display: flex; flex-direction: column; gap: 6px; }
+/* No rule above the label: it is already sitting on the top edge of the answer
+   box, and a second line there would fence the box off from the thread. */
+.suggested .section-label {
+  display: flex; justify-content: space-between; align-items: baseline; gap: 10px;
+  margin: 2px 0 0; padding: 0; border-top: 0;
+}
+/* The right half says what a tap does, and is not shouted — it is an instruction,
+   not a heading, and uppercase at 11px is hard enough to read once. */
+.suggested .section-label span {
+  flex: none;
+  text-transform: none; letter-spacing: 0; font-weight: 500;
+  opacity: 0.8;
+}
+.suggested .chips {
+  display: flex; flex-wrap: wrap; gap: 6px;
+  max-height: 92px; overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.chip {
+  min-height: 34px;
+  max-width: 100%;
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 6px 12px;
+  border: 1px solid var(--line); border-radius: 999px;
+  background: var(--surface-2); color: var(--text);
+  font: inherit; font-size: 13.5px; font-weight: 540;
+  text-align: left; line-height: 1.3;
+  cursor: pointer;
+}
+.chip:active { transform: scale(0.98); }
+.chip .star { color: var(--accent); font-size: 11px; }
+.chip.rec { border-color: color-mix(in srgb, var(--accent) 55%, var(--line)); }
+/* Pressed means "these are the words in the box right now" — it is a statement
+   about the textarea, not a decision, and it goes away the moment you type. */
+.chip[aria-pressed='true'] {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  border-color: var(--accent);
+}
+.chip[aria-pressed='true'] .star { color: var(--accent); }
+
 .primary {
   flex: 1;
   min-height: var(--tap);
