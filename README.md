@@ -3551,6 +3551,24 @@ strays, and the same zero five runs running.
 It is still repo-agnostic — it takes any repo's main checkout, and sophab, which has no
 daemon, still depends on it as the only thing that empties its attic.
 
+**And the old name is in here too, which is the rest of the same fix.** Moving the gates
+into `lib/` left `prune-retired.sh` behind at the old path as a forwarder, so that
+anything still naming it kept working — and that file, the one a ship actually invokes,
+was still outside every repo with no history, no review and no test. A shim is small
+right up until somebody edits it, and nothing would have shown that they had: it is the
+arrangement that produced both bugs above, in miniature. So it is `scripts/prune-retired.sh`
+now, and `~/.claude/skills/ship/prune-retired.sh` is a **symlink** to it rather than a
+copy — a copy is what drifted, and one `cp` is all it would take to have that back.
+`test/pruneshim.mjs` asserts the symlink is a symlink, so a hand-copy put in its place
+fails a suite instead of being discovered six weeks later.
+
+It finds the checkout it is part of by resolving itself through the symlink, which is
+also what makes the "your checkout is behind" failure rare: reached through the installed
+link, the `bin/attic.js` it execs is the one sitting beside the shim that named it, so
+the two cannot be different versions of each other. `BEADCAUSE_DIR` still overrides, and
+a copy stranded outside every checkout still falls back to `~/neadamthal.projects/beadcause`
+and says which directory it looked in when there is nothing there.
+
 Two limits worth knowing. A session's `cwd` is recorded when it starts, so a session
 that later entered a worktree does not show as being *in* it — the lock is what
 actually protects it, which is why `EnterWorktree` taking one matters. And the sweep
