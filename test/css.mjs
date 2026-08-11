@@ -208,6 +208,90 @@ console.log('\nthe console card head');
   check('and wears work-card, so it is padded', articles.every((c) => /\bwork-card\b/.test(c)), articles.filter((c) => !/\bwork-card\b/.test(c)).join(' | '));
 }
 
+/* ------------------------------------------ one paint for a pressed chip (bc-wx2e)
+ *
+ * The fourth way a rule goes quiet, after truncated, written-twice and written-for-a-
+ * layout-it-never-got: written twice with *different quoting*, so that a grep for
+ * either one comes back looking conclusive.
+ *
+ * `.chip[aria-pressed="true"]` set the filled accent and `var(--accent-ink)` to go on
+ * it. Four hundred lines below, `.chip[aria-pressed='true']` — the composer's quiet
+ * wash for a suggestion chip — set a 16% background and no colour at all. Same
+ * specificity, so the wash won the background and the ink stayed near-black on it:
+ * measured 1.0:1 in the dark theme and 1.6:1 in the light one, on *every* pressed chip
+ * in the app, and one control (`.show-dismissed`, bc-es8) had already grown a private
+ * `color` to escape it. The wash is a real intent, but it is the composer's, and it is
+ * scoped to `.suggested` now.
+ *
+ * Two properties keep that settled, and neither needs a browser. Only one selector may
+ * paint a pressed chip app-wide; and any rule that gives a pressed chip a background
+ * must name its ink in the same block, because a background from one rule and a colour
+ * from another is exactly the pair that was unreadable. The quoting is asserted too —
+ * one spelling, so that grepping for it is honest.
+ */
+
+console.log('\nthe pressed chip');
+
+{
+  // Comments go, quotes stay — `blank()` above blanks strings too, and here the
+  // quoting *is* the thing being asserted.
+  const css = fs.readFileSync(path.join(PUBLIC, 'style.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' '));
+  const at = (i) => css.slice(0, i).split('\n').length;
+
+  // Every rule in the file as { selector, body, line }. Safe as a flat scan because
+  // the checks at the top of this file already refuse a selector block inside another;
+  // an @media wrapper simply never matches, and the rules inside it do.
+  const rules = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((m) => ({
+    selector: m[1].trim().replace(/\s+/g, ' '),
+    body: m[2],
+    line: at(m.index + m[1].search(/\S/)),
+  }));
+
+  const singleQuoted = rules.filter((r) => /\[aria-pressed='/.test(r.selector));
+  check(
+    'a pressed chip is spelled one way, so a grep for it is conclusive',
+    singleQuoted.length === 0,
+    singleQuoted.map((r) => `line ${r.line}: ${r.selector} — the other rules say [aria-pressed="true"]`).join('\n      ')
+  );
+
+  // Rules that reach the chip itself (not a descendant, not a sibling) and paint it.
+  const paints = rules.filter(
+    (r) => /\.chip(?:[.:][\w-]+)*\[aria-pressed=["']true["']\]$/.test(r.selector) && /(?:^|;|\s)(?:background|color)\s*:/.test(r.body)
+  );
+
+  const bare = paints.filter((r) => /^\.chip\[aria-pressed=["']true["']\]$/.test(r.selector));
+  check(
+    'exactly one rule paints a pressed chip everywhere',
+    bare.length === 1,
+    bare.length
+      ? `also at ${bare.slice(1).map((r) => `line ${r.line}`).join(', ')} — same specificity, so they split the paint between them`
+      : 'nothing unscoped paints a pressed chip at all'
+  );
+
+  const inkless = paints.filter((r) => /(?:^|;|\s)background\s*:/.test(r.body) && !/(?:^|;|\s)color\s*:/.test(r.body));
+  check(
+    'and every rule that gives one a background names its ink in the same block',
+    inkless.length === 0,
+    inkless.map((r) => `line ${r.line}: ${r.selector} sets a background and takes its colour from somewhere else`).join('\n      ')
+  );
+
+  // The composer's exception, named — a wash whose scope is the reason it is allowed.
+  const scoped = rules.filter((r) => /^\.suggested \.chip\[aria-pressed=["']true["']\]$/.test(r.selector));
+  check(
+    'the composer’s quiet wash is scoped to .suggested, not to every chip',
+    scoped.length === 1 && /color-mix/.test(scoped[0].body),
+    scoped.length ? scoped[0].body.trim().replace(/\s+/g, ' ') : 'gone — or unscoped again'
+  );
+
+  // bc-es8's workaround, which only existed because the two rules disagreed.
+  const escapee = rules.filter((r) => /^\.show-dismissed\[aria-pressed=["']true["']\]$/.test(r.selector));
+  check(
+    'and no control carries a private colour to escape the collision',
+    escapee.length === 0,
+    escapee.map((r) => `line ${r.line}: ${r.selector}`).join(', ')
+  );
+}
+
 /* ------------------------------------------------------------------ the detector works
  *
  * A guard that cannot fail is a guard nobody should trust, and this one would have
