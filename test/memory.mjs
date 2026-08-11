@@ -795,6 +795,113 @@ check(
   Object.keys(await at(beta.dir, () => memory.notes('racer'))).length === 0
 );
 
+/* ------------------------ which of them a session is handed without asking */
+//
+// The pull — "check `notes` before you start" in the system prompt — only works on a
+// session that remembers to. This is the push, and the whole risk of a push is that it
+// is either too big to read or too noisy to trust, so the two things worth asserting are
+// that the right note gets in and that a bead with nothing to do with any of them gets
+// no notes at all. `relevantNotes` is pure, so none of this goes near git.
+
+console.log('\nwhat a work brief is handed, selected against the bead');
+
+// Shaped like the real store: a key that reads as a claim, a body that names files and
+// commands, and — for two of them — the bead the session was working when it learned it.
+const STORE = {
+  'test-browse-flake': {
+    value:
+      'A red test/browse.mjs on a branch that touches neither lib/browse.js nor bin/beadcause-browse ' +
+      'is the concurrency flake, not you: it globs beadcause-browse-* out of the system temp dir and ' +
+      "another session's in-flight run fails it. Beads: bc-wcw3, bc-eldx.",
+    at: '2026-08-11T14:07:40.999Z',
+  },
+  'sw-cache-version-conflicts': {
+    value:
+      'public/sw.js is the most likely merge conflict here: every branch touching public/ bumps ' +
+      "`const CACHE = beadcause-vNN`, and resolving it is not 'take the higher number' — read both " +
+      "sides' comment blocks and renumber your own.",
+    at: '2026-08-11T14:36:36.114Z',
+  },
+  'warm-check-is-the-refresh-gate': {
+    value:
+      'scripts/warm-check.mjs is the real regression gate for a refresh path — run it for bc-rk2o.2-.5 too.',
+    at: '2026-08-11T14:01:12.979Z',
+  },
+  'android-app-is-a-webview': {
+    value:
+      'The Android app renders the PWA in a WebView over the tailnet; there are no bundled assets, so ' +
+      'REBUILT is only owed when the diff touches android/ itself.',
+    at: '2026-08-11T14:14:57.314Z',
+  },
+};
+
+const flake = memory.relevantNotes(STORE, {
+  id: 'bc-zdun',
+  title: 'test/browse.mjs fails whenever a second session runs the suite',
+  description: 'The last assertion globs the system temp dir, so another concurrent npm test fails it.',
+});
+check(
+  'the note about the failing suite is the one a bead about that suite is handed',
+  flake[0]?.key === 'test-browse-flake',
+  flake.map((n) => n.key).join(', ')
+);
+check(
+  'and it is not handed the three that are about something else',
+  flake.length === 1,
+  flake.map((n) => `${n.key}:${n.score.toFixed(2)}`).join(', ')
+);
+
+// The case similarity alone cannot reach, and the reason the bead-id signal exists: the
+// note is *about* this bead and shares almost no words with it. It says so in the only
+// vocabulary both sides share — it names the bead — and that convention is real, not
+// hoped for: nineteen of the twenty notes in this repo's own store name a bead.
+const child = memory.relevantNotes(STORE, { id: 'bc-rk2o.3', title: 'Put monitor on the delta stream' });
+check(
+  'a note naming the bead is handed over even when it reads nothing like it',
+  child[0]?.key === 'warm-check-is-the-refresh-gate' && child[0].named && child[0].score < memory.RELEVANT,
+  child.map((n) => `${n.key} named=${n.named} score=${n.score.toFixed(2)}`).join(', ')
+);
+check(
+  'and the parent id counts, which is how a range like `bc-rk2o.2-.5` reaches every child',
+  memory.relevantNotes(STORE, { id: 'bc-rk2o.5', parent: 'bc-rk2o', title: 'Put console on the delta stream' })[0]?.named === true
+);
+
+// The case that decides whether the section is worth reading at all. A brief that
+// carries four notes about the tests for a bead about timesheets is noise, and a section
+// that is noise once is a section nobody reads again.
+const unrelated = { id: 'bc-nvzc', title: 'Populate Clockify timesheets for July 2026', description: 'Fill in the hours per project.' };
+check('a bead about none of it is handed none of it', memory.relevantNotes(STORE, unrelated).length === 0);
+
+const brief0 = memory.notesBrief(STORE, unrelated);
+check('it still learns the store exists, by key', brief0.includes('`sw-cache-version-conflicts`') && brief0.includes('beadcause-memory notes <key>'));
+check('and every key is in that line — the cap is on bodies, never on what is visible', Object.keys(STORE).every((k) => brief0.includes(`\`${k}\``)), brief0);
+check('a repo with no notes at all gets no heading rather than an empty one', memory.notesBrief({}, unrelated) === '');
+
+const briefed = memory.notesBrief(STORE, {
+  id: 'bc-zdun',
+  title: 'test/browse.mjs fails whenever a second session runs the suite',
+  description: 'The last assertion globs the system temp dir, so another concurrent npm test fails it.',
+});
+check('the section quotes the note in full, not a summary of it', briefed.includes('bin/beadcause-browse'), briefed);
+check('and lists the rest by key without their bodies', briefed.includes('`android-app-is-a-webview`') && !briefed.includes('over the tailnet'), briefed);
+
+// Both caps, and which of them wins. A note is taken whole or not at all — a trap
+// clipped mid-sentence is a trap you cannot act on — but the top-ranked one goes in
+// however big it is, because a budget that can drop the single most relevant note in the
+// store silently is worse than a long section.
+const many = Object.fromEntries(
+  Array.from({ length: 9 }, (_, i) => [`flake-${i}`, { value: `test/browse.mjs and the system temp dir, take ${i}. `.repeat(6), at: `2026-08-1${i}T00:00:00.000Z` }])
+);
+check('the count cap holds', memory.relevantNotes(many, { id: 'bc-x', title: 'test/browse.mjs and the system temp dir' }).length === 4);
+check(
+  'and the character budget holds, below it',
+  memory.relevantNotes(many, { id: 'bc-x', title: 'test/browse.mjs and the system temp dir' }, { chars: 400 }).length < 4
+);
+check(
+  'but the most relevant note is never the one the budget drops',
+  memory.relevantNotes(many, { id: 'bc-x', title: 'test/browse.mjs and the system temp dir' }, { chars: 1 }).length === 1
+);
+
 /* ------------------------------ and the brief says which store to write to */
 //
 // The acceptance case, and the one that decides whether any of the above gets used. A
