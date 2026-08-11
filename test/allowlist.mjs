@@ -246,6 +246,7 @@ const ADVOCATE_KEEPS = [
   'WebSearch',
   'WebFetch',
   'Bash(beadcause-get:*)',
+  'Bash(beadcause-browse:*)',
 ];
 
 /* ------------------------------------------------------- what the lists say */

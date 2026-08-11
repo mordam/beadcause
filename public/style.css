@@ -3124,21 +3124,30 @@ a.menu-item { text-decoration: none; color: var(--text); }
 /* Tabs, not a segmented control: four destinations is one too many for a
    segmented control on a phone, and these are places you go rather than modes
    you toggle. Sticky, because the Foundation tab is long enough to scroll past
-   the point of forgetting which agent you are looking at. */
-.tabs {
+   the point of forgetting which agent you are looking at.
+
+   `.agent-tabs`, not `.tabs`, because the monitor's bar used to answer to that
+   same bare selector four hundred lines below — one stylesheet, same specificity,
+   so the later block quietly won every property the two shared and each bar was
+   running half on the other page's rule. The values here are what this bar was
+   *actually* rendering under that merge (z-index 3, padding 8px 14px), not what
+   this block used to declare (z-index 5, padding 6px 12px): the scoping is only
+   worth having if neither page moves as part of it, so undoing the accident stays
+   a separate, deliberate decision on whichever bar wants it. See bc-4aw. */
+.agent-tabs {
   position: sticky;
   top: 0;
-  z-index: 5;
+  z-index: 3;
   display: flex;
   gap: 2px;
   margin: -18px -16px 14px;
-  padding: 6px 12px;
+  padding: 8px 14px;
   background: var(--bg);
   border-bottom: 1px solid var(--line);
   overflow-x: auto;
   scrollbar-width: none;
 }
-.tabs::-webkit-scrollbar { display: none; }
+.agent-tabs::-webkit-scrollbar { display: none; }
 .tab {
   flex: 1;
   min-height: 40px;
@@ -3557,16 +3566,30 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
 
 /* Two panes over one page. The bar borrows .chip so a tab and a filter chip are
    the same object to a thumb — this page is opened on the Mac, but the phone
-   reaches it through the same pairing and the same hands. */
-.tabs {
+   reaches it through the same pairing and the same hands.
+
+   The last five declarations are inherited rather than chosen: they are what this
+   bar was already getting from the agents' block while both were a bare `.tabs`,
+   and they are written out here so that scoping the two apart (bc-4aw) changes
+   nothing on the page. The negative margin in particular is the agents' page
+   pulling its bar out to the body's padding; this one keeps it only because it
+   always had it. `gap` beats `.chip-row`'s 8px by sitting later in the file, which
+   is exactly how it beat it before. */
+.mon-tabs {
   position: sticky;
   top: 0;
   z-index: 3;
   padding: 8px 14px;
   background: var(--bg);
   border-bottom: 1px solid var(--line);
+  display: flex;
+  gap: 2px;
+  margin: -18px -16px 14px;
+  overflow-x: auto;
+  scrollbar-width: none;
 }
-.tabs .chip { position: relative; }
+.mon-tabs::-webkit-scrollbar { display: none; }
+.mon-tabs .chip { position: relative; }
 
 /* The `hidden` attribute is a `display: none` that any later `display` beats, and
    `.work` sets `display: flex` — so the pane behind the tab you are not on kept

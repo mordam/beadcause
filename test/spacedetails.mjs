@@ -98,6 +98,7 @@ check('a space that says nothing says null everywhere, not false', () => {
     autoEndorse: null,
     autoMerge: null,
     requireApproval: null,
+    autoShip: null,
   });
 });
 

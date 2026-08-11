@@ -18,6 +18,15 @@
   rows moved into the inbox and the board kept its URLs without keeping a fifth of the
   bar. A page can be reachable, load-bearing and not a tab — and several are.
 
+  The same rule is what keeps the **Mirror** out of this list (bc-3xb), and it is worth
+  knowing before you fill the place PRs left. The Mirror is a *mode* of the advocates
+  page — the same repos and sessions seen from the phone rather than from this Mac — and
+  it is the one surface here that is meaningless on the device a bottom tab is tapped
+  from: it follows another device and drops its own (`notMe` in mirror.js), so a phone
+  tapping a Mirror tab would read "Looking for a device…" forever. It stays an in-page
+  pane on monitor.html. That there is now room on the bar is not an argument for putting
+  it here; see README, "The Mirror is a pane, not a tab".
+
   It is built here rather than pasted into five <head>-alike blocks of HTML because
   there is no templating in this app and a bar that says different things on
   different pages is worse than no bar. One list, one place to add a tab, and one
@@ -50,7 +59,14 @@
     // right one on a bar this tight.
     // The id and the href stay `console`: they live in stored conversation records
     // and on the phone's home screen.
-    { id: 'console', href: '/console', icon: '🧾', label: 'Chat', paths: ['/console', '/console.html'] },
+    // 💬 rather than the 🧾 this used to be (bc-6np). The receipt was right when the
+    // entry meant the proposal it produces, and it still is on the three places that
+    // do mean that — the proposal button on the page itself, the "proposed N beads —
+    // review" link, and the inbox's "work out the next beads from this". The tab means
+    // the conversation, and the session rows already draw an open one with 💬, so this
+    // agrees with them rather than colliding. No U+FE0F: unlike the ⌨ trap recorded in
+    // index.html, U+1F4AC is emoji-presentation by default and needs no coaxing.
+    { id: 'console', href: '/console', icon: '💬', label: 'Chat', paths: ['/console', '/console.html'] },
     // There was a **PRs** tab here, next to Advocates. It is gone (bc-l8jp.6) and the
     // reason is the same as the gap above it: a tab is a claim that a screen is somewhere
     // you *live*, and the pull request board is somewhere you glance — "did that ship?" —
