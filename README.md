@@ -1644,6 +1644,43 @@ repo fact in `remember` is advice the agent will follow somewhere it is false, a
 general lesson in `note` is one it will never see again once it is working elsewhere.
 Neither is a corruption, and both are one rewrite away.
 
+### The moment a worker actually writes
+
+A store an agent is *able* to use is not a store an agent uses. The worker's own ending
+had two steps in it, and both were for you: a `DONE-` prefix on the session name and the
+`** BEAD WORK DONE **` line, each written for whoever scrolls a wall of windows hours
+later. Nothing in it was for the next agent — and that ending is the last moment
+anything could be, because immediately after it the done file is written, the shell
+exits, iTerm closes the window, and everything that session worked out goes with it.
+
+So the brief now carries a third step, first in the closing sequence, and it says the
+two things that make it work rather than merely present:
+
+- **It is foreshadowed up in the brief**, right after the line about running the tests,
+  because a session told about this only at the end has to reconstruct the run from
+  memory — and what it reconstructs is a summary of what it did, not the thing that
+  surprised it. Twenty minutes lost to a trap at turn nine reads as obvious by turn
+  ninety. The noticing has to happen while the surprise is in front of it; only the
+  writing belongs at the end.
+- **Silence is the expected answer**, in the same words the amendment channel uses for
+  the same problem: the failure mode is a paragraph of *"worked on `lib/foo.js`"* filed
+  every single run, at which point the store is noise and nobody opens it. The bar is
+  stated as a bar — would this have saved *you* an hour if it had been there when you
+  started — and the existing line holds: anything with a work item attached is a bead,
+  not a note.
+
+**The order inside the ending is not free**, and the step says so outright rather than
+trusting its number. The writes are tool calls; the marker has to be the last line of
+the final message with nothing after it. A session obeying "write down what you learned"
+and "put the marker last" in the other order puts its marker in the middle, and a line
+whose entire value is that it can be grepped for stops being findable. It is also owed
+on **every** ending, including the ones that hand the work back — a run that discovered
+the bead was bigger than it looked is usually the run that learned the most, and gating
+this on a closed bead would lose exactly those. `test/land.mjs` asserts the position of
+the foreshadow, both stores and the question between them, the "most runs should write
+nothing" sentence, and that the three steps come out numbered in the order the marker
+needs.
+
 ### Reading another agent, without being able to be one
 
 ```
