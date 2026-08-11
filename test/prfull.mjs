@@ -36,11 +36,11 @@
  */
 import fs from 'node:fs';
 import http from 'node:http';
-import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { boundPort } from './helpers/net.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const LIB = (f) => path.join(HERE, '..', 'lib', f);
@@ -62,7 +62,6 @@ const bad = (name, detail) => {
   if (detail) console.log(`      ${detail}`);
 };
 const check = (name, cond, detail = '') => (cond ? ok(name) : bad(name, detail));
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /* -------------------------------------------------------------------- the repo */
 
@@ -381,17 +380,10 @@ const { authorOf } = await import(LIB('prauthor.js'));
 const { conflictPromptFor } = await import(LIB('session.js'));
 const pr = await import(LIB('pr.js'));
 
-const port = await new Promise((resolve, reject) => {
-  const probe = net.createServer();
-  probe.on('error', reject);
-  probe.listen(0, '127.0.0.1', () => {
-    const { port: p } = probe.address();
-    probe.close(() => resolve(p));
-  });
-});
-const cfg = { ...base, port };
+const cfg = { ...base, port: 0 };
 const app = createApp(cfg);
 const servers = listen(cfg, app.handler);
+const port = await boundPort(servers);
 
 const request = (method, pathname, body) =>
   new Promise((resolve, reject) => {
@@ -422,15 +414,6 @@ const request = (method, pathname, body) =>
 
 const get = (pathname) => request('GET', pathname);
 const post = (pathname, body) => request('POST', pathname, body);
-
-for (let i = 0; i < 100; i += 1) {
-  try {
-    await post('/api/nothing', {});
-    break;
-  } catch {
-    await sleep(20);
-  }
-}
 
 /* ------------------------------------------------------------- what it is drawn from */
 
@@ -580,6 +563,12 @@ console.log('\none pull request, full screen\n');
   check('and the bead it carries', /zz-work/.test(brief), brief.slice(0, 300));
   check('it says the branch is what is behind, not main', /branch is what is behind/.test(brief), brief.slice(0, 400));
   check('it sends the session to a worktree rather than the shared checkout', /git worktree list/.test(brief), brief.slice(0, 700));
+  // The second layer under lib/resolvers.js, for the two resolvers that are already up
+  // rather than the second one that must not be opened. bc-utyr: a `git merge --abort`
+  // between another session's resolution and its commit is what wrote conflict markers
+  // into a commit with two parents and an ordinary merge shape.
+  check('it stands down on a merge somebody else started', /already mid-merge, stop/.test(brief), brief.slice(0, 900));
+  check('and names the abort it must not run', /do \*\*not\*\* run `git merge --abort`/.test(brief), brief.slice(0, 900));
   check('it runs the repo’s own gate afterwards', /CLAUDE\.md/.test(brief), brief);
   check('and it stops at a push — the merge stays a tap', /Push the branch\. Then stop\./.test(brief), brief.slice(-500));
   check('nothing in it merges into the base', !/merge .*into \\?`main/.test(brief.replace(/branch is what is behind[^\n]*\n/, '')), brief);

@@ -3095,20 +3095,36 @@
     else bits.push('your turn');
     if (c.created?.length) bits.push(`${c.created.length} created`);
     if (c.seed) bits.push(`from ${c.seed.id}`);
-    // `data-key` because that is what capturePlace() anchors the scroll position to,
-    // and a row that carried none would be a hole in the list you cannot be restored
-    // to — the poll would put you back at the nearest card instead.
-    return `<a class="card chat-card work-row" href="/console?id=${encodeURIComponent(c.id)}"
-      data-key="${esc(row.key)}">
-      <span class="work-phase">${phase}</span>
-      <span class="work-main">
-        <span class="work-title">${esc(c.title || 'Untitled')}</span>
-        <span class="work-sub"><span class="pill">${esc(c.workspace)}</span>${
-          agent ? `<span class="pill agent">${esc(agent.emoji)} ${esc(agent.name)}</span>` : ''
-        }${esc(bits.join(' · '))}</span>
-      </span>
-      <time>${esc(relTime(c.updatedAt))}</time>
-    </a>`;
+    // Which conversation, said in full, because this is the accessible name of a
+    // button and "Dismiss" alone in a list of six of them says nothing about which
+    // one is about to leave. The agent is named for the same reason the row draws its
+    // pill: two chats in the same repo are told apart by who they are with.
+    const title = c.title || 'Untitled';
+    const dismissLabel = agent ? `Dismiss “${title}” — your chat with the ${agent.name}` : `Dismiss “${title}”`;
+    // The card is a wrapper around the link rather than being the link, because a
+    // <button> cannot live inside an <a> and the ✕ has to be somewhere. Siblings, as
+    // the launcher's rows are (.console-row in public/console.js): that shape is what
+    // makes "dismiss" incapable of also opening the conversation, rather than a
+    // preventDefault that has to keep being right.
+    //
+    // `data-key` moves to the wrapper with the `.card` class it is looked up beside —
+    // capturePlace() anchors the scroll position to `.card[data-key]`, and a row that
+    // carried none would be a hole in the list you cannot be restored to, the poll
+    // putting you back at the nearest card instead.
+    return `<div class="card chat-card" data-key="${esc(row.key)}">
+      <a class="work-row" href="/console?id=${encodeURIComponent(c.id)}">
+        <span class="work-phase">${phase}</span>
+        <span class="work-main">
+          <span class="work-title">${esc(title)}</span>
+          <span class="work-sub"><span class="pill">${esc(c.workspace)}</span>${
+            agent ? `<span class="pill agent">${esc(agent.emoji)} ${esc(agent.name)}</span>` : ''
+          }${esc(bits.join(' · '))}</span>
+        </span>
+        <time>${esc(relTime(c.updatedAt))}</time>
+      </a>
+      <button class="row-x" data-act="chat-dismiss" data-key="${esc(row.key)}" data-id="${esc(c.id)}"
+        aria-label="${esc(dismissLabel)}">✕</button>
+    </div>`;
   }
 
   /**
@@ -3820,12 +3836,24 @@
 
   /* --------------------------------------------------------------- actions */
 
+  /**
+   * A line across the bottom of the screen. Red when something went wrong.
+   *
+   * `bad` has three states rather than two, and the third is why this comment exists.
+   * `true` is a **failure** — it is shown red *and* reported to the daemon, which files
+   * it as a P0 bead (public/report.js). `'refused'` is red and files nothing: the app
+   * declining what you typed is not a bug, and "Give it a name" would otherwise be a P0
+   * every time somebody taps Create on an empty box.
+   */
   function toast(msg, bad = false) {
     toastEl.textContent = msg;
-    toastEl.classList.toggle('bad', bad);
+    toastEl.classList.toggle('bad', Boolean(bad));
     toastEl.hidden = false;
     clearTimeout(toast._t);
     toast._t = setTimeout(() => (toastEl.hidden = true), bad ? 5000 : 2600);
+    // Last, and never in the way: the toast is on screen before the report is built, and
+    // a page whose reporter did not load takes the `?.` and behaves as it always did.
+    if (bad === true) window.beadcause?.report?.toast?.(msg);
   }
 
   /**
@@ -4238,6 +4266,53 @@
       return;
     }
 
+    /**
+     * Put a conversation away — the ✕ on a chat card.
+     *
+     * One tap, no arm-then-confirm, exactly as the launcher's ✕ has always been. The
+     * close is **soft**: the transcript stays on disk, the id keeps working, and saying
+     * anything to the conversation reopens it (lib/console.js `closeConsole`). There is
+     * nothing here to be sure about, and the two-tap path this page uses for a dismissal
+     * that is not reversible would be the wrong promise about a thing that is.
+     *
+     * The row goes on the tap rather than at the next 25-second poll, because a card
+     * that sits there for twenty more seconds after you dismissed it reads as a tap
+     * that missed. `dismissedChats` is what keeps it gone: `consoles` is taken whole
+     * off every payload, and the poll in flight when you tapped was assembled before
+     * this write landed — without the guard the row would slide back in a second later
+     * and leave on the poll after that. See adopt().
+     *
+     * Refused mid-turn is the one failure worth hearing about: a conversation with a
+     * `claude` process streaming into it cannot be closed under it, the server says so
+     * with a 409, and the row comes back with the reason under it.
+     */
+    if (act === 'chat-dismiss') {
+      // Belt: the ✕ is a sibling of the link rather than inside it, so there is no
+      // navigation to stop — but this handler is also the one place that would have to
+      // change if the row were ever restructured again.
+      ev.preventDefault();
+      const id = btn.dataset.id;
+      const row = (state.consoles || []).find((c) => c.id === id);
+      if (!row) return;
+      btn.disabled = true;
+      dismissedChats.add(id);
+      state.consoles = state.consoles.filter((c) => c.id !== id);
+      render(true);
+      try {
+        await api('/api/console/close', { method: 'POST', body: JSON.stringify({ id }) });
+        // A card that vanishes silently reads as data loss, and this one is not even
+        // gone — it says where it went.
+        toast('Dismissed — still in the launcher under Dismissed');
+      } catch (err) {
+        dismissedChats.delete(id);
+        if (!state.consoles.some((c) => c.id === id)) state.consoles = [...state.consoles, row];
+        render(true);
+        // `token rejected` has already put the sign-in prompt up — see api().
+        if (err.message !== 'token rejected') toast(err.message, true);
+      }
+      return;
+    }
+
     if (act === 'agent-menu') {
       const wasOpen = state.agentMenu === key;
       closeMenu();
@@ -4367,8 +4442,8 @@
       const block = btn.closest('.agents');
       const name = block?.querySelector('[data-role="agent-name"]')?.value.trim() || '';
       const description = block?.querySelector('[data-role="agent-desc"]')?.value.trim() || '';
-      if (!name) return toast('Give it a name', true);
-      if (description.length < 20) return toast('Give it a foundation — a sentence or two', true);
+      if (!name) return toast('Give it a name', 'refused');
+      if (description.length < 20) return toast('Give it a foundation — a sentence or two', 'refused');
       btn.disabled = true;
       try {
         const data = await api('/api/agents', { method: 'POST', body: JSON.stringify({ name, description }) });
@@ -4735,7 +4810,16 @@
       const row = byKey(key);
       if (!row?.pr) return;
       if (armFirst(key, 'conflicts')) return;
-      await actOnPr(row, '/api/pr/conflicts', {}, (res) => `Session open on ${res.branch} — it pushes the branch and stops.`);
+      // Two sentences, because the daemon now answers two different things. A second
+      // press does not open a second window — it speaks to the session that already has
+      // the pull request (lib/resolvers.js, bc-utyr) — and a press that reads back
+      // "Session open" over a session somebody opened ten minutes ago is exactly the
+      // report that made two of them look like one.
+      await actOnPr(row, '/api/pr/conflicts', {}, (res) =>
+        res.reused
+          ? `Already being resolved on ${res.branch} — told that session you pressed again.`
+          : `Session open on ${res.branch} — it pushes the branch and stops.`
+      );
       return;
     }
 
@@ -4929,7 +5013,7 @@
       const card = btn.closest('.card');
       const box = card.querySelector('[data-role="answer"]');
       const text = (box?.value || getDraft(key)).trim();
-      if (!text) return toast('Write something first', true);
+      if (!text) return toast('Write something first', 'refused');
       if (q) q.closeGate = null;
       await submit(key, text, { close: false });
       if (box) box.value = '';
@@ -4950,7 +5034,7 @@
       const card = btn.closest('.card');
       const box = card.querySelector('[data-role="answer"]');
       const text = box.value.trim();
-      if (!text) return toast('Write something first', true);
+      if (!text) return toast('Write something first', 'refused');
       /**
        * On a delivery, typed prose that closes the question *is* a change request.
        *
@@ -5087,6 +5171,14 @@
   /** How many answers to the notification prompt are in flight. See the `shade-clear`
    *  handler. The filter's own writes are the picker's now — `space.writing()`. */
   let shadeWrites = 0;
+
+  /** Conversations dismissed here that the server has not yet been seen to agree are
+   *  gone. A set rather than a counter, unlike `shadeWrites` above, because what has
+   *  to be suppressed is one named row out of a list that is adopted whole — and it
+   *  has to stay suppressed past the write, not only during it: the poll that was in
+   *  flight when you tapped answers with the row still on it. Emptied by adopt(), one
+   *  id at a time, on the first payload that no longer carries it. */
+  const dismissedChats = new Set();
 
   /**
    * The picker moved: adopt it and repaint.
@@ -5242,7 +5334,15 @@
     // — no draft, no open card, nothing half-answered — so the server's copy is
     // always the better one. Absent means a server that predates the field, and
     // keeping the last list is the same call `requests` makes above.
-    if (Array.isArray(data.consoles)) state.consoles = data.consoles;
+    // — minus anything just dismissed from this page and still on the wire. A payload
+    // assembled before that write landed still lists the conversation, and adopting it
+    // would put the row back under the tap that removed it. Each id stops being
+    // suppressed on the first payload that agrees it is gone, which is also what lets
+    // a conversation reopened by saying something to it come back as a row.
+    if (Array.isArray(data.consoles)) {
+      state.consoles = data.consoles.filter((c) => !dismissedChats.has(c.id));
+      for (const id of dismissedChats) if (!data.consoles.some((c) => c.id === id)) dismissedChats.delete(id);
+    }
     // Taken whole, and taken even when empty — unlike `requests` and `consoles` above.
     // An empty list here is the good news ("every repo answered this time") and it has
     // to be able to clear the pane, which is the whole reason the record is rebuilt on
@@ -5408,6 +5508,157 @@
     window.beadcause?.warm?.prewarm?.({ here: 'inbox', api });
   }
 
+  /**
+   * Every warmed path this page can keep young, and what a wake is able to do for each.
+   *
+   * The hole this closes is `prewarm`'s, in public/warm.js: it fills each path *once per
+   * document* and the TTL then ages what it fetched out fifteen minutes later, and
+   * `prewarmed` never goes back to false. On a page you pass through that is fine. On the
+   * inbox — the page you leave open all day, which is how this app is actually used —
+   * every warmed path is cold for all but the first quarter of an hour, with nothing able
+   * to put it back. bc-xxzz closed it for `/api/work` alone; this table is the rest of it.
+   *
+   * **What makes an old entry still true is the log, not its age.** This page is parked on
+   * `/api/poll`, so an entry the log has not contradicted is as true as it was when it was
+   * fetched, however long ago that was — and `warm.refresh` restamps it for no request at
+   * all. That is the free half, it is available to every path here, and on its own it is
+   * what stops a quiet hour ageing out a payload nothing has invalidated.
+   *
+   * The paid half — going and asking again once the log says something *did* move — is not
+   * free and is therefore decided per path, on what the request costs the daemon:
+   *
+   * - **`/api/work`** is two `bd` calls per workspace, and it is also the one path with a
+   *   fold worth doing: `advocates.snapshot()` and `observing` ride every wake whatever
+   *   woke it, so most of what that tab draws arrives for nothing. Only the `bd` half is
+   *   re-asked, and only for an event `workMoved` says `bd` would answer differently.
+   * - **`/api/admin`** and **`/api/consoles`** are in-memory reads on the daemon — no
+   *   `bd`, no process spawn, which lib/server.js says of both in as many words — so a
+   *   floored re-ask is an honest price for a tab that is otherwise blank on arrival.
+   *   Neither is *patched* from the wake even though `/api/admin` looks patchable: its
+   *   counts are half advocate roster and half open terminals, and public/admin.js already
+   *   refuses to patch one half, for the reason that a button labelled from two different
+   *   moments is true of neither. Same rule here, or the warm copy would come to disagree
+   *   with the fetched one.
+   * - **`/api/prs` is deliberately never fetched here**, and that is the decision this
+   *   table exists to record. It is a `gh` call per repo, and a floored re-ask would keep
+   *   that sweep running once a minute all day for a board nobody may open. The inbox
+   *   already sweeps it on its own minute *when the kind filter wants pull requests*
+   *   (`loadBoard`), which is exactly when it is drawing them; when the filter does not,
+   *   the free restamp above is all this path gets. So the board is warm for as long as it
+   *   is provably unchanged, and once a board event has gone by it keeps its own age and
+   *   the TTL takes it — which is where it started.
+   *
+   * Every branch fails soft. No warm layer, no held entry to maintain, a fetch that
+   * throws: all of them leave one cold tab, which is exactly where this began.
+   */
+  const MAINTAINED = [
+    {
+      path: '/api/work',
+      fold: (work, data) => {
+        // An entry from before `/api/work` carried rows in this shape is one we cannot
+        // reason about — re-fetch rather than patch half of it.
+        if (!Array.isArray(work?.workspaces)) return null;
+        return {
+          ...work,
+          advocates: Array.isArray(data?.advocates) ? data.advocates : work.advocates,
+          observing: data?.observing ?? work.observing,
+        };
+      },
+      // A stream.js from before `workMoved` existed has no opinion, and the cheap
+      // direction is the right default for the one path here that is a `bd` sweep: the
+      // tab is then as cold as it was yesterday, which is what this layer promises.
+      moved: (events) => Boolean(window.beadcause?.stream?.workMoved?.(events)),
+      // The one path restamped even on a wake that moved it, because the half being
+      // folded in *is* of now — the roster is a snapshot, not a memory — and the other
+      // half is on its way below. Nowhere else is anything folded, so restamping a moved
+      // entry there would be a fresh clock over a payload we know to be wrong.
+      stampWhileStale: true,
+      refetch: true,
+    },
+    {
+      path: '/api/admin',
+      fold: (status) => (Array.isArray(status?.scopes) ? status : null),
+      moved: (events) => Boolean(window.beadcause?.stream?.moved?.(events)),
+      stampWhileStale: false,
+      refetch: true,
+    },
+    {
+      path: '/api/consoles',
+      fold: (list) => (Array.isArray(list?.consoles) ? list : null),
+      moved: (events) => Boolean(window.beadcause?.stream?.moved?.(events)),
+      stampWhileStale: false,
+      refetch: true,
+    },
+    {
+      path: '/api/prs',
+      fold: (board) => (Array.isArray(board?.repos) ? board : null),
+      // `!== false` rather than a plain call: a stream.js from before `boardMoved`
+      // existed answers `undefined`, and "we cannot tell" has to mean "it moved" for a
+      // path whose only maintenance is the restamp. Unknown then costs nothing beyond
+      // the board being as cold as it is today, rather than a board kept young on a
+      // guess — and the lamps on it claim to be true.
+      moved: (events) => window.beadcause?.stream?.boardMoved?.(events) !== false,
+      stampWhileStale: false,
+      refetch: false,
+    },
+  ];
+
+  /**
+   * When this page last asked for each of those, on another view's behalf.
+   *
+   * Seeded with *now* rather than zero, which is the only reason the two warmers cannot
+   * both fetch on boot: `prewarm` goes and gets these same paths 1200ms in, and a poll
+   * that wakes inside that window would otherwise find nothing held and ask a second
+   * time. The first minute belongs to the background warm, which is doing this anyway;
+   * after that, whichever needs it asks.
+   */
+  const warmAskedAt = new Map(MAINTAINED.map((m) => [m.path, Date.now()]));
+
+  /**
+   * Keep one warmed path young for as long as you sit here.
+   *
+   * The free half first, then the paid one, and the table above decides which of them
+   * each path gets. `moved` is the whole hinge: it is the log saying whether what we are
+   * holding could have changed, and an entry it has not contradicted is restamped for
+   * nothing. A `resync` counts as moved for the same reason it does everywhere else —
+   * it is the log saying its own events are not the whole story.
+   */
+  function maintain(warm, spec, data, events, resync) {
+    const moved = Boolean(resync) || spec.moved(events);
+    const held = !moved || spec.stampWhileStale ? warm.refresh(spec.path, (d) => spec.fold(d, data)) : false;
+    if (!spec.refetch) return;
+    // Held and provably current: the point of the whole exercise, and it cost no request.
+    if (held && !moved) return;
+    // A phone in a pocket must not be warming tabs.
+    if (document.hidden) return;
+    // The floor is the background warm's own, and for the same reason: a burst of events
+    // must not become a request each. Stamped before the request rather than after it, so
+    // two wakes inside one flight cannot both get through.
+    const floor = warm.PREWARM_FLOOR_MS || 60000;
+    if (Date.now() - (warmAskedAt.get(spec.path) || 0) < floor) return;
+    warmAskedAt.set(spec.path, Date.now());
+    api(spec.path)
+      .then((fresh) => warm.write(spec.path, fresh, Number(fresh?.seq) || 0))
+      .catch(() => {
+        /* One cold tab, which is where it started. The next event that matters comes
+           round on its own, and a phone that cannot reach the daemon has a worse
+           problem than a tab that has to wait for its own fetch. */
+      });
+  }
+
+  /** Every maintained path, on every wake. See `MAINTAINED` for what that means per path. */
+  function warmViews(data, events, resync) {
+    const warm = window.beadcause?.warm;
+    if (!warm?.available) return;
+    // A warm layer from before `refresh` existed — a service worker cached ahead of this
+    // change. Nothing to do rather than fall through to the fetches: without maintenance
+    // those would be a request a minute each for tabs nobody tapped, which is the timer's
+    // bill arriving by another route. A tab that is merely as cold as it was yesterday is
+    // the promise this whole layer makes.
+    if (typeof warm.refresh !== 'function') return;
+    for (const spec of MAINTAINED) maintain(warm, spec, data, events, resync);
+  }
+
   /** #workspace/id from an ntfy notification tap, or the Android shell's deep link. */
   let hashHandled = '';
   async function focusHash() {
@@ -5504,9 +5755,11 @@
       composing = false;
       composeEl.disabled = false;
       // 403 is `beadConsole: false` in the config, which is a deliberate setting and
-      // not a fault — its own words rather than the daemon's.
+      // not a fault — its own words rather than the daemon's, and a refusal rather than
+      // a failure, so it is red on the screen and files nothing.
+      const off = err.status === 403;
       if (err.message !== 'token rejected') {
-        toast(err.status === 403 ? 'Chat sessions are turned off in the config.' : err.message, true);
+        toast(off ? 'Chat sessions are turned off in the config.' : err.message, off ? 'refused' : true);
       }
     }
   }
@@ -5641,10 +5894,14 @@
     // and `onSettle` is what puts it back on. The other four have nothing to fall back
     // to and let the stream try again for them.
     retryMs: 0,
-    onWake({ data }) {
+    onWake({ data, events, resync }) {
       // The poll answered, so the credential is good and the daemon is up: the one
       // moment it is safe to go and warm the other four tabs.
       warmOthers();
+      // And to keep them warm rather than leaving them to age out under a TTL nothing
+      // was putting back — this is the wake every other view is maintained from, and
+      // `MAINTAINED` is where what that means per path is argued.
+      warmViews(data, events, resync);
       // Null means the park timed out with nothing but presence traffic — the quiet
       // case, and the whole point: no sweep ran on the daemon and nothing repaints
       // here. An empty array would mean "the inbox is empty", which is why the two

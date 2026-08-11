@@ -23,10 +23,10 @@
  */
 import fs from 'node:fs';
 import http from 'node:http';
-import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { boundPort } from './helpers/net.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const LIB = (f) => path.join(HERE, '..', 'lib', f);
@@ -71,17 +71,9 @@ const cfg = {
 
 const { createApp, listen } = await import(LIB('server.js'));
 
-const port = await new Promise((resolve, reject) => {
-  const probe = net.createServer();
-  probe.on('error', reject);
-  probe.listen(0, '127.0.0.1', () => {
-    const { port: p } = probe.address();
-    probe.close(() => resolve(p));
-  });
-});
-
-const app = createApp({ ...cfg, port });
-const servers = listen({ ...cfg, port }, app.handler);
+const app = createApp(cfg);
+const servers = listen(cfg, app.handler);
+const port = await boundPort(servers);
 
 const get = (pathname) =>
   new Promise((resolve, reject) => {
@@ -97,15 +89,6 @@ const get = (pathname) =>
     req.on('error', reject);
     req.end();
   });
-
-for (let i = 0; i < 100; i += 1) {
-  try {
-    await get('/icon.svg');
-    break;
-  } catch {
-    await new Promise((r) => setTimeout(r, 20));
-  }
-}
 
 /* -------------------------------------------------------------------- cases */
 
@@ -151,6 +134,10 @@ const PAGES = [
     marker: '/endorse.js',
     paths: ['/endorse', '/queue', '/endorsements', '/endorse.html'],
   },
+  // The ledger. Two paths and not three, unlike the queue above it: it has been a tab
+  // on the bottom bar since the day it existed, so the bar is the only thing that has
+  // ever linked to it and there is no older name in anybody's home screen to keep alive.
+  { what: 'the history tab', marker: '/history.js', paths: ['/history', '/history.html'] },
   { what: 'the chat session', marker: '/console.js', paths: ['/console', '/console.html'] },
   { what: 'the in-app terminal', marker: '/term.js', paths: ['/terminal', '/term.html'] },
   { what: 'the admin screen', marker: '/admin.js', paths: ['/admin', '/admin.html'] },

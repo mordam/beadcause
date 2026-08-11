@@ -99,6 +99,22 @@
       label: 'Advocates',
       paths: ['/monitor', '/advocates', '/monitor.html', '/sessions', '/work', '/work.html'],
     },
+    // The record (bc-nib3.2). It earns a tab by this file's own rule rather than in
+    // spite of it: **the historical record is somewhere you live** — it is where you go
+    // to ask "what happened to that", and before it existed a bead that closed last week
+    // was reachable only if you still remembered its id. The inbox is what is arriving,
+    // Advocates is what is running this minute, and neither of them can answer a
+    // question about the past, because a thing that is finished has by definition left
+    // both lists.
+    //
+    // Here rather than at either end, which is two decisions. The bar had to grow in the
+    // **middle**: Inbox is leftmost because it is home and it is `/`, Admin is rightmost
+    // because it is the tab you least want to hit by accident, so neither of the two
+    // positions anybody has learned moves to a different edge. And of the two middle
+    // slots this takes the later one, so that the first three read left to right in the
+    // order the work does — what is arriving, what is running, what is finished — and
+    // Inbox and Advocates, the pair you cross between all day, stay next to each other.
+    { id: 'history', href: '/history', icon: '📜', label: 'History', paths: ['/history', '/history.html'] },
     // The fifth tab this file's header left room for. Pause all / resume all lives
     // on its own page, and it has to be reachable from wherever you noticed you
     // wanted it — which is the point of the bar.

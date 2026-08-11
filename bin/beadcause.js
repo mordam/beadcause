@@ -3,12 +3,14 @@ import { loadConfig, reconcileBaseUrl, CONFIG_PATH, OBSERVING } from '../lib/con
 import { createApp, startPoller, listen } from '../lib/server.js';
 import { advocatedWorkspaces, workerLimit, globalWorkerCap } from '../lib/advocate.js';
 import { buildStamp } from '../lib/build.js';
-import { declareOwnDeploy } from '../lib/deploy.js';
+import { beginShutdown, installCrashHandlers } from '../lib/crash.js';
+import { declareOwnDeploy, ownWorkspace } from '../lib/deploy.js';
 import { hotSwapProblem, problemBanner } from '../lib/service.js';
 import { attachTerminalSocket, releaseSockets } from '../lib/termsocket.js';
 import { closeServer, startRenewal } from '../lib/tls.js';
 import { pushCertificate } from '../lib/notify.js';
 import { startSlack, slackStatusLine, slackTokenWarnings } from '../lib/slack.js';
+import { repoStatusLine, repoWarnings } from '../lib/repos.js';
 import { flush } from '../lib/commonrepo.js';
 import { restoreTerminals, shutdownTerminals, startTerminalReaper, terminalsEnabled } from '../lib/terminal.js';
 
@@ -92,6 +94,38 @@ const app = createApp(cfg);
 const startedAt = new Date().toISOString();
 const build = buildStamp();
 let role = startStandby ? 'standby' : 'active';
+
+/**
+ * From here on, a crash in this process is a bead rather than only a log line — bc-p38c.4,
+ * and lib/crash.js is where all of it lives.
+ *
+ * As early as it can be, which is: after `createApp` (that is what makes a `bd` handle
+ * exist) and after the two names `where` reads, and *before* the poller and the Slack
+ * socket, because those are the first things here that can throw. Anything above still
+ * crashes the old way, and that is a trade rather than an omission — a throw during config
+ * load or `createApp` has no tracker to file into, and launchd's KeepAlive turning a boot
+ * failure into a loud restart loop with the reason in the log is exactly the volume that
+ * failure wants (see `assertRoutes`).
+ *
+ * The workspace is **this checkout's own**, not `cfg.workspaces[0]`. A beadcause bug
+ * belongs on the beadcause graph, and the first configured workspace is very often the one
+ * wired to a team's JIRA. Falling back to the first is deliberate too: a daemon whose
+ * checkout matches no configured workspace still has crashes worth recording, and a bead
+ * on the wrong graph beats no bead at all.
+ *
+ * `where` is a function because `role` moves. A standby promoted an hour ago should say
+ * `active` on the bead it files, and a string built here would be quietly wrong for
+ * exactly the crashes that are hardest to reason about afterwards.
+ */
+const ownWs = cfg.workspaces.find((w) => w.name === ownWorkspace(cfg)) || cfg.workspaces[0];
+installCrashHandlers(cfg, {
+  bd: app.bd,
+  workspace: ownWs,
+  bus: app.bus,
+  where: () =>
+    `the beadcause daemon — ${role}, build ${build}, pid ${process.pid}${internalPort ? `, internal :${internalPort}` : ''}`,
+});
+
 let poller = startStandby ? null : startPoller(cfg, app);
 /**
  * The Slack socket, and why it is tied to exactly the same switch as the poller.
@@ -272,12 +306,24 @@ if (internalPort) {
   setInterval(() => {
     if (Date.now() - lastContact < ORPHAN_MS) return;
     console.error(`[beadcause] no router contact in ${ORPHAN_MS / 1000}s — exiting rather than polling unsupervised`);
+    // A deliberate exit, so nothing a teardown knocks over is a bug worth filing — the
+    // same reason `shutdown` says it. Not a duplicate of that one: this path bypasses it.
+    beginShutdown();
     process.exit(0);
   }, 5000).unref();
 }
 
 console.log(`[beadcause] config      ${CONFIG_PATH}`);
 console.log(`[beadcause] workspaces  ${cfg.workspaces.map((w) => w.name).join(', ')}`);
+// And, for a workspace that is more than one repo, which checkouts it may be worked in
+// — printed even when nothing is configured, because the line that says "every
+// workspace is one repo" is the one that tells you the block exists at all.
+console.log(`[beadcause] repos       ${repoStatusLine(cfg)}`);
+// The three ways an approved list goes wrong on disk — a repo that is not cloned, one
+// that declares no service token, and two that declare the same one. All of them are
+// silent otherwise: they present as a bead resolving to nothing, at whatever hour the
+// advocate got to it. `console.warn` so they are not read as part of the tidy block.
+for (const w of repoWarnings(cfg)) console.warn(`[repos] ${w}`);
 // First thing in the log, and unmissable, because the mistake it guards against is
 // believing you are in it when you are not — and the evidence of *that* arrives
 // thirty seconds later as two Claude windows you did not ask for.
@@ -347,6 +393,12 @@ if (!OBSERVING) {
 }
 
 const shutdown = () => {
+  // Before anything is closed, and this is the whole of one of bc-p38c.4's edge cases:
+  // tearing down servers, terminals and a git flush makes things in flight reject, and
+  // every one of those would otherwise file a P0 bug about a daemon doing exactly as it
+  // was told. The router SIGTERMs a backend on every hot swap — which is to say on every
+  // deploy — so a crash handler that filed during shutdown would file on every deploy.
+  beginShutdown();
   // Guarded, not bare: a standby has no poller to clear.
   if (poller) clearInterval(poller);
   if (reaper) clearInterval(reaper);

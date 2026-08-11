@@ -90,14 +90,12 @@
      is the busy one. */
   const LOG_MS = 2500;
 
-  /**
-   * Advocate actions that change the roster and nothing `bd` would answer differently.
-   *
-   * The roster is on the poll, so these repaint for free. Everything else an advocate
-   * does — launching a session, closing one, landing a delivery — moves a row that comes
-   * out of `bd` or off the filesystem, and those are worth going back for.
-   */
-  const ROSTER_ONLY = new Set(['checked-in', 'surveying', 'idle', 'paused', 'resumed', 'forgot', 'limit']);
+  /* Which advocate actions repaint for free and which are worth going back to `bd` for
+     used to be a set and a predicate here. Both moved into public/stream.js as
+     `workMoved` (bc-xxzz), because the inbox asks the same question about the copy it
+     holds *for* this page, and two copies of that judgement drifting apart would mean
+     the inbox handing this page a warm payload missing exactly the row you tapped
+     through to see. See `follow` below for the only use of it left here. */
 
   const esc = (s) =>
     String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -156,6 +154,15 @@
     spaceError: null,
     /** What the last press changed, in the daemon's words rather than the label's. */
     spaceSaid: null,
+    /* The three halves of a stepper that has been moved but not yet applied — see
+       `limitControl`. All keyed the same way (`stepKey`), and all in `state` rather
+       than in the markup for one reason: this page repaints off a poll every couple
+       of seconds, so a number held in the DOM would be thrown away under the thumb
+       that was still adjusting it. `applyingLimits` is here for the same reason — a
+       repaint mid-write must not hand back an enabled control. */
+    pendingLimits: new Map(), // step key → the number you have dialled up, not yet sent
+    applyingLimits: new Set(), // step key → a write is in flight
+    limitErrors: new Map(), // step key → why the last apply was refused
   };
 
   function readOpen() {
@@ -276,23 +283,77 @@
    *   that explains itself. `tickOne` writes the same sentence into the note once it
    *   is actually blocked; this says it the moment you press, which is when you are
    *   looking.
+   *
+   * What it no longer does is write on every press. Each ± used to POST — so 1 → 5
+   * was four writes to config.json, four applies on the running daemon and four
+   * repaints, with no moment in the middle where you could change your mind. The
+   * number moves in the page now and Apply is what sends it, once.
    */
-  function limitStepper(a) {
-    const key = esc(a.workspace);
-    const ceiling = a.ceiling || 9;
-    const step = (delta, label, title, off) =>
-      `<button class="adv-btn adv-step" data-adv="limit" data-ws="${key}" data-value="${a.limit + delta}" title="${esc(
-        title
-      )}"${off ? ' disabled' : ''}>${label}</button>`;
-    return `<span class="adv-limit${a.globalHeld ? ' held' : ''}" title="${esc(
-      a.globalHeld
-        ? `${a.limit} sessions at once — but globalMaxWorkers is ${a.globalMax} across every advocate, so this repo will not get more than that`
-        : `How many sessions this advocate may open at once — one iTerm window each, on this Mac`
-    )}">
-      ${step(-1, '−', 'One fewer session at a time', a.limit <= 1)}
-      <b>${a.limit}</b>
-      ${step(1, '+', `One more session at a time (up to ${ceiling})`, a.limit >= ceiling)}
+  const GLOBAL_STEP = 'global';
+  /** Where a stepper's pending value lives. `global` has no repo, like its action. */
+  const stepKey = (ws) => (ws ? `ws:${ws}` : GLOBAL_STEP);
+  const stepWorkspace = (key) => (key === GLOBAL_STEP ? undefined : key.slice(3));
+  const stepAction = (key) => (key === GLOBAL_STEP ? 'globalLimit' : 'limit');
+
+  /**
+   * `−  3  +  Apply` — the body both steppers share.
+   *
+   * One builder for the per-repo control and the global one, because they were already
+   * deliberately the same control and the hold-until-Apply behaviour is the part it
+   * would be worst to have two versions of.
+   *
+   * Three states, and each has to survive a repaint arriving mid-adjustment:
+   *
+   * - **settled** — no pending value, so the number is the daemon's and there is no
+   *   Apply to press. Identical to what this control has always looked like;
+   * - **moved** — you have stepped it. The pill picks up `pending`, Apply appears, and
+   *   nothing has been written yet: the number under it is still `live`, which is what
+   *   the Apply title says out loud so a control left half-adjusted cannot be mistaken
+   *   for one that took;
+   * - **applying** — the write is in flight. Every button in the control is disabled,
+   *   including the steppers, because a ± landing between the POST and its answer
+   *   would leave a pending number that no longer means anything.
+   */
+  function limitControl({ key, live, ceiling, held, pillTitle, fewerTitle, moreTitle }) {
+    const want = state.pendingLimits.has(key) ? state.pendingLimits.get(key) : live;
+    const busy = state.applyingLimits.has(key);
+    const moved = want !== live;
+    const step = (delta, label, title, atEnd) =>
+      `<button class="adv-btn adv-step" data-step="${esc(key)}" data-value="${
+        want + delta
+      }" data-ceiling="${ceiling}" title="${esc(title)}"${atEnd || busy ? ' disabled' : ''}>${label}</button>`;
+    return `<span class="adv-limit${held ? ' held' : ''}${moved ? ' pending' : ''}" title="${esc(pillTitle)}">
+      ${step(-1, '−', fewerTitle, want <= 1)}
+      <b>${want}</b>
+      ${step(1, '+', moreTitle, want >= ceiling)}
+      ${
+        moved
+          ? `<button class="adv-btn adv-apply primary" data-apply="${esc(key)}" title="${esc(
+              busy ? `Setting it to ${want}…` : `Set it to ${want}. It is still ${live} — nothing has been written yet.`
+            )}"${busy ? ' disabled' : ''}>${busy ? '…' : 'Apply'}</button>`
+          : ''
+      }
     </span>`;
+  }
+
+  function limitStepper(a) {
+    return limitControl({
+      key: stepKey(a.workspace),
+      live: a.limit,
+      ceiling: a.ceiling || 9,
+      held: a.globalHeld,
+      pillTitle: a.globalHeld
+        ? `${a.limit} sessions at once — but globalMaxWorkers is ${a.globalMax} across every advocate, so this repo will not get more than that`
+        : `How many sessions this advocate may open at once — one iTerm window each, on this Mac`,
+      fewerTitle: 'One fewer session at a time',
+      moreTitle: `One more session at a time (up to ${a.ceiling || 9})`,
+    });
+  }
+
+  /** The refusal from the last Apply, drawn where the press was. */
+  function limitErrorHtml(key) {
+    const said = state.limitErrors.get(key);
+    return said ? `<div class="adv-note bad">${esc(said)}</div>` : '';
   }
 
   /**
@@ -317,11 +378,18 @@
    * closes. Which is exactly why it needs the pill — "1 ready" that never becomes a
    * session, with nothing on screen naming the bead it is waiting behind, is
    * indistinguishable from an advocate that has stopped working.
+   *
+   * `heldByPr` is the fifth (bc-utyr), and the one whose pill is a *link*: a bead held
+   * because an open pull request already carries its work is waiting on something you
+   * can act on from the phone you are reading this on — a merge, or a conflict to
+   * resolve — and the board is where both taps live. The others name a bead you would
+   * have to go and find; this one names a number and takes you to it.
    */
   function domainHtml(w, a) {
     const c = w?.counts || {};
     const waiting = (a && a.heldByChildren) || [];
     const twins = (a && a.heldByTwin) || [];
+    const prs = (a && a.heldByPr) || [];
     const pills = [
       c.open != null ? `<span class="pill">${c.open} open</span>` : '',
       c.ready ? `<span class="pill">${c.ready} ready</span>` : '',
@@ -346,6 +414,9 @@
         : '',
       twins.length
         ? `<span class="pill muted" title="${esc(twins.map((h) => `${h.id} — ${h.why}`).join('\n'))}">${twins.length} the same job under another id</span>`
+        : '',
+      prs.length
+        ? `<a class="pill muted" href="/prs" title="${esc(prs.map((h) => `${h.id} — ${h.why}`).join('\n'))}">${prs.length} in an open pull request</a>`
         : '',
     ].filter(Boolean);
     return `<div class="mon-domain">${pills.join('')}</div>`;
@@ -722,6 +793,13 @@
           : ''
       }
       ${
+        // Why the last Apply on this card's stepper was refused. In the card rather
+        // than appended to the button's parent, because applying repaints the page and
+        // a note stuck onto the old DOM would vanish with it — which is exactly the
+        // press whose failure has to be visible.
+        limitErrorHtml(stepKey(key))
+      }
+      ${
         // The workspace's own error, and only when it is not the advocate's error
         // said twice. They are separate facts — the advocate holds its last failure
         // in memory, /api/work asks bd afresh — and usually the same sentence.
@@ -894,25 +972,24 @@
     if (!g) return ''; // An older daemon behind a newer page: say nothing, invent nothing.
     const ceiling = g.ceiling || 36;
     const held = g.live >= g.maxWorkers;
-    const step = (delta, label, title, off) =>
-      `<button class="adv-btn adv-step" data-adv="globalLimit" data-value="${g.maxWorkers + delta}" title="${esc(
-        title
-      )}"${off ? ' disabled' : ''}>${label}</button>`;
     return `<div class="svc ok svc-set">
       <span class="svc-dot">⚙</span>
       <span><b class="svc-num${held ? ' warn' : ''}">${g.live}</b> of ${plural(
         g.maxWorkers,
         'session'
       )} open across every advocate${held ? ' — every slot is in use' : ''}</span>
-      <span class="adv-limit${held ? ' held' : ''}" title="${esc(
-        observing
+      ${limitControl({
+        key: GLOBAL_STEP,
+        live: g.maxWorkers,
+        ceiling,
+        held,
+        pillTitle: observing
           ? 'This instance only watches — the cap belongs to the daemon that acts.'
-          : 'advocates.globalMaxWorkers — the total across every advocate on this Mac, whatever any one repo’s own limit says'
-      )}">
-        ${step(-1, '−', 'One fewer session on this Mac, across every advocate', g.maxWorkers <= 1)}
-        <b>${g.maxWorkers}</b>
-        ${step(1, '+', `One more session on this Mac (up to ${ceiling})`, g.maxWorkers >= ceiling)}
-      </span>
+          : 'advocates.globalMaxWorkers — the total across every advocate on this Mac, whatever any one repo’s own limit says',
+        fewerTitle: 'One fewer session on this Mac, across every advocate',
+        moreTitle: `One more session on this Mac (up to ${ceiling})`,
+      })}
+      ${limitErrorHtml(GLOBAL_STEP)}
     </div>`;
   }
 
@@ -1015,7 +1092,7 @@
     if (state.spaceError) {
       // The synthetic "Other" group lands here: it is a place the picker offers, not a
       // thing with settings, and the server 404s it rather than inventing one.
-      return `<article class="card mon-card plain space-card">
+      return `<article class="card work-card mon-card plain space-card">
         <div class="work-head"><h2>${esc(name)}</h2><span class="mon-state dim">no settings</span></div>
         <p class="subtitle">${esc(state.spaceError)}${
           name === 'Other'
@@ -1165,7 +1242,12 @@
         } — config drift, and nothing here reaches them.</div>`
       : '';
 
-    return `<article class="card mon-card space-card">
+    // `work-card` is the padding, and this was the one card on the page without it —
+    // every setting in it sat on the card's left border, and the only thing holding the
+    // head off the top one was the margin an unstyled <h2> happens to bring. bc-8l74
+    // took that margin away to make the head a row, so the class it should always have
+    // had is here now. See `.space-card` in public/style.css.
+    return `<article class="card work-card mon-card space-card">
       <div class="work-head">
         <h2>${esc(d.space)}</h2>
         <span class="mon-state ${head.tone}">${esc(head.text)}</span>
@@ -1192,6 +1274,14 @@
     const data = state.work;
     if (!data) return;
     if (polled && out.contains(document.activeElement) && document.activeElement?.type === 'time') return;
+
+    // A pending number the daemon has since arrived at anyway — this repo stepped from
+    // another device, or the value applied and came back — is settled, not pending. Done
+    // here rather than in `stepLimit` because it is a *poll* that makes it true, and an
+    // Apply button offering to set 5 to 5 is a press with nothing behind it.
+    for (const [key, want] of state.pendingLimits) {
+      if (!state.applyingLimits.has(key) && liveLimit(key) === want) state.pendingLimits.delete(key);
+    }
 
     // Which daemon am I looking at? Two consoles side by side are otherwise
     // identical, and the one that acts is not the one you have been clicking.
@@ -1261,7 +1351,7 @@
     // one kind of press an instance that "never acts" must not make.
     if (data.observing) {
       for (const el of out.querySelectorAll(
-        '[data-space-set],[data-space-day],[data-space-hours],#qh-from,#qh-to,[data-adv="globalLimit"]'
+        '[data-space-set],[data-space-day],[data-space-hours],#qh-from,#qh-to,[data-step="global"],[data-apply="global"]'
       )) {
         el.disabled = true;
         el.title = 'This instance only watches — the settings belong to the daemon that acts.';
@@ -1359,7 +1449,9 @@
       // Kept for the next document that wants them — this page on the next tab tap,
       // and /admin, which boots from /api/work too.
       const warm = window.beadcause?.warm;
-      warm?.write?.('/api/work', work);
+      // With its sequence, so the inbox can tell whether the copy it is holding for this
+      // page has been invalidated by anything since — see `MAINTAINED` in public/app.js.
+      warm?.write?.('/api/work', work, Number(work?.seq) || 0);
       if (questions.questions) warm?.write?.('/api/questions?scope=human', questions, questions.seq);
       adoptQuestions(questions);
       state.error = null;
@@ -1455,11 +1547,13 @@
   /* ------------------------------------------------------------------ actions */
 
   /**
-   * Pause, resume, free the slots, forget the attempt counters, or set either limit.
+   * Pause, resume, free the slots, or forget the attempt counters.
    *
    * `ws` is undefined for exactly one action: `globalLimit` is a total across every
    * advocate, so it belongs to no repo and `JSON.stringify` drops the key rather than
-   * naming one. The server reads the action before it looks for a workspace.
+   * naming one. The server reads the action before it looks for a workspace. Nothing
+   * reaches here with that action any more — the global cap is applied by `applyLimit`
+   * — but the shape is the endpoint's, not this button row's, so it stays.
    */
   async function control(ws, action, btn, value) {
     const was = btn.textContent;
@@ -1484,6 +1578,64 @@
         'beforeend',
         `<div class="adv-note bad">${esc(err.message)}</div>`
       );
+    }
+  }
+
+  /**
+   * Move a stepper without writing anything.
+   *
+   * A pending number equal to the live one is *deleted* rather than stored, so stepping
+   * up and back down again puts the control back to settled — an Apply button offering
+   * to set 3 to 3 is a press with nothing behind it. Clamped here as well as by the
+   * disabled buttons: a keyboard repeat can outrun a repaint.
+   */
+  function stepLimit(key, want, ceiling) {
+    if (state.applyingLimits.has(key)) return;
+    const live = liveLimit(key);
+    const next = Math.max(1, Math.min(Number(want) || 1, ceiling ?? Infinity));
+    if (live != null && next === live) state.pendingLimits.delete(key);
+    else state.pendingLimits.set(key, next);
+    // A number you have just re-dialled is not a number that failed to apply.
+    state.limitErrors.delete(key);
+    render();
+  }
+
+  /** What the daemon currently has, for the stepper keyed `key`. */
+  function liveLimit(key) {
+    if (key === GLOBAL_STEP) return state.work?.globals?.maxWorkers ?? null;
+    const ws = stepWorkspace(key);
+    return (state.work?.advocates || []).find((a) => a.workspace === ws)?.limit ?? null;
+  }
+
+  /**
+   * Send the number the stepper is holding — the one write this control makes.
+   *
+   * The whole control goes disabled for the round trip (`applyingLimits` plus a
+   * repaint, so a poll landing mid-flight cannot re-enable it), and the pending value
+   * is kept on failure: the refusal is a reason to look at the number, not a reason to
+   * lose it. On success it is dropped and `load()` brings back the daemon's own answer,
+   * which is what the pill then shows — the two differ whenever the clamp bit.
+   */
+  async function applyLimit(key) {
+    const want = state.pendingLimits.get(key);
+    if (want == null || state.applyingLimits.has(key)) return;
+    state.applyingLimits.add(key);
+    state.limitErrors.delete(key);
+    render();
+    try {
+      await api('/api/advocate', {
+        method: 'POST',
+        // A number, never a string: the daemon would clamp `"4"` to the same 4, but the
+        // endpoint is the contract and a stringly-typed count stays wrong quietly.
+        body: JSON.stringify({ workspace: stepWorkspace(key), action: stepAction(key), value: Number(want) }),
+      });
+      state.pendingLimits.delete(key);
+      state.applyingLimits.delete(key);
+      await load();
+    } catch (err) {
+      state.applyingLimits.delete(key);
+      state.limitErrors.set(key, err.message);
+      render();
     }
   }
 
@@ -1658,11 +1810,28 @@
       return;
     }
 
+    // Before `[data-adv]`, and carrying no `data-adv` of their own: a stepper press is
+    // now a change to a number this page is holding, and only Apply talks to the daemon.
+    const stp = e.target.closest('[data-step]');
+    if (stp) {
+      e.preventDefault();
+      stepLimit(stp.dataset.step, Number(stp.dataset.value), Number(stp.dataset.ceiling) || undefined);
+      return;
+    }
+
+    const app = e.target.closest('[data-apply]');
+    if (app) {
+      e.preventDefault();
+      applyLimit(app.dataset.apply);
+      return;
+    }
+
     const adv = e.target.closest('[data-adv]');
     if (adv) {
       e.preventDefault();
-      // `value` only exists on the stepper. Undefined for every other action, which
-      // is what the server expects — nothing else here carries a number.
+      // Nothing here carries a number any more — the two that did are the steppers
+      // above, which apply through `applyLimit`. `value` stays in the signature
+      // because `control` is the one door to /api/advocate and the endpoint takes one.
       control(adv.dataset.ws, adv.dataset.adv, adv, adv.dataset.value);
       return;
     }
@@ -1771,10 +1940,7 @@
         }
         // Presence is a thumb moving on somebody's phone, and an advocate saying it is
         // still surveying is the roster above. Neither is a reason to sweep `bd`.
-        const worth = events.some(
-          (e) => e.type !== 'presence' && !(e.type === 'advocate' && ROSTER_ONLY.has(e.action))
-        );
-        if (worth) load({ polled: true });
+        if (window.beadcause.stream.workMoved(events)) load({ polled: true });
       },
     });
     stream.start();

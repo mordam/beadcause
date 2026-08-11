@@ -106,13 +106,73 @@
    unstyled button into the middle of a label row and sizes the transcript as though it
    were not there, pushing the log off the bottom of the phone. Both look like a working
    page, which is the failure a cache version exists to prevent. */
-/* v33: the other half of that page — `/bead-session?workspace=&id=`, what a session left
-   behind, for a bead whose session finished (bc-nib3.5). Three new paths, and they have
-   to arrive together with the stylesheet for the usual reason: a phone holding v32's
-   style.css against v33's beadsession.js draws the three "not available" sentences and
-   the memory block with no styling at all, which on the page that says nothing is there
-   most of the time is indistinguishable from a page that failed to load. */
-const CACHE = 'beadcause-v33';
+/* v33: the Advocates tab is preloaded and then *kept* warm off the delta stream rather
+   than left to age out of the warm layer (bc-xxzz). No new path — app.js, warm.js,
+   stream.js and monitor.js are all already here — and all four have to arrive together,
+   in both directions. monitor.js now asks `stream.workMoved(events)` instead of carrying
+   its own copy of that judgement, so a phone holding v33's monitor.js beside v32's
+   stream.js throws inside its wake handler and the advocates page stops refreshing
+   altogether; one holding v32's app.js beside v33's warm.js has the reordered background
+   warm but nothing that maintains what it fetched, which is the bug this change is about
+   still being there behind a version that says it is fixed. Only the other direction is
+   safe by construction: v32's warm.js under v33's app.js has no `refresh`, and app.js
+   looks for it and does nothing — that page is as cold as it was and no more expensive,
+   which is the fallback the warm layer promises everywhere else. */
+/* v34: the History tab (bc-nib3.2). `/history`, `/history.html` and `/history.js` are
+   new paths *and* `/tabbar.js` moves in the same change, which is the pairing that makes
+   this a version bump rather than three additions to the list. A phone holding v33's
+   cached tabbar.js has a three-tab bar with no History on it, so the page behind the new
+   paths is unreachable from every screen in the app; one holding v34's tabbar.js without
+   the three new entries has a tab that 404s out of the cache the moment the tailnet is
+   slow — a bar whose whole job is that you can always leave a page, with an entry that
+   goes nowhere. The bar and the page it points at have to arrive together, which is what
+   a cache version is for. */
+/* v35: the ✕ on the inbox's chat cards (bc-vau1). No new path — app.js and style.css are
+   both already here — and it is the v32 pairing again, in both directions. A phone
+   holding v34's app.js beside v35's stylesheet draws the row it always did and nothing
+   else, because there is no ✕ in that app.js to lay out; one holding v35's app.js
+   against v34's stylesheet drops a full-width ✕ *underneath* every chat row, since the
+   card only became a flex wrapper in the new stylesheet and the button is a sibling of
+   the link now rather than something inside it. The second is the one that matters:
+   every conversation in the inbox is suddenly two rows tall with a stray button between
+   them, and it still works, which is exactly the "looks like a working page" failure a
+   cache version exists to prevent. */
+/* v36: how a closed bead ended, on the bead detail sheet (bc-9cpg). No new path —
+   graph.js and style.css are both already here — and it is the v32/v35 pairing once
+   more, in both directions. A phone holding v35's graph.js beside v36's stylesheet
+   opens the sheet it always did: the status pill says "closed" and nothing on the
+   screen says why, which is the hole this closes. One holding v36's graph.js against
+   v35's stylesheet is the direction that matters — `.closed-note` has no rules there,
+   so a close reason that runs to 1664 characters lands as an unframed wall of prose
+   between the pills and the title's own description, with a bare date line above it
+   and nothing marking where the bead's own text starts. It reads as the description,
+   which is the "looks like a working page" failure a cache version exists to prevent.
+   */
+/* v37: a strip of handles over the chat session, one per chat you have open (bc-2tr).
+   No new path — console.html, console.js and style.css are all already here — and it is
+   the v32 pairing again, in both directions. A phone holding v36's console.html
+   beside v37's console.js has no `#chat-tabs` to draw into: the strip is guarded, so
+   that half is merely the page as it was, which is the direction this is allowed to
+   fail in. The other is not. v37's console.html against v36's stylesheet draws the nav
+   as a run of unstyled links and ✕s across the top of the page, above the launcher and
+   above every conversation — no pill, no truncation, and the horizontal scroll that
+   makes a strip a strip replaced by six chat titles wrapping onto four lines and
+   pushing the transcript off the bottom of the phone. It still works, which is exactly
+   the "looks like a working page" failure a cache version exists to prevent. */
+/* v38: what a session left behind, and the way in to it — `/bead-session?workspace=&id=`
+   (bc-nib3.5) plus the row on the bead detail sheet that opens it (bc-nib3.6). Three new
+   paths, and both halves of the pairing bite. A phone holding v37's style.css against
+   v38's beadsession.js draws the three "not available" sentences and the memory block
+   with no styling at all, which on the page that says nothing is there most of the time
+   is indistinguishable from a page that failed to load. And the sheet's own half is the
+   v32/v36 pairing once more: v37's graph.js beside v38's stylesheet opens the sheet it
+   always did, with no way through to the session — merely the app as it was, which is
+   the direction this is allowed to fail in — while v38's graph.js against v37's
+   stylesheet lands `.sheet-session` as an unframed line of text between the pills and
+   the description, reading as part of the bead's own prose rather than as the one thing
+   on the sheet you can tap through to. It still works, which is exactly the "looks like
+   a working page" failure a cache version exists to prevent. */
+const CACHE = 'beadcause-v38';
 const SHELL = [
   '/',
   '/index.html',
@@ -205,6 +265,14 @@ const SHELL = [
   '/work.html',
   '/monitor.html',
   '/monitor.js',
+  // The ledger. In the shell because it is a tab: every tab has to open instantly from
+  // the bar whatever the link is doing, and this is the one page in the app you might
+  // reasonably open *because* you are somewhere with no signal and are trying to
+  // remember what happened to something. Its rows come from /api/history, which is
+  // never cached — so offline it is an honest empty list rather than a stale one.
+  '/history',
+  '/history.html',
+  '/history.js',
   // Pause all / resume all. In the shell for the reason the terminal is: you open
   // it because something needs stopping now, and that is often the moment the link
   // is worst. The page is useless without the daemon — but it says so instantly
@@ -226,18 +294,166 @@ const SHELL = [
   '/vendor/xterm-addon-fit.js',
 ];
 
+/* ------------------------------------------------------------------ reporting */
+
+/*
+  The worker's own failures, handed to a page so the page can report them (bc-u3g4).
+
+  public/report.js put a reporter on every page and it cannot see this file at all: a
+  service worker runs in its own global, with its own `self.onerror`, and it does not
+  load page scripts. So the one piece of the app whose failures are hardest to notice
+  was also the only piece with nothing watching it. `caches.addAll(SHELL)` rejecting on
+  install — one path in the list that 404s after a rename — leaves the whole shell
+  uncached and says nothing; a `cache.put` rejecting on a full phone quietly stops
+  anything being stored at all. Both survive a reload, and both look like "the app is a
+  bit slow offline".
+
+  **It relays rather than posting, and that is the whole design.** The obvious shape is
+  a `fetch('/api/error')` from here, and it is the wrong one twice over. The endpoint is
+  behind the daemon token, which lives in `localStorage` — a thing this global does not
+  have — so a direct post would work only where Google sign-in is on and the session
+  cookie happened to ride along, and would silently 401 everywhere else: reporting that
+  reports nothing is worse than no reporting, because it reads as no errors. And
+  report.js is four hundred lines of judgement about *what not to file* — the
+  eight-per-minute cap, the thirty-second cooldown, the deploy quiet window, the
+  credential scrub, the shutter on `pagehide` — every one of which was a false P0 filed
+  on a page that was working perfectly. A second copy of that here would drift from the
+  first. So this end does the one thing only it can do (notice), and the page does the
+  one thing only it can do (send).
+
+  **It cannot loop.** The relay is a `postMessage`, not a request, and the report itself
+  leaves the page as `POST /api/error` — which the fetch handler below ignores twice
+  over, being neither a GET nor outside `/api/`. There is no path by which the failure
+  of a report re-enters this file.
+
+  **A failure with no page open is dropped, not queued.** `clients.matchAll` answers an
+  empty list when nothing is on screen, and a worker holding reports for the next visit
+  would be a worker replaying a storm into a daemon that has just come back up — the
+  same argument report.js makes about the deploy window. Every event this file can raise
+  (install, activate, fetch) is raised *because* a page asked for something, so the empty
+  case is close to hypothetical anyway.
+*/
+
+/** What report.js listens for. Changing it means changing both files. */
+const REPORT_MESSAGE = 'beadcause:sw-error';
+
+/**
+ * How long one distinct worker failure waits before it is relayed again.
+ *
+ * The page caps and dedupes on its own, so this is not what stops a bead per frame; it
+ * stops a `postMessage` per request from a worker whose cache has gone bad, which would
+ * be several hundred a minute at exactly the moment the phone can least spare them.
+ * Deliberately the same thirty seconds report.js uses, so the two ends agree about what
+ * "again" means.
+ */
+const RELAY_REPEAT_MS = 30 * 1000;
+
+/** The last time each distinct failure was relayed. Reset whenever the worker is. */
+const relayed = new Map();
+
+/**
+ * Say that something failed here, to whichever page is on screen.
+ *
+ * Wrapped whole in a `try` for the reason report.js's funnel is: this runs on the error
+ * path of a worker that is already having a bad time, and throwing from the handler
+ * meant to record a failure is the one outcome worse than losing the record.
+ *
+ * No explicit `source` goes with it, deliberately. The daemon fingerprints a report by
+ * source-and-line first (lib/errors.js), and a constant `/sw.js` with no line would make
+ * every distinct failure in this file — a broken install, a full cache, a bad request —
+ * match each other and comment onto one bead. The stack carries a real frame where the
+ * browser has one, and where it does not the message alone is the honest key.
+ */
+function report(where, error) {
+  try {
+    const detail = (error && (error.message || error.name)) || String(error);
+    const message = `service worker — ${where}: ${detail}`;
+    const now = Date.now();
+    const last = relayed.get(message);
+    if (last !== undefined && now - last < RELAY_REPEAT_MS) return;
+    // One entry per distinct failure, and a worker with more than this many has nothing
+    // left worth deduplicating.
+    if (relayed.size > 32) relayed.clear();
+    relayed.set(message, now);
+    self.clients.matchAll({ includeUncontrolled: true, type: 'window' }).then((all) => {
+      // The focused page first, because it is the one whose report.js is certainly
+      // running and not about to be discarded. Only one is told: two pages reporting one
+      // failure is two requests racing the daemon's own dedupe for one bug.
+      const client = all.find((c) => c.focused) || all[0];
+      if (!client) return;
+      client.postMessage({ type: REPORT_MESSAGE, message, stack: String((error && error.stack) || '') });
+    }, () => {});
+  } catch {
+    /* never from here */
+  }
+}
+
+/**
+ * The backstop, for anything this file throws outside the three handlers below.
+ *
+ * A worker's global `error` and `unhandledrejection` are the same two events report.js
+ * hangs a page off, and they are here for the same reason: the failures worth having are
+ * the ones nobody thought to wrap.
+ */
+self.addEventListener('error', (event) => {
+  report('uncaught', (event && event.error) || { message: (event && event.message) || 'an error with no message' });
+});
+
+self.addEventListener('unhandledrejection', (event) => {
+  report('unhandled rejection', event && event.reason);
+});
+
+/* ------------------------------------------------------------------ lifecycle */
+
+/**
+ * The headline case, and the one this reporting is mostly about.
+ *
+ * `addAll` is all-or-nothing: one path in SHELL that 404s after a rename rejects the
+ * whole thing, nothing at all is cached, and the only symptom is an app that is slow —
+ * for as long as this version of the worker lives.
+ *
+ * Reported and then **re-thrown**. Swallowing it would leave the browser believing the
+ * install succeeded over a cache that is empty, which is the same silence one layer
+ * down.
+ */
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
+  e.waitUntil(
+    caches
+      .open(CACHE)
+      .then((c) => c.addAll(SHELL))
+      .then(() => self.skipWaiting())
+      .catch((err) => {
+        report(`install — the shell could not be cached (${SHELL.length} paths)`, err);
+        throw err;
+      })
+  );
 });
 
 self.addEventListener('activate', (e) => {
   e.waitUntil(
-    caches.keys().then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k)))).then(() => self.clients.claim())
+    caches
+      .keys()
+      .then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
+      .then(() => self.clients.claim())
+      .catch((err) => {
+        report('activate — the old caches could not be swept', err);
+        throw err;
+      })
   );
 });
 
 self.addEventListener('fetch', (e) => {
-  const url = new URL(e.request.url);
+  let url;
+  try {
+    url = new URL(e.request.url);
+  } catch (err) {
+    // Not reachable from a browser, which does not dispatch a fetch for a URL it could
+    // not parse — which is exactly why it is worth a line rather than a crash: if it
+    // ever happens, the alternative is a handler that throws on every request the app
+    // makes, silently, from inside the thing serving them.
+    report('fetch — the request URL could not be read', err);
+    return;
+  }
   if (e.request.method !== 'GET' || url.pathname.startsWith('/api/')) return;
 
   // Vendor bundles are immutable: cache-first.
@@ -247,8 +463,42 @@ self.addEventListener('fetch', (e) => {
   }
 
   // Everything else: network-first, cache as the offline fallback.
-  e.respondWith(fetchAndStore(e.request).catch(() => caches.match(e.request).then((hit) => hit || caches.match('/'))));
+  e.respondWith(fetchAndStore(e.request).catch(() => fallback(e.request, url)));
 });
+
+/**
+ * What answers when the network did not — and what is worth reporting about it.
+ *
+ * **Being offline is not a failure**, and that is the line that keeps this from filing a
+ * bead every time the phone goes into a tunnel. A rejected `fetch` is expected here, and
+ * a hit out of the cache is the whole point of having one. What is *not* expected is the
+ * cache itself refusing to answer: a `caches.match` that rejects is storage gone bad or
+ * evicted out from under an installed app, and today that is a blank screen with nothing
+ * said anywhere.
+ *
+ * The last resort stays what it was — the index page, answered to a request for
+ * something else, which is a deliberate trade for an offline navigation. When even that
+ * is missing the request is rejected rather than answered with `undefined`: both are a
+ * network error to the browser, but one of them says which request it was.
+ */
+function fallback(request, url) {
+  // Made up front and compared by identity below, because the two ways this can end
+  // without a response have to be told apart and their messages cannot do it: an empty
+  // cache is a phone that has never been online, and a *rejecting* cache is storage that
+  // has gone bad under an installed app. Only the second is worth waking anybody for.
+  const missing = new Error(`nothing cached for ${url.pathname}`);
+  return caches
+    .match(request)
+    .then((hit) => hit || caches.match('/'))
+    .then((hit) => {
+      if (hit) return hit;
+      throw missing;
+    })
+    .catch((err) => {
+      if (err !== missing) report(`fetch — the cache could not answer ${url.pathname}`, err);
+      throw err;
+    });
+}
 
 function fetchAndStore(request) {
   return fetch(request).then((res) => {
@@ -262,7 +512,15 @@ function fetchAndStore(request) {
     const login = res.redirected || new URL(res.url || request.url).pathname === '/login';
     if (res.ok && !login) {
       const copy = res.clone();
-      caches.open(CACHE).then((c) => c.put(request, copy));
+      // Nothing waits for the store, and nothing ever did — the response goes back to
+      // the page either way. What is new is that the *failure* to store is said out
+      // loud: a phone with no room left rejects every `put`, so the cache stops being
+      // maintained and the app goes on working perfectly until the day it is offline.
+      // That was an unhandled rejection in a worker nobody was watching.
+      caches
+        .open(CACHE)
+        .then((c) => c.put(request, copy))
+        .catch((err) => report('cache — a response could not be stored', err));
     }
     return res;
   });

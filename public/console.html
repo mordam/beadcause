@@ -28,6 +28,25 @@
   </header>
 
   <!--
+    The handles: one per chat you have opened, with a permanent All on the left.
+
+    Outside the launcher on purpose, and above it rather than under its repo row.
+    Two reasons, and they are the same reason twice. It has to be on screen *over a
+    conversation* — it is the way out of one — and the repo row is launcher chrome
+    that is not. And a strip that only exists in one of the two views would jump
+    ninety pixels up the screen the moment you tapped a handle, taking the tab out
+    from under the thumb that just pressed it; here it does not move at all.
+
+    Which makes the nesting the honest one as well: All is the *whole* launcher,
+    repo tabs and list together, so the row that filters that list belongs inside
+    the panel it filters rather than above the strip that selects it.
+
+    Empty when nothing is open — a strip holding only All is a row that says
+    nothing and costs 40px of a phone.
+  -->
+  <nav id="chat-tabs" class="chat-tabs" role="tablist" aria-label="Open chats" hidden></nav>
+
+  <!--
     No chat session id in the URL: the launcher.
 
     The repo row is a *filter* now, not the start button it used to be — one tab
@@ -110,12 +129,18 @@
     </form>
   </dialog>
 
+  <!-- Every error this page hits, sent back to the daemon as a P0 bead: an uncaught
+       exception, a rejected promise, a failed fetch, any red toast. Ahead of every
+       other script, because it can only catch what loads after it — and it is purely
+       additive, so a page that fails to load it behaves exactly as it did before. -->
+  <script src="/report.js"></script>
   <script src="/vendor/marked.js"></script>
   <script src="/vendor/purify.js"></script>
   <!-- What this page already has, from the last time you were on it: the payload it
        boots from, and the reconciler that keeps a repaint from throwing away the DOM
-       it did not need to touch. First of the shared files, because every page script
-       below asks it for a warm list before it asks the daemon for a cold one. -->
+       it did not need to touch. First of the shared files a page draws with, because
+       every page script below asks it for a warm list before it asks the daemon for a
+       cold one. -->
   <script src="/warm.js"></script>
   <!-- The delta stream: one long poll on /api/poll, so this page learns what moved
        instead of re-asking for everything on a clock. Beside warm.js because the two

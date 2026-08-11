@@ -25,6 +25,11 @@
        all rather than a button that explains itself away. -->
   <footer id="doc-publish" class="publish" hidden></footer>
 
+  <!-- Every error this page hits, sent back to the daemon as a P0 bead: an uncaught
+       exception, a rejected promise, a failed fetch, any red toast. Ahead of every
+       other script, because it can only catch what loads after it — and it is purely
+       additive, so a page that fails to load it behaves exactly as it did before. -->
+  <script src="/report.js"></script>
   <script src="/vendor/marked.js"></script>
   <script src="/vendor/purify.js"></script>
   <script src="/presence.js"></script>

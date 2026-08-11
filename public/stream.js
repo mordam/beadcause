@@ -77,6 +77,44 @@
   };
 
   /**
+   * Advocate actions the poll's own snapshot has already answered.
+   *
+   * `advocates.snapshot()` rides every wake whatever woke it, so an advocate pausing,
+   * checking in, going idle or bumping into the slot cap is a repaint of data that has
+   * already arrived — not a reason to go and ask anything. Everything else an advocate
+   * does moves a row that comes out of `bd` or off the filesystem.
+   */
+  const ROSTER_ONLY = new Set(['checked-in', 'surveying', 'idle', 'paused', 'resumed', 'forgot', 'limit']);
+
+  /**
+   * Did anything here change something behind `/api/work` — `bd`, or the live sessions?
+   *
+   * The advocates page asks this to decide whether to sweep, and the inbox asks it to
+   * decide whether the copy it is holding *for* that page has gone stale. One function
+   * rather than two, because the two answers have to be the same one: an inbox that
+   * thought a claimed bead was a repaint would hand the advocates tab a warm payload
+   * missing exactly the row you tapped through to see.
+   */
+  const workMoved = (events) =>
+    (events || []).some((e) => !QUIET_TYPES.has(e?.type) && !(e?.type === 'advocate' && ROSTER_ONLY.has(e?.action)));
+
+  /**
+   * The events that can have changed a lamp or a button on the PR board.
+   *
+   * It lived in public/prs.js, which was the only page that had an opinion about it —
+   * and then the inbox grew one too, because it holds `/api/prs` warm for that page and
+   * has to know whether what it is holding is still true. Two lists would be one list
+   * that drifts, and the drift is invisible: an inbox that thought a merge was nothing
+   * would keep restamping a board with the wrong lamps on it, and the lamps' whole claim
+   * is that they are true. So this is the one copy, for the same reason `workMoved` is
+   * one function and not two.
+   */
+  const BOARD_EVENTS = ['merged', 'changes', 'pr-declined', 'deploy', 'advocate'];
+
+  /** Did anything here change something behind `/api/prs`? */
+  const boardMoved = (events) => touched(events, BOARD_EVENTS);
+
+  /**
    * Park on the log and keep parking.
    *
    * @param {object} o
@@ -273,5 +311,5 @@
   }
 
   window.beadcause = window.beadcause || {};
-  window.beadcause.stream = { follow, moved, touched, QUIET_TYPES, WAIT_S };
+  window.beadcause.stream = { follow, moved, touched, workMoved, boardMoved, QUIET_TYPES, ROSTER_ONLY, BOARD_EVENTS, WAIT_S };
 })();
