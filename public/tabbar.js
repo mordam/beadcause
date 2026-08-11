@@ -18,6 +18,16 @@
   rows moved into the inbox and the board kept its URLs without keeping a fifth of the
   bar. A page can be reachable, load-bearing and not a tab — and several are.
 
+  The same rule is why there is no **Mirror** tab here, and why the slot PRs vacated did
+  not go to one (bc-3xb, decided: it stays a pane on /monitor). Nobody *lives* in a
+  mirror — it follows the phone rather than being somewhere you go — and this bar is at
+  the bottom because that is where a thumb is on a phone, which is the one device the
+  mirror means nothing on: a Mirror tab is something you tap on the phone to watch the
+  phone. Note that the width objection is gone rather than load-bearing — at four tabs a
+  fifth would be 72px, which fits — so anyone re-opening this is arguing with the two
+  reasons above and not with the stylesheet. The README has them, under "The Mirror is a
+  mode, not a fifth tab"; `test/pagepaths.mjs` holds /mirror to a 404.
+
   It is built here rather than pasted into five <head>-alike blocks of HTML because
   there is no templating in this app and a bar that says different things on
   different pages is worse than no bar. One list, one place to add a tab, and one

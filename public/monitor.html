@@ -46,6 +46,22 @@
     </div>
   </header>
 
+  <!-- Two mutually exclusive modes of this one page, not navigation: Advocates draws what
+       the Mac is running, Mirror draws what the phone has open. They swap the two panes
+       below and change no URL, which is why they are buttons with aria-pressed rather
+       than links.
+
+       This is the settled half of bc-3xb: the mirror stays a pane here rather than
+       becoming a fifth tab in the bottom bar — it is a mode, and a bottom bar is a
+       phone's furniture, which is the device a mirror of the phone means nothing on. The
+       reasons are in the README ("The Mirror is a mode, not a fifth tab") and the tabbar.js
+       header; do not add a Mirror tab without reading them.
+
+       The unsettled half is the *look*, and it is the reason this comment names it: two
+       rows of tabs sit on this screen — the bottom bar moves between pages, this pair
+       swaps a pane — with nothing visual to say so. bc-stci restyles this pair as the
+       segmented control it already is. `.mon-tabs` rather than a bare `.tabs` since
+       bc-4aw, so that restyle has a selector to itself. -->
   <nav class="chip-row mon-tabs" id="mon-tabs" aria-label="Views">
     <button class="chip" data-tab="advocates" aria-pressed="true">Advocates</button>
     <button class="chip" data-tab="mirror" aria-pressed="false">Mirror<span class="tab-dot" id="mirror-dot" hidden></span></button>

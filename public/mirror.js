@@ -2,9 +2,16 @@
  *
  * The phone is a good place to be *told* something and a poor place to read it: a
  * question's brief is scrolled a paragraph at a time, its thread is behind a tap, and
- * the bead it depends on is a page away. This tab follows the phone — the same card,
+ * the bead it depends on is a page away. This pane follows the phone — the same card,
  * the same chat session, the same list — and draws the version that would not fit: the
  * whole body, every comment, the options as buttons you can actually press.
+ *
+ * A pane on /monitor, and deliberately not a page of its own or a tab in the bottom bar
+ * (bc-3xb): it is a *mode* of the advocates page — what the phone has open, instead of
+ * what this Mac is running — and the bar it would have joined is at the bottom of a
+ * phone, which is the one screen this view has nothing to say on. So there is no
+ * `/mirror` route and no `mirror.html`, and `test/pagepaths.mjs` keeps it that way. The
+ * argument is in the README under "The Mirror is a mode, not a fifth tab".
  *
  * Three things make it a mirror rather than a second inbox:
  *

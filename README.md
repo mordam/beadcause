@@ -2377,6 +2377,59 @@ which it does not — so the stylesheet steps the type down when a sixth tab is 
 off a count written down somewhere, so adding or removing a tab needs nothing else.
 It is dormant below six and will come back on its own if a tab does.
 
+### The Mirror is a mode, not a fifth tab
+
+`tabbar.js` and the **mirror** landed in the same window, and for a while the advocates
+page carried two rows of tabs: this bar along the bottom, moving between pages, and an
+in-page pair (Advocates | Mirror) swapping a pane. Two rows of tabs on one screen meaning
+two different things, and either of them could have been the one that gave way — the
+mirror is arguably a standing view of its own, or it is a mode of the page it sits on.
+bc-3xb is that decision, and it is **the pane**. Two reasons, and one that no longer
+counts.
+
+**It is a mode, not a destination.** The mirror draws whatever the phone has open — the
+same card, the same chat session, the same list, in the version that would not fit on a
+phone. It *follows*; it does not choose (`/api/presence`, published by the phone as it
+moves). "Show me what the phone has open instead of what this Mac is running" is a second
+way of looking at the advocates page, which is the sentence a segmented control is for. A
+tab is a claim that a page is somewhere you **live**, and nobody lives in a mirror.
+
+**And a bottom bar is a phone's furniture.** The bar is at the bottom because that is
+where a thumb already is, on a 360px screen, in a WebView shell. The mirror's whole
+premise is the *other* screen — the one with room, that you are not holding. So a Mirror
+tab would be something you tap on the phone to watch the phone: it is the one surface in
+the app that means nothing on the device the bar exists for. That is what settles it, and
+it would still settle it if the bar were empty.
+
+**The width argument is spent, and is not why.** The review that ruled this
+(`docs/ux-review.md` §3 and §5) also argued the bar was full: five tabs at 72px, with
+`.tabbar:has(.tab-item:nth-child(6))` standing by to shrink a sixth to 9.5px — a
+stylesheet quietly admitting it. That has since stopped being true. PRs left the bar
+(bc-l8jp.6), four tabs are 90px, and a fifth would be back to the 72px that "Advocates"
+already fits. There is room now, and the room is not the mirror's: what is asked for that
+slot is **Foundations** (`docs/ux-review.md` §6, step 8), which is a standing view, and
+which of the three ways to give it one is a question for you rather than something a
+worker settles. Recording this here is the point — a decision resting on a fact that has
+since changed is a decision the next session re-opens.
+
+What it leaves in place is the pane-swap, and with it `.work[hidden] { display: none; }`
+— the one line that stops the pane you are *not* on from drawing, because `hidden` is a
+`display: none` that `.work`'s own `display: flex` beats, and without it the advocates
+list sat stacked above the mirror. There is no `/mirror` route and no `mirror.html`, and
+`test/pagepaths.mjs` asserts both paths 404. Not because a route would be wrong in itself
+— because the aliases are a run of one-line `if`s in `serveStatic`, which is the shape a
+merge eats, and this decision reversing itself by accident there would be silent.
+Reversing it *deliberately* means deleting that assertion, which is a line in a diff
+somebody can argue with.
+
+What it does not settle is the **look**: the two rows still have nothing visual to say
+that one changes the page and the other changes a pane. That is bc-stci — restyle the
+in-page pair as the segmented control it already is — filed rather than done here, because
+the decision and the work it implies are two beads. Half of it has already landed:
+`.tabs` was defined twice in `style.css` and the monitor's copy was silently running on
+the foundations page's values (bc-4aw), so the pair is `.mon-tabs` now and the restyle has
+a selector to itself.
+
 Advocates carries a **badge** when there is something behind it — how many advocates
 are waiting on an answer. The number rides the inbox's own poll (`/api/questions`
 carries it; see [the three counts on the poll](#the-three-counts-on-the-poll)), so it
@@ -2421,8 +2474,9 @@ notch substituted in, for the Chromes with no `Emulation.setSafeAreaInsets`.
 The *paths* are checked separately, in `npm test`: `node test/pagepaths.mjs` asks a
 real server for every URL a phone might still have on its home screen and checks which
 document came back — all five that reach the advocate console, both that reach the pull
-request board, and so on — plus that `/work.js`, deleted with the sessions view, 404s
-rather than lingering. The aliases live in a run of one-line `if`s in `serveStatic`,
+request board, and so on — plus the two kinds of path that must **not** resolve: `/work.js`,
+deleted with the sessions view, and `/mirror` and `/mirror.html`, which were never made
+because [the mirror is a pane](#the-mirror-is-a-mode-not-a-fifth-tab). The aliases live in a run of one-line `if`s in `serveStatic`,
 which is exactly the shape a merge eats, and a broken one is silent: the page is fine,
 the shortcut is not.
 
