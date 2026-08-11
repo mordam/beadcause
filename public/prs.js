@@ -307,6 +307,8 @@
     </article>`;
   }
 
+  /* ------------------------------------------------------------- the release queue */
+
   /* The two numbers this board is about, as predicates, so the card head and the tab
      badge cannot drift apart on what "to ship" means. The rule itself belongs to
      `count()` in lib/prboard.js — this is the same rule applied to a *subset*, which is
@@ -318,9 +320,84 @@
   /** Is this repo in the selected space? See public/spacebar.js. */
   const inSpace = (r) => window.beadcause?.space?.matches?.(r.workspace) ?? true;
 
+  /**
+   * How many merges this repo owes a ship — the daemon's queue where it sent one, the
+   * predicate above where it did not.
+   *
+   * The two answer the same question and the queue is the better answer: it counts what
+   * a deploy would actually pick up, so a merge nobody has fetched is out of it and one
+   * covered by a deploy that has already run is too. See lib/release.js. The fallback is
+   * not dead code — an observer, or a phone left open across a daemon that predates the
+   * queue, gets a board with no `release` on its cards and must still say a number.
+   */
+  const owedIn = (c) => (c.release ? c.release.count : c.prs.filter(isOwed).length);
+
+  /**
+   * What one deploy of this repo would make live, and the number on the button.
+   *
+   * The row Ship below it already deployed the whole of `origin/main` — a deploy has
+   * never been able to ship one pull request and leave the four behind it — but nothing
+   * said so, and nothing said how many. That is the whole of this strip: **the count is
+   * the point**, drawn over the button rather than beside it because the question it
+   * answers ("is pressing this routine, or is it the day's work going out at once?") has
+   * to be answerable at a glance from the top of a card.
+   *
+   * Three things it deliberately does not do:
+   *
+   * - **It does not appear when the queue is empty.** Everything merged being live is
+   *   the ordinary state and it should look like it, not like a control you decided not
+   *   to press.
+   * - **It does not offer to batch what cannot be batched.** A repo with no declared
+   *   deploy falls back to a window on the Mac for *one* pull request, and there is no
+   *   window that means "and the other three" — so it names the queue and sends you to
+   *   a row, rather than growing a second meaning for the same word.
+   * - **It arms, like every other button here that deploys.** The second tap says how
+   *   many it is about to ship, which is the number the first tap was about.
+   */
+  function releaseHtml(c) {
+    const r = c.release;
+    if (!r?.count) return '';
+    const armed = isArmed(c.workspace, 'release');
+    const said = state.said?.key === c.workspace ? `<div class="board-said${state.said.bad ? ' bad' : ''}">${esc(state.said.text)}</div>` : '';
+    const list = r.prs
+      .slice(0, 6)
+      .map(
+        (p) =>
+          `<li><a href="${esc(p.url)}" target="_blank" rel="noopener">#${esc(p.number)}</a> ${esc(p.title)}${
+            p.bead ? ` <a class="pill id" href="${esc(graphUrl(c.workspace, p.bead))}">${esc(p.bead)}</a>` : ''
+          }</li>`
+      )
+      .join('');
+    const more = r.prs.length > 6 ? `<li class="release-more">…and ${r.prs.length - 6} more</li>` : '';
+
+    const button =
+      r.can === 'deploy'
+        ? `<button class="board-btn ship release-ship${armed ? ' armed' : ''}" data-act="release" data-key="${esc(c.workspace)}">${
+            armed ? `Ship all ${r.count} — sure?` : 'Ship'
+          }<span class="release-count" aria-hidden="true">${esc(r.count)}</span></button>`
+        : '';
+
+    return `<div class="release">
+      <div class="release-head">
+        ${button}
+        <p class="release-say">${
+          r.can === 'deploy'
+            ? `${plural(r.count, 'merged pull request')} ${r.count === 1 ? 'is' : 'are'} on <code>origin</code> and not live. One deploy ships ${
+                r.count === 1 ? 'it' : 'them all'
+              }${r.hint ? ` — ${esc(r.hint).replace(/`([^`]+)`/g, '<code>$1</code>')}` : ''}.`
+            : `${plural(r.count, 'merged pull request')} ${
+                r.count === 1 ? 'is' : 'are'
+              } waiting to ship. This repo declares no deploy beadcause can run, so each one opens a window on the Mac from its own row.`
+        }</p>
+      </div>
+      <ul class="release-list">${list}${more}</ul>
+      ${said}
+    </div>`;
+  }
+
   function repoHtml(c) {
     const open = c.prs.filter(isOpen).length;
-    const owed = c.prs.filter(isOwed).length;
+    const owed = owedIn(c);
     const summary = [open ? `${open} open` : '', owed ? `${owed} to ship` : '', c.error ? 'error' : '']
       .filter(Boolean)
       .join(' · ');
@@ -330,7 +407,8 @@
       : c.note
         ? `<p class="subtitle">${esc(c.note)}</p>`
         : c.prs.length
-          ? c.prs.map(prRow).join('') +
+          ? releaseHtml(c) +
+            c.prs.map(prRow).join('') +
             (c.deployTracked
               ? ''
               : `<p class="board-foot">Deploy state is not tracked for this repo — beadcause only knows what it is running itself.</p>`)
@@ -581,10 +659,11 @@
       // Counted over the repos in the selected space rather than read off
       // `state.data.counts`, which is every repo the server looked at. A badge that
       // counted six repos over a board showing one would be the tab arguing with the
-      // page it opens.
-      const rows = (state.data.repos || []).filter(inSpace).flatMap((r) => r.prs);
-      const open = rows.filter(isOpen).length;
-      const owed = rows.filter(isOwed).length;
+      // page it opens. Summed per card rather than over the flattened rows, because
+      // the release queue is a fact about a repo — see `owedIn`.
+      const cards = (state.data.repos || []).filter(inSpace);
+      const open = cards.flatMap((r) => r.prs).filter(isOpen).length;
+      const owed = cards.reduce((n, r) => n + owedIn(r), 0);
       const n = open + owed;
       window.beadcause?.tabBadge?.('prs', n, n ? `${plural(open, 'open pull request')}, ${owed} to ship` : '');
     }
@@ -604,7 +683,60 @@
    * /admin writes it into the button: these change what has happened to real work, and
    * "did that go through?" must not be a question you answer by opening GitHub.
    */
+  /** The card for a workspace — what the release strip's button acts on. */
+  const cardFor = (ws) => (state.data?.repos || []).find((r) => r.workspace === ws) || null;
+
+  /**
+   * Ship the whole queue: one deploy, every merge on it.
+   *
+   * Kept apart from `act` rather than folded into it, because every branch in there is
+   * about a *row* — it looks the pull request up by key, sends its number, and pins the
+   * outcome under it. This one has no row: its key is a workspace, and the outcome
+   * belongs to the strip at the top of the card.
+   */
+  async function shipQueue(ws) {
+    const card = cardFor(ws);
+    if (!card?.release?.count || state.busy) return;
+    if (!isArmed(ws, 'release')) {
+      state.armed = `release@${ws}`;
+      return render();
+    }
+
+    const count = card.release.count;
+    state.busy = true;
+    state.armed = null;
+    state.said = { key: ws, text: `Deploying ${ws} — ${plural(count, 'merged pull request')}…`, bad: false };
+    render();
+
+    let started = false;
+    try {
+      const res = await fetch('/api/release/ship', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-beadcause-token': token },
+        body: JSON.stringify({ workspace: ws }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+      started = true;
+      // Never "shipped". A 200 means a record is on disk and a detached runner owns it;
+      // on this repo the next thing that happens is the daemon being killed by its own
+      // deploy, and the outcome arrives on the strip above and on the phone.
+      state.said = {
+        key: ws,
+        text: `Deploying ${ws} — ${data.deploy?.id || 'started'}, carrying ${plural(count, 'merge')}. How it went lands on your phone.`,
+        bad: false,
+      };
+    } catch (err) {
+      state.said = { key: ws, text: err.message, bad: true };
+    } finally {
+      state.busy = false;
+      render();
+      if (started) loadDeploys();
+    }
+  }
+
   async function act(key, action) {
+    if (action === 'release') return shipQueue(key);
     const p = rowFor(key);
     if (!p || state.busy) return;
 
@@ -650,11 +782,21 @@
         // Both halves, always. A merge that landed and a fast-forward that was refused
         // because there is uncommitted work in the checkout is a good outcome, and one
         // word over the pair would send you to the Mac to find out which happened.
+        //
+        // And the third half where there was one: merging here spends the inbox's own
+        // "Merge #N?" card, and a card that vanishes from another screen with nothing
+        // said about it is indistinguishable from a card that was never there. What is
+        // reported is the *bead* rather than the card id, because the bead is what you
+        // were waiting on — the card was only how it was asked.
+        const closed = (data.cards || []).filter((c) => c.closed);
+        const beads = closed.map((c) => c.work?.closed && c.bead).filter(Boolean);
         state.said = {
           key,
-          text: `${data.alreadyMerged ? `#${p.number} was already merged` : `Merged #${p.number}`} — ${
-            data.land?.note || 'nothing else to do here'
-          }.`,
+          text:
+            `${data.alreadyMerged ? `#${p.number} was already merged` : `Merged #${p.number}`} — ${
+              data.land?.note || 'nothing else to do here'
+            }.` +
+            (closed.length ? ` Closed its inbox card${beads.length ? ` and ${beads.join(', ')}` : ''}.` : ''),
           bad: false,
         };
       } else if (action === 'ship') {
