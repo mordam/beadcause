@@ -384,12 +384,20 @@
    * can act on from the phone you are reading this on — a merge, or a conflict to
    * resolve — and the board is where both taps live. The others name a bead you would
    * have to go and find; this one names a number and takes you to it.
+   *
+   * `heldByLive` is the sixth (bc-vq78), and the one whose tooltip names a *process*: a
+   * bead held because a window is already open on it is waiting on that window ending,
+   * and the pid is what tells you which of the fifteen on screen it is. It earns the
+   * pill more than any of the others, because the state it prevents — two sessions
+   * editing one worktree — is invisible from every other view here, which is precisely
+   * how it went unnoticed for an hour.
    */
   function domainHtml(w, a) {
     const c = w?.counts || {};
     const waiting = (a && a.heldByChildren) || [];
     const twins = (a && a.heldByTwin) || [];
     const prs = (a && a.heldByPr) || [];
+    const sitting = (a && a.heldByLive) || [];
     const pills = [
       c.open != null ? `<span class="pill">${c.open} open</span>` : '',
       c.ready ? `<span class="pill">${c.ready} ready</span>` : '',
@@ -417,6 +425,11 @@
         : '',
       prs.length
         ? `<a class="pill muted" href="/prs" title="${esc(prs.map((h) => `${h.id} — ${h.why}`).join('\n'))}">${prs.length} in an open pull request</a>`
+        : '',
+      // No link, unlike the pull requests: the window this names is on the same page you
+      // are reading, in the sessions list below.
+      sitting.length
+        ? `<span class="pill muted" title="${esc(sitting.map((h) => `${h.id} — ${h.why}`).join('\n'))}">${sitting.length} with a session already open</span>`
         : '',
     ].filter(Boolean);
     return `<div class="mon-domain">${pills.join('')}</div>`;
