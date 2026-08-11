@@ -364,6 +364,15 @@ you press **All**:
 [beadcause] acme/cl-9x2 arrived quietly (Work is muted right now)
 ```
 
+**One channel is exempt: a foundation request is never quietened by the filter.** The
+filter's two levels are space and workspace, and both answer "which of my lives is this
+about" — a question an agent asking to change what it *is* has no answer to. The inbox
+draws that channel above the list and outside every filter on it, so honouring the
+filter in the push meant a request sitting visible on the screen and silent on the
+phone, with no widening left that would bring it back. A mute still quietens it: that
+one is about whether anything may reach you right now, and an amendment has been
+waiting for a session anyway.
+
 ### And the card says it too
 
 A log line on the Mac is the wrong surface for a fact you need on a phone. So the two
@@ -402,6 +411,10 @@ bead leaves the inbox, like `ringing` and unlike `answered` — it exists only t
 card that is on screen. Replies are deliberately not recorded: a reply is quiet on the
 same terms as the bead it is on, but this line says *how this card got here*, and a
 quiet reply onto a card you were already shown loudly is not that.
+
+The line reads whatever `quietReasonFor` answered, which is what keeps it honest about
+the exemption above without knowing it exists: a foundation request can only ever say
+*was muted*, because the filter is not allowed to have been the reason.
 
 `node test/quietcard.mjs` (part of `npm test`) covers it, and the check that earns the
 suite is the last one: it narrows the filter, lets a bead arrive quietly under it,
@@ -1367,8 +1380,8 @@ question it was answering. It is now named subcommand by subcommand:
 ```
 Bash(bd show:*) Bash(bd comments:*) Bash(bd comment:*) Bash(bd list:*)
 Bash(bd ready:*) Bash(bd blocked:*) Bash(bd search:*) Bash(bd stats:*)
-Bash(bd memories:*) Bash(bd dep:*) Bash(beadcause-memory:*) Read Grep Glob
-WebSearch WebFetch Bash(beadcause-get:*)
+Bash(bd memories:*) Bash(bd dep tree:*) Bash(beadcause-memory:*) Read Grep Glob
+WebSearch WebFetch Bash(beadcause-get:*) Bash(beadcause-browse:*)
 ```
 
 Adding a verb there should feel like a decision, which is why they are listed rather
@@ -1378,14 +1391,19 @@ grant by grant, so widening it fails a test named after the thing being widened.
 
 ### Looking something up — and why it is not `Bash(curl:*)`
 
-The last three entries are new, and they are the difference between a question that
-turns on one external fact getting answered and getting a comment saying it cannot
-be. Smallest first:
+The last four entries are the difference between a question that turns on one
+external fact getting answered and getting a comment saying it cannot be. Smallest
+first:
 
 - **`WebSearch` / `WebFetch`** — read-only by construction. An agent can pull a page
   and cite it and cannot POST anywhere. This is the grant to reach for.
 - **`beadcause-get <url>`** — the bytes as served, for the content types WebFetch
   mangles on its way to prose: JSON, CSV, XML, a raw table.
+- **`beadcause-browse <url>`** — a page that only exists once its JavaScript has run.
+  The last resort, and rare: it costs a browser start-up, and the three above answer
+  most questions. It earns its place because to *all* of them a page that assembles
+  itself in the browser looks empty, and an agent cannot tell that from a page that
+  genuinely says nothing.
 
 `Bash(curl:*)` was considered and refused, because the pattern does not mean what it
 looks like it means: it matches `-X POST`, `-d`, `--upload-file`, and `-o` writing
@@ -1404,10 +1422,36 @@ what you found is a *different* source from the one the question named. A fetche
 value is not automatically a usable one. The same brief tells agents what they may
 put in a URL, because a GET carries its query string to whoever is on the other end.
 
-The **live logged-in browser is not on the table**: driving Adam's Chrome means
-acting as him on every site he is signed into, and its per-site permission prompt has
-nobody present to answer it. Browsing, when it lands, is a headless Chrome with a
-throwaway profile.
+### Browsing — and why it is nobody's browser
+
+The **live logged-in browser is not on the table**, and never was: driving Adam's
+Chrome means acting as him on every site he is signed into, and the extension's
+per-site permission prompt has nobody present to answer it at the hour these agents
+run. So `beadcause-browse` launches its own Chrome, `--headless=new`, with a
+`--user-data-dir` made by `mkdtemp` a moment earlier and deleted on the way out. No
+cookies, no saved passwords, no extensions, no history, no identity — the same
+capability with none of the authority.
+
+That is one string on one line, which is exactly the problem: "reuse a warm profile,
+pages load faster" is a reasonable-sounding optimisation that hands an unattended
+agent every session on this machine, and it is invisible in a diff. So
+`assertThrowawayProfile` in `lib/browse.js` sits between the argument and the
+`spawn` and refuses anything that is not a fresh directory under the system temp
+directory, and `test/browse.mjs` names the real profile paths it must refuse.
+
+The rest is the same shape as the GET wrapper. There is no flag that runs
+JavaScript, clicks, types, submits, logs in, sets a cookie or a header, or names an
+output file — the agent names a URL and may say what to *wait for*, and cannot say
+what to *do*. Every request **the page itself** makes is vetted too, not just the one
+that was typed, because a page picks its own subresources and this laptop answers on
+loopback with things it would not answer a stranger with. `--shot` takes no path: the
+PNG lands in `.claude/shots/` under a generated name, because a flag that accepted
+one would be an arbitrary file write with a picture in it.
+
+Bounded in four places, since nobody is watching: a whole-operation deadline, a
+character cap applied *inside the page* so a 50 MB document is never serialised
+across the wire, a launch timeout, and a `finally` that kills Chrome and deletes the
+profile on every path out — including the ones that throw.
 
 The agent's reply is authored as `--actor <agent-id>`, so the thread says which one
 answered, the phase chip says which one is thinking, and the reply poller still
@@ -1571,6 +1615,7 @@ is handed two lists rather than one list it has to filter correctly:
 | **ntfy** | `pushQuestion` — bead priority, 💭 | `pushFoundationRequest` — always priority 3, ⚖️, leads with the *scope* |
 | **Android** | channel `questions_v2`, tray card 3 | channel `foundation_v1`, tray card 4 |
 | **PWA** | the list, under the space and workspace filters | a pane above it, outside every filter, badged on ⚖️ |
+| **Filter** | outside it arrives quiet — see *Spaces* | the filter does not reach this channel at all; a mute still does |
 | **Terminal** | the `questions` pane | its own `foundation requests` pane, in the head |
 
 Three things are deliberate in there:
@@ -2420,6 +2465,51 @@ which it does not — so the stylesheet steps the type down when a sixth tab is 
 (`.tabbar:has(.tab-item:nth-child(6))`), keyed off the bar's own contents rather than
 off a count written down somewhere, so adding or removing a tab needs nothing else.
 It is dormant below six and will come back on its own if a tab does.
+
+### The Mirror is a pane, not a tab
+
+`tabbar.js` and the Mirror (`public/mirror.js`, whose header is the prose on what it is)
+landed in the same window, so for two days `/monitor` carried **two rows of tabs**: the
+bottom bar, which moves between pages, and an in-page pair (Advocates | Mirror) that swaps
+a pane. Either reading was defensible on the face of it — a standing view of its own, or a
+mode of the advocates page — and bc-3xb was the bead about which one it is.
+
+**It is a pane** — ruled in `docs/ux-review.md` §3 and §5, and approved with the rest of
+that review on bc-j0zl. Two reasons, and both are about what the Mirror *is* rather than
+about how much room the bar has:
+
+- **It is a mode, not a destination.** "Show me what the phone has open instead of what
+  this Mac is running" is a lens on the advocates page — the same repos, the same
+  sessions, the same questions, seen from the other device. The rule above decides it:
+  a tab is a claim that the page is somewhere you live, and nobody lives in a lens.
+- **It is the one surface in the app that is meaningless on a phone** — which is the
+  device a bottom tab is tapped from. The Mirror follows *another* device and drops its
+  own (`notMe` in `public/mirror.js`, and `showTab` reports `view: null` while the pane is
+  up, so a mirror cannot circle back onto the page it is drawn on). A phone that tapped a
+  Mirror tab would therefore find nothing to follow and read "Looking for a device…"
+  forever. That is not a tab, it is a dead end with an icon.
+
+There was a third reason when this was decided — *the bar is full at five, and
+`style.css`'s `:has(.tab-item:nth-child(6))` rule is the stylesheet quietly admitting
+it* — and it has **since expired**: PRs left the bar in bc-l8jp.6 and there is a free
+place on it again. The decision does not move, and that is the point of writing the other
+two down: the next person to notice the empty slot should not have to re-derive why the
+Mirror is not what goes in it.
+
+So `public/mirror.js` stays a pane inside `monitor.html`, and what the other answer would
+have cost is not spent: no `/mirror` route, no `mirror.html`, and the pane-swap keeps the
+one-line `.work[hidden]` rule it runs on. `node test/mirrorpane.mjs` holds it — a static
+read asserting the Mirror is not in the bar's tab list, that neither the route nor the page
+exists, that the chip and the pane are both still on `monitor.html`, and that the
+device-filter the second reason rests on is still there.
+
+**What is still owed is the ambiguity, not the decision.** Two tab bars stacked on one
+screen with nothing visual to say that one changes the page and the other changes a pane
+is the actual complaint, and the fix is to restyle the in-page pair as the segmented
+control it already is (two mutually exclusive modes) — filed as bc-stci. The edit it was
+meant to share, scoping this bar's CSS apart from the foundations page's, has landed
+ahead of it as bc-4aw: `.mon-tabs` is now this bar's own selector, which is what a
+restyle needs to be able to move it without moving the other page.
 
 Advocates carries a **badge** when there is something behind it — how many advocates
 are waiting on an answer. The number rides the inbox's own poll (`/api/questions`
@@ -4249,6 +4339,51 @@ verdict on.
 `askSuperseded: false` switches it off; `supersededIntervalMinutes` is how often it
 looks, defaulting to 10. The worker's brief carries the two commands, which is what makes
 any of it reachable — nothing but a worker ever sets this marker.
+
+### The bead whose branch is already in main
+
+The third member of that family, and the one whose evidence is weakest — which is exactly
+why it is the one that may not close anything.
+
+bc-u5f asked for `worktree-sessions-accordion-log-5f7` to be landed. It had been: the
+branch came into `main` inside the `land-six-branches-q8v` batch, which landed six
+branches under one bead and closed only its own. No pull request named bc-u5f, so
+[the sweep above](#the-merge-that-happened-somewhere-else) could not see it; nothing had
+marked it a duplicate, so the [one before that](#the-duplicate-that-comes-ready-the-moment-its-original-lands) could not either. So bc-u5f stayed open, stayed in
+`bd ready`, kept bc-h2s blocked behind it, and was handed to an unattended session that
+spent its turn proving the work was already there.
+
+So every `inMainIntervalMinutes`, before the survey, the advocate reads its open beads for
+a `worktree-*` branch name and asks git whether that branch is already in `origin/main`. On
+a hit it does what the superseded sweep does — a line on the thread, an ask with two real
+options appended to the notes, the `human` label — and **nothing else**. It cannot close a
+bead and does not try: "the branch is in main" is a fact, and "so the bead is finished" is
+a judgement, because a bead can name a branch that landed and still want more than what
+landed. "Keep it open" is a `closes: false` option, so it hands the bead straight back to
+`bd ready` with the finding on it.
+
+The label is also the whole of the saving. `bd ready` excludes `human`, so a flagged bead
+is out of the queue built moments later in the same tick and no session is opened on it —
+which is the cost this exists to avoid, collected without anybody having answered yet.
+
+**Ancestry alone is not the test, and that is the one part worth reading.** A fresh
+worktree branches from `main`, so its tip *is* a main commit, so
+`git merge-base --is-ancestor` says yes — and a bead filed by a session mid-task would be
+told its work had landed before it had written a line. That is the one way this could do
+real harm. So a hit needs a second parent: some **merge** between the branch tip and the
+base must hold that tip as a *later* parent, which is the only trace git keeps of "main
+took this in". An unstarted branch's tip is a commit on main's own line, so every merge
+past it holds it as a *first* parent, and it is refused.
+
+Three things it will not claim. A **squash merge** — the squash commit carries the tree and
+none of the history, so ancestry is false forever and this says nothing at all; that case
+is GitHub's to answer and the sweep above already reads it. A **fast-forward**, where there
+is no merge commit to find and an unstarted branch looks identical. And anything measured
+against this laptop's own `main`: the base is `origin/main` where it exists, because a
+dozen sessions land through GitHub and pull at their own pace, so local `main` routinely
+carries what nobody else has. It asks once per bead per branch, recognising its own work by
+a marker in the notes — the `human` label cannot be the guard, because answering "keep it
+open" takes that label off. `flagInMain: false` switches it off.
 
 ### The session log, kept in the repo
 
@@ -6470,6 +6605,8 @@ the fields it always read and renders exactly as it did.
 | `advocates.landedIntervalMinutes` | how often that asks GitHub (default 10). It also asks *unconditionally* right before opening a session, whatever this says — being late there costs a whole session |
 | `advocates.askSuperseded` | [ask about a bead a worker marked `superseded-by:` another, once that other one closes](#the-duplicate-that-comes-ready-the-moment-its-original-lands) (default `true`). Without it a marked bead is held out of every queue with nothing left to let it out again |
 | `advocates.supersededIntervalMinutes` | how often that looks (default 10). Unlike the sweep above it is never forced before a launch, because a marked bead cannot reach one |
+| `advocates.flagInMain` | [ask about an open bead naming a `worktree-*` branch that is already in `origin/main`](#the-bead-whose-branch-is-already-in-main) (default `true`). It never closes anything — a merged branch is a fact, "so the bead is done" is your call |
+| `advocates.inMainIntervalMinutes` | how often that looks (default 10). It runs before the survey, so a bead it flags is out of the queue in the same tick and no session is opened on it |
 | `advocates.sessionLog` | archive each finished session to `refs/beadcause/sessions/<bead>` and note its commits (default `true`) |
 | `advocates.sessionTranscripts` | also store the raw Claude Code transcript — megabytes, and it carries paths and tool output (default `false`; set per repo in `perWorkspace`) |
 | `advocates.closeFinishedSessions` | [close a work session's window once its bead is closed](#closing-the-window--a-session-that-has-finished-should-not-still-be-on-screen) (default `true`). `false` leaves every window open, which is what it did before |
