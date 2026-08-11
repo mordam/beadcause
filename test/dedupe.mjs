@@ -33,6 +33,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { boundPort } from './helpers/net.mjs';
+import { cleanupTmp } from './helpers/tmp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const LIB = (name) => path.join(HERE, '..', 'lib', name);
@@ -475,7 +476,10 @@ await check('declining still declines, and the response is still additive', asyn
 /* -------------------------------------------------------------------- the end */
 
 for (const s of servers) s.close();
-fs.rmSync(tmp, { recursive: true, force: true });
+// Not a bare rmSync: the advocate's writes schedule a commit into `<tmp>/config`, and a
+// `git init` still writing `.git/hooks` under the tree being walked is ENOTEMPTY. bc-5uy8
+// — every check above had passed, and the run stopped here at suite 32 of 105.
+await cleanupTmp(tmp);
 
 console.log(`\n${ran - failures}/${ran} ok`);
 process.exit(failures ? 1 : 0);

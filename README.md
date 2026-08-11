@@ -140,7 +140,7 @@ otherwise its poller would keep firing notifications with no listener behind the
   says so rather than pretending to cover the rest. It runs against a throwaway config
   directory on an ephemeral port and never touches `bd`, so it is safe to run with the
   daemon up. The suite proper is `npm test`, and the browser checks it deliberately
-  leaves out — they want a Chrome — are `npm run checks`, all twenty-six of them, four
+  leaves out — they want a Chrome — are `npm run checks`, all twenty-eight of them, four
   at a time, with a list of which failed. See
   [`npm run checks`](#npm-run-checks--the-browser-half-and-why-npm-test-can-still-see-it-rot),
   including the static selector audit that runs inside `npm test` and is the reason a
@@ -6648,6 +6648,68 @@ the committed `console.js`/`console.html`/`style.css`, where there is no All tab
 screens, because a row of passing assertions says nothing about whether the tabs and
 the ＋ fit beside each other at 393px.
 
+### Several chats are open at once, and switching is a repaint
+
+The page used to be about exactly one conversation. `state.console`, `state.seq`, the
+draft, which proposal cards were expanded and the poll loop all described the id in
+`?id=`, and opening another chat was a full page navigation — which threw away the
+transcript you had just read, the place you had scrolled to in it, and anything typed
+into the composer and not yet said. Coming back meant fetching the whole thing again
+and starting from the bottom.
+
+So the singular became a map: `state.chats`, one entry per conversation, and `state.id`
+naming which of them is in front. Everything that used to be a field on `state` is a
+field on a chat, and a tap on a row in the launcher is answered from what is already
+here. Nothing is evicted — a transcript is a few kilobytes and the whole promise of
+holding several open is that going back to one is *free*, not free sometimes.
+
+Three things had to follow, and each of them is a way the feature would otherwise
+half-land:
+
+- **The URL is written on every switch**, with `pushState`. It is the only durable name
+  for where you are: a reload, a bookmark and the link on a bead card all land on the
+  chat it names, and the system back gesture walks back out through the ones you came
+  through. The `?ws=&seed=` way in *replaces* instead, because that address creates a
+  conversation every time it is visited and a back gesture must never point at it.
+- **One transcript poll, for whatever is in front.** A switch aborts the old one rather
+  than letting it expire — it is parked on the server for up to twenty-five seconds, and
+  a chat brought forward inside that window would sit unwatched for the rest of it. The
+  chats in the background are followed by `/api/consoles` instead, every fifteen seconds
+  and all of them in one request: their status is all that is needed, and a parked long
+  poll per open tab is how a phone's connection budget goes. Their transcripts go stale,
+  which is the trade — bringing one forward starts its poll, and one response carries
+  everything said since its sequence number.
+- **One send queue per conversation, not one per page.** This is the one that would have
+  been silent: a single queue holds words said mid-turn until the turn lands, so with
+  two chats open it would deliver what you said to one into whichever happened to be in
+  front when that turn ended. Each chat has its own now. The strip above the composer is
+  still drawn by `public/sendqueue.js` rather than by hand — every queue attaches to the
+  same `#queued` through a selector carrying its own id, which matches only while that
+  chat is in front, so a background queue moving repaints nothing and bringing a chat
+  forward is `repaint()` on its queue.
+
+The launcher rows are still real links to real addresses — copy one, open it in a new
+tab, and it works — and a modified click is still the browser's. Only a plain tap is
+caught and answered with a repaint.
+
+`node scripts/switch-check.mjs` holds it, in headless Chrome at phone size against a
+fixture served by the script: it stamps a word on `window` and asks after every switch
+whether it is still there, which is the one difference a unit test cannot see — both a
+repaint and a page load end with the right transcript on screen. Seventeen assertions:
+the tap opens the chat and names it in the address without leaving the document, the
+second visit costs no `GET /api/console`, the scroll position and the unsent composer
+text come back, the top bar stops belonging to the chat you left, exactly one long poll
+is parked and it names the chat in front, the background is asked about in one request
+and gets no poll of its own, and a reload still lands where the address says.
+`--baseline` serves the committed copies, which navigate for every switch and so fail
+eight of them — the reload is the one that must still pass, because it is the behaviour
+this kept rather than the behaviour it added.
+
+The one thing it routes the long way round is the back gesture through *chats*: the list
+is still the only surface you can switch from, so the history a phone builds today is
+chat, list, chat. Two chats stacked on each other is a tap on a handle, and the handles
+are the next bead.
+
 ### A chat with an agent says so
 
 Two screens start conversations, and they write the same record. `/console` starts a
@@ -6823,6 +6885,15 @@ hand-written copies of the same strip would drift. Each caller keeps its own
 optimistic bubble, though, and that is deliberate too: the round trip is a process
 spawn, and words that vanish for a second read as having been eaten, so the message
 is drawn in the thread the moment it goes and taken back out again if the send fails.
+
+**A queue belongs to a conversation, not to a page.** The bead console holds several
+chats open at once now, so it makes one of these per chat and attaches each to the same
+`#queued` through a selector carrying its own id — the strip is still drawn here, and
+only the queue of the chat in front matches. That is what `repaint()` is for: every
+other paint follows the queue moving, and bringing a chat forward is the one that does
+not. See [several chats at
+once](#several-chats-are-open-at-once-and-switching-is-a-repaint) for why a shared queue
+was the failure that would have been silent.
 
 `test/queue.mjs` (in `npm test`) covers the queue: queued mid-turn, delivered on the
 turn ending, two arriving as one, a refusal that keeps the words and does not spin,
@@ -8373,11 +8444,12 @@ goes out as 3KB.
 
 **That one sweep is the slow part, and it is slower than it looks.** ~1s for 503 beads on
 an idle Mac, and **28.6s** measured under a load average of 33 — twenty agent sessions and
-a full test suite, which is an ordinary afternoon here. So `Bd.listAll` is given a timeout
-of its own rather than `run`'s 30-second default: at the default that afternoon throws, the
-workspace becomes a row in `errors[]`, and a repo with five hundred beads in it draws an
-empty ledger. A cold page can take that long to arrive and the client should say it is
-loading rather than time out; every page after it, for ten seconds, is free.
+a full test suite, which is an ordinary afternoon here. That measurement is where
+[the two-minute ceiling on every `bd` call](#notes-on-bd) comes from: under the 30 seconds
+it used to get, that afternoon throws, the workspace becomes a row in `errors[]`, and a
+repo with five hundred beads in it draws an empty ledger. A cold page can take that long to
+arrive and the client should say it is loading rather than time out; every page after it,
+for ten seconds, is free.
 
 The cache cannot help in the window *before* the first answer exists, which is the
 expensive window — so the in-flight sweep is shared as well. Two requests for the same
@@ -8773,9 +8845,72 @@ get wrong in silence: that every `test/*.mjs` on disk is in the list (the chain 
 `test/*.mjs` survive, that the three pinned positions hold, and that a failure still
 stops the run, propagates its exit code, and does not run what comes after it.
 
+### A teardown must not be able to fail a run — `test/helpers/tmp.mjs`
+
+Nearly every suite here ends the same way: make a temp directory at the top, point
+`BEADCAUSE_CONFIG_DIR` at it, and `fs.rmSync(tmp, { recursive: true, force: true })` at
+the bottom. That last line is a claim the suite cannot support — that nothing is still
+writing under `tmp` — and it is false whenever the code under test spawned something.
+Here that something is git.
+
+The path is short and entirely ordinary. A write of `advocates.json` calls `snapshot()`
+in lib/commonrepo.js, which schedules a commit **2000ms later**; the commit calls
+`ensureRepo()`, which runs `git init` in `CONFIG_DIR`; and under test `CONFIG_DIR` *is*
+the scratch directory. `test/dedupe.mjs` takes about 1600ms, so on a quiet laptop the
+timer never fires at all and on a loaded one it fires with a few hundred milliseconds to
+spare — and then `git init` is laying down `.git/hooks/*.sample` while `rmSync` walks the
+same tree. `rmdir` on a directory that gained a file since it was read is `ENOTEMPTY`:
+
+```
+  26/26 ok
+  Error: ENOTEMPTY: directory not empty, rmdir '…/beadcause-dedupe-Purxog/config/.git/hooks'
+```
+
+`force: true` is no help and reads as though it should be. `force` means *a path that is
+not there is not an error* — it is about ENOENT, and this is the opposite problem: a path
+that is more there than it was a moment ago. The depth in the message moves between runs,
+`config/.git` on one and `config/.git/hooks` on the next, which is the tell for a racing
+writer rather than a leftover.
+
+**What it costs is out of all proportion to what it is.** `scripts/test.mjs` stops at the
+first non-zero exit, so a scratch directory nobody was asserting anything about halted the
+gate at suite 32 of 105 and the 73 after it never ran — with a green run either side. Its
+own checks had all passed, so it reads as a regression in the one thing it is not, and the
+honest diagnosis ("re-run it alone") is the same sentence as the dishonest one.
+
+So teardown is a helper, `test/helpers/tmp.mjs`, in two halves that fix different things:
+
+| | |
+|---|---|
+| `quiesce()` | The real fix. Flushes the common repo's pending snapshot and awaits the commit, so there is no git child left to race. Belongs in any suite whose scratch directory is `BEADCAUSE_CONFIG_DIR`. |
+| `removeTree()` | The backstop, for what `quiesce` cannot know about — a helper that shells out, a daemon still shutting down, Spotlight. Retries the removal, and when it still cannot, **warns and returns `false`**. |
+| `removeTreeSync()` | The same retry for a teardown that cannot await: `process.on('exit', …)`, or the synchronous `done(code)` before `process.exit`. Blocks on `Atomics.wait`, because a timer would never run there. |
+| `cleanupTmp(dir)` | The two in the order that matters. One line, and the one to reach for: `await cleanupTmp(tmp)`. |
+
+That `removeTree` warns rather than throws is the point rather than a softness. A suite's
+exit code should say what its assertions said; a few kilobytes under `os.tmpdir()` that
+survive are something the OS clears, not a regression, and a teardown that can turn a
+green suite red is the bug being fixed.
+
+`flush()` in lib/commonrepo.js had to change with it, because `quiesce` is only worth
+anything if `flush` tells the truth. Both states are reachable at once — the timer fires,
+its commit is a few git subprocesses long, and a write during that window schedules
+another — and `flush` used to *overwrite* the in-flight commit with the new one and return
+only the new one. So it resolved while the first commit was still running, which is
+exactly the claim the removal then leans on; and two `commit()` calls on one repo race
+each other's index, which is `git add -A` twice over and `index.lock` already exists. The
+pending commit is now chained onto the running one.
+
+`node test/tmpteardown.mjs` (part of `npm test`) covers it, and the check that earns the
+rest is the control: right after a snapshot is scheduled the repo is *not* on disk, and
+after `quiesce()` it is. Without that half, an assertion that the directory ends up gone
+would pass against a `quiesce()` that did nothing. Filed as bc-5uy8; bc-3qsw, bc-r87b,
+bc-t69u and bc-94c6 are the same failure in `reap.mjs`, `superseded.mjs`, `slowstart.mjs`
+and `outagepush.mjs`, and each is a two-line change now that the helper exists.
+
 ### `npm run checks` — the browser half, and why `npm test` can still see it rot
 
-The twenty-six `scripts/*-check.mjs` are the only cover this repo has for layout, taps
+The twenty-eight `scripts/*-check.mjs` are the only cover this repo has for layout, taps
 and anything that happens in a thumb, and none of them are in `npm test`: each wants a
 Chrome, a phone-sized viewport and ten to forty seconds, and that suite stays pure Node
 on purpose. Until `npm run checks` there was no way to run them but one at a time by
@@ -8796,7 +8931,7 @@ conflicts with nobody.
 **Every check is on a four-minute leash**, `--timeout N` to change it and `--timeout 0`
 to take it off. This is not a tidiness rule. A check that hangs is the one failure a
 runner like this newly introduces, and it is silent in the worst available way: the run
-never ends, so nothing is reported about the other twenty-five either — strictly worse
+never ends, so nothing is reported about the other twenty-seven either — strictly worse
 than the by-hand state it replaced, where at least a person gives up. On the first real
 run of all twenty-six, `agent-chooser-check.mjs` went quiet thirteen assertions in and
 was still sitting there five minutes later. SIGTERM first so a check with a cleanup
@@ -8817,7 +8952,7 @@ parallel pass. A check that fails both times is reported with `on its own — no
 scheduling accident` beside it, so a red line cannot be waved away as the scheduler's
 fault.
 
-**Three of the twenty-six are red, and that is the bead in one paragraph.** Two were
+**Three of the twenty-eight are red, and that is the bead in one paragraph.** Two were
 already failing the day this was written, with no mark against them anywhere:
 `shot-check.mjs` has always asserted that the daemon token never reaches `shot.mjs`'s
 output, and the token is now appended to the URL that `shot.mjs` prints, so it does
@@ -8847,7 +8982,7 @@ every literal selector every check presses — 313 of them — takes each class,
 `data-` attribute apart, and asserts it still appears somewhere in `public/`. That is a
 text search, it costs milliseconds, and it fires on precisely the thing that used to be
 invisible. `npm run checks` prints it before a single Chrome starts, and does not stop on
-it: a stale selector in one check is no reason not to run the other twenty-five.
+it: a stale selector in one check is no reason not to run the other twenty-seven.
 
 It is tuned to have no false alarms, so that a finding is always real, and two things
 follow. An interpolated selector — `` `[data-key="${k}"]` `` — has no text to look for and
@@ -8873,7 +9008,7 @@ arrival before Chrome is even reached. And the runner's own endings are held aga
 temp tree of three checks that pass, fail and hang on purpose: exit 1, the failures
 counted and named, their own output replayed rather than just a code, the hang killed at
 the timeout, a passing check not listed among the failures, and an empty tree failing
-rather than passing vacuously. A tree of its own rather than the real twenty-six, because
+rather than passing vacuously. A tree of its own rather than the real twenty-eight, because
 those are the thing under observation, not the instrument.
 
 `test/observe.mjs` is about observer mode only, and it is the oldest of them —
@@ -9058,6 +9193,29 @@ a guard that cannot fail is not mistaken for a file that is fine.
   `_bd_set_workspace`, which rewrites `BEADS_DIR` from the shell's cwd — so
   `BEADS_DIR=… zsh -c 'bd …'` silently hits the wrong workspace. `execFile` does
   no shell startup, which is how one daemon serves five workspaces.
+- **Every `bd` invocation gets two minutes, and the number is measured.** `BD_TIMEOUT`
+  in lib/bd.js. It was thirty seconds, which this laptop clears on an ordinary
+  afternoon: the largest read here — `bd list --all` over 503 beads — answers in about a
+  second idle and took **28.6s** under a load average of 33, which is twenty agent
+  sessions and a full `npm test` rather than anything pathological. A timeout is not a
+  slow answer downstream, it is a dead workspace — `execFile` kills the child, the sweep
+  files the repo under `trouble`, and the History tab draws an empty ledger — so the
+  failure mode of a busy machine was every repo reporting as broken while `bd` was merely
+  slow, once per thirty-second poll, for as long as the load lasted. It is a **default**
+  and not a ceiling per call because a ceiling per call is what was tried first: `listAll`
+  got one, six other reads did not, and the six that did not are the small ones that run
+  on a timer across every workspace. Writes inherit it too — a write SIGTERMed mid-`bd` is
+  worse than a slow one, and since a timeout is never retried this is one ceiling per
+  call, not four.
+- **A timeout says so, everywhere it is displayed.** It is the one error that arrives with
+  nothing to explain itself: `bd` is SIGTERMed mid-answer, so stderr is empty and Node's
+  own message is "Command failed". So `run` rewrites it as `bd … timed out in <workspace>:
+  still running after 120s, killed rather than broken` and sets `err.timedOut`. The shape
+  is deliberate — lib/sweep.js strips `<verb> in <ws>: ` and shows the sentence after the
+  colon, so what reaches a four-inch screen is *still running after 120s* rather than a
+  wall of flags, and a slow repo stops reading as a broken one. Blowing the 32MB
+  `maxBuffer` kills the child as well and is deliberately *not* dressed up that way —
+  that one really is bad output.
 - **Don't set `sharedServer: true`** unless you've run `bd dolt start`. The
   workspaces pin `dolt_mode="embedded"`; forcing shared mode makes every command
   fail against a Dolt server that isn't listening. Writes retry through the
