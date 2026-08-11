@@ -7,8 +7,8 @@
 // test/spacedetails.mjs proves the contract: `null` means inherit, a patch touches
 // only what it names, the write reaches the running daemon *and* the file. None of
 // that says the card draws, and none of it says a press reaches the endpoint — which
-// is the whole feature, because these eight settings were a config hand-edit until
-// there was a button.
+// is the whole feature, because every one of these settings was a config hand-edit
+// until there was a button.
 //
 // So this one drives the real `public/monitor.js` in a headless Chrome the size of a
 // phone, over a real `bin/beadcause.js` started on a temp config directory. Nothing is
@@ -23,14 +23,15 @@
 // `--keep` leaves the temp config directory behind, which is where to look when a
 // press appears to work and the file says otherwise. `--shot <file.png>` writes a
 // phone-sized picture of the card with every panel open — the one thing a list of
-// ticks cannot tell you is whether eight settings on a 393px screen read as a card or
-// as a wall.
+// ticks cannot tell you is whether a row per setting on a 393px screen reads as a card
+// or as a wall.
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { freePort } from '../test/helpers/net.mjs';
+import { SETTINGS } from '../lib/spaces.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
@@ -233,6 +234,18 @@ try {
           state: el.querySelector('.mon-state')?.textContent,
           text: el.textContent.replace(/\\s+/g, ' '),
           rows: [...el.querySelectorAll('.space-what')].map((x) => x.textContent),
+          // Which setting each row actually writes, read off the controls in it rather
+          // than off its heading: the heading is a sentence for a human ("Agents may
+          // answer unasked") and the key is what \`POST /api/space\` takes. Quiet hours
+          // and quiet days are the two rows with bespoke controls instead of a
+          // \`data-space-set\`, so they are named from the attribute they do carry.
+          keys: [...el.querySelectorAll('.space-row')].map((r) => {
+            const set = r.querySelector('[data-space-set]');
+            if (set) return set.getAttribute('data-space-set');
+            if (r.querySelector('[data-space-hours]')) return 'quietHours';
+            if (r.querySelector('[data-space-day]')) return 'quietDays';
+            return \`unknown: \${r.querySelector('.space-what')?.textContent || '?'}\`;
+          }),
         };
       })()`
     );
@@ -258,8 +271,28 @@ try {
   check('with a settings panel on it', await open('Settings'));
   await sleep(300);
 
+  // Against `SETTINGS` rather than against a number: a count in this file is a number
+  // that has to be moved every time a setting is added, and when it is not moved this
+  // check greets the next person with a red they have to spend time proving is not
+  // theirs — which is exactly what happened when `autoShip` landed (bc-qda7). The list
+  // in lib/spaces.js is the same one the endpoint validates a patch against, so a
+  // setting the card has no row for, and a row writing a key the server would reject,
+  // both fail here and both fail by name.
   const opened = await card();
-  check('carrying a row for every setting', opened?.rows.length === 8, (opened?.rows || []).join(', ') || 'none');
+  const drawn = new Set(opened?.keys || []);
+  const missingRow = SETTINGS.filter((k) => !drawn.has(k));
+  const extraRow = [...drawn].filter((k) => !SETTINGS.includes(k));
+  check(
+    'carrying a row for every setting',
+    missingRow.length === 0 && extraRow.length === 0 && drawn.size === (opened?.keys || []).length,
+    [
+      missingRow.length ? `no row for ${missingRow.join(', ')}` : '',
+      extraRow.length ? `a row for ${extraRow.join(', ')}, which is not a setting` : '',
+      (opened?.keys || []).join(', ') || 'none',
+    ]
+      .filter(Boolean)
+      .join(' — ')
+  );
 
   const press = async (selector) => {
     const hit = await evalJs(

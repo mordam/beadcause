@@ -646,9 +646,14 @@ and `workspaces` are refused rather than dropped, that a write lands in the live
 outrank the space. `node scripts/space-check.mjs` is the other half and wants Chrome on
 the machine: the real `public/monitor.js` in a phone-sized headless browser over a real
 `bin/beadcause.js`, pressing the buttons and reading the config file back after each
-one. `--shot <file.png>` writes a picture of the card with both panels open, which is
-the one thing a list of ticks cannot tell you — whether seven settings on a 393px screen
-read as a card or as a wall.
+one. It asks for a row per setting against `SETTINGS` in `lib/spaces.js` rather than
+against a number, and reads each row's key off the control in it rather than off its
+heading: a count in a check is a number that has to be moved every time a setting is
+added, and the one there went stale the moment `autoShip` landed — greeting the next
+person who ran it with a red they had to spend time proving was not theirs (bc-qda7).
+`--shot <file.png>` writes a picture of the card with both panels open, which is the one
+thing a list of ticks cannot tell you — whether a row per setting on a 393px screen
+reads as a card or as a wall.
 
 ### And it offers to tidy up the noise it already made
 
