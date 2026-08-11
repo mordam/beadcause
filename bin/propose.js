@@ -5,18 +5,27 @@
  *   beadcause-propose -w beadcause --from bc-7qo --kind discovery < beads.yaml
  *   beadcause-propose -w beadcause --from bc-7qo --kind conflict -f conflict.yaml
  *
- * The rule this exists to serve is unchanged and absolute: **an agent may not create
- * a bead.** Adam approves every bead before it exists. What changed is *when* he gets
- * to approve one. A session used to write its discoveries into a `## Discovered`
- * comment and carry on, and those sat there — invisible, unanswerable — until the
- * repo's advocate ran out of ready work and surveyed the comments, which on a busy
- * repo is never. So the discovery arrived a fortnight after the context that made it
- * obvious had gone.
+ * **This asks. It does not file.** One ordinary `human` question carrying the full text
+ * of every bead it wants, reaching the phone through the same channel and the same card
+ * as an advocate's proposal, with the same ✓ / ✎ / ✕ per row. Nothing is created until
+ * a button is pressed. See lib/proposal.js.
  *
- * Now the session proposes at the moment of discovery: one ordinary `human` question
- * carrying the full text of every bead it wants, which reaches the phone through the
- * same channel and the same card as an advocate's proposal, with the same ✓ / ✎ / ✕
- * per row. Nothing is created until a button is pressed. See lib/proposal.js.
+ * That used to be the only way an agent could put work in the tracker, and the rule
+ * behind it — *an agent may not create a bead* — is no longer absolute. A worker that
+ * finds work mid-task now **creates it**, with `beadcause-file`: the bead exists at
+ * once and arrives `unendorsed`, which nothing may open a session on until Adam says
+ * so (lib/filing.js, lib/endorse.js). Review moved to the other side of the filing
+ * rather than disappearing.
+ *
+ * So the two commands are two different questions, and both still have callers:
+ *
+ *   - `beadcause-file` — "there is more work here". The finder is sure; the bead is
+ *     real; the endorsement is afterwards and the session carries on.
+ *   - `beadcause-propose` — "should there be work here?". What `--kind conflict` is,
+ *     always: a contradiction is an answer owed rather than a bead to file, and it
+ *     parks the work bead behind the question. Also the honest choice for a discovery
+ *     a session is genuinely unsure is worth tracking at all, and the shape an
+ *     advocate's survey uses when it invents work from a repo at rest.
  *
  * Input is YAML on stdin or `--file`: a list of beads, or `{ beads: [...] }`, in
  * exactly the shape the `beadproposal` block takes.
