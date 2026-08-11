@@ -42,7 +42,7 @@
  *
  *   node bin/router.js            supervise (this is what launchd runs)
  *   node bin/router.js --swap     force a swap now, even if nothing changed
- *   node bin/router.js --status   what is running, and on what build
+ *   node bin/router.js --status   what is running, on what build, on what certificate
  */
 import http from 'node:http';
 import net from 'node:net';
@@ -52,7 +52,17 @@ import { fileURLToPath } from 'node:url';
 import { loadConfig, reconcileBaseUrl } from '../lib/config.js';
 import { buildStamp, routerStamp } from '../lib/build.js';
 import { hotSwapProblem, LOADED_ENV } from '../lib/service.js';
-import { certificate, closeServer, daysLeftOf, isSecure, startRenewal, tailnetServer, tlsEnabled, MIN_VERSION } from '../lib/tls.js';
+import {
+  certificate,
+  certificateLine,
+  closeServer,
+  daysLeftOf,
+  isSecure,
+  startRenewal,
+  tailnetServer,
+  tlsEnabled,
+  MIN_VERSION,
+} from '../lib/tls.js';
 import {
   EXITED,
   HEALTH_ATTEMPTS,
@@ -727,12 +737,22 @@ function snapshot() {
  * first one adopted without a restart are reflected here the moment they happen, rather
  * than reporting whatever was true at boot. Null while a provisional listener is still
  * waiting for one, because "serving plain HTTP" is exactly what that is.
+ *
+ * `checkedAt` comes off the same server object, stamped by the renewal loop on every
+ * tick — so a readout can say whether the loop is still running rather than only what
+ * the calendar says. A certificate with two months left and a check from six weeks ago
+ * is a dead loop, and those two facts are only distinguishable together.
  */
 function certificateOnSocket() {
-  const material = (servers || []).filter(isSecure).find((s) => s.tlsMaterial)?.tlsMaterial;
+  const server = (servers || []).filter(isSecure).find((s) => s.tlsMaterial);
+  const material = server?.tlsMaterial;
   if (!material) return null;
   const left = daysLeftOf(material.cert);
-  return { name: material.name, daysLeft: left === null ? null : Math.round(left * 10) / 10 };
+  return {
+    name: material.name,
+    daysLeft: left === null ? null : Math.round(left * 10) / 10,
+    checkedAt: server.tlsCheckedAt || null,
+  };
 }
 
 /**
@@ -1113,6 +1133,10 @@ if (process.argv.includes('--status')) {
   console.log(`active   ${line(s.active)}`);
   for (const be of s.retiring) console.log(`draining ${line(be)}`);
   console.log(`disk     ${s.disk}${s.stale ? '  ⚠ STALE — a swap is due' : '  (matches what is running)'}`);
+  // TLS on a line, next to the build, because this is the one command anybody runs to
+  // ask what the daemon is doing — and until now the certificate was only ever visible
+  // in launchd's log or in the push that arrives once it is nearly too late.
+  console.log(`cert     ${certificateLine(s.certificate).text}`);
   if (s.poisoned) console.log(`poisoned ${s.poisoned} — this build died at startup; not retried until the files change`);
   if (s.deferred) {
     const left = Math.max(0, Math.round((s.deferred.until - Date.now()) / 1000));

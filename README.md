@@ -43,7 +43,11 @@ other people** (those get a contentless push and no unattended agents), where yo
 **code lives** (so a question can show you files from it), whether your shell
 **derives `BEADS_DIR` from the working directory**, whether to use **ntfy**,
 whether commenting should **spawn an agent** to answer you, and whether to open the
-**[activity monitor](#the-monitor--what-it-is-doing-right-now)** at login. Re-run them any time
+**[activity monitor](#the-monitor--what-it-is-doing-right-now)** at login. A workspace
+holding **more than one repo** is asked one more: which of the checkouts under it are
+[approved](#many-repos-one-workspace--the-approved-list-and-the-token-that-names-each),
+printed with the service token each one declares — an install where every workspace is one
+repo is asked nothing about it. Re-run them any time
 with `npm run configure`; nothing is written until the last answer, so Ctrl+C is
 always safe.
 
@@ -68,7 +72,7 @@ It still exits non-zero — it just never exits with nothing running.
 npm run monitor              # live view of what the daemon is doing
 npm run check                # the checks around the agent log — safe with the daemon up
 npm run secrets              # has a secret ever reached the config repo's history?
-npm run swap:status          # which build is actually answering the port
+npm run swap:status          # which build is answering the port, and the certificate on it
 npm run uninstall-service    # remove the service (keeps your config and token)
 tail -f ~/Library/Logs/beadcause.log
 launchctl kickstart -k gui/$(id -u)/m4m.beadcause   # only for bin/router.js itself
@@ -6182,6 +6186,64 @@ minute), and **again, unconditionally, before a window opens**. `holdOpenPrs: fa
 switches it off. `node test/prqueue.mjs` covers the filter and `node test/twinqueue.mjs`
 the sibling it sits beside.
 
+### The bead somebody is already sitting in
+
+The filter above holds a bead because of something in a repository. This one holds it
+because of something on the laptop: a **window that is already open on it**.
+
+bc-vq78 is what it costs, and it is the worst of the family. Two sessions were open on
+climative/cl-xe2 at the same time — one busy since 17:18 and writing files, the other
+handed the same bead an hour later with a plain brief, which told it that claiming the bead
+"is what stops a second session being opened on top of you". It ran the claim, got no
+complaint, and worked for seventy minutes before noticing that files it had not written
+were changing mtime. cl-xe2 spanned ten separate repositories; both windows were pointed at
+the same uncommitted worktrees. Nothing but the second session's suspicion stood between
+that and two agents editing one tree.
+
+**The claim is not the guard the brief advertises**, and that is the whole of it. Things
+take it off again, all of them legitimately:
+
+- **"Request changes" reopens the bead and drops the assignee** — that is the only signal
+  an advocate reads, so asking for changes has to do it, and the session that built the
+  branch is usually still sitting in its worktree when you tap it.
+- **A worker can lose its slot without its window going anywhere.** A timeout, or a
+  check-in it never answered: the advocate stops counting it, which is right — a slot is
+  not a bead — but the window is still there.
+- **A restarted daemon forgets its workers outright**, and a restart usually follows a
+  merge, which is exactly when sessions are live.
+
+So the evidence here is the window itself: a running Claude Code process whose name carries
+this bead's id. That is not a new inference — it is the same `namesBead` rule the
+[reaper](#closing-the-window--a-session-that-has-finished-should-not-still-be-on-screen)
+already trusts to decide which window
+to close, and it is what the incident report reconstructed by hand from `ps` and
+`~/.claude/sessions/*.json`.
+
+**Two guards, and each covers the other's gap.** A worker this advocate remembers opening
+is filtered where the launch is chosen, which catches the session that is *too young* to
+have renamed itself — a window carries no bead id until its first turn runs. This filter
+catches the session the advocate has *forgotten*, which is every case above. Neither is
+sufficient alone, and the failure they prevent is not a wasted window but a corrupted tree,
+so both stay.
+
+It matches against every live session on the laptop rather than this workspace's, because
+ids are prefixed per workspace (`cl-`, `bc-`, `sp-`) and a match therefore cannot cross
+one — while a window working a climative bead from a directory that maps somewhere else is
+exactly the case a workspace filter would miss. A record whose process is gone holds
+nothing: nothing deletes those files on exit, so "a record exists" and "a session is
+running" are different questions, and every row is liveness-checked before it is believed.
+An idle window holds it too — an interactive session says its last word and goes back to
+waiting, so a delivered or handed-back worker sits there idle with a worktree full of
+uncommitted work, which is the same collision with a quieter first half.
+
+There is no interval on this one, unlike the three sweeps above it: the session records are
+files on this laptop, so the read is free and happens on every tick — and again,
+unconditionally, immediately before a window opens, which is the read that catches a
+session that renamed itself while the tick was running. The cost of a wrong hold is one
+bead that waits, named on the advocate's card with the pid of the window holding it, until
+that window closes. `holdLiveSessions: false` switches it off. `node test/livequeue.mjs`
+covers it.
+
 ### The session log, kept in the repo
 
 A session's window closes when it exits, the rendered log in `~/.config/beadcause/`
@@ -7920,7 +7982,7 @@ Every response carries `x-beadcause-build` and `x-beadcause-pid`, so `curl -sI`
 against the real port settles the question that started all this:
 
 ```bash
-npm run swap:status     # active pid, build, whether disk has moved past it
+npm run swap:status     # active pid, build, whether disk has moved past it, the certificate
 npm run swap            # swap now, even if nothing changed
 npm test                # drives a real swap under load and proves nothing drops
 curl -sI http://127.0.0.1:4318/api/health | grep beadcause
@@ -8176,6 +8238,30 @@ certificate inside the renewal loop's alarm window is
 marked rather than merely printed, using the same two thresholds the push uses, so the
 screen cannot call "fine" something your phone is being nagged about.
 
+**And when the loop last looked**, in the same words `npm run swap:status` uses:
+
+```
+Certificate for mac.tailnet.ts.net — 61 days left, checked 3h ago.
+```
+
+The days come off the disk and the check comes off the socket — `serving.checkedAt`,
+stamped on the live listener by the renewal loop on every tick — and the card is
+unreadable without both. Eighty-nine days left and a check from six weeks ago is a dead
+renewal loop sitting on a certificate that still happens to be valid, and the calendar
+keeps counting down whether or not anything is still renewing it: until this was on the
+card, that state was drawn as *healthy*. It is left as a plain "when" with no threshold
+of its own, because how old is too old is the loop's own cadence and that is not on the
+wire; the rounding is deliberately the same three tiers as the terminal's, so two
+readouts of one fact cannot disagree by a unit and turn into a question about which is
+right. Nothing is said at all when the field is absent — an older router cannot hot-swap
+itself, so its snapshot predates a deploy until a `launchctl kickstart`, and a card that
+filled that in from the fact that it had *something* to draw would be asserting the one
+thing this exists to detect. Under `npm run start:bare` the answer comes from this
+process's own listener instead, which is honest for the same reason: `bin/beadcause.js`
+runs the renewal loop over those very sockets, so the stamp is read off the same object
+as the material beside it. `test/tlsadmin.mjs` pins both halves — the field surviving
+`tlsView`, and the sentence, by running the real `public/admin.js` in a vm.
+
 **What pressing it costs, in the button, before you press it.** Turning HTTPS on moves
 the origin, and the token lives in `localStorage`, which is per origin — so *every
 paired browser is signed out, including the one you are pressing it with*. The button
@@ -8346,6 +8432,37 @@ the app going dark.
                  your Tailscale account does not support getting TLS certs
 [beadcause] tls  fix it by hand: tailscale cert mac.tailnet.ts.net
 ```
+
+**And you can go and ask, rather than waiting to be told.** A push arrives at the point
+where it is nearly too late and a log line is on a Mac nobody is sitting at, so neither
+answers "is my certificate fine?" on a day when it is. `npm run swap:status` — the command
+already run to ask what the daemon is doing — names the certificate beside the build:
+
+```
+cert     mac.tailnet.ts.net — 61.4 days left  (checked 3h ago)
+cert     mac.tailnet.ts.net — 9.1 days left  (checked 2h ago)  ⚠ EXPIRING — the renewal
+         that should have happened has not: tailscale cert mac.tailnet.ts.net
+```
+
+Three things about that line are deliberate. It is **marked**, not merely printed, once
+the number is inside the alarm window — the same `ALARM_BELOW_DAYS` the push uses, so the
+line and the notification can never disagree about what "fine" means — and it carries the
+command that fixes it, because a warning you have to go and research is one that waits
+until the weekend. It says **when the loop last looked**: a certificate with two months
+left and a check from six weeks ago is a dead renewal loop, and neither fact says that on
+its own. And the number is read off the **socket**, through the router's
+`/internal/router/state`, so a certificate swapped by `setSecureContext` an hour ago is
+what you see rather than whatever was true at boot.
+
+The three answers that are not a number are kept apart on purpose, because collapsing any
+pair of them would be reassuring and wrong: `none — serving plain HTTP` is a tailnet
+without *HTTPS Certificates* or a provisional listener still waiting, which is supported
+and not a fault; `an unreadable expiry` is an alarm, since bytes that will not parse are
+not "fine for another 89 days"; and `not reported` means the router answering predates the
+field — it cannot hot-swap itself, so `launchctl kickstart -k gui/$(id -u)/m4m.beadcause`
+is what makes it answer. `test/certstatus.mjs` pins all of them, and pins the printer by
+spawning `--status` against a stub control plane, because a fixture is the only way to
+have a certificate that is nine days old on a machine whose real one is ninety.
 
 Two details worth knowing if you ever debug this:
 
@@ -8987,7 +9104,7 @@ cookie says so), and `/auth/signout` ends the session.
 | GET | `/terminal` | `?id=` or `?ws=&seed=` | the terminal page |
 | GET | `/api/admin` | — | every scope and what pausing it would cost. Read-only and cheap — no `bd` call, no spawn — because `/admin` polls it and the counts on the buttons have to be current when you press one |
 | POST | `/api/admin` | `{action, what, scope, mode}` | pause or resume everything, one space, or one half of it. `what` is `all` · `advocates` · `terminals`; `mode` is `drain` (default — no new launches, running workers finish untouched) or `kill`. Never run at boot: a `launchctl kickstart -k` behaves exactly as it did. Refused on an observer |
-| GET | `/api/tls` | `?pairing=1` | what HTTPS is doing: the setting, the certificate on disk (name, days left), what the socket is actually serving, the URL a phone would be handed, and whether a restart is owed. Cheap enough to poll — two file reads and a memoised MagicDNS name, and it never asks `tailscale cert` for anything. `?pairing=1` adds the link and a QR |
+| GET | `/api/tls` | `?pairing=1` | what HTTPS is doing: the setting, the certificate on disk (name, days left), what the socket is actually serving (`serving`: name, days left, and `checkedAt` — when the renewal loop last looked, `null` from anything too old to say), the URL a phone would be handed, and whether a restart is owed. Cheap enough to poll — two file reads and a memoised MagicDNS name, and it never asks `tailscale cert` for anything. `?pairing=1` adds the link and a QR |
 | POST | `/api/tls` | `{enabled}` | turns HTTPS on or off: writes `tls.enabled`, fetches the certificate when it is on (asynchronously — the synchronous one would block every request for the length of a Let's Encrypt round trip), and moves `baseUrl`. Pressing it while it is already on is the retry. Binds nothing: TLS is decided when the listener is created, so the reply carries `restartNeeded`. Refused on an observer, which shares this config with the live daemon |
 | GET | `/api/deploys` | `?limit=` or `?id=` | the recent deploys, or one with its log. Four endings, not two: `ok`, `failed`, and the two that mean nobody knows — `unconfirmed` (the ordinary ending of a restart) and `lost` |
 | POST | `/api/deploy` | `{workspace, bead?, reason?}` | runs that repo's declared deploy. `409` with no declaration, or if one is already running. Means "written down and a process owns it", never "it worked". Refused on an observer |
@@ -9002,7 +9119,7 @@ the tailnet holding the token could otherwise stop the poller:
 
 | Method | Path | Returns |
 |---|---|---|
-| GET | `/internal/router/state` | `{router, disk, stale, poisoned, deferred, serving, outage, retryAt, slowness, active, retiring[]}` — what `npm run swap:status` prints. `poisoned` is a build that *died* at startup; `deferred` is one that was only slow, and when it will be tried again |
+| GET | `/internal/router/state` | `{router, disk, stale, poisoned, deferred, serving, outage, retryAt, slowness, certificate, active, retiring[]}` — what `npm run swap:status` prints. `poisoned` is a build that *died* at startup; `deferred` is one that was only slow, and when it will be tried again. `certificate` is `{name, daysLeft, checkedAt}` off the live socket, or `null` when the port is serving plain HTTP |
 | POST | `/internal/router/swap` | `{ok, active}` — or `{ok:false, error}` if the new build would not start |
 
 Every proxied response also carries `x-beadcause-build` and `x-beadcause-pid`,
@@ -9147,7 +9264,7 @@ history.
 | `auth.google.sessionDays` | how long a signed-in browser stays signed in (default `30`) |
 | `auth.google.enabled` | `false` turns sign-in off while leaving the rest of the block configured (default `true`) |
 | `workspaces` | auto-discovered from `~/beads/*/.beads`, and **reconciled on every start** — entries whose directory has gone are dropped and new ones picked up, both logged. Renaming a workspace directory used to leave a stale entry that failed on every poll tick, silently hiding that whole workspace from the phone |
-| `repos` | the checkouts **one workspace** may be worked in, keyed by workspace name — `{"climative": {"root": "~/climative.dev", "default": "architecture", "approved": ["architecture", "athena-service"]}}`. Empty by default, and a workspace not named here costs nothing: it is one repo, as every workspace was before this existed. `approved` is a list you write and nothing discovers — a directory under `root` that is not in it resolves to nothing. Each repo's identity is the **service token** it declares in its own `config/config.yaml`, read from the checkout rather than restated here; `default` is the repo a bead carrying no token belongs to, and `tokenPath` / `tokenKey` override where the token is read from. A bead says which repo it is about by carrying that token as a `repo:<token>` label. See [Many repos, one workspace](#many-repos-one-workspace--the-approved-list-and-the-token-that-names-each) and [how a bead names one](#how-a-bead-says-which-repo-it-is-about--repotoken) |
+| `repos` | the checkouts **one workspace** may be worked in, keyed by workspace name — `{"climative": {"root": "~/climative.dev", "default": "architecture", "approved": ["architecture", "athena-service"]}}`. Empty by default, and a workspace not named here costs nothing: it is one repo, as every workspace was before this existed. `approved` is a list you write and nothing discovers — a directory under `root` that is not in it resolves to nothing; `npm run configure` prints the tree with each repo's token for you to tick, which is not the same thing as approving one. Each repo's identity is the **service token** it declares in its own `config/config.yaml`, read from the checkout rather than restated here; `default` is the repo a bead carrying no token belongs to, and `tokenPath` / `tokenKey` override where the token is read from. A bead says which repo it is about by carrying that token as a `repo:<token>` label. See [Many repos, one workspace](#many-repos-one-workspace--the-approved-list-and-the-token-that-names-each) and [how a bead names one](#how-a-bead-says-which-repo-it-is-about--repotoken) |
 | `openSessions` | allow `POST /api/session` to open a Claude session on the Mac (default `true`) |
 | `sessionDirs` | override where a workspace's session opens. Normally unnecessary — see Discussing a question on the Mac |
 | `sessionPermissionMode` | `--permission-mode` for an opened session (default `auto`; `null` to omit the flag) |
@@ -9197,6 +9314,7 @@ history.
 | `advocates.inMainIntervalMinutes` | how often that looks (default 10). It runs before the survey, so a bead it flags is out of the queue in the same tick and no session is opened on it |
 | `advocates.holdOpenPrs` | [hold a bead out of the queue while an open pull request already carries its work](#the-bead-whose-work-is-already-in-an-open-pull-request) (default `true`). It closes nothing — an open PR is not a merged one — it holds, with the number on the card. Without it a worker briefed to merge is opened beside a resolver briefed that the merge is not its to make |
 | `advocates.inflightIntervalMinutes` | how often that asks GitHub (default 5, shorter than the sweeps above because a delivery that could not merge opens a pull request and hands the bead back to `bd ready` in the same minute). It also asks *unconditionally* right before opening a session |
+| `advocates.holdLiveSessions` | [hold a bead out of the queue while a live session already names it](#the-bead-somebody-is-already-sitting-in) (default `true`). The claim is not the guard the brief says it is — "request changes" drops it, a timeout drops the slot, a restart forgets the worker — and without this a second window opens into a worktree somebody is still editing. No interval: the session records are files on this laptop, so it reads on every tick and again before a launch |
 | `advocates.sessionLog` | archive each finished session to `refs/beadcause/sessions/<bead>` and note its commits (default `true`) |
 | `advocates.sessionTranscripts` | also store the raw Claude Code transcript — megabytes, and it carries paths and tool output (default `false`; set per repo in `perWorkspace`) |
 | `advocates.closeFinishedSessions` | [close a work session's window once the session has finished](#closing-the-window--a-session-that-has-finished-should-not-still-be-on-screen) — the bead closed, a pull request delivered, or the bead handed back for a decision, and never an ending the daemon merely inferred (default `true`). `false` leaves every window open, which is what it did before |
@@ -9386,6 +9504,59 @@ three it was.
 
 One repo and no `default` is that repo — there is nothing to be wrong about. Several and
 no `default` is no repo, and says so.
+
+**`npm run configure` prints the tree and you tick it.** The list above was hand-edited
+JSON, which is worse than it sounds, because both facts that decide an entry are invisible
+from the file you are editing: whether the repo is cloned at all, and what token its own
+`config/config.yaml` declares. Forty-odd directories means opening forty YAML files and
+hoping — and a token typed from memory is a bead that resolves to nothing at three in the
+morning. So the tenth question of the wizard reads the root and shows you what is there:
+
+```
+   48 directories under ~/climative.dev, ✓ marking what is approved today:
+    2 ✓ architecture                architecture
+    4 ✓ athena-service              as             ⚠ as is also declared by audit-service, rules-engine-service
+   11   climative-apps              —              declares no serviceToken in config/config.yaml
+   29   microservice-base           xs             ⚠ xs is declared by 9 of these
+   45   tmp                         —              is not a git checkout
+   Numbers, ranges and names, comma-separated — "none" to approve nothing.
+   approved: [architecture, athena-service]
+```
+
+Every directory is listed, including the ones that cannot be approved usefully, because
+"declares no token" and "is not a checkout at all" are more use on screen with the reason
+beside them than missing from a list you are about to tick. The ⚠ is the collision — seen
+*before* you approve the second repo that declares `as`, rather than in the startup log
+afterwards — and once you have answered, the same sentences `repoList` would print are
+echoed straight back at you, for the list you just wrote.
+
+**Presented for approval is not applied, and the difference is the whole point.** The
+answer *is* the list: nothing you do not name survives it, there is no `all`, and the
+default offered is what is approved today — so holding Enter through the question cannot
+approve a repo or unapprove one. Numbers and ranges (`1,4,7-9`) exist because forty names
+is not something anybody types; a name that is not under the root is kept and reported,
+since it is usually a repo approved but not cloned yet, and silently dropping it would
+unapprove a repo by refusing to echo the default back. A *number* that is not in the list
+is the one thing dropped rather than kept — it cannot be a repo name, so it is a slip, and
+`"99"` in the approved list is a startup warning forever.
+
+**It is asked only where there is something to ask.** Either `repos.<workspace>` already
+exists — asked again whatever is on disk, so a tree that has moved or a repo that was
+never cloned can be *fixed* rather than warned about at every start — or there is a
+directory named after the workspace (`climative` → `climative.dev`, `climative-repos`)
+holding **two or more git checkouts**, which is offered as the root to confirm. `~/beads`
+is excluded outright: `~/beads/<workspace>` is named after the workspace by construction
+and is the tracker's own tree, not somewhere to open a session. An install where every
+workspace is one repo — which is almost every install — is asked nothing at all, and its
+config keeps no `repos` block.
+
+The reading lives in [`lib/reposcan.js`](lib/reposcan.js) rather than in `lib/repos.js`,
+and that is deliberate: the resolver's "no `readdir` in this module" assertion stays
+literal, which is the cheapest possible check on the most expensive possible mistake.
+`node test/reposcan.mjs` covers the other side of it — that an install with one repo per
+workspace is asked nothing, that `~/beads` is never guessed, that a trailing YAML comment
+never reaches a token the resolver will disagree with, that nothing unticked survives an
+answer, and that the module writes nothing at all.
 
 ### How a bead says which repo it is about — `repo:<token>`
 
