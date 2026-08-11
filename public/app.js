@@ -3095,20 +3095,36 @@
     else bits.push('your turn');
     if (c.created?.length) bits.push(`${c.created.length} created`);
     if (c.seed) bits.push(`from ${c.seed.id}`);
-    // `data-key` because that is what capturePlace() anchors the scroll position to,
-    // and a row that carried none would be a hole in the list you cannot be restored
-    // to — the poll would put you back at the nearest card instead.
-    return `<a class="card chat-card work-row" href="/console?id=${encodeURIComponent(c.id)}"
-      data-key="${esc(row.key)}">
-      <span class="work-phase">${phase}</span>
-      <span class="work-main">
-        <span class="work-title">${esc(c.title || 'Untitled')}</span>
-        <span class="work-sub"><span class="pill">${esc(c.workspace)}</span>${
-          agent ? `<span class="pill agent">${esc(agent.emoji)} ${esc(agent.name)}</span>` : ''
-        }${esc(bits.join(' · '))}</span>
-      </span>
-      <time>${esc(relTime(c.updatedAt))}</time>
-    </a>`;
+    // Which conversation, said in full, because this is the accessible name of a
+    // button and "Dismiss" alone in a list of six of them says nothing about which
+    // one is about to leave. The agent is named for the same reason the row draws its
+    // pill: two chats in the same repo are told apart by who they are with.
+    const title = c.title || 'Untitled';
+    const dismissLabel = agent ? `Dismiss “${title}” — your chat with the ${agent.name}` : `Dismiss “${title}”`;
+    // The card is a wrapper around the link rather than being the link, because a
+    // <button> cannot live inside an <a> and the ✕ has to be somewhere. Siblings, as
+    // the launcher's rows are (.console-row in public/console.js): that shape is what
+    // makes "dismiss" incapable of also opening the conversation, rather than a
+    // preventDefault that has to keep being right.
+    //
+    // `data-key` moves to the wrapper with the `.card` class it is looked up beside —
+    // capturePlace() anchors the scroll position to `.card[data-key]`, and a row that
+    // carried none would be a hole in the list you cannot be restored to, the poll
+    // putting you back at the nearest card instead.
+    return `<div class="card chat-card" data-key="${esc(row.key)}">
+      <a class="work-row" href="/console?id=${encodeURIComponent(c.id)}">
+        <span class="work-phase">${phase}</span>
+        <span class="work-main">
+          <span class="work-title">${esc(title)}</span>
+          <span class="work-sub"><span class="pill">${esc(c.workspace)}</span>${
+            agent ? `<span class="pill agent">${esc(agent.emoji)} ${esc(agent.name)}</span>` : ''
+          }${esc(bits.join(' · '))}</span>
+        </span>
+        <time>${esc(relTime(c.updatedAt))}</time>
+      </a>
+      <button class="row-x" data-act="chat-dismiss" data-key="${esc(row.key)}" data-id="${esc(c.id)}"
+        aria-label="${esc(dismissLabel)}">✕</button>
+    </div>`;
   }
 
   /**
@@ -4250,6 +4266,53 @@
       return;
     }
 
+    /**
+     * Put a conversation away — the ✕ on a chat card.
+     *
+     * One tap, no arm-then-confirm, exactly as the launcher's ✕ has always been. The
+     * close is **soft**: the transcript stays on disk, the id keeps working, and saying
+     * anything to the conversation reopens it (lib/console.js `closeConsole`). There is
+     * nothing here to be sure about, and the two-tap path this page uses for a dismissal
+     * that is not reversible would be the wrong promise about a thing that is.
+     *
+     * The row goes on the tap rather than at the next 25-second poll, because a card
+     * that sits there for twenty more seconds after you dismissed it reads as a tap
+     * that missed. `dismissedChats` is what keeps it gone: `consoles` is taken whole
+     * off every payload, and the poll in flight when you tapped was assembled before
+     * this write landed — without the guard the row would slide back in a second later
+     * and leave on the poll after that. See adopt().
+     *
+     * Refused mid-turn is the one failure worth hearing about: a conversation with a
+     * `claude` process streaming into it cannot be closed under it, the server says so
+     * with a 409, and the row comes back with the reason under it.
+     */
+    if (act === 'chat-dismiss') {
+      // Belt: the ✕ is a sibling of the link rather than inside it, so there is no
+      // navigation to stop — but this handler is also the one place that would have to
+      // change if the row were ever restructured again.
+      ev.preventDefault();
+      const id = btn.dataset.id;
+      const row = (state.consoles || []).find((c) => c.id === id);
+      if (!row) return;
+      btn.disabled = true;
+      dismissedChats.add(id);
+      state.consoles = state.consoles.filter((c) => c.id !== id);
+      render(true);
+      try {
+        await api('/api/console/close', { method: 'POST', body: JSON.stringify({ id }) });
+        // A card that vanishes silently reads as data loss, and this one is not even
+        // gone — it says where it went.
+        toast('Dismissed — still in the launcher under Dismissed');
+      } catch (err) {
+        dismissedChats.delete(id);
+        if (!state.consoles.some((c) => c.id === id)) state.consoles = [...state.consoles, row];
+        render(true);
+        // `token rejected` has already put the sign-in prompt up — see api().
+        if (err.message !== 'token rejected') toast(err.message, true);
+      }
+      return;
+    }
+
     if (act === 'agent-menu') {
       const wasOpen = state.agentMenu === key;
       closeMenu();
@@ -5100,6 +5163,14 @@
    *  handler. The filter's own writes are the picker's now — `space.writing()`. */
   let shadeWrites = 0;
 
+  /** Conversations dismissed here that the server has not yet been seen to agree are
+   *  gone. A set rather than a counter, unlike `shadeWrites` above, because what has
+   *  to be suppressed is one named row out of a list that is adopted whole — and it
+   *  has to stay suppressed past the write, not only during it: the poll that was in
+   *  flight when you tapped answers with the row still on it. Emptied by adopt(), one
+   *  id at a time, on the first payload that no longer carries it. */
+  const dismissedChats = new Set();
+
   /**
    * The picker moved: adopt it and repaint.
    *
@@ -5254,7 +5325,15 @@
     // — no draft, no open card, nothing half-answered — so the server's copy is
     // always the better one. Absent means a server that predates the field, and
     // keeping the last list is the same call `requests` makes above.
-    if (Array.isArray(data.consoles)) state.consoles = data.consoles;
+    // — minus anything just dismissed from this page and still on the wire. A payload
+    // assembled before that write landed still lists the conversation, and adopting it
+    // would put the row back under the tap that removed it. Each id stops being
+    // suppressed on the first payload that agrees it is gone, which is also what lets
+    // a conversation reopened by saying something to it come back as a row.
+    if (Array.isArray(data.consoles)) {
+      state.consoles = data.consoles.filter((c) => !dismissedChats.has(c.id));
+      for (const id of dismissedChats) if (!data.consoles.some((c) => c.id === id)) dismissedChats.delete(id);
+    }
     // Taken whole, and taken even when empty — unlike `requests` and `consoles` above.
     // An empty list here is the good news ("every repo answered this time") and it has
     // to be able to clear the pane, which is the whole reason the record is rebuilt on

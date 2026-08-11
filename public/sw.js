@@ -127,7 +127,17 @@
    slow — a bar whose whole job is that you can always leave a page, with an entry that
    goes nowhere. The bar and the page it points at have to arrive together, which is what
    a cache version is for. */
-const CACHE = 'beadcause-v34';
+/* v35: the ✕ on the inbox's chat cards (bc-vau1). No new path — app.js and style.css are
+   both already here — and it is the v32 pairing again, in both directions. A phone
+   holding v34's app.js beside v35's stylesheet draws the row it always did and nothing
+   else, because there is no ✕ in that app.js to lay out; one holding v35's app.js
+   against v34's stylesheet drops a full-width ✕ *underneath* every chat row, since the
+   card only became a flex wrapper in the new stylesheet and the button is a sibling of
+   the link now rather than something inside it. The second is the one that matters:
+   every conversation in the inbox is suddenly two rows tall with a stray button between
+   them, and it still works, which is exactly the "looks like a working page" failure a
+   cache version exists to prevent. */
+const CACHE = 'beadcause-v35';
 const SHELL = [
   '/',
   '/index.html',
