@@ -26,16 +26,23 @@
   const PRIORITIES = [0, 1, 2, 3, 4];
   /** How long a primed Create button stays primed. Same 6s as the inbox's answers. */
   const ARM_MS = 6000;
-  /** Which repo tab the launcher opens on. Beside the token, in the same store. */
-  const REPO_KEY = 'beadcause.console.repo';
 
-  const remembered = (key, fallback) => {
-    try {
-      return localStorage.getItem(key) || fallback;
-    } catch {
-      return fallback;
-    }
-  };
+  /**
+   * Which repo the launcher is showing.
+   *
+   * This used to be `state.repo`, remembered in localStorage under
+   * `beadcause.console.repo` — this page's own private answer to "which repo am I
+   * working in", one of four such answers in the app. It is the space picker's now
+   * (public/spacebar.js): server-owned, on every screen, and the same value that
+   * decides whether your phone rings. The tab row below is a second face of it rather
+   * than a second copy — tapping a tab moves the picker in the bar above.
+   *
+   * The stored key is deliberately not migrated. A tab remembered on one device is
+   * exactly what the selection stopped being, and reading it once at startup would
+   * silently narrow the whole app — including the notifications — on the strength of a
+   * tap somebody made on this page last week.
+   */
+  const repoNow = () => window.beadcause?.space?.filter?.workspace || 'all';
 
   const state = {
     token: '',
@@ -43,7 +50,17 @@
     // The launcher: every workspace, every conversation, and which tab is on.
     workspaces: [],
     consoles: [],
-    repo: remembered(REPO_KEY, 'all'),
+    /**
+     * A repo that exists only in the transcripts, when one is being read.
+     *
+     * The picker can only hold a workspace the server actually serves — `reconcileFilter`
+     * resets anything else on the next payload, which is right, because a filter naming
+     * a repo the daemon has never heard of would silence a space nobody can see. But a
+     * workspace dropped from the config still has its conversations, and a tab is the
+     * only way to them. So that one case stays local to this page: it filters this list
+     * and nothing else, and any other tab clears it.
+     */
+    stray: '',
     console: null,
     seq: 0,
     // The cards as edited here. Authoritative over the server's copy while the
@@ -177,10 +194,14 @@
 
     state.workspaces = data.workspaces || [];
     state.consoles = data.consoles || [];
-    // A repo you were last looking at that is no longer configured is not a
-    // filter, it is an empty screen with no way of knowing why — so it falls back
-    // to All rather than being remembered forever.
-    if (state.repo !== 'all' && !repoTabs().includes(state.repo)) setRepo('all', { render: false });
+    /* Nothing is fed to the picker from here, deliberately. This page's numbers are
+       conversations per repo, and the count on the bar means beads asking you something
+       — the same number on every screen, from /api/spaces. Two meanings for one badge,
+       depending on which page you were on, is how a count stops being read at all. The
+       tab row below keeps the conversation counts, where they say what they are. */
+    // A stray tab whose transcripts have gone with it is an empty screen with no way of
+    // knowing why.
+    if (state.stray && !repoTabs().includes(state.stray)) state.stray = '';
 
     hidePicker();
     renderRepoTabs();
@@ -201,50 +222,81 @@
     return [...state.workspaces, ...extra];
   }
 
-  const inRepo = (c) => state.repo === 'all' || c.workspace === state.repo;
+  /** In the selected space at all — what `All` means on this page. */
+  const inSpace = (ws) => window.beadcause?.space?.matches?.(ws) ?? true;
+
+  /** Which of them the picker is letting through, plus the stray if one is being read. */
+  const tabsHere = () => repoTabs().filter((w) => w === state.stray || inSpace(w));
+
+  const inRepo = (c) => (state.stray ? c.workspace === state.stray : inSpace(c.workspace));
 
   /**
-   * The tab bar: All, then one per repo, each carrying how many conversations it
-   * holds.
+   * The tab bar: All, then one per repo in the selected space, each carrying how many
+   * conversations it holds.
    *
    * A count is drawn only where there is one. Every repo gets a tab whether or
    * not it has ever been talked to — the bar is also how you reach a repo to
    * start in — and a row of zeroes would report emptiness rather than offering a
    * place to begin.
+   *
+   * `All` means all of the *selected space*, not all of the Mac. With one repo picked
+   * this row is a single tab and says the same thing twice, which is the honest picture:
+   * there is one repo in scope and you are in it.
    */
   function renderRepoTabs() {
     const row = $('#ws-row');
+    const now = state.stray || repoNow();
     const count = (ws) => state.consoles.filter((c) => c.workspace === ws).length;
     const tab = (id, label, n) => {
-      const on = state.repo === id;
+      const on = now === id;
       return `<button class="chip" role="tab" id="ws-tab-${esc(id)}" data-ws="${esc(id)}"
         aria-selected="${on}" tabindex="${on ? 0 : -1}">${esc(label)}${n ? ` ${n}` : ''}</button>`;
     };
     row.innerHTML =
-      tab('all', 'All', state.consoles.length) +
-      repoTabs()
+      // All counts the space, not whatever a stray tab has narrowed the list to — it is
+      // the tab that would take you back out to it.
+      tab('all', 'All', state.consoles.filter((c) => inSpace(c.workspace)).length) +
+      tabsHere()
         .map((ws) => tab(ws, ws, count(ws)))
         .join('');
     // The list is what the tab selects, so it is named by the tab that selected it.
-    $('#recent').setAttribute('aria-labelledby', `ws-tab-${state.repo}`);
+    $('#recent').setAttribute('aria-labelledby', `ws-tab-${now}`);
     // ＋ on All has no repo to start in; on a repo tab it starts there and says so.
     $('#ws-new').setAttribute(
       'aria-label',
-      state.repo === 'all' ? 'Start a chat session' : `Start a chat session in ${state.repo}`
+      now === 'all' ? 'Start a chat session' : `Start a chat session in ${now}`
     );
   }
 
-  /** Pick a repo. `render: false` is for the caller that is about to render anyway. */
-  function setRepo(repo, { render = true } = {}) {
-    state.repo = repo;
-    // Same store as the token, for the same reason: the launcher should open where
-    // you left it rather than making you re-pick on every visit.
-    try {
-      localStorage.setItem(REPO_KEY, repo);
-    } catch {
-      /* private mode, or a full store. Filtering still works for this visit. */
+  /**
+   * Pick a repo — which is to say, move the space picker.
+   *
+   * The row and the bar are one control with two faces, so a tap here writes the same
+   * server-owned filter the dropdown does and every other page changes with it. `All`
+   * means every repo in the space that is selected, so it clears the workspace half and
+   * leaves the space alone.
+   *
+   * The repaint comes back through `space.onChange`, not from here: a tap on this page
+   * and a change made on the phone have to end in the same place.
+   */
+  function setRepo(repo) {
+    const picker = window.beadcause?.space;
+    if (!picker) return;
+    // A repo that only exists in the transcripts cannot be the app's filter — see
+    // `state.stray`. It is this list's filter and nothing else.
+    if (repo !== 'all' && !state.workspaces.includes(repo)) {
+      state.stray = repo;
+      hidePicker();
+      renderRepoTabs();
+      renderRecent();
+      return;
     }
-    if (!render) return;
+    state.stray = '';
+    picker.set(repo === 'all' ? { space: picker.filter.space, workspace: 'all' } : { space: picker.spaceOf(repo), workspace: repo });
+    // Painted here as well as from `onChange`, and not redundantly: the picker only
+    // notifies on a *change*, and leaving a stray tab for the repo that is already
+    // selected changes nothing about the filter while changing everything about what
+    // this list is showing.
     hidePicker();
     renderRepoTabs();
     renderRecent();
@@ -262,11 +314,13 @@
     const live = rows.filter((c) => !c.closedAt);
     const closed = rows.filter((c) => c.closedAt);
     $('#recent-label').hidden = !rows.length;
+    const now = state.stray || repoNow();
+    const where = now === 'all' ? window.beadcause?.space?.label?.() || 'here' : now;
     $('#recent').innerHTML = rows.length
       ? [...live, ...closed].map(consoleRowHtml).join('')
       : `<div class="empty"><strong>${
-          state.consoles.length ? `Nothing in ${esc(state.repo)} yet` : 'No conversations yet'
-        }</strong>＋ starts one${state.repo === 'all' ? '' : ` in ${esc(state.repo)}`}.</div>`;
+          state.consoles.length ? `Nothing in ${esc(where)} yet` : 'No conversations yet'
+        }</strong>＋ starts one${now === 'all' ? '' : ` in ${esc(now)}`}.</div>`;
 
     for (const btn of $('#recent').querySelectorAll('[data-close]')) {
       btn.addEventListener('click', (ev) => {
@@ -295,10 +349,15 @@
   function showPicker() {
     const row = $('#ws-pick-row');
     // Only configured workspaces: a repo that survives here as transcripts alone
-    // is somewhere you can read, not somewhere you can start.
-    row.innerHTML = state.workspaces.map((w) => `<button class="chip" data-ws="${esc(w)}">${esc(w)}</button>`).join('');
-    if (!state.workspaces.length) {
-      row.innerHTML = `<span class="hint">No workspaces configured.</span>`;
+    // is somewhere you can read, not somewhere you can start. And only the ones in the
+    // selected space — offering to start work in a repo the app is not showing you is
+    // the one thing a filter has to stop.
+    const startable = state.workspaces.filter((w) => window.beadcause?.space?.matches?.(w) ?? true);
+    row.innerHTML = startable.map((w) => `<button class="chip" data-ws="${esc(w)}">${esc(w)}</button>`).join('');
+    if (!startable.length) {
+      row.innerHTML = `<span class="hint">${
+        state.workspaces.length ? 'No workspaces in this space.' : 'No workspaces configured.'
+      }</span>`;
     }
     $('#ws-pick').hidden = false;
     $('#ws-new').setAttribute('aria-expanded', 'true');
@@ -1122,6 +1181,20 @@
       if (btn) setRepo(btn.dataset.ws);
     });
 
+    /* The picker moved — from this row, from the dropdown above it, or from the phone in
+       your pocket. All three end here, so the row and the list agree however it happened.
+       Only while the launcher is up: repainting it behind an open conversation would
+       rebuild a screen nobody is looking at. */
+    window.beadcause?.space?.onChange(() => {
+      if ($('#launcher').hidden) return;
+      // A stray tab is a filter of this page's own, and the app moving out from under it
+      // is exactly when it stops being what you are looking at.
+      state.stray = '';
+      hidePicker();
+      renderRepoTabs();
+      renderRecent();
+    });
+
     // A tab bar answers to the arrow keys, and only one of its tabs is in the tab
     // order — otherwise five repos are five stops on the way to the list.
     $('#ws-row').addEventListener('keydown', (ev) => {
@@ -1129,7 +1202,7 @@
       if (!step) return;
       ev.preventDefault();
       const tabs = [...$('#ws-row').querySelectorAll('[data-ws]')];
-      const at = tabs.findIndex((t) => t.dataset.ws === state.repo);
+      const at = tabs.findIndex((t) => t.dataset.ws === (state.stray || repoNow()));
       const next = tabs[(at + step + tabs.length) % tabs.length];
       if (!next) return;
       setRepo(next.dataset.ws);
@@ -1137,7 +1210,11 @@
     });
 
     $('#ws-new').addEventListener('click', () => {
-      if (state.repo !== 'all') return open(state.repo);
+      // One repo in scope is a repo to start in, whichever of the two said so — the tab
+      // row, or the picker in the bar. A stray is not: it has no `.beads` the daemon
+      // serves, so there is nowhere to start.
+      const now = repoNow();
+      if (now !== 'all' && !state.stray) return open(now);
       pickerOpen() ? hidePicker() : showPicker();
     });
 

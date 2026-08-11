@@ -589,17 +589,69 @@
       history.replaceState(null, '', location.pathname);
       renderList();
     });
+    /*
+      📁 cycles the repo — inside the selected space, and by moving the space picker
+      rather than this page's own copy of the choice.
+
+      This screen has always been about exactly one workspace at a time, so it is the
+      one page where the picker is not a filter but the thing itself. The button stays
+      because it is a one-tap way round a space's repos and because with `All spaces`
+      picked it is the only thing on screen naming which repo these foundations are —
+      but it writes through the picker, so the phone and every other page follow it.
+    */
     $('#ws-btn').addEventListener('click', async () => {
-      if (state.workspaces.length < 2) return;
-      const i = state.workspaces.indexOf(state.workspace);
-      state.workspace = state.workspaces[(i + 1) % state.workspaces.length];
+      const picker = window.beadcause?.space;
+      const inside = picker?.inside?.().length ? picker.inside() : state.workspaces;
+      if (inside.length < 2) return;
+      const next = inside[(inside.indexOf(state.workspace) + 1) % inside.length];
       state.chat = null;
+      if (picker) {
+        // The refetch comes back through onChange, so a tap here and a tap on the phone
+        // end in the same place.
+        picker.set({ space: picker.spaceOf(next), workspace: next });
+        return;
+      }
+      state.workspace = next;
       await start();
     });
+
+    /* Somewhere else picked a different repo. This page has to refetch rather than
+       repaint — the agents, their foundations and the chat are all per-workspace. */
+    window.beadcause?.space?.onChange(() => {
+      const want = picked();
+      if (!want || want === state.workspace) return;
+      state.workspace = want;
+      state.chat = null;
+      start();
+    });
+  }
+
+  /**
+   * Which repo's foundations to read: the picker's, when it names one.
+   *
+   * Three cases, and the first is the one worth spelling out. **Nothing narrowed means
+   * nothing chosen**, so the answer is empty and the server's own default stands — which
+   * is what this screen has always opened on, and reaching into the picker for "the first
+   * workspace in the list" would quietly move it.
+   *
+   * A repo picked is that repo. A *space* picked keeps whichever workspace the page is
+   * already on as long as it is inside that space, and otherwise moves to the first one
+   * that is — the alternative being a screen editing an agent in a repo the app is not
+   * showing you.
+   */
+  function picked() {
+    const picker = window.beadcause?.space;
+    if (!picker) return '';
+    const { space, workspace } = picker.filter;
+    if (workspace !== 'all') return workspace;
+    if (space === 'all') return '';
+    const inside = picker.inside();
+    return inside.includes(state.workspace) ? state.workspace : inside[0] || '';
   }
 
   async function start() {
     try {
+      state.workspace = picked() || state.workspace;
       const q = state.workspace ? `?workspace=${encodeURIComponent(state.workspace)}` : '';
       const data = await api(`/api/foundations${q}`);
       state.agents = data.agents;
