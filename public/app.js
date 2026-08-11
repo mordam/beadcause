@@ -4502,7 +4502,7 @@
     // being this page's filter: it is the space picker, it is on every screen, it is
     // stored on the server, and it decides whether the phone rings. A scope tap must not
     // quietly change what you are working on — on this device or on the other one.
-    schedulePoll();
+    stream.schedule();
     // Only the questions. The scope is a setting about which slice of *work* the
     // list is, and the other channel is not a slice of it — clearing the pane here
     // would blank a pending constitutional request for a couple of seconds because
@@ -4534,13 +4534,10 @@
   /** The path whose payload is this scope's — and the key it is warmed under. */
   const questionsPath = (scope) => `/api/questions?scope=${encodeURIComponent(scope)}`;
 
-  /**
-   * Where in `/api/poll`'s event log the list on screen was true.
-   *
-   * 0 means "we do not know" — an old daemon that does not send it, or nothing
-   * fetched yet — and every reader treats that as a reason to fall back to the timer.
-   */
-  let seq = 0;
+  // Where in `/api/poll`'s event log the list on screen was true is `stream.seq`,
+  // kept by the delta-stream consumer further down rather than by this page — see
+  // public/stream.js. Everything here does with it is hand it what a fresh sweep
+  // said, because that sweep is also what tells the log where to pick up.
 
   /**
    * Take a payload and become it.
@@ -4649,14 +4646,14 @@
       // Changed under us while the request was out. These are rows from the list
       // you just left; the re-run queued above is the one that counts.
       if (asked !== state.scope) return;
-      seq = Number(data.seq) || 0;
+      stream.seq = data.seq;
       keep(asked, data);
       adopt(data);
       // This is where the timer hands over: the sweep that just ran is also the thing
       // that told us where in the log we are, so the next refresh can be the log
       // waking us rather than another sweep. A no-op when the log is already being
       // followed, and a no-op on a daemon that sends no sequence.
-      schedulePoll();
+      stream.schedule();
       warmOthers();
     } catch (err) {
       if (err.message !== 'token rejected') {
@@ -4720,7 +4717,7 @@
     warmBoard();
     const hit = window.beadcause?.warm?.read?.(questionsPath(state.scope));
     if (!Array.isArray(hit?.data?.questions)) return false;
-    seq = hit.seq;
+    stream.seq = hit.seq;
     adopt(hit.data);
     return true;
   }
@@ -4753,7 +4750,7 @@
         state.scope = 'both';
         localStorage.setItem('beadcause.scope', state.scope);
         paintScope();
-        schedulePoll();
+        stream.schedule();
         load();
       }
       return;
@@ -4912,13 +4909,12 @@
    * off rather than keeping seven CLI processes warm on the Mac for a list you are
    * probably just glancing at.
    *
-   * `human` is not on this clock any more; see `follow` below. It is left in the
+   * `human` is not on this clock any more; see `stream` below. It is left in the
    * table because the fallback path uses it whenever the long-poll cannot run.
    */
   const POLL_MS = { human: 25000, both: 60000, agent: 60000 };
-  let pollTimer = null;
 
-  /* -------------------------------------------------------------- the long poll */
+  /* -------------------------------------------------------------- the delta stream */
 
   /**
    * Follow the event log instead of re-asking on a timer.
@@ -4929,88 +4925,76 @@
    * than up to 25 seconds later. Faster *and* cheaper, which is unusual enough to be
    * worth saying: the sweep was never doing anything the log could not say for free.
    *
-   * Three things keep it honest:
+   * The loop itself is public/stream.js — the park, the abort, the place in the log,
+   * the drop to a timer when it cannot be followed, and the dark screen. It was this
+   * page's, and it is shared now because four more views need exactly it and five
+   * hand-rolled long-polls is the outcome to avoid. What stays here is the part that
+   * is about *this* view:
    *
    * - **Only in `human` scope.** The poll's `questions` is the human channel; the
    *   wider scopes are a different sweep the log does not carry, so they stay on the
    *   clock. This is the scope the app is nearly always in and the one that polled
-   *   fastest, so it is where all of the saving was.
-   * - **Only with a sequence to start from.** `seq` comes off the payload; a daemon
-   *   that predates it sends none, and this never starts.
-   * - **Every failure falls back rather than stopping.** A refused or broken poll
-   *   drops to the timer, which is what the page did before this existed. The one
-   *   thing that must never happen is an inbox that has quietly stopped refreshing.
+   *   fastest, so it is where all of the saving was. That is `ready` below; the
+   *   module adds "and we know where we are in the log".
+   * - **What an answer means.** The inbox is one of the two views whose payload rides
+   *   the poll, so `onPoll` is a `keep` and an `adopt` — the same two the cold fetch
+   *   does, deliberately, so the two refresh paths cannot draw different inboxes.
+   *   `resync` needs no branch here for the same reason: the daemon sends the fresh
+   *   list with it, and adopting it *is* the full sweep.
+   * - **What the fallback is.** `load()`, the `bd` sweep this page has always had.
+   *
+   * A page served without public/stream.js keeps the timer and nothing else: `stream`
+   * falls back to a stub whose `canFollow` is false, so every reader below takes the
+   * branch it took before the log existed.
    */
-  let following = false;
-  let pollAbort = null;
-
-  const canFollow = () => state.scope === 'human' && seq > 0 && Boolean(state.token);
-
-  async function follow() {
-    if (following || !canFollow()) return;
-    following = true;
-    try {
-      while (canFollow() && !document.hidden) {
-        const at = seq;
-        pollAbort = new AbortController();
-        let data;
-        try {
-          data = await api(`/api/poll?since=${at}&wait=25`, { signal: pollAbort.signal });
-        } finally {
-          pollAbort = null;
-        }
-        // The scope changed while we were parked, or the token went. Either way this
-        // answer is about a list nobody is looking at.
-        if (!canFollow() || at !== seq) break;
+  const stream =
+    window.beadcause?.stream?.mount?.({
+      api,
+      ready: () => state.scope === 'human' && Boolean(state.token),
+      onPoll(data) {
         // The poll answered, so the credential is good and the daemon is up: the one
         // moment it is safe to go and warm the other four tabs.
         warmOthers();
-        seq = Number(data.seq) || 0;
         // Null means the park timed out with nothing but presence traffic — the quiet
         // case, and the whole point: no sweep ran on the daemon and nothing repaints
         // here. An empty array would mean "the inbox is empty", which is why the two
         // are different values on the wire.
         if (Array.isArray(data.questions)) {
-          keep('human', { ...data, seq });
+          keep('human', { ...data, seq: stream.seq });
           adopt(data);
         }
-        if (!seq) break; // an old daemon answering without one; nothing to follow
-      }
-    } catch (err) {
-      // An abort is us, on the way to somewhere else. Anything else — the daemon
-      // restarting, the tailnet dropping, a 401 — falls through to the timer, and
-      // the visibility handler will try to pick the log back up.
-      if (err?.name !== 'AbortError' && err?.message !== 'token rejected') seq = 0;
-    } finally {
-      following = false;
-      schedulePoll();
-    }
-  }
-
-  /** Stop waiting on an answer about a list we have stopped showing. */
-  function unfollow() {
-    pollAbort?.abort();
-    pollAbort = null;
-  }
+      },
+      onFallback: () => load(),
+      fallbackMs: () => POLL_MS[state.scope] || 25000,
+      // A refused token is not a broken link: `api` has already forgotten it and put
+      // the sign-in up, and whatever answers that will fetch from scratch and say
+      // where the log is. Dropping our place as well would only add a sweep to it.
+      keepPlace: (err) => err?.message === 'token rejected',
+    }) || fallbackStream();
 
   /**
-   * The timer, which now runs only when the log cannot be followed — a wide scope, an
-   * old daemon, or a poll that failed. `follow()` is started from the same place, so
-   * exactly one of the two is ever live.
+   * What this page does when the shared file is not there.
+   *
+   * Not a re-implementation of it — the opposite: a handle that can never follow, so
+   * `schedule()` is the 25-second `load()` this page ran before the log existed. The
+   * failure of a missing file should be an app that is merely as slow as it was.
    */
-  function schedulePoll() {
-    clearInterval(pollTimer);
-    if (canFollow() && !document.hidden) {
-      follow();
-      return;
-    }
-    // Whatever is parked is parked on a list this page has stopped drawing — a scope
-    // it left, or a screen that has gone dark. Dropped here rather than left to time
-    // out, so exactly one of the two refresh paths is ever live.
-    unfollow();
-    pollTimer = setInterval(() => {
-      if (!document.hidden) load();
-    }, POLL_MS[state.scope] || 25000);
+  function fallbackStream() {
+    let timer = null;
+    return {
+      seq: 0,
+      canFollow: () => false,
+      unfollow() {},
+      stop() {
+        clearInterval(timer);
+      },
+      schedule() {
+        clearInterval(timer);
+        timer = setInterval(() => {
+          if (!document.hidden) load();
+        }, POLL_MS[state.scope] || 25000);
+      },
+    };
   }
 
   /**
@@ -5026,21 +5010,23 @@
   }, BOARD_MS);
 
   // These keep fetching; render() decides whether it's safe to repaint.
+  //
+  // The parked socket is not dropped here any more and the log is not picked back up
+  // here either — public/stream.js listens for the same event and owns both, because a
+  // phone left in a pocket holding a socket open all night is the kind of mistake that
+  // is invisible from the screen and would otherwise be made once per view. What is
+  // left is what only the inbox knows.
   document.addEventListener('visibilitychange', () => {
-    if (document.hidden) {
-      // A parked socket in a pocket. The daemon drops the waiter when the request
-      // closes, so this costs nothing on either end — and coming back re-asks from
-      // the sequence we left off at, which is what makes the return instant.
-      unfollow();
-      return;
-    }
-    if (canFollow()) schedulePoll();
-    else load();
+    if (document.hidden) return;
+    // Nothing to follow — a wide scope, or a poll that lost its place — so the way
+    // back to a current list is the sweep. `stream.schedule()` has already put the
+    // clock up behind it; `load()` is what refreshes now rather than in 25 seconds.
+    if (!stream.canFollow()) load();
     // The board is not on the delta stream — it is a `gh` sweep behind its own minute
     // — so coming back asks it directly. A no-op unless the last sweep has aged out.
     loadBoard();
   });
-  schedulePoll();
+  stream.schedule();
 
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
 
@@ -5098,7 +5084,7 @@
   // event log, the refresh is a parked poll that costs the daemon nothing until
   // something moves — so the ordinary tab tap does no `bd` sweep at all. Without
   // either, this is the cold start it always was.
-  if (warmBoot() && canFollow()) schedulePoll();
+  if (warmBoot() && stream.canFollow()) stream.schedule();
   else load();
   // The pull requests, beside the questions rather than after them: the two feeds are
   // independent and the board is the slower of the two, so starting it second and

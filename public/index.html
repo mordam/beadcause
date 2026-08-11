@@ -147,6 +147,12 @@
        it did not need to touch. First of the shared files, because every page script
        below asks it for a warm list before it asks the daemon for a cold one. -->
   <script src="/warm.js"></script>
+  <!-- And how it stays current: one parked `/api/poll` per document, restarted the
+       moment it answers, instead of a clock that re-asks for everything. Beside warm.js
+       for the same reason — every standing view needs the same loop, and five copies
+       of it would be five different answers to "what happens when the socket breaks".
+       Before app.js, which mounts it; a page that drops it keeps the timer. -->
+  <script src="/stream.js"></script>
   <script src="/presence.js"></script>
   <script src="/tabbar.js"></script>
   <!-- The space picker in the top bar — which repo the whole app is about. Before

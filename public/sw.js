@@ -67,7 +67,13 @@
    style.css is a floating button with no shape sitting over the last card. Every one of
    those is an old app that looks complete — a bar with both tabs still on it most of all
    — which is the failure a version exists to prevent. */
-const CACHE = 'beadcause-v27';
+/* v28: the poll loop left app.js. `/stream.js` is a new path *and* app.js now mounts
+   it instead of holding the loop itself — so a phone holding v27's cached app.js beside
+   v28's file has a module nothing calls, which is harmless, and one holding v28's app.js
+   without the file has an inbox that falls all the way back to a 25-second `bd` sweep
+   per tab: correct, but it is the timer the log exists to have replaced, and nothing on
+   the screen says so. The version is what makes the two arrive together. */
+const CACHE = 'beadcause-v28';
 const SHELL = [
   '/',
   '/index.html',
@@ -102,6 +108,12 @@ const SHELL = [
   // a page that has to fetch its cache before it can read it has already lost the
   // wait it exists to remove.
   '/warm.js',
+  // And how a standing page stays current once it is on screen: the parked `/api/poll`
+  // every view follows. In the shell beside warm.js because the two are the same boot —
+  // paint what was kept, then follow the log rather than re-ask on a clock — and a
+  // cached page that has one without the other refreshes on a timer it was meant to
+  // have lost.
+  '/stream.js',
   // On every page that can open a detail drawer, and on both pages that can be one.
   '/drawer.js',
   '/doc.html',
