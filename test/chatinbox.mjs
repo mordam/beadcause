@@ -267,6 +267,72 @@ try {
   await check('the service worker still ships the page nothing links to any more', () => {
     assert.match(read('public/sw.js'), /'\/console\.js'/);
   });
+
+  /* --------------------------------------------------- ✕ puts one away again */
+
+  console.log('\nand a chat card can be put away without leaving the inbox\n');
+
+  const css = read('public/style.css');
+
+  await check('the card is a wrapper, so the ✕ is beside the link rather than inside it', () => {
+    // The shape is the whole guarantee that dismissing cannot also open the
+    // conversation: a <button> inside an <a> is invalid and would navigate.
+    assert.match(appjs, /<div class="card chat-card" data-key="\$\{esc\(row\.key\)\}">/, 'the chat card is not a wrapper');
+    assert.match(appjs, /<a class="work-row" href="\/console\?id=/, 'the link inside the card is gone');
+    assert.match(css, /\.chat-card \{[^}]*display: flex/, 'the wrapper is not laid out as a row — the ✕ would sit under it');
+    assert.match(css, /\.chat-card \.work-row \{/, 'the link inside the card has no layout of its own');
+  });
+
+  await check('data-key rode along to the wrapper, or scroll position has a hole in it', () => {
+    // capturePlace() anchors to `.card[data-key]`. A chat row without one is a card
+    // the poll cannot put you back at — it would restore you to the nearest one.
+    const row = appjs.slice(appjs.indexOf('function chatRowHtml'));
+    const card = row.slice(0, row.indexOf('\n  }'));
+    assert.match(card, /class="card chat-card" data-key=/);
+    assert.ok(!/<a class="card chat-card/.test(card), 'the anchor is still the card itself');
+  });
+
+  await check('every chat card has a ✕, and it says which conversation it puts away', () => {
+    assert.match(appjs, /data-act="chat-dismiss"/, 'no dismiss button on a chat card');
+    assert.match(appjs, /aria-label="\$\{esc\(dismissLabel\)\}"/, 'the ✕ has no accessible name');
+    // Named, not "Dismiss" six times over — and the agent named too, as the
+    // launcher's own ✕ does, because that is what tells two chats in one repo apart.
+    assert.match(appjs, /Dismiss “\$\{title\}” — your chat with the \$\{agent\.name\}/);
+    assert.match(appjs, /Dismiss “\$\{title\}”`/);
+  });
+
+  await check('it goes to the endpoint that already closes one, and nowhere else', () => {
+    const handler = appjs.slice(appjs.indexOf("act === 'chat-dismiss'"));
+    const branch = handler.slice(0, handler.indexOf('\n    if (act ==='));
+    assert.match(branch, /api\('\/api\/console\/close', \{\s*method: 'POST'/, 'the ✕ does not POST /api/console/close');
+    assert.match(branch, /state\.consoles = state\.consoles\.filter/, 'the row does not leave until the next poll');
+    assert.match(branch, /catch \(err\)/, 'a refused dismissal has nowhere to put the row back');
+    assert.match(branch, /toast\(err\.message, true\)/, 'a refused dismissal never says why');
+  });
+
+  await check('a dismissal in flight survives the poll that was assembled before it', () => {
+    // `consoles` is adopted whole off every payload, so without this the row slides
+    // back in a second after the tap and leaves again on the poll after that.
+    assert.match(appjs, /data\.consoles\.filter\(\(c\) => !dismissedChats\.has\(c\.id\)\)/);
+    assert.match(appjs, /dismissedChats\.delete\(id\)/, 'nothing ever forgets a dismissal — a reopened chat could not come back');
+  });
+
+  await check('the row really leaves the inbox, and is really still in the launcher', async () => {
+    const res = await fetch(`http://127.0.0.1:${PORT}/api/console/close`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-beadcause-token': cfg.token },
+      body: JSON.stringify({ id: OPEN.id }),
+    });
+    assert.equal(res.status, 200, `close was refused: HTTP ${res.status}`);
+    const after = await getJson('/api/questions');
+    assert.ok(!after.consoles.some((c) => c.id === OPEN.id), 'the dismissed conversation is still in the inbox');
+    // Soft, which is the whole reason one tap is enough: the launcher still has it,
+    // under Dismissed, and saying anything to it reopens it.
+    const launcher = await getJson('/api/consoles');
+    const still = launcher.consoles.find((c) => c.id === OPEN.id);
+    assert.ok(still, 'the conversation vanished from the launcher too — that is not a dismissal');
+    assert.ok(still.closedAt, 'it is in the launcher but not marked dismissed');
+  });
 } finally {
   for (const s of servers || []) s.close?.();
   app.stop?.();

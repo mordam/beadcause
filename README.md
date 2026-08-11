@@ -2821,6 +2821,51 @@ of its paths still serve the page — a bookmark that 404s is a worse outcome th
 with no tab. It keeps the bar, because that is how you leave it, and nothing on the bar is
 marked current there: you are not on one of the four.
 
+### The ✕ came with the row
+
+A conversation moved into the inbox as a row, and for a while it could only be
+*opened*. The launcher has had a ✕ on every chat row since chats gained a dismissed
+state, so the only way to clear a finished conversation off the inbox was to navigate
+to `/console` and do it on the other screen — a list that only ever grows, on the one
+page whose whole job is that it empties.
+
+So the inbox's chat cards have the same ✕, and it does the same thing: `POST
+/api/console/close`, which is [soft](#a-chat-session-ends-when-the-beads-exist) — the
+transcript stays, the id keeps working, saying anything reopens it. Nothing was needed
+on the server; `/api/questions` already filters `closedAt` out of `consoles`, so a
+dismissed conversation leaves the inbox and turns up in the launcher under
+`Dismissed`.
+
+- **One tap, no arm-then-confirm.** The two-tap path this page uses for
+  [setting a question aside](#setting-a-card-aside-is-not-answering-it) is a promise
+  about a thing that leaves the screen for longer than a tap can take back. This is, and the launcher's ✕ has never asked either.
+- **The card is a wrapper now, not the link.** A `<button>` cannot live inside an
+  `<a>`, so the row and the ✕ are siblings inside `.card.chat-card` — the same shape
+  `.console-row` has in the launcher, and the reason dismissing can never also open
+  the conversation. `data-key` moved to the wrapper with the `.card` class, because
+  that pair is what the scroll position anchors to: a chat row without one is a hole
+  in the list the poll cannot put you back at.
+- **The row goes on the tap**, not at the next 25-second poll. That means suppressing
+  it until the server agrees it is gone — `consoles` is adopted whole off every
+  payload, and the poll already in flight when you tapped was assembled before the
+  write landed, so without the guard the row slides back a second later and leaves
+  again twenty seconds after that. Each id stops being suppressed on the first payload
+  that no longer carries it, which is also what lets a reopened conversation come back
+  as a row.
+- **Refused mid-turn puts the row back**, with the server's own sentence under it. A
+  conversation with an agent streaming into it cannot be closed under it.
+- **The accessible name says which conversation** — the title, and the agent for an
+  agent chat, exactly as the launcher's does. Six ✕s all called "Dismiss" are six
+  buttons a screen reader cannot tell apart.
+- **And it says where the conversation went.** A card that vanishes silently reads as
+  data loss; the toast names the launcher and the `Dismissed` toggle it is under.
+
+`test/chatinbox.mjs` (in `npm test`) covers the shape and the endpoint, and drives the
+real close against a real server: the row leaves `/api/questions` and is still in
+`/api/consoles`, stamped. `scripts/chatdismiss-check.mjs` is the finger — a real tap in
+a headless Chrome at phone size, including the tap that must *not* navigate, the poll
+that still lists the row, and the mid-turn refusal.
+
 ### Dismissed is hidden, not gone
 
 The ✕ on a launcher row is soft and always was: it stamps `closedAt`, the transcript
@@ -8627,6 +8672,69 @@ get wrong in silence: that every `test/*.mjs` on disk is in the list (the chain 
 *be* the inventory; the directory is now), that the two `scripts/` entries which are not
 `test/*.mjs` survive, that the three pinned positions hold, and that a failure still
 stops the run, propagates its exit code, and does not run what comes after it.
+
+### A teardown must not be able to fail a run — `test/helpers/tmp.mjs`
+
+Nearly every suite here ends the same way: make a temp directory at the top, point
+`BEADCAUSE_CONFIG_DIR` at it, and `fs.rmSync(tmp, { recursive: true, force: true })` at
+the bottom. That last line is a claim the suite cannot support — that nothing is still
+writing under `tmp` — and it is false whenever the code under test spawned something.
+Here that something is git.
+
+The path is short and entirely ordinary. A write of `advocates.json` calls `snapshot()`
+in lib/commonrepo.js, which schedules a commit **2000ms later**; the commit calls
+`ensureRepo()`, which runs `git init` in `CONFIG_DIR`; and under test `CONFIG_DIR` *is*
+the scratch directory. `test/dedupe.mjs` takes about 1600ms, so on a quiet laptop the
+timer never fires at all and on a loaded one it fires with a few hundred milliseconds to
+spare — and then `git init` is laying down `.git/hooks/*.sample` while `rmSync` walks the
+same tree. `rmdir` on a directory that gained a file since it was read is `ENOTEMPTY`:
+
+```
+  26/26 ok
+  Error: ENOTEMPTY: directory not empty, rmdir '…/beadcause-dedupe-Purxog/config/.git/hooks'
+```
+
+`force: true` is no help and reads as though it should be. `force` means *a path that is
+not there is not an error* — it is about ENOENT, and this is the opposite problem: a path
+that is more there than it was a moment ago. The depth in the message moves between runs,
+`config/.git` on one and `config/.git/hooks` on the next, which is the tell for a racing
+writer rather than a leftover.
+
+**What it costs is out of all proportion to what it is.** `scripts/test.mjs` stops at the
+first non-zero exit, so a scratch directory nobody was asserting anything about halted the
+gate at suite 32 of 105 and the 73 after it never ran — with a green run either side. Its
+own checks had all passed, so it reads as a regression in the one thing it is not, and the
+honest diagnosis ("re-run it alone") is the same sentence as the dishonest one.
+
+So teardown is a helper, `test/helpers/tmp.mjs`, in two halves that fix different things:
+
+| | |
+|---|---|
+| `quiesce()` | The real fix. Flushes the common repo's pending snapshot and awaits the commit, so there is no git child left to race. Belongs in any suite whose scratch directory is `BEADCAUSE_CONFIG_DIR`. |
+| `removeTree()` | The backstop, for what `quiesce` cannot know about — a helper that shells out, a daemon still shutting down, Spotlight. Retries the removal, and when it still cannot, **warns and returns `false`**. |
+| `removeTreeSync()` | The same retry for a teardown that cannot await: `process.on('exit', …)`, or the synchronous `done(code)` before `process.exit`. Blocks on `Atomics.wait`, because a timer would never run there. |
+| `cleanupTmp(dir)` | The two in the order that matters. One line, and the one to reach for: `await cleanupTmp(tmp)`. |
+
+That `removeTree` warns rather than throws is the point rather than a softness. A suite's
+exit code should say what its assertions said; a few kilobytes under `os.tmpdir()` that
+survive are something the OS clears, not a regression, and a teardown that can turn a
+green suite red is the bug being fixed.
+
+`flush()` in lib/commonrepo.js had to change with it, because `quiesce` is only worth
+anything if `flush` tells the truth. Both states are reachable at once — the timer fires,
+its commit is a few git subprocesses long, and a write during that window schedules
+another — and `flush` used to *overwrite* the in-flight commit with the new one and return
+only the new one. So it resolved while the first commit was still running, which is
+exactly the claim the removal then leans on; and two `commit()` calls on one repo race
+each other's index, which is `git add -A` twice over and `index.lock` already exists. The
+pending commit is now chained onto the running one.
+
+`node test/tmpteardown.mjs` (part of `npm test`) covers it, and the check that earns the
+rest is the control: right after a snapshot is scheduled the repo is *not* on disk, and
+after `quiesce()` it is. Without that half, an assertion that the directory ends up gone
+would pass against a `quiesce()` that did nothing. Filed as bc-5uy8; bc-3qsw, bc-r87b,
+bc-t69u and bc-94c6 are the same failure in `reap.mjs`, `superseded.mjs`, `slowstart.mjs`
+and `outagepush.mjs`, and each is a two-line change now that the helper exists.
 
 ### `npm run checks` — the browser half, and why `npm test` can still see it rot
 
