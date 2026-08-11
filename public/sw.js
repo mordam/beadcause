@@ -40,8 +40,23 @@
    neither the door nor the page behind it, and one holding the old `/` beside a v24
    daemon would show a top-bar button that 404s out of the cache the moment the tailnet
    is slow. The page they have to arrive with is the whole point of the version. */
-/* v25: Chat stopped being a tab. No new path — every file involved is already here —
-   but three of them changed together and a phone holding a mixture of v24 and v25 gets
+/* v25: /monitor became the space details screen — the selected space's own settings,
+   written from the page through `POST /api/space`, plus a gear to /admin. No new path:
+   monitor.html, monitor.js and style.css are all already in the shell. The version is
+   what makes the three arrive together, and they have to: a phone holding v24's cached
+   monitor.js beside v25's monitor.html would draw a gear over a page with no settings
+   card, and one holding v25's script against v24's stylesheet would draw seven controls
+   with no layout at all — a wall of unstyled buttons over the advocate cards. */
+/* v26: the warm layer. `/warm.js` is a new path *and* all five standing pages now
+   boot through it — app.js, prs.js, monitor.js, console.js and admin.js each ask it
+   for the payload they had last time before asking the daemon for a fresh one, and
+   the inbox draws its list through its reconciler. A phone holding v25's cached
+   app.js beside v26's would call a file that is not there on every repaint; one
+   holding v26's app.js without the file would fall back to the whole-list rebuild
+   and a cold fetch per tab, which is the entire thing being fixed. They have to
+   arrive together, which is what a cache version is for. */
+/* v27: Chat stopped being a tab. No new path — every file involved is already here —
+   but three of them changed together and a phone holding a mixture of v26 and v27 gets
    a screen that is wrong in a way it cannot explain: index.html without app.js is a ＋
    that does nothing when tapped, app.js without index.html is an inbox whose rows say
    `data.consoles` and whose create button is not on the page, and either without
@@ -50,7 +65,7 @@
    with a Chat tab and no ＋ — which is the old app, complete, and therefore the one
    mixture nobody would think to suspect. They have to arrive together, which is what a
    cache version is for. */
-const CACHE = 'beadcause-v25';
+const CACHE = 'beadcause-v27';
 const SHELL = [
   '/',
   '/index.html',
@@ -76,6 +91,11 @@ const SHELL = [
   // line. In the shell for the same reason the picker is: without it the inbox has no
   // control on it at all to say which slice of the tracker you are looking at.
   '/inboxfilter.js',
+  // What each of the five standing pages boots from. In the shell rather than left to
+  // network-first because the whole point of it is the first frame after a tab tap:
+  // a page that has to fetch its cache before it can read it has already lost the
+  // wait it exists to remove.
+  '/warm.js',
   // On every page that can open a detail drawer, and on both pages that can be one.
   '/drawer.js',
   '/doc.html',

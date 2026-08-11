@@ -185,8 +185,15 @@ for (const [name, brief] of [
     /bc-fmt/.test(brief) &&
     /\*\* BEAD WORK DONE \*\*/.test(brief) &&
     /DONE-/.test(brief) &&
-    /two honest endings/.test(brief);
-  check(`"${name}" claims the bead, reads CLAUDE.md, names the bead, and has both exits`, all);
+    // Three since bc-y4bi: hand it back, say it is bigger than it looked, or mark it a
+    // duplicate of the bead that already covers it. The third is the one that used to be
+    // improvised in a comment nothing could read — see lib/superseded.js.
+    /three honest endings/.test(brief);
+  check(`"${name}" claims the bead, reads CLAUDE.md, names the bead, and has all three exits`, all);
+  check(
+    `"${name}" can mark a duplicate rather than write the instruction in a comment`,
+    /bd label add bc-fmt superseded-by:<the-original>/.test(brief) && /bd dep add bc-fmt <the-original>/.test(brief)
+  );
 }
 
 check(

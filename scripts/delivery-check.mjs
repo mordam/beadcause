@@ -803,9 +803,9 @@ try {
   posted.length = 0;
   await evalJs(s, `${ROW(2)}.querySelector('.prop-btn.no').click()`);
   await sleep(200);
-  await evalJs(s, `document.querySelector('.prop-go').click()`);
+  await evalJs(s, `document.querySelector('.prop-bulk .approve').click()`);
   await sleep(300);
-  await evalJs(s, `document.querySelector('.prop-go').click()`);
+  await evalJs(s, `document.querySelector('.prop-bulk .approve').click()`);
   await sleep(700);
 
   const sent = posted[0] || {};

@@ -58,6 +58,9 @@
     link.addEventListener('click', async (e) => {
       e.preventDefault();
       await fetch('/auth/signout', { method: 'POST' }).catch(() => {});
+      // Whatever the warm layer is holding stopped being yours the moment you signed
+      // out, and the next page load must not paint it back. See public/warm.js.
+      window.beadcause?.warm?.forget?.();
       location.assign('/login');
     });
     el.append(link);
@@ -346,9 +349,33 @@
     if (btn) press(btn);
   });
 
+  /**
+   * Draw the switches this tab had last time, before anything has been asked for.
+   *
+   * The one page you open *because* something needs stopping now — which is exactly
+   * the moment the link is worst. sw.js already puts the shell on screen instantly
+   * for that reason; this is the other half, so what arrives with it is the switches
+   * and not a spinner over them. See public/warm.js.
+   */
+  function warmBoot() {
+    const warm = window.beadcause?.warm;
+    const hit = warm?.read?.('/api/admin');
+    if (!hit?.data) return false;
+    state = hit.data;
+    render();
+    // Held rather than fetched, and only to grey the buttons out. Absent is not
+    // "not an observer" — it is "we do not know yet", and the fetch behind this
+    // settles it either way a moment later.
+    const work = warm.read('/api/work');
+    if (work?.data && observing) observing.hidden = !work.data.observing;
+    return true;
+  }
+
   async function load() {
+    const warm = window.beadcause?.warm;
     try {
       state = await api('/api/admin');
+      warm?.write?.('/api/admin', state);
       pulse?.classList.remove('bad');
       render();
     } catch (err) {
@@ -359,10 +386,14 @@
     // same one /monitor shows, for the same reason: which daemon this is.
     try {
       const work = await api('/api/work');
+      warm?.write?.('/api/work', work);
       if (observing) observing.hidden = !work.observing;
       if (work.observing) {
         for (const b of out.querySelectorAll('button[data-do]')) b.disabled = true;
       }
+      // Both requests came back, so the credential is good: the moment it is safe to
+      // go and warm the other four tabs. Once per document — see public/warm.js.
+      warm?.prewarm?.({ here: 'admin', api });
     } catch {
       /* The page is still useful without it. */
     }
@@ -473,7 +504,11 @@
     const state3 = serving?.tls
       ? { text: `serving ${serving.name || 'https'}`, tone: 'live' }
       : t.restartNeeded
-        ? { text: ready ? 'ready — restart to serve it' : 'restart to stop serving it', tone: 'held' }
+        ? // A certificate is ready and the socket is still plain: the process holding the
+          // port looks for one every minute and adopts it without being restarted, so this
+          // is a wait rather than a chore. Turning HTTPS *off* is the direction that still
+          // needs a restart — a listener already terminating TLS cannot stop without one.
+          { text: ready ? 'ready — picked up within a minute' : 'restart to stop serving it', tone: 'held' }
         : ready
           ? { text: 'on', tone: 'live' }
           : t.enabled
@@ -517,11 +552,17 @@
       }
       ${askFailure(tlsDid?.asked)}
       ${
-        t.restartNeeded
-          ? `<p class="admin-warn"><strong>The daemon is still serving the old socket.</strong> TLS is decided when the
-             listener is created, so this takes effect on the next restart — the Deploy button for beadcause on the PRs
-             screen does one, or on the Mac:<br><code>${esc(t.restartCommand)}</code></p>`
-          : ''
+        t.restartNeeded && ready
+          ? `<p class="admin-detail"><strong>The socket is still plain http, and does not need a restart.</strong> The
+             process holding the port looks for a certificate every minute and puts this one on the socket it is already
+             holding — nothing rebound, nothing dropped. Give it a minute and this card says <em>serving</em>.</p>`
+          : t.restartNeeded
+            ? `<p class="admin-warn"><strong>The daemon is still serving the old socket.</strong> A listener that is
+               already terminating TLS cannot stop without being rebound, so this takes effect on the next restart — the
+               Deploy button for beadcause on the PRs screen does one, or on the Mac:<br><code>${esc(
+                 t.restartCommand
+               )}</code></p>`
+            : ''
       }
       <div class="admin-btns">${buttons.join('')}</div>
       <a class="secondary tls-link" href="${esc(tailscaleHref(t.tailnetHttpsUrl))}" target="_blank" rel="noreferrer noopener">
@@ -615,7 +656,9 @@
       if (r.did.asked?.ok) bits.push(r.view.have ? `certificate for ${r.view.name}` : 'certificate ok');
       else if (r.did.asked) bits.push('no certificate — see below');
       if (r.did.originMoved) bits.push(`address is now ${hostOf(r.did.to)}`);
-      if (r.view.restartNeeded) bits.push('restart to serve it');
+      // Which way the switch went decides whether a restart is owed: on is adopted by the
+      // process holding the port within a minute, off has to rebind the listener.
+      if (r.view.restartNeeded) bits.push(r.did.now ? 'on the socket within a minute' : 'restart to stop serving it');
       said.textContent = bits.join(' · ');
       said.hidden = false;
     } catch (err) {
@@ -653,6 +696,7 @@
     if (!busy && !armed) load();
     if (!busy && !armed) loadTls();
   }, REFRESH_MS);
+  warmBoot();
   load();
   loadTls();
 })();

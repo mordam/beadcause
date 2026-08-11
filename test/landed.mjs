@@ -29,6 +29,10 @@
  * 4. **The question closes before the work bead.** A delivery parks its bead behind its
  *    card with `bd dep add`, and bd refuses to close a bead with an open blocker — so
  *    the wrong order fails on precisely the case that most needs this.
+ * 5. **And it closes on the merge, not on a bead.** bc-u579: the card close lived inside
+ *    the bead loop, so a merged pull request with nothing open behind it — a bead closed
+ *    by hand, a bead rule 2 leaves alone, a PR tied to no bead — closed no card, and
+ *    nothing else sweeps one. Three cases below, one per way of getting there.
  *
  * `gh` is a fake shell script answering three questions; `bd` is an object that records
  * what it was asked to write. Nothing here reaches GitHub, a tracker, iTerm or a repo of
@@ -72,7 +76,7 @@ exit 1
 );
 process.env.PATH = `${BIN}${path.delimiter}${process.env.PATH}`;
 
-const { reconcileLanded, landedReason } = await import(LIB('landed.js'));
+const { reconcileLanded, landedReason, describeLanded } = await import(LIB('landed.js'));
 const { forgetPrefixes } = await import(LIB('beadref.js'));
 
 /* ------------------------------------------------------------------ harness */
@@ -275,6 +279,76 @@ console.log('\nreconcileLanded');
     order.indexOf('wg-card') === 0 && order.indexOf('wg-aaa') === 1,
     JSON.stringify(order)
   );
+}
+
+/**
+ * The card on its own — bc-u579, and the three ordinary ways to reach it.
+ *
+ * The card close used to live *inside* the bead loop, so it only ever happened while some
+ * bead behind the pull request was still open and unskipped. Each case below is a merged
+ * pull request with no such bead, and nothing else in beadcause sweeps a delivery card:
+ * before the fix each of these left one in the inbox permanently.
+ */
+const deliveryCard = (over = {}) => ({
+  id: 'wg-card',
+  status: 'open',
+  description:
+    'Merge #42?\n\n```beadpr\nworkspace: widgets\nbead: wg-aaa\nnumber: 42\nurl: https://github.com/mordam/widgets/pull/42\nbranch: worktree-fix-the-thing-aaa\nbase: main\nmethod: merge\n```',
+  ...over,
+});
+
+{
+  forgetPrefixes();
+  // Somebody closed the work bead by hand — from the terminal, or from another session
+  // that noticed the merge first. The card is still on the phone asking to merge #42.
+  const bd = fakeBd([{ id: 'wg-aaa', status: 'closed' }], { questions: [deliveryCard()] });
+  const result = await reconcileLanded(bd, ws('nine'), REPO, { rows: [asListed(mergedRow())] });
+  const closed = bd.writes.filter((w) => w.kind === 'close').map((w) => w.id);
+  check('a card closes even though its work bead was already closed', closed.length === 1 && closed[0] === 'wg-card', JSON.stringify(bd.writes));
+  check('and the result names the card it closed', result.cards.length === 1 && result.cards[0].id === 'wg-card', JSON.stringify(result));
+}
+
+{
+  forgetPrefixes();
+  // Rule 2: the bead was closed on this PR once and reopened, so it is left alone — but
+  // the reopening says nothing about whether #42 merged, and the card only asks that.
+  const bd = fakeBd([{ id: 'wg-aaa' }], {
+    questions: [deliveryCard()],
+    comments: () => [{ text: 'Landed as [#42 as abc1234](https://github.com/mordam/widgets/pull/42) — merged.' }],
+  });
+  await reconcileLanded(bd, ws('ten'), REPO, { rows: [asListed(mergedRow())] });
+  const closed = bd.writes.filter((w) => w.kind === 'close').map((w) => w.id);
+  check('a card closes even where rule 2 leaves the bead reopened', closed.length === 1 && closed[0] === 'wg-card', JSON.stringify(bd.writes));
+}
+
+{
+  forgetPrefixes();
+  // No bead at all: a hand-opened pull request, or a tracker that would not hand back
+  // the ids this tick. The card still states the number it acts on, and that is enough.
+  const bd = fakeBd([{ id: 'wg-aaa' }], { questions: [deliveryCard()] });
+  const row = asListed(mergedRow({ title: 'tidy the readme', body: 'no bead named here', headRefName: 'patch-1' }));
+  await reconcileLanded(bd, ws('eleven'), REPO, { rows: [row] });
+  const closed = bd.writes.filter((w) => w.kind === 'close').map((w) => w.id);
+  check('a card closes for a PR that resolves to no bead at all', closed.length === 1 && closed[0] === 'wg-card', JSON.stringify(bd.writes));
+}
+
+{
+  forgetPrefixes();
+  // A card is not a bead, and a tick that closed only one must still say so: the summary
+  // is what reaches the log and the advocate's own line on the screen.
+  const bd = fakeBd([{ id: 'wg-aaa', status: 'closed' }], { questions: [deliveryCard()] });
+  const result = await reconcileLanded(bd, ws('twelve'), REPO, { rows: [asListed(mergedRow())] });
+  const line = describeLanded(result);
+  check('and a card-only sweep still describes itself', /delivery card/.test(line) && /wg-card \(#42\)/.test(line), JSON.stringify(line));
+}
+
+{
+  forgetPrefixes();
+  // The card whose PR has not merged is the reason this is keyed on the number: an open
+  // pull request must leave its card exactly where it is.
+  const bd = fakeBd([{ id: 'wg-aaa' }], { questions: [deliveryCard()] });
+  await reconcileLanded(bd, ws('thirteen'), REPO, { rows: [asListed(mergedRow({ state: 'OPEN', mergedAt: null }))] });
+  check('but an open PR still closes no card', bd.writes.length === 0, JSON.stringify(bd.writes));
 }
 
 check(

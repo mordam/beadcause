@@ -203,13 +203,23 @@ if (!internalPort) reconcileBaseUrl(cfg, { persist: true });
 // `ws` is missing, which `releaseSockets` treats as nothing to release.
 const wss = await attachTerminalSocket(cfg, servers);
 /**
- * Keep the tailnet certificate alive under `npm run start:bare`.
+ * Keep the tailnet certificate alive under `npm run start:bare` — and get one, if
+ * `listen()` came up without.
  *
  * A no-op in the installed configuration and by design: behind the router this process
  * binds loopback only, so nothing here terminates TLS and `startRenewal` returns null.
  * The router runs its own — it is the one holding the certificate on the port.
+ *
+ * `onAcquired` is the same `reconcileBaseUrl` as above, made again at the moment the
+ * socket stops being plain http, under the same condition: only the process that owns
+ * the real port may decide what the phone is told.
  */
-const certRenewal = startRenewal(cfg, servers, { notify: (state) => pushCertificate(cfg, state) });
+const certRenewal = startRenewal(cfg, servers, {
+  notify: (state) => pushCertificate(cfg, state),
+  onAcquired: () => {
+    if (!internalPort) reconcileBaseUrl(cfg, { persist: true });
+  },
+});
 // Terminals that were running when the last daemon went away. Nothing is spawned
 // here — they come back as offers to resume, and the first attach is what starts a
 // process. Before the reaper, so a restore is subject to the same idle clock.

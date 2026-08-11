@@ -49,7 +49,7 @@ import { fileURLToPath } from 'node:url';
 import { loadConfig, reconcileBaseUrl } from '../lib/config.js';
 import { buildStamp, routerStamp } from '../lib/build.js';
 import { hotSwapProblem, LOADED_ENV } from '../lib/service.js';
-import { certificate, closeServer, daysLeftOf, isSecure, secureServer, startRenewal, MIN_VERSION } from '../lib/tls.js';
+import { certificate, closeServer, daysLeftOf, isSecure, startRenewal, tailnetServer, tlsEnabled, MIN_VERSION } from '../lib/tls.js';
 import {
   EXITED,
   HEALTH_ATTEMPTS,
@@ -713,9 +713,11 @@ function snapshot() {
 /**
  * The certificate this router is serving, or null when it is serving plain HTTP.
  *
- * Read off `tlsMaterial`, which `secureServer` hangs on the server and `renewOnce`
- * replaces — so a renewal that swapped the certificate without a restart is reflected
- * here the moment it happens, rather than reporting whatever was true at boot.
+ * Read off `tlsMaterial`, which `tailnetServer` hangs on the server, `renewOnce` replaces
+ * and `acquireOnce` fills in — so both a certificate swapped without a restart and a
+ * first one adopted without a restart are reflected here the moment they happen, rather
+ * than reporting whatever was true at boot. Null while a provisional listener is still
+ * waiting for one, because "serving plain HTTP" is exactly what that is.
  */
 function certificateOnSocket() {
   const material = (servers || []).filter(isSecure).find((s) => s.tlsMaterial)?.tlsMaterial;
@@ -996,24 +998,35 @@ const onUpgrade = (req, socket, head) => {
  * plain http. lib/tls.js is a leaf — node builtins and lib/config.js — which keeps the
  * rule this file lives by: it depends on almost nothing, so almost nothing can stop it
  * coming up. The proxy hop to the backend stays plain `http://127.0.0.1`.
+ *
+ * A tailnet address with TLS *wanted* is bound the same way whether or not a certificate
+ * could be fetched — `tailnetServer` says why. With one, that is an HTTPS server behind
+ * the sniffing front. Without, it is plain HTTP behind the same front, and `startRenewal`
+ * keeps asking until there is one; either way the port is bound once and never again.
  */
 function listen() {
   const hosts = ['127.0.0.1'];
   if (cfg.host && cfg.host !== '127.0.0.1') hosts.push(cfg.host);
 
   const material = hosts.length > 1 ? certificate(cfg) : null;
+  // Wanting a certificate is not the same as having one, and the difference is the whole
+  // of what this bead was about: a fetch that failed used to mean plain http with nothing
+  // watching. `tls.enabled: false` is the one case where it is not wanted at all.
+  const wanted = hosts.length > 1 && tlsEnabled(cfg);
 
   let bound = 0;
   let failed = 0;
-  return hosts.map((host) => {
-    const secure = Boolean(material) && host !== '127.0.0.1';
-    const { server, front } = secure ? secureServer(material, handler) : { server: http.createServer(handler), front: null };
+  return hosts.flatMap((host) => {
+    const onTailnet = host !== '127.0.0.1';
+    const { server, front, plain } =
+      onTailnet && wanted ? tailnetServer(material, handler) : { server: http.createServer(handler), front: null, plain: null };
     // The terminal rides the upgrade path, and a server with no `upgrade` listener
     // quietly treats one as an ordinary request — which is how the terminal came to
     // 404. In the installed configuration this is the only listener there is: the
     // backends bind loopback, so the one lib/termsocket.js attaches to *their* servers
-    // can never be reached from the tailnet.
-    server.on('upgrade', onUpgrade);
+    // can never be reached from the tailnet. Both handles get it, because which of them
+    // the front is routing to changes the moment a certificate is adopted.
+    for (const s of [server, plain].filter(Boolean)) s.on('upgrade', onUpgrade);
     // The front owns the port when there is one: it binds, it fails, it closes.
     const listener = front || server;
     listener.on('error', (err) => {
@@ -1025,13 +1038,15 @@ function listen() {
     });
     listener.listen(cfg.port, host, () => {
       bound++;
-      if (secure) log(`listening on https://${material.name}:${cfg.port} (${host}, ${MIN_VERSION} floor)`);
+      if (material && onTailnet) log(`listening on https://${material.name}:${cfg.port} (${host}, ${MIN_VERSION} floor)`);
+      else if (plain) log(`listening on http://${host}:${cfg.port} — no certificate yet; this socket becomes https without a restart`);
       else log(`listening on http://${host}:${cfg.port}`);
     });
-    // The request-serving server, not the front — that is what carries the certificate
-    // a renewal has to replace, and it knows the front as `.front` for closing. Both
-    // are the same object when there is no TLS.
-    return server;
+    // The request-serving servers, not the front — those are what carry the certificate a
+    // renewal has to replace, and each knows the front as `.front` for closing. One
+    // object per host, except a tailnet address still waiting for a certificate, which
+    // hands back the plain server it is answering with as well.
+    return [server, plain].filter(Boolean);
   });
 }
 
@@ -1124,8 +1139,16 @@ const servers = listen();
 // and that one is about the next one.
 reconcileBaseUrl(cfg, { persist: true });
 // The router is what holds the certificate on the real port, so the router is what has
-// to keep it alive — a 90-day certificate outlives no restart this process ever gets.
-startRenewal(cfg, servers, { notify: notifyCertificate, log, warn });
+// to keep it alive — a 90-day certificate outlives no restart this process ever gets —
+// and what has to *get* one when `listen()` came up without: `onAcquired` is the same
+// call as the one above, made again at the moment the socket stops being plain http, so
+// the URL a phone is handed follows the certificate rather than waiting for a restart.
+startRenewal(cfg, servers, {
+  notify: notifyCertificate,
+  onAcquired: () => reconcileBaseUrl(cfg, { persist: true }),
+  log,
+  warn,
+});
 log(`supervising ${BACKEND}`);
 await bringUp('first start').catch((err) => {
   // Keep the port. A router that exited here would be restarted by launchd into the
