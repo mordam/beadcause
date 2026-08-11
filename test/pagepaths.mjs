@@ -162,15 +162,20 @@ const GONE = ['/work.js'];
 /**
  * Paths that were never made, and the decision that says they never will be.
  *
- * The mirror is a *pane* on the advocates page, not a fifth bottom tab (bc-3xb — the
- * reasons are in the README under "The Mirror is a mode, not a fifth tab"). The other
- * way was a `/mirror` route and a `mirror.html`, and the cheapest way for this decision
- * to come undone is for one of those to appear in the run of one-line `if`s above — a
- * merge, a half-remembered plan, a session that never read the bead. That would be
- * silent: a new page nobody objected to.
+ * The Mirror is a *pane* on the advocates page, not a fifth bottom tab (bc-3xb — the
+ * reasons are in the README under "The Mirror is a pane, not a tab"). The other way was
+ * a `/mirror` route and a `mirror.html`, and the cheapest way for this decision to come
+ * undone is for one of those to appear in the run of one-line `if`s above — a merge, a
+ * half-remembered plan, a session that never read the bead. That would be silent: a new
+ * page nobody objected to.
  *
- * So it is asserted, and the assertion is the record. Reversing the decision on purpose
- * means deleting these two lines, which is a line in a diff somebody can argue with.
+ * `test/mirrorpane.mjs` asserts the same two absences by reading the sources, and this is
+ * the other side of that pair rather than a second copy of it. A static read has to know
+ * the shape the route would take — it greps `lib/server.js` for `urlPath === '/mirror'` —
+ * so a redirect, a prefix match, or a `mirror.html` dropped into `public/` and served by
+ * the static handler would all pass it. This asks a running server instead, which is the
+ * claim the decision makes: not that the code avoids a string, but that there is nothing
+ * at either path.
  */
 const NEVER_MADE = [
   { path: '/mirror', why: 'the mirror is a pane on /monitor, not a page (bc-3xb)' },

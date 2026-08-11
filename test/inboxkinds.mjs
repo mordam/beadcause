@@ -211,6 +211,10 @@ const ROWS = {
   proposal: { key: 'w/p1', workspace: 'w', proposal: { beads: [{ title: 'x' }] } },
   delivery: { key: 'w/d1', workspace: 'w', delivery: { number: 7 } },
   pr: { key: 'pr:w#7', workspace: 'w', pr: { key: 'w#7', number: 7, stage: 'review' } },
+  // A chat session, which with the pull request above is one of the two rows here that
+  // are not beads at all — no id in any tracker, nothing to answer. See `chatRows` in
+  // public/app.js.
+  session: { key: 'chat/abc', workspace: 'w', session: { id: 'abc', title: 'New beads' } },
   claimed: { key: 'w/a1', workspace: 'w', agent: true, status: 'in_progress' },
   blocked: { key: 'w/a2', workspace: 'w', agent: true, status: 'blocked' },
   unclaimed: { key: 'w/a3', workspace: 'w', agent: true, status: 'open' },
@@ -218,8 +222,11 @@ const ROWS = {
 
 const QUESTION_KINDS = ['question', 'proposal', 'delivery'];
 const AGENT_KINDS = ['claimed', 'blocked', 'unclaimed'];
-/* On neither side: a pull request comes off `gh`, so every scope can hold one. */
-const ANY_KINDS = ['pr'];
+/* On neither side, so every scope can hold one: a pull request comes off `gh`, and a
+   chat session off no sweep at all, so for neither is there a scope that could have
+   missed it — which is what `side: 'any'` means. public/app.js `kindsForScope` is the
+   other half. */
+const ANY_KINDS = ['pr', 'session'];
 /** A pull request on a given rung, as the row app.js synthesises from the board. */
 const prOn = (stage) => ({ key: `pr:w#${stage}`, workspace: 'w', pr: { number: 1, stage } });
 
@@ -337,7 +344,7 @@ await check('a selection the new scope keeps is kept', () => {
   const { filter } = load();
   filter.survey({ kinds: QUESTION_KINDS });
   filter.set(['delivery']);
-  filter.survey({ kinds: [...QUESTION_KINDS, ...AGENT_KINDS] });
+  filter.survey({ kinds: [...QUESTION_KINDS, ...ANY_KINDS, ...AGENT_KINDS] });
   assert.deepEqual(list(filter.selected()), ['delivery']);
 });
 
@@ -395,10 +402,10 @@ await check('the line names the narrowing, and the control says it is narrowed',
   assert.ok(root.classes().includes('narrowed'), 'nothing on screen says the list is filtered');
 });
 
-await check('three selections are counted rather than listed — a phone line is short', () => {
+await check('three or more selections are counted rather than listed — a phone line is short', () => {
   const { filter, summary } = mounted();
   filter.set(QUESTION_KINDS);
-  assert.equal(summary.children[0].textContent, 'Human · 3 kinds');
+  assert.equal(summary.children[0].textContent, `Human · ${QUESTION_KINDS.length} kinds`);
 });
 
 await check('a chip per kind the scope can hold, each with what picking it would leave', () => {

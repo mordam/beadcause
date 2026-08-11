@@ -94,6 +94,9 @@ const payload = () => ({
 /** Every write the page attempted, so "one request or six" is an assertion. */
 const writes = [];
 
+/** What has been said about each bead, by id — the discussion's half of the fixture. */
+const THREADS = {};
+
 /** What each verdict route answers — the same shape lib/verdict.js builds. */
 function verdict(name, body) {
   const ids = body.ids || [body.id];
@@ -133,6 +136,42 @@ function serve() {
     if (p === '/api/spaces') {
       return json({ spaces: SPACES, workspaces: ['alpha', 'beta'], counts: { alpha: 2, beta: 1 }, filter: { space: 'all', workspace: 'all' }, waiting: 0 });
     }
+    // Who you can put a question to. Four chips, as the daemon's own roster hands them
+    // over — the page draws them and sends the id of whichever is pressed.
+    if (p === '/api/agents') {
+      return json({
+        agents: [
+          { id: 'answerer', name: 'Answerer', emoji: '💬', description: 'You answer the question, plainly.', builtin: true },
+          { id: 'critic', name: 'Critic', emoji: '🧨', description: 'You argue the strongest case against it.', builtin: true },
+        ],
+        default: 'answerer',
+      });
+    }
+
+    /**
+     * The discussion. Deliberately *not* in the verdict list below: it writes a comment
+     * and moves nothing, so the fixture leaves BEADS alone and only counts the thread —
+     * which is what makes "the bead is still on the queue afterwards" an assertion
+     * rather than a coincidence of this fixture forgetting to remove it.
+     */
+    if (p === '/api/bead/discuss' && req.method === 'POST') {
+      return void read((parsed) => {
+        writes.push({ path: p, ...parsed });
+        const id = parsed.id || parsed.ids?.[0];
+        THREADS[id] = [
+          ...(THREADS[id] || []),
+          { id: `c${(THREADS[id] || []).length + 1}`, author: 'adam@example.com', text: parsed.text, at: '2026-08-10T12:00:00Z', agent: null },
+        ];
+        const held = BEADS.find((b) => b.id === id);
+        if (held) held.commentCount = THREADS[id].length;
+        json({ ok: true, id, held: true, dispatched: true, agent: { id: parsed.agent, name: parsed.agent }, thread: THREADS[id] });
+      });
+    }
+    if (p === '/api/bead/thread') {
+      const id = new URL(req.url, 'http://x').searchParams.get('id');
+      return json({ id, thread: THREADS[id] || [], running: false, activity: null });
+    }
+
     const named = ['endorse', 'revoke', 'adjust', 'changes'].find((n) => p === `/api/bead/${n}`);
     if (named && req.method === 'POST') {
       return void read((parsed) => {
@@ -421,6 +460,48 @@ try {
   check('and endorse false — a rewrite is not an agreement', adjusted?.endorse === false);
   check('so the bead is still on the queue', await waitFor(`document.querySelectorAll('.eq-bead').length === 1`));
   await shot('adjusted');
+
+  /* ---- talking about one instead of deciding on it ---- */
+
+  writes.length = 0;
+  await waitFor(`document.querySelector('[data-act="talk"]') !== null`);
+  await press('[data-act="talk"]');
+  const panel = await waitFor(`document.querySelector('[data-talk]') !== null`);
+  check('Discuss opens a thread on the row', panel);
+  const chips = await evalJs(`[...document.querySelectorAll('[data-act="agent"]')].map((c) => c.dataset.agent)`);
+  check('with the roster to choose from', JSON.stringify(chips) === JSON.stringify(['answerer', 'critic']), String(chips));
+
+  await press('[data-act="send"]');
+  await sleep(300);
+  check('Send with an empty box writes nothing', writes.length === 0, JSON.stringify(writes));
+  check('and says why, rather than doing nothing quietly', /Type the question first/.test(await text()));
+
+  // The chip is the choice, so it has to be the one that travels with the question —
+  // an agent you picked and a comment answered by the default is the whole feature
+  // failing silently.
+  await press('[data-act="agent"][data-agent="critic"]');
+  await evalJs(`(() => {
+    const el = document.querySelector('[data-talk]');
+    el.value = 'Is this not the same as the thing you filed last week?';
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+  })()`);
+  await press('[data-act="send"]');
+  await sleep(900);
+  const asked = writes.filter((w) => w.path === '/api/bead/discuss').pop();
+  check('the question reaches /api/bead/discuss', Boolean(asked), JSON.stringify(asked));
+  check('carrying the chosen agent and one bead', asked?.agent === 'critic' && asked?.id === 'aa-old', JSON.stringify(asked));
+  check('nothing was endorsed, adjusted or closed on the way', writes.every((w) => w.path === '/api/bead/discuss'), JSON.stringify(writes.map((w) => w.path)));
+  check('the bead is still waiting on you afterwards', await waitFor(`document.querySelectorAll('.eq-bead').length === 1`));
+  check('the thread is on the row', /same as the thing you filed last week/.test(await text()));
+  await shot('discussing');
+
+  // And the point of the count: a bead you have asked about must never fold away
+  // looking like one nobody has opened.
+  await press('[data-act="close-talk"]');
+  await press('[data-row="alpha/aa-old"]');
+  const counted = await waitFor(`/💬/.test(document.getElementById('eq').textContent)`);
+  check('and the folded row says a thread exists', counted, (await text()).slice(0, 80));
+  await shot('counted');
 } finally {
   close();
   server.close();
