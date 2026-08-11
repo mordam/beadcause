@@ -55,7 +55,14 @@
    holding v26's app.js without the file would fall back to the whole-list rebuild
    and a cold fetch per tab, which is the entire thing being fixed. They have to
    arrive together, which is what a cache version is for. */
-const CACHE = 'beadcause-v26';
+/* v27: pull requests stopped being a tab and became inbox cards. `/prcard.js` is a new
+   path *and* four cached files disagree without it: tabbar.js no longer draws the PRs
+   tab, app.js draws cards it cannot render without prcard.js, inboxfilter.js builds its
+   status sub-filter off the ladder in it, and prs.js takes its own row renderer apart
+   from it — a board page cached at v26 beside a v27 prs.js is a blank board. Every one of
+   those is an old app that looks complete, which is the failure a version exists to
+   prevent. */
+const CACHE = 'beadcause-v27';
 const SHELL = [
   '/',
   '/index.html',
@@ -81,6 +88,10 @@ const SHELL = [
   // line. In the shell for the same reason the picker is: without it the inbox has no
   // control on it at all to say which slice of the tracker you are looking at.
   '/inboxfilter.js',
+  // One pull request, drawn once, for the inbox's cards and the board's rows. In the
+  // shell because the inbox is: a cached inbox without it draws no PR cards at all, and
+  // the filter reads the status ladder off it to build its sub-filter.
+  '/prcard.js',
   // What each of the five standing pages boots from. In the shell rather than left to
   // network-first because the whole point of it is the first frame after a tab tap:
   // a page that has to fetch its cache before it can read it has already lost the
