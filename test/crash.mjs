@@ -100,6 +100,15 @@ if (args[0] === 'list') {
 }
 if (args[0] === 'create') {
   if (fs.existsSync(path.join(DIR, '..', 'fail-create'))) die('the tracker said no');
+  const slowFile = path.join(DIR, '..', 'slow-create');
+  if (fs.existsSync(slowFile)) {
+    // A synchronous sleep, because this is a real \`bd\` as far as the code under test is
+    // concerned and a real one blocks. A wedged tracker is what the timeout is for — and
+    // it dies rather than landing the bead afterwards, so a straggler cannot write into
+    // whichever scenario happens to be running by then. It can, and it did.
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, Number(fs.readFileSync(slowFile, 'utf8')) || 0);
+    die('the tracker never came back');
+  }
   let id = null;
   for (let n = 1; n < 500 && !id; n++) {
     try { fs.writeFileSync(file('zz-' + n), '{}', { flag: 'wx' }); id = 'zz-' + n; } catch { /* taken */ }
@@ -156,6 +165,7 @@ const issues = () =>
     .map((f) => JSON.parse(fs.readFileSync(path.join(BEADS, f), 'utf8')))
     .sort((a, b) => String(a.id).localeCompare(String(b.id), 'en', { numeric: true }));
 const FAIL_FLAG = path.join(tmp, 'fail-create');
+const SLOW_FLAG = path.join(tmp, 'slow-create');
 
 const wsDir = path.join(tmp, 'ws', '.beads');
 fs.mkdirSync(wsDir, { recursive: true });
@@ -170,12 +180,14 @@ const cfg = { workspaces: [ws], actor: 'beadcause-test' };
  */
 let exits = [];
 let uninstall = null;
-const arm = ({ failCreate = false, where = 'the beadcause daemon — active, build test' } = {}) => {
+const arm = ({ failCreate = false, slowCreate = 0, timeoutMs = 0, where = 'the beadcause daemon — active, build test' } = {}) => {
   if (uninstall) uninstall();
   fs.rmSync(BEADS, { recursive: true, force: true });
   fs.mkdirSync(BEADS, { recursive: true });
   fs.rmSync(FAIL_FLAG, { force: true });
   if (failCreate) fs.writeFileSync(FAIL_FLAG, '1');
+  fs.rmSync(SLOW_FLAG, { force: true });
+  if (slowCreate) fs.writeFileSync(SLOW_FLAG, String(slowCreate));
   fs.rmSync(BD_LOG, { force: true });
   resetCrashState();
   exits = [];
@@ -183,6 +195,7 @@ const arm = ({ failCreate = false, where = 'the beadcause daemon — active, bui
     bd,
     workspace: ws,
     where,
+    timeoutMs,
     exit: (code) => exits.push(code),
   });
 };
@@ -342,6 +355,34 @@ await check('the tracker refusing the create does not become a second report', a
   assert.equal(bdCalls().filter((c) => c[0] === 'create').length, 1, 'and it was attempted once, not in a loop');
   assert.deepEqual(exits, [1], 'the daemon still went down — filing is not allowed to hold it up forever');
   assert.equal(crashStats().filing, 0, 'and nothing is left in flight');
+});
+
+await check('a process that cannot afford ten seconds files on its own clock instead', async () => {
+  // bc-ega4. `FILE_TIMEOUT_MS` bounds a dying *backend*, which costs nothing — the router
+  // replaces it. bin/router.js is holding port 4318 while it waits, so it arms itself with
+  // half of it, and an option nothing honoured would look identical from the outside: the
+  // filing would land, the suite would pass, and the router would sit on the port for ten
+  // seconds the day a `bd` wedged. So the clock is asserted, not the constant.
+  arm({ slowCreate: 400, timeoutMs: 60 });
+  const started = Date.now();
+  const out = await reportCrash(thrownAt('slow tracker', 'lib/server.js', 12));
+  const took = Date.now() - started;
+
+  assert.equal(out.filed, false, 'it gave up rather than waiting the tracker out');
+  assert.equal(out.why, 'filing-failed');
+  assert.match(String(out.detail), /longer than 60ms/, `gave up on the wrong clock: ${out.detail}`);
+  assert.ok(took < 350, `waited ${took}ms — the timeout was not the one this process asked for`);
+  assert.equal(crashStats().filing, 0, 'and nothing is left in flight to block the next report');
+  // Outlive the wedged `bd` before handing the fixture to the next scenario, so that what
+  // it did after we stopped waiting is asserted here rather than discovered somewhere else.
+  await new Promise((r) => setTimeout(r, 500));
+  assert.equal(issues().length, 0, 'and the tracker it gave up on left nothing behind');
+});
+
+await check('with no timeout asked for, it is still the ten seconds every other caller gets', async () => {
+  arm();
+  await crashAndSettle(thrownAt('ordinary', 'lib/server.js', 13));
+  assert.equal(issues().length, 1, 'the default path is unchanged — the option is an override, not a requirement');
 });
 
 await check('an error thrown out of the filing path is never filed', async () => {
@@ -506,6 +547,28 @@ await check('bin/beadcause.js arms the handlers and disarms them on the way down
   assert.ok(
     src.indexOf('installCrashHandlers(') < src.indexOf('startPoller(cfg, app)'),
     'and before the poller and the Slack socket start'
+  );
+});
+
+await check('bin/router.js arms them too — after the port is held, and never at import time', () => {
+  const src = fs.readFileSync(path.join(HERE, '..', 'bin', 'router.js'), 'utf8');
+  assert.match(src, /installCrashHandlers\(cfg, \{/, 'the router installs them');
+  assert.ok(
+    /const shutdown = \(\) => \{[\s\S]{0,600}?crash\?\.beginShutdown\(\)/.test(src),
+    'and shutdown() says so before it closes anything — a kickstart is a SIGTERM'
+  );
+  // The whole of bc-ega4's risk, and the only part of it a diff can undo by accident.
+  // A *static* import of lib/crash.js or lib/deploy.js would put five to thirteen modules
+  // of app in front of the one process that must always be able to bind 4318 — lib/deploy.js
+  // reaches lib/session.js, and so the lib/foundation.js ↔ lib/agents.js cycle (bc-u4na).
+  // Loading them after listen() means the worst a broken module can do is cost the beads.
+  const statics = [...src.matchAll(/^import[\s\S]*?from '(\.\.\/lib\/[a-z]+\.js)';$/gm)].map((m) => m[1]);
+  for (const forbidden of ['../lib/crash.js', '../lib/deploy.js', '../lib/bd.js']) {
+    assert.ok(!statics.includes(forbidden), `${forbidden} must be imported lazily, not at the top of bin/router.js`);
+  }
+  assert.ok(
+    src.indexOf('const servers = listen();') < src.indexOf('await armCrashHandlers();'),
+    'and armed after listen(), so a failure to arm can never cost the port'
   );
 });
 
