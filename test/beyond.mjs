@@ -286,8 +286,11 @@ fs.writeFileSync(
 const fs = require('node:fs');
 const path = require('node:path');
 // The prompt matters as much as the answer here: the reflection section is what tells the
-// agent where a non-amendable change belongs, and it is only in the argv.
-fs.writeFileSync(path.join(process.cwd(), 'PROMPT.md'), process.argv[3] || '');
+// agent where a non-amendable change belongs, and it is only in the argv. Read as the
+// operand after \`--\` rather than by index, which is what the real parser does and what
+// keeps this stub honest if the flags before it ever change again (bc-i4sa).
+const sep = process.argv.indexOf('--');
+fs.writeFileSync(path.join(process.cwd(), 'PROMPT.md'), (sep === -1 ? '' : process.argv[sep + 1]) || '');
 const answer = fs.readFileSync(path.join(process.cwd(), 'ANSWER.md'), 'utf8');
 process.stdout.write(JSON.stringify({ type: 'system', subtype: 'init' }) + '\\n');
 process.stdout.write(JSON.stringify({ type: 'result', subtype: 'success', result: answer }) + '\\n');

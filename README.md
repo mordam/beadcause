@@ -503,6 +503,43 @@ suite is the one nobody can do by reading: the client's `matches()` and the serv
 workspace, because those two disagreeing in the direction "rings but is not shown" is a
 question you were told about and cannot find.
 
+#### The row it costs, and why it keeps it
+
+The picker is a full-width row of its own, so six pages carry two rows of sticky chrome
+where they carried one. On a phone that is worth arguing about, so it was measured
+instead: at 360×640 the row is **43px** — a 31px control and the bar's 12px gap — which
+takes the bar from 61px to 104px and the bar plus the tab bar from 116px to 159px, 18%
+of the screen to **25%**.
+
+It keeps the row, and the reason is arithmetic rather than taste. 360px less the bar's
+padding is 328px; on the inbox the brand is 133px with the "3 waiting" chip in it and
+the icon buttons are 172px, which with the gaps is 329px — the first row is already
+full before a picker is mentioned, and inline the picker needs 184px (148px for its
+widest row, 36px for the count beside it). Hiding the chip while a repo is picked does
+not rescue it: measured, the inbox stays two lines with the chip gone, because the icon
+buttons are 172 of the 328 on their own. Collapsing onto the first row *where it fits*
+(`flex: 1 1 <basis>`) works on `/console`, `/monitor` and `/endorse` and on none of the
+three you are on most — so the picker would be a title on one tab and a clipped chip on
+the next, which is the four-controls-in-one-coat this replaced. Hiding it on scroll means
+a fixed, translated header on six pages, because a sticky bar that shrinks mid-scroll
+moves every card up 43px under your thumb — and the row is back the moment you scroll
+up, which is when you were reading it. Folding it into the mark is the only one that
+gets a single row at 360px, and it pays with the picker's whole job: the repo name is
+exactly what does not fit, so what is left is a control whose current value is invisible.
+
+What settles it is how far the first row would have to be cleared to hold the picker
+instead: at 360px, two of the four icon buttons gone leaves 87px; two gone *and* the
+chip hidden leaves 176px, still 8px short; it takes three of the four buttons and the
+chip to reach the 184px, at 220px. That is not a layout trick, it is emptying the bar.
+
+`node scripts/topbar-check.mjs [--out=DIR]` is what stops this being decided once and
+forgotten. Two widths, every page with a picker: the bar is at most two lines, the
+picker has the last line to itself at the full width of the bar, no label in the
+dropdown is clipped, and the bar plus the tab bar stays inside a **170px** budget — a
+third row is +43px and fails it on the spot. It also prints the first-row arithmetic per
+page and says so if *every* page ever has room for the picker inline, because that, and
+only that, is when collapsing would cost nothing and this is worth reopening.
+
 ### Space details — the page the advocate console became
 
 Every setting a space has is one you used to change by opening `~/.beadcause/config.json`
@@ -4561,7 +4598,7 @@ a bead, and that is all it knows. So:
 #### Closing the window — a session that has finished should not still be on screen
 
 The `exit` above only runs **when `claude` exits**, and a session that has finished its
-work does not exit. `claude "$P"` is interactive — the brief is its first prompt, not
+work does not exit. `claude … -- "$P"` is interactive — the brief is its first prompt, not
 its whole life — so when the last turn ends the TUI goes back to waiting for a human
 who, by construction, is not there. The bead is closed, the pull request is merged, and
 the window is still open.
@@ -7016,6 +7053,53 @@ failed-validation limits there are per hour. And "there is still no certificate"
 repo supports, so the first notification is news and the ninetieth is not — unlike a
 renewal that is failing, which is an outage with a date on it.
 
+### And once it has actually expired: it stays HTTPS, broken and loud
+
+Ninety days of a renewal that never worked, through a fortnight of daily priority-5
+pushes, and the date goes past. **Nothing downgrades.** The expired certificate stays on
+the socket, plain http on 4318 is still 307'd to the name, the URL a phone is handed is
+still `https://<name>:4318`, and every page now arrives behind a certificate warning
+until somebody fixes it. That is a decision (bc-jv86) rather than what happened to fall
+out of the code, and it went the other way for half of one release: `certificate()`
+counted a past date as *no certificate*, so a daemon that **rebooted** after expiry bound
+plain http with no redirect — silently, and only if the Mac happened to restart. Same
+machine, same config, two behaviours.
+
+Falling back to plain http is the tempting answer and it buys less than it looks:
+
+- **It does not bring the installed app back.** The PWA on the phone was installed from
+  `https://<name>:4318`, and `http://100.x.y.z:4318` is a *different origin* — a fresh
+  install, a fresh pairing (localStorage does not follow a cross-origin redirect), and
+  still not a secure context, so still no service worker and no microphone. All it buys
+  is that a QR scanned *after* the outage answers.
+- **Google sign-in is gone either way** — it will not accept a non-HTTPS redirect URI,
+  and the check for one is the same expired certificate.
+- **It spends the one property worth keeping**: that this origin never quietly gets
+  worse without being asked. A version that works at a lower standard from then on is
+  exactly the one that never gets fixed — and reaching this state at all means a
+  fortnight of pushes already went unread.
+
+So the two halves of the daemon are made to agree instead. `certificateName()` asks
+whether there is a pair on disk for this name, not whether the calendar still likes it —
+which is what stops `publicBaseUrl` drifting to `http://100.x.y.z:4318` behind the
+socket's back, and what stops the first `loadConfig()` after expiry *persisting* that
+into `config.json`, where the priority-5 "certificate has EXPIRED" push would click
+through to a URL the running daemon bounces straight back to https. The admin card says
+**expired — every phone is warned** rather than counting down into negative numbers, and
+offers the retry. The inbox itself is not unreachable while you fix it: loopback on the
+Mac is plain http and always was.
+
+```
+[beadcause] tls  the certificate for mac.tailnet.ts.net EXPIRED 3.1 days ago and could
+                 not be replaced — serving it anyway, so every phone gets a certificate
+                 warning until this is fixed
+[beadcause] tls  fix it by hand: tailscale cert mac.tailnet.ts.net
+```
+
+`test/certrenew.mjs` drives a certificate that is genuinely past its date — `openssl
+-not_before/-not_after`, because `-days` will not go backwards — and pins that a boot
+after expiry puts TLS on the port, redirects plain http, and still pushes the alarm.
+
 ## Signing in with Google
 
 There are **two** credentials, and which one a caller uses is decided by whether it can
@@ -7221,6 +7305,140 @@ issuer, that the token was minted for this client, that it has not expired, that
 nonce is the one we sent, and that Google says the address is verified — which is the
 hole the allowlist would otherwise have, since anybody can put any address on an account
 they have not proved they own.
+
+## Slack — the same decision, in a channel
+
+Off by default, and it stays off until you have given it a channel and a token.
+
+A question that reaches your phone as an ntfy notification can also reach a Slack
+channel as a message with a button per option. Pressing one **writes the same answer, on
+the same bead, as tapping it in the app** — the beads a "yes" files, the amendment it
+commits, the pull request it merges, the deploy it starts. It is not a chat feature and
+it is not a copy of the inbox: it is a second delivery surface for one decision, for the
+case where the conversation about the work is already in a channel and the person who
+should answer is reading that rather than a phone.
+
+```json
+"slack": { "enabled": true, "channel": "C0123456789" }
+```
+
+and the bot token in `~/.config/beadcause/slack-bot.key`, the app-level token in
+`slack-app.key`, both `chmod 600`. That is the whole of it.
+
+### The two tokens, and why there are two
+
+**The bot token** (`xoxb-…`, scopes `chat:write` and `chat:write.public` if the channel
+is one the bot has not joined) is what posts and what edits. **The app-level token**
+(`xapp-…`, scope `connections:write`, made under *Basic Information → App-Level Tokens*)
+is what makes the buttons work — and it is not optional in the way it sounds.
+
+Slack's ordinary interactivity wants a **Request URL**: a public HTTPS address it can
+POST to when somebody presses a button. beadcause has no such address and should not
+have one — it serves a tailnet name, behind Tailscale, deliberately unreachable from the
+internet. So the daemon uses **Socket Mode** instead: it opens an outbound WebSocket to
+Slack and interactions arrive down it. Turn Socket Mode on in the app's settings, enable
+*Interactivity*, and give it the app-level token.
+
+With the bot token alone, questions post and their buttons do nothing. That is a real
+half-configured state and it looks like a broken app rather than a missing token, so the
+daemon says so in its startup log rather than leaving you to find out by pressing one:
+
+```
+[beadcause] slack       C0123456789 — no app token in ~/.config/beadcause/slack-app.key, so the buttons will not answer
+```
+
+**Neither token is a field in `config.json`, and there is deliberately nowhere to put
+one.** That file is committed to the git repo in `~/.config/beadcause` after every
+write, so a token in it would not be "on disk in the clear" — it would be in a history
+no rotation can reach back into. The `.key` names are the same construction that
+protects the Google client secret and the tailnet private key: that repo both ignores
+them and refuses to commit them. A `"botToken"` typed into the config by somebody
+following a Slack tutorial aborts the next snapshot and says which secret it found.
+`BEADCAUSE_SLACK_BOT_TOKEN` and `BEADCAUSE_SLACK_APP_TOKEN` are the other place, and
+they leave no copy at all.
+
+That construction protects the *history* and knows nothing about the filesystem, so the
+one thing it cannot promise is checked at startup instead: a token file other accounts on
+this Mac can read gets a line saying so, with the `chmod` that fixes it.
+
+### Which repos reach which channel
+
+The unit is the [space](#spaces--keeping-work-out-of-your-evening), not the repo,
+because a space is already where "keep work out of my evening" is answered — and the
+failure worth designing against here is not a missing message. It is a question from a
+private side project turning up in a channel other people read.
+
+| what | where | means |
+|---|---|---|
+| `slack.channel` | config | the default channel for every workspace |
+| `slackChannel` | on a space | that space's channel — **or `null`, meaning this space never posts**, however the global is set |
+| `slack.excludeWorkspaces` | config | one repo that never posts, outranking its space. The same idea as `ntfy.minimalWorkspaces` |
+| `slackDetail` | on a space | `minimal` posts a nudge with a link and no question text |
+
+A channel id (`C…`) or a DM id (`D…`), not a `#name` — the API takes ids, and a name
+that has been renamed since you typed it fails at post time rather than at configure
+time. `slackChannel` and `slackDetail` are hand-edited in `config.json` today; the space
+details screen does not offer them yet.
+
+Unlike ntfy, `detail` defaults to **full** on both levels. `minimal` exists because an
+ntfy.sh topic is readable by anybody who guesses its name, and a Slack channel you named
+in your own config is not a public relay — rounding a work space to minimal here would
+put a contentless nudge in the one channel where the question belongs in full.
+
+**A space's quiet policy applies to Slack exactly as it applies to your phone**, and by
+construction rather than by a second rule that could disagree: the post happens at the
+same point in the sweep as the ntfy push, *after* the quiet check, so a muted space and a
+bead the inbox filter is hiding reach a channel exactly as often as they reach the phone
+— never. The card still arrives in the inbox, as it always did; quiet has never meant
+lost.
+
+### What a question looks like once it has been answered
+
+A stale message with live buttons is the failure mode of this whole idea. Answer on the
+phone, and the message in the channel would otherwise sit there all week offering to
+answer it again — and the second answer would be a second comment on a closed bead.
+
+So the message is rewritten the moment the bead leaves the inbox: struck through, no
+buttons, and a line saying what was answered and by whom. It settles whichever way the
+question ended and wherever the ending happened — a tap on the phone, an ntfy action
+button, a press in the channel, an agent closing the bead, `bd close` on the Mac. The
+first three settle it in the same breath as the answer; the rest are caught by the
+poller's next sweep, up to thirty seconds later.
+
+Three endings read differently on purpose. **Answered** is an answer. **Handed back** is
+an option that said `closes: false` — a commission, work ordered rather than a decision
+taken. **Set aside** is a dismissal, which writes no answer at all.
+
+### Whose answer it is
+
+The person who pressed is named on the *Slack message* and not on the bead. The comment
+lands the way every token caller's does — see [Whose answer it
+is](#whose-answer-it-is) — because attributing it would need a mapping from a Slack user
+to an address and a scope to read one, and that is worth doing deliberately rather than
+as a side effect of this.
+
+If bd refuses to close the bead — a blocker still open, children unfinished — the
+message keeps its buttons, because the question is still a question, and the reason goes
+back privately to whoever pressed.
+
+### What it does not carry
+
+The question channel, and nothing else. Replies from an agent, [foundation
+requests](#what-an-agent-is--and-how-it-asks-to-be-different), [landings](#the-notification-with-nothing-to-answer),
+deploy results and certificate warnings all have their own push on the phone and none of
+them post to Slack. Each is a separate decision about what a room should carry, and a
+constitutional change to an agent in particular is not a thing to nod through from a chat
+window.
+
+### Checking it
+
+`test/slack.mjs`, against two servers it starts itself — one standing in for Slack, one
+for this daemon's own `/api/respond` — so nothing reaches slack.com or the tracker. It
+holds the four claims above: that unconfigured means no token is read at all, that a
+space can say no as loudly as it can say where, that a pressed button sends the option's
+own answer (the button carries an index, never the text, so a payload from outside this
+process cannot decide what gets written on a bead), and that a settled message has no
+live buttons left on it.
 
 ## Publishing a document to Confluence
 
@@ -7598,6 +7816,12 @@ the fields it always read and renders exactly as it did.
 | `mirrorStateToBeads` | write `agent:<phase>` state labels into beads too (off — see Progress) |
 | `ntfy.detail` | `full` = question + option buttons in the notification; `minimal` = contentless nudge |
 | `ntfy.minimalWorkspaces` | forced to `minimal` regardless — put shared/work trackers here |
+| `slack.enabled` | post questions to a Slack channel with a button per option (default `false`). Off until this **and** a channel **and** a bot token all exist — see [Slack](#slack--the-same-decision-in-a-channel) |
+| `slack.channel` | the default channel, as an id (`C…`) or a DM id (`D…`), not a `#name` (default `null`). A [space](#spaces--keeping-work-out-of-your-evening) overrides it with `slackChannel`, in either direction — `null` there means that space never posts |
+| `slack.excludeWorkspaces` | one repo that never posts, outranking its space. The same idea as `ntfy.minimalWorkspaces` |
+| `slack.detail` | `full` = question + option buttons; `minimal` = a nudge with a link. Defaults to `full`, unlike ntfy, because a channel you named is not a public relay. Per space with `slackDetail` |
+| `slack.buttons`, `slack.maxButtons` | answer straight from the channel (default `true`), and how many options fit in the row (default 5; the rest stay in the app, and the message says how many) |
+| `slack.botTokenFile`, `slack.appTokenFile` | where the two tokens are read from. Default `null`, meaning `~/.config/beadcause/slack-bot.key` and `slack-app.key`. **There is deliberately no `botToken` or `appToken` field** — this file is committed to the git repo in that directory, and one typed in there aborts the next snapshot |
 
 `host` falls back to `127.0.0.1` if Tailscale was down when the config was
 written — fix the IP in the file if the phone can't connect.
@@ -7680,6 +7904,7 @@ mornings.
 | `SKIP_CONFIGURE` | `scripts/install.sh` asks nothing and keeps the answers on file — the same as `--non-interactive`. `CLAUDECODE`, `AI_AGENT` and `CI` imply it, because a question asked of a terminal nobody is watching is a hang; `--interactive` asks anyway |
 | `BEADCAUSE_GOOGLE_CLIENT_SECRET` | the Google OAuth client secret, taking precedence over the secret file. The one place it leaves no copy on disk — see [rotating the two secrets](#where-the-two-secrets-live-and-how-to-rotate-them) |
 | `BEADCAUSE_SESSION_KEY` | the HMAC key sessions are signed with, instead of `~/.config/beadcause/session.key`. Setting it to a new value signs everybody out |
+| `BEADCAUSE_SLACK_BOT_TOKEN`, `BEADCAUSE_SLACK_APP_TOKEN` | the two Slack tokens, taking precedence over their files. The one place they leave no copy on disk — see [Slack](#slack--the-same-decision-in-a-channel) |
 | `JIRA_API_TOKEN` | a JIRA API token, taking precedence over the per-workspace `.key` file for the same reason the Google one does — it leaves no copy on disk. The daemon runs under launchd and will not have it; this is for a hand-run script or a test |
 | `BEADCAUSE_TAILSCALE` | the `tailscale` binary, overriding the three macOS paths that are searched by default. Has to exist to count — a path typed wrong reads as "no tailscale" rather than failing mysteriously later. See [renewing the certificate](#renewing-it-before-it-expires) |
 
