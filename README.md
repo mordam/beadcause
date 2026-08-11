@@ -1741,7 +1741,33 @@ meant the acceptance criteria, the one part you close a bead against, were exact
 that. The description alone stays unlabelled, the way it is on the card, so a bead
 carrying none of the other three looks precisely as it did.
 
-Three bugs found building this, all worth knowing because they're the kind that look
+#### What is under it — the children, and the ones already done
+
+Under the description, an epic lists **every child it has**, one tappable row each, with
+the fraction beside the heading that `bd show` prints under its own CHILDREN section:
+`6/7 done`. Closed children are shown by **default**, because an epic whose finished work
+is invisible reads as though it never started; **Hide closed (6)** folds them away when
+what is left is the question, and that choice is remembered — across sheets, and across
+reloads. Nothing is folded on your behalf.
+
+This one costs a second `bd` call, and everything about how it is loaded follows from
+that. Children are simply **not in `bd show --json`**: on bc-goo, an epic with seven, it
+returns `dependent_count: 7` and not a single row — the text output has a CHILDREN
+section and the JSON has nothing to read it from. So it is `/api/bead-children`, a route
+of its own, and the sheet **does not wait for it**: it paints from `/api/bead`, then
+appends the block below the description when it lands. A call that is slow costs the
+block; a call that fails costs the block and says nothing, because replacing a sheet you
+can already read with an error would take the bead away over the part of it that did not
+arrive.
+
+It is not asked for at all unless the bead could have children, and what decides that is
+`dependent_count` — every edge pointing *at* the bead, of which a child's is one. Zero
+dependents means zero children, so the leaf beads that are most of what you tap ask
+nothing. It is not tight the other way: a bead that blocks something and parents nothing
+costs one call that comes back empty and draws nothing, which is the price of bd offering
+no child count to read.
+
+Three bugs found building the sheet, all worth knowing because they're the kind that look
 like something else:
 
 - **`hidden` loses to `display`.** `#empty` is an absolutely-positioned overlay across
@@ -4755,6 +4781,7 @@ cookie says so), and `/auth/signout` ends the session.
 | GET | `/doc` | `?p=<abs path>` | the HTML reader page |
 | GET | `/api/graph` | `?workspace=&id=` | `{nodes, links}` — the whole workspace with no `id` |
 | GET | `/api/bead` | `?workspace=&id=` | one issue in full, plus `comments[]` — for the graph's detail sheet |
+| GET | `/api/bead-children` | `?workspace=&id=` | `{children[]}` — every child of that bead, closed ones included, open work first. Its own route because `bd show` does not carry children |
 | GET | `/api/work` | — | `{workspaces[], elsewhere[], advocates[], service}` — per workspace: claimed beads, live `claude` sessions, counts, errors. `service` is what launchd is running — see the router section |
 | GET | `/api/agents` | — | `{agents[], default}` — the roster you can address a comment to |
 | POST | `/api/agents` | `{name, description}` | creates one and returns the new roster. `tools` is never accepted here |
