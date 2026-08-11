@@ -23,6 +23,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
+import { boundPort } from './helpers/net.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const LIB = (name) => path.join(HERE, '..', 'lib', name);
@@ -135,8 +136,11 @@ test('observing:says-so-on-the-wire', async () => {
   // The badge is only as good as the field behind it, and the field is the only way
   // an instance with no advocates configured says anything at all in the UI.
   const { createApp, listen } = await import(LIB('server.js'));
+  // Port 0, not a number typed here: a dozen sessions run this suite at once and the
+  // loser of a race for a fixed port exits 1 on an EADDRINUSE that reads like a
+  // regression in the flag under test. See test/helpers/net.mjs.
   const cfg = {
-    port: 4373,
+    port: 0,
     host: '127.0.0.1',
     token: 'test-token',
     workspaces: [],
@@ -147,12 +151,13 @@ test('observing:says-so-on-the-wire', async () => {
   };
   const app = createApp(cfg);
   const servers = listen(cfg, app.handler);
+  const port = await boundPort(servers);
   try {
-    const res = await fetch('http://127.0.0.1:4373/api/work', { headers: { 'x-beadcause-token': cfg.token } });
+    const res = await fetch(`http://127.0.0.1:${port}/api/work`, { headers: { 'x-beadcause-token': cfg.token } });
     assert.equal(res.status, 200);
     assert.equal((await res.json()).observing, true, '/api/work must say which daemon this is');
 
-    const poll = await fetch('http://127.0.0.1:4373/api/poll', { headers: { 'x-beadcause-token': cfg.token } });
+    const poll = await fetch(`http://127.0.0.1:${port}/api/poll`, { headers: { 'x-beadcause-token': cfg.token } });
     assert.equal((await poll.json()).observing, true, '/api/poll must say it too — the TUI reads only this one');
   } finally {
     for (const s of servers) s.close();
@@ -194,8 +199,9 @@ test('off:acts-normally', async () => {
   // that is in fact opening windows. No advocates are configured here, so this
   // server has nothing it could launch even in principle.
   const { createApp, listen } = await import(LIB('server.js'));
+  // Port 0, for the same reason the case above uses one.
   const scfg = {
-    port: 4374,
+    port: 0,
     host: '127.0.0.1',
     token: 'test-token',
     workspaces: [],
@@ -206,8 +212,9 @@ test('off:acts-normally', async () => {
     ntfy: {},
   };
   const servers = listen(scfg, createApp(scfg).handler);
+  const port = await boundPort(servers);
   try {
-    const r = await fetch('http://127.0.0.1:4374/api/work', { headers: { 'x-beadcause-token': scfg.token } });
+    const r = await fetch(`http://127.0.0.1:${port}/api/work`, { headers: { 'x-beadcause-token': scfg.token } });
     assert.equal((await r.json()).observing, false, 'a live instance must say so plainly, not by omission');
   } finally {
     for (const s of servers) s.close();
