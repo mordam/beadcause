@@ -64,6 +64,12 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  /* The space picker is a full-width third child (see .spacebar), so the bar wraps to
+     two lines on the pages that have one and stays a single line on the pages that do
+     not. It is its own row because the first one is already full: a mark, a dot, a
+     count chip and four icons is a 360px phone spent, and a dropdown squeezed in
+     between them would have room for about five characters of a repo name. */
+  flex-wrap: wrap;
   gap: 12px;
   padding: calc(env(safe-area-inset-top) + 10px) 16px 10px;
   background: color-mix(in srgb, var(--bg) 88%, transparent);
@@ -196,6 +202,81 @@ body {
 .chip.quiet { border-style: dashed; opacity: 0.75; }
 .chip.quiet[aria-pressed="true"] { opacity: 1; }
 .chip .bell { font-size: 11px; }
+
+/*
+  The space picker — public/spacebar.js, in the top bar of every standing view.
+
+  A row of its own inside the bar, and the widest thing on the screen, because what it
+  says is the frame for everything under it: on every page in the app, the list, the
+  counts and the empty state are about the one repo named here. It reads like a title
+  rather than like a filter for that reason.
+
+  A native <select> with the arrow drawn by hand. `appearance: none` is what lets it
+  take the surface, the radius and the hairline every other control on the bar has —
+  without it, iOS and Android each impose their own chrome and the bar has a
+  platform-shaped hole in it — and the wheel or menu that opens on tap is still the
+  operating system's own, which no scripted dropdown gets to be.
+*/
+.spacebar {
+  flex: 1 0 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+/* A class sets `display`, so the attribute needs a rule of its own or a hidden bar
+   would lay out as a flex row of nothing. */
+.spacebar[hidden] { display: none; }
+
+.spacepick { position: relative; display: flex; align-items: center; flex: 1 1 auto; min-width: 0; }
+.spacepick select {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 100%;
+  min-width: 0;
+  /* Room on the right for the caret that is drawn over it. */
+  padding: 7px 30px 7px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text);
+  font: 620 14px/1.2 inherit;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+.spacepick-caret {
+  position: absolute;
+  right: 11px;
+  pointer-events: none;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+/*
+  Narrowed, and saying so. The accent border is the whole of how you tell at a glance
+  that five other repos are being kept off this screen on purpose — an app that looks
+  identical whether it is showing you everything or one sixth of it is an app you will
+  eventually mistrust.
+*/
+.spacebar.narrowed .spacepick select {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+}
+
+/* How many beads inside the selection are asking you something. Hidden at zero: the
+   picker's job is to say where you are, and a nought beside it would read as a
+   complaint. */
+.spacepick-count {
+  flex: 0 0 auto;
+  min-width: 22px;
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font: 700 12px/1.4 inherit;
+  text-align: center;
+}
+.spacepick-count[hidden] { display: none; }
 
 .list { padding: 12px 12px 0; display: flex; flex-direction: column; gap: 12px; }
 
