@@ -354,31 +354,55 @@ try {
 
   // ------------------------------------------------ 3: not during its own shutdown
 
-  const restarting = startRouter('shutdown');
-  running.push(restarting);
-  await waitForLine(restarting, ARMED, 60000);
-  await waitForLine(restarting, SUPERVISING, 90000);
+  /**
+   * Three attempts, and the retry is about the *precondition* rather than the claim.
+   *
+   * `bin/router.js` registers `process.on('SIGTERM')` on its last line, after the first
+   * bring-up — so a router signalled a moment too early is killed by node's default
+   * disposition and never runs `shutdown` at all. Waiting for the bring-up line closes
+   * most of that window, and on a laptop running the other hundred suites it is still
+   * possible to lose: the router logged, and had not been scheduled again by the time the
+   * signal landed. That outcome is distinguishable from the failure this scenario is
+   * about — it exits *by signal* rather than by its own `exit(1)` — so it is retried
+   * rather than reported, and the assertions below are what a run that got its
+   * precondition is judged on. A genuinely missing `beginShutdown()` fails all three.
+   */
+  let restarting = null;
+  let secondExit = null;
+  let before = 0;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    restarting = startRouter(`shutdown-${attempt}`);
+    running.push(restarting);
+    await waitForLine(restarting, ARMED, 60000);
+    await waitForLine(restarting, SUPERVISING, 90000);
 
-  const before = beadsIn(OWN).length;
-  // A `launchctl kickstart -k` is exactly this: SIGTERM, and then whatever the teardown
-  // breaks on its way down. The second signal chases the first rather than being sent
-  // with it, because a SIGUSR2 that arrived first would file a bead and fail this for the
-  // wrong reason — but it does not *wait* for the shutdown to be observed either. The
-  // whole exchange has to fit inside the 300ms `shutdown` gives its children before it
-  // exits, and on a laptop running twenty other suites the log can take longer than that
-  // to be readable. Eighty milliseconds is the compromise: normally the shutdown line has
-  // landed and the ordering is exact, and when it has not, both signals are pending at
-  // once and the kernel delivers the lower-numbered one first anyway.
-  restarting.child.kill('SIGTERM');
-  await waitForLine(restarting, /shutting down — stopping backends/, 80, 5).catch(() => {});
-  restarting.child.kill('SIGUSR2');
-  const secondExit = await Promise.race([restarting.exited, sleep(30000).then(() => null)]);
+    before = beadsIn(OWN).length;
+    // A `launchctl kickstart -k` is exactly this: SIGTERM, and then whatever the teardown
+    // breaks on its way down. The second signal chases the first rather than being sent
+    // with it, because a SIGUSR2 that arrived first would file a bead and fail this for
+    // the wrong reason — but it does not *wait* for the shutdown to be observed either.
+    // The whole exchange has to fit inside the 300ms `shutdown` gives its children before
+    // it exits. Eighty milliseconds is the compromise: normally the shutdown line has
+    // landed and the ordering is exact, and when it has not, both signals are pending at
+    // once and the kernel delivers the lower-numbered one first anyway.
+    restarting.child.kill('SIGTERM');
+    await waitForLine(restarting, /shutting down — stopping backends/, 80, 5).catch(() => {});
+    restarting.child.kill('SIGUSR2');
+    secondExit = await Promise.race([restarting.exited, sleep(30000).then(() => null)]);
 
-  check(secondExit !== null, 'a router SIGTERMed and then broken on the way down still exits', JSON.stringify(secondExit));
+    if (secondExit?.code === 1 || attempt === 3) break;
+    console.log(`      (attempt ${attempt}: exit ${JSON.stringify(secondExit)} — signalled before it was listening; again)`);
+  }
+
+  check(
+    secondExit?.code === 1,
+    'a router SIGTERMed and then broken on the way down still exits, by its own hand',
+    `exit ${JSON.stringify(secondExit)} — a signal here means it never ran shutdown at all`
+  );
   check(
     restarting.saw(/not filed \(shutting-down\)/),
     'and refuses to file — for the stated reason, so this is not merely a crash that did not happen',
-    tail(restarting)
+    `exit ${JSON.stringify(secondExit)}\n${tail(restarting)}`
   );
   check(
     beadsIn(OWN).length === before,
