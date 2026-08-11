@@ -323,17 +323,33 @@ function serve() {
         filter: { space: 'all', workspace: 'all' },
         waiting: 1,
       });
-    // The ledger, paged per repo the way lib/history.js does it — honoured rather than
-    // faked, because the button being measured is the one that asks for the next page,
-    // and a stub that ignored `offset` would answer the first page forever.
+    // The ledger, resolved and paged the way lib/history.js does it. All three of the
+    // picker's states are honoured — one repo is `workspace=`, a space is `space=`, and
+    // everything is neither — because the page sends whichever the picker is on, and a
+    // stub that only understood `workspace=` would answer the default selection with an
+    // empty list and quietly turn this into a check of the empty state. `offset` is
+    // honoured for the same reason: the button being measured is the one that asks for
+    // the next page.
     if (p === '/api/history') {
       const q = new URL(req.url, 'http://x').searchParams;
       const ws = q.get('workspace');
-      const rows = LEDGER.filter((r) => r.workspace === ws);
+      const space = q.get('space');
+      const rows = LEDGER.filter(
+        (r) => (!ws || r.workspace === ws) && (!space || space === 'all' || r.workspace === 'demo')
+      );
       const offset = Number(q.get('offset')) || 0;
-      const limit = Number(q.get('limit')) || 60;
+      const limit = Number(q.get('limit')) || 40;
       const page = rows.slice(offset, offset + limit);
-      return json({ workspace: ws, rows: page, total: rows.length, limit, offset, more: offset + page.length < rows.length });
+      return json({
+        workspace: ws || '',
+        space: space || 'all',
+        rows: page,
+        total: rows.length,
+        limit,
+        offset,
+        more: offset + page.length < rows.length,
+        errors: [],
+      });
     }
     if (p.startsWith('/api/')) return json({});
     // The same aliases the real server maps onto one page. `/sessions` and `/work` are

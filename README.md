@@ -2734,25 +2734,26 @@ lets [the drawer](#detail-opens-over-the-tab-not-instead-of-it) hold that sheet 
 is the one list you legitimately scroll four hundred rows down, and a full-page navigation
 would spend that scroll on every bead you looked at.
 
-**One picker, several repos, one merged list.** `GET /api/history` takes exactly one
-workspace and refuses a missing one. The [top-level picker](#one-space-at-a-time--the-picker-in-the-top-bar)
-does not: `All spaces` is every repo you have, and a *space* is a group of them. So the
-selection is not a filter over the response here, it is the shape of the request — a space
-of three repos is three requests whose answers have to become one list, and they are
-**merged by time rather than concatenated**. Concatenated, the list would show all of repo
-A and then all of repo B, each internally newest-first and the whole thing wrong, with a
-bead from last March above one from this morning.
+**One picker, one request.** The [top-level picker](#one-space-at-a-time--the-picker-in-the-top-bar)
+has exactly three states and `GET /api/history` takes exactly the same three: one repo is
+`workspace=`, a space is `space=`, and `All spaces` is neither. So the selection is not a
+filter applied to the response — it *is* the request, handed straight through, and what
+comes back is already merged, sorted and paged across every repo in the selection, with a
+`total` counted over all of them. What is left in the page is a cursor: an `offset`, a
+`more` the server counted rather than inferred, and rows appended in the order they came.
 
-The subtle half is worth writing down because it is invisible on any screen small enough to
-check by eye. Each repo keeps a small buffer, and a repo whose buffer runs dry must be
-**re-filled before the next comparison, not after**. Its next page is older than everything
-it has already given us, and can still be newer than what another repo is offering — so an
-empty buffer with more behind it is not "this repo is finished", and treating it as one
-drops a run of one repo out of the *middle* of the list: no gap, no error, just a fortnight
-that is not there. `test/history.mjs` checks it with a deliberately lopsided fixture where
-every row of one repo is newer than every row of the other, because the obvious
-evenly-interleaved fixture cannot fail whatever the merge does — both repos run out on the
-same row and the wrong implementation still looks right.
+One parameter and not two, which is the one place this is easy to get wrong: the picker
+fills the *space* half in whenever you pick a workspace, so `{space: 'Personal', workspace:
+'beadcause'}` means **one repo**, and sending both would be asking the server to guess
+which of the two was meant. A page that got that wrong would draw a plausible list of the
+wrong beads, which is the failure nobody reports because it looks like data.
+
+This page was first built the other way, and the other way looked reasonable: one request
+per repo and a k-way merge in the client over a buffer each, re-filling whichever ran dry
+before the next comparison. It worked, and it was a second implementation of what
+`lib/history.js` already does — with the subtlety in the merge, so having two was one to
+disagree with the other. `ledgerWorkspaces` resolves all three picker states including the
+synthetic `Other` group, which is what makes one request enough; the client merge is gone.
 
 Three things it does **not** do. It does not filter — status, priority, provenance and an
 id substring are the server's already and the controls for them are their own work. It does
@@ -2763,21 +2764,21 @@ would be worse than one that did not. And **nothing on it writes** — which is 
 is the one standing view with no `⦿ observing` chip: that chip warns you that a button
 might reach a Mac you are not looking at, and there is no such button on a ledger.
 
-A repo that will not answer drops out of the merge and says so above the list rather than
-taking the other repos down with it, and a total is drawn only when every repo in view has
-answered — a sum over the repos that replied, presented as the whole, is the same class of
-lie the picker's ⚠ exists to prevent. When *every* repo failed the page says only that: it
-does not also say the space is empty, because a selection nobody could read gives no
-grounds for a claim about what is in it.
+A repo that will not answer is named above the list rather than taking the other repos down
+with it, and the total is drawn only when nothing is in `errors[]` — a count over the repos
+that replied, presented as the whole, is the same class of lie the picker's ⚠ exists to
+prevent. When the answer is empty *and* something failed, the page says only that it could
+not read: a selection nobody could read gives no grounds for a claim about what is in it.
 
 Two things about failure and waiting here are not visible in the obvious place, and both
 would look like a bug in the page:
 
-- **A repo whose `bd` fell over is a `200`.** It comes back with no rows and a row in
-  `errors[]`, not a failed request — so reading the status code alone draws it as a repo
-  with nothing in it, and under a space of several repos that is one of them silently
-  vanishing out of a merged list with nothing on screen to say so. The page reads
-  `errors[]` and treats it exactly as it treats a refusal.
+- **A repo whose `bd` fell over is a `200`.** It comes back with a row in `errors[]` and
+  the other repos' rows still present, not a failed request — so reading the status code
+  alone draws it as a repo with nothing in it, and under a space of several repos that is
+  one of them silently vanishing out of a merged list with nothing on screen to say so. The
+  page reads `errors[]` and treats it exactly as it treats a refusal, every response rather
+  than only when it is non-empty, so a repo that recovers on ⟳ stops being warned about.
 - **The first read of a repo is slow, and legitimately so.** The daemon holds the
   unfiltered sweep for ten seconds, which makes the whole scroll free — but the sweep
   behind it has been measured at about a second for 500 beads on an idle Mac and **28

@@ -5,47 +5,44 @@
  *     npm test
  *     node test/history.mjs
  *
- * The page is a list and a link, and neither of those is what can go wrong with it. What
- * can is the merge underneath, which is invisible on any screen small enough to check by
- * eye and wrong in a way that reads as correct:
+ * `test/historyapi.mjs` is the other half of this and checks the endpoint: the sweep,
+ * the sort, the paging, the filters, the `errors[]` row for a repo whose `bd` fell over.
+ * What is here is the page, and the page's whole job is to turn the space picker into
+ * one request and what comes back into a list you can scan. So the checks are about the
+ * three things that can go wrong in that translation, none of which is visible by
+ * reading one function:
  *
- * 1. **`/api/history` takes one workspace and the picker does not.** `All spaces` is
- *    every repo you have and a *space* is a group of them, so a space of three repos is
- *    three requests whose answers have to become one list. Concatenated they would show
- *    all of repo A and then all of repo B — each internally newest-first, and the whole
- *    thing wrong, with a bead from last March sitting above one from this morning. So
- *    the rows are merged by time, and that is checked here over a fixture built to
- *    interleave rather than by looking at a screenshot where two repos happen to agree.
+ * 1. **The picker's three states have to become the endpoint's three.** One repo is
+ *    `workspace=`, a space is `space=`, everything is neither — and the picker fills the
+ *    *space* half in whenever you pick a workspace, so `{space: 'Personal', workspace:
+ *    'beadcause'}` means one repo and sending both parameters would be asking the server
+ *    to guess which we meant. Getting this wrong shows a plausible list of the wrong
+ *    beads, which is the failure mode nobody reports because it looks like data.
  *
- * 2. **A repo whose buffer runs dry must be re-filled before the next comparison.** Its
- *    next page is older than everything it has already given us and can still be newer
- *    than what another repo is offering. Treating an empty buffer as "this repo is
- *    finished" drops a run of one repo out of the *middle* of the list — no error, no
- *    gap, just a fortnight that is not there — and the fixture below is shaped
- *    specifically so that a merge which skips the re-fill produces a visibly unsorted
- *    list. See `pump()` in public/history.js.
+ * 2. **A repo whose `bd` fell over is a `200`.** It comes back with a row in `errors[]`
+ *    and the other repos' rows still present — not a failed request — so a page reading
+ *    `res.ok` alone draws it as a repo with nothing in it, and under a space of several
+ *    repos that is one of them silently vanishing out of a merged list. It is the worst
+ *    failure this page has, because it is indistinguishable from the truth.
  *
- * 3. **`more` is the server's, and it is not trusted absolutely.** A `more: true` over a
- *    page with no rows in it is a server bug whose shape on this page would be an
- *    infinite fetch loop, so the client ends the repo on an empty page whatever it
- *    claims. That is checked by counting requests, which turns what would otherwise be a
- *    hung suite into a failed assertion.
- *
- * 4. **The picker can move mid-flight.** It is a dropdown; two taps in a second is
- *    normal. An in-flight response for the space you just left must not land in the list
- *    for the one you are on — checked by holding a response open across the change.
- *
- * 5. **A row with an archived session has to be distinguishable, and not by colour.**
- *    That is the acceptance criterion the tab bar's own check would refuse to accept a
- *    tint for, and it is one attribute away from being lost in a repaint.
+ * 3. **Waiting and empty look identical, and are not.** The uncached sweep is about a
+ *    second for 500 beads on an idle Mac and was measured at 28 seconds on one under an
+ *    ordinary afternoon's load here, while `{rows: [], total: 0}` is a perfectly good
+ *    answer for a repo nobody has filed anything in. Both are a blank list.
  *
  * The client half runs the real `public/history.js` in a vm with a hand-made document,
- * the way test/spacebar.mjs runs the real picker — a rewrite of the merge as a test-only
+ * the way test/spacebar.mjs runs the real picker — a rewrite of the logic as a test-only
  * module could not fail while the phone shipped something else.
  *
  * And the static half at the foot is the other side of that: a stub document answering
- * every selector cannot notice an element that is missing from the HTML, so every id the
- * script reaches for is also checked against the document that has to contain it.
+ * every selector cannot notice an element missing from the HTML, so every id the script
+ * reaches for is also checked against the document that has to contain it.
+ *
+ * Worth knowing if you are changing this page: it used to do the merge itself, one
+ * request per repo with a k-way merge over a buffer each, because the endpoint was
+ * described as taking one workspace. It does not — `ledgerWorkspaces` in lib/server.js
+ * resolves all three picker states — and the second implementation went away. If you are
+ * about to add one back, that is the history.
  */
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -75,29 +72,30 @@ console.log('\nhistory tab\n');
 
 /* ================================================================== the harness */
 
-/** One turn of the macrotask queue drains every microtask behind it. Ten is far more
- *  than the page needs for a fixture this size, and a loop that had not settled by then
- *  is the bug rather than a slow test. */
-const settle = async (n = 25) => {
+/** One turn of the macrotask queue drains every microtask behind it. */
+const settle = async (n = 12) => {
   for (let i = 0; i < n; i += 1) await new Promise((r) => setTimeout(r, 0));
 };
 
 const iso = (h) => new Date(Date.UTC(2026, 0, 1) + h * 3600e3).toISOString();
 
+const ALL = { space: 'all', workspace: 'all' };
+
 /**
- * The real file, in a room with the five things it touches: the list element, the pulse
- * dot, the ⟳ button, a `fetch`, and the space picker it registers itself on.
+ * The real file, in a room with the four things it touches: the list element, the pulse
+ * dot, the ⟳ button, and the space picker it registers itself on.
  *
  * `out` keeps `innerHTML` as the string it was handed — which is what every check below
  * reads — and answers `querySelector('#hist-more')` only when that string actually
- * contains the button. A stub that always answered would be a stub that cannot notice
- * the button was never drawn, which is half of what this suite is for.
+ * contains the button. A stub that always answered could not notice the button was never
+ * drawn, which is half of what this suite is for.
  *
- * `setTimeout` is captured rather than scheduled. The page arms one 8-second backstop at
- * load, and a real timer here would hold the whole suite open for eight seconds after
- * the last assertion — so it is collected, and case 6 fires it by hand.
+ * `IntersectionObserver` is deliberately absent from the realm, so the page falls back to
+ * the button being the only way to ask for more. That is the accessible path anyway, and
+ * it makes "how many pages were fetched" something the test decides rather than the
+ * layout.
  */
-function load({ token = 'tok', workspaces = ['demo'], respond } = {}) {
+function load({ token = 'tok', filter = ALL, respond } = {}) {
   const mk = () => {
     const el = {
       innerHTML: '',
@@ -121,16 +119,17 @@ function load({ token = 'tok', workspaces = ['demo'], respond } = {}) {
   const pulse = mk();
   const refresh = mk();
 
-  const timers = [];
   const store = new Map();
   if (token) store.set('beadcause.token', token);
 
-  /** The picker, as much of it as this page asks for. */
-  let inside = workspaces;
   const listeners = [];
   const space = {
-    inside: () => inside,
-    label: () => (inside.length === 1 ? inside[0] : 'everything'),
+    filter,
+    label() {
+      if (this.filter.workspace !== 'all') return this.filter.workspace;
+      if (this.filter.space !== 'all') return this.filter.space;
+      return 'everything';
+    },
     onChange: (fn) => listeners.push(fn),
   };
 
@@ -138,7 +137,10 @@ function load({ token = 'tok', workspaces = ['demo'], respond } = {}) {
   const fetchStub = async (url, opts) => {
     const q = new URL(url, 'http://x').searchParams;
     const call = {
+      // Present as `null` rather than absent, so a test can assert a parameter was NOT
+      // sent — which is the whole of case 1 for `All spaces`.
       workspace: q.get('workspace'),
+      space: q.get('space'),
       offset: Number(q.get('offset')),
       limit: Number(q.get('limit')),
       refresh: q.get('refresh') === '1',
@@ -161,10 +163,7 @@ function load({ token = 'tok', workspaces = ['demo'], respond } = {}) {
     fetch: fetchStub,
     URLSearchParams,
     URL,
-    setTimeout: (fn, ms) => {
-      timers.push({ fn, ms });
-      return timers.length;
-    },
+    Object,
     JSON,
     Date,
     Number,
@@ -180,11 +179,15 @@ function load({ token = 'tok', workspaces = ['demo'], respond } = {}) {
     pulse,
     refresh,
     calls,
-    timers,
     /** Move the picker, the way spacebar.js announces it. */
-    pick(list) {
-      inside = list;
+    pick(next) {
+      space.filter = next;
       for (const fn of listeners) fn({ source: 'pick' });
+    },
+    /** The picker re-announcing what it already said — which it does on load and after
+     *  every write of its own. */
+    reannounce() {
+      for (const fn of listeners) fn({ source: 'load' });
     },
   };
 }
@@ -192,38 +195,35 @@ function load({ token = 'tok', workspaces = ['demo'], respond } = {}) {
 /** The bead ids drawn, in the order they are drawn. */
 const idsOf = (h) => [...h.out.innerHTML.matchAll(/<span class="pill id">([^<]+)<\/span>/g)].map((m) => m[1]);
 
-/* ============================================================ 1 & 2. the merge */
-
-/**
- * Two repos whose rows interleave, and — this is the part that matters — deeper than
- * one fetch, so that each repo's buffer runs dry several times over the course of the
- * list. `FETCH` is 60 in the page, so 200 rows a repo means the merge crosses a buffer
- * boundary three times, and a fetch of 20 would have proved nothing: both repos would
- * have arrived whole on the first request and the re-fill this suite exists to check
- * would never have been reached.
- *
- * `demo` holds the even hours and `other` the odd ones, so the correct answer is a
- * strict alternation for the whole length of the list — which makes any skipped re-fill
- * a visible run of one repo rather than a subtle mis-ordering somebody has to eyeball.
- */
-const DEEP = 200;
-const INTERLEAVED = (call) => {
-  const all = Array.from({ length: DEEP }, (_, i) => ({
-    id: `${call.workspace}-${String(i).padStart(2, '0')}`,
-    workspace: call.workspace,
+/** A ledger of `n` beads, paged the way lib/history.js pages it. */
+const ledger = (n, extra = {}) => async (call) => {
+  const all = Array.from({ length: n }, (_, i) => ({
+    id: `de-${String(i).padStart(3, '0')}`,
+    workspace: i % 2 ? 'other' : 'demo',
     title: `row ${i}`,
     type: 'task',
     status: 'closed',
     priority: 2,
-    // demo gets the even hours and other the odd, counting down so each repo's own
-    // page is newest-first exactly as the server promises.
-    updated: iso(DEEP * 2 - i * 2 - (call.workspace === 'demo' ? 0 : 1)),
-    closeReason: null,
+    updated: iso(n - i),
+    created: iso(0),
+    closeReason: `Landed as #${i}`,
     hasSession: false,
     createdBy: 'x',
+    provenance: 'human',
+    labels: [],
+    ...extra,
   }));
   const rows = all.slice(call.offset, call.offset + call.limit);
-  return { workspace: call.workspace, rows, total: all.length, more: call.offset + rows.length < all.length };
+  return {
+    workspace: call.workspace || '',
+    space: call.space || 'all',
+    rows,
+    total: n,
+    limit: call.limit,
+    offset: call.offset,
+    more: call.offset + rows.length < n,
+    errors: [],
+  };
 };
 
 /** Load the page and press Load more until there is none. */
@@ -238,88 +238,107 @@ async function whole(opts) {
   return h;
 }
 
-await check('rows from several repos come out newest-first, not repo after repo', async () => {
-  const h = await whole({ workspaces: ['demo', 'other'], respond: INTERLEAVED });
-  const stamps = [...h.out.innerHTML.matchAll(/<time datetime="([^"]+)"/g)].map((m) => Date.parse(m[1]));
-  assert.equal(stamps.length, DEEP * 2, `expected every row, got ${stamps.length}`);
-  const wrong = stamps.findIndex((t, i) => i > 0 && t > stamps[i - 1]);
-  assert.equal(wrong, -1, `row ${wrong} is newer than the one above it — the merge is not merging`);
+/* ================================ 1. the picker's three states, as three requests */
+
+await check('All spaces sends neither parameter — the endpoint default, not a magic value', async () => {
+  const h = load({ filter: ALL, respond: ledger(3) });
+  await settle();
+  assert.equal(h.calls[0].workspace, null, 'sent a workspace for a selection that is every repo');
+  assert.equal(h.calls[0].space, null, 'sent a space for a selection that is every space');
 });
 
-await check('and they strictly alternate, which is the merge doing its one job', async () => {
-  const h = await whole({ workspaces: ['demo', 'other'], respond: INTERLEAVED });
-  const repos = idsOf(h).map((id) => id.split('-')[0]);
-  const run = repos.findIndex((r, i) => i > 0 && r === repos[i - 1]);
-  assert.equal(run, -1, `two rows in a row from the same repo at ${run}: ${repos.slice(Math.max(0, run - 3), run + 3).join(',')}`);
+await check('a space sends space=, and only that', async () => {
+  const h = load({ filter: { space: 'Personal', workspace: 'all' }, respond: ledger(3) });
+  await settle();
+  assert.equal(h.calls[0].space, 'Personal');
+  assert.equal(h.calls[0].workspace, null);
 });
 
-/**
- * The re-fill, isolated — and it needs a deliberately *lopsided* fixture, which is the
- * thing that was almost missed here.
- *
- * Under the interleaved fixture above both repos run out on the same row, so a merge
- * that never re-filled mid-page would still emit them in the right order: it would just
- * stop early and be rescued by the next press. That fixture cannot fail, whatever the
- * merge does. This one can. Every row of `recent` is newer than every row of `old`, so
- * after 60 rows — one `FETCH` — `recent`'s buffer is empty while `old` still holds 60
- * rows that are older than everything `recent` has left. A merge that reads an empty
- * buffer as an exhausted repo emits `old` at row 61 and buries a hundred and forty of
- * `recent`'s rows under it, in the middle of the list, with no gap and no error.
- */
-const LOPSIDED = (call) => {
-  const recent = call.workspace === 'recent';
-  const all = Array.from({ length: DEEP }, (_, i) => ({
-    id: `${call.workspace}-${String(i).padStart(3, '0')}`,
-    workspace: call.workspace,
-    title: `row ${i}`,
-    type: 'task',
-    status: 'open',
-    priority: 2,
-    // Two blocks that do not overlap at all: `recent` is hours 2000-1801, `old` is
-    // 1000-801. Nothing in `old` may appear above anything in `recent`.
-    updated: iso((recent ? 2000 : 1000) - i),
-    closeReason: null,
-    hasSession: false,
-  }));
-  const rows = all.slice(call.offset, call.offset + call.limit);
-  return { workspace: call.workspace, rows, total: all.length, more: call.offset + rows.length < all.length };
-};
+await check('a repo sends workspace= and NOT the space the picker filled in beside it', async () => {
+  // `filterOf` in spacebar.js always fills the space half in when a repo is picked, so
+  // this is the shape that actually arrives — and sending both would be asking the
+  // server which of the two we meant.
+  const h = load({ filter: { space: 'Personal', workspace: 'beadcause' }, respond: ledger(3) });
+  await settle();
+  assert.equal(h.calls[0].workspace, 'beadcause');
+  assert.equal(h.calls[0].space, null, 'sent a whole space alongside the one repo that was picked');
+});
 
-await check('a repo whose buffer runs dry is re-filled before the next comparison', async () => {
-  const h = await whole({ workspaces: ['recent', 'old'], respond: LOPSIDED });
-  const repos = idsOf(h).map((id) => id.split('-')[0]);
-  const firstOld = repos.indexOf('old');
-  assert.equal(
-    firstOld,
-    DEEP,
-    `an older repo's rows appear at ${firstOld}, above ${DEEP - firstOld} newer ones — the buffer was not re-filled`
-  );
+await check('the synthetic Other group is a space like any other', async () => {
+  // `ledgerWorkspaces` maps it to the repos in no configured space. Nothing here is
+  // special-cased for it, which is the point: a special case is how the two halves of
+  // this would start to differ.
+  const h = load({ filter: { space: 'Other', workspace: 'all' }, respond: ledger(3) });
+  await settle();
+  assert.equal(h.calls[0].space, 'Other');
+});
+
+await check('moving the picker throws the list away and asks again', async () => {
+  const h = load({ filter: ALL, respond: ledger(3) });
+  await settle();
+  h.pick({ space: 'all', workspace: 'beadcause' });
+  await settle();
+  assert.equal(h.calls.length, 2);
+  assert.equal(h.calls[1].workspace, 'beadcause');
+  assert.equal(h.calls[1].offset, 0, 'kept an offset counted into a different selection');
+});
+
+await check('but the picker re-announcing the same selection does not', async () => {
+  const h = load({ filter: ALL, respond: ledger(3) });
+  await settle();
+  h.reannounce();
+  await settle();
+  assert.equal(h.calls.length, 1, 'refetched the whole ledger for an announcement that changed nothing');
+});
+
+/* ================================================================== 2. the paging */
+
+await check('the first page is one request, and it is a page rather than everything', async () => {
+  const h = load({ respond: ledger(200) });
+  await settle();
+  assert.equal(h.calls.length, 1);
+  assert.equal(idsOf(h).length, h.calls[0].limit);
+});
+
+await check('Load more advances the offset by what actually arrived', async () => {
+  const h = load({ respond: ledger(200) });
+  await settle();
+  const first = h.calls[0].limit;
+  h.button.events.click();
+  await settle();
+  assert.equal(h.calls[1].offset, first, `asked from ${h.calls[1].offset} after ${first} rows`);
+  assert.equal(idsOf(h).length, first * 2);
 });
 
 await check('every bead appears exactly once across the whole list', async () => {
-  const h = await whole({ workspaces: ['demo', 'other'], respond: INTERLEAVED });
+  const h = await whole({ respond: ledger(200) });
   const ids = idsOf(h);
-  assert.equal(ids.length, DEEP * 2, `expected all ${DEEP * 2} beads, got ${ids.length}`);
-  assert.equal(new Set(ids).size, DEEP * 2, 'a bead is drawn twice');
+  assert.equal(ids.length, 200, `expected all 200 beads, got ${ids.length}`);
+  assert.equal(new Set(ids).size, 200, 'a bead is drawn twice');
+});
+
+await check('and in the order the server sent them, newest first', async () => {
+  const h = await whole({ respond: ledger(200) });
+  const stamps = [...h.out.innerHTML.matchAll(/<time datetime="([^"]+)"/g)].map((m) => Date.parse(m[1]));
+  const wrong = stamps.findIndex((t, i) => i > 0 && t > stamps[i - 1]);
+  assert.equal(wrong, -1, `row ${wrong} is newer than the one above it`);
 });
 
 await check('the list ends, and says so instead of offering a button', async () => {
-  const h = await whole({ workspaces: ['demo', 'other'], respond: INTERLEAVED });
+  const h = await whole({ respond: ledger(200) });
   assert.match(h.out.innerHTML, /That is all of it/);
 });
 
-/* ================================================== 3. more over an empty page */
-
-await check('a `more: true` over an empty page ends the repo instead of looping forever', async () => {
+await check('a `more: true` over an empty page ends the list instead of looping forever', async () => {
   let n = 0;
   const h = load({
     respond: async (call) => {
       n += 1;
-      // A hang is what the bug would look like, so it is converted into an assertion:
-      // past a handful of calls the fixture refuses, the source errors, and the count
-      // below is what fails rather than the suite never returning.
+      // A hang is what the bug would look like, so it is turned into an assertion: past
+      // a handful of calls the fixture refuses, and the count below fails rather than
+      // the suite never returning.
       if (n > 6) return { status: 500 };
-      return { workspace: call.workspace, rows: [], total: 0, more: true };
+      return { workspace: call.workspace || '', rows: [], total: 0, more: true, errors: [] };
     },
   });
   await settle();
@@ -327,55 +346,60 @@ await check('a `more: true` over an empty page ends the repo instead of looping 
   assert.match(h.out.innerHTML, /Nothing in/);
 });
 
-/* ================================================ 4. the picker moving mid-flight */
-
-await check('a response for the space you just left never lands in the list', async () => {
+await check('a page belonging to the selection you just left never lands in the list', async () => {
   let release = null;
   const held = new Promise((r) => {
     release = r;
   });
+  const row = (id, ws) => ({
+    id, workspace: ws, title: id, type: 'task', status: 'open', priority: 2,
+    updated: iso(3), closeReason: null, hasSession: false,
+  });
   const h = load({
-    workspaces: ['slow'],
+    filter: { space: 'all', workspace: 'slow' },
     respond: async (call) => {
       if (call.workspace === 'slow') {
         await held;
-        return {
-          workspace: 'slow',
-          rows: [{ id: 'slow-1', workspace: 'slow', title: 'from the old space', type: 'task', status: 'open', priority: 2, updated: iso(9), closeReason: null, hasSession: false }],
-          total: 1,
-          more: false,
-        };
+        return { workspace: 'slow', rows: [row('slow-1', 'slow')], total: 1, more: false, errors: [] };
       }
-      return {
-        workspace: call.workspace,
-        rows: [{ id: 'fast-1', workspace: call.workspace, title: 'from the new space', type: 'task', status: 'open', priority: 2, updated: iso(8), closeReason: null, hasSession: false }],
-        total: 1,
-        more: false,
-      };
+      return { workspace: call.workspace, rows: [row('fast-1', 'fast')], total: 1, more: false, errors: [] };
     },
   });
   await settle(3);
-  h.pick(['fast']);
+  h.pick({ space: 'all', workspace: 'fast' });
   await settle();
   release();
   await settle();
-  const ids = idsOf(h);
-  assert.deepEqual(ids, ['fast-1'], `the abandoned space's row arrived anyway: ${ids.join(',')}`);
+  assert.deepEqual(idsOf(h), ['fast-1'], 'the abandoned selection’s row arrived anyway');
 });
 
-/* ================================================ 5. the row, and what it links to */
+/* ============================================ 3. the row, and what it links to */
 
 const ONE = (row) => async (call) => ({
-  workspace: call.workspace,
-  rows: call.offset ? [] : [{ id: 'de-1', workspace: call.workspace, title: 'A bead', type: 'task', status: 'closed', priority: 1, updated: iso(4), closeReason: 'Landed as #9 as abc1234', hasSession: false, ...row }],
+  workspace: call.workspace || '',
+  rows: call.offset
+    ? []
+    : [
+        {
+          id: 'de-1', workspace: 'demo', title: 'A bead', type: 'task', status: 'closed',
+          priority: 1, updated: iso(4), closeReason: 'Landed as #9 as abc1234', hasSession: false, ...row,
+        },
+      ],
   total: 1,
   more: false,
+  errors: [],
 });
 
 await check('a row links to the bead detail sheet, deep-linked open', async () => {
   const h = load({ respond: ONE({}) });
   await settle();
   assert.match(h.out.innerHTML, /href="\/graph\?ws=demo&amp;id=de-1&amp;open=1"/);
+});
+
+await check('the row is a real link, so drawer.js can hold the sheet over the list', async () => {
+  const h = load({ respond: ONE({}) });
+  await settle();
+  assert.match(h.out.innerHTML, /<a class="hist-row/);
 });
 
 await check('a bead with an archived session is marked, and not only by colour', async () => {
@@ -398,14 +422,14 @@ await check('the close reason is drawn — it is the best sentence in the record
   assert.match(h.out.innerHTML, /Landed as #9 as abc1234/);
 });
 
-await check('the repo is named on every row only when more than one repo is in view', async () => {
-  const one = load({ respond: ONE({}) });
+await check('the repo is named on each row unless the selection is one repo', async () => {
+  const one = load({ filter: { space: 'all', workspace: 'demo' }, respond: ONE({}) });
   await settle();
-  assert.doesNotMatch(one.out.innerHTML, /hist-ws/, 'a repo chip on every row of a single-repo list is noise');
+  assert.doesNotMatch(one.out.innerHTML, /hist-ws/, 'the same repo on every row of a single-repo list is noise');
 
-  const two = load({ workspaces: ['demo', 'other'], respond: INTERLEAVED });
+  const many = load({ filter: ALL, respond: ONE({}) });
   await settle();
-  assert.match(two.out.innerHTML, /hist-ws/, 'no way to tell which repo a row came from');
+  assert.match(many.out.innerHTML, /hist-ws/, 'no way to tell which repo a row came from');
 });
 
 await check('the token rides on the request', async () => {
@@ -414,8 +438,6 @@ await check('the token rides on the request', async () => {
   assert.equal(h.calls[0].token, 'tok');
 });
 
-/* =========================================================== 6. what it says when */
-
 await check('an unpaired device is told so, and asks for nothing', async () => {
   const h = load({ token: '', respond: async () => ({ rows: [] }) });
   await settle();
@@ -423,57 +445,85 @@ await check('an unpaired device is told so, and asks for nothing', async () => {
   assert.equal(h.calls.length, 0, 'fetched the ledger with no token');
 });
 
-await check('a repo that will not answer drops out, and the rest of the space still draws', async () => {
-  const h = load({
-    workspaces: ['demo', 'broken'],
-    respond: async (call) =>
-      call.workspace === 'broken'
-        ? { status: 500 }
-        : { workspace: 'demo', rows: [{ id: 'de-1', workspace: 'demo', title: 'still here', type: 'task', status: 'open', priority: 2, updated: iso(3), closeReason: null, hasSession: false }], total: 1, more: false },
-  });
-  await settle();
-  assert.match(h.out.innerHTML, /Could not read broken/, 'said nothing about the repo it could not read');
-  assert.match(h.out.innerHTML, /still here/, 'threw away the repos that did answer');
-});
+/* ====================================== 4. a repo that fell over, inside a 200 */
 
-await check('a daemon with no ledger endpoint is an empty state, not a broken page', async () => {
-  const h = load({ respond: async () => ({ status: 404 }) });
-  await settle();
-  assert.match(h.out.innerHTML, /Could not read demo \(no ledger here\)/);
-});
-
-/**
- * The one that is not visible in the status code.
- *
- * A repo whose `bd` fell over comes back **200** with an empty `rows` and a row in
- * `errors[]` — not a failed request. A page that reads only `res.ok` draws that as a
- * repo with nothing in it, which under a space of several repos means one of them
- * silently vanishing from a merged list with nothing on screen to say so. That is the
- * worst failure this page has, because it is indistinguishable from the truth.
- */
 await check('a 200 carrying an errors[] row is a failure, not an empty repo', async () => {
   const h = load({
-    respond: async (call) => ({ workspace: call.workspace, rows: [], total: 0, more: false, errors: [{ workspace: 'demo', error: 'bd exited 1' }] }),
+    respond: async (call) => ({
+      workspace: call.workspace || '', rows: [], total: 0, more: false,
+      errors: [{ workspace: 'demo', error: 'bd exited 1' }],
+    }),
   });
   await settle();
   assert.match(h.out.innerHTML, /Could not read demo \(bd exited 1\)/);
   assert.doesNotMatch(h.out.innerHTML, /Nothing in/, 'a repo that could not be read was drawn as a repo with nothing in it');
 });
 
-await check('and the other repos in the space still draw around it', async () => {
+await check('and the repos that did answer still draw around it', async () => {
   const h = load({
-    workspaces: ['demo', 'other'],
-    respond: async (call) =>
-      call.workspace === 'demo'
-        ? { workspace: 'demo', rows: [], total: 0, more: false, errors: [{ workspace: 'demo', error: 'bd exited 1' }] }
-        : { workspace: 'other', rows: [{ id: 'ot-1', workspace: 'other', title: 'still here', type: 'task', status: 'open', priority: 2, updated: iso(2), closeReason: null, hasSession: false }], total: 1, more: false },
+    respond: async (call) => ({
+      workspace: '', total: 1, more: false,
+      rows: [{ id: 'ot-1', workspace: 'other', title: 'still here', type: 'task', status: 'open', priority: 2, updated: iso(2), closeReason: null, hasSession: false }],
+      errors: [{ workspace: 'demo', error: 'bd exited 1' }],
+    }),
   });
   await settle();
   assert.match(h.out.innerHTML, /Could not read demo/);
   assert.match(h.out.innerHTML, /still here/);
 });
 
-/* ------------------------------------------------------------ the slow first read */
+await check('a repo that recovers on ⟳ stops being warned about', async () => {
+  let broken = true;
+  const h = load({
+    respond: async (call) => {
+      const errors = broken ? [{ workspace: 'demo', error: 'bd exited 1' }] : [];
+      broken = false;
+      return { workspace: call.workspace || '', rows: [], total: 0, more: false, errors };
+    },
+  });
+  await settle();
+  assert.match(h.out.innerHTML, /Could not read demo/);
+  h.refresh.events.click();
+  await settle();
+  assert.doesNotMatch(h.out.innerHTML, /Could not read/, 'the warning outlived the failure it was about');
+});
+
+await check('a daemon with no ledger endpoint is an empty state, not a broken page', async () => {
+  const h = load({ respond: async () => ({ status: 404 }) });
+  await settle();
+  assert.match(h.out.innerHTML, /no ledger here/);
+});
+
+await check('a failed second page keeps the first — it is not a reason to lose the list', async () => {
+  let n = 0;
+  const h = load({
+    respond: async (call) => {
+      n += 1;
+      if (n > 1) return { status: 500 };
+      return ledger(200)(call);
+    },
+  });
+  await settle();
+  const before = idsOf(h).length;
+  h.button.events.click();
+  await settle();
+  assert.equal(idsOf(h).length, before, 'threw the rows away over a failed next page');
+  assert.match(h.out.innerHTML, /Could not read/);
+});
+
+await check('a count is only drawn when it is the whole truth', async () => {
+  const whole_ = load({ filter: { space: 'all', workspace: 'demo' }, respond: ledger(42) });
+  await settle();
+  assert.match(whole_.out.innerHTML, /42 beads in demo/);
+
+  const partial = load({
+    respond: async (call) => ({ ...(await ledger(42)(call)), errors: [{ workspace: 'other', error: 'bd exited 1' }] }),
+  });
+  await settle();
+  assert.doesNotMatch(partial.out.innerHTML, /beads in /, 'a total counted over the repos that answered, drawn as the whole');
+});
+
+/* ============================================= 5. waiting is not the same as empty */
 
 await check('a first read that has not landed says so, rather than "nothing here"', async () => {
   let release = null;
@@ -483,7 +533,7 @@ await check('a first read that has not landed says so, rather than "nothing here
   const h = load({
     respond: async (call) => {
       await held;
-      return { workspace: call.workspace, rows: [], total: 0, more: false };
+      return { workspace: call.workspace || '', rows: [], total: 0, more: false, errors: [] };
     },
   });
   await settle();
@@ -497,13 +547,13 @@ await check('a first read that has not landed says so, rather than "nothing here
 });
 
 await check('nothing arms a timeout that could cut the first sweep off', () => {
-  // `Bd.listAll` is allowed 120s for exactly this, so a client-side abort under it
-  // would make the tab look broken on precisely the busy afternoons it is opened.
+  // `Bd.listAll` is allowed 120s for exactly this, so a client-side abort under it would
+  // make the tab look broken on precisely the busy afternoons it is opened to catch up.
   assert.doesNotMatch(read('public/history.js'), /AbortController|AbortSignal|signal:/);
 });
 
 await check('⟳ asks the daemon to sweep again rather than re-reading its cache', async () => {
-  const h = load({ respond: ONE({}) });
+  const h = load({ respond: ledger(200) });
   await settle();
   assert.ok(!h.calls.some((c) => c.refresh), 'a plain visit forced a re-sweep');
   h.refresh.events.click();
@@ -512,7 +562,7 @@ await check('⟳ asks the daemon to sweep again rather than re-reading its cache
 });
 
 await check('but a long scroll does not — one re-sweep per press, not per page', async () => {
-  const h = load({ workspaces: ['demo', 'other'], respond: INTERLEAVED });
+  const h = load({ respond: ledger(200) });
   await settle();
   h.refresh.events.click();
   await settle();
@@ -521,43 +571,10 @@ await check('but a long scroll does not — one re-sweep per press, not per page
     await settle();
   }
   const forced = h.calls.filter((c) => c.refresh).length;
-  assert.equal(forced, 2, `${forced} full sweeps for one press — the scroll is meant to be free`);
+  assert.equal(forced, 1, `${forced} full sweeps for one press — the scroll is meant to be free`);
 });
 
-await check('a count is only drawn when it is the whole truth', async () => {
-  const whole = load({ respond: ONE({}) });
-  await settle();
-  assert.match(whole.out.innerHTML, /1 bead in demo/);
-
-  // One repo of two unreadable: the sum would be a smaller number presented as the total.
-  const partial = load({
-    workspaces: ['demo', 'broken'],
-    respond: async (call) => (call.workspace === 'broken' ? { status: 500 } : ONE({})(call)),
-  });
-  await settle();
-  assert.doesNotMatch(partial.out.innerHTML, /bead in /);
-});
-
-await check('the picker never answering says so, rather than spinning forever', async () => {
-  const h = load({ workspaces: [], respond: async () => ({ rows: [] }) });
-  await settle();
-  assert.match(h.out.innerHTML, /Reading the ledger/, 'gave up before the picker had a chance');
-  const backstop = h.timers.find((t) => t.ms === 8000);
-  assert.ok(backstop, 'no backstop armed at all');
-  backstop.fn();
-  assert.match(h.out.innerHTML, /Could not ask which repos exist/);
-});
-
-await check('⟳ reads it again even though the selection has not moved', async () => {
-  const h = load({ respond: ONE({}) });
-  await settle();
-  const before = h.calls.length;
-  h.refresh.events.click();
-  await settle();
-  assert.ok(h.calls.length > before, 'the refresh button did nothing');
-});
-
-/* =============================================================== 7. static reads */
+/* =============================================================== 6. static reads */
 
 const HTML = read('public/history.html');
 const JS = read('public/history.js');
@@ -594,7 +611,7 @@ await check('the service worker precaches the page and moved its version', () =>
   }
   const version = sw.match(/const CACHE = 'beadcause-v(\d+)'/);
   assert.ok(version, 'no cache version at all');
-  assert.ok(Number(version[1]) >= 32, `the bar and the page it points at must arrive together — v${version[1]} predates the tab`);
+  assert.ok(Number(version[1]) >= 33, `the bar and the page it points at must arrive together — v${version[1]} predates the tab`);
 });
 
 await check('the daemon serves /history', () => {
