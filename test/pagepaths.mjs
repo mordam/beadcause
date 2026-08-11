@@ -134,6 +134,14 @@ const PAGES = [
   // links to, and the reason the console could absorb the sessions view at all.
   { what: 'one session', marker: '/session.js', paths: ['/session', '/session.html'] },
   { what: 'the pull request board', marker: '/prs.js', paths: ['/prs', '/pulls', '/prs.html'] },
+  // The endorsement queue. Three, because the screen has two honest names — the place
+  // you *endorse* and the *queue* of what is waiting — and which one comes to mind
+  // depends on whether you arrived from the inbox's 🗳️ or went looking for it.
+  {
+    what: 'the endorsement queue',
+    marker: '/endorse.js',
+    paths: ['/endorse', '/queue', '/endorsements', '/endorse.html'],
+  },
   { what: 'the chat session', marker: '/console.js', paths: ['/console', '/console.html'] },
   { what: 'the in-app terminal', marker: '/term.js', paths: ['/terminal', '/term.html'] },
   { what: 'the admin screen', marker: '/admin.js', paths: ['/admin', '/admin.html'] },

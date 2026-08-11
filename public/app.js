@@ -1969,6 +1969,17 @@
   const widenNudge = () =>
     state.scope === 'human' ? ' Tap <b>Both</b> above to include the work agents are on.' : '';
 
+  /**
+   * The other way to empty the list: the kind filter, which is one collapsed line and
+   * therefore the easiest thing on the screen to forget you set. Says what it is set
+   * to, so the way out is a fact rather than a hunt.
+   */
+  const kindNudge = () => {
+    const f = window.beadcause?.inboxFilter;
+    if (!f || !f.selected().length) return widenNudge();
+    return ` The filter above is showing only <b>${esc(f.label())}</b>.`;
+  };
+
   function emptyHtml() {
     // "Nothing to decide" printed directly under a pane saying an agent is asking to
     // be changed is the app contradicting itself. The empty state is about the
@@ -2096,7 +2107,13 @@
     const s = state.summary || {};
     const swept = state.scope !== 'agent';
     const held = Number(s.questions);
-    const waiting = swept || !Number.isFinite(held) ? state.questions.filter((q) => !q.agent).length : held;
+    // The kind filter narrows this too, and has to: it sits directly above the list
+    // and the number is the list's own count. The server's held figure cannot know
+    // about it, so a kind filter forces the local sweep — which is available for
+    // exactly the scopes that can have questions in them.
+    const narrowed = Boolean(window.beadcause?.inboxFilter?.selected?.().length);
+    const local = state.questions.filter((q) => !q.agent && (!narrowed || inKind(q))).length;
+    const waiting = swept || narrowed || !Number.isFinite(held) ? local : held;
 
     const el = $('#waiting');
     if (el) {
@@ -2234,34 +2251,68 @@
     ['agent', 'Agent', 'Only what the agents are on: every live bead that is not a question.'],
   ];
 
-  const scopeRowHtml = () =>
-    `<div class="chip-row scopes" role="group" aria-label="Which beads to list">` +
-    SCOPE_CHIPS.map(
-      ([id, label, note]) =>
-        `<button class="chip" data-scope="${id}" aria-pressed="${state.scope === id}" title="${esc(
-          note
-        )}" aria-label="${esc(`${label} — ${note}`)}">${label}</button>`
-    ).join('') +
-    `</div>`;
+  /**
+   * The scope, as a group of chips inside the filter menu.
+   *
+   * There used to be three rows in `#filters`, coarsest first: which slice of the
+   * tracker, then which space, then which workspace within it. The bottom two are the
+   * space picker in the top bar now (public/spacebar.js) — they were the inbox's
+   * private copy of a choice that four other pages were each making their own way, and
+   * this page was the only one where it was visible at all.
+   *
+   * The scope stayed, because it is genuinely a different kind of control: it decides
+   * what gets *fetched* — questions, or every live bead — while the picker decides
+   * which repo any of it is about. Two axes, and only one of them belongs to the whole
+   * app. What has changed is that it no longer costs a permanent row: it shares the
+   * hover-open panel with the kind chips (public/inboxfilter.js), because two
+   * collapsing controls side by side would be the three rows again with extra steps.
+   */
+  const scopeGroup = {
+    id: 'scope',
+    legend: 'Show',
+    all: 'Everything',
+    options: () => SCOPE_CHIPS.map(([id, label, note]) => ({ id, label, note, on: state.scope === id })),
+    pick: (id) => chooseScope(id),
+  };
 
   /**
-   * The scope row, and only the scope row.
+   * Which kinds this scope can contain at all.
    *
-   * There used to be three rows here, coarsest first: which slice of the tracker, then
-   * which space, then which workspace within it. The bottom two are the space picker in
-   * the top bar now (public/spacebar.js) — they were the inbox's private copy of a
-   * choice that four other pages were each making their own way, and this page was the
-   * only one where it was visible at all.
-   *
-   * What is left is genuinely a different kind of control, which is why it stayed: the
-   * scope decides what gets *fetched* — questions, or every live bead — while the picker
-   * decides which repo any of it is about. Two axes, and only one of them belongs to the
-   * whole app.
+   * `human` sweeps the questions, `agent` sweeps the live beads nobody is asking you
+   * about, `both` does both — so a chip for the other side would be a control that
+   * cannot change anything. The filter drops any selection this leaves unreachable;
+   * see `survey` in public/inboxfilter.js.
    */
+  const kindsForScope = () =>
+    (window.beadcause?.inboxFilter?.KINDS || [])
+      .filter((k) => (state.scope === 'both' ? true : k.side === (state.scope === 'human' ? 'question' : 'agent')))
+      .map((k) => k.id);
+
+  /** Does this row survive the kind filter? True when the control never loaded. */
+  const inKind = (q) => window.beadcause?.inboxFilter?.matches?.(q) ?? true;
+
+  /**
+   * Hand the control what this render is about to draw: which kinds are reachable, and
+   * how many of each survived the space picker. The numbers are counted *before* the
+   * kind filter, so a chip's count is what picking it would leave you with.
+   */
+  function surveyKinds(rows) {
+    const f = window.beadcause?.inboxFilter;
+    if (!f) return;
+    const counts = {};
+    for (const q of rows) {
+      const kind = f.kindOf(q);
+      if (kind) counts[kind] = (counts[kind] || 0) + 1;
+    }
+    f.survey({ kinds: kindsForScope(), counts });
+  }
+
+  /** Chips and the one line above them, repainted in place. Never rebuilds the panel. */
   function renderFilters() {
-    // Unconditional, so the nav no longer hides itself.
-    filtersEl.hidden = false;
-    filtersEl.innerHTML = scopeRowHtml();
+    // Hidden only if the control never mounted — an empty nav with padding in it is a
+    // gap above the list that nothing explains.
+    filtersEl.hidden = !filtersEl.firstElementChild;
+    window.beadcause?.inboxFilter?.paint?.();
   }
 
   /**
@@ -2275,7 +2326,13 @@
    */
   function publishSpaces(data) {
     const counts = {};
-    for (const q of state.questions) counts[q.workspace] = (counts[q.workspace] || 0) + 1;
+    // Over the kind filter as well as the scope, for the same reason: a picker saying
+    // 5 above a list showing 1 is the two halves of one screen disagreeing about the
+    // same beads.
+    for (const q of state.questions) {
+      if (!inKind(q)) continue;
+      counts[q.workspace] = (counts[q.workspace] || 0) + 1;
+    }
     window.beadcause?.space?.adopt({
       spaces: state.spaces,
       // Configured workspaces, not the ones with something in them: the picker is how
@@ -2615,8 +2672,13 @@
       state.space === 'all'
         ? state.questions
         : state.questions.filter((q) => spaceOf(q) === state.space);
-    const visible =
+    const inRepo =
       state.workspace === 'all' ? inSpace : inSpace.filter((q) => q.workspace === state.workspace);
+    // Then the third, which is this page's own and lives in the collapsed control
+    // above the list: which *kinds* of incoming thing to show. Surveyed first so the
+    // chips can carry counts of what they would leave you with, then applied.
+    surveyKinds(inRepo);
+    const visible = inRepo.filter(inKind);
 
     // The other channel, always first and never filtered. It is rare enough that
     // putting it at the top costs nothing on the days there is nothing in it, and on
@@ -2631,8 +2693,15 @@
       listEl.innerHTML = channel + emptyHtml();
     } else if (!visible.length) {
       const where = state.workspace !== 'all' ? state.workspace : state.space !== 'all' ? state.space : '';
+      // Which of the two filters emptied it. The kind filter is collapsed to one line
+      // by design, so an empty list that it caused has to name it — otherwise the
+      // reason the screen is blank is a word you have to hover to read.
+      const kinded = inRepo.length > 0;
       listEl.innerHTML =
-        channel + `<div class="empty">Nothing waiting${where ? ` in ${esc(where)}` : ''}.${widenNudge()}</div>`;
+        channel +
+        `<div class="empty">Nothing waiting${where ? ` in ${esc(where)}` : ''}.${
+          kinded ? kindNudge() : widenNudge()
+        }</div>`;
     } else {
       // Anything you've already replied to sinks to the bottom. It is not waiting on
       // you any more — an agent has it — so it must not sit between you and the
@@ -3928,26 +3997,18 @@
     render(true);
   });
 
-  filtersEl.addEventListener('click', (ev) => {
-    const scopeChip = ev.target.closest('[data-scope]');
-    if (scopeChip) chooseScope(scopeChip.dataset.scope);
-  });
-
   /* ---------------------------------------------------------------- scope */
 
   /**
-   * Move the armed scope chip without rebuilding the row.
+   * Move the armed scope chip, and the line above it, without rebuilding the panel.
    *
-   * The scope row is painted by renderFilters(), but the switch below clears the list
-   * and waits on `bd` rather than rendering — so on the tap itself there is nothing to
-   * repaint the chips. Doing it in place also keeps the spaces and workspaces rows on
-   * screen while the fetch is out; rendering with an emptied list would drop them and
-   * then bring them back a couple of seconds later.
+   * The chips are painted by renderFilters(), but the switch below clears the list and
+   * waits on `bd` rather than rendering — so on the tap itself there is nothing to
+   * repaint them. The control's own `paint()` also touches nothing structural, which
+   * is what lets it be called while the panel is open under a pointer.
    */
   function paintScope() {
-    for (const btn of filtersEl.querySelectorAll('[data-scope]')) {
-      btn.setAttribute('aria-pressed', String(btn.dataset.scope === state.scope));
-    }
+    window.beadcause?.inboxFilter?.paint?.();
   }
 
   /**
@@ -3963,6 +4024,11 @@
     if (!SCOPES.includes(next) || next === state.scope) return;
     state.scope = next;
     localStorage.setItem('beadcause.scope', state.scope);
+    // Before the paint, because the scope decides which kind chips exist at all — and
+    // a selection the new scope cannot produce is dropped here rather than left to
+    // hide every row the refetch is about to bring back. Counts go to zero with the
+    // list; the fetch below is what fills them in again.
+    surveyKinds([]);
     paintScope();
     // The workspace filter used to be cleared here, on the grounds that it was probably
     // pointing at the one workspace that had a question in it and would hide everything
@@ -4181,11 +4247,32 @@
   function bootScope() {
     const saved = localStorage.getItem('beadcause.scope');
     if (SCOPES.includes(saved)) state.scope = saved;
-    // Painted here rather than waiting for the first render, so the row that says
-    // which slice you are looking at is on screen while `bd` is still being asked —
-    // which is exactly when a wide scope makes the wait long enough to wonder.
-    filtersEl.innerHTML = scopeRowHtml();
-    filtersEl.hidden = false;
+    mountFilters();
+  }
+
+  /**
+   * Build the filter control, once, before the first fetch answers.
+   *
+   * Early on purpose: the line that says which slice you are looking at has to be on
+   * screen while `bd` is still being asked, which is exactly when a wide scope makes
+   * the wait long enough to wonder. The kinds group is the control's own — see
+   * public/inboxfilter.js — and the scope group is handed over, so the two share one
+   * panel instead of stacking two rows.
+   *
+   * A page served without the file still works: `renderFilters` and `inKind` both fall
+   * back to doing nothing, which is the unfiltered list this page has always drawn.
+   */
+  function mountFilters() {
+    const f = window.beadcause?.inboxFilter;
+    if (!f) return;
+    f.mount(filtersEl, {
+      groups: [scopeGroup],
+      // Nothing is refetched — the kinds are a view over rows already in hand — so a
+      // plain repaint is the whole of it. Forced, because a filter tap is a decision
+      // and must not be deferred behind a half-written answer.
+      onChange: () => render(true),
+    });
+    f.survey({ kinds: kindsForScope() });
   }
 
   bootToken();

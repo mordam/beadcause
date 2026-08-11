@@ -122,7 +122,9 @@ otherwise its poller would keep firing notifications with no listener behind the
   a TLS 1.2 floor — once *HTTPS Certificates* is enabled for the tailnet. Until then it
   logs why and serves plain http. Loopback is plain http on purpose. The daemon
   [renews the certificate under itself](#renewing-it-before-it-expires) and pushes to
-  your phone if it ever cannot. See
+  your phone if it ever cannot, and the **Admin screen** turns it on, says what it will
+  cost and hands you the new pairing code — see
+  [the switch on the Admin screen](#the-switch-on-the-admin-screen) and
   [HTTPS on the tailnet name](#https-on-the-tailnet-name).
 - **Two credentials, and the token is not going anywhere.** Everything that is not a
   browser uses the shared token, exactly as it always did. A browser can *also* sign in
@@ -2849,6 +2851,114 @@ exactly as it was found, that a rebuild fires only for the paths that moved, tha
 `startDeploy` returns while its command is still running, and that a runner with a dead
 pid settles to `unconfirmed` or `lost` and never to `ok`.
 
+## The endorsement queue — a group tap, or a row at a time
+
+A worker that trips over work no longer stops to ask. It files the bead there and then
+with `beadcause-file`, and the bead arrives carrying `unendorsed`, which is a hold with
+teeth: no advocate queues it, no launcher will open a session on it, and it is out of
+every count that says how much work is waiting (lib/endorse.js, lib/filing.js). The
+decision is still yours and it is still made before an agent spends an hour on the
+thing; it is simply no longer the thing the finder waits on.
+
+That trade only holds up if the other end of it exists. Until this screen the held
+beads were a muted pill on the advocate console reading `3 held for endorsement` —
+a number with no door behind it, and no way at all to see which three from a phone.
+
+**`/endorse` is the door** (`/queue` and `/endorsements` reach the same page). One
+list, every workspace at once, newest first, narrowed by the space picker in the top
+bar like every other standing view.
+
+### The row is the bead, not a summary of it
+
+Unfolded, a row shows what the agent actually wrote: what the work is, what done looks
+like, and the provenance paragraph saying how it was found — whether the priority was
+clamped, whether it looks like a duplicate. Everywhere else in this app a list row is
+a teaser for a sheet. Here the sheet is the point, so it is in the list: you are being
+asked whether an hour of unattended agent should go on this, and a decision made off a
+title is a rubber stamp with extra steps.
+
+Folded, the row carries the id, the workspace, the type, the priority — and **the bead
+it was found under**, which is the one sentence a bead cannot say about itself and
+usually the thing that tells you whether this is a real discovery or a tangent. That
+line costs a `bd show` per row, because `bd list --json` carries every text field but
+not `dependencies[]`, and the `discovered-from` edge is where the answer lives. It is
+bounded and it is a read, so it never queues behind Dolt's single writer; a lookup that
+fails costs the row its provenance line and nothing else.
+
+The list caps at sixty and **says so when it has** — an endorsement queue with sixty
+beads in it is a backlog to answer, not a list to page through, and a silent truncation
+would read as "you have answered them all". A workspace whose `bd` fell over is named
+on the page for the same reason: an empty queue over a broken tracker is the one lie
+this screen could tell.
+
+### Four verdicts per row, and a group tap above them
+
+The four are lib/verdict.js and they are four different acts:
+
+- **Endorse** — the marker comes off and the bead becomes ordinary work. One tap, no
+  arming: it is idempotent all the way down, so two taps on a train are one
+  endorsement and no error card.
+- **Adjust ✎** — the six fields the proposal card offers, aimed at a bead that already
+  exists: title, type, priority, description, acceptance, labels. The two labels the
+  daemon owns are kept out of the box entirely rather than shown and then stripped.
+  Saving **keeps the hold** — rewriting a title is not the same act as agreeing to the
+  work — and *Save & endorse* is the one tap that does both.
+- **Ask for changes** — your objection on the thread, the bead left exactly where it
+  was, so the next session that touches it reads what is wrong instead of re-filing the
+  same bead next week. The note is required, and an empty box says so rather than
+  quietly doing nothing.
+- **Revoke** — closed, with your reason, and the marker left on so the discovery and
+  your rejection both stay on the record. This is the one that cannot be taken back, so
+  it is the one that **arms**: the first press writes nothing at all and the button
+  changes to say what the second will do. The same trade Merge makes on the PR board,
+  and for the same reason — a `confirm()` on a phone is a sheet you dismiss by reflex.
+
+Above the list, rows **tick**. Six discoveries filed overnight and five of them
+obviously fine is what a busy week actually produces, so the bar endorses every
+selected bead in one request per workspace — not one request per bead, which would be
+six Dolt write locks taken in a row over a phone link. Group revoke is there too and it
+arms; group *adjust* and group *ask for changes* are deliberately not, even though the
+API takes them, because one title cannot be given to six beads and one objection typed
+at six is an objection about none of them.
+
+What happened is never toasted away. An endorsed bead leaves the queue immediately, so
+its outcome is pinned to the top of the list where the rows used to be — the only
+evidence the tap worked, on a screen where "did that go through?" must not be a question
+you answer by opening a laptop. Each verdict says what it actually did, including when
+that is nothing: *already endorsed*, *nothing to change — it already reads that way*,
+*endorsed 5 of 6* with the reason the sixth did not.
+
+### Where it lives, and the tab it is not
+
+Two doors, and neither of them is a sixth tab. The bottom bar is full at five and what
+gives up its place is its own decision (bc-j0zl); a screen that settled that by
+squeezing itself in would be answering a question nobody asked it.
+
+- **The advocate console's `N held for endorsement` pill is a link.** That is the
+  number you were already reading, and it was the thing with no door behind it.
+- **🗳️ in the inbox's top bar**, beside ⚖️.
+
+The inbox door carries **no badge**, deliberately, and it is the one thing on this page
+that has an obvious one and should not: the count would cost a `bd list --label
+unendorsed` per workspace on every thirty-second poll, where the three counts already
+in that bar are free by-products of a sweep the poller was making anyway. The number
+lives where it is already computed.
+
+### Checking it
+
+`node test/endorsequeue.mjs` covers the sweep with a stub `bd`: that the provenance
+comes off the edge rather than the prose and that the edge beats the parent, that the
+two fields bd names differently arrive renamed, that the list is one list across
+workspaces, that a broken workspace is named and the rest still answer, that the cap is
+reported, and that a verdict drops the cache — so the laptop on its own poll stops
+drawing a bead the phone has just endorsed.
+
+`node scripts/endorse-check.mjs [--out=DIR]` drives the real page in a headless Chrome
+the size of a phone, against a fixture that records every write. The two assertions it
+exists for are the ones invisible from the server: that a group tap is **one request
+per workspace** carrying all of its ids, and that the first press of Revoke writes
+**nothing at all**.
+
 ## Advocates — an agent per repo, whose job is the queue reaching zero
 
 Everything above is a **channel**. A question reaches your phone, an answer reaches
@@ -4869,7 +4979,9 @@ before** — a daemon that refused to boot over a certificate would take the inb
 for a feature nobody had asked for yet.
 
 **Switching it on is two steps, and the second one is the one people miss.** The click
-changes the tailnet; it does not reach into a daemon that is already running. The
+changes the tailnet; it does not reach into a daemon that is already running. Both steps
+are on [the switch on the Admin screen](#the-switch-on-the-admin-screen) if you are
+holding a phone rather than sitting at the Mac. The
 certificate is fetched by whichever process owns port 4318 — the router — and it is
 fetched *once, at boot*, so a daemon that came up before the switch was flipped keeps
 serving plain http indefinitely and every URL it prints stays honest about that.
@@ -4921,6 +5033,57 @@ curl -sI https://$(tailscale status --json | jq -r .Self.DNSName | sed 's/\.$//'
 curl -sI http://127.0.0.1:4318/api/health          # still plain, still the control plane
 openssl s_client -connect <name>:4318 -tls1_1      # refused: alert 70, protocol version
 ```
+
+### The switch on the Admin screen
+
+Everything above used to be reachable only from the Mac: `tls.enabled` is a key in
+`~/.config/beadcause/config.json`, the certificate comes from a command, and the one
+failure that matters announces itself in a launchd log. So the honest description of
+the feature was *a setting you cannot see, gated on a setting on a different website,
+failing somewhere you would have to be at the Mac to read.* The **HTTPS** card at the
+bottom of `/admin` is that switch, and it says the three things the log cannot.
+
+**What is true now.** The setting, the certificate's name and how many days are left on
+it, and — separately — what is on the socket. Those last two are apart exactly between
+pressing the switch and restarting the daemon, which is the window in which somebody is
+actually reading this screen. A certificate inside the renewal loop's alarm window is
+marked rather than merely printed, using the same two thresholds the push uses, so the
+screen cannot call "fine" something your phone is being nagged about.
+
+**What pressing it costs, in the button, before you press it.** Turning HTTPS on moves
+the origin, and the token lives in `localStorage`, which is per origin — so *every
+paired browser is signed out, including the one you are pressing it with*. The button
+arms rather than acting: the second tap is the one that fires, and the first turns the
+button into `every paired browser signs out (100.96.105.106 → adams-macbook-pro-m4…)`.
+Afterwards a **Pair again** panel appears with the new link and a QR of it: the link is
+one tap for the phone in your hand, the code is for every other device. It stays until
+you dismiss it — it is the way back in, and a ten-second repaint taking it away
+mid-scan is the one failure that leaves you locked out with the Mac in another room.
+
+**Which failure it is.** `tailscale cert` exits 0 and writes nothing when the tailnet
+has *HTTPS Certificates* off, so that case is recognised by its sentence and drawn as
+itself: what Tailscale said, that nothing here can fix it, and a **Tailscale · HTTPS
+Certificates** button that opens the page — through the Tailscale app on Android where
+it claims the link, and as the web page everywhere else, because no documented scheme
+reaches a tailnet setting in the iOS or macOS app and a tap that does nothing is worse
+than a page that opens. Nothing else is classified as that failure: an ACME rate limit
+sent to that page would leave you turning on a setting that is already on. Press the
+switch again once the tailnet is fixed and it asks for the certificate again — the reply
+says whether it worked without restarting anything to find out.
+
+**It writes the setting before it fetches.** A fetch that fails leaves `tls.enabled:
+true` on disk on purpose: the intent is recorded, and the next restart after the tailnet
+is fixed picks a certificate up without anybody coming back to this screen. And it binds
+nothing — TLS is decided when the listener is created, so the card says plainly that the
+restart is what makes it true, and gives the command. Turning it off keeps the
+certificate where it is; only the setting moves.
+
+`GET /api/tls` is the same picture for anything else that wants it, and is cheap enough
+to poll: two file reads, a certificate parse and a memoised MagicDNS name, and it never
+asks `tailscale cert` for anything. `POST /api/tls {enabled}` is the switch, refused for
+an [observer](#a-second-instance--observer-mode) — a spare-port instance shares this config
+with the live daemon, and a press there would sign every paired browser out of the real
+origin.
 
 ### The URL you are given, and what happens to a phone that already has one
 
@@ -5258,6 +5421,7 @@ cookie says so), and `/auth/signout` ends the session.
 | GET | `/api/graph` | `?workspace=&id=` | `{nodes, links}` — the whole workspace with no `id` |
 | GET | `/api/bead` | `?workspace=&id=` | one issue in full, plus `comments[]` — for the graph's detail sheet |
 | GET | `/api/bead-children` | `?workspace=&id=` | `{children[]}` — every child of that bead, closed ones included, open work first. Its own route because `bd show` does not carry children |
+| GET | `/api/unendorsed` | `?refresh=1` | `{beads[], counts, truncated, errors[]}` — the endorsement queue: every held bead in every workspace, newest first, each carrying the whole card (description, acceptance, the agent's provenance note) and `from`, the bead it was discovered under. No `workspace` parameter — the space picker narrows it on the client. Cached for a few seconds; a verdict drops that cache |
 | POST | `/api/bead/endorse` | `{workspace, id}` or `{workspace, ids[]}` | takes the `unendorsed` marker off, so the bead becomes ordinary work an advocate will queue and a session can be opened on. **Idempotent** — two taps are one endorsement, no error, no second write — and the one verdict that may be aimed at a bead that is not held |
 | POST | `/api/bead/revoke` | `{workspace, ids[], reason?}` | closes it with your reason under a fixed prefix, and **leaves the marker on**: what an agent filed and what you thought of it both stay on the record. A bead already closed is `already: true` rather than an error; one already endorsed is a `409` |
 | POST | `/api/bead/adjust` | `{workspace, ids[], edits, endorse?}` | the ✎ of the proposal card, aimed at a bead that exists. `edits` may name `title, type, priority, description, acceptance, labels`, through the same clamps a proposed bead goes through; the two labels the daemon owns (`unendorsed`, `agent-filed`) are not yours to set. **Keeps the marker** unless `endorse: true`. A title may not be given to a group |
@@ -5298,6 +5462,8 @@ cookie says so), and `/auth/signout` ends the session.
 | GET | `/terminal` | `?id=` or `?ws=&seed=` | the terminal page |
 | GET | `/api/admin` | — | every scope and what pausing it would cost. Read-only and cheap — no `bd` call, no spawn — because `/admin` polls it and the counts on the buttons have to be current when you press one |
 | POST | `/api/admin` | `{action, what, scope, mode}` | pause or resume everything, one space, or one half of it. `what` is `all` · `advocates` · `terminals`; `mode` is `drain` (default — no new launches, running workers finish untouched) or `kill`. Never run at boot: a `launchctl kickstart -k` behaves exactly as it did. Refused on an observer |
+| GET | `/api/tls` | `?pairing=1` | what HTTPS is doing: the setting, the certificate on disk (name, days left), what the socket is actually serving, the URL a phone would be handed, and whether a restart is owed. Cheap enough to poll — two file reads and a memoised MagicDNS name, and it never asks `tailscale cert` for anything. `?pairing=1` adds the link and a QR |
+| POST | `/api/tls` | `{enabled}` | turns HTTPS on or off: writes `tls.enabled`, fetches the certificate when it is on (asynchronously — the synchronous one would block every request for the length of a Let's Encrypt round trip), and moves `baseUrl`. Pressing it while it is already on is the retry. Binds nothing: TLS is decided when the listener is created, so the reply carries `restartNeeded`. Refused on an observer, which shares this config with the live daemon |
 | GET | `/api/deploys` | `?limit=` or `?id=` | the recent deploys, or one with its log. Four endings, not two: `ok`, `failed`, and the two that mean nobody knows — `unconfirmed` (the ordinary ending of a restart) and `lost` |
 | POST | `/api/deploy` | `{workspace, bead?, reason?}` | runs that repo's declared deploy. `409` with no declaration, or if one is already running. Means "written down and a process owns it", never "it worked". Refused on an observer |
 | POST | `/api/presence` | `{device, view, key}` | which view this device has open, so the mirror can follow it. Wakes `/api/poll` without costing a `bd` sweep — see `changed` there |
@@ -5367,7 +5533,7 @@ the fields it always read and renders exactly as it did.
 | `owner` | what the agents call you. It goes into every agent prompt ("*<name>* is not at the keyboard", "*<name>* approves every bead before it exists"), the body of every pull request an agent opens, and the notes that land on a bead. Asked first by `npm run configure`; guessed from your git `user.name` (first word) when it has never been set |
 | `port`, `host` | listens on `127.0.0.1` **and** the Tailscale IP only — never the LAN. The *address* is what gets bound; `baseUrl` is what gets handed out, and they differ on purpose |
 | `baseUrl` | the origin every generated link is built from — the pairing QR, the APK code, every notification's click target and action button, the terminal's `wss://`. Maintained for you: `https://<host>.<tailnet>.ts.net:<port>` when there is a certificate to serve it, the Tailscale address over plain http when there is not, and moved between the two on its own. Set it to something else — a real domain, a proxy — and it is never rewritten. See [the URL you are given](#the-url-you-are-given-and-what-happens-to-a-phone-that-already-has-one) |
-| `tls.enabled` | HTTPS on the tailnet address with a `tailscale cert` certificate and a TLS 1.2 floor (default `true`). Loopback is never TLS whatever this says, and a tailnet without *HTTPS Certificates* enabled falls back to plain http with the reason in the log — see [HTTPS on the tailnet name](#https-on-the-tailnet-name) |
+| `tls.enabled` | HTTPS on the tailnet address with a `tailscale cert` certificate and a TLS 1.2 floor (default `true`). Loopback is never TLS whatever this says, and a tailnet without *HTTPS Certificates* enabled falls back to plain http with the reason in the log. Set from the HTTPS card on `/admin` rather than by hand — see [the switch on the Admin screen](#the-switch-on-the-admin-screen) and [HTTPS on the tailnet name](#https-on-the-tailnet-name) |
 | `tls.name` | the name to get a certificate for, if not the MagicDNS name `tailscale status` reports (default `null` — ask). The protocol floor is deliberately not a setting |
 | `token` | required on every `/api/*` call; regenerate by deleting the file |
 | `auth.google.clientId` | the OAuth **Web application** client for this Mac (default `null` — sign-in off). All of this key, a secret and a non-empty `allowed` are needed before sign-in switches on at all — see [Signing in with Google](#signing-in-with-google) |
