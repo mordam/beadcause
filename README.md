@@ -2981,7 +2981,54 @@ them to ask GitHub.
 `.claude/worktrees-retired/`, the same soft delete the `ship` skill does by hand, so
 it is resumable. The branch is kept deliberately — `git branch -d` refuses a branch
 checked out in another worktree, and the branch is what makes the retirement
-reversible. Retired worktrees accumulate; nothing here ever removes one.
+reversible.
+
+#### Emptying the attic
+
+A soft delete nothing ever hardens is a rename. Retiring ran unattended every fifteen
+minutes; the only thing that ever *emptied* `.claude/worktrees-retired/` was a shell
+script in the `ship` skill, which runs when a human ships — so on this repo the attic
+reached **a hundred entries and 1.2 GB in two days**, and bc-2v7k was filed against it.
+The half that fills was automatic and the half that empties was not.
+
+So the same tick now does both. After the sweep retires, `expireRetired` removes what
+has outlived its resumability: older than `tidyAtticDays` by the `.note` stamp, plus
+every gate the retirement itself had to pass — unlocked, on a branch, nobody's `cwd`
+inside it, no *tracked* modifications, contained in main or merged as a pull request,
+and not named by a live handoff in `.claude/handoffs/`. Anything failing one is kept
+and named, exactly as above. Removal is `git worktree remove`, never `rm -rf`, and the
+branch survives the directory. Unregistered directories are ignored rather than
+removed: one means somebody moved things by hand, which is a thing to look at.
+
+**The removal takes `--force`, and that is not a loosened gate.** `git worktree remove`
+refuses a worktree carrying *untracked* files, and a retired worktree is allowed to carry
+them — that is what the soft delete is for. Without the flag such an entry passes all
+seven gates and then loses to git on the last line, permanently: two of the 105 entries
+in the attic that filed this were in exactly that state, and no amount of waiting would
+have moved them. (Ignored files are fine unforced — git objects only to untracked ones,
+which is worth knowing before assuming a `node_modules` symlink is the problem.)
+`test/attic.mjs` caught this on its first run. A single `--force` covers the unclean case
+and nothing else — a *locked* worktree needs two, and the lock gate means this never
+reaches one; tracked edits and unmerged commits were both refused several gates earlier,
+on their own evidence.
+
+**Occupancy is compared through symlinks.** git reports worktree paths fully resolved
+and a session's `cwd` keeps whatever prefix it started with — on macOS `/var/folders/…`
+and `/private/var/folders/…` are one directory sharing none of their first eight
+characters. Compared with `path.resolve` alone, the check that stops a worktree being
+taken out from under somebody answers "nobody is in it" every time.
+
+An entry with no `.note` is kept forever and says so. Directory mtime is the only other
+signal and it is the wrong one — a background process touching a file is not somebody
+resuming a session, and it is the difference between keeping a directory and deleting
+it. `prune-retired.sh --backfill` is where a stamp gets invented, under a human.
+
+**Ancestry is asked of `origin/main`, not `main`.** Nothing merges locally any more, so
+the local `main` branch stays wherever the last `git pull` left it while GitHub moves
+the real one — on this checkout the gap was *fifty commits*, and eight retired worktrees
+were being described as "not merged into main" over work that had shipped two days
+earlier. Both sweeps ask `origin/main` first and fall back to `main` for a repo with no
+remote, which is also what stops a stale local ref from quietly holding the attic shut.
 
 **A `STRAY` row in the attic sweep is worth distrusting before you act on it.** The
 sweep lives outside this repo, but what it reports about `.claude/worktrees-retired/`
@@ -4983,6 +5030,7 @@ the fields it always read and renders exactly as it did.
 | `advocates.respectQuietHours` | a quiet space's advocate watches without launching (default `true`) |
 | `advocates.tidyWorktrees` | retire merged, clean, unlocked worktrees after a session ends (default `true`) — moved to `.claude/worktrees-retired/`, never deleted |
 | `advocates.tidyIntervalMinutes` | how often it sweeps when nothing has just finished (default 15) |
+| `advocates.tidyAtticDays` | how long a retired worktree stays in `.claude/worktrees-retired/` before the same sweep removes it for good (default 2). `0` keeps the attic forever, which is what this did before — and fractional values are honoured, so a removal rule can be rehearsed at `0.01` on a real attic |
 | `advocates.reconcileLanded` | close beads whose pull request was merged **on github.com** rather than from a card (default `true`). Without it such a bead stays open, stays in `bd ready`, and the advocate opens fresh sessions on work already in `main` |
 | `advocates.landedIntervalMinutes` | how often that asks GitHub (default 10). It also asks *unconditionally* right before opening a session, whatever this says — being late there costs a whole session |
 | `advocates.sessionLog` | archive each finished session to `refs/beadcause/sessions/<bead>` and note its commits (default `true`) |
