@@ -612,6 +612,153 @@ check(
   (await at(alpha.dir, () => memory.notes('worker', 'layout'))) === `${LAYOUT}, and scripts/ is neither`
 );
 
+/* --------------------- the whole line a work session is actually brought up on */
+//
+// The worker is the agent that does every piece of code work here, and it is the one
+// beadcause does not spawn: `launch` hands a *string* to AppleScript, iTerm types it
+// into a **fresh login shell**, and nothing the daemon put in its own environment
+// reaches it. Every other agent gets `agentEnv` as a `spawn` option and the whole
+// chain is one function call; here the identity and the PATH have to survive being
+// written into a command line, typed, and re-read by a shell that has just run
+// ~/.zshenv. That is three more places to silently lose them, and losing them fails as
+// "the work sessions never used their memory" — which for one release is exactly what
+// happened, and is indistinguishable from them choosing not to.
+//
+// So the command is run. A stand-in `claude` earlier on PATH records what the shell
+// handed it and then walks the path an agent walks — `beadcause-memory`, by the name
+// the allowlist would match, naming neither itself nor a repo.
+
+console.log('\nthe line a work session is brought up on');
+
+const { sessionCommand } = await import('../lib/session.js');
+const { agentExports, systemPrompt, amend } = await import('../lib/foundation.js');
+
+const fakebin = fs.mkdtempSync(path.join(os.tmpdir(), 'beadcause-worker-bin-'));
+const spy = fs.mkdtempSync(path.join(os.tmpdir(), 'beadcause-worker-spy-'));
+process.on('exit', () => {
+  fs.rmSync(fakebin, { recursive: true, force: true });
+  fs.rmSync(spy, { recursive: true, force: true });
+});
+
+const stub = (name, body) => {
+  const at_ = path.join(fakebin, name);
+  fs.writeFileSync(at_, `#!/bin/sh\n${body}\n`, { mode: 0o755 });
+};
+
+// Everything the window would have shown, written to disk instead. `exit 7` because
+// the done file is the daemon's only fact about how a session ended, and a send-off
+// that has drifted ahead of the `$?` capture reports every session as a success.
+stub(
+  'claude',
+  `printf '%s' "$BEADCAUSE_AGENT" > "$SPY/agent"
+command -v beadcause-memory > "$SPY/which" 2>&1
+: > "$SPY/argv"
+while [ $# -gt 0 ]; do
+  printf '%s\\n' "$1" >> "$SPY/argv"
+  if [ "$1" = "--append-system-prompt-file" ]; then cp "$2" "$SPY/system.md"; fi
+  shift
+done
+beadcause-memory remember walked 'a work session found the memory that follows it' > "$SPY/remember" 2>&1
+beadcause-memory note walked 'and the one that stays with this repo' > "$SPY/note" 2>&1
+exit 7`
+);
+// The send-off's five real seconds, which are worth nothing here — the same stub
+// test/sendoff.mjs uses, for the same reason.
+stub('sleep', 'exit 0');
+
+const workerF = await effective(path.join(HERE, '..'), 'worker');
+check('the worker has a role at all — it is the delivery that was missing', typeof workerF.role === 'string' && workerF.role.length > 0);
+
+const brief_ = memory.memoryBrief('Adam');
+const promptFile = path.join(spy, 'brief.md');
+// Deliberately not `$SPY/system.md`: that is where the stand-in copies it to, and the
+// session deletes the original on its way out — one name for both is a `cp` onto itself
+// followed by an `rm`, and the assertions below would read an empty file.
+const systemFile = path.join(spy, 'system-as-written.md');
+const doneFile = path.join(spy, 'done');
+const BRIEF = 'Work bc-goo.9. This is the brief, and it must arrive intact.';
+fs.writeFileSync(promptFile, BRIEF);
+fs.writeFileSync(systemFile, systemPrompt(workerF, brief_));
+
+await run('/bin/zsh', ['-lc', sessionCommand(workerF, { dir: wtOne, promptFile, systemFile, mode: 'auto', doneFile })], {
+  env: { ...process.env, PATH: `${fakebin}:${process.env.PATH}`, SPY: spy, BEADCAUSE_CONFIG_DIR: store },
+});
+
+const spied = (name) => (fs.existsSync(path.join(spy, name)) ? fs.readFileSync(path.join(spy, name), 'utf8') : '');
+
+check(
+  'the login shell knew which agent it was running',
+  spied('agent') === 'worker',
+  `${JSON.stringify(spied('agent'))} — the daemon's own env said ${process.env.BEADCAUSE_AGENT}`
+);
+check(
+  'and beadcause-memory resolved by name, from this repo\'s bin',
+  spied('which').trim().endsWith('/bin/beadcause-memory'),
+  spied('which')
+);
+check(
+  'the session wrote to the memory that follows it',
+  (await memory.recall('worker', 'walked')) === 'a work session found the memory that follows it',
+  spied('remember')
+);
+check(
+  'and to the one that stays with the repo it was standing in',
+  (await at(alpha.dir, () => memory.notes('worker', 'walked'))) === 'and the one that stays with this repo',
+  spied('note')
+);
+check(
+  'neither landed under the agent the daemon happened to be',
+  (await memory.recall('advocate', 'walked')) === null &&
+    (await at(alpha.dir, () => memory.notes('advocate', 'walked'))) === null
+);
+
+const argv = spied('argv').split('\n').filter(Boolean);
+check('the brief still arrived, and first', argv[0] === BRIEF, JSON.stringify(argv));
+check('with the flags after it, where a variadic one cannot eat it', argv.includes('--append-system-prompt-file'), JSON.stringify(argv));
+check(
+  'the system prompt carried the amendable role',
+  spied('system.md').includes('You are a **work session**'),
+  spied('system.md').slice(0, 120)
+);
+check(
+  'and the one copy of the memory brief, after it',
+  spied('system.md').includes(brief_) && spied('system.md').indexOf(brief_) > spied('system.md').indexOf('work session'),
+  String(spied('system.md').includes(brief_))
+);
+check('the exit status is still claude\'s own', spied('done') === '7', JSON.stringify(spied('done')));
+check('the session cleaned up after itself', !fs.existsSync(systemFile) && !fs.existsSync(promptFile));
+
+// The same guarantee `agentEnv` gives, on the side where it is a shell line rather
+// than an object: a later `export` wins, which is why the identity is emitted last.
+const shellImpostor = await run('/bin/zsh', [
+  '-lc',
+  `${agentExports({ ...workerF, env: { BEADCAUSE_AGENT: 'advocate' } })}; printf '%s' "$BEADCAUSE_AGENT"`,
+]);
+check('an amended env cannot change who the work session is', shellImpostor.stdout === 'worker', shellImpostor.stdout);
+
+// `env` is amendable and a key is not quoted the way a value is, so a key that is not
+// a variable name is a command sitting in the middle of the line.
+const dodgy = agentExports({ ...workerF, env: { 'X; touch /tmp/beadcause-pwned': '1' } });
+check('an env key that is not a variable name is dropped, not run', !dodgy.includes('touch'), dodgy);
+
+// The other half of the acceptance: the amendment loop can approve a change to what a
+// work session *is*, and the next one comes up under it. Written to the repo the
+// session runs in, because that is where `launch` reads it from.
+await amend(wtOne, 'worker', { role: 'You are a work session, and this line was approved.' }, {
+  bead: 'bc-goo.9',
+  justification: 'the test that the loop reaches the worker at all',
+});
+const amended = await effective(wtOne, 'worker');
+check(
+  'an approved amendment to the role reaches the next session',
+  amended.role === 'You are a work session, and this line was approved.' && amended.amended.includes('role'),
+  JSON.stringify(amended.amended)
+);
+check(
+  'and it still cannot delete the memory brief, which is not its to amend',
+  systemPrompt(amended, brief_).includes('beadcause-memory notes ')
+);
+
 /* ------------------------- two worktrees of one repo, writing at the same time */
 //
 // The case tier 1 actually meets: a dozen worker sessions in a dozen worktrees are one

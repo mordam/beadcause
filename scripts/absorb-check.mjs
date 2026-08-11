@@ -417,14 +417,15 @@ try {
 
   await tap(s, `#list .card[data-key=${JSON.stringify(PROP_KEY)}] [data-act="toggle"]`);
   await waitFor(s, `!!document.querySelector('.proposal[data-key=${JSON.stringify(PROP_KEY)}]')`);
-  await tap(s, `.proposal[data-key=${JSON.stringify(PROP_KEY)}] [data-act="pick-all"][data-pick="yes"]`);
-  await sleep(120);
+  // Approve files everything not explicitly declined, so with nothing picked it is
+  // the whole proposal — and it is in the card's top bar, not under the rows.
+  const APPROVE = `[data-act="prop-bulk"][data-key=${JSON.stringify(PROP_KEY)}][data-pick="yes"]`;
   // Two taps, like every other answer here: the first arms, the second commits.
-  await tap(s, `[data-act="pick-submit"][data-key=${JSON.stringify(PROP_KEY)}]`);
+  await tap(s, APPROVE);
   await sleep(120);
   const seenBefore = write.seen;
   await shot(s, 'before');
-  await tap(s, `[data-act="pick-submit"][data-key=${JSON.stringify(PROP_KEY)}]`);
+  await tap(s, APPROVE);
 
   await sleep(360);
   await shot(s, 'collapsed');

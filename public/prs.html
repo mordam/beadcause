@@ -41,6 +41,10 @@
        own script, which asks it at boot — or at render — whether a microphone can
        work here at all; a page that drops it draws no mic rather than a dead one. -->
   <script src="/dictate.js"></script>
+  <!-- The row, the lamps and the status ladder — shared with the cards the inbox draws
+       for the same pull requests. Before prs.js, which takes them apart at the top of
+       its own IIFE and has no board to draw without them. -->
+  <script src="/prcard.js"></script>
   <script src="/prs.js"></script>
   <!-- Every bead pill here is a link into the graph; the drawer keeps them over this list. -->
   <script src="/drawer.js"></script>
