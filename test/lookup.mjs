@@ -29,11 +29,6 @@ import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 
-// foundation.js first, deliberately: it and agents.js import each other (the
-// foundation quotes the reply agents' list rather than restating it), and the module
-// that is entered first is the one whose constants are initialised. Importing
-// agents.js first here is a TDZ error at load, not a test failure — see selftest.mjs,
-// which has the same ordering for the same reason.
 import * as foundation from '../lib/foundation.js';
 import { DEFAULT_TOOL_LIST } from '../lib/agents.js';
 import { get, vetUrl, isBlockedAddress, lookupBrief, LookupError, MAX_REDIRECTS } from '../lib/lookup.js';
