@@ -7163,6 +7163,7 @@ the fields it always read and renders exactly as it did.
 | `claudeSessionsDir` | where those per-process records live, if not `$CLAUDE_CONFIG_DIR/sessions` or `~/.claude/sessions` |
 | `claudeProjectsDir` | where session transcripts live, if not the `projects` folder of every `~/.claude…` directory. Takes a list. Governed by `claudeSessions` — off there means no transcripts either |
 | `assetRoots` | the only directories `/api/asset` will read images from |
+| `jira` | JIRA per workspace, keyed by workspace name — `{"climative": {"enabled": true, "email": "you@company.com"}}`. Empty by default, and a workspace not named here costs nothing: no call is made about it at all. The site URL and the project keys come from that workspace's own `bd config get jira.url` / `jira.projects`, so `enabled` and `email` are usually the whole setting; `url` / `projects` here override for a workspace whose `bd` was never pointed at JIRA. **There is deliberately no token field** — see [JIRA, per workspace](#jira-per-workspace--read-only-and-one-setting) |
 | `pollSeconds` | how often new `human` beads are looked for (default 30) |
 | `monitor.enabled` | generate the LaunchAgent that opens the [activity monitor](#the-monitor--what-it-is-doing-right-now) at login (default `false`; `npm run monitor` works either way) |
 | `sharedServer` | leave `false` — see the note below |
@@ -7172,6 +7173,73 @@ the fields it always read and renders exactly as it did.
 
 `host` falls back to `127.0.0.1` if Tailscale was down when the config was
 written — fix the IP in the file if the phone can't connect.
+
+### JIRA, per workspace — read-only, and one setting
+
+Turn JIRA on for **one workspace** and the tickets assigned to you start arriving.
+There is nothing global and nothing team-wide about it: a workspace either has a JIRA
+behind it or it does not, and the setting that says so is a boolean and an address.
+
+```json
+"jira": { "climative": { "enabled": true, "email": "you@company.com" } }
+```
+
+Keyed by workspace name, like `sessionDirs` and `advocates.perWorkspace`. It is
+deliberately **not** a field on a `workspaces` entry: that array is discovered from
+`~/beads/*/.beads` and reconciled on every start, so anything written onto it by hand
+disappears at the next restart — which would present as JIRA quietly switching itself
+off overnight.
+
+**Why one setting is enough.** `bd` already holds per-workspace JIRA configuration, and
+if you have ever run `bd jira pull` in that workspace it is already there:
+
+```
+bd config get jira.url       ->  https://your-company.atlassian.net
+bd config get jira.projects  ->  TECH
+bd config get jira.username  ->  you@company.com
+```
+
+Those live in the workspace's Dolt database rather than in `.beads/config.yaml`, so
+they are read by asking `bd` rather than by parsing a file. Set `url` / `projects` in
+the block above only for a workspace whose `bd` has never been pointed at JIRA. One
+trap is worth knowing about, because it fails in the permissive direction: **`bd config
+get` prints `jira.url (not set)` on stdout and exits 0** for a key nobody has set, so a
+reader that trusts the exit code turns that sentence into a hostname. `bdConfig` in
+`lib/jira.js` is the one place that knows.
+
+**The token is the one thing that cannot be reused.** `bd` resolves `jira.api_token`
+from the `JIRA_API_TOKEN` environment variable, which on a machine set up the usual way
+is exported per-directory by a shell function in `~/.zshenv`. That is a *shell*
+mechanism, and beadcause runs under launchd — a client expecting to inherit that token
+would work in every hand-test from a terminal and authenticate as nobody in the only
+place it actually runs. So it goes in a file:
+
+```
+~/.config/beadcause/jira-<workspace>.key       # 0600
+```
+
+The `.key` extension is the entire protection, and it protects by construction rather
+than by anybody choosing well: `~/.config/beadcause` is a git repo that snapshots after
+every write, and `*.key` is both on `lib/commonrepo.js`'s `FORBIDDEN` list and in the
+`.gitignore` it writes. Exactly the reasoning behind
+[`google-client-secret.key`](#where-the-two-secrets-live-and-how-to-rotate-them) — a
+secret in `config.json` is not merely on disk in the clear, it is in a history that a
+rotation cannot reach back into. One file per workspace, because two workspaces may be
+two JIRA sites with two accounts, and a shared credential would quietly authenticate
+one of them as the wrong person.
+
+**Nothing in this path ever writes to JIRA.** Not as a policy anybody has to remember:
+`lib/jira.js` has no function that names an HTTP method and no code path that
+constructs a request body, which is the same way `lib/lookup.js` enforces "GET only"
+for an agent's network grant — a caller cannot reach a write by passing a flag, because
+there is no flag. Making beadcause write to JIRA would mean *adding* the capability,
+which is the point at which somebody has to decide it, explicitly and with an
+allowlist. `node test/jira.mjs` asserts both halves against the module's own source.
+
+A first configuration goes wrong in four ways — no site, a site that is not a URL, no
+address, no credential — and each one is reported as the fix rather than as the
+symptom, because a 401 and a 404 are the same stack trace and completely different
+mornings.
 
 ### Environment
 
@@ -7184,6 +7252,7 @@ written — fix the IP in the file if the phone can't connect.
 | `SKIP_CONFIGURE` | `scripts/install.sh` asks nothing and keeps the answers on file — the same as `--non-interactive`. `CLAUDECODE`, `AI_AGENT` and `CI` imply it, because a question asked of a terminal nobody is watching is a hang; `--interactive` asks anyway |
 | `BEADCAUSE_GOOGLE_CLIENT_SECRET` | the Google OAuth client secret, taking precedence over the secret file. The one place it leaves no copy on disk — see [rotating the two secrets](#where-the-two-secrets-live-and-how-to-rotate-them) |
 | `BEADCAUSE_SESSION_KEY` | the HMAC key sessions are signed with, instead of `~/.config/beadcause/session.key`. Setting it to a new value signs everybody out |
+| `JIRA_API_TOKEN` | a JIRA API token, taking precedence over the per-workspace `.key` file for the same reason the Google one does — it leaves no copy on disk. The daemon runs under launchd and will not have it; this is for a hand-run script or a test |
 | `BEADCAUSE_TAILSCALE` | the `tailscale` binary, overriding the three macOS paths that are searched by default. Has to exist to count — a path typed wrong reads as "no tailscale" rather than failing mysteriously later. See [renewing the certificate](#renewing-it-before-it-expires) |
 
 ### Every state file is replaced, never overwritten
