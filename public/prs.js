@@ -1,16 +1,21 @@
 /* The pull requests, and how far each one has actually got.
  *
- * The inbox asks *may I merge this?* and the card is gone the moment you answer. This
- * is the screen for everything after that, which had nowhere to be asked from a phone:
- * it merged — did it reach origin, and is it running?
+ * The inbox asks *may I merge this?* and the card is gone the moment you answer. It also
+ * now carries a card per pull request (bc-l8jp.6), which is what took **PRs** off the
+ * bottom bar — so this page is no longer a tab, and it is still the whole of the shipping
+ * screen: the release queue, the deploy in flight, and the buttons that act on one row.
+ * `/prs`, `/pulls` and `/prs.html` all still serve it, because they are on the phone's
+ * home screen and in the notifications the ship path sends.
  *
  * Three things about the shape of the page.
  *
- * **The lamps are the page.** Merged · Pushed · Deployed, on every row, always
+ * **The lamps are the page.** Merged · Pushed · Deployed · Live, on every row, always
  * visible — not behind the fold, because "which of these has not shipped" is a
  * question you answer by scanning, and a fold would make it a question you answer by
- * tapping twelve times. They are three lamps rather than one word because they go
- * true at three different times and the gap between them is the whole subject.
+ * tapping twelve times. They are four lamps rather than one word because they go
+ * true at four different times and the gap between them is the whole subject. Drawing
+ * them is public/prcard.js's job now, along with the rest of the row: the inbox draws the
+ * same pull request and a second renderer of it was the duplication bc-l8jp.6 removed.
  *
  * **A lamp has three states, not two.** On, off, and *unknown* — a hollow ring. This
  * Mac has never fetched that commit; this repo has no deploy the daemon can see. An
@@ -99,82 +104,15 @@
     gone: false,
   };
 
-  const esc = (s) =>
-    String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
-
-  const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
-
-  /** How long ago, in the two characters a phone has room for. */
-  function age(iso) {
-    if (!iso) return '';
-    const mins = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
-    if (mins < 1) return 'just now';
-    if (mins < 60) return `${mins}m`;
-    const hrs = Math.round(mins / 60);
-    if (hrs < 24) return `${hrs}h`;
-    return `${Math.round(hrs / 24)}d`;
-  }
-
-  /** "just now" already reads as a phrase; everything else wants the "ago". */
-  const ago = (iso) => {
-    const a = age(iso);
-    return !a || a === 'just now' ? a : `${a} ago`;
-  };
-
-  const graphUrl = (ws, id) => `/graph?ws=${encodeURIComponent(ws)}&id=${encodeURIComponent(id)}`;
-
-  /* ------------------------------------------------------------------- the lamps */
-
-  /**
-   * One lamp. `null` is a state and it is drawn as one.
-   *
-   * The title is where the "why" goes: a hollow Deployed on a repo beadcause does not
-   * run is not a warning, and the only thing that can say so is the thing you long-press
-   * or hover. It costs nothing and it is the difference between an honest gap and a
-   * mystery.
-   */
-  const lamp = (label, value, why) => {
-    const cls = value === true ? 'on' : value === false ? 'off' : 'unknown';
-    const said = value === true ? 'yes' : value === false ? 'no' : 'not known';
-    // No whitespace between the label and the state — the two are one phrase to a
-    // reader ("Merged: yes"), and a newline in the template becomes a space in it.
-    return `<span class="lamp ${cls}"${why ? ` title="${esc(why)}"` : ''}><span class="lamp-dot" aria-hidden="true"></span>${esc(
-      label
-    )}<span class="sr-only">: ${said}</span></span>`;
-  };
-
-  function lampsHtml(p) {
-    return `<span class="board-lamps">
-      ${lamp('Merged', p.merged, p.merged ? `merged ${age(p.mergedAt)} ago` : 'not merged yet')}
-      ${lamp('Pushed', p.merged ? p.pushed : false, p.pushed === null ? `this Mac has not fetched that commit` : `on origin/${p.base}`)}
-      ${lamp(
-        'Deployed',
-        p.merged ? p.deployed : false,
-        p.deployTracked ? 'in the build this daemon is running' : 'no deploy this daemon can see for this repo'
-      )}
-    </span>`;
-  }
+  /* The row, the lamps, the ladder and the two time formats come from public/prcard.js —
+     the inbox draws the same pull request from the same functions. Taken apart here rather
+     than reached for through `window` at every call site, so this file reads as it did.
+     It is loaded before this one (see prs.html); a page without it has no board at all,
+     which is why both are in one `sw.js` cache version. */
+  const card = window.beadcause.prCard;
+  const { esc, plural, age, ago, graphUrl, lampsHtml, factsHtml, bodyHtml } = card;
 
   /* -------------------------------------------------------------------- one row */
-
-  /** The diffstat and the checks — the two numbers that decide an open PR. */
-  function factsHtml(p) {
-    const checks =
-      p.checks?.state && p.checks.state !== 'none'
-        ? `<span class="board-checks ${esc(p.checks.state)}">${
-            p.checks.state === 'passing'
-              ? `✓ ${p.checks.passing}`
-              : p.checks.state === 'pending'
-                ? `◌ ${p.checks.pending}`
-                : `✗ ${p.checks.failing}`
-          }</span>`
-        : '';
-    return `<span class="board-facts">
-      <span class="diffstat"><ins>+${p.additions}</ins> <del>−${p.deletions}</del></span>
-      ${p.files ? `<span>${plural(p.files, 'file')}</span>` : ''}
-      ${checks}
-    </span>`;
-  }
 
   /** Is *this* button on *this* row the one waiting for its second tap? */
   const isArmed = (key, action) => state.armed === `${action}@${key}`;
@@ -261,19 +199,12 @@
 
   function prRow(p) {
     const open = state.row === p.key;
-    const beads = (p.beads || [])
-      .map((b) => `<a class="pill id" href="${esc(graphUrl(p.workspace, b.id))}">${esc(b.id)}</a>`)
-      .join('');
+    // No `repo` and no `titleHref`: this card is one repo already, and the row is a
+    // button that folds — a link inside it would be a second thing to tap in the same
+    // place. The inbox passes both, because its list is flat and its card does not fold.
     return `<div class="board-pr" data-stage="${esc(p.stage)}">
       <button class="work-row board-row" type="button" data-pr="${esc(p.key)}" aria-expanded="${open}">
-        <span class="work-main">
-          <span class="work-title"><span class="board-num">#${esc(p.number)}</span> ${esc(p.title)}${
-            p.draft ? ' <span class="pill">draft</span>' : ''
-          }</span>
-          <span class="work-sub">${beads || '<span class="board-nobead">no bead named</span>'} ${factsHtml(p)}</span>
-          ${lampsHtml(p)}
-        </span>
-        <time>${esc(age(p.updatedAt))}</time>
+        ${bodyHtml(p)}
         <span class="chev" aria-hidden="true">›</span>
       </button>
       ${open ? actionsHtml(p) : ''}
@@ -309,12 +240,12 @@
 
   /* ------------------------------------------------------------- the release queue */
 
-  /* The two numbers this board is about, as predicates, so the card head and the tab
-     badge cannot drift apart on what "to ship" means. The rule itself belongs to
-     `count()` in lib/prboard.js — this is the same rule applied to a *subset*, which is
-     what the space picker makes possible: the server counts every repo, and a board
-     showing one of them must not carry the other six on its tab. */
-  const isOpen = (p) => p.stage === 'open';
+  /* The two numbers this board is about, as predicates, so a card head cannot drift apart
+     from what "to ship" means. The rule itself belongs to `count()` in lib/prboard.js —
+     this is the same rule applied to a *subset*, which is what the space picker makes
+     possible: the server counts every repo, and a board showing one of them must not
+     summarise the other six. `review` is the first rung of the ladder; see lib/prstage.js. */
+  const isOpen = (p) => p.stage === 'review';
   const isOwed = (p) => p.stage === 'merged' || (p.stage === 'pushed' && p.deployTracked);
 
   /** Is this repo in the selected space? See public/spacebar.js. */
@@ -652,21 +583,11 @@
 
     out.innerHTML = deploysHtml() + boardHtml();
 
-    // The badge is what makes the tab worth glancing at from another view: open
-    // decisions plus merged work that is not running. Set from here rather than from
-    // the inbox's poll, because this is the only page that fetches the board.
-    if (state.data) {
-      // Counted over the repos in the selected space rather than read off
-      // `state.data.counts`, which is every repo the server looked at. A badge that
-      // counted six repos over a board showing one would be the tab arguing with the
-      // page it opens. Summed per card rather than over the flattened rows, because
-      // the release queue is a fact about a repo — see `owedIn`.
-      const cards = (state.data.repos || []).filter(inSpace);
-      const open = cards.flatMap((r) => r.prs).filter(isOpen).length;
-      const owed = cards.reduce((n, r) => n + owedIn(r), 0);
-      const n = open + owed;
-      window.beadcause?.tabBadge?.('prs', n, n ? `${plural(open, 'open pull request')}, ${owed} to ship` : '');
-    }
+    // There was a badge here — open decisions plus merged work that is not running, hung
+    // off the PRs tab. The tab is gone (bc-l8jp.6) and so is the badge: what it was for
+    // is now a count on the inbox's own PR filter chip, which sits above the list the
+    // pull requests are actually in. A badge painted onto a bar with no tab to hang it
+    // from would be a number nobody can see.
 
     window.scrollTo(0, scrollY);
   }
