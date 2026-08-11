@@ -9681,6 +9681,41 @@ would pass against a `quiesce()` that did nothing. Filed as bc-5uy8; bc-3qsw, bc
 bc-t69u and bc-94c6 are the same failure in `reap.mjs`, `superseded.mjs`, `slowstart.mjs`
 and `outagepush.mjs`, and each is a two-line change now that the helper exists.
 
+### A suite must not assert about a directory it does not own — `test/browse.mjs`
+
+The same shape as the teardown above, from the other side: not a suite whose cleanup
+races something, but a suite whose *assertion* was about a directory other people write
+to. `test/browse.mjs` proves that a browse deletes its throwaway profile, and it used to
+prove it by listing every `beadcause-browse-*` entry in `os.tmpdir()` before the run and
+asserting the listing came back identical. That reads as airtight and is not: `/tmp` is
+shared by every session on this laptop, a dozen of which run at once, so **any other
+agent that started a browse inside that window failed this suite** — over a directory
+that was gone again by the time the diff was read, on a branch that touched neither
+`lib/browse.js` nor `bin/beadcause-browse`.
+
+It is suite ~17 of ~100 and the runner stops at the first failure, so it cost a
+fifteen-minute gate each time, and the tell was buried in the diff: `actual` and
+`expected` name a *different* profile id, meaning the run deleted its own and counted a
+stranger's. It was filed four separate times — bc-60rr, bc-wcw3, bc-eldx, bc-ivb1 —
+which is what a flake that blames whoever is reading it looks like from the outside.
+
+The fix is that the live block makes a sandbox directory of its own and points `TMPDIR`
+at it for the duration. Nothing is stubbed: `os.tmpdir()` is read on every call and
+`makeProfile()` asks it every time, so the profiles are still made by the real
+`makeProfile()`, and they are still under the system temp directory as far as
+`assertThrowawayProfile` is concerned, because the sandbox is inside it. It cuts both
+ways, which is the point — this run is no longer disturbed by other sessions, and no
+longer disturbs them, since a sandbox not named `beadcause-browse-*` is invisible to
+anyone listing the directory above it.
+
+Owning the directory is also what lets the assertion get *stronger* rather than weaker.
+The old check ran after the first browse only; there is now a second one at the end of
+the block covering the four runs after it, including the 404 case, which throws — so its
+profile path never comes back to be named, and its deletion happens in a `finally`
+nothing was watching. Both are still `deepEqual`s against an empty listing rather than
+"the one path it told us about is gone", so a future change that quietly makes a second
+profile and reports one still fails.
+
 ### `npm run checks` — the browser half, and why `npm test` can still see it rot
 
 The twenty-eight `scripts/*-check.mjs` are the only cover this repo has for layout, taps
