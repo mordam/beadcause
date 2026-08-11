@@ -433,17 +433,23 @@ await check('the service worker ships it, or a cached page has no warm layer', (
   assert.ok(/const CACHE = 'beadcause-v(2[3-9]|[3-9]\d)'/.test(sw), 'CACHE was not bumped past v22');
 });
 
-await check('VIEWS names every tab the bar draws — a view missed here is a tab left cold', () => {
+await check('every tab the bar draws has a view — and one view is deliberately not a tab', () => {
   const { warm } = load();
   // The tab entries are written both inline and across several lines, so the match
   // has to reach over whatever sits between the id and the href it belongs to.
   const ids = [...read('public/tabbar.js').matchAll(/\bid: '([a-z]+)',[\s\S]{0,80}?href:/g)].map((m) => m[1]);
-  assert.ok(ids.length >= 5, 'could not read the tab list out of tabbar.js');
-  assert.deepEqual(
-    plain(warm.VIEWS).map((v) => v.id),
-    ids,
-    'warm.js and tabbar.js disagree about what the views are'
-  );
+  assert.ok(ids.length >= 4, 'could not read the tab list out of tabbar.js');
+  const views = plain(warm.VIEWS).map((v) => v.id);
+  // The direction that matters: a tab with no view is a tab that stays cold, which is
+  // invisible until you are on a phone wondering why one is slower than the others.
+  for (const tab of ids) assert.ok(views.includes(tab), `${tab} is a tab with no view — it stays cold`);
+  // The other direction stopped being an equality in bc-l8jp.6: the PR board lost its tab
+  // and is still a standing page, reached from every PR card, so it is still warmed. It is
+  // the *only* one allowed to be a view without a tab — anything else here would be a
+  // payload warmed for a page nobody can get to.
+  assert.deepEqual(views.filter((v) => !ids.includes(v)), ['prs']);
+  // And the tabs' own order still follows the bar, so the warm fills them in thumb order.
+  assert.deepEqual(views.filter((v) => ids.includes(v)), ids);
 });
 
 await check('the inbox draws its list through the reconciler, not through innerHTML', () => {
