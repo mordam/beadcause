@@ -2551,7 +2551,8 @@ issue descriptions we would throw away.
 
 Tapping a node raises a **card** with the whole title, its status, priority and type,
 and two buttons. **Details** opens the bead itself in a sheet — who owns it, what it
-blocks and what it waits on, **how it ended** if it has, then the whole body:
+blocks and what it waits on, **how it ended** if it has, **what its session did** where
+one ran, then the whole body:
 description, **acceptance**, **design**, **notes** and the thread, each rendered as
 markdown under its own label, in the order `bd` itself prints them. Served by `/api/bead`, which is `bd show` plus
 comments rather than `/api/question`'s decision shape (every node is an ordinary
@@ -2599,6 +2600,57 @@ bead with neither draws nothing at all, and looks precisely as it did before.
 `test/graphsheet.mjs` covers it, in the same node:vm slice of the real `sheetHtml` the
 relations block is checked in — including that the stylesheet has rules for the block
 and that none of them clamp.
+
+#### The way through — what its session did
+
+The close reason says a bead landed. It does not say what the session that landed it
+*did*, and that is archived in full: a log, its metrics, the memories it left, where its
+worktree went. So under the outcome block the sheet carries one more row, and it is the
+only row on the sheet that leaves the tracker — everything else here goes to another bead.
+Tapping it opens
+[`/bead-session?workspace=…&id=…`](#reading-it-back-on-the-phone--bead-session) in the same
+drawer panel the sheet itself opens in, so one back gesture returns you to whatever list
+you came from.
+
+That completes the trail the [History tab](#the-ledger--the-history-tab) starts. A row
+there carries `🗄` when a session was archived for that bead, tapping the row opens this
+sheet, and until now the mark you followed was the end of the road: the page behind it
+existed and nothing in the app pointed at it. The row wears the same glyph deliberately —
+the mark you chased is the mark you land on.
+
+**Three states, and the interesting part is which way each is allowed to be wrong.** The
+row is drawn on every bead at first paint, before the answer is in, because finding out
+costs a request and the sheet may not wait on one — the same trade the children block
+makes. So it starts as *looking*, and resolves to either a link or a plain sentence:
+
+- *Looking* is deliberately **not tappable**. A row that is a link and then stops being one
+  loses the tap of somebody who reached for it as it resolved; quiet-then-tappable cannot
+  lose anything. The flicker only goes one way.
+- **An archive** is a link, with how many sessions ran on the bead and when the newest one
+  did. Three sessions on a bead is a fact about the bead, and the page opens on the newest.
+- **Nothing archived** is the same box, muted, and a `<div>` — nothing to tap, nothing to
+  focus. That matters more than it sounds: most beads in this tracker were never worked by
+  a session at all, and a link that opened *"not available"* three times in a row would
+  teach you to stop following it.
+
+And a **check that fails offers the link anyway**, which looks like the wrong branch and is
+not. The two mistakes are not symmetrical. Saying *no session* over a bead that has one
+hides the page for good, because nothing on the sheet would ever suggest looking again;
+offering a link over a bead that has none costs one tap onto a page whose entire design is
+[saying plainly what is not there](#reading-it-back-on-the-phone--bead-session). The
+degraded path goes the way you can recover from.
+
+**It asks `/api/session-archive`, not the endpoint the page itself uses.** Not a field on
+`/api/bead`, for the reason `/api/bead-children` is a route of its own: anything folded in
+there is a `git` call every sheet open waits for. Not `/api/bead-session` either, though
+that is what `/bead-session` loads — it reads the archived tree, `meta.json` and the state
+of the worktree, which is several `git` invocations spent answering what is really
+`sessions.length > 0`. `?workspace=&id=` on `/api/session-archive` is one `git log` over
+one ref, it already existed, and presence plus a date is the whole of what the row draws.
+
+`test/graphsheet.mjs` covers all three states out of the same slice, plus the four lines
+that do the resolving — asserted on the source, because every render check above them
+passes just as happily over a row stuck saying *looking…* forever.
 
 #### What is under it — the children, and the ones already done
 
@@ -2824,7 +2876,9 @@ throws away — and the rest of it is one tap down, on
 [the sheet's own outcome block](#how-it-ended--the-close-reason-and-when). Tapping one
 opens the bead detail sheet that already exists — `/graph?ws=…&id=…&open=1`, the deep
 link `&open=1` was built for — so this page needed no detail view of its own and does
-not have one. The rows are real `<a href>`s, which is what
+not have one. The `🗄` marker leads somewhere too, one hop further on: the sheet carries
+[a row through to what that session did](#the-way-through--what-its-session-did), which is
+what makes the mark on the row worth following rather than a fact about it. The rows are real `<a href>`s, which is what
 lets [the drawer](#detail-opens-over-the-tab-not-instead-of-it) hold that sheet *over* the list: this
 is the one list you legitimately scroll four hundred rows down, and a full-page navigation
 would spend that scroll on every bead you looked at.
@@ -6167,6 +6221,68 @@ in some GUIs — everything else ignores them. And nothing is pushed unless you 
 `git push origin 'refs/beadcause/*:refs/beadcause/*'` and `refs/notes/beadcause` are
 explicit acts, and on a shared repo they should stay that way.
 
+### Reading it back on the phone — `/bead-session`
+
+Storing all of that and then needing `git cat-file` to see it is half a feature. There
+was already a page for one session — `/session?pid=…`, its facts and its transcript,
+[described above](#tap-a-session-to-see-what-it-is-actually-doing) — and it cannot be the
+page for this, for a reason that is structural rather than fixable: **it is addressed by
+pid.** It resolves a running process, tails the file that process is writing, and 404s
+the moment the pid has gone. That is exactly right for a session that exited between the
+refresh and the tap, and it is no answer at all for a bead that closed in June. A process
+id stops identifying anything the instant the process ends; a bead is the thing that
+lasts.
+
+So `/bead-session?workspace=…&id=…` — `/archive` is the same page — is the archived
+counterpart, addressed by the two facts that outlive every process that ever worked it.
+Three things, in this order:
+
+1. **The memories the session left.** The point of the page: a log says what happened, a
+   memory is the session saying what it *learned*, which is the one thing that would
+   otherwise have died with the window. `memory.md` in the archived tree.
+2. **The log**, with the metrics `meta.json` carries — outcome and exit code, when it ran
+   and for how long, its branch, the commits it made, and `commitsFrom`, so an exact
+   commit list is never confused with the since-session-start heuristic.
+3. **Where its worktree went.** `live` and somebody may be sitting in it, `retired` into
+   `.claude/worktrees-retired/` where [the sweep](#emptying-the-attic) removes it two days
+   later, or `gone`, which is where a worktree whose work has landed
+   is supposed to end up. There is no file browser in this app, so "viewing" it means the
+   pull request for its branch where there is one — this page does not promise to render a
+   tree. The nuance that bites: **the main checkout is a registered worktree too**, so a
+   session that never entered one comes back as `live` under the repo's own name, which is
+   true and reads as though a directory had been kept for it. That is carried as `isMain`
+   rather than as a fourth state, and the page says which it was.
+
+**Absence is most of the design, not an edge case.** Each of the three is missing
+independently and for ordinary reasons: a bead closed by hand from the phone had no
+session at all, a session that crashed may have a log and no memory, a session that never
+entered a worktree has no worktree to have gone anywhere. Each says the words *"not
+available"* with the reason, and offers nothing to tap. That last part is the whole
+requirement — a link that opens an empty pane is worse than a sentence, because you spend
+the tap before you learn anything.
+
+Which is why the page is **told** what exists rather than finding out by trying.
+`/api/bead-session` returns `session.files[]` — the archived tree, listed — and the text
+of the log and the memory is fetched from `/api/session-archive` only for names that
+listing contained. A section saying nothing is there is stating a fact it was given, not
+describing the shape of a request that failed. One local read decides all three, and the
+one fact that leaves the machine — the pull request — arrives on a second request *after*
+the page has drawn, so nothing on screen waits on GitHub to say that a directory has been
+tidied away.
+
+It reads and does nothing else: every request is a `GET`, there is no composer because a
+finished session cannot be answered, no button to raise its window because there is no
+window left, and **no polling** — an archive commit is a git object, and a second session
+on the same bead writes a new one rather than changing this one. A bead worked more than
+once gets a row of pills, one per session; the archive is a chain, so going back through
+them is `?commit=`.
+
+`test/beadsession.mjs` covers it, and two of its assertions are the ones worth knowing
+about: that each section says "not available" for its own missing piece with the other two
+still rendering, and that `public/beadsession.js` contains no non-`GET` request at all —
+"read-only" being the kind of property that stays true right up until somebody adds a
+convenience button.
+
 ### Stopping it
 
 Pause from the phone, per repo. `advocates.enabled: false` stops all of them.
@@ -8828,10 +8944,12 @@ cookie says so), and `/auth/signout` ends the session.
 | POST | `/api/advocate` | `{workspace, action}` | `pause` · `resume` · `release` (free the slots) · `forget` (clear attempt counters) |
 | GET | `/api/advocate-log` | `?workspace=` | the survey agent's transcript, as the CLI would have shown it |
 | GET | `/api/session-archive` | `?workspace=&id=` | the archived sessions for a bead |
-| GET | `/api/session-archive` | `?workspace=&commit=&file=` | one archived `session.log`, `meta.json` or `transcript.jsonl` |
+| GET | `/api/session-archive` | `?workspace=&commit=&file=` | one archived `session.log`, `meta.json`, `memory.md` or `transcript.jsonl` |
+| GET | `/api/bead-session` | `?workspace=&id=&commit=&pr=1` | one **finished** session, addressed by bead: `{ref, sessions[], session: {commit, at, subject, files[], meta}, worktree}`. `files[]` is the archived tree, so the page knows which of the memories, the log and the worktree exist before it asks for any of them. `sessions[]` is the newest 20 on that ref and `commit` picks one of them (newest by default); `pr=1` adds the pull request for its branch, and is the one thing here that costs a `gh` call. `{session: null}` for a bead nothing ever ran on — not a 404 |
 | GET | `/api/session-log` | `?pid=` | the whole session record — `{pid, sessionId, name, cwd, where, workspace, status, kind, at, startedAt}` — plus `{file, lines[]}`, the tail of its own transcript. 404 for a pid that is not running |
 | GET | `/monitor`, `/advocates`, `/sessions`, `/work`, `/work.html` | — | the advocate console — and the sessions view it absorbed (one page, five paths) |
 | GET | `/session` | `?pid=` | the HTML page for one live session: its facts and its transcript |
+| GET | `/bead-session`, `/archive` | `?workspace=&id=&commit=` | the HTML page for one **finished** session: what it left behind, addressed by bead |
 | GET | `/graph` | `?ws=&id=` | the HTML graph page |
 | GET | `/api/consoles` | — | `{consoles[], workspaces[]}` — every chat session, newest first; `closedAt` set on the finished ones |
 | POST | `/api/console/close` | `{id}` | soft-closes it and returns the new list. `409` mid-turn; saying anything to it reopens it |

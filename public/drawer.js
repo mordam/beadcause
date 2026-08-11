@@ -88,7 +88,17 @@
   const CLOSE = 'beadcause:drawer-close';
   const OPEN = 'beadcause:drawer-open';
   const TITLE = 'beadcause:drawer-title';
-  const DETAIL = new Set(['/graph', '/graph.html', '/doc', '/doc.html', '/session', '/session.html']);
+  /* The pages that open *over* the tab you were reading. `/bead-session` — what a
+     finished session left behind — is the fourth, and it is owned here for exactly the
+     reason `/session` is: it is reached by a tap on a row in a list you want to still be
+     in afterwards. Its `/archive` alias is here too, because a path a person types is a
+     path a link somewhere will eventually carry.
+
+     One line, deliberately, however long it gets: test/session.mjs finds this set by
+     looking for the *line* that declares it, and a set broken across nine lines passes a
+     reading of the source that no longer sees any of the paths in it. */
+  // prettier-ignore
+  const DETAIL = new Set(['/graph', '/graph.html', '/doc', '/doc.html', '/session', '/session.html', '/bead-session', '/archive', '/beadsession.html']);
   const SLIDE_MS = 240;
   /* Where a subordinate view with nothing underneath it closes to — the inbox, which
      is the main page. Named once, here, because "which page is home" is exactly the
@@ -307,9 +317,15 @@
     // read once: the graph renames itself every time the scope toggle moves between
     // one bead and the whole workspace, and a header that froze on the first name
     // would be quietly lying from the second tap on.
+    // The archived session view reports itself as a `session` rather than as a fourth
+    // kind: it is the same subject at a different time, and the panel has nothing it
+    // would do differently for one that has stopped running.
     const kind = location.pathname.startsWith('/doc')
       ? 'doc'
-      : location.pathname.startsWith('/session')
+      : location.pathname.startsWith('/session') ||
+          location.pathname.startsWith('/bead-session') ||
+          location.pathname.startsWith('/beadsession') ||
+          location.pathname.startsWith('/archive')
         ? 'session'
         : 'graph';
     const heading = document.querySelector('.topbar h1');

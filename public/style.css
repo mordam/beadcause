@@ -2111,6 +2111,62 @@ button.work-row {
   min-height: 160px;
 }
 
+/* ------------------------------------------- and the same bead, once it has finished */
+
+/* /bead-session?workspace=&id= — what a session left behind, read weeks later. It
+   borrows `.session-detail`, `.session-facts` and `.agent-log` from the live page above
+   on purpose: it is the same subject at a different time, and a second set of facts
+   styles would drift from the first inside a month. What is here is only the part that
+   is genuinely new, which is *absence* — three sections that are each missing
+   independently and have to say so without looking broken.
+
+   No `.session-solo` here, deliberately. That rule sizes the transcript to fill the
+   screen because the live page is a pane you watch; this one is three blocks you scroll
+   through, and a log pinned to `100dvh - 440px` would push the worktree section — the
+   answer to "where did the work go" — permanently under the fold. */
+.bead-session { padding-bottom: 24px; }
+
+/* "Not available", and the reason. Muted, because on most beads this is what the whole
+   page says and a wall of warning-coloured text would read as an error rather than as
+   the ordinary state of a bead nobody's session ever touched. `strong` carries the two
+   words, so the answer is legible before the sentence explaining it. */
+.arc-none { margin: 8px 0 0; color: var(--muted); font-size: 12.5px; line-height: 1.5; }
+.arc-none strong { color: var(--text); font-weight: 600; }
+.arc-none code { font-size: 11.5px; }
+
+/* What the session learned, exactly as it typed it — see public/beadsession.js for why
+   this is not rendered markdown. `pre-wrap` keeps its line breaks and wraps its prose,
+   which is the one piece of structure a memory has; the prose font rather than the
+   monospace one, because this is the only thing on the page written to be read. */
+.arc-memory {
+  margin: 10px 0 0;
+  padding: 11px 13px;
+  border: 1px solid var(--line); border-radius: 10px;
+  background: var(--bg);
+  color: var(--prose);
+  font-size: 13px; line-height: 1.55;
+  white-space: pre-wrap; overflow-wrap: anywhere;
+}
+
+/* One sentence above the worktree's own facts: which of the three states it is in, in
+   words, before the table says it in a field. */
+.arc-where { margin: 8px 0 0; font-size: 12.5px; line-height: 1.5; color: var(--text); }
+
+/* The pills: the other sessions on this bead, and the diff. Shaped like `.work-graph`
+   because they do the same job — a link out of a detail view — and an empty row of them
+   collapses to nothing rather than leaving a gap where a control would be. */
+.arc-links { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.arc-links:empty { display: none; }
+.arc-link {
+  flex: none; min-height: 34px; display: inline-flex; align-items: center;
+  padding: 5px 12px;
+  border: 1px solid var(--line); border-radius: 999px;
+  color: var(--text); text-decoration: none; font-size: 12.5px; font-weight: 550;
+}
+/* The one you are already reading. Still in the row — dropping it would renumber the
+   list under your thumb every time you moved between sessions — and not a link. */
+.arc-link.is-here { color: var(--muted); border-style: dashed; }
+
 .work-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
 .work-foot .meta { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; }
 .work-graph {
@@ -2579,6 +2635,46 @@ button.work-row {
 .closed-note .md { font-size: 13.5px; line-height: 1.5; }
 .closed-note .md p, .closed-note .md ul, .closed-note .md ol { margin: 0 0 8px; }
 .closed-note .md > *:last-child { margin-bottom: 0; }
+
+/* The way through to what its session did — `/bead-session`, and see `sessionRowHtml`.
+   Shaped like `.rel-row` below because it is the same gesture in the same place: a row on
+   the sheet you tap to go somewhere. It is deliberately *not* one of them, though, and the
+   glyph is why — those rows go to another bead, this one leaves the tracker for the log of
+   a session that has stopped, and giving it the status dot the others carry would say it
+   was a fourth kind of neighbour.
+
+   Two lines rather than one: the top line is the same words whatever the answer is, so the
+   thing that actually varies — how many sessions, and when the newest ran — needs somewhere
+   to sit that is not competing with it. 44px is the floor every tap target in this app
+   holds to, and this box keeps it in all three states so resolving the row never moves the
+   description under your thumb. */
+.sheet-session {
+  display: flex; align-items: center; gap: 10px;
+  min-height: 44px;
+  margin-bottom: 14px;
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-2);
+  color: var(--text);
+  text-decoration: none;
+}
+.sess-glyph { flex: none; font-size: 15px; line-height: 1; }
+.sess-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.sess-what { font-size: 14px; }
+.sess-sub { font-size: 11.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The affordance, and the only part of the row that says "this one goes somewhere" without
+   a word — so it exists on exactly the state that does. */
+.sess-go { flex: none; color: var(--muted); font-size: 17px; line-height: 1; }
+/* Still looking, and not yet an answer either way. Stepped back rather than shown as a
+   spinner: it is one row, it resolves in a request, and a spinner on it would draw the eye
+   to the least important thing on the sheet. */
+.sheet-session.is-checking { opacity: 0.55; }
+/* Nothing ran on this bead — which is most beads. Quiet enough to read as the ordinary
+   state of the tracker rather than as something missing, and the glyph fades with it so the
+   row does not advertise a mark it has not got. */
+.sheet-session.is-none { color: var(--muted); background: transparent; }
+.sheet-session.is-none .sess-glyph { opacity: 0.4; }
 
 /* Where the bead sits: its parent, and what it is stuck behind. Above the
    description, quiet enough not to compete with the title, and every row a link —

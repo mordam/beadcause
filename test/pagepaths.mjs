@@ -116,6 +116,15 @@ const PAGES = [
   // One live session's facts and its transcript — the page every session row in the app
   // links to, and the reason the console could absorb the sessions view at all.
   { what: 'one session', marker: '/session.js', paths: ['/session', '/session.html'] },
+  // And the same detail for one that has finished, addressed by bead instead of by pid.
+  // `/archive` is the second path because it is the word the repo uses for this everywhere
+  // else — `refs/beadcause/sessions/…` is "the archive" in the README and in the API — and
+  // it is therefore the path somebody types.
+  {
+    what: 'one finished session',
+    marker: '/beadsession.js',
+    paths: ['/bead-session', '/archive', '/beadsession.html'],
+  },
   { what: 'the pull request board', marker: '/prs.js', paths: ['/prs', '/pulls', '/prs.html'] },
   // The endorsement queue. Three, because the screen has two honest names — the place
   // you *endorse* and the *queue* of what is waiting — and which one comes to mind
