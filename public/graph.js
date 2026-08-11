@@ -1146,7 +1146,10 @@
       // `arc.failed` is `loadSession`'s word for "the question did not get answered",
       // which is not the same fact as "nothing ran" — see the header.
       if (!arc.failed) {
-        return box('is-none', 'No session archived', 'nothing has run on this bead', null);
+        // "archived", not "ran": the ref is the only evidence there is, and a session
+        // that died before it could write one is a different fact from a bead nobody
+        // ever worked. The row says what it knows.
+        return box('is-none', 'No session archived', 'nothing was left behind under this bead', null);
       }
       return box('', 'What its session did', 'if a session ran on this bead', sessionUrl(id));
     }
