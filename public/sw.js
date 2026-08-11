@@ -137,18 +137,29 @@
    every conversation in the inbox is suddenly two rows tall with a stray button between
    them, and it still works, which is exactly the "looks like a working page" failure a
    cache version exists to prevent. */
-/* v36: a strip of handles over the chat session, one per chat you have open (bc-2tr).
+/* v36: how a closed bead ended, on the bead detail sheet (bc-9cpg). No new path —
+   graph.js and style.css are both already here — and it is the v32/v35 pairing once
+   more, in both directions. A phone holding v35's graph.js beside v36's stylesheet
+   opens the sheet it always did: the status pill says "closed" and nothing on the
+   screen says why, which is the hole this closes. One holding v36's graph.js against
+   v35's stylesheet is the direction that matters — `.closed-note` has no rules there,
+   so a close reason that runs to 1664 characters lands as an unframed wall of prose
+   between the pills and the title's own description, with a bare date line above it
+   and nothing marking where the bead's own text starts. It reads as the description,
+   which is the "looks like a working page" failure a cache version exists to prevent.
+   */
+/* v37: a strip of handles over the chat session, one per chat you have open (bc-2tr).
    No new path — console.html, console.js and style.css are all already here — and it is
-   the v32 pairing a third time, in both directions. A phone holding v35's console.html
-   beside v36's console.js has no `#chat-tabs` to draw into: the strip is guarded, so
+   the v32 pairing again, in both directions. A phone holding v36's console.html
+   beside v37's console.js has no `#chat-tabs` to draw into: the strip is guarded, so
    that half is merely the page as it was, which is the direction this is allowed to
-   fail in. The other is not. v36's console.html against v35's stylesheet draws the nav
+   fail in. The other is not. v37's console.html against v36's stylesheet draws the nav
    as a run of unstyled links and ✕s across the top of the page, above the launcher and
    above every conversation — no pill, no truncation, and the horizontal scroll that
    makes a strip a strip replaced by six chat titles wrapping onto four lines and
    pushing the transcript off the bottom of the phone. It still works, which is exactly
    the "looks like a working page" failure a cache version exists to prevent. */
-const CACHE = 'beadcause-v36';
+const CACHE = 'beadcause-v37';
 const SHELL = [
   '/',
   '/index.html',

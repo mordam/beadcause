@@ -2548,9 +2548,9 @@ issue descriptions we would throw away.
 
 Tapping a node raises a **card** with the whole title, its status, priority and type,
 and two buttons. **Details** opens the bead itself in a sheet — who owns it, what it
-blocks and what it waits on, then the whole body: description, **acceptance**,
-**design**, **notes** and the thread, each rendered as markdown under its own label,
-in the order `bd` itself prints them. Served by `/api/bead`, which is `bd show` plus
+blocks and what it waits on, **how it ended** if it has, then the whole body:
+description, **acceptance**, **design**, **notes** and the thread, each rendered as
+markdown under its own label, in the order `bd` itself prints them. Served by `/api/bead`, which is `bd show` plus
 comments rather than `/api/question`'s decision shape (every node is an ordinary
 issue; only some are questions). The sheet takes 72% of the screen, and **⤢** takes
 the rest of it.
@@ -2561,6 +2561,41 @@ is readable nowhere but a terminal. It used to stop after the description, which
 meant the acceptance criteria, the one part you close a bead against, were exactly
 that. The description alone stays unlabelled, the way it is on the card, so a bead
 carrying none of the other three looks precisely as it did.
+
+#### How it ended — the close reason, and when
+
+The sheet drew the status pill, and the status pill said `closed`. What it never drew
+was `close_reason` or `closed_at`, which is the sentence saying what actually happened
+— and those sentences are the good part of this tracker. `bin/deliver.js` writes
+`Landed as #138 as 10892e4b — still owed: CAN BE DEPLOYED`; an answer closes with
+*Answered via Beadcause*; a revoke keeps its reason under a fixed prefix; a supersede
+says `Superseded by bc-rk2o`. Every ending in the system is a sentence, and none of
+them was on the one screen every bead link in the app opens. It was readable from a
+terminal, or nowhere.
+
+So a closed bead now carries a framed note **directly under its pills**: *Closed 11 Aug
+2026, 18:54*, and the reason under it, through the same `FROM_BD` renderer every other
+bd field on the sheet goes through. Above the description rather than below it, which
+is the whole placement argument — the pill raises the question, and on a finished bead
+the answer is what you came for. Below the body is where you go looking for it, scroll
+past it, and conclude it is not there.
+
+**Nothing here clamps.** The worst close reason in this tracker is 1664 characters and
+the sheet body already scrolls, so there is nothing to gain by folding it — and
+something real to lose. [The History tab](#the-ledger--the-history-tab) clamps its own
+copy to two lines precisely because tapping the row lands here; clamping at both ends
+would put the sentence nowhere in the app at all. That page can now go the other way
+too, and carry a slimmer payload with a real tap-through behind it.
+
+**Only while the bead is actually closed.** `bd` clears `closed_at` on reopen and
+leaves `close_reason` sitting there — `lib/landed.js` leans on exactly that — so
+reading the field without checking the status would tell you a bead that is open again
+finished last Tuesday. A closed bead nobody gave a reason for still gets the date; a
+bead with neither draws nothing at all, and looks precisely as it did before.
+
+`test/graphsheet.mjs` covers it, in the same node:vm slice of the real `sheetHtml` the
+relations block is checked in — including that the stylesheet has rules for the block
+and that none of them clamp.
 
 #### What is under it — the children, and the ones already done
 
@@ -2727,9 +2762,13 @@ adjacent.
 The page is the selected space's beads, **most recently updated first**, paged as you reach
 the end of it. Each row carries the id, the title, the type, the status, the priority, when
 it last moved, its close reason when it has one, and a marker when a session was archived
-for it. Tapping one opens the bead detail sheet that already exists —
-`/graph?ws=…&id=…&open=1`, the deep link `&open=1` was built for — so this page needed no
-detail view of its own and does not have one. The rows are real `<a href>`s, which is what
+for it. The reason is clamped to two lines here rather than ellipsised on one — these
+sentences carry the PR number and the sha at the *end*, which is the half a single line
+throws away — and the rest of it is one tap down, on
+[the sheet's own outcome block](#how-it-ended--the-close-reason-and-when). Tapping one
+opens the bead detail sheet that already exists — `/graph?ws=…&id=…&open=1`, the deep
+link `&open=1` was built for — so this page needed no detail view of its own and does
+not have one. The rows are real `<a href>`s, which is what
 lets [the drawer](#detail-opens-over-the-tab-not-instead-of-it) hold that sheet *over* the list: this
 is the one list you legitimately scroll four hundred rows down, and a full-page navigation
 would spend that scroll on every bead you looked at.
@@ -3117,7 +3156,7 @@ each case because what is expensive is different in each case:
 
 | View | On a wake |
 |---|---|
-| **Inbox** | Adopts the questions the poll carries. It is the one view whose park does ask for them, and the payload arrives with the wake. It also keeps the *advocates* payload warm on the same wake, for the page it is not — see [staying warm](#filled-once-is-not-kept-warm). |
+| **Inbox** | Adopts the questions the poll carries. It is the one view whose park does ask for them, and the payload arrives with the wake. It also keeps every *other* view's payload warm on the same wake, for the pages it is not — see [staying warm](#filled-once-is-not-kept-warm) and [the per-path table](#and-every-other-warmed-path-decided-one-at-a-time). |
 | **Advocates** | Takes the advocate roster straight off the poll — `advocates.snapshot()` rides every wake — so a pause, a resume or a check-in repaints with no request at all. It goes back to `bd` only for events `bd` would answer differently, which an advocate saying it is still surveying is not. |
 | **Admin** | Reads `observing` off the poll, which is the whole reason it ever touched `/api/work`, and re-asks `/api/admin` — two in-memory reads, no `bd` — when an advocate or a terminal moved. Its numbers are promises about what a press will do, so half-patching them was never an option. |
 | **Board** | Re-asks `/api/prs` when a pull request actually moved. The three lamps are the daemon's own reading of GitHub, `origin/main` and the deploy journal; a client that set them from an event would be a second, worse copy of that ladder. The daemon drops its board cache as those events fire, so the first board through does the one `gh` sweep and every other open board shares it. |
@@ -3194,6 +3233,69 @@ being asked for, 27 idle seconds leave it with a **newer stamp and no extra requ
 advocate pausing lands in it for nothing, a bead moving inside the floor does not become a
 second sweep, and a claimed bead is re-asked exactly once. Against `--baseline` the middle
 three of those fail, with `stamp 0ms newer` — which is the bug, printed.
+
+### And every other warmed path, decided one at a time
+
+The section above closed that hole for `/api/work` and stopped there, deliberately. The
+hole itself was never about the advocates tab: once-per-document fill against a
+fifteen-minute TTL is a property of `warm.js`, so **every** warmed path had it, and the
+three that were left are the ones you reach without a tab — `/admin` is a tab, and the
+board and the chat launcher are both one tap from a row on the inbox. All three were cold
+every time they were reached more than a quarter of an hour after the inbox loaded, which
+on the page you leave open all day means almost always.
+
+What made it one decision per path rather than one rule is that the paths do not cost the
+same. So the table is in `MAINTAINED` in `public/app.js`, and it separates two halves that
+were previously tangled together:
+
+**The free half is available to all four, and it is most of the fix.** The inbox is parked
+on `/api/poll`. An entry the log has *not* contradicted is exactly as true as it was when
+it was fetched, however long ago that was — so `warm.refresh()` puts its clock forward for
+no request at all. That alone is the difference between a warm layer that survives fifteen
+minutes and one that survives an afternoon, and it is why the fix is not "poll more
+often": nothing is being asked for here.
+
+**The paid half — going and re-asking once the log says something did move — is priced per
+path.**
+
+- **`/api/admin` and `/api/consoles` are re-asked, floored at one a minute each.** Both
+  are in-memory reads on the daemon: no `bd`, no process spawn, which `lib/server.js` says
+  of each of them where they are answered. That is cheap enough to be worth spending on a
+  screen that is otherwise blank on arrival.
+- **Neither of them is *patched* from the wake, even though `/api/admin` looks patchable.**
+  Most of what it draws is advocate counts, and the roster rides every wake for free — but
+  the other half of the same numbers is open terminals and this device's own record of what
+  it paused, and neither of those is on the poll. `public/admin.js` already refuses to
+  patch one half for the reason that a button labelled from two different moments is true
+  of neither, and the copy held for that page has to follow the same rule or it would come
+  to disagree with the page's own fetch. The whole payload, or nothing.
+- **`/api/prs` is never re-asked here at all, and that is the decision rather than the
+  gap.** It is a `gh` call per repo. A floored re-ask would keep that sweep running once a
+  minute, all day, on behalf of a board that may never be opened — which is precisely the
+  bill the board page stopped paying when it came off its own timer. What it gets instead
+  is the free half: the board stays warm for as long as the log says no pull request has
+  moved, and the moment one has, the entry keeps its own age and the TTL takes it, exactly
+  as it does today. The inbox does still sweep the board on its own minute — but only when
+  the kind filter wants pull requests, which is when it is drawing them itself.
+
+So "did the board move" is now asked by two pages, and it is `stream.boardMoved()`, one
+function, for the same reason `stream.workMoved()` is: an inbox that thought a merge was
+nothing would go on restamping a board with the wrong lamps on it, and the lamps' entire
+claim is that they are true. The list that used to live in `public/prs.js` moved into
+`public/stream.js`; the literal left behind in `prs.js` is the older-sibling fallback for a
+service worker holding it beside a `stream.js` from before that export existed, and nothing
+else.
+
+Claim 6 of `scripts/warm-check.mjs` is the gate, in requests rather than seconds for the
+same reason claim 5 is: three stamps move across a 27-second idle window for **no request
+at all**, an event that moved one of them stops that entry's restamp instead of papering
+over it, and then, outside the floor, `/api/admin` and `/api/consoles` are re-asked exactly
+once each while `/api/prs` is not re-asked on any wake in the whole run. To measure that
+last one the check sets the inbox's kind filter to `Questions` partway through, because an
+inbox drawing PR cards sweeps the board on its own minute and every count would otherwise
+be unattributable. Against `--baseline` three of those five lines fail — the two that pass
+are the ones asserting a moved entry is left alone, which a baseline that maintains nothing
+satisfies by doing nothing at all.
 
 ### A repaint that leaves alone what did not change
 
@@ -3832,16 +3934,20 @@ rebase before it can merge") on a card, with the next step yours to work out at 
 act as *Request changes* on a delivery card: a note back to a session on the same branch,
 where the only difference is who wrote the note — Adam's sentence about the code there,
 GitHub's about the merge base here. The brief (`conflictPromptFor` in `lib/session.js`) pins
-down four things, because an unattended session with a vague scope invents one:
+down five things, because an unattended session with a vague scope invents one:
 
 1. **the branch is what is behind, not `main`** — read the other way round, "resolve the
    conflict" is a session merging a branch into main by hand, which is the one act nothing
    here may do;
 2. **work in a worktree** — `git worktree list` first, because six sessions share these
    checkouts and the main one is the daemon's own;
-3. **run the repo's own gate afterwards** — a clean merge of two working branches is not a
+3. **a tree already mid-merge is somebody else's** — stand down and say so, and do *not*
+   run `git merge --abort`. That one is the second layer under the de-duplication below,
+   for the two resolvers that are already up rather than the second one that must not be
+   opened;
+4. **run the repo's own gate afterwards** — a clean merge of two working branches is not a
    working tree;
-4. **push the branch, then stop** — the merge stays a tap here.
+5. **push the branch, then stop** — the merge stays a tap here.
 
 It is armed like merge, because it starts something unattended. It refuses unless GitHub
 reports the pull request `CONFLICTING` *right now*, asked again at the moment of the press
@@ -3849,6 +3955,48 @@ rather than trusted from the row: a session opened for a conflict somebody has a
 resolved is a window you have to go and close, and a pointless window is worse than a
 sentence. Refused outright on an observer instance, for the reason `POST /api/session` is —
 an unattended agent in a checkout it is only visiting.
+
+#### One press, one session — and what a second press does
+
+On 2026-08-11 one press of that button produced **two** sessions. Both carried the same
+brief, and the brief correctly says *if the branch is already checked out somewhere, use
+that* — right for one resolver, wrong for two. They merged `main` into the same worktree at
+the same time, and the damage was not the kind anybody notices in a log: one session's
+`git merge --abort` landed between the other's resolution and its `git add && git commit`,
+so commit `2183762` carried **unresolved conflict markers into `public/console.js`**, with
+two parents and the shape of a perfectly ordinary merge commit. `test/dismissed.mjs` went
+2/16. A human reading the diff is the only reason it was caught, and the repair had to
+check that `main`'s side was genuinely still in the tree — an aborted merge can reset the
+index and still commit, silently reverting everything the base added while looking clean.
+That is bc-utyr.
+
+So the daemon now remembers which session it opened for which pull request (`lib/resolvers.js`),
+and a second press **does not open a second window**. It does the useful half of what the
+press was asking for instead: it types one line into the window that already has the pull
+request — the same channel [Reclaim](#reclaiming-a-slot-by-asking) speaks to workers over —
+saying the button was pressed again, that nothing new is coming, and that starting a second
+merge in that tree is precisely what the press must not cause. The phone reads back
+*"Already being resolved on `<branch>` — told that session you pressed again"*.
+
+Three states, not two, and the third is the point:
+
+- **nothing is on it** — open a window, and remember the handle;
+- **something is on it and answers** — the nudge lands, and no second window;
+- **something is on it and cannot be asked** — an iTerm too old to report a session id
+  leaves a record with no handle, and *"I cannot ask"* is not *"it is gone"*. It is
+  refused, with the age said out loud, and the record ages out by itself after half an
+  hour rather than stranding the button for good. Same distinction `reclaim` keeps about a
+  worker whose window macOS would not talk to, and for the same reason: treating a refusal
+  as absence is what opens the second window.
+
+**Everything for one pull request is serialised**, which is not belt-and-braces — it is the
+actual shape of the incident. One press produced two requests a moment apart, and a
+check-then-launch with an `await` in the middle is a check both of them pass. Under the
+lock the second request arrives after the first has a handle to hand it. The state is in
+memory and never on disk, for the reason a phone's whereabouts is: a handle is worth
+exactly as long as the iTerm holding it, and a record that survived a restart would only
+ever be a claim about a window nobody can address. `node test/resolvers.mjs` asserts all of
+it — including ten simultaneous presses producing one window and nine nudges.
 
 `node test/prfull.mjs` covers the daemon's half: that the description comes from `gh` and
 the rung from the board, that the attribution finds the session for *this* branch when a
@@ -4975,6 +5123,13 @@ bead can move. On top of that, two exclusions of our own:
   same near-verbatim threshold that refuses a duplicate approval. Waits, not
   disappears: it is a pill on the repo's advocate card naming the bead it is behind,
   and it goes back in the queue by itself when that one closes.
+- **A bead whose pull request is already open is not ready.** The work exists, on a
+  branch, and what happens to it next is a merge, a review or a conflict resolution —
+  none of which is a fresh session's job, and a worker briefed to *merge* opened beside a
+  resolver briefed that the merge is not its to make is how a branch lands out from under
+  a review. Held, with the pull request number on the card. See [the bead whose work is
+  already in an open pull
+  request](#the-bead-whose-work-is-already-in-an-open-pull-request).
 
 When that set is empty the advocate says **clear** and stops. That is the whole of
 "done".
@@ -5708,6 +5863,52 @@ dozen sessions land through GitHub and pull at their own pace, so local `main` r
 carries what nobody else has. It asks once per bead per branch, recognising its own work by
 a marker in the notes — the `human` label cannot be the guard, because answering "keep it
 open" takes that label off. `flagInMain: false` switches it off.
+
+### The bead whose work is already in an open pull request
+
+The three sweeps above are all about work that **finished** without the tracker noticing.
+This one is about work that has not finished and does not need a second session either: a
+bead whose pull request is *open*.
+
+bc-utyr is what it costs. The advocate opened a worker on bc-dmt while #115 — the pull
+request that *was* bc-dmt, built and delivered by the previous attempt — was open,
+conflicting, and had two sessions on it resolving the conflict. There was nothing left for
+a worker to do, and the window was worse than merely wasted: the two briefs disagree about
+who merges. A worker's brief tells it to run `beadcause-deliver`, which **merges**; a
+resolver's says outright that the merge is a tap on the phone and is not its to make. Two
+live briefs disagreeing about that is how a branch lands out from under a review that had
+not finished.
+
+So an open pull request is work in flight, and **the bead it carries is not ready**. It is
+not *done* either — `state: OPEN` is not `state: MERGED`, so nothing here closes anything —
+which leaves held as the only honest third thing, exactly as the [duplicate
+filter](#what-counts-as-work) already does. Which beads a pull request carries is the same
+tiering the board uses ([Which bead a pull request is
+for](#which-bead-a-pull-request-is-for)): the delivery block, the title, the branch tag,
+then the body's claims, each verified against the tracker before it is believed.
+
+**This one errs toward holding, and the duplicate filter errs toward working — deliberately,
+and the difference is the evidence.** A title comparison can be wrong about two genuinely
+different jobs, so it must risk doing the work twice. A pull request naming a bead is not a
+resemblance; it is a branch with commits on it. The cost of a wrong hold is one bead that
+waits, named on the advocate's card with the pull request number on it, until that pull
+request merges or is closed — both of which happen on their own. The cost of a wrong launch
+is the incident above.
+
+A draft is still open and is still held: work on a branch with somebody's intention
+attached, and a second session writing the same feature beside it is the same waste with a
+different label. A pull request naming no bead holds nothing, because there is no bead to
+hold. And **a `gh` that will not answer holds nothing back** — a network failure must not
+be able to empty a queue — though a failed read keeps the map the last good one left
+rather than clearing it, because the map that was true four minutes ago is a better answer
+than none.
+
+Asked every `inflightIntervalMinutes` (default 5, shorter than the sweeps above because
+this is the one whose answer moves the moment *this daemon* does something — a delivery
+that could not merge opens a pull request and hands the bead back to `bd ready` in the same
+minute), and **again, unconditionally, before a window opens**. `holdOpenPrs: false`
+switches it off. `node test/prqueue.mjs` covers the filter and `node test/twinqueue.mjs`
+the sibling it sits beside.
 
 ### The session log, kept in the repo
 
@@ -8616,6 +8817,8 @@ history.
 | `advocates.supersededIntervalMinutes` | how often that looks (default 10). Unlike the sweep above it is never forced before a launch, because a marked bead cannot reach one |
 | `advocates.flagInMain` | [ask about an open bead naming a `worktree-*` branch that is already in `origin/main`](#the-bead-whose-branch-is-already-in-main) (default `true`). It never closes anything — a merged branch is a fact, "so the bead is done" is your call |
 | `advocates.inMainIntervalMinutes` | how often that looks (default 10). It runs before the survey, so a bead it flags is out of the queue in the same tick and no session is opened on it |
+| `advocates.holdOpenPrs` | [hold a bead out of the queue while an open pull request already carries its work](#the-bead-whose-work-is-already-in-an-open-pull-request) (default `true`). It closes nothing — an open PR is not a merged one — it holds, with the number on the card. Without it a worker briefed to merge is opened beside a resolver briefed that the merge is not its to make |
+| `advocates.inflightIntervalMinutes` | how often that asks GitHub (default 5, shorter than the sweeps above because a delivery that could not merge opens a pull request and hands the bead back to `bd ready` in the same minute). It also asks *unconditionally* right before opening a session |
 | `advocates.sessionLog` | archive each finished session to `refs/beadcause/sessions/<bead>` and note its commits (default `true`) |
 | `advocates.sessionTranscripts` | also store the raw Claude Code transcript — megabytes, and it carries paths and tool output (default `false`; set per repo in `perWorkspace`) |
 | `advocates.closeFinishedSessions` | [close a work session's window once the session has finished](#closing-the-window--a-session-that-has-finished-should-not-still-be-on-screen) — the bead closed, a pull request delivered, or the bead handed back for a decision, and never an ending the daemon merely inferred (default `true`). `false` leaves every window open, which is what it did before |
@@ -9241,6 +9444,26 @@ it apply. So the invariant is that a selector block contains no other block, whi
 forbids nested syntax on purpose: that is the price of a truncated rule failing on the
 next `npm test` rather than quietly for a week. The detector is shown the exact wreck, so
 a guard that cannot fail is not mistaken for a file that is fine.
+
+It carries a third invariant for a third way a rule goes quiet, after truncated and
+written-twice: **written for a layout the element never got.** `.mon-card .work-head` — the
+head of every card on `/monitor` — had `align-items: center` and `flex-wrap: wrap` and no
+`display: flex` anywhere, so both properties did nothing, and `.adv-actions
+{ margin-left: auto }` was dead beside them for the same reason. The head laid out as a
+plain block and stacked the repo's name, the state line and the controls on three lines:
+127px of head on a phone where the row is 88px, and the two cards with no controls 80px
+where the row is 36px. The sketch under [Space details](#space-details--the-page-the-advocate-console-became)
+above draws that head as one line, because one line is what it was written to be — the
+page had simply never done it. Nothing complained, and nothing could: two properties that
+do nothing render as exactly the layout you would have had without them, which is why this
+is a test and not a lint. So the narrow invariant is that the rule giving that head its
+flex properties also gives it a `display: flex`, that the `.space-card` copy of it stays
+gone (the space card is a `.mon-card`, so one selector draws all four heads), and that
+every card the page draws wears both `mon-card` and `work-card` — the second being the
+padding, which the space card was the one card on the page without. The general form —
+no block sets a flex-container property unless something gives that element a flex display
+— needs the markup rather than the stylesheet, because five live rules here are modifier
+classes on a base class that supplies the display; that is bc-ah0v.
 
 ## Notes on bd
 
