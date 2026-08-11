@@ -68,7 +68,7 @@ It still exits non-zero — it just never exits with nothing running.
 npm run monitor              # live view of what the daemon is doing
 npm run check                # the checks around the agent log — safe with the daemon up
 npm run secrets              # has a secret ever reached the config repo's history?
-npm run swap:status          # which build is actually answering the port
+npm run swap:status          # which build is answering the port, and the certificate on it
 npm run uninstall-service    # remove the service (keeps your config and token)
 tail -f ~/Library/Logs/beadcause.log
 launchctl kickstart -k gui/$(id -u)/m4m.beadcause   # only for bin/router.js itself
@@ -5529,7 +5529,7 @@ Every response carries `x-beadcause-build` and `x-beadcause-pid`, so `curl -sI`
 against the real port settles the question that started all this:
 
 ```bash
-npm run swap:status     # active pid, build, whether disk has moved past it
+npm run swap:status     # active pid, build, whether disk has moved past it, the certificate
 npm run swap            # swap now, even if nothing changed
 npm test                # drives a real swap under load and proves nothing drops
 curl -sI http://127.0.0.1:4318/api/health | grep beadcause
@@ -5903,6 +5903,37 @@ the app going dark.
 [beadcause] tls  fix it by hand: tailscale cert mac.tailnet.ts.net
 ```
 
+**And you can go and ask, rather than waiting to be told.** A push arrives at the point
+where it is nearly too late and a log line is on a Mac nobody is sitting at, so neither
+answers "is my certificate fine?" on a day when it is. `npm run swap:status` — the command
+already run to ask what the daemon is doing — names the certificate beside the build:
+
+```
+cert     mac.tailnet.ts.net — 61.4 days left  (checked 3h ago)
+cert     mac.tailnet.ts.net — 9.1 days left  (checked 2h ago)  ⚠ EXPIRING — the renewal
+         that should have happened has not: tailscale cert mac.tailnet.ts.net
+```
+
+Three things about that line are deliberate. It is **marked**, not merely printed, once
+the number is inside the alarm window — the same `ALARM_BELOW_DAYS` the push uses, so the
+line and the notification can never disagree about what "fine" means — and it carries the
+command that fixes it, because a warning you have to go and research is one that waits
+until the weekend. It says **when the loop last looked**: a certificate with two months
+left and a check from six weeks ago is a dead renewal loop, and neither fact says that on
+its own. And the number is read off the **socket**, through the router's
+`/internal/router/state`, so a certificate swapped by `setSecureContext` an hour ago is
+what you see rather than whatever was true at boot.
+
+The three answers that are not a number are kept apart on purpose, because collapsing any
+pair of them would be reassuring and wrong: `none — serving plain HTTP` is a tailnet
+without *HTTPS Certificates* or a provisional listener still waiting, which is supported
+and not a fault; `an unreadable expiry` is an alarm, since bytes that will not parse are
+not "fine for another 89 days"; and `not reported` means the router answering predates the
+field — it cannot hot-swap itself, so `launchctl kickstart -k gui/$(id -u)/m4m.beadcause`
+is what makes it answer. `test/certstatus.mjs` pins all of them, and pins the printer by
+spawning `--status` against a stub control plane, because a fixture is the only way to
+have a certificate that is nine days old on a machine whose real one is ninety.
+
 Two details worth knowing if you ever debug this:
 
 - `tailscale cert` **can fail while exiting 0** — an account without *HTTPS
@@ -6238,7 +6269,7 @@ the tailnet holding the token could otherwise stop the poller:
 
 | Method | Path | Returns |
 |---|---|---|
-| GET | `/internal/router/state` | `{router, disk, stale, poisoned, deferred, serving, outage, retryAt, slowness, active, retiring[]}` — what `npm run swap:status` prints. `poisoned` is a build that *died* at startup; `deferred` is one that was only slow, and when it will be tried again |
+| GET | `/internal/router/state` | `{router, disk, stale, poisoned, deferred, serving, outage, retryAt, slowness, certificate, active, retiring[]}` — what `npm run swap:status` prints. `poisoned` is a build that *died* at startup; `deferred` is one that was only slow, and when it will be tried again. `certificate` is `{name, daysLeft, checkedAt}` off the live socket, or `null` when the port is serving plain HTTP |
 | POST | `/internal/router/swap` | `{ok, active}` — or `{ok:false, error}` if the new build would not start |
 
 Every proxied response also carries `x-beadcause-build` and `x-beadcause-pid`,
