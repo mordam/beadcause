@@ -585,10 +585,10 @@ are on it:
 
 Nothing the page already did has gone: the advocates and their pause, reclaim and
 limit controls, the sessions view it absorbed (`/sessions`, `/work` and `/work.html`
-still serve it), the proposal cards, the launchd and router health lines, the mirror
-pane. The settings card sits above them because it is what the page is the details
-*of*, and a setting you scroll six advocate cards to reach is a setting you go back to
-editing the config file for.
+still serve it), the proposal cards, the launchd and router health lines, [the mirror
+pane](#the-mirror--whatever-the-phone-has-open-with-room-to-read-it). The settings card
+sits above them because it is what the page is the details *of*, and a setting you scroll
+six advocate cards to reach is a setting you go back to editing the config file for.
 
 **Three shapes of control, and the shape is the shape of the answer.** `Muted` is
 two-state, because there is no global mute behind it and a third button would be a
@@ -2741,6 +2741,59 @@ contents rather than off a count written down somewhere, so adding or removing a
 nothing else. It is dormant below six and will come back on its own if the bar fills up
 again.
 
+Advocates carries a **badge** when there is something behind it — how many advocates
+are waiting on an answer. The number rides the inbox's own poll (`/api/questions`
+carries it; see [the three counts on the poll](#the-three-counts-on-the-poll)), so it
+is live while you are on the inbox and simply absent on a page that has no way to
+refresh it — which beats a stale number that looks live. Zero shows nothing. The badge
+sits inside the tab's `aria-hidden` icon, so the tab takes an `aria-label` saying what
+the number counts: "2" read out after "Advocates" says nothing about two of what.
+
+**One badge, and it is the proposals.** Sessions used to carry the count of running
+agents beside it, and dropping it was deliberate rather than a casualty of the merge:
+a badge on a tab you are not looking at means *needs you*, and a running agent needs
+nothing — it is a fact about the machine. The count is still served and still on
+screen, in the advocate console's own tally ("3 working · 1 to answer"), beside the
+repo it belongs to instead of standing in for all of them.
+
+Any view is one tap from any other, and nothing closes any more. The current tab is
+a `<span>` rather than a link — tapping where you already are should do nothing, not
+throw away the list, the conversation and your scroll position to rebuild the same
+screen — and it is marked twice over, by the accent colour and by the rule above it,
+because colour alone is not a mark. The bar pads itself past the home indicator.
+
+⟳ stays in the top bar of the views that have it: it acts on the view you
+are looking at rather than taking you off it. ⌨️ (the terminal) and ⚖️ (the
+foundations) stay in the inbox's top bar too — they are places you go for one thing
+and come back from, not views you live in.
+
+An **open question is the exception**: a card you have opened takes the whole screen,
+tab bar included, because the answer buttons at its foot must not sit under anything.
+Collapsing it gives the bar back. That behaviour belongs to `.card.open` and to the
+inbox alone — the accordion on the pull request view marks its unfolded card
+`unfolded` instead, because a card that took the screen over the bar was a page you
+could not leave, on a view whose first load unfolds one.
+
+`node scripts/tabbar-check.mjs` checks it, headless at phone size against fixtures
+the script serves itself: the bar is on every page and pinned to the bottom,
+exactly one tab is current and it is the right one — or, on the chat session and the pull
+request board, that **none** is — the current tab is not a link, and the last row of the
+list, the chat session's composer and the last advocate card all clear it. ＋ is checked
+there too, and driven rather than read: it is a real tap target, it sits above the bar
+rather than over it, the last card clears *it* as well, and tapping it asks which repo
+and then lands on the conversation it just made. All of it in both colour schemes.
+`--fake-inset` re-runs the safe-area sums with a
+notch substituted in, for the Chromes with no `Emulation.setSafeAreaInsets`.
+
+The *paths* are checked separately, in `npm test`: `node test/pagepaths.mjs` asks a
+real server for every URL a phone might still have on its home screen and checks which
+document came back — all five that reach the advocate console, both that reach the pull
+request board, and so on — plus the two kinds of path that must **not** resolve: `/work.js`,
+deleted with the sessions view, and `/mirror` and `/mirror.html`, which were never made
+because [the Mirror is a pane](#the-mirror-is-a-pane-not-a-tab). The aliases live in a
+run of one-line `if`s in `serveStatic`, which is exactly the shape a merge eats, and a
+broken one is silent: the page is fine, the shortcut is not.
+
 ### The ledger — the History tab
 
 There was no way to look back. The inbox is what is arriving, the advocate console is what
@@ -2935,7 +2988,7 @@ the space picker there is no reason for the server to hold it.
 
 ### The Mirror is a pane, not a tab
 
-`tabbar.js` and the Mirror (`public/mirror.js`, whose header is the prose on what it is)
+`tabbar.js` and [the Mirror](#the-mirror--whatever-the-phone-has-open-with-room-to-read-it)
 landed in the same window, so for two days `/monitor` carried **two rows of tabs**: the
 bottom bar, which moves between pages, and an in-page pair (Advocates | Mirror) that swaps
 a pane. Either reading was defensible on the face of it — a standing view of its own, or a
@@ -2986,87 +3039,6 @@ control it already is (two mutually exclusive modes) — filed as bc-stci. The e
 meant to share, scoping this bar's CSS apart from the foundations page's, has landed
 ahead of it as bc-4aw: `.mon-tabs` is now this bar's own selector, which is what a
 restyle needs to be able to move it without moving the other page.
-
-### The Mirror pane waits, it does not poll
-
-The **Mirror** pane beside the advocate console follows whatever the phone has open and draws the
-version that would not fit in a hand — the whole brief, every comment, the options as
-buttons. It follows rather than chooses: the view comes off `/api/presence`, which every
-page publishes as it moves, and the presence event wakes the parked `/api/poll`, so a card
-opening in a hand is on the big screen as fast as the network allows and **nothing is
-polled in between**. Each view behind it costs a `bd` call, and they are paid for on a
-move rather than on a clock.
-
-A chat session is the exception, because it changes while nothing moves at all — the agent
-is mid-sentence. That used to be a 1.5s `setInterval` re-reading the whole session, which
-made a turn arrive up to a second and a half after it was written and cost forty requests a
-minute for a session nobody was talking to. It has a parked request of its own now, on the
-same `/api/console/poll` [the console's own page lives on](#the-chat-session--deciding-what-to-file):
-it waits on that session's sequence and hands back the whole session the moment it moves,
-so an idle one is one held request and a streamed turn lands as it is written. Repaints are
-coalesced to a tenth of a second on the way in — a delta moves the sequence per token, and
-this pane's composer is *inside* what a repaint rebuilds, unlike the console page's.
-
-`node scripts/mirror-check.mjs` holds it to that, in headless Chrome against fixtures
-served from the script: that an idle session is read **once** and then parked on, that
-streamed words arrive through the park rather than through a second read, and — the case a
-timer never had to think about — that the request still in flight when the phone leaves the
-session neither repaints the pane nor starts another one, because the phone can come back
-to a session while the old poll is still out. `--baseline` fails all three, since HEAD's
-mirror never asks `/api/console/poll` anything at all.
-
-Advocates carries a **badge** when there is something behind it — how many advocates
-are waiting on an answer. The number rides the inbox's own poll (`/api/questions`
-carries it; see [the three counts on the poll](#the-three-counts-on-the-poll)), so it
-is live while you are on the inbox and simply absent on a page that has no way to
-refresh it — which beats a stale number that looks live. Zero shows nothing. The badge
-sits inside the tab's `aria-hidden` icon, so the tab takes an `aria-label` saying what
-the number counts: "2" read out after "Advocates" says nothing about two of what.
-
-**One badge, and it is the proposals.** Sessions used to carry the count of running
-agents beside it, and dropping it was deliberate rather than a casualty of the merge:
-a badge on a tab you are not looking at means *needs you*, and a running agent needs
-nothing — it is a fact about the machine. The count is still served and still on
-screen, in the advocate console's own tally ("3 working · 1 to answer"), beside the
-repo it belongs to instead of standing in for all of them.
-
-Any view is one tap from any other, and nothing closes any more. The current tab is
-a `<span>` rather than a link — tapping where you already are should do nothing, not
-throw away the list, the conversation and your scroll position to rebuild the same
-screen — and it is marked twice over, by the accent colour and by the rule above it,
-because colour alone is not a mark. The bar pads itself past the home indicator.
-
-⟳ stays in the top bar of the views that have it: it acts on the view you
-are looking at rather than taking you off it. ⌨️ (the terminal) and ⚖️ (the
-foundations) stay in the inbox's top bar too — they are places you go for one thing
-and come back from, not views you live in.
-
-An **open question is the exception**: a card you have opened takes the whole screen,
-tab bar included, because the answer buttons at its foot must not sit under anything.
-Collapsing it gives the bar back. That behaviour belongs to `.card.open` and to the
-inbox alone — the accordion on the pull request view marks its unfolded card
-`unfolded` instead, because a card that took the screen over the bar was a page you
-could not leave, on a view whose first load unfolds one.
-
-`node scripts/tabbar-check.mjs` checks it, headless at phone size against fixtures
-the script serves itself: the bar is on every page and pinned to the bottom,
-exactly one tab is current and it is the right one — or, on the chat session and the pull
-request board, that **none** is — the current tab is not a link, and the last row of the
-list, the chat session's composer and the last advocate card all clear it. ＋ is checked
-there too, and driven rather than read: it is a real tap target, it sits above the bar
-rather than over it, the last card clears *it* as well, and tapping it asks which repo
-and then lands on the conversation it just made. All of it in both colour schemes.
-`--fake-inset` re-runs the safe-area sums with a
-notch substituted in, for the Chromes with no `Emulation.setSafeAreaInsets`.
-
-The *paths* are checked separately, in `npm test`: `node test/pagepaths.mjs` asks a
-real server for every URL a phone might still have on its home screen and checks which
-document came back — all five that reach the advocate console, both that reach the pull
-request board, and so on — plus the two kinds of path that must **not** resolve: `/work.js`,
-deleted with the sessions view, and `/mirror` and `/mirror.html`, which were never made
-because [the Mirror is a pane](#the-mirror-is-a-pane-not-a-tab). The aliases live in a
-run of one-line `if`s in `serveStatic`, which is exactly the shape a merge eats, and a
-broken one is silent: the page is fine, the shortcut is not.
 
 ## Loaded once, and kept — what a tab tap actually costs
 
@@ -3819,6 +3791,176 @@ not keep sweeping every tracker on the Mac. A workspace that fails
 reports its error in place rather than vanishing from the list; a missing row would
 read as "nothing happening there", which is the one thing it doesn't mean.
 
+## The mirror — whatever the phone has open, with room to read it
+
+The phone is a good place to be **told** something and a poor place to **read** it. A
+question's brief arrives a paragraph at a time, its thread is behind a tap, the bead it
+depends on is a page away, and the options are three buttons stacked in a thumb's width.
+The Mac has room for all of it and no way to know what you are holding.
+
+The **Mirror** is the second pane of the advocates page — `public/mirror.js`, reached by
+the chip beside **Advocates** rather than by a tab of its own, [for reasons that are about
+what it is](#the-mirror-is-a-pane-not-a-tab). It follows the phone — the same card, the
+same chat session, the same list — and draws the version that would not fit in a hand:
+
+```
+ Advocates │ Mirror ●
+
+  ( iPhone · a card · just now )  ( iPad · idle · 2h ago )  ( whoever moved last )
+
+  iPhone has a card open · 4m ago.
+
+  climative   cl-8f2   P1   decision
+  Deploy to staging before the demo?
+    …the whole brief, every section of it, as written…
+  ── Thread ──────────────────────────────────────────────
+  adam.morgan  2d   the fee comparison is the actual blocker
+  claude       1d   drafting · comparing both fee models
+  ── 2 choices ───────────────────────────────────────────
+  [ Yes, deploy tonight                                  ]
+  [ Compare both models first  ↪ commissions the work    ]
+  [ Answer it, or say what you want looked into…         ]
+    🎤   [ Comment & ask an agent ]  [ Answer & close ]
+```
+
+Three things make that a mirror rather than a second inbox, and each one is a decision
+with a cost attached: **it follows rather than chooses**, **it waits on the bus rather
+than on a timer**, and **every button in it is an endpoint that already existed**.
+
+### It follows; it does not choose
+
+The view comes off `/api/presence`. Every client page loads `public/presence.js` and
+calls `presence.report({...})` when its view changes — one shared file, because the
+alternative is five slightly different debounces — and a page may call it on **every**
+render, which is what most of them do: the payload is compared with the last one sent and
+an identical report costs nothing. That is the property worth keeping. Publishing where
+you are must never be something a page has to remember to do at exactly the right moment;
+it only has to be *able* to say where it is, as often as it likes. Nothing there blocks a
+repaint either — the send is debounced, fire-and-forget, and a failure is swallowed,
+because the monitor going blind is not a reason for the phone to stall over a feature the
+person holding it is not using.
+
+`lib/presence.js` holds the other end, and it is the one thing in beadcause that knows
+something about the **reader** rather than about the tracker: which view the phone has
+open and which card is up in it. **In memory, never on disk** — a phone's whereabouts is
+worth exactly as long as the daemon that serves it, a restart means every client
+re-reports on its next heartbeat, and a record that outlived the process would only ever
+be a lie about where someone is. It is also why nothing needs pruning on a timer: `list()`
+drops what has gone stale as it reads. A report is a claim by a client, so every field is
+bounded there rather than trusted — an unknown view collapses to `other`, and every string
+is cut to a length that fits a line of the pane.
+
+The chips across the top are the devices, one each, saying where they are and how long ago
+they said so. The age is on the chip and not only in the header because a device keeps its
+record for **fifteen minutes** after its last word (it beats every 45s while it stays put,
+well inside that, so a phone left on a card overnight is not a request a minute all
+night) — and a browser that was closed an hour ago must not read as one being held right
+now. A screen that has gone off says `· asleep`, and the header says "the screen is off,
+this is where it was left" rather than presenting a stale view as a live one. Tapping a
+chip pins that device; "whoever moved last" gives the pin back, and it only appears once
+there is a second device, because with one phone the two instructions are the same. With
+nothing reporting at all the pane says so and says what to do about it — "No device has
+said where it is. Open the inbox on the phone" — because an empty frame on a screen you
+left running looks exactly like one that has broken.
+
+The monitor loads `presence.js` too, which took some care: it is the mirror *and*, since
+it absorbed [`/sessions`](#current-sessions--who-is-working-and-on-what), a view worth
+mirroring. A device that followed another device would list itself, so two halves stop it
+— `notMe`, which drops this browser profile from the list, and `showTab`, which reports
+`view: null` while the pane is the one showing. A mirror cannot circle back on to the page
+it is drawn on, and that is the same property that makes it [meaningless on a
+phone](#the-mirror-is-a-pane-not-a-tab).
+
+### The Mirror pane waits, it does not poll
+
+A presence report that says something new wakes the parked `/api/poll`, so a card opening
+in a hand is on the big screen as fast as the network allows and **nothing is polled in
+between**. Each view behind it costs a `bd` call, and they are paid for on a move rather
+than on a clock. Two things keep that from costing more than it saves:
+
+- **A heartbeat that repeats the last report is stored and stays silent.** `report()`
+  returns `changed`, and only a change reaches the bus — otherwise every phone would wake
+  every parked long-poll twice a minute to say nothing had happened.
+- **This listener asks for presence and nothing else** (`/api/poll?want=presence`). The
+  presence branch of the poll explicitly does not sweep `bd`; without the flag, parking a
+  second listener there would double the sweeps the daemon does per event to build a
+  question list this pane throws away.
+
+The read is keyed on the **view's identity**, not on the presence record: a heartbeat, a
+`hidden` flag flipping, another device arriving — none of those change what should be on
+screen, and each would otherwise cost a `bd show`. The bead underneath can move without
+the phone moving at all, which presence cannot tell you, so a non-presence event on the
+key being shown forces a re-read as well.
+
+The feed runs whether or not the pane is the one showing, which is deliberate: the whole
+argument for presence riding the bus is that a move is known instantly, and a mirror that
+started listening when you looked at it would be a poll with extra steps. The cost is one
+held socket. While the pane is hidden a move only lights the dot on the chip — nothing
+repaints behind a hidden pane, so a parked read would be a held request nobody looks at —
+and coming back forces one fresh read.
+
+A chat session is the exception, because it changes while nothing moves at all — the agent
+is mid-sentence. That used to be a 1.5s `setInterval` re-reading the whole session, which
+made a turn arrive up to a second and a half after it was written and cost forty requests a
+minute for a session nobody was talking to. It has a parked request of its own now, on the
+same `/api/console/poll` [the console's own page lives on](#the-chat-session--deciding-what-to-file):
+it waits on that session's sequence and hands back the whole session the moment it moves,
+so an idle one is one held request and a streamed turn lands as it is written. The whole
+session comes back rather than a diff, which is what makes a mirror that missed half a turn
+— asleep, or off the tailnet — correct on its first response instead of reconciling a
+stream it never saw. Repaints are coalesced to a tenth of a second on the way in: a delta
+moves the sequence per token, and this pane's composer is *inside* what a repaint rebuilds,
+unlike the console page's. A generation counter stands the loop down when the phone leaves
+the session, because the phone can come back to one while the old poll is still out and
+that response must not paint over a newer read.
+
+`node scripts/mirror-check.mjs` holds it to that, in headless Chrome against fixtures
+served from the script: that an idle session is read **once** and then parked on, that
+streamed words arrive through the park rather than through a second read, and — the case a
+timer never had to think about — that the request still in flight when the phone leaves the
+session neither repaints the pane nor starts another one. `--baseline` fails all three,
+since HEAD's mirror never asks `/api/console/poll` anything at all.
+
+### Taking the wheel, and handing it back
+
+Following is the default, not the whole of it. Tapping a row in the mirrored inbox opens
+that card **here**, and that is an override recorded on purpose: the phone keeps moving
+underneath, and without it the page would slide out from under your own click. The header
+says which of the two you are in — "iPhone has a card open · 4m ago" against "You opened
+this here" — and an override keeps the device it was launched from, so the way back is one
+press of **Follow the phone again**. Pinning a different device gives the wheel back too.
+
+Composer text is held per target, so a repaint — and there are many, driven by another
+device, landing at the least convenient moment by definition — cannot eat a half-typed
+answer, and the caret goes back where it was after every rebuild. Which option you clicked
+is remembered the same way, because it is the only thing that can say whether the answer
+commissions work.
+
+### Every button in it is an endpoint the phone already had
+
+Answering is `POST /api/respond`, commenting is `POST /api/comment`, and talking to a chat
+session is `POST /api/console/message` with `POST /api/console/close` to end it. Those are
+the phone's own writes, unchanged: **this pane holds no privilege of its own and adds no
+state to the daemon.** Presence is the only thing it needed that did not exist, and
+presence is a read.
+
+That is what keeps it one app rather than two over one bead. A choice clicked here fills
+the composer instead of sending it, exactly as it does on the phone — a choice you may want
+to qualify in a sentence has to reach the box before it reaches the thread — with the same
+three rules: another choice's words replace, words of your own are appended to, and
+clicking the choice you already made takes it back while the box still says what that click
+put there. The button over it reads **Answer & commission** rather than **Answer & close**
+for an option marked [`closes: false`](#asking-a-question), because the phone's own button
+does, and one screen promising a close the other does not is worse than either wording.
+
+Three views it deliberately does **not** draw. A terminal, a document and a session's
+transcript are files and pipes on the Mac rather than rows in a tracker: the phone is not
+showing a cut-down version this screen could improve on, so a second renderer here would be
+one more thing to keep in step for no gain. The mirror names what the phone is looking at
+and offers the same address — for a session, the very `/session?pid=…` every other list in
+the app links to. The pull request board has no richer version here either, and the pane
+says as much in a line rather than showing an empty frame.
+
 ## Pull requests — review, merged, pushed, deployed, live
 
 A delivery question asks *may I merge this?* and is gone the moment you answer it — and
@@ -3937,20 +4079,23 @@ rebase before it can merge") on a card, with the next step yours to work out at 
 act as *Request changes* on a delivery card: a note back to a session on the same branch,
 where the only difference is who wrote the note — Adam's sentence about the code there,
 GitHub's about the merge base here. The brief (`conflictPromptFor` in `lib/session.js`) pins
-down five things, because an unattended session with a vague scope invents one:
+down six things, because an unattended session with a vague scope invents one:
 
 1. **the branch is what is behind, not `main`** — read the other way round, "resolve the
    conflict" is a session merging a branch into main by hand, which is the one act nothing
    here may do;
 2. **work in a worktree** — `git worktree list` first, because six sessions share these
    checkouts and the main one is the daemon's own;
-3. **a tree already mid-merge is somebody else's** — stand down and say so, and do *not*
+3. **take that tree's lock, and read a refusal as an answer** — an occupied worktree looks
+   exactly like an idle one otherwise, which is
+   [its own section](#an-occupied-worktree-that-reads-as-idle) below;
+4. **a tree already mid-merge is somebody else's** — stand down and say so, and do *not*
    run `git merge --abort`. That one is the second layer under the de-duplication below,
    for the two resolvers that are already up rather than the second one that must not be
    opened;
-4. **run the repo's own gate afterwards** — a clean merge of two working branches is not a
+5. **run the repo's own gate afterwards** — a clean merge of two working branches is not a
    working tree;
-5. **push the branch, then stop** — the merge stays a tap here.
+6. **push the branch, release the lock, then stop** — the merge stays a tap here.
 
 It is armed like merge, because it starts something unattended. It refuses unless GitHub
 reports the pull request `CONFLICTING` *right now*, asked again at the moment of the press
@@ -4000,6 +4145,57 @@ memory and never on disk, for the reason a phone's whereabouts is: a handle is w
 exactly as long as the iTerm holding it, and a record that survived a restart would only
 ever be a claim about a window nobody can address. `node test/resolvers.mjs` asserts all of
 it — including ten simultaneous presses producing one window and nine nudges.
+
+#### An occupied worktree that reads as idle
+
+The de-duplication above stops the *second window*, and it is worth being honest about what
+it does not stop. The record is in memory, so a daemon restart forgets every session it
+opened; and a window opened by hand — the ordinary case at this Mac — was never in the record
+at all. In both, the next resolver arrives at a worktree somebody is already merging in, and
+asks the only question available to it: *is anything happening here?*
+
+Nothing in a worktree answered that. `git worktree list` shows an occupied tree and an idle
+one identically, and so did the `SessionStart` hook that prints them
+(`~/.claude/hooks/worktree-guard.sh`). The reason is narrower than it looks: `EnterWorktree`
+locks the worktrees it **creates** — `locked claude session <name> (pid 82761 start …)` —
+and only those. Measured on 2026-08-11: entering an existing worktree by path — which is
+exactly what the brief asks of a resolver whose branch is already checked out somewhere —
+locks nothing. So the tell that a tree was busy existed for every worktree except the ones
+where two sessions could collide.
+`ps aux | grep <path>` and `ListAgents` were the only answers, and the second one sees only
+peers of the same harness.
+
+So the brief now has the session say so in the tree itself, `git worktree lock .` with a
+reason carrying this window's pid and the pull request number. Two properties do the work:
+
+- **The lock refuses.** `git worktree lock` on an already-locked tree exits 128 and prints
+  the existing reason — so the *attempt* is the occupancy check, with no gap between reading
+  and taking for a second resolver to arrive in. Four answers, and they are four rather than
+  two: it succeeds (yours, release it at the end); it names a pid `ps` still knows (somebody
+  is in there — say which, and leave); it names a pid `ps` does not know (a session crashed
+  — take it over, and say so, because standing down for a dead session is how a tree becomes
+  permanently unusable); or it names *your own* pid, which is the lock the harness took when
+  you created the tree, so carry on and leave it alone — it goes when the window does.
+- **The pid is already understood.** The `SessionStart` hook resolves the pid in a lock
+  reason against `ps` and prints a dead one as `STALE pid <n> — prunable`, which is what
+  keeps a crashed resolver's lock from reading like a live one for ever. That convention
+  predates this and is the reason the reason has that shape.
+
+Finding your own pid is the awkward part, and the brief spells it out rather than leaving an
+unattended session to work it out twice: `$$` is a shell that dies with the command that
+printed it, so a lock taken in its name reads as stale within seconds, and the walk up the
+process tree to the `claude` process has to be wrapped in `zsh -c '…'` — a worktree-isolated
+session's own Bash calls refuse `$$`, `$PPID` and every shell loop as *"too complex to verify
+that it stays inside the worktree"*. A brief that handed a session a command it will be
+refused would have told it nothing at all.
+
+What this deliberately does not fix. The daemon cannot take the lock on the session's behalf:
+it knows neither the pid nor how long the window will outlive the launch call. A session that
+dies without unlocking leaves a stale lock — which is the pid's whole job, not an oversight.
+And `git worktree lock` is being repurposed from the removable-media case it is documented
+for; the one real cost of that is `sweepWorktrees` in `lib/tidy.js`, which leaves a locked
+worktree alone (`why: 'locked'`) — correct while a resolver is in there, and the reason
+releasing the lock is a numbered step rather than a suggestion. That is bc-7uie.
 
 `node test/prfull.mjs` covers the daemon's half: that the description comes from `gh` and
 the rung from the board, that the attribution finds the session for *this* branch when a
@@ -4278,7 +4474,7 @@ without rebuilding leaves a stale APK being served to a phone.
 
 **It is argv, and never a shell line.** `["launchctl", "kickstart", …]`, not
 `"launchctl kickstart …"`. That file is hand-edited, rewritten by `saveConfig` and
-[synced as a git repo](#where-it-lives-configbeadcause-is-a-git-repo); a string would
+[synced as a git repo](#where-the-rest-lives-configbeadcause-is-a-git-repo); a string would
 make every one of those somewhere a metacharacter changes what runs. The cost is that
 `&&` and pipes are unavailable, and the answer to wanting them is a script in the repo —
 a thing you can read and test. `{uid}`, `{home}`, `{dir}` and `{base}` are substituted;
@@ -5727,7 +5923,7 @@ So the advocate asks. Every `landedIntervalMinutes`, and **again, unconditionall
 moment before it opens a window** — being ten minutes late on a timer is one session
 spent discovering that landed work has landed, and one `gh pr list` against twenty
 seconds of iTerm is not a cost worth economising on. Whichever beads a merged pull
-request was for (`lib/beadref.js`, the same tiering the [PR board](#pull-requests--merged-pushed-deployed) uses to link a row to a bead) are commented on and
+request was for (`lib/beadref.js`, the same tiering the [PR board](#pull-requests--review-merged-pushed-deployed-live) uses to link a row to a bead) are commented on and
 closed, and the stale "Merge #42?" card in front of them is closed first — bd refuses to
 close a bead with an open blocker, and that card is the blocker.
 
@@ -6053,7 +6249,7 @@ Six things follow, and they are the whole of the change:
 - **Deploying is still yours to ask for.** The merge is on `origin`; whether that is
   *running* is a different fact with a different button. The notification says what
   landed and what is still owed, and links to
-  [the PR board](#pull-requests--merged-pushed-deployed), where **Ship** is. A worker
+  [the PR board](#pull-requests--review-merged-pushed-deployed-live), where **Ship** is. A worker
   being right about a merge does not make it right about a deploy, so it never runs one
   — but where the repo has written its deploy down, Ship is one tap and no window. On a card that *did* come
   to you, the two are one tap apart: **Merge** and **Ship it** sit next to each other,
@@ -8237,7 +8433,7 @@ blocker happened to have cleared by the time you tapped.
 
 Both of them are named so that the git repo in that directory *cannot* commit them, and
 that is the design rather than a habit. `~/.config/beadcause` is
-[a repo](#where-it-lives-configbeadcause-is-a-git-repo) that snapshots `config.json`
+[a repo](#where-the-rest-lives-configbeadcause-is-a-git-repo) that snapshots `config.json`
 after every write — which is the point of it — so a secret in that file is not "on disk
 in the clear", it is in a **history**, and a rotation cannot reach back into a history.
 
@@ -8658,7 +8854,7 @@ cookie says so), and `/auth/signout` ends the session.
 | POST | `/api/tls` | `{enabled}` | turns HTTPS on or off: writes `tls.enabled`, fetches the certificate when it is on (asynchronously — the synchronous one would block every request for the length of a Let's Encrypt round trip), and moves `baseUrl`. Pressing it while it is already on is the retry. Binds nothing: TLS is decided when the listener is created, so the reply carries `restartNeeded`. Refused on an observer, which shares this config with the live daemon |
 | GET | `/api/deploys` | `?limit=` or `?id=` | the recent deploys, or one with its log. Four endings, not two: `ok`, `failed`, and the two that mean nobody knows — `unconfirmed` (the ordinary ending of a restart) and `lost` |
 | POST | `/api/deploy` | `{workspace, bead?, reason?}` | runs that repo's declared deploy. `409` with no declaration, or if one is already running. Means "written down and a process owns it", never "it worked". Refused on an observer |
-| POST | `/api/presence` | `{device, view, key}` | which view this device has open, so the mirror can follow it. Wakes `/api/poll` without costing a `bd` sweep — see `changed` there |
+| POST | `/api/presence` | `{device, view, key}` | which view this device has open, so [the mirror](#the-mirror--whatever-the-phone-has-open-with-room-to-read-it) can follow it. Wakes `/api/poll` without costing a `bd` sweep — see `changed` there |
 | GET | `/api/presence` | — | `{devices[]}` — who is where |
 | DELETE | `/api/presence` | `{device}` | forget one device |
 | POST | `/api/session-say` | `{pid, text}` | says one line into a live session's own iTerm window. `413` with the words left in the box if it is past `SAY_MAX` — the message rides to `osascript` as an argument, and past `ARG_MAX` the failure reads as "the session is gone", which is the one thing this must not lie about |
