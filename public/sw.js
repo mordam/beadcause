@@ -98,7 +98,16 @@
    an accent-coloured button in the middle of it. app.js moves too, because the link that
    opens a document from a card now carries the bead — and that is the only reason the
    published URL can end up on the bead instead of only in the daemon's state. */
-const CACHE = 'beadcause-v31';
+/* v32: the History tab (bc-nib3.2). `/history`, `/history.html` and `/history.js` are
+   new paths *and* `/tabbar.js` moves in the same change, which is the pairing that makes
+   this a version bump rather than three additions to the list. A phone holding v31's
+   cached tabbar.js has a four-tab bar with no History on it, so the page behind the new
+   paths is unreachable from every screen in the app; one holding v32's tabbar.js without
+   the three new entries has a tab that 404s out of the cache the moment the tailnet is
+   slow — a bar whose whole job is that you can always leave a page, with an entry that
+   goes nowhere. The bar and the page it points at have to arrive together, which is what
+   a cache version is for. */
+const CACHE = 'beadcause-v32';
 const SHELL = [
   '/',
   '/index.html',
@@ -183,6 +192,14 @@ const SHELL = [
   '/work.html',
   '/monitor.html',
   '/monitor.js',
+  // The ledger. In the shell because it is a tab: every tab has to open instantly from
+  // the bar whatever the link is doing, and this is the one page in the app you might
+  // reasonably open *because* you are somewhere with no signal and are trying to
+  // remember what happened to something. Its rows come from /api/history, which is
+  // never cached — so offline it is an honest empty list rather than a stale one.
+  '/history',
+  '/history.html',
+  '/history.js',
   // Pause all / resume all. In the shell for the reason the terminal is: you open
   // it because something needs stopping now, and that is often the moment the link
   // is worst. The page is useless without the daemon — but it says so instantly

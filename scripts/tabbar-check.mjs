@@ -230,6 +230,31 @@ const PRS = {
   ],
 };
 
+/* The ledger, deep enough to page. 46 beads over two repos so the History tab has more
+   than one screenful, `more` is true after the first page, and the Load more button that
+   must clear the bar is actually on the screen. Half of them carry a session marker and
+   the closed ones carry a close reason, because those are the two things that make a row
+   taller than a single line — and a fixture of bare one-line rows is how a list that
+   overflows its own card would go unnoticed here. */
+const LEDGER = Array.from({ length: 46 }, (_, i) => {
+  const closed = i % 3 !== 0;
+  return {
+    id: `de-${String(i + 1).padStart(3, '0')}`,
+    workspace: i % 4 === 3 ? 'other' : 'demo',
+    title: `Something that was done about the thing (${i + 1})`,
+    type: ['task', 'bug', 'feature', 'decision'][i % 4],
+    status: closed ? 'closed' : i % 6 === 0 ? 'in_progress' : 'open',
+    priority: i % 5,
+    updated: new Date(Date.UTC(2026, 6, 1) + (46 - i) * 3600e3).toISOString(),
+    created: new Date(Date.UTC(2026, 5, 1)).toISOString(),
+    closeReason: closed ? `Landed as #${i + 1} as ${'ab12cd3'} — still owed: DEPLOYED` : null,
+    hasSession: i % 2 === 0,
+    createdBy: 'someone',
+    provenance: i % 7 === 0 ? 'agent' : 'human',
+    labels: [],
+  };
+});
+
 const TYPES = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
@@ -283,6 +308,33 @@ function serve() {
     // that conversation and not on the launcher.
     if (p === '/api/console' && req.method === 'POST') return json({ ok: true, id: 'newone01' });
     if (p === '/api/console' && req.method === 'GET') return json({ ...CONSOLES[0], id: 'newone01', messages: [] });
+    // What the space picker in the top bar boots from, on every page below except the
+    // inbox — which is handed the same thing on `/api/questions` above. Stubbed rather
+    // than left to the `{}` fallback because the History tab's request *is* its
+    // selection: with no workspaces the picker resolves to nothing and that page has
+    // nothing to be the ledger of, so it would draw an empty state on a check about
+    // whether its list clears the bar.
+    if (p === '/api/spaces')
+      return json({
+        spaces: [],
+        workspaces: ['demo', 'other'],
+        counts: { demo: 1 },
+        trouble: [],
+        filter: { space: 'all', workspace: 'all' },
+        waiting: 1,
+      });
+    // The ledger, paged per repo the way lib/history.js does it — honoured rather than
+    // faked, because the button being measured is the one that asks for the next page,
+    // and a stub that ignored `offset` would answer the first page forever.
+    if (p === '/api/history') {
+      const q = new URL(req.url, 'http://x').searchParams;
+      const ws = q.get('workspace');
+      const rows = LEDGER.filter((r) => r.workspace === ws);
+      const offset = Number(q.get('offset')) || 0;
+      const limit = Number(q.get('limit')) || 60;
+      const page = rows.slice(offset, offset + limit);
+      return json({ workspace: ws, rows: page, total: rows.length, limit, offset, more: offset + page.length < rows.length });
+    }
     if (p.startsWith('/api/')) return json({});
     // The same aliases the real server maps onto one page. `/sessions` and `/work` are
     // the advocate console now — see serveStatic in lib/server.js — and they are here
@@ -292,6 +344,7 @@ function serve() {
     if (rel === '/prs' || rel === '/pulls') rel = '/prs.html';
     if (rel === '/monitor' || rel === '/advocates' || rel === '/sessions' || rel === '/work') rel = '/monitor.html';
     if (rel === '/admin') rel = '/admin.html';
+    if (rel === '/history') rel = '/history.html';
     const file = path.join(PUBLIC, rel === '/' ? 'index.html' : rel.replace(/^\/+/, ''));
     if (!file.startsWith(PUBLIC) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) {
       res.writeHead(404).end('no');
@@ -467,6 +520,19 @@ const CLEAR = {
   '/monitor': MON_CLEAR,
   // The same page, reached by the path the phone's home screen still holds.
   '/sessions': MON_CLEAR,
+  // The ledger's own foot. Not the last row — the button under it, which is how the
+  // rest of the list is asked for. A bar over that is a record that ends at whatever
+  // the first page happened to hold, and it would look exactly like a repo with sixty
+  // beads in it.
+  '/history': `(() => {
+    const btn = document.querySelector('#hist-more');
+    if (!btn) return { what: 'the load-more button', missing: true };
+    document.scrollingElement.scrollTop = document.scrollingElement.scrollHeight;
+    const r = btn.getBoundingClientRect();
+    const bar = document.querySelector('.tabbar').getBoundingClientRect();
+    return { what: 'the load-more button', bottom: Math.round(r.bottom), barTop: Math.round(bar.top),
+             n: document.querySelectorAll('.hist-row').length };
+  })()`,
   // The kill button is the last thing on the last scope's card, and it is the one
   // control on this page you must never press by accident. A bar sitting over it
   // would put "stop every running session" exactly where a thumb reaches for the
@@ -491,8 +557,14 @@ const CLEAR = {
    new one — and PRs was the fourth (bc-l8jp.6), whose pull requests are cards in the
    same list. Both are still here under `PAGES` with `tab: null`, because a subordinate
    view keeps the bar: the bar is how you leave it, and nothing on it is current since
-   you are not on one of these three. */
-const TABS = ['inbox', 'advocates', 'admin'];
+   you are not on one of these three.
+
+   And one came back (bc-nib3.2). This list is in bar order and History is third, which
+   is also the order the three read in: what is arriving, what is running, what is
+   finished. Inbox stays leftmost because it is home and Admin stays rightmost because it
+   is the tab you least want under a stray thumb, so the bar grew in the middle and
+   neither position anybody has learned moved. */
+const TABS = ['inbox', 'advocates', 'history', 'admin'];
 
 const PAGES = [
   { url: '/', tab: 'inbox', name: 'inbox' },
@@ -507,6 +579,11 @@ const PAGES = [
   // page with no tab pointing at it is the kind that quietly rots: the bar still has to
   // be there, still has to clear the last row of buttons, and must light nothing.
   { url: '/prs', tab: null, name: 'prs' },
+  // The ledger. The one page here whose list is deliberately long — it pages as you
+  // reach the end of it — so "the last row clears the bar" is a different claim than it
+  // is on the four above: what must clear the bar is the control that loads the *next*
+  // page, because a Load more sitting under the tab bar is a list that silently stops.
+  { url: '/history', tab: 'history', name: 'history' },
   { url: '/monitor', tab: 'advocates', name: 'advocates' },
   // The same page under the path the sessions view left behind. The tab it lights has
   // to be Advocates: a shortcut that lands somewhere the bar calls nothing is a page

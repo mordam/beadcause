@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0b0f14" media="(prefers-color-scheme: dark)">
+  <meta name="theme-color" content="#f6f7f9" media="(prefers-color-scheme: light)">
+  <title>Beadcause · history</title>
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body class="doc-body">
+  <header class="topbar">
+    <div class="brand">
+      <span class="dot" id="pulse"></span>
+      <h1>History</h1>
+      <!-- No `⦿ observing` chip here, unlike the other four standing views, and it is
+           an absence with a reason rather than an oversight. `OBSERVING` rides on
+           /api/work, /api/prs, /api/admin and the poll — the payloads of the pages that
+           can *act* on this Mac — and not on /api/spaces, which is all this page
+           fetches besides its own rows. A chip needs a second request to say what it
+           says, and the thing it warns you about is a button that might reach the wrong
+           machine. There is no such button on a ledger: nothing here writes. -->
+    </div>
+    <div class="sheet-actions">
+      <button id="hist-refresh" class="icon-btn" aria-label="Refresh">⟳</button>
+    </div>
+  </header>
+
+  <main class="work">
+    <!-- The whole list, drawn by history.js. Everything below is replaced on every
+         repaint, so nothing that has to survive one may live in here. -->
+    <div id="history">
+      <div class="empty">Reading the ledger…</div>
+    </div>
+  </main>
+
+  <!-- Which repo the ledger is of. Before history.js, which registers its rebuild on
+       it and has nothing to ask the daemon about until the picker knows the answer:
+       /api/history takes exactly one workspace, so "which workspaces am I looking at"
+       is not a filter over the response here, it is the request. -->
+  <script src="/spacebar.js"></script>
+  <script src="/tabbar.js"></script>
+  <script src="/history.js"></script>
+  <!-- Every row is a link into the graph, and the drawer is what keeps this list —
+       and, more to the point, your place four hundred rows down it — underneath the
+       bead you opened. Without this file a tap is a full-page navigation and the way
+       back is the top of the list again. -->
+  <script src="/drawer.js"></script>
+</body>
+</html>

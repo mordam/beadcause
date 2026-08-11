@@ -83,6 +83,24 @@
     // not warm for the others, and leaving it here would have left /monitor cold every
     // time you arrived from /admin. /admin still *reads* a held `/api/work` for its
     // first frame; it is simply no longer the page that fills it.
+    // The ledger (bc-nib3.2), and the one view here that warms **nothing** — which is a
+    // recorded decision rather than a gap, because a tab missing from this list is a tab
+    // that stays cold and nobody notices until they are on a phone wondering why one is
+    // slower than the others.
+    //
+    // Every path above is a constant, because that is the whole mechanism: the list is
+    // fetched from whatever page you are on, for the pages you are not. History has no
+    // constant to offer. Its boot request is `/api/history?workspace=…`, which takes
+    // exactly one repo and so is a function of what the space picker happens to be set
+    // to — and under `All spaces`, or a space holding three repos, it is not one request
+    // but three. A path written here would warm the wrong repo for everybody who had
+    // narrowed the picker, and warming *every* repo's ledger from every other tab is a
+    // sweep of the whole tracker to fill a cache for a page you may not open.
+    //
+    // It is also the view that needs it least: this is the one screen in the app that is
+    // explicitly about what has already happened, so an instant first frame of slightly
+    // stale rows buys less here than anywhere else.
+    { id: 'history', paths: [] },
     { id: 'admin', paths: ['/api/admin'] },
   ];
 

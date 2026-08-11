@@ -453,6 +453,14 @@ await check('every tab the bar draws has a view — and two views are deliberate
   assert.deepEqual(views.filter((v) => !ids.includes(v)), ['console', 'prs']);
   // And the tabs' own order still follows the bar, so the warm fills them in thumb order.
   assert.deepEqual(views.filter((v) => ids.includes(v)), ids);
+  // A view may warm nothing, and exactly one does. `paths: []` satisfies the loop above
+  // without prefetching a byte, so it is the obvious way to silence this check rather
+  // than answer it — and the answer is only defensible for History, whose boot request
+  // is `/api/history?workspace=…` and therefore not a constant this file could hold.
+  // Any *other* pathless view is a tab that stays cold behind an entry claiming it does
+  // not, which is worse than the missing entry this check was written to catch.
+  const empty = plain(warm.VIEWS).filter((v) => !plain(v.paths).length).map((v) => v.id);
+  assert.deepEqual(empty, ['history'], `a view that warms nothing has to be a decision: ${empty.join(', ')}`);
 });
 
 await check('the inbox draws its list through the reconciler, not through innerHTML', () => {

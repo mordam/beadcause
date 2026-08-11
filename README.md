@@ -2640,8 +2640,8 @@ admitting itself.
 So all of them carry the same bar along the bottom, where a thumb already is:
 
 ```
-  📥         📣         ⏸
- Inbox   Advocates   Admin              ＋
+  📥         📣         📜        ⏸
+ Inbox   Advocates   History   Admin     ＋
  ▔▔▔▔▔
 ```
 
@@ -2659,12 +2659,77 @@ and it is checked: `scripts/tabbar-check.mjs` carries it with `tab: null`, asser
 bar is still there (it is the only way off the page) and that no tab lights for a page this
 is not. A page can be reachable, load-bearing, and not a tab.
 
-Three tabs is 120px each at 360px. Four was 90px, five was 72px — which "Advocates" still
+Four tabs is 90px each at 360px. Three was 120px, five was 72px — which "Advocates" still
 fits — and six would be 60px, which it does not, so the stylesheet steps the type down when
 a sixth tab is there (`.tabbar:has(.tab-item:nth-child(6))`), keyed off the bar's own
 contents rather than off a count written down somewhere, so adding or removing a tab needs
 nothing else. It is dormant below six and will come back on its own if the bar fills up
 again.
+
+### The ledger — the History tab
+
+There was no way to look back. The inbox is what is arriving, the advocate console is what
+is running this minute, and a bead that closed last week had left both lists by definition:
+it was reachable only if you still remembered its id and could be bothered to type it into
+the graph's query string. Meanwhile 298 beads are closed in beadcause alone, and their
+close reasons are unusually good — `Landed as #92 as 677b5a5b — still owed: DEPLOYED` is a
+better answer to *did that ship?* than the PR board can give. The record existed in full
+and nothing displayed it.
+
+So **📜 History is the fourth tab**, and it earns one by the rule above rather than in
+spite of it: the historical record is somewhere you live — it is where you go to ask *what
+happened to that*. It sits third, between Advocates and Admin, which is two decisions at
+once. The bar had to grow in the **middle**: Inbox stays leftmost because it is home and
+it is `/`, Admin stays rightmost because it is the tab you least want under a stray thumb,
+so neither of the two positions anybody has learned moves to a different edge. And of the
+two middle slots it takes the later one, because the first three then read left to right
+in the order the work does — what is **arriving**, what is **running**, what is
+**finished** — and Inbox and Advocates, which are the pair you cross between all day, stay
+adjacent.
+
+The page is the selected space's beads, **most recently updated first**, paged as you reach
+the end of it. Each row carries the id, the title, the type, the status, the priority, when
+it last moved, its close reason when it has one, and a marker when a session was archived
+for it. Tapping one opens the bead detail sheet that already exists —
+`/graph?ws=…&id=…&open=1`, the deep link `&open=1` was built for — so this page needed no
+detail view of its own and does not have one. The rows are real `<a href>`s, which is what
+lets [the drawer](#detail-opens-over-the-tab-not-instead-of-it) hold that sheet *over* the list: this
+is the one list you legitimately scroll four hundred rows down, and a full-page navigation
+would spend that scroll on every bead you looked at.
+
+**One picker, several repos, one merged list.** `GET /api/history` takes exactly one
+workspace and refuses a missing one. The [top-level picker](#one-space-at-a-time--the-picker-in-the-top-bar)
+does not: `All spaces` is every repo you have, and a *space* is a group of them. So the
+selection is not a filter over the response here, it is the shape of the request — a space
+of three repos is three requests whose answers have to become one list, and they are
+**merged by time rather than concatenated**. Concatenated, the list would show all of repo
+A and then all of repo B, each internally newest-first and the whole thing wrong, with a
+bead from last March above one from this morning.
+
+The subtle half is worth writing down because it is invisible on any screen small enough to
+check by eye. Each repo keeps a small buffer, and a repo whose buffer runs dry must be
+**re-filled before the next comparison, not after**. Its next page is older than everything
+it has already given us, and can still be newer than what another repo is offering — so an
+empty buffer with more behind it is not "this repo is finished", and treating it as one
+drops a run of one repo out of the *middle* of the list: no gap, no error, just a fortnight
+that is not there. `test/history.mjs` checks it with a deliberately lopsided fixture where
+every row of one repo is newer than every row of the other, because the obvious
+evenly-interleaved fixture cannot fail whatever the merge does — both repos run out on the
+same row and the wrong implementation still looks right.
+
+Three things it does **not** do. It does not filter — status, priority, provenance and an
+id substring are the server's already and the controls for them are their own work. It does
+not stream: every other standing view mounts `stream.js`, and a fifth long poll parked
+against a page about what already happened would be paying for liveness nobody asked for,
+so ⟳ is the refresh and a record that reordered itself while your thumb was travelling
+would be worse than one that did not. And **nothing on it writes** — which is also why it
+is the one standing view with no `⦿ observing` chip: that chip warns you that a button
+might reach a Mac you are not looking at, and there is no such button on a ledger.
+
+A repo that will not answer drops out of the merge and says so above the list rather than
+taking the other repos down with it, and a total is drawn only when every repo in view has
+answered — a sum over the repos that replied, presented as the whole, is the same class of
+lie the picker's ⚠ exists to prevent.
 
 ### Why Chat is not a tab, and ＋ is not a tab either
 
@@ -2695,7 +2760,7 @@ you is the one thing the space picker exists to stop. Either way it lands on
 id and the href are in stored conversation records and on the phone's home screen, so both
 of its paths still serve the page — a bookmark that 404s is a worse outcome than a page
 with no tab. It keeps the bar, because that is how you leave it, and nothing on the bar is
-marked current there: you are not on one of the three.
+marked current there: you are not on one of the four.
 
 ### Dismissed is hidden, not gone
 
