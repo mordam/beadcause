@@ -100,13 +100,15 @@
   }
 
   let toastTimer;
+  /** Red when something went wrong — and `bad === true` files it. See app.js's toast. */
   function toast(msg, bad = false) {
     const el = $('#toast');
     el.textContent = msg;
-    el.classList.toggle('bad', bad);
+    el.classList.toggle('bad', Boolean(bad));
     el.hidden = false;
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => (el.hidden = true), bad ? 6000 : 3000);
+    if (bad === true) window.beadcause?.report?.toast?.(msg);
   }
 
   const relTime = (iso) => {
@@ -322,7 +324,7 @@
       async () => {
         if (dlg.returnValue !== 'save') return;
         const why = $('#save-why').value.trim();
-        if (!why) return toast('A justification is required — that is the point of the history.', true);
+        if (!why) return toast('A justification is required — that is the point of the history.', 'refused');
         try {
           const out = await api('/api/foundation/amend', {
             method: 'POST',
