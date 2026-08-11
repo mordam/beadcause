@@ -37,6 +37,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { boundPort } from './helpers/net.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const LIB = path.join(HERE, '..', 'lib', 'bd.js');
@@ -148,9 +149,12 @@ check('a refused comment is reported, never swallowed', Boolean(threw), String(t
 // reaches it at all — a route that 404s would fail on the phone exactly the way a
 // broken `bd` call would, and nothing above this line would notice.
 const { createApp, listen } = await import(path.join(HERE, '..', 'lib', 'server.js'));
-const PORT = 4386;
+// Port 0, never a number typed here: a dozen sessions run this suite at once and a
+// fixed port makes the loser of that race exit 1 on an EADDRINUSE that reads like a
+// regression. `createApp` never looks at cfg.port — only `listen` does — so the app
+// is happy to be built before the kernel has picked one. See test/helpers/net.mjs.
 const cfg = {
-  port: PORT,
+  port: 0,
   host: '127.0.0.1',
   token: 'dismiss-test-token',
   workspaces: [WS],
@@ -162,6 +166,9 @@ const cfg = {
   bdBin: BIN,
   actor: 'beadcause',
 };
+const servers = listen(cfg, createApp(cfg).handler);
+const PORT = await boundPort(servers);
+
 const post = (body) =>
   fetch(`http://127.0.0.1:${PORT}/api/dismiss`, {
     method: 'POST',
@@ -169,7 +176,6 @@ const post = (body) =>
     body: JSON.stringify(body),
   });
 
-const servers = listen(cfg, createApp(cfg).handler);
 try {
   reset();
   const res = await post({ workspace: WS.name, id: 'wd-9', reason: 'the report was dropped' });
