@@ -1521,28 +1521,35 @@ constitutional decision.
 ## What an agent remembers, and how agents tell each other things
 
 A foundation is what an agent *is*. This is what it has *learned* — and it is the
-half that used to evaporate at the end of every run. Four calls, and an agent
+half that used to evaporate at the end of every run. Six calls, and an agent
 reaches all of them as a command:
 
 ```
 beadcause-memory remember tone "evidence first, then the ask"
 beadcause-memory recall tone
+beadcause-memory note tests "npm test discovers test/*.mjs; scripts/test.mjs is the runner"
+beadcause-memory notes tests
 beadcause-memory post proposals "the graph work is blocked on a decision"
 beadcause-memory read proposals --since=4
 ```
 
-`remember` / `recall` are one agent's own knowledge. `post` / `read` are a
-**blackboard**: an agent publishes what it believes and the others read it whenever
-they next look. Deliberately not a mailbox and not a conversation — there is no
-addressee and no delivery, because git has no notification to give. The nudge, when
-something needs one, is the event bus (`lib/events.js`), which is in-memory and
+`remember` / `recall` are one agent's own knowledge, and it follows the agent
+anywhere. `note` / `notes` are the same two verbs against **the repo the command was
+run in** — knowledge about one codebase, which is worth nothing in any other. `post` /
+`read` are a **blackboard**: an agent publishes what it believes and the others read
+it whenever they next look. Deliberately not a mailbox and not a conversation — there
+is no addressee and no delivery, because git has no notification to give. The nudge,
+when something needs one, is the event bus (`lib/events.js`), which is in-memory and
 un-persisted and is the exact complement of this: payload and durability here,
 wake-up there.
 
-**No call names a repo, a path or a ref, and none of them will take one.** That is
-the point of the indirection — the day this should be SQLite or a table in beads,
-the change is `lib/memory.js` and nothing else. An agent handed a path would have
-put that path into its own memory, its habits and its prompts.
+**No call names a repo, a path or a ref, and none of them will take one** — not even
+the pair whose whole subject is a repo. That is the point of the indirection: the day
+this should be SQLite or a table in beads, the change is `lib/memory.js` and nothing
+else. An agent handed a path would have put that path into its own memory, its habits
+and its prompts. So `note` writes to wherever the process is standing, and a run from
+the wrong directory is fixed by `cd`, which is checkable, rather than by an argument,
+which is not.
 
 **Who you are is not an argument either.** The daemon exports `BEADCAUSE_AGENT`
 when it spawns an agent, and both halves attribute to that. An agent that could name
@@ -1551,6 +1558,35 @@ into another's memory it would be indistinguishable from the other agent having
 written it. It is the *foundation's* id, so `answerer` and `critic` — who share the
 dispatch foundation — share what dispatch has learned. Memory belongs to the thing
 that has a definition, which is the same boundary the amendment loop draws.
+
+### Which of the two, and the one question that decides it
+
+**Would this still be true in a different repo?** That is the whole test, and the
+brief puts it to the agent in those words.
+
+- **Yes → `remember`.** How Adam likes a thing shaped, an approach that worked
+  anywhere, a dead end not worth walking again, something about how the agent itself
+  goes wrong. This one follows it everywhere, so anything false elsewhere does not
+  belong in it.
+- **No → `note`.** How *this* codebase is put together, where its tests live and how
+  they are run, the trap in one of its files, what a name means here, why the obvious
+  thing was done the other way.
+
+Neither store is an optimisation of the other, and the version with only one of them
+is not the same thing minus a feature — it is a thing that quietly loses a whole
+category of knowledge. For a while only the cross-repo store existed, and its brief
+said, correctly for it, to write down only what is *"still true next week and in a
+different repo"*. Read literally — which is how an agent reads a brief — that rules
+out every fact about the code in front of it. So knowledge of how `lib/advocate.js` is
+put together either followed the agent into another repo as advice that is false
+there, or was never written down at all; and the second is silent. The store existed,
+and the knowledge with the most obvious use for it was the knowledge the brief
+excluded.
+
+**Getting it wrong is cheap but not free**, and the brief says which way it costs: a
+repo fact in `remember` is advice the agent will follow somewhere it is false, and a
+general lesson in `note` is one it will never see again once it is working elsewhere.
+Neither is a corruption, and both are one rewrite away.
 
 ### Reading another agent, without being able to be one
 
@@ -1571,11 +1607,14 @@ still there to read, which is the useful half of not curating it.
 read the advocate's memory so much as become the advocate, and a `remember` in the
 same breath writes into their file. That is fine for a human debugging at a terminal
 and wrong as the thing an agent is told about. So the read half got its own flag,
-which names a **subject and never an author**: only `recall` accepts it, and every
-command that writes refuses it outright rather than treating it as identity. `remember
---of=advocate …` is an error, not a write, and `test/memory.mjs` asserts the
-advocate's memory is byte-identical afterwards. A read attributes to nobody, so `--of`
-needs no `BEADCAUSE_AGENT` at all — which is also what leaves it no author to borrow.
+which names a **subject and never an author**: only the two reads — `recall` and
+`notes` — accept it, and every command that writes refuses it outright rather than
+treating it as identity. `remember --of=advocate …` is an error, not a write, and
+`test/memory.mjs` asserts the advocate's memory is byte-identical afterwards. A read
+attributes to nobody, so `--of` needs no `BEADCAUSE_AGENT` at all — which is also what
+leaves it no author to borrow. The allowed set is a **list of the reads**, not a check
+per command, so a verb added later is refused by default; `note` arrived after the
+guard was written and inherited exactly that, which `test/memory.mjs` also asserts.
 
 **And the read says whose notes it just handed you.** `remember` is written by an
 agent for its own future self; publishing to others is what `post` is for. So a
@@ -1594,13 +1633,59 @@ From outside, a capability nobody was told about is indistinguishable from one n
 chose to use. So the brief now carries the roster, the read, that it *is* only a read,
 and the one line about what another agent's conclusions are worth to you.
 
-### Where it lives: `~/.config/beadcause` is a git repo
+**A brief that describes one store while two exist is worse than one describing
+neither**, which is why the repo-local half arrived in `memoryBrief` and in
+`test/memory.mjs` in the same commit as the code. An agent told about one store writes
+into that one, whatever it has learned; there is no version where it declines because
+the right store was not mentioned. So the brief names both pairs, gives the question
+that picks between them, and says which way getting it wrong costs — and the suite
+asserts each of those, because a paragraph is the load-bearing part of this feature and
+nothing else would notice it going missing.
 
-Tier 1 put an agent's memory on a ref inside the codebase it was working on, which
-is right for knowledge *about that codebase* and is exactly why nothing could be
-shared: the beadcause advocate and the sophab advocate write into different
-checkouts and cannot see each other. So the config directory — the one place every
-agent on this Mac has in common — became a repo, and both halves ride on refs in it:
+### Where a note lives: a ref in the repo it is about
+
+A note goes on a ref in the codebase it describes, beside the foundations and the
+session logs — which is where the whole idea started (`bc-goo.1`) and is what makes
+"the same key in two repos is two different notes" a property of the store rather
+than something anyone has to arrange:
+
+```
+refs/beadcause/agents/<agent>    one commit per write, tree = notes.json
+
+git -C ~/neadamthal.projects/beadcause log refs/beadcause/agents/worker
+git -C ~/neadamthal.projects/beadcause cat-file -p refs/beadcause/agents/worker:notes.json
+```
+
+**A linked worktree shares its parent's ref store, and that is what makes this usable
+here at all.** Nearly all work in this repo happens in a worktree under
+`.claude/worktrees/` that is retired days later, so a note that lived *in* the worktree
+would die with it. It does not: a ref outside the per-worktree namespaces lives once,
+in the common `.git`, so a note written from `worktrees/foo-a3f` is there from the main
+checkout and from every sibling worktree, and it is still there when that worktree is
+gone. `mainCheckout` resolves which repo that is, exactly as `lib/foundation.js` does
+for an amendment.
+
+**A ref per agent, not one ref with a file per agent** — which is the opposite of the
+cross-repo store, for a reason that is about who the writers are. There, they are four
+agent kinds on one Mac. Here they are every session of one kind in every worktree of
+one repo: a dozen `worker`s on an ordinary afternoon, none of them aware the others
+exist. Splitting by agent means two *kinds* never contend at all, and a write rebuilds
+a one-file tree instead of reading every other agent's file back to avoid deleting it
+with `mktree`. `test/memory.mjs` races six of them from two worktrees.
+
+There is deliberately **no roster command for this store**. `agents` answers "which
+kinds have a memory" out of the cross-repo tree; the union across both would answer
+differently depending on which repo the process is standing in, and its test would
+assert whatever this Mac happens to have noted. `git for-each-ref
+refs/beadcause/agents/` is the answer for a human who needs the list.
+
+### Where the rest lives: `~/.config/beadcause` is a git repo
+
+The memory that follows an agent, and the blackboard, have no repo they belong to —
+the beadcause advocate and the sophab advocate work in different checkouts, so a store
+inside either one is a store the other cannot see. So the config directory — the one
+place every agent on this Mac has in common — became a repo, and both of those ride on
+refs in it:
 
 ```
 refs/beadcause/memory            one commit per write, tree = <agent>.json
@@ -1611,9 +1696,17 @@ git -C ~/.config/beadcause cat-file -p refs/beadcause/memory:advocate.json
 git -C ~/.config/beadcause log refs/beadcause/bus/proposals
 ```
 
-Same trick as the session logs: a ref outside `refs/heads/*` and `refs/tags/*` has
-no working tree, so the daemon can commit one while something else is rewriting
-`config.json` beside it. Nothing here has a remote and nothing pushes.
+Same trick in both stores, and the same one as the session logs: a ref outside
+`refs/heads/*` and `refs/tags/*` has no working tree, so the daemon can commit one
+while something else is rewriting `config.json` beside it — or while you are mid-edit
+in the repo the note is about. **Nothing in either store is fetched or pushed.** The
+config repo has no remote at all; the repo a note lives in usually does, and that is
+where the refusal earns its keep, because agent-written text carries absolute paths and
+whatever tool output scrolled past. A ref outside `refs/heads/*` and `refs/tags/*` is
+in no default refspec, so this costs no guard beyond never naming one. Note that `git
+log --all` *does* show these commits — `--all` means every ref under `refs/`, not every
+branch — which is how you find them by accident, and `git log`, `git branch` and `git
+status` do not.
 
 **The `.gitignore` is written before `git init`, and that ordering is the whole
 safety of it.** That directory holds `android-keystore.jks` — the release signing
