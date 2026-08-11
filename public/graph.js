@@ -974,6 +974,63 @@
     </div>`;
   }
 
+  /**
+   * When a bead closed, in words rather than an ISO string.
+   *
+   * Not `ago()`: that one is three characters wide because it lives on a node badge,
+   * and "2h" is the wrong answer to "when did this close" on a sheet with room for
+   * the date. Same shape the session page and the inbox already use for an absolute
+   * time. The raw ISO stays on the `<time datetime>`, which is where a long-press
+   * tooltip and anything reading the page finds it.
+   */
+  const closedWhen = (iso) => {
+    const t = Date.parse(iso || '');
+    if (!Number.isFinite(t)) return '';
+    return new Date(t).toLocaleString([], {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  };
+
+  /**
+   * What actually happened to a closed bead.
+   *
+   * The sheet drew the status pill — the word "closed" — and stopped there, so the
+   * one sentence that says *why* it closed was readable only from a terminal:
+   * "Landed as #113 as e8315969 — still owed: CAN BE DEPLOYED" out of bin/deliver.js,
+   * "Answered via Beadcause" under an answer, a revoke's reason under its fixed
+   * prefix, "Superseded by bc-rk2o". Those are the endings, and the sheet is the
+   * screen every bead link in the app opens.
+   *
+   * Drawn in full, never clamped. The longest close reason in this tracker is 1664
+   * characters and the sheet body already scrolls, so there is nothing to gain by
+   * folding it and something real to lose: /history's row clamps its own copy to two
+   * lines (`.hist-why`) precisely because tapping the row lands here, and a clamp at
+   * both ends would put the sentence nowhere in the app at all.
+   *
+   * Only while the bead is actually closed. `bd` clears `closed_at` on reopen but
+   * leaves `close_reason` sitting there, so a reopened bead would otherwise carry the
+   * reason it was closed the last time as though it still applied — which is the one
+   * failure mode worse than drawing nothing.
+   */
+  function closedHtml(b) {
+    if (b.status !== 'closed') return '';
+    const when = closedWhen(b.closed_at);
+    const why = String(b.close_reason || '').trim();
+    if (!when && !why) return '';
+    const stamp = when
+      ? `<div class="closed-when">Closed <time datetime="${esc(b.closed_at)}">${esc(when)}</time></div>`
+      : '';
+    // `FROM_BD` for the same reason every other bd field on this sheet has it: these
+    // are hard-wrapped at ~78 columns by the terminal that wrote them, and honouring
+    // those newlines would break one sentence into a ragged column.
+    const body = why ? `<div class="md">${md(why, FROM_BD)}</div>` : '';
+    return `<div class="closed-note">${stamp}${body}</div>`;
+  }
+
   function sheetHtml(b) {
     const parts = [`<h2 class="sheet-title">${esc(b.title || '')}</h2>`];
     const rel = relations(b);
@@ -992,6 +1049,12 @@
       !rel.known && b.dependency_count ? `<span class="pill">waits on ${esc(b.dependency_count)}</span>` : '',
     ].filter(Boolean);
     parts.push(`<div class="meta">${meta.join('')}</div>`);
+    // Straight under the pills, above everything else. On a closed bead the outcome is
+    // the fact you came for — the status pill raises the question and this is the only
+    // place in the app that answers it — and it is the half of the sheet that is
+    // meaningless once you have scrolled past the description looking for it.
+    const closed = closedHtml(b);
+    if (closed) parts.push(closed);
     // Above the description, because "what is this under, and what is it stuck
     // behind" is the question you have before you read a word of it — and because
     // a bead with neither draws nothing here, so it looks exactly as it did before.

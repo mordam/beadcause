@@ -2548,9 +2548,9 @@ issue descriptions we would throw away.
 
 Tapping a node raises a **card** with the whole title, its status, priority and type,
 and two buttons. **Details** opens the bead itself in a sheet — who owns it, what it
-blocks and what it waits on, then the whole body: description, **acceptance**,
-**design**, **notes** and the thread, each rendered as markdown under its own label,
-in the order `bd` itself prints them. Served by `/api/bead`, which is `bd show` plus
+blocks and what it waits on, **how it ended** if it has, then the whole body:
+description, **acceptance**, **design**, **notes** and the thread, each rendered as
+markdown under its own label, in the order `bd` itself prints them. Served by `/api/bead`, which is `bd show` plus
 comments rather than `/api/question`'s decision shape (every node is an ordinary
 issue; only some are questions). The sheet takes 72% of the screen, and **⤢** takes
 the rest of it.
@@ -2561,6 +2561,41 @@ is readable nowhere but a terminal. It used to stop after the description, which
 meant the acceptance criteria, the one part you close a bead against, were exactly
 that. The description alone stays unlabelled, the way it is on the card, so a bead
 carrying none of the other three looks precisely as it did.
+
+#### How it ended — the close reason, and when
+
+The sheet drew the status pill, and the status pill said `closed`. What it never drew
+was `close_reason` or `closed_at`, which is the sentence saying what actually happened
+— and those sentences are the good part of this tracker. `bin/deliver.js` writes
+`Landed as #138 as 10892e4b — still owed: CAN BE DEPLOYED`; an answer closes with
+*Answered via Beadcause*; a revoke keeps its reason under a fixed prefix; a supersede
+says `Superseded by bc-rk2o`. Every ending in the system is a sentence, and none of
+them was on the one screen every bead link in the app opens. It was readable from a
+terminal, or nowhere.
+
+So a closed bead now carries a framed note **directly under its pills**: *Closed 11 Aug
+2026, 18:54*, and the reason under it, through the same `FROM_BD` renderer every other
+bd field on the sheet goes through. Above the description rather than below it, which
+is the whole placement argument — the pill raises the question, and on a finished bead
+the answer is what you came for. Below the body is where you go looking for it, scroll
+past it, and conclude it is not there.
+
+**Nothing here clamps.** The worst close reason in this tracker is 1664 characters and
+the sheet body already scrolls, so there is nothing to gain by folding it — and
+something real to lose. [The History tab](#the-ledger--the-history-tab) clamps its own
+copy to two lines precisely because tapping the row lands here; clamping at both ends
+would put the sentence nowhere in the app at all. That page can now go the other way
+too, and carry a slimmer payload with a real tap-through behind it.
+
+**Only while the bead is actually closed.** `bd` clears `closed_at` on reopen and
+leaves `close_reason` sitting there — `lib/landed.js` leans on exactly that — so
+reading the field without checking the status would tell you a bead that is open again
+finished last Tuesday. A closed bead nobody gave a reason for still gets the date; a
+bead with neither draws nothing at all, and looks precisely as it did before.
+
+`test/graphsheet.mjs` covers it, in the same node:vm slice of the real `sheetHtml` the
+relations block is checked in — including that the stylesheet has rules for the block
+and that none of them clamp.
 
 #### What is under it — the children, and the ones already done
 
@@ -2727,9 +2762,13 @@ adjacent.
 The page is the selected space's beads, **most recently updated first**, paged as you reach
 the end of it. Each row carries the id, the title, the type, the status, the priority, when
 it last moved, its close reason when it has one, and a marker when a session was archived
-for it. Tapping one opens the bead detail sheet that already exists —
-`/graph?ws=…&id=…&open=1`, the deep link `&open=1` was built for — so this page needed no
-detail view of its own and does not have one. The rows are real `<a href>`s, which is what
+for it. The reason is clamped to two lines here rather than ellipsised on one — these
+sentences carry the PR number and the sha at the *end*, which is the half a single line
+throws away — and the rest of it is one tap down, on
+[the sheet's own outcome block](#how-it-ended--the-close-reason-and-when). Tapping one
+opens the bead detail sheet that already exists — `/graph?ws=…&id=…&open=1`, the deep
+link `&open=1` was built for — so this page needed no detail view of its own and does
+not have one. The rows are real `<a href>`s, which is what
 lets [the drawer](#detail-opens-over-the-tab-not-instead-of-it) hold that sheet *over* the list: this
 is the one list you legitimately scroll four hundred rows down, and a full-page navigation
 would spend that scroll on every bead you looked at.
