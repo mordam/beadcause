@@ -1933,7 +1933,12 @@ button.work-row {
    a report of what already has. */
 .adv .session-label { margin-top: 4px; }
 .adv .session-label span.bad { color: var(--danger); }
-.adv-actions { margin-left: auto; display: flex; gap: 6px; }
+/* The row of controls on a card's head. `flex-wrap` because the row grew: a card that
+   is not draining now carries a stepper, Pause, Reclaim, Forget and the on/off switch,
+   which is wider than a phone at 393px — and `.card` is `overflow: hidden`, so without
+   this the last control is not merely cramped, it is clipped away. A switch you cannot
+   see is a switch this repo does not have on the surface it is for. */
+.adv-actions { margin-left: auto; display: flex; flex-wrap: wrap; gap: 6px; }
 .adv-btn {
   min-height: 32px;
   padding: 4px 12px;
@@ -1960,6 +1965,12 @@ button.work-row {
 .adv-limit .adv-step { border: 0; padding: 4px 8px; min-width: 30px; font-size: 15px; line-height: 1; }
 .adv-limit.held { border-color: color-mix(in srgb, var(--warn) 55%, transparent); }
 .adv-limit.held > b { color: var(--warn); }
+/* Why this repo's advocate cannot be switched on or off from here — the sentence that
+   takes the switch's place where one of the three settings above it is in force. Muted
+   and not a button, because it is the reason there is no button; it wraps rather than
+   ellipsing, since half of "the halifax space has advocate: false" is worse than none
+   of it, and it is the last thing in the row so a wrap costs nothing beside it. */
+.adv-why { font-size: 11.5px; color: var(--muted); align-self: center; text-align: right; max-width: 22em; }
 /* A window we opened, not a process we can see — dotted while it is only that, solid
    once the session claimed the bead and the tracker can confirm it. */
 .adv-worker .work-phase { display: flex; align-items: center; justify-content: center; color: var(--accent); }
