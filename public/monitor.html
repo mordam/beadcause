@@ -47,9 +47,10 @@
   </header>
 
   <!-- The second row of tabs on this page, and the only page that has one. It swaps a
-       pane; the bar along the bottom moves between pages. That those two are drawn alike
-       is the open complaint (bc-stci — the pair wants to be a segmented control), but
-       which one the Mirror belongs on is settled: it is a pane (bc-3xb).
+       pane; the bar along the bottom moves between pages. That those two are still drawn
+       alike is the open complaint (bc-stci — the pair wants to be a segmented control,
+       now that bc-4aw has given this bar a selector of its own to be restyled through),
+       but which one the Mirror belongs on is settled: it is a pane (bc-3xb).
 
        The Mirror is a mode of this page rather than a standing view — the same repos and
        sessions seen from the phone instead of from this Mac — and it is the one surface
@@ -58,7 +59,8 @@
        /mirror route and no mirror.html, and the swap below is one `hidden` attribute
        against style.css's `.work[hidden]`. README, "The Mirror is a pane, not a tab",
        has the reasoning and the reason that has since expired. -->
-  <nav class="chip-row tabs" id="mon-tabs" aria-label="Views">
+  <nav class="chip-row mon-tabs" id="mon-tabs" aria-label="Views">
+
     <button class="chip" data-tab="advocates" aria-pressed="true">Advocates</button>
     <button class="chip" data-tab="mirror" aria-pressed="false">Mirror<span class="tab-dot" id="mirror-dot" hidden></span></button>
   </nav>
