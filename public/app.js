@@ -4535,12 +4535,23 @@
   const questionsPath = (scope) => `/api/questions?scope=${encodeURIComponent(scope)}`;
 
   /**
-   * Where in `/api/poll`'s event log the list on screen was true.
+   * The parked poll, and with it where in `/api/poll`'s event log the list on screen
+   * was true.
    *
-   * 0 means "we do not know" — an old daemon that does not send it, or nothing
-   * fetched yet — and every reader treats that as a reason to fall back to the timer.
+   * Mounted further down (see `follow`), and null until then. The sequence lives on
+   * the handle rather than in a variable here, because the loop is the thing that has
+   * to drop an answer that came back about an older list — two copies of that number
+   * is how the poll would come to apply a payload the page had already replaced.
+   *
+   * 0 means "we do not know" — an old daemon that does not send it, nothing fetched
+   * yet, or a poll that lost its place — and every reader treats that as a reason to
+   * fall back to the timer.
    */
-  let seq = 0;
+  let stream = null;
+  const seqNow = () => stream?.seq || 0;
+  const seqIs = (v) => {
+    if (stream) stream.seq = Number(v) || 0;
+  };
 
   /**
    * Take a payload and become it.
@@ -4649,7 +4660,7 @@
       // Changed under us while the request was out. These are rows from the list
       // you just left; the re-run queued above is the one that counts.
       if (asked !== state.scope) return;
-      seq = Number(data.seq) || 0;
+      seqIs(data.seq);
       keep(asked, data);
       adopt(data);
       // This is where the timer hands over: the sweep that just ran is also the thing
@@ -4720,7 +4731,7 @@
     warmBoard();
     const hit = window.beadcause?.warm?.read?.(questionsPath(state.scope));
     if (!Array.isArray(hit?.data?.questions)) return false;
-    seq = hit.seq;
+    seqIs(hit.seq);
     adopt(hit.data);
     return true;
   }
@@ -4940,58 +4951,60 @@
    * - **Every failure falls back rather than stopping.** A refused or broken poll
    *   drops to the timer, which is what the page did before this existed. The one
    *   thing that must never happen is an inbox that has quietly stopped refreshing.
+   *
+   * The loop itself is public/stream.js now, shared with the other four views — this
+   * page was where it was written and is still the only consumer that asks the daemon
+   * for the questions, but five copies of an abort-and-resync rule was not a shape to
+   * grow into. What is left here is the two halves that are genuinely the inbox's:
+   * which scope may follow at all, and what to do with a payload that arrives.
    */
-  let following = false;
-  let pollAbort = null;
+  // `stream` stays null on a page served without public/stream.js — a service worker
+  // cached before it existed. `seqNow()` is 0 then, so this is false, so the timer is
+  // the refresh: exactly what this page did before any of it was written. Optional
+  // rather than assumed for the same reason warm.js and spacebar.js are, and with more
+  // at stake, because the alternative here is a `TypeError` in the first fifty lines of
+  // the inbox's own IIFE and a blank screen behind it.
+  const canFollow = () => state.scope === 'human' && seqNow() > 0 && Boolean(state.token);
 
-  const canFollow = () => state.scope === 'human' && seq > 0 && Boolean(state.token);
-
-  async function follow() {
-    if (following || !canFollow()) return;
-    following = true;
-    try {
-      while (canFollow() && !document.hidden) {
-        const at = seq;
-        pollAbort = new AbortController();
-        let data;
-        try {
-          data = await api(`/api/poll?since=${at}&wait=25`, { signal: pollAbort.signal });
-        } finally {
-          pollAbort = null;
-        }
-        // The scope changed while we were parked, or the token went. Either way this
-        // answer is about a list nobody is looking at.
-        if (!canFollow() || at !== seq) break;
-        // The poll answered, so the credential is good and the daemon is up: the one
-        // moment it is safe to go and warm the other four tabs.
-        warmOthers();
-        seq = Number(data.seq) || 0;
-        // Null means the park timed out with nothing but presence traffic — the quiet
-        // case, and the whole point: no sweep ran on the daemon and nothing repaints
-        // here. An empty array would mean "the inbox is empty", which is why the two
-        // are different values on the wire.
-        if (Array.isArray(data.questions)) {
-          keep('human', { ...data, seq });
-          adopt(data);
-        }
-        if (!seq) break; // an old daemon answering without one; nothing to follow
+  stream = window.beadcause?.stream?.follow?.({
+    api,
+    ready: canFollow,
+    // Never: this page's poll asks the daemon for the inbox questions, so a request
+    // without a `since` would be an immediate answer *and* a `bd` sweep — a busy loop
+    // that swept. The sequence comes off `/api/questions` or off the warm payload, and
+    // without one the timer is the refresh.
+    cold: false,
+    // The visibility rule is this page's own, below: it has two more things to do when
+    // the screen comes back — the fallback fetch and the board's own sweep — and two
+    // handlers racing over one socket is worse than one handler that says it all.
+    visibility: false,
+    // And no retry, for the same reason: this is the one view with a timer behind it,
+    // and `onSettle` is what puts it back on. The other four have nothing to fall back
+    // to and let the stream try again for them.
+    retryMs: 0,
+    onWake({ data }) {
+      // The poll answered, so the credential is good and the daemon is up: the one
+      // moment it is safe to go and warm the other four tabs.
+      warmOthers();
+      // Null means the park timed out with nothing but presence traffic — the quiet
+      // case, and the whole point: no sweep ran on the daemon and nothing repaints
+      // here. An empty array would mean "the inbox is empty", which is why the two
+      // are different values on the wire.
+      //
+      // `resync` needs no branch of its own: the daemon sends the whole list with it,
+      // so adopting is already the full refetch that case calls for.
+      if (Array.isArray(data.questions)) {
+        keep('human', { ...data, seq: seqNow() });
+        adopt(data);
       }
-    } catch (err) {
-      // An abort is us, on the way to somewhere else. Anything else — the daemon
-      // restarting, the tailnet dropping, a 401 — falls through to the timer, and
-      // the visibility handler will try to pick the log back up.
-      if (err?.name !== 'AbortError' && err?.message !== 'token rejected') seq = 0;
-    } finally {
-      following = false;
-      schedulePoll();
-    }
-  }
+    },
+    // Either the log is still followable — and this re-parks — or it is not, and this
+    // is where the timer comes back. Exactly one of the two is ever live.
+    onSettle: () => schedulePoll(),
+  }) || null;
 
   /** Stop waiting on an answer about a list we have stopped showing. */
-  function unfollow() {
-    pollAbort?.abort();
-    pollAbort = null;
-  }
+  const unfollow = () => stream?.stop();
 
   /**
    * The timer, which now runs only when the log cannot be followed — a wide scope, an
@@ -5001,7 +5014,7 @@
   function schedulePoll() {
     clearInterval(pollTimer);
     if (canFollow() && !document.hidden) {
-      follow();
+      stream?.start();
       return;
     }
     // Whatever is parked is parked on a list this page has stopped drawing — a scope
