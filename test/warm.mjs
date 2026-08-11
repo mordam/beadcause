@@ -320,7 +320,10 @@ await check('it warms the other views and never the one it is on', async () => {
   warm.prewarm({ here: 'inbox', api: t.api, delay: 0 });
   await tick(20);
   assert.ok(!t.asked.includes('/api/questions?scope=human'), 'the inbox does not warm its own payload');
-  assert.deepEqual(t.asked, ['/api/consoles', '/api/prs', '/api/work', '/api/admin']);
+  // Tabs first, and `/api/work` at the head of them: the advocates board is the
+  // heaviest payload and the only other tab a thumb can reach from here, and this is a
+  // sequential loop, so its place in the queue is how long that tab stays cold.
+  assert.deepEqual(t.asked, ['/api/work', '/api/admin', '/api/consoles', '/api/prs']);
 });
 
 await check('a path two views share is fetched once, not twice', async () => {
@@ -330,7 +333,7 @@ await check('a path two views share is fetched once, not twice', async () => {
   // (inbox and advocates) are wanted by more than one view.
   warm.prewarm({ here: 'prs', api: t.api, delay: 0 });
   await tick(20);
-  assert.deepEqual(t.asked, ['/api/questions?scope=human', '/api/consoles', '/api/work', '/api/admin']);
+  assert.deepEqual(t.asked, ['/api/questions?scope=human', '/api/work', '/api/admin', '/api/consoles']);
   assert.equal(new Set(t.asked).size, t.asked.length, 'a `bd` sweep must not be paid for twice');
 });
 
@@ -405,6 +408,84 @@ await check('a screen that has gone dark stops it — a phone in a pocket warms 
   assert.deepEqual(t.asked, []);
 });
 
+/* ------------------------------------------- 4b. keeping an entry warm, for free */
+
+/* `prewarm` fills a path once per document and the TTL then drops it, which is fine for
+   a page you pass through and wrong for the inbox — the page you sit on for hours. That
+   left the Advocates tab cold for all but the first fifteen minutes with nothing able to
+   put it back, because `prewarmed` never goes false again (bc-xxzz). `refresh` is the way
+   back that costs no request: the delta stream carries the advocate roster on every wake,
+   so folding it in is both an update and a new timestamp. */
+
+await check('a held payload can be brought up to date, and comes back with the update in it', () => {
+  const { warm } = load();
+  warm.write('/api/work', { workspaces: [{ name: 'demo' }], advocates: [{ workspace: 'demo', paused: false }] }, 11);
+  const ok = warm.refresh('/api/work', (work) => ({ ...work, advocates: [{ workspace: 'demo', paused: true }] }));
+  assert.equal(ok, true);
+  const hit = warm.read('/api/work');
+  assert.deepEqual(plain(hit.data.advocates), [{ workspace: 'demo', paused: true }]);
+  assert.deepEqual(plain(hit.data.workspaces), [{ name: 'demo' }], 'the rest of the payload is untouched');
+  assert.equal(hit.seq, 11, "the entry's own sequence is kept when none is given");
+});
+
+await check('and its clock is reset, which is the half that stops a quiet hour ageing it out', () => {
+  const { warm, bag } = load();
+  warm.write('/api/work', { workspaces: [] });
+  // Age it to one minute short of the TTL by rewriting the stamp the file wrote.
+  const key = 'beadcause.warm:/api/work';
+  const aged = JSON.parse(bag.get(key));
+  aged.at = Date.now() - (warm.TTL_MS - 60_000);
+  bag.set(key, JSON.stringify(aged));
+  assert.ok(warm.refresh('/api/work', (w) => w), 'still readable, so still maintainable');
+  // Past where the old stamp would have expired, the entry is still there.
+  assert.ok(
+    warm.read('/api/work', { now: Date.now() + 120_000 }),
+    'a wake that carried no change must still keep the entry alive'
+  );
+});
+
+await check('a sequence can be handed in with the update', () => {
+  const { warm } = load();
+  warm.write('/api/work', { workspaces: [] }, 3);
+  warm.refresh('/api/work', (w) => w, 9);
+  assert.equal(warm.read('/api/work').seq, 9);
+});
+
+await check('nothing held is a miss, not a write — the caller has to go and fetch', () => {
+  const { warm, bag } = load();
+  assert.equal(warm.refresh('/api/work', () => ({ workspaces: [] })), false);
+  assert.equal(bag.size, 0, 'refresh must never invent an entry out of a mutate');
+});
+
+await check('a shape the caller cannot maintain is a miss too, and the old entry goes', () => {
+  const { warm } = load();
+  // The case this guards: a payload from a daemon that predates the fields being folded
+  // in. Half-patching it would put a payload on screen that no version ever served.
+  warm.write('/api/work', { fromAnOlderDaemon: true });
+  assert.equal(warm.refresh('/api/work', (work) => (Array.isArray(work.workspaces) ? work : null)), false);
+});
+
+await check('a mutate that throws is a miss, not an exception out of the poll handler', () => {
+  const { warm } = load();
+  warm.write('/api/work', { workspaces: [] });
+  assert.equal(
+    warm.refresh('/api/work', () => {
+      throw new Error('nope');
+    }),
+    false
+  );
+});
+
+await check('past its TTL there is nothing to refresh — an entry that old is gone, not renewed', () => {
+  const { warm, bag } = load();
+  warm.write('/api/work', { workspaces: [] });
+  const key = 'beadcause.warm:/api/work';
+  const aged = JSON.parse(bag.get(key));
+  aged.at = Date.now() - warm.TTL_MS - 1;
+  bag.set(key, JSON.stringify(aged));
+  assert.equal(warm.refresh('/api/work', (w) => w), false, 'a screen dark for an hour has to be re-fetched');
+});
+
 /* -------------------------------------------------------------- the wiring */
 
 await check('every standing page loads the file, or that page is the one cold tab', () => {
@@ -453,12 +534,23 @@ await check('every tab the bar draws has a view — and two views are deliberate
   assert.deepEqual(views.filter((v) => !ids.includes(v)), ['console', 'prs']);
   // And the tabs' own order still follows the bar, so the warm fills them in thumb order.
   assert.deepEqual(views.filter((v) => ids.includes(v)), ids);
+  // Every tab before every page that is not one (bc-xxzz). The background warm is
+  // sequential, so this list's order is the order things become warm in — and with the
+  // bar's order alone, Advocates sat behind `/api/prs`, which is a `gh` call per repo.
+  // A view a thumb can reach in one tap must not wait on one it cannot.
+  const lastTab = views.reduce((n, v, i) => (ids.includes(v) ? i : n), -1);
+  const firstOther = views.findIndex((v) => !ids.includes(v));
+  assert.ok(
+    firstOther === -1 || firstOther > lastTab,
+    `${views[firstOther]} is warmed before a tab is — the tabs come first, and this list is the warm order`
+  );
   // A view may warm nothing, and exactly one does. `paths: []` satisfies the loop above
-  // without prefetching a byte, so it is the obvious way to silence this check rather
+  // without prefetching a byte, so it is the obvious way to *silence* this check rather
   // than answer it — and the answer is only defensible for History, whose boot request
-  // is `/api/history?workspace=…` and therefore not a constant this file could hold.
-  // Any *other* pathless view is a tab that stays cold behind an entry claiming it does
-  // not, which is worse than the missing entry this check was written to catch.
+  // carries the space picker's current selection and is therefore not a constant this
+  // file could hold. Any other pathless view is a tab that stays cold behind an entry
+  // claiming it does not, which is worse than the missing entry this check was written
+  // to catch.
   const empty = plain(warm.VIEWS).filter((v) => !plain(v.paths).length).map((v) => v.id);
   assert.deepEqual(empty, ['history'], `a view that warms nothing has to be a decision: ${empty.join(', ')}`);
 });

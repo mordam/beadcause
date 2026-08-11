@@ -611,7 +611,7 @@ await check('the service worker precaches the page and moved its version', () =>
   }
   const version = sw.match(/const CACHE = 'beadcause-v(\d+)'/);
   assert.ok(version, 'no cache version at all');
-  assert.ok(Number(version[1]) >= 33, `the bar and the page it points at must arrive together — v${version[1]} predates the tab`);
+  assert.ok(Number(version[1]) >= 34, `the bar and the page it points at must arrive together — v${version[1]} predates the tab`);
 });
 
 await check('the daemon serves /history', () => {

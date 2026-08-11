@@ -106,16 +106,28 @@
    unstyled button into the middle of a label row and sizes the transcript as though it
    were not there, pushing the log off the bottom of the phone. Both look like a working
    page, which is the failure a cache version exists to prevent. */
-/* v33: the History tab (bc-nib3.2). `/history`, `/history.html` and `/history.js` are
+/* v33: the Advocates tab is preloaded and then *kept* warm off the delta stream rather
+   than left to age out of the warm layer (bc-xxzz). No new path — app.js, warm.js,
+   stream.js and monitor.js are all already here — and all four have to arrive together,
+   in both directions. monitor.js now asks `stream.workMoved(events)` instead of carrying
+   its own copy of that judgement, so a phone holding v33's monitor.js beside v32's
+   stream.js throws inside its wake handler and the advocates page stops refreshing
+   altogether; one holding v32's app.js beside v33's warm.js has the reordered background
+   warm but nothing that maintains what it fetched, which is the bug this change is about
+   still being there behind a version that says it is fixed. Only the other direction is
+   safe by construction: v32's warm.js under v33's app.js has no `refresh`, and app.js
+   looks for it and does nothing — that page is as cold as it was and no more expensive,
+   which is the fallback the warm layer promises everywhere else. */
+/* v34: the History tab (bc-nib3.2). `/history`, `/history.html` and `/history.js` are
    new paths *and* `/tabbar.js` moves in the same change, which is the pairing that makes
-   this a version bump rather than three additions to the list. A phone holding v32's
+   this a version bump rather than three additions to the list. A phone holding v33's
    cached tabbar.js has a three-tab bar with no History on it, so the page behind the new
-   paths is unreachable from every screen in the app; one holding v33's tabbar.js without
+   paths is unreachable from every screen in the app; one holding v34's tabbar.js without
    the three new entries has a tab that 404s out of the cache the moment the tailnet is
    slow — a bar whose whole job is that you can always leave a page, with an entry that
    goes nowhere. The bar and the page it points at have to arrive together, which is what
    a cache version is for. */
-const CACHE = 'beadcause-v33';
+const CACHE = 'beadcause-v34';
 const SHELL = [
   '/',
   '/index.html',
