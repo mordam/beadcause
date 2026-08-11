@@ -28,6 +28,25 @@
   </header>
 
   <!--
+    The handles: one per chat you have opened, with a permanent All on the left.
+
+    Outside the launcher on purpose, and above it rather than under its repo row.
+    Two reasons, and they are the same reason twice. It has to be on screen *over a
+    conversation* — it is the way out of one — and the repo row is launcher chrome
+    that is not. And a strip that only exists in one of the two views would jump
+    ninety pixels up the screen the moment you tapped a handle, taking the tab out
+    from under the thumb that just pressed it; here it does not move at all.
+
+    Which makes the nesting the honest one as well: All is the *whole* launcher,
+    repo tabs and list together, so the row that filters that list belongs inside
+    the panel it filters rather than above the strip that selects it.
+
+    Empty when nothing is open — a strip holding only All is a row that says
+    nothing and costs 40px of a phone.
+  -->
+  <nav id="chat-tabs" class="chat-tabs" role="tablist" aria-label="Open chats" hidden></nav>
+
+  <!--
     No chat session id in the URL: the launcher.
 
     The repo row is a *filter* now, not the start button it used to be — one tab

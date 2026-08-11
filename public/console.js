@@ -76,6 +76,42 @@
     }
   };
 
+  /**
+   * Which chats have a handle in the strip — and why this one is on the disk.
+   *
+   * `localStorage`, beside the token, and deliberately not the `sessionStorage` the
+   * toggle above uses. The two answer different questions. "Show me the dismissed
+   * ones" is a thing you say to the list you are reading now, and a preference
+   * remembered forever would quietly undo the default. A tab is a thing you *have
+   * open*: the app being closed and opened again is exactly when you want your four
+   * conversations back, in the order you opened them, the same way a browser gives
+   * you your tabs back rather than starting you at a blank page.
+   *
+   * Only `{ id, ws }` is kept, never the title. `public/warm.js` is `sessionStorage`
+   * on purpose so that bead text does not sit on the phone's disk overnight, and a
+   * chat's title is bead text — so a restored handle draws its repo until the first
+   * `/api/consoles` comes back, which is an in-memory read on the daemon. The repo is
+   * what the bar already falls back to for a chat with no seed, so it is the same
+   * word in the same place, one request early.
+   *
+   * The `ws` is what makes the strip per-workspace *before* that request lands: it is
+   * the only thing that can say which handles this filter lets through when nothing
+   * has been fetched yet.
+   */
+  const TABS_KEY = 'beadcause.console.tabs';
+  function readTabs() {
+    try {
+      const raw = JSON.parse(localStorage.getItem(TABS_KEY) || '[]');
+      if (!Array.isArray(raw)) return [];
+      return raw
+        .filter((t) => t && typeof t.id === 'string' && t.id)
+        .map((t) => ({ id: t.id, ws: typeof t.ws === 'string' ? t.ws : '' }));
+    } catch {
+      // Denied, or written by something else. Not a reason to fail to draw.
+      return [];
+    }
+  }
+
   const state = {
     token: '',
     /**
@@ -102,6 +138,8 @@
      */
     stray: '',
     showDismissed: readShowDismissed(),
+    /** The handles, in the order they were opened. See `TABS_KEY`. */
+    tabs: readTabs(),
     /**
      * Every conversation opened this visit, keyed by id — see `chatFor`.
      *
@@ -393,6 +431,9 @@
     hidePicker();
     renderRepoTabs();
     renderRecent();
+    // The handles above read this list too — a title the agent has just written, a
+    // proposal that landed in a chat nobody is looking at.
+    renderChatTabs();
   }
 
   /**
@@ -486,6 +527,7 @@
       hidePicker();
       renderRepoTabs();
       renderRecent();
+      renderChatTabs();
       return;
     }
     state.stray = '';
@@ -497,6 +539,7 @@
     hidePicker();
     renderRepoTabs();
     renderRecent();
+    renderChatTabs();
   }
 
   /**
@@ -610,6 +653,185 @@
     $('#ws-pick').hidden = false;
     $('#ws-new').setAttribute('aria-expanded', 'true');
     row.querySelector('.chip')?.focus();
+  }
+
+  /* ----------------------------------------------------------------- handles */
+
+  /*
+   * The strip of handles: All on the left, then one per chat you have opened.
+   *
+   * The launcher list is a list of *every* conversation in a repo, which is the right
+   * thing to arrive at and the wrong thing to move around in — going from one chat to
+   * another meant coming back out to it, finding the row again and tapping it, and
+   * doing that with a list that reorders itself as turns land. The handles are the
+   * short list: the ones you personally have open, in the order you opened them.
+   *
+   * `All` is a handle for the launcher itself, and it is the one that cannot be closed.
+   * That is not symmetry — it is the only way back out of a conversation now that the
+   * back gesture is not the only one, and a strip you can strand yourself in is worse
+   * than no strip. It is also why removing a handle is *not* dismissing a chat: the ✕
+   * here takes the handle off the strip and touches nothing on the server, the row is
+   * in the All list exactly as it was, and opening it again puts the handle back. The
+   * ✕ on the row in that list is still the soft close it always was.
+   */
+
+  /** Live word on a chat, whether it is loaded, merely listed, or both. */
+  function liveFor(id) {
+    const chat = state.chats.get(id);
+    const row = state.consoles.find((c) => c.id === id);
+    // The one in front is followed by its own transcript poll and that is the newer
+    // word — the same rule `watchBackground` applies from the other end, where the list
+    // is newer than a loaded chat nothing is polling.
+    if (id === state.id && chat?.console) return chat.console;
+    return row || chat?.console || null;
+  }
+
+  /**
+   * Which handles this filter lets through — plus, always, the one in front.
+   *
+   * A strip whose selected tab is not on it is a broken control, and the filter can
+   * take it away from under you: the space picker moves on the phone in your pocket,
+   * or another tab of this app moves it, and the chat you are reading is suddenly in a
+   * repo the app is not showing. The list behind it narrows, the conversation stays.
+   */
+  const shownTabs = () =>
+    state.tabs.filter((t) => t.id === state.id || inRepo({ workspace: t.ws }));
+
+  /**
+   * Fill in the repo of a handle opened before we knew it.
+   *
+   * `?id=` in the address is a chat with no repo attached — the link on a bead card,
+   * a bookmark, a reload — so its handle is stored blank and would be filtered out of
+   * its own strip the moment it stopped being the one in front. Written back rather
+   * than merely used, because the point of storing it is the *next* boot, where there
+   * is nothing to learn it from until a request comes back.
+   */
+  function learnWorkspaces() {
+    let learned = false;
+    for (const t of state.tabs) {
+      const ws = liveFor(t.id)?.workspace;
+      if (ws && ws !== t.ws) {
+        t.ws = ws;
+        learned = true;
+      }
+    }
+    if (learned) saveTabs();
+  }
+
+  function saveTabs() {
+    try {
+      localStorage.setItem(TABS_KEY, JSON.stringify(state.tabs));
+    } catch {
+      // Storage denied. The strip works for this visit and forgets on the next.
+    }
+  }
+
+  /** One handle. Truncation is CSS's — see `.tab-name` — because a title is a sentence. */
+  function tabHtml(t) {
+    const c = liveFor(t.id);
+    const front = t.id === state.id;
+    // The repo, until the list comes back with the title. See `TABS_KEY`.
+    const name = c?.title || t.ws || 'Chat';
+    const agent = c ? chatAgent(c) : null;
+    // A loaded chat carries the whole draft; a listed one carries the count of it.
+    const beads = c?.draft?.beads?.length ?? c?.beadCount ?? 0;
+    // The same three marks the rows use, in the same order of precedence: a running
+    // turn beats everything, then a dismissed chat, then whose chat it is.
+    const mark = c?.status === 'thinking' ? '<span class="spark"></span>' : c?.closedAt ? '✓' : agent ? esc(agent.emoji) : '';
+    return `<span class="chat-tab">
+      <a class="chat-tab-face" role="tab" data-tab="${esc(t.id)}"
+        href="/console?id=${encodeURIComponent(t.id)}" aria-selected="${front}"
+        tabindex="${front ? 0 : -1}" title="${esc(name)}"
+        >${mark ? `<span class="tab-mark">${mark}</span>` : ''}<span class="tab-name">${esc(name)}</span>${
+          // What the bar's 🧾 says for the chat in front, said on the handle of one that
+          // is not: a proposal waiting to be read is the one thing a background chat is
+          // holding that you would want to go back for.
+          beads ? `<span class="tab-beads">🧾${beads}</span>` : ''
+        }</a>
+      <button class="tab-x" data-untab="${esc(t.id)}" tabindex="${front ? 0 : -1}"
+        aria-label="Close the tab for ${esc(name)}">✕</button>
+    </span>`;
+  }
+
+  /** Which handle was in front when the strip was last drawn, so a switch scrolls once. */
+  let tabsFront = null;
+
+  function renderChatTabs() {
+    const row = $('#chat-tabs');
+    // An old console.html cached beside this file has no strip to draw into, and a
+    // page that is merely as it was beats a page that throws. See public/sw.js.
+    if (!row) return;
+    learnWorkspaces();
+    const tabs = shownTabs();
+    // All alone is a row that says nothing, so there is no row. It comes back with the
+    // first handle, which is the first thing opened — including whatever is in front.
+    row.hidden = !tabs.length;
+    const chunks = [
+      {
+        key: '@all',
+        // A real link to the real launcher, for the same reason the rows are: it can be
+        // copied and opened in a new tab. No ✕ — see the block above.
+        html: `<span class="chat-tab chat-tab-all">
+          <a class="chat-tab-face" role="tab" data-tab="" href="/console"
+            aria-selected="${!state.id}" tabindex="${state.id ? -1 : 0}">All</a>
+        </span>`,
+      },
+      ...tabs.map((t) => ({ key: t.id, html: tabHtml(t) })),
+    ];
+    // Keyed, like the list: the strip is redrawn on every poll — a spark starting, a
+    // proposal arriving, a title the agent has just written — and rebuilding it with
+    // `innerHTML` would throw away where it is scrolled sideways to on every one of
+    // them. See public/warm.js.
+    const paint = window.beadcause?.warm?.paint;
+    if (paint) paint(row, chunks);
+    else row.innerHTML = chunks.map((c) => c.html).join('');
+
+    // Only when the front changed, and only then: a strip scrolled by hand to read the
+    // handles at the far end must not be dragged back on the next turn that lands.
+    if (tabsFront !== state.id) {
+      tabsFront = state.id;
+      // The pill, not the link inside it: `aria-selected` is on the `<a>`, and the ✕
+      // beside it is thirty pixels the browser would happily leave off the end of the
+      // strip — a handle scrolled to with its own close button out of reach.
+      const on = row.querySelector('[aria-selected="true"]')?.closest?.('.chat-tab');
+      on?.scrollIntoView?.({ inline: 'nearest', block: 'nearest' });
+    }
+  }
+
+  /** Opening a chat gives it a handle. Opening one it already has is not a second. */
+  function addTab(id) {
+    if (!id || state.tabs.some((t) => t.id === id)) return;
+    state.tabs.push({ id, ws: liveFor(id)?.workspace || '' });
+    saveTabs();
+  }
+
+  /**
+   * Take a handle off the strip.
+   *
+   * Closing the one in front falls to its neighbour, the way every strip of tabs
+   * anywhere does — and with `replace`, not a push: closing a tab is not somewhere you
+   * went, and the back gesture should still walk out the way you came in. An older
+   * entry naming the chat you just closed still works, and arriving there re-adds the
+   * handle, which is what "opening it again re-adds the tab" means.
+   *
+   * What it does *not* do is drop the conversation out of `state.chats`. The transcript
+   * is a few kilobytes and bc-dmt's promise is that going back to one is free; a handle
+   * is a thing on a strip, not the conversation.
+   */
+  function removeTab(id) {
+    const at = shownTabs().findIndex((t) => t.id === id);
+    const idx = state.tabs.findIndex((t) => t.id === id);
+    if (idx < 0) return;
+    const neighbour = shownTabs()[at - 1] || shownTabs()[at + 1] || null;
+    state.tabs.splice(idx, 1);
+    saveTabs();
+    if (id !== state.id) {
+      renderChatTabs();
+      // One fewer conversation to ask after — and possibly none, which stops the timer.
+      watchBackground();
+      return;
+    }
+    switchTo(neighbour ? neighbour.id : '', { replace: true });
   }
 
   /**
@@ -882,6 +1104,9 @@
     const count = c.draft?.beads?.length || 0;
     $('#draft-btn').hidden = !count;
     $('#draft-count').textContent = String(count);
+    // Its handle says the same three things this block just said — the spark, the
+    // title, the count — and this poll is where all three change.
+    renderChatTabs();
 
     scrollDown(pin);
   }
@@ -1010,6 +1235,16 @@
   let statusTimer = null;
 
   /**
+   * How many conversations there are behind the one in front.
+   *
+   * Loaded chats *and* open handles, because they are no longer the same set: a handle
+   * restored from the last visit has never been fetched, and it is exactly the one
+   * whose spark you cannot get any other way. It used to be `state.chats.size`, which
+   * counted the loaded ones alone and so left a strip of restored handles unwatched.
+   */
+  const behind = () => new Set([...state.chats.keys(), ...state.tabs.map((t) => t.id)]).size - 1;
+
+  /**
    * What the conversations you are not looking at are doing.
    *
    * `/api/consoles` already carries every conversation's status — it is where the
@@ -1023,13 +1258,13 @@
    */
   function watchBackground() {
     clearTimeout(statusTimer);
-    // Nothing in front means the launcher, which fetches this list for itself; one chat
-    // open means there is no background to ask about.
-    if (!state.id || state.chats.size < 2) return;
+    // Nothing in front means the launcher, which follows this list for itself; nothing
+    // behind means there is no background to ask about.
+    if (!state.id || behind() < 1) return;
 
     const tick = async () => {
       clearTimeout(statusTimer);
-      if (!state.id || state.chats.size < 2) return;
+      if (!state.id || behind() < 1) return;
       try {
         const data = await api('/api/consoles');
         window.beadcause?.warm?.write?.('/api/consoles', data);
@@ -1044,10 +1279,13 @@
           chat.console.closedAt = row.closedAt;
           chat.queue.sync(row.status === 'thinking');
         }
+        // The strip *is* on screen and does depend on it: this request is the only
+        // thing that moves a background handle's spark, title or bead count.
+        renderChatTabs();
       } catch {
-        /* Nothing on screen depends on this; the next tick tries again. */
+        /* Nothing else on screen depends on this; the next tick tries again. */
       }
-      if (state.id && state.chats.size > 1) statusTimer = setTimeout(tick, STATUS_MS);
+      if (state.id && behind() >= 1) statusTimer = setTimeout(tick, STATUS_MS);
     };
     tick();
   }
@@ -1620,6 +1858,11 @@
     closeSheet();
     stash();
     state.id = id;
+    // Before the load rather than after it: the handle is what says which chat the
+    // page is fetching, and a strip that arrives with the transcript is a strip that
+    // flickers on every switch.
+    if (id) addTab(id);
+    renderChatTabs();
     if (replace) history.replaceState(null, '', urlFor(id));
     else if (push) history.pushState(null, '', urlFor(id));
 
@@ -1655,7 +1898,15 @@
     // seeded from the URL at boot, which is where we are being asked to go.
     const wanted = state.id;
     state.id = '';
-    if (wanted) return switchTo(wanted, { replace: true });
+    if (wanted) {
+      // Landing straight in a conversation — a reload, a bookmark, the link on a bead
+      // card. The handles beside it are ids and repos until a list comes back, and this
+      // page kept the last list it saw: painting from it is what makes them names. The
+      // request is still made a moment later, by `watchBackground`. See public/warm.js.
+      const hit = window.beadcause?.warm?.read?.('/api/consoles');
+      if (Array.isArray(hit?.data?.consoles)) adoptConsoles(hit.data);
+      return switchTo(wanted, { replace: true });
+    }
     const params = new URLSearchParams(location.search);
     if (params.get('ws')) return open(params.get('ws'), params.get('seed'), { replace: true });
     return switchTo('', { replace: true });
@@ -1717,13 +1968,18 @@
 
     /* The picker moved — from this row, from the dropdown above it, or from the phone in
        your pocket. All three end here, so the row and the list agree however it happened.
-       Only while the launcher is up: repainting it behind an open conversation would
-       rebuild a screen nobody is looking at. */
+       The launcher's own repaints are still only while it is up — rebuilding a screen
+       nobody is looking at costs the same as one they are — but the strip above it is
+       on screen either way. */
     window.beadcause?.space?.onChange(() => {
-      if ($('#launcher').hidden) return;
       // A stray tab is a filter of this page's own, and the app moving out from under it
       // is exactly when it stops being what you are looking at.
       state.stray = '';
+      // Ahead of the early return, and that is the difference the strip makes: it is on
+      // screen over an open conversation, where the launcher under it is not, and the
+      // filter decides which handles are on it.
+      renderChatTabs();
+      if ($('#launcher').hidden) return;
       hidePicker();
       renderRepoTabs();
       renderRecent();
@@ -1766,8 +2022,63 @@
     });
   }
 
+  /**
+   * The strip of handles, wired once — it is redrawn constantly, so nothing is bound
+   * to a handle itself.
+   *
+   * Same two listeners as the list, in the same order, and the ordering matters less
+   * here for a reason worth writing down: the ✕ is a *sibling* of the handle's link
+   * rather than a child of it, so `closest('[data-tab]')` from the button walks past
+   * the link entirely and the switch cannot fire on a close. On `#recent` the button
+   * is inside the row's `<a>`, and only the `defaultPrevented` guard keeps one tap
+   * from doing both. Keeping the shape identical is deliberate: two strips of tabs on
+   * one page that disagree about what a ✕ does is how the next change breaks one of
+   * them.
+   */
+  function wireTabs() {
+    const row = $('#chat-tabs');
+    if (!row) return;
+
+    row.addEventListener('click', (ev) => {
+      const btn = ev.target.closest('[data-untab]');
+      if (!btn) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      removeTab(btn.dataset.untab);
+    });
+
+    /* A handle is a real link — to the chat, or to `/console` for All — so a modified
+       click is still the browser's and a copied address still works. A plain tap is
+       answered here, from memory. */
+    row.addEventListener('click', (ev) => {
+      if (ev.defaultPrevented || ev.button || ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey) return;
+      const a = ev.target.closest('[data-tab]');
+      if (!a) return;
+      ev.preventDefault();
+      switchTo(a.dataset.tab);
+    });
+
+    /* Arrow keys walk the strip, and the selection follows the focus — the same
+       contract as the repo tabs above, which is the point: a tab bar that answers the
+       arrows beside one that does not is worse than neither. Only the selected handle
+       is in the tab order, or a strip of six chats is six stops on the way to the
+       conversation. */
+    row.addEventListener('keydown', (ev) => {
+      const step = ev.key === 'ArrowRight' ? 1 : ev.key === 'ArrowLeft' ? -1 : 0;
+      if (!step) return;
+      ev.preventDefault();
+      const tabs = [...row.querySelectorAll('[data-tab]')];
+      const at = tabs.findIndex((t) => t.getAttribute('aria-selected') === 'true');
+      const next = tabs[(at + step + tabs.length) % tabs.length];
+      if (!next) return;
+      switchTo(next.dataset.tab);
+      row.querySelector('[aria-selected="true"]')?.focus?.();
+    });
+  }
+
   function wire() {
     wireLauncher();
+    wireTabs();
     // Dictating the next bead. The status line goes above the composer rather than
     // under the box — this composer is a flex row pinned to the bottom of the screen,
     // and a paragraph dropped into it would stand up as a third column — so it lands

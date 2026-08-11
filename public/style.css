@@ -3037,6 +3037,106 @@ button.work-row {
 .ws-pick .section-label { margin-top: 12px; }
 .ws-pick .hint { color: var(--muted); font-size: 13px; }
 
+/*
+  The handles — one per chat you have open, All on the left, above everything the
+  launcher draws.
+
+  Sized to stay put. It is the one strip that is on screen in *both* views, so it is a
+  fixed row of the page's flex column rather than something inside either of them, and
+  switching between a conversation and the list moves nothing on it. That is the whole
+  reason it is above the repo tabs instead of under them, where the bead first put it:
+  under them it would jump up the screen on the first tap, taking the handle out from
+  under the thumb that pressed it.
+
+  `[hidden]` needs saying out loud, the same as `.show-dismissed` and `.ws-pick` above:
+  an author `display` beats the UA sheet's `[hidden] { display: none }` however specific
+  either is, and this row is hidden whenever nothing is open.
+*/
+.chat-tabs {
+  flex: none;
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding: 6px 12px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--line);
+}
+.chat-tabs::-webkit-scrollbar { display: none; }
+.chat-tabs[hidden] { display: none; }
+
+/* The pill is the wrapper, not the link, because the ✕ lives inside it — a button
+   cannot be nested in a link, and the two have to read as one object. */
+.chat-tab {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  max-width: 70vw;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  padding-left: 11px;
+}
+.chat-tab-all { padding-right: 11px; }
+/* Selected is `aria-selected` on the link inside, where the `role="tab"` is — so the
+   pill reads it off its own child. Same paint as a selected chip in the row below. */
+.chat-tab:has([aria-selected="true"]) {
+  background: var(--accent);
+  border-color: transparent;
+  color: var(--accent-ink);
+}
+.chat-tab-face {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  /* The pill is short, so the tap target is made up in padding rather than height:
+     a 40px row of handles over a conversation is a conversation forty pixels shorter. */
+  padding: 8px 0;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1;
+  color: inherit;
+  text-decoration: none;
+  white-space: nowrap;
+}
+/* Hard, and in characters rather than pixels: a chat is titled with a sentence, and
+   what a handle has to carry is enough of it to tell this conversation from the other
+   three — which is a number of words, not a fraction of the screen. */
+.tab-name { overflow: hidden; text-overflow: ellipsis; }
+.chat-tab-face .tab-name { max-width: 12ch; }
+/* `.spark` is a bare span sized in px, so the slot it sits in has to be a flex parent
+   or it lays out as an empty inline box — which is to say, as nothing at all. The same
+   line `.session-row` and `.chat-card` each need, for the same reason, and the one the
+   launcher's own rows are still missing (bc-7vzr). scripts/tabs-check.mjs measures the
+   dot's width rather than looking for the element, because that is the only way to
+   tell this apart from a working one. */
+.tab-mark { flex: none; display: flex; align-items: center; justify-content: center; font-size: 12px; line-height: 1; }
+/* The bar's 🧾 count, on a handle. Never truncated with the title — it is the reason
+   you would come back to a chat you are not reading. */
+.tab-beads { flex: none; font-size: 11.5px; opacity: 0.9; }
+/* Breathing, not a dead grey dot, and legible on the selected pill's accent fill:
+   the spark is the whole answer to "is that one still going", which is the question a
+   handle exists to answer without opening it. */
+.chat-tab .spark { background: var(--accent); animation: breathe 1.3s ease-in-out infinite; }
+.chat-tab:has([aria-selected="true"]) .spark { background: var(--accent-ink); }
+.tab-x {
+  flex: none;
+  width: 30px;
+  align-self: stretch;
+  border: 0;
+  border-radius: 0 999px 999px 0;
+  background: none;
+  color: inherit;
+  opacity: 0.6;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+}
+.tab-x:hover, .tab-x:focus-visible { opacity: 1; }
+
 .thread {
   flex: 1;
   overflow-y: auto;

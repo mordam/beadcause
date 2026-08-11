@@ -6685,9 +6685,90 @@ eight of them — the reload is the one that must still pass, because it is the 
 this kept rather than the behaviour it added.
 
 The one thing it routes the long way round is the back gesture through *chats*: the list
-is still the only surface you can switch from, so the history a phone builds today is
-chat, list, chat. Two chats stacked on each other is a tap on a handle, and the handles
-are the next bead.
+was the only surface you could switch from, so the history a phone built was chat, list,
+chat. Two chats stacked on each other is a tap on a handle, and the handles are below.
+
+### The handles — a tab per chat you have open
+
+Holding several conversations open bought you nothing to move between them with. The
+only switch surface was the launcher list, which is a list of *every* conversation in
+the repo — so going from one chat to the next meant coming back out to it, finding the
+row again among twenty, and tapping it, on a list that reorders itself every time a turn
+lands somewhere else.
+
+So there is a strip above everything: **All** on the left, then one handle per chat you
+have opened, in the order you opened them. It is the short list — the four you are
+actually working in, rather than the forty the repo has ever had.
+
+```
+┌──────────────────────────────────────────────────────┐
+│ ● Chat session                                  🧾 3 │
+├──────────────────────────────────────────────────────┤
+│ ⟨All⟩ ( ◌ iTerm2 check… ✕)(💬 bd sweep timeo… 🧾2 ✕)  │→
+├──────────────────────────────────────────────────────┤
+```
+
+**All is the one that cannot be closed.** It has no ✕, and it is not there for symmetry:
+it is the way back *out* of a conversation, and a strip you can strand yourself in is
+worse than no strip. Tapping it is the launcher exactly as it was — repo tabs, dismissed
+toggle, every conversation in the selected repo, live and finished alike.
+
+Six things follow from that, and each is a way it would otherwise half-land:
+
+- **The ✕ on a handle is not the ✕ on a row.** They are two characters apart on one
+  screen and they mean opposite things. The row's is the soft close it always was: it
+  stamps `closedAt`, the conversation leaves the list until *Dismissed* gives it back.
+  The handle's touches nothing on the server — it takes the handle off the strip, the
+  row stays in the All list exactly as it was, and opening it again puts the handle
+  back. If that one ever POSTs, a gesture meaning "I have too many tabs open" starts
+  dismissing conversations, so `test/chattabs.mjs` asserts the *absence* of the request.
+- **Closing the one in front falls to its neighbour**, the way every strip of tabs
+  anywhere does — and it *replaces* the history entry rather than pushing one, because
+  closing a tab is not somewhere you went. An older entry naming the chat you closed
+  still works, and arriving there re-adds its handle.
+- **The strip does not move.** It is the only thing on screen in both views, so it is a
+  fixed row of the page rather than something inside either — which is why it is above
+  the repo tabs and not under them, where the bead first put it. Under them it would sit
+  inside the launcher, and the first tap would jump it ninety pixels up the screen,
+  taking the handle out from under the thumb that pressed it. It also makes the nesting
+  the honest one: All is the *whole* launcher, so the row that filters that list belongs
+  inside the panel it filters rather than above the strip that selects it.
+- **They survive the app being closed**, which is what makes them tabs rather than a
+  session's scratch state — `localStorage`, beside the token. Only `{id, ws}` reaches
+  the disk, never a title: [the warm layer](#loaded-once-and-kept--what-a-tab-tap-actually-costs)
+  is `sessionStorage` on purpose so that bead text does not sit on the phone overnight,
+  and a chat's title is bead text. A handle restored tomorrow draws its **repo** until
+  the first `/api/consoles` comes back, which is the word the bar already falls back to
+  for a chat with no seed — the same word in the same place, one request early.
+- **They are scoped by repo**, off the same space picker everything else on the phone
+  obeys, so switching it shows that repo's chats. With one exception, and it is the
+  interesting half: the chat *in front* keeps its handle whatever the filter says. The
+  picker moves from another device, or from the tab bar above; the list behind narrows,
+  the conversation you are reading does not, and a strip whose selected tab is not on it
+  is a broken control.
+- **A handle says what its chat is doing** — the spark for a running turn, the 🧾 count
+  for a proposal nobody has read — because the point of holding four open is not having
+  to visit them to find out. That is one request for all of them: `/api/consoles` every
+  fifteen seconds, which the page was already making for the loaded chats. It now counts
+  open *handles* too, or a restored strip is a row of chats nothing is watching.
+
+A strip holding only All is a row that says nothing and costs 40px of a phone, so it is
+not drawn at all until something is open. Titles are a sentence long, so a handle
+truncates to twelve characters and the strip scrolls sideways with the front one kept in
+view; five open chats are 860px of handles on a 393px screen, and that has to be one
+line — a strip that wraps eats the transcript under it.
+
+`node test/chattabs.mjs` runs the real `console.js` in a vm against a hand-made document
+for the twenty-four behavioural halves of that, and `node scripts/tabs-check.mjs` presses
+the real handles in a headless Chrome at phone size, for the halves a vm cannot see:
+that the strip is the same rectangle on the list and over a conversation, that five
+sentence-long titles are one scrolling line rather than four wrapped ones, that the
+selected handle is scrolled into view *including its ✕*, that the composer keeps its
+place, and that the spark has a **box** — `.spark` is a bare span sized in px, so a slot
+that is not a flex parent renders it as nothing at all, which reads identically to a
+working one in any test that only looks at HTML. `--baseline` serves the committed
+copies, where there is no strip in the page, so fourteen of its twenty-two fail and the
+rest pass vacuously.
 
 ### A chat with an agent says so
 
