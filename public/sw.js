@@ -28,7 +28,15 @@
    the inbox with neither the picker nor the two chip rows it replaced: no way at all to
    change which repo you are looking at. They have to arrive together, which is what a
    cache version is for. */
-const CACHE = 'beadcause-v22';
+/* v23: the warm layer. `/warm.js` is a new path *and* all five standing pages now
+   boot through it — app.js, prs.js, monitor.js, console.js and admin.js each ask it
+   for the payload they had last time before asking the daemon for a fresh one, and
+   the inbox draws its list through its reconciler. A phone holding v22's cached
+   app.js beside v23's would call a file that is not there on every repaint; one
+   holding v23's app.js without the file would fall back to the whole-list rebuild
+   and a cold fetch per tab, which is the entire thing being fixed. They have to
+   arrive together, which is what a cache version is for. */
+const CACHE = 'beadcause-v23';
 const SHELL = [
   '/',
   '/index.html',
@@ -50,6 +58,11 @@ const SHELL = [
   // page cached without it is a page with no way to change which repo the app is about,
   // and on the inbox it is what the space and workspace chip rows became.
   '/spacebar.js',
+  // What each of those five pages boots from. In the shell rather than left to
+  // network-first because the whole point of it is the first frame after a tab tap:
+  // a page that has to fetch its cache before it can read it has already lost the
+  // wait it exists to remove.
+  '/warm.js',
   // On every page that can open a detail drawer, and on both pages that can be one.
   '/drawer.js',
   '/doc.html',

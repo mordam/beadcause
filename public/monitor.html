@@ -48,6 +48,11 @@
        sessions view now, and a phone sitting on it should be followable from a screen
        with room — see the presence note at the foot of monitor.js for why a page that
        is also a mirror can safely publish itself. -->
+  <!-- What this page already has, from the last time you were on it: the payload it
+       boots from, and the reconciler that keeps a repaint from throwing away the DOM
+       it did not need to touch. First of the shared files, because every page script
+       below asks it for a warm list before it asks the daemon for a cold one. -->
+  <script src="/warm.js"></script>
   <script src="/presence.js"></script>
   <script src="/tabbar.js"></script>
   <!-- Which repo the advocates and sessions on this page belong to. Before monitor.js,
