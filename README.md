@@ -2577,6 +2577,34 @@ meant to share, scoping this bar's CSS apart from the foundations page's, has la
 ahead of it as bc-4aw: `.mon-tabs` is now this bar's own selector, which is what a
 restyle needs to be able to move it without moving the other page.
 
+### The Mirror pane waits, it does not poll
+
+The **Mirror** pane beside the advocate console follows whatever the phone has open and draws the
+version that would not fit in a hand — the whole brief, every comment, the options as
+buttons. It follows rather than chooses: the view comes off `/api/presence`, which every
+page publishes as it moves, and the presence event wakes the parked `/api/poll`, so a card
+opening in a hand is on the big screen as fast as the network allows and **nothing is
+polled in between**. Each view behind it costs a `bd` call, and they are paid for on a
+move rather than on a clock.
+
+A chat session is the exception, because it changes while nothing moves at all — the agent
+is mid-sentence. That used to be a 1.5s `setInterval` re-reading the whole session, which
+made a turn arrive up to a second and a half after it was written and cost forty requests a
+minute for a session nobody was talking to. It has a parked request of its own now, on the
+same `/api/console/poll` [the console's own page lives on](#the-chat-session--deciding-what-to-file):
+it waits on that session's sequence and hands back the whole session the moment it moves,
+so an idle one is one held request and a streamed turn lands as it is written. Repaints are
+coalesced to a tenth of a second on the way in — a delta moves the sequence per token, and
+this pane's composer is *inside* what a repaint rebuilds, unlike the console page's.
+
+`node scripts/mirror-check.mjs` holds it to that, in headless Chrome against fixtures
+served from the script: that an idle session is read **once** and then parked on, that
+streamed words arrive through the park rather than through a second read, and — the case a
+timer never had to think about — that the request still in flight when the phone leaves the
+session neither repaints the pane nor starts another one, because the phone can come back
+to a session while the old poll is still out. `--baseline` fails all three, since HEAD's
+mirror never asks `/api/console/poll` anything at all.
+
 Advocates carries a **badge** when there is something behind it — how many advocates
 are waiting on an answer. The number rides the inbox's own poll (`/api/questions`
 carries it; see [the three counts on the poll](#the-three-counts-on-the-poll)), so it
@@ -3154,34 +3182,6 @@ when you want it. It also stops while the Mirror pane is the one showing, becaus
 hidden page must not keep sweeping every tracker on the Mac. A workspace that fails
 reports its error in place rather than vanishing from the list; a missing row would
 read as "nothing happening there", which is the one thing it doesn't mean.
-
-### The Mirror pane waits, it does not poll
-
-The **Mirror** tab beside the console follows whatever the phone has open and draws the
-version that would not fit in a hand — the whole brief, every comment, the options as
-buttons. It follows rather than chooses: the view comes off `/api/presence`, which every
-page publishes as it moves, and the presence event wakes the parked `/api/poll`, so a card
-opening in a hand is on the big screen as fast as the network allows and **nothing is
-polled in between**. Each view behind it costs a `bd` call, and they are paid for on a
-move rather than on a clock.
-
-A chat session is the exception, because it changes while nothing moves at all — the agent
-is mid-sentence. That used to be a 1.5s `setInterval` re-reading the whole session, which
-made a turn arrive up to a second and a half after it was written and cost forty requests a
-minute for a session nobody was talking to. It has a parked request of its own now, on the
-same `/api/console/poll` [the console's own page lives on](#the-chat-session--deciding-what-to-file):
-it waits on that session's sequence and hands back the whole session the moment it moves,
-so an idle one is one held request and a streamed turn lands as it is written. Repaints are
-coalesced to a tenth of a second on the way in — a delta moves the sequence per token, and
-this pane's composer is *inside* what a repaint rebuilds, unlike the console page's.
-
-`node scripts/mirror-check.mjs` holds it to that, in headless Chrome against fixtures
-served from the script: that an idle session is read **once** and then parked on, that
-streamed words arrive through the park rather than through a second read, and — the case a
-timer never had to think about — that the request still in flight when the phone leaves the
-session neither repaints the pane nor starts another one, because the phone can come back
-to a session while the old poll is still out. `--baseline` fails all three, since HEAD's
-mirror never asks `/api/console/poll` anything at all.
 
 ## Pull requests — review, merged, pushed, deployed, live
 
