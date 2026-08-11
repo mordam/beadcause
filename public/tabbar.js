@@ -12,6 +12,12 @@
   So: one bar, the same on all of them, fixed to the bottom where a thumb already is.
   Any view is one tap from any other, and nothing closes any more.
 
+  It is a bar of *views*, and only views. The chat session was in it and is not any
+  more (see the gap in TABS below): a tab that was also the way to create something
+  was a tab doing a job a bar like this cannot do, because whatever it did would have
+  to make sense on all five pages and creating does not. The bar navigates; ＋ on the
+  inbox creates.
+
   It is built here rather than pasted into five <head>-alike blocks of HTML because
   there is no templating in this app and a bar that says different things on
   different pages is worse than no bar. One list, one place to add a tab, and one
@@ -33,18 +39,22 @@
     // to recognise all of them or the bar shows nothing as current on a page you are
     // plainly looking at.
     { id: 'inbox', href: '/', icon: '📥', label: 'Inbox', paths: ['/', '/index.html'] },
-    // Everywhere else this is a "chat session" — the page title, the <h1>, the
-    // foundation, the README. Here it is one word, and the bar is why: five tabs
-    // give each label 72px at 360px, and "Chat session" measures 68px *unwrapped*,
-    // so it takes two lines while its three neighbours take one and its icon rides
-    // higher than theirs. 360px is the common Android width and the app is a WebView
-    // shell, so that is the ordinary case, not the edge. The word it might be
-    // confused with — the agent chats on /foundations — is not a tab; the tab that
-    // *was* ambiguous with it, "Sessions", is gone, and the short label is still the
-    // right one on a bar this tight.
-    // The id and the href stay `console`: they live in stored conversation records
-    // and on the phone's home screen.
-    { id: 'console', href: '/console', icon: '🧾', label: 'Chat', paths: ['/console', '/console.html'] },
+    // There was a Chat tab here, and it is gone (bc-l8jp.5). Not because the chat
+    // session mattered less than the four that are left, but because it was the one
+    // tab that was two things at once: a *list* of conversations you had already
+    // started, and the only way to start another. Both belong somewhere better. The
+    // list is a category in the inbox now — the conversations you have open are
+    // incoming things, exactly like a question or a merge, and the inbox's kind
+    // filter already had a table to add them to. Starting one is the ＋ on the inbox,
+    // which is the primary action of the whole app and was never a navigation.
+    //
+    // **`/console` is still a live route with no tab pointing at it.** The id and the
+    // href live in stored conversation records and on people's home screens, so the
+    // page answers to both of its paths exactly as before (see `serveStatic`, and
+    // test/pagepaths.mjs); it is reached from a row in the inbox or from ＋ rather
+    // than from here, and the bar on it marks nothing as current because you are not
+    // on one of these four views. It also frees a slot on a five-tab bar, which is
+    // what §6 step 8 of the UX review and bc-3xb were both arguments about.
     // Next to Advocates on purpose: that is where the sessions are, this is where the
     // work they finished goes, and the two are read one after the other. "PRs" rather
     // than "Pull requests" for the reason the tab beside it is called Chat — above.

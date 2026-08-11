@@ -196,13 +196,22 @@ const ROWS = {
   question: { key: 'w/q1', workspace: 'w', title: 'a question' },
   proposal: { key: 'w/p1', workspace: 'w', proposal: { beads: [{ title: 'x' }] } },
   delivery: { key: 'w/d1', workspace: 'w', delivery: { number: 7 } },
+  // A chat session, which is the one row here that is not a bead at all — no id in
+  // any tracker, nothing to answer. See `chatRows` in public/app.js.
+  session: { key: 'chat/abc', workspace: 'w', session: { id: 'abc', title: 'New beads' } },
   claimed: { key: 'w/a1', workspace: 'w', agent: true, status: 'in_progress' },
   blocked: { key: 'w/a2', workspace: 'w', agent: true, status: 'blocked' },
   unclaimed: { key: 'w/a3', workspace: 'w', agent: true, status: 'open' },
 };
 
-const QUESTION_KINDS = ['question', 'proposal', 'delivery'];
-const AGENT_KINDS = ['claimed', 'blocked', 'unclaimed'];
+/* What each scope can hold. `session` is in both, because it is on neither side: no
+   `bd` sweep fetches a conversation, so there is no scope that could have missed it —
+   which is what `side: 'any'` means. public/app.js `kindsForScope` is the other half. */
+const QUESTION_KINDS = ['question', 'proposal', 'delivery', 'session'];
+const AGENT_KINDS = ['session', 'claimed', 'blocked', 'unclaimed'];
+/* The table itself, in the order the chips are drawn. Not the two above concatenated,
+   because they overlap by one and a filter is not a union of scopes. */
+const ALL_KINDS = ['question', 'proposal', 'delivery', 'session', 'claimed', 'blocked', 'unclaimed'];
 
 /* ------------------------------------------------------------------- model */
 
@@ -211,11 +220,11 @@ console.log('\nthe kinds partition the inbox');
 const { filter: model } = load();
 
 await check('every kind in the table is drawn, named and testable', () => {
-  assert.deepEqual(list(model.KINDS).map((k) => k.id), [...QUESTION_KINDS, ...AGENT_KINDS]);
+  assert.deepEqual(list(model.KINDS).map((k) => k.id), ALL_KINDS);
   for (const k of list(model.KINDS)) {
     assert.ok(k.label, `${k.id} has no label`);
     assert.ok(k.note, `${k.id} has no note — the chip would have no accessible name`);
-    assert.ok(['question', 'agent'].includes(k.side), `${k.id} has no side`);
+    assert.ok(['question', 'agent', 'any'].includes(k.side), `${k.id} has no side`);
     assert.equal(typeof k.test, 'function');
   }
 });
@@ -318,7 +327,7 @@ await check('a selection the new scope keeps is kept', () => {
   const { filter } = load();
   filter.survey({ kinds: QUESTION_KINDS });
   filter.set(['delivery']);
-  filter.survey({ kinds: [...QUESTION_KINDS, ...AGENT_KINDS] });
+  filter.survey({ kinds: ALL_KINDS });
   assert.deepEqual(list(filter.selected()), ['delivery']);
 });
 
@@ -375,10 +384,10 @@ await check('the line names the narrowing, and the control says it is narrowed',
   assert.ok(root.classes().includes('narrowed'), 'nothing on screen says the list is filtered');
 });
 
-await check('three selections are counted rather than listed — a phone line is short', () => {
+await check('three or more selections are counted rather than listed — a phone line is short', () => {
   const { filter, summary } = mounted();
   filter.set(QUESTION_KINDS);
-  assert.equal(summary.children[0].textContent, 'Human · 3 kinds');
+  assert.equal(summary.children[0].textContent, `Human · ${QUESTION_KINDS.length} kinds`);
 });
 
 await check('a chip per kind the scope can hold, each with what picking it would leave', () => {

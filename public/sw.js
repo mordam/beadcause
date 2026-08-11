@@ -35,7 +35,17 @@
    app.js without the file would draw an inbox with no scope switch at all: the chips
    that used to be a permanent row are inside the new control, and nothing else draws
    them. They have to arrive together, which is what a cache version is for. */
-const CACHE = 'beadcause-v23';
+/* v24: Chat stopped being a tab. No new path — every file involved is already here —
+   but three of them changed together and a phone holding a mixture of v23 and v24 gets
+   a screen that is wrong in a way it cannot explain: index.html without app.js is a ＋
+   that does nothing when tapped, app.js without index.html is an inbox whose rows say
+   `data.consoles` and whose create button is not on the page, and either without
+   style.css is a floating button with no shape sitting over the last card. The tab it
+   replaced is gone from tabbar.js in the same breath, so a stale shell is also a bar
+   with a Chat tab and no ＋ — which is the old app, complete, and therefore the one
+   mixture nobody would think to suspect. They have to arrive together, which is what a
+   cache version is for. */
+const CACHE = 'beadcause-v24';
 const SHELL = [
   '/',
   '/index.html',

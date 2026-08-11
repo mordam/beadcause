@@ -42,14 +42,18 @@
   arrive at the same address. `KINDS` is the table that names them, and it is
   deliberately the only place that knows: bc-l8jp.5 (chat sessions in the inbox) and
   bc-l8jp.6 (pull requests as cards) each add one row to it and get a filter, a chip,
-  a count and a place in the summary line for free.
+  a count and a place in the summary line for free. The first of those two has landed
+  — `session` below — and it cost exactly that one row plus the word `!q.session` in
+  the predicate it would otherwise have fallen into.
 
   Each kind carries a `side`, because a scope that never fetched a row cannot show a
   chip for it: `human` sweeps questions, `agent` sweeps live beads, `both` does both,
   and a chip for something the current scope cannot contain is a control that does
   nothing. `usable()` is what applies that, and `set()` drops selections the new scope
   cannot produce — otherwise switching to `Agent` with `Merges` selected is an empty
-  screen with nothing on it to say why.
+  screen with nothing on it to say why. `any` is the third value and it means what it
+  says: a chat session comes off no `bd` sweep at all, so no scope can be the wrong
+  one for it.
 
   ## What this does *not* touch
 
@@ -79,7 +83,11 @@
       side: 'question',
       label: 'Questions',
       note: 'Beads asking you something in words — the app’s original inbox.',
-      test: (q) => !q.agent && !q.proposal && !q.delivery,
+      // `!q.session` for the same reason `!q.proposal` is spelled out under Merges:
+      // a chat session is not a bead and answers none of the other three tests, so
+      // without this it would land here — the one kind whose predicate is "none of
+      // the above" and therefore the one that silently absorbs anything new.
+      test: (q) => !q.agent && !q.proposal && !q.delivery && !q.session,
     },
     {
       id: 'proposal',
@@ -99,6 +107,18 @@
       // table is asserted on (test/inboxkinds.mjs), so it is stated here rather than
       // left to the order of the rows.
       test: (q) => !q.agent && !q.proposal && Boolean(q.delivery),
+    },
+    {
+      id: 'session',
+      // The only kind on neither side, and the reason `side` grew a third value: a
+      // chat session is not in the tracker at all, so no scope fetches it and no
+      // scope can fail to. It is here under `Human` because it is a thing waiting on
+      // you, and under `Agent` because it is not a bead the sweep could have missed —
+      // it is simply always true, which is what `any` says.
+      side: 'any',
+      label: 'Chats',
+      note: 'Conversations you have open about what to file next. Tap one to pick it up.',
+      test: (q) => Boolean(q.session),
     },
     {
       id: 'claimed',
