@@ -2374,6 +2374,48 @@ which it does not — so the stylesheet steps the type down when a sixth tab is 
 off a count written down somewhere, so adding or removing a tab needs nothing else.
 It is dormant below six and will come back on its own if a tab does.
 
+### The Mirror is a pane, not a tab
+
+`tabbar.js` and the Mirror (`public/mirror.js`, whose header is the prose on what it is)
+landed in the same window, so for two days `/monitor` carried **two rows of tabs**: the
+bottom bar, which moves between pages, and an in-page pair (Advocates | Mirror) that swaps
+a pane. Either reading was defensible on the face of it — a standing view of its own, or a
+mode of the advocates page — and bc-3xb was the bead about which one it is.
+
+**It is a pane.** Two reasons, and both are about what the Mirror *is* rather than about
+how much room the bar has:
+
+- **It is a mode, not a destination.** "Show me what the phone has open instead of what
+  this Mac is running" is a lens on the advocates page — the same repos, the same
+  sessions, the same questions, seen from the other device. The rule above decides it:
+  a tab is a claim that the page is somewhere you live, and nobody lives in a lens.
+- **It is the one surface in the app that is meaningless on a phone** — which is the
+  device a bottom tab is tapped from. The Mirror follows *another* device and drops its
+  own (`notMe` in `public/mirror.js`, and `showTab` reports `view: null` while the pane is
+  up, so a mirror cannot circle back onto the page it is drawn on). A phone that tapped a
+  Mirror tab would therefore find nothing to follow and read "Looking for a device…"
+  forever. That is not a tab, it is a dead end with an icon.
+
+There was a third reason when this was decided — *the bar is full at five, and
+`style.css`'s `:has(.tab-item:nth-child(6))` rule is the stylesheet quietly admitting
+it* — and it has **since expired**: PRs left the bar in bc-l8jp.6 and there is a free
+place on it again. The decision does not move, and that is the point of writing the other
+two down: the next person to notice the empty slot should not have to re-derive why the
+Mirror is not what goes in it.
+
+So `public/mirror.js` stays a pane inside `monitor.html`, and what the other answer would
+have cost is not spent: no `/mirror` route, no `mirror.html`, and the pane-swap keeps the
+one-line `.work[hidden]` rule it runs on. `node test/mirrorpane.mjs` holds it — a static
+read asserting the Mirror is not in the bar's tab list, that neither the route nor the page
+exists, that the chip and the pane are both still on `monitor.html`, and that the
+device-filter the second reason rests on is still there.
+
+**What is still owed is the ambiguity, not the decision.** Two tab bars stacked on one
+screen with nothing visual to say that one changes the page and the other changes a pane
+is the actual complaint, and the fix is to restyle the in-page pair as the segmented
+control it already is (two mutually exclusive modes) — filed as bc-stci, together with the
+CSS scoping it shares an edit with (bc-4aw).
+
 Advocates carries a **badge** when there is something behind it — how many advocates
 are waiting on an answer. The number rides the inbox's own poll (`/api/questions`
 carries it; see [the three counts on the poll](#the-three-counts-on-the-poll)), so it
