@@ -4,8 +4,9 @@
  * The incident this is written from: at 23:37:24 the beadcause advocate opened a
  * session on the epic bc-3zo9, and 1.3 seconds later opened a second on bc-3zo9.1,
  * that epic's first child. Both windows were briefed to write the same feature. The
- * epic session's only honest move was to write no code at all, so one of the two —
- * the more expensive one — was wasted, and nothing on the card said why.
+ * epic session's only honest move was to write no code at all — a live sibling
+ * already held the first child and .2 through .5 chained behind it — so one of the
+ * two was wasted, it was the more expensive one, and nothing on the card said why.
  *
  * `bd ready` cannot help here: hierarchy is not a dependency in bd, so an epic with
  * five open children is genuinely ready by bd's own semantics. The filter is ours, in
@@ -22,45 +23,34 @@
  *
  *     npm test
  *
- * ## Why child processes
+ * The assertion is the list of windows, not a proxy for it: `open` is injected, so a
+ * tick that would have opened an iTerm window pushes a bead id onto an array instead.
+ * That is the whole reason it is injectable — a suite asserting "no session was opened
+ * on the epic" is worthless if the way it fails is by opening one.
  *
- * `OBSERVING` resolves once, at module load, so one process can only test one value
- * of it — the same reason test/observe.mjs is shaped this way. Most cases here run
- * with it **on**, because the queue is what the tick draws launches from and reading
- * it is the whole assertion; the one case about what the *card* says has to run with
- * it off, because the observer note is written before the note under test.
- *
- * Nothing here opens a window. Under the flag the tick stops before it could, and the
- * one case that runs without it is given a queue that is empty by the end of the
- * survey — the launch loop is only reached with something in it. The mirror image,
- * "flag off, does a window really open", is the test test/observe.mjs declines to
- * write for the reason it gives there, and this file declines it for the same one.
+ * No iTerm, no `bd`, no agent, and nothing written outside a temp config dir.
  */
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { execFileSync } from 'node:child_process';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const LIB = (name) => path.join(HERE, '..', 'lib', name);
 
-/* --------------------------------------------------------------- the harness */
+// Before anything under lib/ is imported: CONFIG_DIR resolves once, at module load,
+// and the daemon's own advocates.json is not this suite's to read or to write.
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'beadcause-epicqueue-'));
+process.env.BEADCAUSE_CONFIG_DIR = path.join(tmp, 'config');
+fs.mkdirSync(process.env.BEADCAUSE_CONFIG_DIR, { recursive: true });
 
-const CASES = new Map();
-const test = (name, fn) => CASES.set(name, fn);
+const SESSIONS = path.join(tmp, 'claude-sessions');
+const REPO = path.join(tmp, 'projects', 'alpha');
+fs.mkdirSync(SESSIONS, { recursive: true });
+fs.mkdirSync(REPO, { recursive: true });
 
-/** Run one named case in a child, with a clean env plus whatever it needs. */
-function child(name, env = {}) {
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'beadcause-epicqueue-'));
-  return execFileSync(process.execPath, [fileURLToPath(import.meta.url), name], {
-    encoding: 'utf8',
-    // Built from scratch, and with a config dir of its own: a case must not be able
-    // to read — or write — the advocates.json of the daemon running on this Mac.
-    env: { PATH: process.env.PATH, HOME: process.env.HOME, BEADCAUSE_CONFIG_DIR: tmp, ...env },
-  });
-}
+const { createAdvocates, isDescendantOf } = await import(LIB('advocate.js'));
 
 /* ------------------------------------------------------------------ fixtures */
 
@@ -69,43 +59,47 @@ const bead = (id, over = {}) => ({ id, title: id, priority: 2, issue_type: 'task
 const epic = (id, over = {}) => bead(id, { issue_type: 'epic', ...over });
 
 /**
- * An advocate over a config that touches nothing, with a tracker that says what the
- * case needs it to.
+ * One tick, over a tracker that says what the case needs it to.
  *
- * `children` is a map of parent id to the rows `bd list --parent` would return, and
- * every call to it is counted: "one `bd` call per epic per tick, and none at all for
- * anything else" is a claim about cost, and a claim about cost is a thing to assert
- * rather than a thing to write in a comment.
+ * Every `children` call is counted: "one `bd` call per epic per tick, and none at all
+ * for anything else" is a claim about cost, and a claim about cost is worth asserting
+ * rather than writing in a comment.
  */
-async function harness({ ready = [], children = {}, listLabel = [], show = null, workers = [], overrides = {} } = {}) {
+async function tick({ ready = [], children = {}, listLabel = [], show = null, workers = [], overrides = {} } = {}) {
   const dir = process.env.BEADCAUSE_CONFIG_DIR;
-  const sessions = path.join(dir, 'claude-sessions');
-  fs.mkdirSync(sessions, { recursive: true });
+  // A clean slate per case: state, the activity file the launch stamps, and the
+  // worker markers. Otherwise case N's worker is still in case N+1's queue.
+  for (const f of fs.readdirSync(dir)) fs.rmSync(path.join(dir, f), { recursive: true, force: true });
   if (workers.length) {
     fs.writeFileSync(path.join(dir, 'advocates.json'), JSON.stringify({ alpha: { workers, attempts: {} } }));
   }
 
   const cfg = {
-    projectRoot: path.join(dir, 'projects'),
+    projectRoot: path.join(tmp, 'projects'),
     fallbackWorkspace: 'other',
-    claudeSessionsDir: sessions,
+    claudeSessionsDir: SESSIONS,
     spaces: [],
     workspaces: [{ name: 'alpha', dir: path.join(os.homedir(), 'beads', 'alpha', '.beads') }],
     advocates: {
       enabled: true,
       workspaces: '*',
-      maxWorkers: 2,
+      // Enough that the cap is never what holds a launch back — a case asserting no
+      // window opened must fail for its own reason, not for want of a slot.
+      maxWorkers: 3,
       settleSeconds: 0,
       launchCooldownSeconds: 0,
-      // Everything that would reach a repo, an agent or a worktree.
+      // Other features with their own suites, each of which would otherwise run real
+      // git or a real agent against a temp directory on every case here.
       propose: false,
       sessionLog: false,
       tidyWorktrees: false,
+      respectQuietHours: false,
       ...overrides,
     },
   };
   fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify(cfg, null, 2));
 
+  const opened = [];
   const calls = { children: [], listLabel: 0 };
   const bd = {
     ready: async () => ready,
@@ -121,59 +115,77 @@ async function harness({ ready = [], children = {}, listLabel = [], show = null,
     },
   };
 
-  const { createAdvocates } = await import(LIB('advocate.js'));
-  const advocates = createAdvocates(cfg, { bd, bus: { emit() {} } });
+  const advocates = createAdvocates(cfg, {
+    bd,
+    bus: { emit() {} },
+    open: async (_cfg, _ws, b) => {
+      opened.push(b.id);
+      return { dir: REPO, mode: 'test', term: null };
+    },
+  });
   await advocates.tick();
-  return { calls, card: advocates.snapshot().find((a) => a.workspace === 'alpha') };
+  return { opened, calls, card: advocates.snapshot().find((a) => a.workspace === 'alpha') };
 }
 
-const queued = (card) => card.next.map((n) => n.id);
 const heldIds = (card) => card.heldByChildren.map((h) => h.id);
+
+/* ------------------------------------------------------------------- harness */
+
+let failures = 0;
+let ran = 0;
+async function check(name, fn) {
+  ran += 1;
+  try {
+    await fn();
+    console.log(`  ok   ${name}`);
+  } catch (err) {
+    failures += 1;
+    console.error(`  FAIL ${name}`);
+    console.error(`       ${(err && err.message ? err.message : String(err)).split('\n').join('\n       ')}`);
+  }
+}
 
 /* ------------------------------------------------------------------ the cases */
 
 /**
  * The bug, in the smallest queue that can hold it: an epic and its own first child,
- * both ready, both past the settle window.
- *
- * The queue is the assertion because the queue is what launches are drawn from —
- * `candidates` filters it further (busy, attempts, settle) and never adds to it — so
- * a queue of one is one window, and the id in it says which of the two it was.
+ * both ready, both past the settle window. Two windows before; one now, and it is the
+ * one with the work in it.
  */
-test('tick:one-window-for-a-parent-and-its-child', async () => {
-  const { card, calls } = await harness({
+await check('one window for a parent and its child, and it is the child', async () => {
+  const { opened, card, calls } = await tick({
     ready: [epic('x-1', { priority: 1 }), bead('x-1.1')],
     children: { 'x-1': [bead('x-1.1', { status: 'open' })] },
   });
 
-  assert.equal(card.queue, 1, 'one window, not two — this is the whole bug');
-  assert.deepEqual(queued(card), ['x-1.1'], 'and it is the child, which is where the work actually is');
-  assert.deepEqual(heldIds(card), ['x-1'], 'the epic is held rather than vanished');
+  assert.deepEqual(opened, ['x-1.1'], 'one session, on the child — this is the whole bug');
+  assert.equal(card.queue, 1, 'and the epic is out of the queue, not merely unpicked');
+  assert.deepEqual(heldIds(card), ['x-1'], 'held rather than vanished');
   assert.match(card.heldByChildren[0].why, /x-1\.1 is ready under it/, `got: ${card.heldByChildren[0].why}`);
-  assert.deepEqual(calls.children, [], 'the child was in the queue — that answer was free, and no bd call was made');
+  assert.deepEqual(calls.children, [], 'the child was in the queue — that answer was free, and cost no bd call');
 });
 
 /**
- * The same guard, one tick later. Without this the epic is simply picked up on the
- * tick after its child was — the incident with a pause in the middle.
+ * The same guard one tick later. Without it the epic is simply picked up on the tick
+ * after its child was — the incident with a pause in the middle.
  */
-test('tick:a-session-on-a-child-holds-the-parent', async () => {
-  const { card } = await harness({
+await check('a session already working a child holds the parent', async () => {
+  const { opened, card } = await tick({
     ready: [epic('x-1')],
     workers: [{ id: 'x-1.1', title: 'the child', at: new Date().toISOString(), attempt: 1 }],
     show: () => ({ id: 'x-1.1', status: 'in_progress' }),
   });
 
-  assert.equal(card.queue, 0, 'no second window on the parent of a bead already being worked');
+  assert.deepEqual(opened, [], 'no second window over a bead already being worked');
   assert.deepEqual(heldIds(card), ['x-1']);
   assert.match(card.heldByChildren[0].why, /working x-1\.1/, `got: ${card.heldByChildren[0].why}`);
 });
 
 /** The narrow case on its own: a parent that is not typed as an epic still waits. */
-test('tick:an-untyped-parent-waits-too', async () => {
-  const { card, calls } = await harness({ ready: [bead('x-1'), bead('x-1.2')] });
+await check('an untyped parent waits for its child too', async () => {
+  const { opened, card, calls } = await tick({ ready: [bead('x-1'), bead('x-1.2')] });
 
-  assert.deepEqual(queued(card), ['x-1.2'], 'hierarchy is hierarchy whatever the parent is typed as');
+  assert.deepEqual(opened, ['x-1.2'], 'hierarchy is hierarchy whatever the parent is typed as');
   assert.deepEqual(heldIds(card), ['x-1']);
   assert.deepEqual(calls.children, [], 'and a plain task parent costs no bd call at all');
 });
@@ -182,15 +194,15 @@ test('tick:an-untyped-parent-waits-too', async () => {
  * The half `bd ready` cannot see: the child is open but not *ready* — in progress,
  * here — so nothing in the queue names it and only asking bd finds it.
  */
-test('tick:an-epic-whose-child-is-not-in-the-queue', async () => {
-  const { card, calls } = await harness({
+await check('an epic whose only open child is not in the queue', async () => {
+  const { opened, card, calls } = await tick({
     ready: [epic('x-1'), bead('x-2')],
     children: { 'x-1': [bead('x-1.1', { status: 'in_progress' }), bead('x-1.2', { status: 'closed' })] },
   });
 
-  assert.deepEqual(queued(card), ['x-2'], 'the epic is its children until they are done');
+  assert.deepEqual(opened, ['x-2'], 'an epic is its children until they are done');
   assert.match(card.heldByChildren[0].why, /1 open child issue/, `got: ${card.heldByChildren[0].why}`);
-  assert.deepEqual(calls.children, ['x-1'], 'one call, for the one epic — x-2 is not an epic and was not asked about');
+  assert.deepEqual(calls.children, ['x-1'], 'one call for the one epic — x-2 is not an epic and was not asked about');
 });
 
 /**
@@ -198,58 +210,53 @@ test('tick:an-epic-whose-child-is-not-in-the-queue', async () => {
  * one line; it also means an epic with nothing under it needs a human to retype it
  * before anything will ever pick it up.
  */
-test('tick:a-leaf-epic-is-still-work', async () => {
-  const { card } = await harness({
+await check('a leaf epic, and one whose children are all closed, are still work', async () => {
+  const { opened, card } = await tick({
     ready: [epic('x-1'), epic('x-2')],
     children: { 'x-2': [bead('x-2.1', { status: 'closed' })] },
   });
 
-  assert.deepEqual(queued(card).sort(), ['x-1', 'x-2'], 'no children, and all-children-closed, are both workable');
+  assert.deepEqual(opened.sort(), ['x-1', 'x-2'], 'both are workable, and both got a window');
   assert.deepEqual(heldIds(card), []);
 });
 
 /** A tracker mid-write must not be able to empty the queue. */
-test('tick:silence-from-bd-keeps-the-bead', async () => {
-  const { card } = await harness({
+await check('silence from bd keeps the bead', async () => {
+  const { opened, card } = await tick({
     ready: [epic('x-1')],
     children: { 'x-1': new Error('dolt: database is locked') },
   });
 
-  assert.deepEqual(queued(card), ['x-1'], 'cannot-tell keeps it — the old behaviour, on purpose');
+  assert.deepEqual(opened, ['x-1'], 'cannot-tell keeps it — the old behaviour, on purpose');
   assert.deepEqual(heldIds(card), []);
 });
 
 /**
  * The dot is load-bearing. On a bare prefix `x-3z` would be read as the parent of
- * `x-3zo9`, and the advocate would hold back work on the strength of two ids that
- * merely start alike — the same trap lib/reap.js documents on `namesBead`.
+ * `x-3zo9` and the advocate would hold back work on the strength of two ids that
+ * merely start alike — the trap lib/reap.js documents on `namesBead`.
  */
-test('tick:ids-that-merely-start-alike-are-not-related', async () => {
-  const { isDescendantOf } = await import(LIB('advocate.js'));
+await check('ids that merely start alike are not parent and child', async () => {
   assert.equal(isDescendantOf('bc-3zo9.1', 'bc-3zo9'), true);
   assert.equal(isDescendantOf('bc-3zo9.1.4', 'bc-3zo9'), true, 'a grandchild is still underneath it');
   assert.equal(isDescendantOf('bc-3zo9', 'bc-3z'), false, 'this is the one that would silently starve a queue');
   assert.equal(isDescendantOf('bc-3zo9', 'bc-3zo9'), false, 'a bead is not its own child');
   assert.equal(isDescendantOf('bc-3zo9', null), false);
 
-  const { card } = await harness({ ready: [bead('x-3z'), bead('x-3zo9')] });
-  assert.deepEqual(queued(card).sort(), ['x-3z', 'x-3zo9'], 'two windows, because these are two unrelated beads');
+  const { opened } = await tick({ ready: [bead('x-3z'), bead('x-3zo9')] });
+  assert.deepEqual(opened.sort(), ['x-3z', 'x-3zo9'], 'two windows, because these are two unrelated beads');
 });
 
 /**
- * The card, with the flag off — the half the observer note would otherwise cover.
- *
- * Two failures live here, and both read as "the advocate is idle": a queue one shorter
- * than `bd ready` with nothing on screen accounting for the difference, and — worse —
- * an advocate that decides there is nothing to do and goes off to *propose new work*
- * while the epic it just skipped sits there with its children open.
+ * The card. Two failures live here and both read as "the advocate is idle": a queue
+ * one shorter than `bd ready` with nothing on screen accounting for the difference,
+ * and — worse — an advocate that decides there is nothing to do and goes off to
+ * *propose new work* while the epic it just skipped sits there with its children open.
  *
  * `listLabel` is propose's first call, so counting it is how you tell which happened.
- * Safe to run unobserved: the survey empties the queue, and the launch loop is only
- * reached with something in it.
  */
-test('card:an-empty-queue-says-why-and-proposes-nothing', async () => {
-  const held = await harness({
+await check('an emptied queue says why, and proposes nothing over it', async () => {
+  const held = await tick({
     ready: [epic('x-1')],
     children: { 'x-1': [bead('x-1.1', { status: 'in_progress' })] },
     // Armed. A pass can only come from the guard, not from the feature being off.
@@ -257,50 +264,18 @@ test('card:an-empty-queue-says-why-and-proposes-nothing', async () => {
     listLabel: [{ id: 'x-9', status: 'open' }],
   });
 
+  assert.deepEqual(held.opened, []);
   assert.equal(held.card.queue, 0);
   assert.match(held.card.note, /waiting on its children/, `the card must say why, got: ${held.card.note}`);
   assert.doesNotMatch(held.card.note, /^clear/, 'a queue emptied by this filter is not a clear one');
-  assert.equal(held.calls.listLabel, 0, 'nothing may be proposed over work that is only waiting on its own children');
+  assert.equal(held.calls.listLabel, 0, 'nothing may be proposed over work only waiting on its own children');
 
-  // The control, which is what makes the count above mean anything: the same config,
+  // The control, which is what makes the count above mean anything: same config,
   // nothing held, and propose does run. It stops at the open ask `listLabel` returns
   // — one call, and no agent spawned.
-  const idle = await harness({
-    ready: [],
-    overrides: { propose: true },
-    listLabel: [{ id: 'x-9', status: 'open' }],
-  });
+  const idle = await tick({ ready: [], overrides: { propose: true }, listLabel: [{ id: 'x-9', status: 'open' }] });
   assert.equal(idle.calls.listLabel, 1, 'with nothing held it proposes as it always did');
-  assert.match(idle.card.note, /clear|waiting on/, `got: ${idle.card.note}`);
 });
 
-/* --------------------------------------------------------------- the run loop */
-
-const OBSERVED = new Set(['card:an-empty-queue-says-why-and-proposes-nothing']);
-
-const only = process.argv[2];
-if (only) {
-  const fn = CASES.get(only);
-  if (!fn) {
-    console.error(`no such case: ${only}`);
-    process.exit(2);
-  }
-  await fn();
-  process.exit(0);
-}
-
-let failures = 0;
-for (const name of CASES.keys()) {
-  try {
-    child(name, OBSERVED.has(name) ? {} : { BEADCAUSE_OBSERVE: '1' });
-    console.log(`  ok   ${name}`);
-  } catch (err) {
-    failures += 1;
-    console.error(`  FAIL ${name}`);
-    const out = `${err.stdout || ''}${err.stderr || ''}`.trim();
-    if (out) console.error(out.split('\n').map((l) => `       ${l}`).join('\n'));
-  }
-}
-
-console.log(`\n${CASES.size - failures}/${CASES.size} passed`);
+console.log(`\n${ran - failures}/${ran} passed`);
 process.exit(failures ? 1 : 0);

@@ -62,6 +62,7 @@ import { loadConfig } from '../lib/config.js';
 import { ownerName } from '../lib/owner.js';
 import { cardsForRequest, deliveryBody, deliveryTitle, DELIVERY_LABEL } from '../lib/delivery.js';
 import { deployFor, deployHint } from '../lib/deploy.js';
+import { landedReason } from '../lib/landed.js';
 import { pushLanded } from '../lib/notify.js';
 import { oweClose } from '../lib/owed.js';
 import * as pr from '../lib/pr.js';
@@ -185,7 +186,24 @@ try {
 }
 const upstream = git(['rev-parse', '--verify', '--quiet', `origin/${base}`]) ? `origin/${base}` : base;
 const ahead = Number(git(['rev-list', '--count', `${upstream}..HEAD`]));
-if (!ahead) die(`${branch} has no commits that ${upstream} does not — there is nothing to deliver`, 2);
+/**
+ * Nothing ahead is two different states, and this used to treat both as the failure.
+ *
+ * "Nothing to deliver" is right for a session that committed nothing. It is exactly
+ * wrong for a session whose work is **already in `base`** — which is what a branch looks
+ * like once its pull request has been merged on github.com rather than from a card. That
+ * merge closes nothing here (see lib/landed.js), so the bead is still open, the advocate
+ * hands it out again, and the session it hands it to is told to end with this command…
+ * which dies at this line with `exit 2`. The one command a worker is given to land work
+ * with could not close the bead over work that had already landed, and the worker was
+ * left choosing between disobeying its brief and leaving the bead open for attempt 3.
+ *
+ * So the check moves past `gh`, below: with no commits ahead, this asks whether the
+ * branch's pull request merged. If it did, the bead is closed exactly as a merge here
+ * would close it and this exits 0 having landed nothing, which is the truth. If it did
+ * not, the original refusal stands, word for word.
+ */
+const nothingAhead = !ahead;
 
 /* ------------------------------------------------------------------- the bead */
 
@@ -210,6 +228,59 @@ const title = titleArg || `${beadId}: ${bead.title || branch}`;
 
 const gh = await pr.available();
 if (!gh.ok) die(gh.reason, 4);
+
+/**
+ * The pull request this delivery is about, and the repo it is in.
+ *
+ * Module-scope and assigned rather than declared where they are first used, because
+ * `landHere` below is reached from two places — the merge this run performs, and the
+ * merge somebody else already performed — and it should read the same pull request
+ * either way rather than take it as an argument nobody can get wrong only once.
+ */
+let request = null;
+let repoSlug = null;
+
+/**
+ * The merged pull request for this branch, or null.
+ *
+ * Two questions, because they fail in different places. `gh pr view <branch>` is the
+ * direct answer and usually right; it is also the one that goes missing once the branch
+ * has been deleted, which is exactly what a card merge does (`deleteBranch: true`). So a
+ * miss falls back to the merged list and matches on the head ref, which GitHub keeps
+ * long after the branch itself is gone.
+ */
+async function mergedPrFor(head) {
+  const direct = await pr.viewForBranch(dir, head);
+  if (direct && direct.state === 'MERGED') return direct;
+  try {
+    const rows = await pr.list(dir, { state: 'merged', limit: 40 });
+    return (rows || []).find((r) => r.branch === head && r.state === 'MERGED') || null;
+  } catch {
+    // `gh` refusing the list is not evidence that nothing merged, but it is all the
+    // evidence there is, and the caller's fallback is the honest refusal it always gave.
+    return null;
+  }
+}
+
+/**
+ * Nothing to push and nothing to open: this branch is already in `base`.
+ *
+ * Handled before the push, and that ordering is the load-bearing part. `git push
+ * --set-upstream` on a branch whose remote was deleted by the merge would *recreate* it
+ * — resurrecting, from a laptop, a branch GitHub deleted on purpose — and `gh pr create`
+ * with no commits between the two refs fails anyway. So the question is asked here,
+ * before anything is written to origin at all.
+ */
+if (nothingAhead) {
+  const merged = await mergedPrFor(branch);
+  if (!merged) die(`${branch} has no commits that ${upstream} does not — there is nothing to deliver`, 2);
+  request = merged;
+  repoSlug = await pr.slugFor(dir);
+  console.error(
+    `beadcause-deliver: nothing to push — #${merged.number} was already merged into ${base}. Closing ${beadId} over it.`
+  );
+  await landHere(merged, { external: true });
+}
 
 // Push before asking GitHub anything: `gh pr create` on an unpushed branch offers an
 // interactive prompt, and there is nobody at this keyboard to answer it.
@@ -245,7 +316,7 @@ const prBody = [
 // The second delivery on a branch is the ordinary case, not the exception: changes
 // were requested, the session pushed more commits, and the PR is still open. Reusing
 // it keeps the review thread in one place.
-let request = await pr.viewForBranch(dir, branch);
+request = await pr.viewForBranch(dir, branch);
 if (request && request.state !== 'OPEN') request = null;
 if (request) {
   await pr.comment(dir, request.number, `**Updated** — ${ahead} commit${ahead === 1 ? '' : 's'} on \`${branch}\`.\n\n${summary}`);
@@ -259,7 +330,7 @@ if (request) {
 
 /* ------------------------------------------------- the cards already open on it */
 
-const repoSlug = await pr.slugFor(dir);
+repoSlug = await pr.slugFor(dir);
 
 /**
  * Close every merge card already open for this pull request, before this delivery
@@ -375,7 +446,21 @@ if (autoMerge) {
   }
 }
 
-if (landed) {
+/**
+ * The bead, the cards, the notification, and the exit — everything that follows a merge
+ * having happened, wherever it happened.
+ *
+ * Two callers. The ordinary one is the merge this run just performed, below. The other
+ * is a branch that was already in `base` when this started, because its pull request was
+ * merged on github.com — and that caller is the whole reason this is a function rather
+ * than the straight-line block it was. Both endings are the same five writes in the same
+ * order, and a second copy of them is how one of the two quietly stops closing cards.
+ *
+ * `external` changes only what is *said*: what merged this is a fact about the world and
+ * the bead should record it. It never changes what is done — the bead closes, the cards
+ * close, the phone hears about it, and the exit is 0, because the work is in `base`.
+ */
+async function landHere(landed, { external = false } = {}) {
   const sha = String(landed.mergeCommit || '').slice(0, 8);
   const where = `#${request.number}${sha ? ` as ${sha}` : ''}`;
 
@@ -390,7 +475,11 @@ if (landed) {
   // re-delivery of a branch whose PR merged usually dies at `gh pr create` with no
   // commits between — but "the worker merged it" about a merge that happened yesterday
   // is exactly the kind of small untruth that costs an hour to unpick six months on.
-  const how = landed.alreadyMerged ? `was already merged into \`${base}\`` : `${method}-merged into \`${base}\` by the worker session`;
+  const how = external
+    ? `was merged into \`${base}\` on GitHub rather than from a delivery card, so nothing closed this at the time`
+    : landed.alreadyMerged
+      ? `was already merged into \`${base}\``
+      : `${method}-merged into \`${base}\` by the worker session`;
   const note = `Landed as [${where}](${request.url}) — ${how}, on \`${branch}\`.${owed ? ` Still owed: ${owed}.` : ''}`;
   try {
     bd(['comment', beadId, note]);
@@ -401,9 +490,19 @@ if (landed) {
   // The card from an earlier attempt, if there was one — closed *before* this bead is,
   // because it is what would refuse the close. "Merge #25?" over a merged #25 is a
   // question with no answer left in it, and it is a blocker on the bead below.
-  clearOpenCards(`The worker merged ${where} itself on a later delivery — nothing left to answer.`);
+  clearOpenCards(
+    external
+      ? `${where} was merged on GitHub — nothing left to answer.`
+      : `The worker merged ${where} itself on a later delivery — nothing left to answer.`
+  );
 
-  const closeReason = `Landed as ${where}${owed ? ` — still owed: ${owed}` : ''}`;
+  // `Landed as #42` is read back by lib/advocate.js to say a *session* merged its own
+  // pull request, which is not what happened when GitHub's own merge button did — so the
+  // externally-merged wording is lib/landed.js's, the one place that sentence is written,
+  // and the advocate reads both. See `reconcile` there.
+  const closeReason = external
+    ? `${landedReason(request, base)}${owed ? ` — still owed: ${owed}` : ''}`
+    : `Landed as ${where}${owed ? ` — still owed: ${owed}` : ''}`;
   try {
     bd(['close', beadId, '--reason', closeReason]);
   } catch (err) {
@@ -443,6 +542,8 @@ if (landed) {
   console.log(`landed #${request.number} ${request.url}${sha ? ` ${sha}` : ''}`);
   process.exit(0);
 }
+
+if (landed) await landHere(landed);
 
 // Everything from here down is the older ending, unchanged: it is what a delivery does
 // when the merge was refused, when `--review` asked for a human, or when `autoMerge` is
