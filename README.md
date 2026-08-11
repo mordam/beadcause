@@ -3944,19 +3944,61 @@ any can be dismissed — which is the whole of what beadcause exists to stop. Se
 them were sitting here when this was written, all named `DONE-…`, all idle, every bead
 closed hours earlier.
 
-So the daemon finishes the sentence the session could not. When a worker's bead is
-**closed** and its process is still running, the advocate signals it: `claude` exits,
-the shell runs the two commands after it, the done file lands, and iTerm closes the
-window exactly as it does for a session that ended on its own.
+So the daemon finishes the sentence the session could not. When a worker has **reached
+one of its own endings** and its process is still running, the advocate signals it:
+`claude` exits, the shell runs the two commands after it, the done file lands, and iTerm
+closes the window exactly as it does for a session that ended on its own.
 
-Everything about it is a guard against signalling the wrong thing, because a signal is
-the one act here with no undo:
+##### Which endings those are
+
+Three of the seven. Not because three is a compromise, but because the brief gives a
+session exactly three ways to *finish*, and every one of them ends somewhere that is not
+the window:
+
+| ending | where it is answered |
+|---|---|
+| `done` — the bead is closed | nowhere. There is nothing left to answer |
+| `delivered` — the merge was refused, or it asked for review | a card in the inbox whose one tap is the merge, on a pull request that is open on GitHub |
+| `handback` — it needs a decision | the question is on the bead, under a `human` label, in a `decision` block written to be answerable from a phone |
+
+The other four — `unfinished`, `timeout`, `lapsed`, `silent` — are not endings a session
+reached. They are the daemon inferring from a window that went quiet that something went
+wrong, and a window somebody should read is precisely what that is. Those stay open.
+
+`delivered` and `handback` were left out at first, on the theory that a session waiting
+on a decision has something on screen worth reading. It has not, and that is not luck:
+both endings put everything they know **on the bead**, by design, because being
+answerable from a phone is the whole of what they are for. Nor does the answer come back
+through the window — [ship](#ship-it--the-same-merge-and-then-the-deploy),
+[request changes](#request-changes-is-a-sentence-not-a-button) and
+[decline](#decline-is-the-other-one-and-it-is-not-a-stronger-no) all comment on the bead
+and reopen it, an answered question unblocks it, and every one of those routes ends with
+the advocate opening a **new** session on the same branch with the note waiting for it. The window that delivered was never the channel; it was a second
+copy of a card, costing a read.
+
+The payoff is the sharper for including them. A `done` window closes inside the minute,
+so with the other two left open, anything still on screen an hour later was delivered,
+handed back, or broken — three things that look identical until each is read. With them,
+a window still there is a window in trouble.
+
+Reaching them at all took a second change, because **neither is an exit**. Both leave the
+bead open on purpose, so neither trips the closed-bead test; and `claude` is interactive,
+so neither writes a done file. Tested only against the done file, they were recognised
+solely once *you* had closed the window — until which point a delivered session held its
+slot until `workerTimeoutMinutes` and was then written down as having **timed out**,
+charged an attempt for reaching an ending the brief had asked it to reach. So the test is
+now "has it stopped talking": the done file, or an idle window. `idle` carries that for a
+worker because a worker's window holds exactly one turn — the brief — so the only moment
+that turn is over is the moment the session is finished.
+
+Everything about the rest of it is a guard against signalling the wrong thing, because a
+signal is the one act here with no undo:
 
 | before anything is sent | why |
 |---|---|
-| the bead is **closed** | not delivered, not handed back, not timed out. Those four endings all have something on screen worth reading; a closed bead does not |
+| the session **reached one of its three endings** | not timed out, not lapsed, not gone silent. Those four are this daemon's inference about a quiet window, and the inference is the reason to read it |
 | Claude Code still reports that pid as a live session **named after this bead** | records in `~/.claude/sessions` outlive their process and pids get reused, so the pid alone is worthless. A subtask id (`<bead>.1`) is not its parent, either — the id has to stand on its own in the name |
-| the session is **idle** | it goes on working for a moment after its delivery closes the bead — the `DONE-` rename, the last message — and that moment is `busy` |
+| the session is **idle** | it goes on working for a moment after it reaches its ending — the `DONE-` rename, the last message — and that moment is `busy` |
 | and has been for `closeGraceSeconds` | "idle" is a status file the session writes itself, and the gap between two turns looks exactly like the end of the last one |
 
 Then `SIGTERM`; then `SIGKILL` if that was ignored for `closeHardSeconds`; then, after
@@ -3990,7 +4032,7 @@ the two that carry the weight:
 | before a window with no worker is queued at all | why |
 |---|---|
 | its name **starts** with `DONE-` or `done-` | not a guess about the session — the session's own account of itself. Both the work brief and `rename-session.sh --done` write that prefix at the end of the work and nowhere else. A window that closed its bead and never got as far as renaming itself is missed on purpose: a session that did not finish its own protocol is a window somebody should read |
-| the bead named in that name is **closed** | guard 1 again, and the one that does the work here. The case this widening risks is a window of *yours*, opened by hand and named after a bead — and while that bead is open, nothing can reach it |
+| the bead named in that name is **closed** | the strictest reading of guard 1, and the one that does the work here. The case this widening risks is a window of *yours*, opened by hand and named after a bead — and while that bead is open, nothing can reach it. It stays the strict reading even though guard 1 itself now covers delivered and handed-back work, because those two are claims about a **worker** — this advocate launched that pid onto that bead — and a swept window has no worker, so nothing ties an open delivery card to the window in front of you |
 | it has been **idle** for `sweepIdleMinutes` (default 20) | minutes rather than the 90 seconds a worker's window gets, because this window's identity is inferred from its *name* and not from a launch we made. Anybody actually reading it would have touched it inside twenty |
 
 The bead id is read out of the name as the left-most lowercase `prefix-slug` — the second
@@ -6692,8 +6734,8 @@ the fields it always read and renders exactly as it did.
 | `advocates.inMainIntervalMinutes` | how often that looks (default 10). It runs before the survey, so a bead it flags is out of the queue in the same tick and no session is opened on it |
 | `advocates.sessionLog` | archive each finished session to `refs/beadcause/sessions/<bead>` and note its commits (default `true`) |
 | `advocates.sessionTranscripts` | also store the raw Claude Code transcript — megabytes, and it carries paths and tool output (default `false`; set per repo in `perWorkspace`) |
-| `advocates.closeFinishedSessions` | [close a work session's window once its bead is closed](#closing-the-window--a-session-that-has-finished-should-not-still-be-on-screen) (default `true`). `false` leaves every window open, which is what it did before |
-| `advocates.closeGraceSeconds` | how long an idle session gets between its bead closing and the first signal (default 90) |
+| `advocates.closeFinishedSessions` | [close a work session's window once the session has finished](#closing-the-window--a-session-that-has-finished-should-not-still-be-on-screen) — the bead closed, a pull request delivered, or the bead handed back for a decision, and never an ending the daemon merely inferred (default `true`). `false` leaves every window open, which is what it did before |
+| `advocates.closeGraceSeconds` | how long an idle session gets between reaching its ending and the first signal (default 90) |
 | `advocates.closeHardSeconds`, `advocates.closeGiveUpMinutes` | how long `SIGTERM` gets before `SIGKILL` (default 45), and how long the whole thing gets before it gives up and leaves the window for you (default 30 min) |
 | `advocates.sweepFinishedWindows` | [also close finished windows no advocate is holding a worker for](#the-windows-nobody-is-holding) — the ones already open when the above shipped, and any left by a daemon that was down (default `true`). Only a name starting `DONE-`, only a closed bead; `false` leaves your own windows where you put them |
 | `advocates.sweepIdleMinutes`, `advocates.sweepIntervalMinutes` | how long such a window must have been idle first (default 20), and how often the sweep looks at all (default 5) |
