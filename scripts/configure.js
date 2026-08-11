@@ -20,6 +20,7 @@ import os from 'node:os';
 import path from 'node:path';
 import readline from 'node:readline/promises';
 import { loadConfig, saveConfig, CONFIG_PATH } from '../lib/config.js';
+import { globalWorkerCap } from '../lib/advocate.js';
 import { ownerName } from '../lib/owner.js';
 
 const HOME = os.homedir();
@@ -64,9 +65,9 @@ function summary(c) {
     // an unbounded thing, and that is the number people want to be sure of.
     `  advocates         : ${
       (c.advocates?.workspaces || []).length && c.advocates?.enabled !== false
-        ? `${(c.advocates.workspaces || []).join(', ')} — up to ${c.advocates.maxWorkers ?? 1} session(s) each, ${
-            c.advocates.globalMaxWorkers ?? 10
-          } in total`
+        ? `${(c.advocates.workspaces || []).join(', ')} — up to ${c.advocates.maxWorkers ?? 1} session(s) each, ${globalWorkerCap(
+            c
+          )} in total`
         : 'off'
     }`,
     `  console at login  : ${c.monitor?.enabled ? 'yes' : 'no (open /monitor yourself)'}`,
