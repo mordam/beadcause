@@ -256,7 +256,15 @@
       state.log === null
         ? 'Opening it…'
         : state.log.trim() || '(the archived log is empty — the session wrote nothing before it exited)';
-    return `<pre class="agent-log" data-arc-log>${esc(text)}</pre>`;
+    // The raw jsonl is archived too where `sessionTranscripts` is on for that repo, and it
+    // is megabytes — so it is named rather than offered. A phone that fetched one would be
+    // downloading tool-result payloads to render nothing this page can show, and not
+    // saying it exists is the other kind of dishonesty.
+    const raw = session.files.includes('transcript.jsonl')
+      ? `<p class="arc-none">The raw transcript is archived beside it — too big for a phone, and
+         readable with <code>git cat-file -p ${esc(session.commit.slice(0, 8))}:transcript.jsonl</code>.</p>`
+      : '';
+    return `<pre class="agent-log" data-arc-log>${esc(text)}</pre>${raw}`;
   }
 
   /* ----------------------------------------------------------------- the worktree */

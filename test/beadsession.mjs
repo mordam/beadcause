@@ -596,6 +596,19 @@ await check('a missing memory is "not available" with the other two sections int
   assert.ok(!asked.some((u) => u.includes('memory.md')), `it asked anyway: ${asked.join(' ')}`);
 });
 
+await check('an archived raw transcript is named, never offered as a link', async () => {
+  const withRaw = (url) => {
+    if (!url.startsWith('/api/bead-session')) return route('bc-full')(url);
+    const d = detailFor('bc-full');
+    d.body.session.files = ['meta.json', 'session.log', 'memory.md', 'transcript.jsonl'];
+    return d;
+  };
+  const { html, asked } = await draw('?workspace=demo&id=bc-full', withRaw);
+  assert.match(html, /raw transcript is archived beside it/);
+  assert.ok(!asked.some((u) => u.includes('transcript.jsonl')), 'a phone must not fetch megabytes of jsonl');
+  assert.ok(!/href="[^"]*transcript\.jsonl/.test(html), 'and must not be offered a link to it');
+});
+
 await check('a session with no worktree says so where the worktree would be', async () => {
   const { html } = await draw('?workspace=demo&id=bc-bare', route('bc-bare'));
   const wt = html.slice(html.indexOf('Its worktree'));
