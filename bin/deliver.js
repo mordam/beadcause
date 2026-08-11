@@ -29,6 +29,13 @@
  * 5. Closes the work bead, because the merge is what made it true, and pushes a
  *    notification with nothing to answer.
  *
+ * **One card per pull request, whichever ending this takes.** Both endings begin by
+ * closing any merge card already open on this request — a re-delivery replaces the
+ * question it asked, and a merge answers it outright. Without that, delivering twice
+ * with nobody at the phone left two identical cards in the inbox, each one a blocker on
+ * the work bead's close, and answering either was reported as having closed a bead that
+ * neither could close. See `clearOpenCards` below.
+ *
  * **The old ending is intact and it is the fallback.** Anything that stops the merge —
  * GitHub refusing it, a red check, checks that never reported, `pr.autoMerge` off, or
  * `--review` because the session wants a human on this one — files exactly the
@@ -50,11 +57,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { parseJson } from '../lib/bd.js';
 import { loadConfig } from '../lib/config.js';
 import { ownerName } from '../lib/owner.js';
-import { deliveryBody, deliveryTitle, DELIVERY_LABEL } from '../lib/delivery.js';
+import { cardsForRequest, deliveryBody, deliveryTitle, DELIVERY_LABEL } from '../lib/delivery.js';
 import { deployFor, deployHint } from '../lib/deploy.js';
 import { pushLanded } from '../lib/notify.js';
+import { oweClose } from '../lib/owed.js';
 import * as pr from '../lib/pr.js';
 
 function arg(...names) {
@@ -73,6 +82,18 @@ const die = (msg, code = 1) => {
 
 /** An error's first line. Everything reported *after* a merge has landed uses this. */
 const first = (err) => String(err?.message || err || '').split('\n')[0];
+
+/**
+ * What bd actually said, rather than what node says about the exit code.
+ *
+ * `execFileSync`'s own message is "Command failed: …" with the whole argv after it,
+ * and the argv of a `bd close` includes the entire close reason. The sentence worth
+ * repeating on a bead is bd's: *cannot close bc-ec6: blocked by open issues [bc-a0vc]*.
+ */
+const bdSaid = (err) => {
+  const out = String(err?.stderr || '').trim() || String(err?.stdout || '').trim();
+  return out ? out.split('\n').filter(Boolean)[0] : first(err);
+};
 
 /**
  * squash | merge | rebase, normalised once. An unknown one is a typo, not a request.
@@ -236,6 +257,70 @@ if (request) {
   }
 }
 
+/* ------------------------------------------------- the cards already open on it */
+
+const repoSlug = await pr.slugFor(dir);
+
+/**
+ * Close every merge card already open for this pull request, before this delivery
+ * adds anything of its own.
+ *
+ * One card per attempt is the design and it is a good one — a delivery question
+ * closes on all four of its answers, and the next push files a fresh one, so the
+ * inbox carries one card per attempt rather than one card that quietly changes
+ * meaning under you. What it assumed was that every attempt follows an *answer*.
+ *
+ * bc-ec6 was delivered three times inside twenty minutes with nobody at the phone.
+ * Three cards, two of them open together, carrying an identical title and an
+ * identical body — and it was answered twice, a minute apart, each answer claiming
+ * to have closed the work bead. Neither could: the two cards were both blockers on
+ * that bead's close, so the first answer was refused by the second card and the
+ * second answer was refused by nothing, having already been reported as done. The
+ * work bead sat `in_progress` over a merged pull request.
+ *
+ * So the invariant is enforced here rather than assumed: never two open cards for
+ * one pull request, and never two dependencies on one work bead. It runs on both
+ * endings, because both make the old card meaningless — a re-delivery replaces it,
+ * and a merge answers it outright.
+ *
+ * Everything in here is best-effort and none of it throws. The branch is pushed and
+ * the pull request is open by the time this runs; a workspace that will not answer
+ * `bd list` is a reason to leave a stale card behind, not to fail a delivery.
+ */
+function clearOpenCards(why) {
+  let rows;
+  try {
+    rows = parseJson(bd(['list', '--label', DELIVERY_LABEL, '--status=open,in_progress,blocked', '--limit', '0', '--json'])) || [];
+  } catch (err) {
+    console.error(`beadcause-deliver: could not look for cards already open on #${request.number} — ${bdSaid(err)}`);
+    return [];
+  }
+
+  const cleared = [];
+  for (const card of cardsForRequest(rows, { repo: repoSlug, number: request.number })) {
+    try {
+      bd(['close', card.id, '--reason', why]);
+    } catch (err) {
+      console.error(`beadcause-deliver: ${card.id} is still open on #${request.number} — ${bdSaid(err)}`);
+      continue;
+    }
+    cleared.push(card.id);
+    // And the edge it parked the work bead behind. Closing the card is already
+    // enough to stop it blocking — bd only counts open blockers — but a work bead
+    // ending up with a dependency on each of three dead cards is the residue of
+    // this bug and reads, months later, as though the work really had waited on all
+    // three. It is one call and it leaves the graph saying what happened.
+    const parked = card.bead || beadId;
+    try {
+      bd(['dep', 'remove', parked, card.id]);
+    } catch {
+      /* No such edge, or bd would not take it. The card is closed either way. */
+    }
+  }
+  if (cleared.length) console.error(`beadcause-deliver: closed ${cleared.join(', ')} — already open on #${request.number}`);
+  return cleared;
+}
+
 /* -------------------------------------------------------------------- the merge */
 
 /**
@@ -312,10 +397,29 @@ if (landed) {
   } catch (err) {
     console.error(`beadcause-deliver: merged ${where}, but could not comment on ${beadId} — ${first(err)}`);
   }
+
+  // The card from an earlier attempt, if there was one — closed *before* this bead is,
+  // because it is what would refuse the close. "Merge #25?" over a merged #25 is a
+  // question with no answer left in it, and it is a blocker on the bead below.
+  clearOpenCards(`The worker merged ${where} itself on a later delivery — nothing left to answer.`);
+
+  const closeReason = `Landed as ${where}${owed ? ` — still owed: ${owed}` : ''}`;
   try {
-    bd(['close', beadId, '--reason', `Landed as ${where}${owed ? ` — still owed: ${owed}` : ''}`]);
+    bd(['close', beadId, '--reason', closeReason]);
   } catch (err) {
-    console.error(`beadcause-deliver: merged ${where}, but could not close ${beadId} — ${first(err)}`);
+    // A refused close is a state, not a rumour: it is written down where the daemon
+    // will retry it once whatever is blocking it clears (lib/owed.js), and said on the
+    // bead in bd's own words. Reporting it as done — which is what the tap on the phone
+    // used to do — is how bc-ec6 stayed open over a merged pull request with two
+    // separate comments claiming otherwise.
+    const why = bdSaid(err);
+    console.error(`beadcause-deliver: merged ${where}, but could not close ${beadId} — ${why}`);
+    oweClose({ workspace: ws.name, id: beadId, reason: closeReason, why });
+    try {
+      bd(['comment', beadId, `This is merged and this bead did **not** close: ${why}. beadcause retries the close once that clears.`]);
+    } catch {
+      /* The record above is the part that matters; the comment is the courtesy. */
+    }
   }
 
   // A notification with nothing to answer, and a failure to send one is not a failure
@@ -324,7 +428,7 @@ if (landed) {
     await pushLanded(cfg, {
       workspace: ws.name,
       bead: beadId,
-      repo: await pr.slugFor(dir),
+      repo: repoSlug,
       number: request.number,
       url: request.url,
       title: request.title,
@@ -368,10 +472,17 @@ try {
   console.error(`beadcause-deliver: ${ws.name} declares a deploy this cannot read, so the card offers no Ship — ${first(err)}`);
 }
 
+// Before the new card exists, so the inbox is never holding two questions about the
+// same pull request at once. Deliberately before rather than after: a `bd create` that
+// fails after this leaves no card, which is the recoverable state the advocate already
+// knows how to handle, while a close that fails after a create leaves exactly the two
+// open cards this is here to prevent.
+const superseded = clearOpenCards(`Superseded by a later delivery of #${request.number} — answer the newer card.`);
+
 const delivery = {
   workspace: ws.name,
   bead: beadId,
-  repo: await pr.slugFor(dir),
+  repo: repoSlug,
   number: request.number,
   url: request.url,
   branch,
@@ -426,6 +537,9 @@ try {
     'comment',
     beadId,
     `Delivered as [#${request.number}](${request.url}) on \`${branch}\`. Waiting on ${questionId} for the merge.` +
+      (superseded.length
+        ? ` It replaces ${superseded.join(', ')}, which asked the same question and ${superseded.length === 1 ? 'was' : 'were'} never answered.`
+        : '') +
       (refused ? ` The worker tried to merge it and could not: ${refused}` : '') +
       (owed ? ` Still owed after the merge: ${owed}.` : ''),
   ]);

@@ -115,11 +115,14 @@ These are not verdicts. They are things that are wrong now.
 
 ### D1. The Foundations agent-detail screen is unreachable — `/api/foundation` GET is registered twice
 
-> **Fixed — bc-dwqh.** The agent detail moved to `GET /api/foundation/agent`, exactly as
-> §6.2 called for; the channel kept its name. `test/routes.mjs` hits `createApp` rather
-> than a fake, `assertRoutes` in `lib/server.js` refuses to boot on a duplicate
-> `(method, path)`, and the same suite holds every `scripts/*-check.mjs` fake to a path
-> the real server actually registers. What is below is the review as written.
+> **Fixed — bc-dwqh** (#36, and the boot check in the pull request that follows it).
+> The agent detail moved to `GET /api/foundation/agent`, exactly as §6.2 called for;
+> the channel kept its name, because it is the one with callers outside this repo.
+> `test/routes.mjs` asks the real `createApp` for all three foundation paths rather
+> than a fake, scans the chain for a `(method, path)` registered twice, and holds the
+> README's API table to what the server actually answers; `assertRoutes` in
+> `lib/server.js` makes the same duplicate a boot failure, so one arriving by merge or
+> cherry-pick cannot reach the running daemon. What is below is the review as written.
 
 `lib/server.js` registers `GET /api/foundation` at **line 1385** (the foundation
 *channel*: `{requests, workspaces}`) and again at **line 2214** (one *agent* by id:

@@ -36,7 +36,9 @@ import fs from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import YAML from 'yaml';
 import { loadConfig } from '../lib/config.js';
-import { parseProposal, proposalBody, proposalTitle } from '../lib/proposal.js';
+import { parseProposal, proposalBody, proposalTitle, dupeNote } from '../lib/proposal.js';
+import { annotateDuplicates, liveCandidates } from '../lib/dupe.js';
+import { parseJson } from '../lib/bd.js';
 
 function arg(...names) {
   for (const n of names) {
@@ -100,13 +102,41 @@ const INTRO = {
   }.`,
 };
 
-const body = proposalBody(ws.name, parsed.beads, {
+const env = { ...process.env, BEADS_DIR: ws.dir, BEADS_ACTOR: cfg.actor };
+const bd = (args) => execFileSync(cfg.bdBin, args, { env, cwd: ws.dir, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 });
+
+/**
+ * Is any of this already filed?
+ *
+ * A session proposing mid-flight is the most likely thing in beadcause to propose a
+ * duplicate: it is deep in one bead, it has not read the tracker, and what it just
+ * tripped over may well be the thing somebody else tripped over this morning. bc-9frx
+ * cost a whole worker window to exactly that. So the titles are checked against the
+ * live set — beads *and* the proposals still waiting for an answer, since for most of
+ * the day bc-j6x and bc-ec6 were the second kind.
+ *
+ * The proposal is filed either way: a flag is a warning to Adam, not a veto on a
+ * session that may well have found a genuinely different bug with a similar name. The
+ * warning goes to stderr as well, because the session that ran this is the one that can
+ * say "yes, that is the same thing" while it still has the context to know.
+ */
+let flagged = parsed.beads;
+try {
+  const live = parseJson(bd(['list', '--status=open,in_progress,blocked', '--limit', '0', '--json'])) || [];
+  flagged = annotateDuplicates(parsed.beads, liveCandidates(live, { ignore: [from] }));
+  for (const b of flagged) {
+    if (b.duplicate) console.error(`beadcause-propose: ⚠︎ "${b.title}" is ${dupeNote(b.duplicate)} — flagged on the card`);
+  }
+} catch (err) {
+  // A lookup that fails must not lose the proposal — an unflagged card is what every
+  // card was until now, and the server checks again at the moment of approval.
+  console.error(`beadcause-propose: proposing without a duplicate check — ${String(err.message).split('\n')[0]}`);
+}
+
+const body = proposalBody(ws.name, flagged, {
   intro: INTRO[kind] || INTRO.discovery,
   context: from ? `_Filed from a session working ${from}, while the reason for it was still on screen._` : '',
 });
-
-const env = { ...process.env, BEADS_DIR: ws.dir, BEADS_ACTOR: cfg.actor };
-const bd = (args) => execFileSync(cfg.bdBin, args, { env, cwd: ws.dir, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 });
 
 const out = bd([
   'create',

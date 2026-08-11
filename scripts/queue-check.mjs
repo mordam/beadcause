@@ -182,11 +182,12 @@ function serve() {
       });
     }
     if (p === '/api/foundations') return json({ workspace: 'demo', workspaces: ['demo'], agents: [AGENT] });
-    // The agent detail, on the path the real server answers it on. This fake used to
-    // serve it from `/api/foundation` — the *channel's* path — and was right about the
-    // contract while the real server was wrong about it (bc-dwqh), which is the one
-    // arrangement where green means nothing. test/routes.mjs is the test that hits
-    // createApp instead, and is what keeps these two honest about each other.
+    // `/api/foundation/agent`. This line said `/api/foundation` and answered it with the
+    // agent payload — the contract the client wanted and the real server did not honour,
+    // because a second handler on the bare path shadowed it. So this fake was the reason
+    // a green suite meant nothing about the one screen that was broken. Answering the
+    // path the client now asks for is what keeps it a fake of the server rather than of
+    // the spec; test/routes.mjs is what checks the server itself.
     if (p === '/api/foundation/agent') return json({ workspace: 'demo', agent: AGENT });
     if (p.startsWith('/api/')) return json({});
 

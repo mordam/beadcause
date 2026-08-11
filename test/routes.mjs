@@ -1,82 +1,199 @@
 #!/usr/bin/env node
 /**
- * The routing table, and the one screen that proved it needed checking.
+ * No two handlers on one method and path — and the three foundation routes prove it.
  *
  *     npm test
  *     node test/routes.mjs
  *
- * bc-dwqh: `GET /api/foundation` was registered twice in `lib/server.js` — the
- * foundation *channel* near the top of the handler, and one *agent* by id nine
- * hundred lines below it, at the same brace depth in the same straight-line
- * `if`-chain. The first returned; the second was dead code. So the Foundations
- * agent-detail screen fetched `{requests, workspaces}`, read `data.agent` as
- * `undefined`, and threw on `a.title` — after `#list` had been hidden, which is why it
- * showed as the list vanishing with nothing replacing it. Four tabs, the amend flow,
- * the per-agent chat and the activity list were all behind that one call.
+ * `lib/server.js` dispatches with a flat `if (p === … && req.method === …)` chain, and
+ * a chain has a property a route table does not: registering the same pair twice is
+ * legal, silent, and first-one-wins. `GET /api/foundation` was registered twice — the
+ * foundation *channel* at the top of the chain, one agent's foundation six hundred
+ * lines below it — so the second never ran once. Every open of the agents detail screen
+ * got `{requests, workspaces}` where it wanted `{agent}`, set `state.agent` to
+ * undefined, and threw in `renderDetail()` on `a.title`. It threw *after* `#list` was
+ * hidden, so the symptom was the agents list vanishing and nothing replacing it: four
+ * tabs, the amend flow and the per-agent chat, all behind one shadowed handler.
  *
- * The suite was green throughout, and that is the part worth fixing properly. The only
- * thing exercising that screen was `scripts/queue-check.mjs`, which drives the real
- * `public/foundations.js` against a *fake* server — and the fake answered
- * `/api/foundation` with `{agent}`, the payload the client wants. The fake was right
- * about the contract and the real server was wrong about it, which is the one
- * arrangement where a passing suite means nothing at all.
+ * Two checks, and they are deliberately different in kind, because the bug needed both
+ * to survive:
  *
- * So this file does the two things that could not both be true afterwards:
+ * 1. **The chain has no duplicate pair.** A static read of the source, not a request —
+ *    the point is to catch the *next* collision, in a route this file has never heard
+ *    of, on the day it is written. A duplicate is only ever a mistake: the handler
+ *    that loses is dead code, and dead code that looks live is what cost this one.
  *
- * 1. **It hits `createApp`.** Every assertion here is against the real handler over a
- *    real socket. No fake can make this pass.
- * 2. **It holds the fakes to the real table.** Every literal `/api/…` path any
- *    `scripts/*-check.mjs` answers has to be a path the real server registers. A fake
- *    inventing an endpoint is how the first bug hid, and now it is a failure here
- *    rather than a screen that goes blank in your hand.
+ * 2. **The real server answers all three foundation paths with the right shape.** The
+ *    reason a green suite meant nothing here is that the only check on this screen was
+ *    `scripts/queue-check.mjs`, which drives a browser against a *fake* server — and
+ *    the fake answered `/api/foundation` with the agent payload, because it was written
+ *    from the contract the client wanted. It was right about the contract and the real
+ *    server was wrong about it, which is the one arrangement where the fake proves the
+ *    opposite of what it looks like it proves. So these three go to `createApp`.
  *
- * Plus the boot-time guard itself: `assertRoutes` throws on a duplicate
- * `(method, path)`, and `routeTable` really does see the routes it is asked about —
- * a scanner that silently matched nothing would make the guard vacuous and green.
- *
- * No `bd`, no advocates, no poller, no network beyond loopback, nothing written
- * outside a temp directory. `agentDetail` reads amendment history out of a git ref
- * and falls back to the release baseline when there is no repo, which a temp
- * directory is — so the agent this asserts on is the shipped definition.
+ * No `bd`, no tracker, no workspace with anything in it: agent foundations come off
+ * `lib/foundation.js` and the scratch directory below, and the channel needs a `bd`
+ * only to have something to report, which an empty answer covers.
  */
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import http from 'node:http';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const ROOT = path.join(HERE, '..');
-const LIB = (name) => path.join(ROOT, 'lib', name);
+const LIB = (f) => path.join(HERE, '..', 'lib', f);
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'beadcause-routes-'));
-// Before anything under lib/ is imported: CONFIG_DIR resolves once, at module load.
 process.env.BEADCAUSE_CONFIG_DIR = path.join(tmp, 'config');
 fs.mkdirSync(process.env.BEADCAUSE_CONFIG_DIR, { recursive: true });
 
-const { createApp, listen, routeTable, assertRoutes } = await import(LIB('server.js'));
-
-/* ------------------------------------------------------------------- harness */
-
 let failures = 0;
 let ran = 0;
-async function check(name, fn) {
+const ok = (name) => {
   ran += 1;
+  console.log(`  \x1b[32m✓\x1b[0m ${name}`);
+};
+const bad = (name, detail) => {
+  ran += 1;
+  failures += 1;
+  console.log(`  \x1b[31m✗\x1b[0m ${name}`);
+  if (detail) console.log(`      ${detail}`);
+};
+const check = (fn, name) => {
   try {
-    await fn();
-    console.log(`  \x1b[32m✓\x1b[0m ${name}`);
+    fn();
+    ok(name);
   } catch (err) {
-    failures += 1;
-    console.log(`  \x1b[31m✗\x1b[0m ${name}`);
-    console.log(`      ${String(err.message).split('\n').slice(0, 6).join('\n      ')}`);
+    bad(name, err.message);
   }
+};
+
+console.log('\nthe route chain\n');
+
+/* ------------------------------------------------------- one pair, one handler */
+
+/**
+ * Every `(method, path)` the chain dispatches on, in source order.
+ *
+ * Matched off the source rather than by instrumenting the handler because the thing
+ * being checked is what is *written*, and a shadowed branch is by definition one no
+ * request can reach — a runtime probe would see the winner and report health. Both
+ * orders are matched: `p === x && req.method === y` is the house style, and the
+ * reverse reads identically to anyone adding a route.
+ */
+const SRC = fs.readFileSync(LIB('server.js'), 'utf8');
+const pairs = [];
+const forward = /if \(\s*p === '([^']+)'\s*&&\s*req\.method === '([A-Z]+)'/g;
+const backward = /if \(\s*req\.method === '([A-Z]+)'\s*&&\s*p === '([^']+)'/g;
+for (const m of SRC.matchAll(forward)) pairs.push({ path: m[1], method: m[2], at: m.index });
+for (const m of SRC.matchAll(backward)) pairs.push({ path: m[2], method: m[1], at: m.index });
+
+const lineOf = (index) => SRC.slice(0, index).split('\n').length;
+const seen = new Map();
+const dupes = [];
+for (const r of pairs) {
+  const key = `${r.method} ${r.path}`;
+  if (seen.has(key)) dupes.push(`${key} — lib/server.js:${lineOf(seen.get(key))} and :${lineOf(r.at)}`);
+  else seen.set(key, r.at);
 }
 
-/* ----------------------------------------------------------------- the app */
+// A floor, so a regex that silently stops matching cannot pass as "no duplicates".
+// The chain had 56 method+path handlers when this was written; it only grows.
+check(() => assert.ok(pairs.length >= 50, `only found ${pairs.length} handlers — has the dispatch style changed?`), `the chain is readable — ${pairs.length} handlers found`);
+check(
+  () => assert.deepEqual(dupes, [], `\n      ${dupes.join('\n      ')}`),
+  'and no (method, path) is registered twice, so no handler is shadowed'
+);
 
-const ws = path.join(tmp, 'demo');
+/* ------------------------------------------------- the README knows what it serves */
+
+/**
+ * Every `/api` path the server answers is in the README's API table, and every one in
+ * the table is answered.
+ *
+ * Both directions, because both had gone wrong and they fail differently. Seventeen of
+ * the forty-nine paths were missing — not a sloppy row here and there but *whole
+ * surfaces*: `/api/admin`, `/api/prs` and the rest of the PR board, `/api/foundations`,
+ * `/api/filter`. And the table carried a row for `GET /api/advocates`, which had no
+ * caller in the repo at all; the row was the only evidence it should exist, which is
+ * precisely how a route with nothing behind it stays convincing enough not to delete.
+ *
+ * A documentation check earns its place in a suite only when the drift is invisible
+ * otherwise, and this one was: nothing about serving an undocumented route feels wrong
+ * from inside the server, and nothing about documenting an unserved one feels wrong from
+ * inside the README.
+ */
+const README = fs.readFileSync(path.join(HERE, '..', 'README.md'), 'utf8');
+/**
+ * `(method, path)` on both sides, not path alone.
+ *
+ * Path granularity looks like it works and quietly does not: `/api/presence` answers
+ * GET, POST and DELETE, so deleting the GET row leaves the path still "documented" by
+ * its two siblings and the check passes over a hole. The duplicate scan above is already
+ * per pair, and these two claims should not disagree about what a route is.
+ *
+ * Table rows only — `| GET | \`/api/x\` | … |` — rather than every mention of a path in
+ * 4,800 lines of prose. A route argued about in a paragraph is not a documented one.
+ */
+const documented = new Set();
+for (const m of README.matchAll(/^\|\s*(GET|POST|PUT|DELETE|PATCH)\s*\|\s*`(\/api\/[a-z/-]+)`/gim)) {
+  documented.add(`${m[1].toUpperCase()} ${m[2]}`);
+}
+const served = new Set(pairs.map((r) => `${r.method} ${r.path}`));
+// `/api/health` is in the table and answered before the token check, above the chain
+// these pairs come from — so it is served, just not by a line this scan can see.
+served.add('GET /api/health');
+
+const undocumented = [...served].filter((r) => !documented.has(r)).sort();
+const phantom = [...documented].filter((r) => !served.has(r)).sort();
+
+check(
+  () => assert.ok(documented.size >= 40, `only ${documented.size} rows matched — has the API table moved or changed shape?`),
+  `the README's API table is readable — ${documented.size} routes in it`
+);
+check(
+  () => assert.deepEqual(undocumented, [], `served but undocumented: ${undocumented.join(', ')}`),
+  'every /api path the server answers is in it'
+);
+check(
+  () => assert.deepEqual(phantom, [], `documented but not served: ${phantom.join(', ')}`),
+  'and every route in it is one the server answers'
+);
+
+/* ------------------------------------------------------------------- the app */
+
+const ws = path.join(tmp, 'ws');
 fs.mkdirSync(path.join(ws, '.beads'), { recursive: true });
+
+// A bd that answers everything with an empty list. The channel's shape is the claim
+// here, not its contents — an agent's foundation does not come from bd at all.
+const FAKE = path.join(tmp, 'bd');
+fs.writeFileSync(FAKE, "#!/usr/bin/env node\nprocess.stdout.write('[]');\n", { mode: 0o755 });
+
+const cfg = {
+  port: 0,
+  host: '127.0.0.1',
+  baseUrl: 'http://127.0.0.1',
+  token: 'routes-token',
+  actor: 'beadcause-test',
+  bdBin: FAKE,
+  workspaces: [{ name: 'demo', dir: ws }],
+  openSessions: false,
+  autoDispatch: false,
+  claudeSessions: false,
+  pollSeconds: 3600,
+  terminal: false,
+  ntfy: { enabled: false },
+  advocates: { enabled: false, workspaces: [] },
+};
+
+// foundation.js first: it and agents.js import each other, and agents.js is not the
+// end of that cycle that can be pulled in cold.
+await import(LIB('foundation.js'));
+const { createApp, listen, routeTable, assertRoutes } = await import(LIB('server.js'));
 
 const port = await new Promise((resolve, reject) => {
   const probe = net.createServer();
@@ -87,189 +204,132 @@ const port = await new Promise((resolve, reject) => {
   });
 });
 
-/**
- * A `bd` that answers nothing, from a fixture rather than from the machine.
- *
- * The channel route sweeps `bd` per workspace, and without this it shells out to
- * whatever `bd` this laptop happens to have — a real issue graph, real latency, and a
- * different answer on every machine. `.cjs` because it is spawned by absolute path
- * from a temp directory, and the extension is what settles how node parses it.
- */
-const BD = path.join(tmp, 'bd.cjs');
-fs.writeFileSync(BD, '#!/usr/bin/env node\nconsole.log("[]");\n', { mode: 0o755 });
+const app = createApp({ ...cfg, port });
+const servers = listen({ ...cfg, port }, app.handler);
 
-const cfg = {
-  port,
-  host: '127.0.0.1',
-  baseUrl: `http://127.0.0.1:${port}`,
-  token: 'routes-token',
-  bdBin: BD,
-  actor: 'beadcause-test',
-  workspaces: [{ name: 'demo', dir: path.join(ws, '.beads') }],
-  openSessions: false,
-  autoDispatch: false,
-  claudeSessions: false,
-  pollSeconds: 3600,
-  terminal: false,
-  agents: [],
-  ntfy: { enabled: false },
-  advocates: { enabled: false, workspaces: [] },
-};
-
-// This call is itself a check: createApp runs assertRoutes, so a duplicate route in
-// lib/server.js fails the suite here, before a single request is made.
-const app = createApp(cfg);
-const servers = listen(cfg, app.handler);
-
-const get = async (p) => {
-  const res = await fetch(`http://127.0.0.1:${port}${p}`, { headers: { 'x-beadcause-token': cfg.token } });
-  let body = null;
-  try {
-    body = await res.json();
-  } catch {
-    body = null;
-  }
-  return { status: res.status, body };
-};
+const get = (pathname) =>
+  new Promise((resolve, reject) => {
+    const req = http.request(
+      { host: '127.0.0.1', port, path: pathname, method: 'GET', headers: { 'x-beadcause-token': cfg.token } },
+      (res) => {
+        let out = '';
+        res.setEncoding('utf8');
+        res.on('data', (c) => (out += c));
+        res.on('end', () => resolve({ status: res.statusCode, json: JSON.parse(out || '{}') }));
+      }
+    );
+    req.on('error', reject);
+    req.end();
+  });
 
 for (let i = 0; i < 100; i += 1) {
   try {
-    await get('/api/status');
+    await get('/api/health');
     break;
   } catch {
     await new Promise((r) => setTimeout(r, 20));
   }
 }
 
-/* --------------------------------------------------------------------- cases */
+console.log('\nthe three foundation paths, against the real server\n');
 
-console.log('\nroutes\n');
+/* ------------------------------------------------- the channel keeps the bare path */
+
+const channel = await get('/api/foundation');
+check(() => assert.equal(channel.status, 200), 'GET /api/foundation answers 200');
+check(
+  () => assert.ok(Array.isArray(channel.json.requests), `got ${JSON.stringify(channel.json).slice(0, 120)}`),
+  'and it is the requests channel — the caller that wants the channel without the inbox'
+);
+
+/* --------------------------------------------------------- the list, and one agent */
+
+const list = await get('/api/foundations?workspace=demo');
+check(() => assert.equal(list.status, 200), 'GET /api/foundations answers 200');
+check(() => assert.ok(list.json.agents?.length, `got ${JSON.stringify(list.json).slice(0, 120)}`), 'with every agent kind on it');
+
+const first = list.json.agents?.[0]?.id;
+const one = await get(`/api/foundation/agent?id=${encodeURIComponent(first || 'console')}&workspace=demo`);
+check(() => assert.equal(one.status, 200), `GET /api/foundation/agent?id=${first} answers 200`);
+// The assertion the whole file exists for. `agent` being present is what
+// public/foundations.js reads into `state.agent`, and `agent.title` is the first thing
+// renderDetail() touches — the exact line that threw while this route was shadowed.
+check(
+  () => assert.ok(one.json.agent?.title, `no agent.title in ${JSON.stringify(one.json).slice(0, 120)}`),
+  'and returns that agent, with the title renderDetail() reads first'
+);
+check(() => assert.equal(one.json.workspace, 'demo'), 'and the workspace it resolved the foundation in');
+
+const nonsense = await get('/api/foundation/agent?id=../etc/passwd&workspace=demo');
+check(() => assert.equal(nonsense.status, 404), 'an id that is not an agent kind is a 404, not a file read');
+
+/* ------------------------------------------------------- and the same check at boot */
 
 /**
- * Exactly what `loadAgent()` in public/foundations.js does, against the real server.
+ * The duplicate scan again, this time inside `createApp`.
  *
- * The field list is not decoration: `renderDetail` reads `title` before anything
- * else, `renderFoundation` reads `amended` and `protectedFields`, `renderHistory`
- * reads `amendmentHistory` and `renderActivity` reads `activity` and `runs`. All four
- * tabs are drawn from this one response, so all four are asserted from it.
- */
-await check('GET /api/foundation/agent returns one agent, with what all four tabs read', async () => {
-  const { status, body } = await get('/api/foundation/agent?id=advocate&workspace=demo');
-  assert.equal(status, 200);
-  assert.equal(body.workspace, 'demo');
-  assert.ok(body.agent, 'no agent in the response — this is the bc-dwqh failure exactly');
-  assert.equal(body.agent.id, 'advocate');
-  assert.equal(typeof body.agent.title, 'string', 'renderDetail throws on a missing title');
-  assert.ok(Array.isArray(body.agent.protectedFields), 'renderFoundation draws the locked rows from this');
-  assert.ok(Array.isArray(body.agent.amendableFields));
-  assert.ok(Array.isArray(body.agent.amended));
-  assert.ok(Array.isArray(body.agent.amendmentHistory), 'the History tab');
-  assert.ok(Array.isArray(body.agent.activity), 'the Activity tab');
-  assert.ok(Array.isArray(body.agent.runs), 'the Activity tab');
-});
-
-// Unnamed resolves to the first configured workspace, which is how the screen opens
-// before you have picked one — and is a path through agentTarget the named case skips.
-await check('GET /api/foundation/agent works without a workspace', async () => {
-  const { status, body } = await get('/api/foundation/agent?id=advocate');
-  assert.equal(status, 200);
-  assert.equal(body.workspace, 'demo');
-  assert.equal(body.agent.id, 'advocate');
-});
-
-await check('an agent that does not exist is a 404, not a blank screen', async () => {
-  const { status, body } = await get('/api/foundation/agent?id=nonesuch');
-  assert.equal(status, 404);
-  assert.match(String(body.error), /no such agent/);
-});
-
-/**
- * The channel keeps its own name. It is the older route of the two — it is in the
- * README, it is what a badge or a watch face polls, and it is the one a `curl` line
- * written months ago still uses — so the *narrower* route is the one that moved.
- */
-await check('GET /api/foundation is still the channel, and only the channel', async () => {
-  const { status, body } = await get('/api/foundation');
-  assert.equal(status, 200);
-  assert.ok(Array.isArray(body.requests), 'the channel returns requests');
-  assert.deepEqual(body.workspaces, ['demo']);
-  assert.equal(body.agent, undefined, 'the agent detail must not be back on this path');
-});
-
-/* ------------------------------------------------------- the boot-time guard */
-
-await check('routeTable sees both foundation routes, so the guard is not vacuous', () => {
-  const table = routeTable(app.handler);
-  assert.ok(table.includes('GET /api/foundation'), 'the channel is not in the table');
-  assert.ok(table.includes('GET /api/foundation/agent'), 'the agent detail is not in the table');
-  // A sanity floor rather than an exact count: this file should not need editing every
-  // time a route is added, but a scanner that fell to a handful has stopped working.
-  assert.ok(table.length > 30, `only ${table.length} routes found — the scanner has stopped matching`);
-});
-
-await check('the real handler registers nothing twice', () => {
-  const table = routeTable(app.handler);
-  const dupes = table.filter((r, i) => table.indexOf(r) !== i);
-  assert.deepEqual([...new Set(dupes)], []);
-  assertRoutes(app.handler);
-});
-
-await check('assertRoutes throws on a duplicate, and names it', () => {
-  // The bug as it was written: same path, same method, far apart, both reachable-looking.
-  const doubled = async (req, res) => {
-    const p = req.url;
-    if (p === '/api/foundation' && req.method === 'GET') return res.end('channel');
-    if (p === '/api/other' && req.method === 'POST') return res.end('other');
-    if (p === '/api/foundation' && req.method === 'GET') return res.end('agent');
-  };
-  assert.throws(() => assertRoutes(doubled), /GET \/api\/foundation/);
-});
-
-await check('the same path under two methods is fine', () => {
-  const fine = async (req, res) => {
-    const p = req.url;
-    if (p === '/api/presence' && req.method === 'GET') return res.end('read');
-    if (p === '/api/presence' && req.method === 'POST') return res.end('write');
-    if (req.method === 'DELETE' && p === '/api/presence') return res.end('gone');
-  };
-  assert.deepEqual(assertRoutes(fine).sort(), [
-    'DELETE /api/presence',
-    'GET /api/presence',
-    'POST /api/presence',
-  ]);
-});
-
-/* ------------------------------------------------- the fakes, held to the real */
-
-/**
- * No fake may answer a path the real server does not have.
+ * The static scan at the top of this file catches a duplicate the day someone runs the
+ * suite. `assertRoutes` catches one the moment a process starts, which is not the same
+ * day: this repo hot-swaps a fresh backend under the port a few seconds after `lib/`
+ * settles, and code arrives there by merge and by cherry-pick as well as by the branch
+ * that ran `npm test`. A duplicate that gets past the suite would otherwise reach a
+ * running daemon and do exactly what bc-dwqh did — answer 200 with the wrong body,
+ * which reads as healthy from every direction.
  *
- * This is the check that would have caught bc-dwqh on the day it was written. Nineteen
- * `scripts/*-check.mjs` files drive the real client bundles against hand-written stub
- * servers, which is the only practical way to exercise a page in a headless browser —
- * but a stub is a second, unversioned opinion about the API, and when it drifts it
- * drifts *towards* whatever makes the client work. Path existence is the cheapest
- * property that catches that, and it needs no cooperation from the fakes.
+ * Three claims, and the middle one is the one that rots. `routeTable` reads the
+ * handler's own source; this file reads `lib/server.js` off disk. They are two regexes
+ * over the same text, so they should see the same routes — and if the one at boot ever
+ * stops matching, it degrades into a silent no-op that passes forever. Nothing at
+ * runtime can tell the difference. This can.
  */
-await check('every path the fake servers answer is a path the real server registers', () => {
-  const real = new Set(routeTable(app.handler).map((r) => r.split(' ')[1]));
-  const missing = [];
-  const dir = path.join(ROOT, 'scripts');
-  const fakes = fs.readdirSync(dir).filter((f) => f.endsWith('-check.mjs'));
-  assert.ok(fakes.length > 5, `only ${fakes.length} check scripts found — the glob has stopped working`);
-  for (const f of fakes) {
-    const src = fs.readFileSync(path.join(dir, f), 'utf8');
-    for (const m of src.matchAll(/p === '(\/api\/[^']*)'/g)) {
-      if (!real.has(m[1])) missing.push(`scripts/${f} answers ${m[1]}, which the real server does not register`);
+console.log('\nand the same check at boot\n');
+
+const booted = routeTable(app.handler).sort();
+const scanned = [...new Set(pairs.map((r) => `${r.method} ${r.path}`))].sort();
+
+check(
+  () => assert.ok(booted.length >= 50, `routeTable saw only ${booted.length} routes — has the dispatch style changed?`),
+  `createApp's own scan reads the chain — ${booted.length} routes found`
+);
+check(
+  () => assert.deepEqual(booted, scanned, 'the boot scan and the file scan disagree about what is registered'),
+  'and sees exactly what a read of lib/server.js sees'
+);
+
+// The handler is a string to `routeTable`, so a function whose body says it twice is a
+// faithful duplicate — no second copy of server.js, and no way for this to pass by
+// accident on a chain that happens to be clean.
+const twice = (req, res, p) => {
+  if (p === '/api/twice' && req.method === 'GET') return res;
+  if (p === '/api/twice' && req.method === 'GET') return res;
+  return null;
+};
+check(() => {
+  assert.throws(() => assertRoutes(twice), /registered twice/);
+  const err = (() => {
+    try {
+      assertRoutes(twice);
+      return null;
+    } catch (e) {
+      return e;
     }
-  }
-  assert.deepEqual(missing, []);
-});
+  })();
+  assert.match(err.message, /GET \/api\/twice/, `the error does not name the route: ${err.message}`);
+}, 'a duplicated pair refuses to start, and the error names the route');
 
-/* ------------------------------------------------------------------- teardown */
+check(
+  () => assert.deepEqual(assertRoutes(app.handler).sort(), scanned),
+  'while the real chain starts, which is what createApp just did'
+);
 
-for (const s of servers || []) s.close?.();
-app.advocates?.stop?.();
+/* ---------------------------------------------------------------------- done */
 
-console.log(failures ? `\n\x1b[31m${failures} of ${ran} failed\x1b[0m\n` : `\n\x1b[32mall ${ran} checks passed\x1b[0m\n`);
-process.exit(failures ? 1 : 0);
+for (const s of servers) s.close();
+fs.rmSync(tmp, { recursive: true, force: true });
+
+console.log('');
+if (failures) {
+  console.log(`\x1b[31m${failures} of ${ran} checks failed\x1b[0m`);
+  process.exit(1);
+}
+console.log(`\x1b[32mall ${ran} checks passed\x1b[0m`);

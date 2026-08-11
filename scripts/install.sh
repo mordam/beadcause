@@ -138,7 +138,11 @@ fi
 # daemons fighting over port 4318 — the loser exits, but which one loses is a race.
 for legacy in "${LEGACY_LABELS[@]}"; do
   legacy_plist="$HOME/Library/LaunchAgents/$legacy.plist"
-  if launchctl list 2>/dev/null | grep -q "$legacy" || [ -f "$legacy_plist" ]; then
+  # Here-string, not a pipe: `set -o pipefail` above turns `… | grep -q` into a trap.
+  # grep exits at its first match, the writer takes SIGPIPE while it is still writing,
+  # and the pipeline reports 141 — so a match reads as "not found". `-F` because a label
+  # is a literal and its dots are not wildcards.
+  if grep -qF -- "$legacy" <<<"$(launchctl list 2>/dev/null)" || [ -f "$legacy_plist" ]; then
     say "removing the previous $legacy service (now $LABEL)"
     launchctl bootout "gui/$USER_ID/$legacy" 2>/dev/null || true
     rm -f "$legacy_plist"
@@ -323,7 +327,13 @@ say "running — workspaces: ${WORKSPACES:-none}"
 # port answered perfectly the whole time — so nothing anyone could see was broken.
 # launchd keeps the arguments it bootstrapped with, so this reads them back from it
 # and not from the file.
-LOADED="$(launchctl print "gui/$USER_ID/$LABEL" 2>/dev/null | grep -oE '[^[:space:]]+/bin/[A-Za-z0-9._-]+\.js' | head -1 || true)"
+# `sed -n 1p` rather than `head -1`: head stops reading as soon as it has its line, and
+# under `set -o pipefail` the SIGPIPE that sends back up the pipe fails the whole
+# substitution. It happens to be harmless here — the `|| true` swallows it and the value
+# was already captured — but it is the same construct that inverted the attic sweep in
+# bc-bcdp, and one that only reads correctly by accident is not worth keeping. sed reads
+# to EOF; `launchctl print` is a few hundred lines.
+LOADED="$(launchctl print "gui/$USER_ID/$LABEL" 2>/dev/null | grep -oE '[^[:space:]]+/bin/[A-Za-z0-9._-]+\.js' | sed -n 1p || true)"
 if [ "$LOADED" = "$ROOT/bin/router.js" ]; then
   say "launchd is running bin/router.js — editing lib/ swaps under the port, no restart"
 elif [ -n "$LOADED" ]; then

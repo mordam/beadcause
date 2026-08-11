@@ -172,6 +172,10 @@
   async function loadAgent() {
     const q = new URLSearchParams({ id: state.id });
     if (state.workspace) q.set('workspace', state.workspace);
+    // `/api/foundation/agent`, not `/api/foundation` — the bare path is the foundation
+    // *requests* channel, and asking it for an agent got `{requests, workspaces}` back,
+    // which made `state.agent` undefined and threw in renderDetail() below. See the
+    // handler's own note in lib/server.js.
     const data = await api(`/api/foundation/agent?${q}`);
     state.agent = data.agent;
     state.workspace = data.workspace;
