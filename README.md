@@ -337,6 +337,7 @@ interrupt you*:
     "quietDays": ["sat", "sun"],
     "ntfyDetail": "minimal",
     "autoDispatch": false,
+    "autoEndorse": false,
     "autoMerge": false,
     "requireApproval": true }
 ]
@@ -446,10 +447,11 @@ question you were told about and cannot find.
 Every setting a space has is one you used to change by opening `~/.beadcause/config.json`
 in an editor, on the Mac, with the daemon running. That was fine while a space was two
 lines of quiet hours written once. It stopped being fine when a space became the unit
-that decides whether an unattended agent may answer a comment (`autoDispatch`) and
-whether a worker merges its own pull request without asking you (`autoMerge`,
-`requireApproval`) — because the moment you know one of those is set wrong is the moment
-you are looking at what it did, on a phone, at the weekend.
+that decides whether an unattended agent may answer a comment (`autoDispatch`), whether a
+bead an agent filed may be worked before you have read it (`autoEndorse`), and whether a
+worker merges its own pull request without asking you (`autoMerge`, `requireApproval`) —
+because the moment you know one of those is set wrong is the moment you are looking at
+what it did, on a phone, at the weekend.
 
 So **`/monitor` is the details of the space the picker has selected**, and its settings
 are on it:
@@ -468,6 +470,7 @@ are on it:
 │      Quiet days                     sat, sun │
 │      Push detail             inherited · full│
 │      Agents may answer unasked          off  │
+│      Beads agents file arrive endorsed   on  │
 │      Workers merge their own PRs         on  │
 │      An approving review first  inherited·off│
 │  ▸ WHAT EACH REPO RESOLVES TO            3   │
@@ -487,10 +490,10 @@ editing the config file for.
 **Three shapes of control, and the shape is the shape of the answer.** `Muted` is
 two-state, because there is no global mute behind it and a third button would be a
 lie. Quiet hours and quiet days are a pair of clocks and a row of days, each clearable,
-because "no quiet hours" is a state you have to be able to get back to. The four with a
-global default behind them — push detail, agents-may-answer, auto-merge,
-approval-first — are **three**-state: On, Off, and *Inherit*, which names what it
-currently resolves to. That third button is not a nicety: `prPolicyFor` is explicit
+because "no quiet hours" is a state you have to be able to get back to. The five with a
+global default behind them — push detail, agents-may-answer, filings-arrive-endorsed,
+auto-merge, approval-first — are **three**-state: On, Off, and *Inherit*, which names what
+it currently resolves to. That third button is not a nicety: `prPolicyFor` is explicit
 that a space may override the global in *either* direction, so "off" and "following a
 default that is currently off" are different answers, and only one of them survives the
 default changing.
@@ -499,7 +502,7 @@ default changing.
 not the last word on two of these settings: `ntfy.minimalWorkspaces` and
 `autoDispatchExclude` are per-repo lists that outrank it, so a space set to `full` can
 contain one repo that pushes minimally. The panel runs every workspace in the space
-through the same four resolvers the daemon itself uses and prints the answers, because
+through the same resolvers the daemon itself uses and prints the answers, because
 a screen showing only the space's own setting would be quietly wrong about exactly the
 repo somebody had singled out — and wrong in the direction of promising more detail on
 your phone than you are going to get.
@@ -626,6 +629,29 @@ its way out of. Both of these are ordinary policy, and only a default a space ca
 override in either direction expresses the two setups that motivated it: on everywhere
 except the shared repo, and off everywhere except the side project. A space that says
 nothing inherits, and a config with no spaces at all behaves exactly as it always did.
+
+**And a space decides whether the endorsement tap is a review or a formality.**
+`autoEndorse: true` files the beads agents discover in that space *without* the
+[`unendorsed` hold](#the-endorsement-queue--a-group-tap-or-a-row-at-a-time): they are
+ready work the moment they exist, an advocate queues them on its next tick, and you read
+them afterwards instead of before. The case for it is the repo where the only reader of
+the tracker is the person who would have pressed Endorse — there the tap is not a review,
+it is a delay with a notification attached.
+
+It is the one setting here that is **off unless you ask for it in as many words**
+(`cfg.autoEndorse === true`, not `!== false`), because it is the only one whose worst case
+is an unattended session on work nobody has read. Everything else on the bead is
+unchanged: the P2 ceiling still applies, `agent-filed` still goes on, the
+`discovered-from` edge still points back at the work that found it, and the bead's own
+notes say plainly that nobody read it before it became workable. With the hold gone that
+provenance is the whole of the audit, so it is not optional — `bd list --label
+agent-filed` is how you see what arrived while you were asleep.
+
+| on a space | what it does |
+|---|---|
+| `"autoEndorse": true` | discoveries filed there are ready work immediately, even where the global says no |
+| `"autoEndorse": false` | they are held for your tap, even where the global says yes |
+| unset | follows the global `autoEndorse`, which is `false` unless you changed it |
 
 `npm run configure` walks you through it. Run it **in a terminal** — it needs one to
 ask questions. Anywhere else (a pipe, CI, an agent shell) it prints the current
@@ -3147,6 +3173,14 @@ thing; it is simply no longer the thing the finder waits on.
 That trade only holds up if the other end of it exists. Until this screen the held
 beads were a muted pill on the advocate console reading `3 held for endorsement` —
 a number with no door behind it, and no way at all to see which three from a phone.
+
+**A space can opt out of this screen entirely**, and it is worth knowing before you read
+the rest of it: `autoEndorse` on the space
+([above](#spaces--keeping-work-out-of-your-evening)) files without the hold, so those
+workspaces' discoveries never appear in this queue at all — they go straight to `bd ready`
+and the advocate picks them up. Off unless you ask for it, per space, and the bead still
+says on its face that nobody read it first. The queue below is what happens everywhere
+else, which is everywhere by default.
 
 **`/endorse` is the door** (`/queue` and `/endorsements` reach the same page). One
 list, every workspace at once, newest first, narrowed by the space picker in the top
@@ -6079,6 +6113,7 @@ the fields it always read and renders exactly as it did.
 | `autoDispatch` | commenting spawns an unattended agent to reply (default `true`) |
 | `autoDispatchExclude` | workspaces that never auto-dispatch — put shared trackers here |
 | `autoDispatchTimeoutMs` | kill a dispatched agent after this long (default 10 min) |
+| `autoEndorse` | beads an agent files itself arrive **endorsed** — workable, queued, launchable — instead of held for your tap (default `false`). The one policy default here that is the restrictive one, and the only one that needs a literal `true`: its worst case is an unattended session on work nobody has read. Set it **per [space](#spaces--keeping-work-out-of-your-evening)** rather than here; the P2 ceiling, `agent-filed` and the `discovered-from` edge all still go on either way |
 | `pr.enabled` | land finished work as [a pull request the worker merges](#landing-work--a-branch-a-pull-request-and-the-workers-own-merge) (default `true`). `false` puts every workspace back on the oldest ending — work the bead, close the bead. A workspace with no `gh` or no GitHub remote gets that ending anyway, without needing to be named |
 | `pr.base` | what a PR is opened against and merged into (default `main`) |
 | `pr.mergeMethod` | `merge` (default), `squash` or `rebase`. A merge commit because a squash-merged branch is never an ancestor of `main`, and the worktree cleanup will not remove a worktree that fails that test |
