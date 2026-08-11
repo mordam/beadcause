@@ -1559,6 +1559,35 @@ written it. It is the *foundation's* id, so `answerer` and `critic` — who shar
 dispatch foundation — share what dispatch has learned. Memory belongs to the thing
 that has a definition, which is the same boundary the amendment loop draws.
 
+### The one agent nobody spawns
+
+Three of the four are a `spawn` from the daemon, so `agentEnv` hands them an env
+object and that is the whole of it. The worker — the agent that does every piece of
+code work here — is not one of them. `launch` in `lib/session.js` writes a *command
+string*, hands it to `osascript`, and iTerm types it into a **fresh login shell**:
+nothing in the daemon's own environment crosses that gap, so an env object passed to
+`osascript` reaches osascript and stops. The exports have to be **in the line**, which
+is what `agentExports` renders — the same three decisions as `agentEnv`, written for a
+shell instead of for `execve`, with `BEADCAUSE_AGENT` emitted last because a later
+`export` wins exactly the way a later key in an object literal does.
+
+It is worth saying what the missing half looked like, because it was invisible from
+every direction. For one release the worker's launch read its foundation and took two
+fields off it — the model and the permission mode — and applied neither the role nor
+the environment. So `beadcause-memory` was not on the sessions' PATH, and had it been,
+every write would have failed for want of an agent to write as. The agents doing all
+the code work were the only ones that could not reach the store, and from outside that
+is indistinguishable from them having nothing to say.
+
+The role travels the same way and had the same gap. A worker's is delivered as a
+**system prompt** (`--append-system-prompt-file`, the way the chat session's is) rather
+than folded into the brief the way dispatch and advocate fold theirs: a work session
+runs for as long as the work takes, and what it *is* has to still be in front of it on
+the fortieth turn rather than buried under forty turns of a task. The memory brief is
+quoted after it, from the one copy in `lib/memory.js` — which means an amendment to
+`role` can change what a work session is without being able to delete the paragraph
+that tells it it has a memory at all.
+
 ### Which of the two, and the one question that decides it
 
 **Would this still be true in a different repo?** That is the whole test, and the
