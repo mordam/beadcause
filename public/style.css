@@ -649,6 +649,24 @@ body {
 .pill.id { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; text-transform: none; letter-spacing: 0; }
 .meta time { font-size: 12px; color: var(--muted); margin-left: auto; }
 
+/*
+  "Arrived quietly 3h ago · hidden by the inbox filter — Work / acme".
+
+  A postmark, so it is drawn like one: dim, small, and above the question rather than
+  beside the pills, because it is a sentence and the pills are labels. Deliberately
+  *not* coloured — nothing here is a warning or a problem to fix, and a card that has
+  been sitting quietly since six is exactly as answerable as one that just buzzed.
+
+  `align-items: baseline` rather than centre: the glyph is an emoji, so it sets a
+  taller line box than the text, and centring it drags the sentence down off the
+  baseline it shares with .q underneath.
+*/
+.quiet-note {
+  display: flex; align-items: baseline; gap: 6px;
+  font-size: 12.5px; line-height: 1.45; color: var(--muted);
+  margin: -2px 0 8px;
+}
+
 .q { font-size: 19px; font-weight: 630; line-height: 1.4; margin: 0 0 5px; letter-spacing: -0.012em; }
 .subtitle { font-size: 13px; color: var(--muted); margin: 0 0 12px; }
 .subtitle.bad { color: var(--danger); }
@@ -3077,21 +3095,30 @@ a.menu-item { text-decoration: none; color: var(--text); }
 /* Tabs, not a segmented control: four destinations is one too many for a
    segmented control on a phone, and these are places you go rather than modes
    you toggle. Sticky, because the Foundation tab is long enough to scroll past
-   the point of forgetting which agent you are looking at. */
-.tabs {
+   the point of forgetting which agent you are looking at.
+
+   `.agent-tabs`, not `.tabs`, because the monitor's bar used to answer to that
+   same bare selector four hundred lines below — one stylesheet, same specificity,
+   so the later block quietly won every property the two shared and each bar was
+   running half on the other page's rule. The values here are what this bar was
+   *actually* rendering under that merge (z-index 3, padding 8px 14px), not what
+   this block used to declare (z-index 5, padding 6px 12px): the scoping is only
+   worth having if neither page moves as part of it, so undoing the accident stays
+   a separate, deliberate decision on whichever bar wants it. See bc-4aw. */
+.agent-tabs {
   position: sticky;
   top: 0;
-  z-index: 5;
+  z-index: 3;
   display: flex;
   gap: 2px;
   margin: -18px -16px 14px;
-  padding: 6px 12px;
+  padding: 8px 14px;
   background: var(--bg);
   border-bottom: 1px solid var(--line);
   overflow-x: auto;
   scrollbar-width: none;
 }
-.tabs::-webkit-scrollbar { display: none; }
+.agent-tabs::-webkit-scrollbar { display: none; }
 .tab {
   flex: 1;
   min-height: 40px;
@@ -3224,6 +3251,16 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
   padding: 0 4px; color: var(--muted);
 }
 .svc.ok .svc-dot { color: var(--accent); }
+/* The one line in that block you can press: the cap across every advocate, as the same
+   stepper the advocate cards carry. Centred rather than baseline-aligned because a pill
+   of buttons has no baseline worth sharing with the text beside it, and pushed to the
+   right end so the three lines still read as a column of statements with the single
+   control at the edge of one of them. Wraps on a phone rather than squeezing the
+   sentence, which is the half that says what the number means. */
+.svc-set { align-items: center; flex-wrap: wrap; gap: 8px; padding-block: 2px; }
+.svc-set .adv-limit { margin-left: auto; }
+.svc-num { font-weight: 700; font-variant-numeric: tabular-nums; color: var(--text); }
+.svc-num.warn { color: var(--warn); }
 
 .svc.bad {
   padding: 10px 12px; color: var(--text);
@@ -3510,16 +3547,30 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
 
 /* Two panes over one page. The bar borrows .chip so a tab and a filter chip are
    the same object to a thumb — this page is opened on the Mac, but the phone
-   reaches it through the same pairing and the same hands. */
-.tabs {
+   reaches it through the same pairing and the same hands.
+
+   The last five declarations are inherited rather than chosen: they are what this
+   bar was already getting from the agents' block while both were a bare `.tabs`,
+   and they are written out here so that scoping the two apart (bc-4aw) changes
+   nothing on the page. The negative margin in particular is the agents' page
+   pulling its bar out to the body's padding; this one keeps it only because it
+   always had it. `gap` beats `.chip-row`'s 8px by sitting later in the file, which
+   is exactly how it beat it before. */
+.mon-tabs {
   position: sticky;
   top: 0;
   z-index: 3;
   padding: 8px 14px;
   background: var(--bg);
   border-bottom: 1px solid var(--line);
+  display: flex;
+  gap: 2px;
+  margin: -18px -16px 14px;
+  overflow-x: auto;
+  scrollbar-width: none;
 }
-.tabs .chip { position: relative; }
+.mon-tabs::-webkit-scrollbar { display: none; }
+.mon-tabs .chip { position: relative; }
 
 /* The `hidden` attribute is a `display: none` that any later `display` beats, and
    `.work` sets `display: flex` — so the pane behind the tab you are not on kept
@@ -3822,6 +3873,91 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
   :root { --tabbar-h: 44px; }
   .tab-icon { font-size: 17px; }
 }
+
+/* ── ＋, and the conversations it starts ──────────────────────────────────────
+
+   Chat is not a tab any more (bc-l8jp.5). What it was is now two things on the
+   inbox: a row per open conversation in the list, and this button to start another.
+
+   The button floats over the list, above the tab bar, on the right. That is the one
+   corner of a phone a thumb reaches without moving the hand, and this is the app's
+   primary action — the top bar, where every other control on this screen lives, is
+   the far corner. Floating costs something and the cost is paid rather than ignored:
+   `.has-compose` adds the button's height to the foot of the page, so the last card
+   in the list still clears it exactly as it clears the bar.
+
+   z-index 24 is deliberate and sits between two things: above the list (which scrolls
+   under it) and below both the tab bar (25) and an open card (40, `position: fixed;
+   inset: 0`). An answer takes the whole screen and must not have a create button
+   sitting on top of it. */
+
+.compose-wrap {
+  position: fixed;
+  z-index: 24;
+  right: calc(env(safe-area-inset-right) + 14px);
+  bottom: calc(env(safe-area-inset-bottom) + var(--tabbar-h) + 14px);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.compose {
+  display: flex; align-items: center; justify-content: center;
+  width: 52px; height: 52px;
+  border-radius: 50%;
+  border: 1px solid transparent;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font: inherit; font-size: 26px; line-height: 1;
+  cursor: pointer;
+  /* The glyph is fullwidth (U+FF0B) and sits high in its box; the app draws it that
+     way everywhere else too, so it is nudged rather than swapped for a plain +. */
+  padding-bottom: 3px;
+  box-shadow: 0 8px 22px rgb(0 0 0 / 0.34);
+  -webkit-tap-highlight-color: transparent;
+}
+.compose:disabled { opacity: 0.6; }
+
+/* Which repo to start in, when the selection cannot say. Right-aligned to the button
+   that opened it, and capped so a long repo name cannot push it off the screen. */
+.compose-pick {
+  width: max-content;
+  max-width: min(80vw, 420px);
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--surface) 96%, transparent);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 10px 28px rgb(0 0 0 / 0.32);
+}
+.compose-pick .section-label { margin: 0 0 6px; padding-top: 0; border-top: 0; }
+.compose-pick .chip-row { flex-wrap: wrap; }
+
+/* Room at the foot of the list for the button sitting over it. On top of the tab
+   bar's own reservation, because both are there at once — see .has-tabbar. */
+.has-compose.has-tabbar { padding-bottom: calc(env(safe-area-inset-bottom) + var(--tabbar-h) + 76px); }
+/* And the toast, which is bottom-centred and would otherwise land under it on a
+   narrow phone. */
+.has-compose.has-tabbar .toast { bottom: calc(env(safe-area-inset-bottom) + var(--tabbar-h) + 78px); }
+
+/* A conversation, as one row in the inbox.
+
+   `.card` for the surface the rest of the list is made of, `.work-row` for the layout
+   every other row of this shape in the app uses — the launcher's list, the advocate
+   console's, the PR board's. A chat session is the same object on all of them and a
+   second shape for it would be a second thing to learn. What is different here is the
+   padding: it is a card in a stack of cards rather than a line in a list, and
+   `.work-row`'s own top border is the card's border in this context. */
+.chat-card { padding: 10px 12px; border-top: 0; text-decoration: none; }
+.chat-card .work-sub .pill { margin-right: 5px; }
+/* `.spark` is a bare span sized in px, so the slot it sits in has to be a flex
+   parent or it is laid out as an empty inline box — which is to say, as nothing at
+   all. The same line `.session-row` needs, for the same reason. */
+.chat-card .work-phase { display: flex; align-items: center; justify-content: center; }
+/* Breathing, not a dead grey dot: on this screen the spark is the whole answer to
+   "is it thinking or is it waiting on me", which is what the row is for. */
+.chat-card .spark { background: var(--accent); animation: breathe 1.3s ease-in-out infinite; }
 
 /* ------------------------------------------------------------------- drawer */
 
@@ -4201,6 +4337,22 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
 .eq-lab textarea { resize: vertical; }
 .eq-two { display: flex; gap: 10px; }
 .eq-two .eq-lab { flex: 1; min-width: 0; }
+
+/* Talking about a bead instead of deciding on it. No rule of its own: `.section-label`
+   already draws one above every heading in here, and a second one under the bead's own
+   words left a stripe of empty card between two lines that meant the same thing. */
+.eq-talk .comments { margin: 8px 0 10px; }
+.eq-talk .section-label:first-child { margin-top: 14px; }
+/* Escaped text, not markdown — the same bargain the rest of this page makes (see the
+   note on `field` in public/endorse.js), so pre-wrap is what carries the line breaks. */
+.eq-bubble { margin: 0; font-size: 14px; line-height: 1.55; color: var(--prose); white-space: pre-wrap; overflow-wrap: anywhere; }
+/* The chosen agent's own brief. An agent whose foundation you cannot read is a name you
+   are guessing at — the same line the inbox draws under its chips. */
+.eq-agent-desc { margin: 6px 0 2px; font-size: 12px; line-height: 1.45; color: var(--muted); }
+/* Nobody is going to buzz you when the answer lands (see `talkHtml`), so the one thing
+   this line owes you is that something is in fact happening. */
+.eq-waiting { margin: 0 0 8px; font-size: 12.5px; color: var(--accent); }
+.pill.talk { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
 
 /* Revoke closes a bead, so it arms — outline until the first press, solid danger
    after it, which is the same promise `.admin-kill.armed` makes and the same one an
