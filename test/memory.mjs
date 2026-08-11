@@ -713,8 +713,14 @@ check(
 );
 
 const argv = spied('argv').split('\n').filter(Boolean);
-check('the brief still arrived, and first', argv[0] === BRIEF, JSON.stringify(argv));
-check('with the flags after it, where a variadic one cannot eat it', argv.includes('--append-system-prompt-file'), JSON.stringify(argv));
+// Last, not first, and behind a `--` (bc-i4sa). It used to go first because `--tools`
+// and `--allowedTools` are variadic and would eat a trailing operand; `--` terminates a
+// variadic option too, so last is safe and a brief that opens with a dash is no longer
+// read as a flag. test/dashprompt.mjs owns that rule — this is the one place it is
+// checked against a real login shell rather than a generated string.
+check('the brief still arrived, and last', argv[argv.length - 1] === BRIEF, JSON.stringify(argv));
+check('behind the `--` that stops it being read as a flag', argv[argv.length - 2] === '--', JSON.stringify(argv));
+check('with the flags before it, where a variadic one cannot eat it', argv.includes('--append-system-prompt-file'), JSON.stringify(argv));
 check(
   'the system prompt carried the amendable role',
   spied('system.md').includes('You are a **work session**'),
