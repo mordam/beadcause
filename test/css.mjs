@@ -149,6 +149,65 @@ console.log('\nthe tab bars');
   check('and neither page wears the other bar’s class', !wears('foundations.html', '.mon-tabs') && !wears('monitor.html', '.agent-tabs'));
 }
 
+/* ------------------------------------------- a flex row says it is one (bc-8l74)
+ *
+ * The third way a rule goes quiet, after truncated and written-twice: written for a
+ * layout the element never got. `.mon-card .work-head` had `align-items: center` and
+ * `flex-wrap: wrap` and no `display: flex` — the `.svc-set` idiom copied onto an element
+ * whose other class does not supply one, so for as long as the rule existed the console's
+ * card heads laid out as blocks and stacked the name, the state and the controls on three
+ * lines. `.adv-actions { margin-left: auto }` was dead beside it, for the same reason.
+ * Nothing said a word: two properties that do nothing render as the layout you would have
+ * had without them.
+ *
+ * The general form of this — "no block sets a flex-container property unless something
+ * gives that element a flex display" — is not a stylesheet-only question. Five live rules
+ * here (`.svc-set`, `.agent-row`, `.board-row`, `.pr-card .pr-row`, `.mon-times`) are
+ * modifier classes on a base that supplies the display, and telling those from a dead rule
+ * needs the markup, not the CSS. That is bc-ah0v. This is the narrow half: the one head
+ * that was actually broken, and the single selector that now draws all four of them.
+ */
+
+console.log('\nthe console card head');
+
+{
+  const css = fs.readFileSync(path.join(PUBLIC, 'style.css'), 'utf8');
+  const monitor = fs.readFileSync(path.join(PUBLIC, 'monitor.js'), 'utf8');
+  const top = blocks(css).found.filter((b) => !b.atRule && !b.parent && !b.stray);
+  const head = top.filter((b) => b.prelude === '.mon-card .work-head');
+
+  check('.mon-card .work-head is declared exactly once', head.length === 1, `declared ${head.length} times`);
+
+  // The body of that one block, read from the file between its brace and the next.
+  const body = (() => {
+    if (head.length !== 1) return '';
+    const from = css.split('\n').slice(head[0].line - 1).join('\n');
+    return from.slice(from.indexOf('{') + 1, from.indexOf('}'));
+  })();
+
+  check(
+    'and the rule that gives it flex properties also gives it a flex display',
+    /flex-wrap|align-items/.test(body) && /display:\s*flex/.test(body),
+    body.trim().replace(/\s+/g, ' ')
+  );
+
+  // The other half of bc-8l74: the space card carried its own copy of the same rule,
+  // with the same missing display. It is a `.mon-card` too, so the rule above reaches
+  // it and a second copy is only a copy to keep in step.
+  check(
+    'and the space card has no second copy of it',
+    top.filter((b) => /\.space-card\s+\.work-head/.test(b.prelude)).length === 0,
+    top.filter((b) => /\.space-card\s+\.work-head/.test(b.prelude)).map((b) => `line ${b.line}: ${b.prelude}`).join(', ')
+  );
+
+  // Which is only true while every card on the page wears `mon-card` — and `work-card`,
+  // which is the padding. The space card was the one without it, and lived off the 20px
+  // of margin an unstyled <h2> brings until that margin went.
+  const articles = [...monitor.matchAll(/<article class="([^"$]*)/g)].map((m) => m[1]);
+  check(`every card /monitor draws wears mon-card (${articles.length} of them)`, articles.length >= 5 && articles.every((c) => /\bmon-card\b/.test(c)), articles.filter((c) => !/\bmon-card\b/.test(c)).join(' | '));
+  check('and wears work-card, so it is padded', articles.every((c) => /\bwork-card\b/.test(c)), articles.filter((c) => !/\bwork-card\b/.test(c)).join(' | '));
+}
+
 /* ------------------------------------------------------------------ the detector works
  *
  * A guard that cannot fail is a guard nobody should trust, and this one would have
