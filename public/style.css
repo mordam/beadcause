@@ -3910,6 +3910,65 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
   .drawer-backdrop { transition: none; }
 }
 
+/* ------------------------------------------------------- the space's own settings
+
+   The card at the top of /monitor, which is the details of the selected space: seven
+   settings that used to be a config-file hand-edit on the Mac.
+
+   Laid out like the admin page's rows on purpose — a heading, the value it is
+   currently set to, a sentence of why, then the buttons — because they are the same
+   kind of thing: a control whose blast radius you have to guess at is one you stop
+   pressing. The one difference is the third button. Admin's controls are two-way;
+   most of these have a global default behind them, so "off" and "inheriting an off"
+   are different answers and the Inherit button has to say which one you would get.
+*/
+.space-card .work-head { align-items: center; flex-wrap: wrap; }
+/* Not a card at all: the one line that says the settings belong to a space and none
+   is picked. Indented to the cards' own padding so it reads as page text. */
+.space-none { margin: 0 2px 4px; }
+
+.space-row { border-top: 1px solid var(--line); padding: 10px 0 4px; }
+.space-row:first-child { border-top: 0; padding-top: 2px; }
+.space-row-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.space-what { font-size: 13.5px; font-weight: 650; }
+/* The same four tones the advocate state line uses, and for the same reason: colour
+   is what separates "set on purpose" from "following something else". */
+.space-state { font-size: 12.5px; font-weight: 600; color: var(--muted); }
+.space-state.live { color: var(--accent); }
+.space-state.held { color: var(--muted); font-style: italic; }
+.space-state.dim { color: var(--muted); opacity: 0.7; }
+.space-help { margin: 4px 0 8px; font-size: 12.5px; line-height: 1.5; color: var(--prose); }
+.space-help b { color: var(--text); font-weight: 650; }
+.space-btns { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding-bottom: 6px; }
+
+/* The clocks. `font: inherit` because a bare time input renders in the platform's own
+   form font, which is a different family and two sizes off everything around it. */
+.space-hours input[type="time"] {
+  min-height: 34px;
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  font-size: 13.5px;
+}
+.space-arrow { color: var(--muted); }
+
+/* Seven days across a 360px phone: square, so the row fits without wrapping and each
+   is still a 40px target in the direction a thumb misses in. */
+.space-day {
+  min-width: 38px;
+  padding-left: 0;
+  padding-right: 0;
+  text-align: center;
+}
+
+/* What each repo actually resolves to — the space's answer after the two per-repo
+   lists that outrank it have had their say. One line per repo, wrapping. */
+.space-repos { display: flex; flex-direction: column; gap: 6px; padding: 2px 0 6px; }
+.space-repo { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+
 /* -------------------------------------------------------------------- admin
 
    /admin. Pause all / resume all, one card per scope. The layout has one job the

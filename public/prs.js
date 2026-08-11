@@ -826,6 +826,10 @@
         throw new Error(body.error || `HTTP ${res.status}`);
       }
       state.data = await res.json();
+      // Kept for the next document that wants it — this page, on the next tab tap.
+      // The board is a `gh` call per repo behind a 25-second cache on the daemon, so
+      // what a warm boot saves is not the sweep, it is the blank screen over it.
+      window.beadcause?.warm?.write?.('/api/prs', state.data);
       observing.hidden = !state.data.observing;
       if (state.first) {
         state.first = false;
@@ -836,6 +840,8 @@
       }
       state.error = null;
       render();
+      // Only from a request that came back, and only once — see public/warm.js.
+      window.beadcause?.warm?.prewarm?.({ here: 'prs', api: warmApi });
     } catch (err) {
       // Kept in state rather than written over the page: `boardHtml` decides what a
       // failure looks like, and with a board already on screen it is a line under the
@@ -947,9 +953,43 @@
     if (!state.busy && !state.armed && !state.draft) load();
   }, REFRESH_MS);
 
+  /**
+   * A plain GET, for the background warm and nothing else.
+   *
+   * This page fetches with bare `fetch` in four places rather than through one
+   * wrapper, so there is nothing here for `prewarm` to borrow. One small one, kept
+   * next to the boot it is used from.
+   */
+  async function warmApi(path) {
+    const res = await fetch(path, { headers: { 'x-beadcause-token': token } });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return res.json();
+  }
+
+  /**
+   * Draw the board this tab had last time, before anything has been asked for.
+   *
+   * The fold is decided here as well as in `load`, or a warm board would arrive with
+   * every repo closed and then reopen one under you a second later. `state.first` is
+   * what stops it being decided twice.
+   */
+  function warmBoot() {
+    const hit = window.beadcause?.warm?.read?.('/api/prs');
+    if (!Array.isArray(hit?.data?.repos)) return false;
+    state.data = hit.data;
+    observing.hidden = !state.data.observing;
+    if (state.first) {
+      state.first = false;
+      state.card = (state.data.repos || []).find((r) => r.prs.length && inSpace(r))?.workspace || null;
+    }
+    render();
+    return true;
+  }
+
   if (!token) {
     out.innerHTML = '<div class="empty"><strong>This device is not paired</strong>Open the inbox first.</div>';
   } else {
+    warmBoot();
     load();
     // Alongside the board rather than after it: if a deploy is in flight the board's
     // request is the one that is about to fail, and the strip is what says why.

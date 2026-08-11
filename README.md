@@ -440,6 +440,104 @@ suite is the one nobody can do by reading: the client's `matches()` and the serv
 workspace, because those two disagreeing in the direction "rings but is not shown" is a
 question you were told about and cannot find.
 
+### Space details — the page the advocate console became
+
+Every setting a space has is one you used to change by opening `~/.beadcause/config.json`
+in an editor, on the Mac, with the daemon running. That was fine while a space was two
+lines of quiet hours written once. It stopped being fine when a space became the unit
+that decides whether an unattended agent may answer a comment (`autoDispatch`) and
+whether a worker merges its own pull request without asking you (`autoMerge`,
+`requireApproval`) — because the moment you know one of those is set wrong is the moment
+you are looking at what it did, on a phone, at the weekend.
+
+So **`/monitor` is the details of the space the picker has selected**, and its settings
+are on it:
+
+```
+┌──────────────────────────────────────────────┐
+│  ● Space                        ⚙  ⟳         │
+│  ┌────────────────────────────────┐  ┌───┐   │
+│  │ Personal · 3               ▾   │  │ 3 │   │
+│  └────────────────────────────────┘  └───┘   │
+├──────────────────────────────────────────────┤
+│  Personal                    may reach you   │
+│  ▾ SETTINGS                                  │
+│      Muted                             off   │
+│      Quiet hours              18:00 → 09:00  │
+│      Quiet days                     sat, sun │
+│      Push detail             inherited · full│
+│      Agents may answer unasked          off  │
+│      Workers merge their own PRs         on  │
+│      An approving review first  inherited·off│
+│  ▸ WHAT EACH REPO RESOLVES TO            3   │
+├──────────────────────────────────────────────┤
+│  beadcause      3 of 3 sessions              │
+│  …the advocate cards, exactly as before      │
+└──────────────────────────────────────────────┘
+```
+
+Nothing the page already did has gone: the advocates and their pause, reclaim and
+limit controls, the sessions view it absorbed (`/sessions`, `/work` and `/work.html`
+still serve it), the proposal cards, the launchd and router health lines, the mirror
+pane. The settings card sits above them because it is what the page is the details
+*of*, and a setting you scroll six advocate cards to reach is a setting you go back to
+editing the config file for.
+
+**Three shapes of control, and the shape is the shape of the answer.** `Muted` is
+two-state, because there is no global mute behind it and a third button would be a
+lie. Quiet hours and quiet days are a pair of clocks and a row of days, each clearable,
+because "no quiet hours" is a state you have to be able to get back to. The four with a
+global default behind them — push detail, agents-may-answer, auto-merge,
+approval-first — are **three**-state: On, Off, and *Inherit*, which names what it
+currently resolves to. That third button is not a nicety: `prPolicyFor` is explicit
+that a space may override the global in *either* direction, so "off" and "following a
+default that is currently off" are different answers, and only one of them survives the
+default changing.
+
+**"What each repo resolves to" is the panel that stops the screen lying.** The space is
+not the last word on two of these settings: `ntfy.minimalWorkspaces` and
+`autoDispatchExclude` are per-repo lists that outrank it, so a space set to `full` can
+contain one repo that pushes minimally. The panel runs every workspace in the space
+through the same four resolvers the daemon itself uses and prints the answers, because
+a screen showing only the space's own setting would be quietly wrong about exactly the
+repo somebody had singled out — and wrong in the direction of promising more detail on
+your phone than you are going to get.
+
+**A press changes the running daemon, not just the file.** `POST /api/space` patches
+the space object inside the live `cfg` — the same object every push decision reads
+through `quietReasonFor`, every delivery through `prPolicyFor`, every reply agent
+through `autoDispatchAllowed` — and then writes `config.json` so it survives a restart.
+Both halves, in that order. Sending one field per press rather than the whole object is
+what stops a phone and a laptop, each a poll behind the other, putting back settings
+neither of them touched.
+
+**What it will not edit is a space's `name` or its `workspaces`.** Moving a repo
+between spaces decides which questions are allowed to reach you at all; that stays a
+config-file act, and the endpoint refuses those fields rather than dropping them
+quietly. It refuses anything it does not understand, in fact, with the reason — a
+setting silently ignored is precisely the failure this screen exists to end.
+
+**And the ⚙ in the top bar goes to Admin** — pause everything, the in-app terminals,
+sign out. It is a second way in from the one page whose per-space settings sit beside
+it, not a replacement for the Admin tab: the two answer different questions, and
+"stop everything" should still be a page you arrive at deliberately.
+
+An observer instance may read all of this and press none of it, the same guard
+`POST /api/admin` has and for the same reason: its `cfg` is the real daemon's config
+file, so a write from here would change what the *other* process does at its next
+restart while doing nothing at all about what it is doing now.
+
+`node test/spacedetails.mjs` (part of `npm test`) holds the contract — that `null` and
+`false` stay different answers, that a patch touches only what it names, that `name`
+and `workspaces` are refused rather than dropped, that a write lands in the live `cfg`
+*and* in `config.json`, and that the per-repo panel resolves through the lists which
+outrank the space. `node scripts/space-check.mjs` is the other half and wants Chrome on
+the machine: the real `public/monitor.js` in a phone-sized headless browser over a real
+`bin/beadcause.js`, pressing the buttons and reading the config file back after each
+one. `--shot <file.png>` writes a picture of the card with both panels open, which is
+the one thing a list of ticks cannot tell you — whether seven settings on a 393px screen
+read as a card or as a wall.
+
 ### And it offers to tidy up the noise it already made
 
 Narrowing the filter silences what comes *next*. It used to say nothing at all about
@@ -1423,28 +1521,35 @@ constitutional decision.
 ## What an agent remembers, and how agents tell each other things
 
 A foundation is what an agent *is*. This is what it has *learned* — and it is the
-half that used to evaporate at the end of every run. Four calls, and an agent
+half that used to evaporate at the end of every run. Six calls, and an agent
 reaches all of them as a command:
 
 ```
 beadcause-memory remember tone "evidence first, then the ask"
 beadcause-memory recall tone
+beadcause-memory note tests "npm test discovers test/*.mjs; scripts/test.mjs is the runner"
+beadcause-memory notes tests
 beadcause-memory post proposals "the graph work is blocked on a decision"
 beadcause-memory read proposals --since=4
 ```
 
-`remember` / `recall` are one agent's own knowledge. `post` / `read` are a
-**blackboard**: an agent publishes what it believes and the others read it whenever
-they next look. Deliberately not a mailbox and not a conversation — there is no
-addressee and no delivery, because git has no notification to give. The nudge, when
-something needs one, is the event bus (`lib/events.js`), which is in-memory and
+`remember` / `recall` are one agent's own knowledge, and it follows the agent
+anywhere. `note` / `notes` are the same two verbs against **the repo the command was
+run in** — knowledge about one codebase, which is worth nothing in any other. `post` /
+`read` are a **blackboard**: an agent publishes what it believes and the others read
+it whenever they next look. Deliberately not a mailbox and not a conversation — there
+is no addressee and no delivery, because git has no notification to give. The nudge,
+when something needs one, is the event bus (`lib/events.js`), which is in-memory and
 un-persisted and is the exact complement of this: payload and durability here,
 wake-up there.
 
-**No call names a repo, a path or a ref, and none of them will take one.** That is
-the point of the indirection — the day this should be SQLite or a table in beads,
-the change is `lib/memory.js` and nothing else. An agent handed a path would have
-put that path into its own memory, its habits and its prompts.
+**No call names a repo, a path or a ref, and none of them will take one** — not even
+the pair whose whole subject is a repo. That is the point of the indirection: the day
+this should be SQLite or a table in beads, the change is `lib/memory.js` and nothing
+else. An agent handed a path would have put that path into its own memory, its habits
+and its prompts. So `note` writes to wherever the process is standing, and a run from
+the wrong directory is fixed by `cd`, which is checkable, rather than by an argument,
+which is not.
 
 **Who you are is not an argument either.** The daemon exports `BEADCAUSE_AGENT`
 when it spawns an agent, and both halves attribute to that. An agent that could name
@@ -1453,6 +1558,35 @@ into another's memory it would be indistinguishable from the other agent having
 written it. It is the *foundation's* id, so `answerer` and `critic` — who share the
 dispatch foundation — share what dispatch has learned. Memory belongs to the thing
 that has a definition, which is the same boundary the amendment loop draws.
+
+### Which of the two, and the one question that decides it
+
+**Would this still be true in a different repo?** That is the whole test, and the
+brief puts it to the agent in those words.
+
+- **Yes → `remember`.** How Adam likes a thing shaped, an approach that worked
+  anywhere, a dead end not worth walking again, something about how the agent itself
+  goes wrong. This one follows it everywhere, so anything false elsewhere does not
+  belong in it.
+- **No → `note`.** How *this* codebase is put together, where its tests live and how
+  they are run, the trap in one of its files, what a name means here, why the obvious
+  thing was done the other way.
+
+Neither store is an optimisation of the other, and the version with only one of them
+is not the same thing minus a feature — it is a thing that quietly loses a whole
+category of knowledge. For a while only the cross-repo store existed, and its brief
+said, correctly for it, to write down only what is *"still true next week and in a
+different repo"*. Read literally — which is how an agent reads a brief — that rules
+out every fact about the code in front of it. So knowledge of how `lib/advocate.js` is
+put together either followed the agent into another repo as advice that is false
+there, or was never written down at all; and the second is silent. The store existed,
+and the knowledge with the most obvious use for it was the knowledge the brief
+excluded.
+
+**Getting it wrong is cheap but not free**, and the brief says which way it costs: a
+repo fact in `remember` is advice the agent will follow somewhere it is false, and a
+general lesson in `note` is one it will never see again once it is working elsewhere.
+Neither is a corruption, and both are one rewrite away.
 
 ### Reading another agent, without being able to be one
 
@@ -1473,11 +1607,14 @@ still there to read, which is the useful half of not curating it.
 read the advocate's memory so much as become the advocate, and a `remember` in the
 same breath writes into their file. That is fine for a human debugging at a terminal
 and wrong as the thing an agent is told about. So the read half got its own flag,
-which names a **subject and never an author**: only `recall` accepts it, and every
-command that writes refuses it outright rather than treating it as identity. `remember
---of=advocate …` is an error, not a write, and `test/memory.mjs` asserts the
-advocate's memory is byte-identical afterwards. A read attributes to nobody, so `--of`
-needs no `BEADCAUSE_AGENT` at all — which is also what leaves it no author to borrow.
+which names a **subject and never an author**: only the two reads — `recall` and
+`notes` — accept it, and every command that writes refuses it outright rather than
+treating it as identity. `remember --of=advocate …` is an error, not a write, and
+`test/memory.mjs` asserts the advocate's memory is byte-identical afterwards. A read
+attributes to nobody, so `--of` needs no `BEADCAUSE_AGENT` at all — which is also what
+leaves it no author to borrow. The allowed set is a **list of the reads**, not a check
+per command, so a verb added later is refused by default; `note` arrived after the
+guard was written and inherited exactly that, which `test/memory.mjs` also asserts.
 
 **And the read says whose notes it just handed you.** `remember` is written by an
 agent for its own future self; publishing to others is what `post` is for. So a
@@ -1496,13 +1633,59 @@ From outside, a capability nobody was told about is indistinguishable from one n
 chose to use. So the brief now carries the roster, the read, that it *is* only a read,
 and the one line about what another agent's conclusions are worth to you.
 
-### Where it lives: `~/.config/beadcause` is a git repo
+**A brief that describes one store while two exist is worse than one describing
+neither**, which is why the repo-local half arrived in `memoryBrief` and in
+`test/memory.mjs` in the same commit as the code. An agent told about one store writes
+into that one, whatever it has learned; there is no version where it declines because
+the right store was not mentioned. So the brief names both pairs, gives the question
+that picks between them, and says which way getting it wrong costs — and the suite
+asserts each of those, because a paragraph is the load-bearing part of this feature and
+nothing else would notice it going missing.
 
-Tier 1 put an agent's memory on a ref inside the codebase it was working on, which
-is right for knowledge *about that codebase* and is exactly why nothing could be
-shared: the beadcause advocate and the sophab advocate write into different
-checkouts and cannot see each other. So the config directory — the one place every
-agent on this Mac has in common — became a repo, and both halves ride on refs in it:
+### Where a note lives: a ref in the repo it is about
+
+A note goes on a ref in the codebase it describes, beside the foundations and the
+session logs — which is where the whole idea started (`bc-goo.1`) and is what makes
+"the same key in two repos is two different notes" a property of the store rather
+than something anyone has to arrange:
+
+```
+refs/beadcause/agents/<agent>    one commit per write, tree = notes.json
+
+git -C ~/neadamthal.projects/beadcause log refs/beadcause/agents/worker
+git -C ~/neadamthal.projects/beadcause cat-file -p refs/beadcause/agents/worker:notes.json
+```
+
+**A linked worktree shares its parent's ref store, and that is what makes this usable
+here at all.** Nearly all work in this repo happens in a worktree under
+`.claude/worktrees/` that is retired days later, so a note that lived *in* the worktree
+would die with it. It does not: a ref outside the per-worktree namespaces lives once,
+in the common `.git`, so a note written from `worktrees/foo-a3f` is there from the main
+checkout and from every sibling worktree, and it is still there when that worktree is
+gone. `mainCheckout` resolves which repo that is, exactly as `lib/foundation.js` does
+for an amendment.
+
+**A ref per agent, not one ref with a file per agent** — which is the opposite of the
+cross-repo store, for a reason that is about who the writers are. There, they are four
+agent kinds on one Mac. Here they are every session of one kind in every worktree of
+one repo: a dozen `worker`s on an ordinary afternoon, none of them aware the others
+exist. Splitting by agent means two *kinds* never contend at all, and a write rebuilds
+a one-file tree instead of reading every other agent's file back to avoid deleting it
+with `mktree`. `test/memory.mjs` races six of them from two worktrees.
+
+There is deliberately **no roster command for this store**. `agents` answers "which
+kinds have a memory" out of the cross-repo tree; the union across both would answer
+differently depending on which repo the process is standing in, and its test would
+assert whatever this Mac happens to have noted. `git for-each-ref
+refs/beadcause/agents/` is the answer for a human who needs the list.
+
+### Where the rest lives: `~/.config/beadcause` is a git repo
+
+The memory that follows an agent, and the blackboard, have no repo they belong to —
+the beadcause advocate and the sophab advocate work in different checkouts, so a store
+inside either one is a store the other cannot see. So the config directory — the one
+place every agent on this Mac has in common — became a repo, and both of those ride on
+refs in it:
 
 ```
 refs/beadcause/memory            one commit per write, tree = <agent>.json
@@ -1513,9 +1696,17 @@ git -C ~/.config/beadcause cat-file -p refs/beadcause/memory:advocate.json
 git -C ~/.config/beadcause log refs/beadcause/bus/proposals
 ```
 
-Same trick as the session logs: a ref outside `refs/heads/*` and `refs/tags/*` has
-no working tree, so the daemon can commit one while something else is rewriting
-`config.json` beside it. Nothing here has a remote and nothing pushes.
+Same trick in both stores, and the same one as the session logs: a ref outside
+`refs/heads/*` and `refs/tags/*` has no working tree, so the daemon can commit one
+while something else is rewriting `config.json` beside it — or while you are mid-edit
+in the repo the note is about. **Nothing in either store is fetched or pushed.** The
+config repo has no remote at all; the repo a note lives in usually does, and that is
+where the refusal earns its keep, because agent-written text carries absolute paths and
+whatever tool output scrolled past. A ref outside `refs/heads/*` and `refs/tags/*` is
+in no default refspec, so this costs no guard beyond never naming one. Note that `git
+log --all` *does* show these commits — `--all` means every ref under `refs/`, not every
+branch — which is how you find them by accident, and `git log`, `git branch` and `git
+status` do not.
 
 **The `.gitignore` is written before `git init`, and that ordering is the whole
 safety of it.** That directory holds `android-keystore.jks` — the release signing
@@ -2134,6 +2325,98 @@ request board, and so on — plus that `/work.js`, deleted with the sessions vie
 rather than lingering. The aliases live in a run of one-line `if`s in `serveStatic`,
 which is exactly the shape a merge eats, and a broken one is silent: the page is fine,
 the shortcut is not.
+
+## Loaded once, and kept — what a tab tap actually costs
+
+Five standing views, five documents. Tapping a tab is a navigation: the page you were
+on is thrown away, the next one is parsed, and *then* its script goes and fetches
+everything it needs before it can draw a row. The shell itself has been instant for a
+long time — `sw.js` precaches every page — so what you were waiting for on the other
+side of that tap was the fetch. On the inbox and the advocate console that fetch is a
+`bd` sweep across seven workspaces, about a second, and it was paid on every tap, all
+day. On a phone over the tailnet that is the whole difference between an app and a
+website.
+
+Two things fix it, and neither of them makes anything faster: they stop the same work
+being done twice.
+
+**The payload each view booted from is kept, and painted before the next request has
+left.** `public/warm.js` holds one entry per endpoint in `sessionStorage`, and every
+standing page reads it at the top of its own boot: the inbox, the board, the advocate
+console, the launcher and the switches all draw the list they had last time in the
+first frame and refresh underneath it. Behind that — once the view you actually asked
+for is on screen — the *other* views' payloads are fetched in the background, so the
+tab you tap next is warm before you tap it. `node scripts/warm-check.mjs` measures
+exactly this against a fixture whose sweep takes 900ms: a cold load takes just over a
+second, and coming back to the tab draws five cards in **under a tenth of it**, with
+the counter proving no request was answered during the paint.
+
+It is `sessionStorage` and not `localStorage` on purpose. A tab switch is a navigation
+inside one tab, which is precisely what sessionStorage survives; closing the app takes
+the cache with it, so bead text is not left on the phone's disk between one evening and
+the next. A cold start after that is a cold start — which is the case the inbox-first
+boot is for, since the inbox is what a notification opens and the only view that is
+ever urgent. And none of it is load-bearing: a browser that refuses the storage, a full
+quota, an entry past its fifteen minutes, a half-written one — every failure reads as a
+miss, and a page that cannot warm is a page that is merely as fast as it was last week.
+
+**The inbox follows the event log instead of re-asking on a clock.** `/api/poll` was
+already a long-poll that parks until the daemon's sequence moves and only sweeps `bd`
+when something actually did; the inbox was not using it for this and re-fetched the
+whole list every 25 seconds instead. It parks on it now. An idle inbox costs one held
+socket rather than a sweep across seven workspaces every twenty-five seconds, and a
+bead that moves lands on the phone in the moment it moved rather than up to 25 seconds
+later — faster *and* cheaper, which is unusual enough to be worth saying out loud. The
+sweep was never doing anything the log could not say for free.
+
+That needed one change on the daemon: `/api/poll` and `/api/questions` now answer with
+the *same* screen. They did not use to — the poll carried the rows and the spaces and
+none of the filter, the counts or the notification prompt — and that gap is exactly why
+the client's answer to any event was to throw the poll away and sweep again. Both are
+built by one `inboxPayload()` in `lib/server.js` so they cannot drift apart quietly,
+and `test/warm.mjs` compares the two responses field by field rather than trusting
+anyone to read two functions and agree they match. `/api/questions` also carries a
+`seq` now — where in the log its list was true — which is what lets a page that booted
+from the cache park on the poll rather than sweep to find out where it is.
+
+Three things keep the long poll honest, and all three are fallbacks rather than
+cleverness. It runs in the `human` scope only, because the poll's `questions` is the
+human channel and the wider scopes are a different sweep the log does not carry. It
+runs only with a sequence to start from, so a daemon that predates the field never
+starts one. And every failure — a refused poll, a dropped tailnet, a restart — falls
+back to the 25-second timer that was there before. The one thing that must never happen
+is an inbox that has quietly stopped refreshing.
+
+### A repaint that leaves alone what did not change
+
+The other half is inside one document. The inbox rebuilt its whole list with
+`innerHTML` on every refresh — forty cards discarded and re-parsed because one bead
+gained a comment, and with them every rendered mermaid diagram, the open ⋮ menu, the
+caret in a half-typed answer and the scroll position, all of which then had to be
+measured and put back by hand ([keeping your place](#keeping-your-place-in-a-long-brief)
+is that machinery, and it is not going anywhere — it is what covers the cards that
+*do* change).
+
+`render()` now hands the list to `warm.paint` as keyed chunks — one per bead, plus
+`@shade`, `@requests` and `@empty` for the panes that are not beads, with the `@` being
+what keeps those out of a namespace where every other key is `workspace/id`. Chunks
+whose HTML is identical to what is already on screen are not touched at all: not
+re-parsed, not re-inserted, not re-rendered. A bead answered, a comment landed, an
+advocate moved — one card is rebuilt and the rest of the list is the same DOM it was a
+second ago, diagrams and caret and all. `scripts/warm-check.mjs` proves it the only way
+that cannot agree with a bug in the thing it is checking: it stamps every card node
+with an attribute the app knows nothing about, changes one bead, and reads back which
+stamps survived. Four of five, every time; a rebuilt list loses all of them.
+
+The decision half is `warm.plan()`, which is pure and lives in `test/warm.mjs` —
+insert, replace, keep and remove over two keyed lists, including the reorder that must
+be free (an answered card sinking to the bottom moves a node, it does not rebuild one)
+and the one case that must give up rather than guess: a repeated key, where two chunks
+claim one identity and the honest answer is the whole-list rebuild this used to do
+anyway. That fallback is live in three other places too — a page loaded without
+`warm.js` at all, a chunk that is not a single element, and a browser with no
+`sessionStorage`. In every one of them the inbox is exactly the inbox it was before
+this section existed.
 
 ## Detail opens over the tab, not instead of it
 
@@ -3521,6 +3804,48 @@ were being described as "not merged into main" over work that had shipped two da
 earlier. Both sweeps ask `origin/main` first and fall back to `main` for a repo with no
 remote, which is also what stops a stale local ref from quietly holding the attic shut.
 
+#### Bounded by age is not bounded by size
+
+Expiry bounds how *full* the attic gets. It does nothing about how heavy it is, and on
+this repo those were different numbers: of the 1.2 GB, **650 MB was four entries out of
+122**. `merge-sessions-advocates-4d2`, `tab-bar-4nq`, `proposal-record-91k` and
+`in-app-terminal-49g` were 160–167 MB each, against ~6 MB for a normal entry, and the
+whole difference was `node_modules` — a real installed tree where the other 37 entries
+carrying anything had a symlink to the main checkout's. None of them was old enough to
+expire, and a repeat would put 650 MB back however fast the sweep runs. bc-mf9s.
+
+**Where they come from.** Each of the four had `node_modules/.package-lock.json` inside
+it, which is `npm install`'s own fingerprint: somebody ran a real install in the worktree
+instead of `ln -s ../../../node_modules node_modules`. The likeliest reason was in this
+repo. `scripts/vendor.js` is the first thing run in a fresh worktree — nothing else can
+run until `public/vendor/` exists — it finds nothing to copy, and it used to answer
+*"missing marked/lib/marked.umd.js — run npm install"*, seven times, which is correct
+advice in the main checkout and 160 MB in a worktree. It now says the other thing: a
+worktree with no tree is told to link, and a worktree that already has its own is told so
+with the command to replace it, printed last so it survives a `postinstall`.
+
+**And `slimAttic` drops the ones that still happen.** Third on the same tick, after
+retiring and expiring, it removes a retired worktree's *build output*: a real
+`node_modules`, and `android/app/build`, `android/build`, `android/.gradle` with it —
+83 MB more across the handful of entries that had built an APK, and the only reason any
+of them was still over ~10 MB once the dependency trees had gone. It is deliberately not
+the same kind of act as removing an entry, so it does not wait for the two-day line and
+does not ask GitHub anything: nothing it removes is work, `npm install` puts the tree
+back byte for byte from a committed lock file, `npm run android` rebuilds the rest, and
+git cannot see any of it either way. The gates are only the ones about interrupting
+somebody — a lock, a session's `cwd` inside it, or a directory touched in the last ten
+minutes — and a **symlinked** `node_modules` is left exactly alone, since following it
+would empty the main checkout's tree through the link.
+
+`public/vendor/` is the line the list stops at, and the rule is what makes it a line:
+heavy *and* rebuilt by a command the resumer was going to run anyway. Vendor is 4 MB, no
+browser check in this repo starts without it, and rebuilding it needs the dependency tree
+that has just gone — so it stays, and a retired worktree's floor is about 6 MB.
+
+The `.note` gains a second line saying what went and how to get it back; line one, the
+stamp the whole expiry rests on, is never rewritten. `bin/attic.js` reports what it
+dropped and what it freed, and `test/nodemodules.mjs` holds both halves.
+
 #### The sweep a human runs — and why it moved in here
 
 The daemon empties the attic on its own tick. The `ship` skill sweeps it too, and until
@@ -3558,6 +3883,24 @@ strays, and the same zero five runs running.
 It is still repo-agnostic — it takes any repo's main checkout, and sophab, which has no
 daemon, still depends on it as the only thing that empties its attic.
 
+**And the old name is in here too, which is the rest of the same fix.** Moving the gates
+into `lib/` left `prune-retired.sh` behind at the old path as a forwarder, so that
+anything still naming it kept working — and that file, the one a ship actually invokes,
+was still outside every repo with no history, no review and no test. A shim is small
+right up until somebody edits it, and nothing would have shown that they had: it is the
+arrangement that produced both bugs above, in miniature. So it is `scripts/prune-retired.sh`
+now, and `~/.claude/skills/ship/prune-retired.sh` is a **symlink** to it rather than a
+copy — a copy is what drifted, and one `cp` is all it would take to have that back.
+`test/pruneshim.mjs` asserts the symlink is a symlink, so a hand-copy put in its place
+fails a suite instead of being discovered six weeks later.
+
+It finds the checkout it is part of by resolving itself through the symlink, which is
+also what makes the "your checkout is behind" failure rare: reached through the installed
+link, the `bin/attic.js` it execs is the one sitting beside the shim that named it, so
+the two cannot be different versions of each other. `BEADCAUSE_DIR` still overrides, and
+a copy stranded outside every checkout still falls back to `~/neadamthal.projects/beadcause`
+and says which directory it looked in when there is nothing there.
+
 Two limits worth knowing. A session's `cwd` is recorded when it starts, so a session
 that later entered a worktree does not show as being *in* it — the lock is what
 actually protects it, which is why `EnterWorktree` taking one matters. And the sweep
@@ -3585,6 +3928,14 @@ request was for (`lib/beadref.js`, the same tiering the [PR board](#pull-request
 closed, and the stale "Merge #42?" card in front of them is closed first — bd refuses to
 close a bead with an open blocker, and that card is the blocker.
 
+**The card closes on the merge, not on the bead.** It used to close only while a bead
+behind that pull request was still open and unswept, which left it on the phone forever
+in three ordinary states: a work bead somebody closed by hand, a bead reopened
+deliberately (left alone by the rule below), and a pull request tied to no bead at all —
+hand-opened, or one the tracker would not resolve that tick. Nothing else sweeps a
+delivery card. The card asks one question, *merge #42?*, and `state: MERGED` answers it
+whatever became of the work afterwards.
+
 Two things it will not do. **A bead that already says it landed is left alone**: `bd`
 clears `closed_at` on reopen, so an open bead carrying `Landed as [#42](…)` is the trace
 of *you* reopening something this closed, and closing it again would be a fight rather
@@ -3599,6 +3950,74 @@ bead over work that had landed, and the worker was left choosing between disobey
 brief and leaving the bead open for attempt 3. It now recognises that state, closes the
 bead exactly as its own merge would, and prints `landed #42` — having pushed nothing,
 because a card merge deletes the remote branch and pushing would recreate it.
+
+### The duplicate that comes ready the moment its original lands
+
+The sweep above closes work that turned out to be done. This one asks about work that
+turned out to be somebody else's, and the difference between "closes" and "asks" is the
+whole design.
+
+A worker that finds two beads describing the same job has always had the right instinct
+and no tools for it. Closing a bead is not a worker's call, so the move available was to
+park the duplicate behind the original with `bd dep add` and write *"when the original
+lands, close this as superseded rather than working it"* in a comment. Every step of that
+is correct, and it holds right up until the original lands — at which point closing the
+blocker makes the duplicate `bd ready`, the advocate picks it up, and an unattended
+session opens on a bead whose own comments say not to work it.
+
+bc-e1kv, parked behind bc-0nea, which landed as #33. The session that opened did the only
+honest thing available — verified the fix really was in `main`, filed a question asking
+for the close — and spent its whole window re-deriving a conclusion already written on
+the bead. The gap was that "superseded, pending approval to close" lived in prose, where
+nothing between the blocker closing and a worker reading that prose could act on it.
+
+So it is a label. A worker writes two lines and stops:
+
+```sh
+bd dep add bc-e1kv bc-0nea
+bd label add bc-e1kv superseded-by:bc-0nea
+```
+
+`superseded-by:<id>` is [endorsement](#the-endorsement-queue--a-group-tap-or-a-row-at-a-time)'s shape with a different ending. Same two layers: the marked bead is out
+of `bd ready` and out of every advocate queue, and `openWorkSession` asks the tracker
+itself and refuses one handed straight to it. The refusal carries more weight here than
+it does for `unendorsed`, and that is worth knowing rather than glossing — the marker
+carries the original's id inside it, so there is no fixed string to give bd's
+`--exclude-label` and the filter is a row check in one function rather than a flag the
+tracker honours.
+
+The ending is what differs. An `unendorsed` bead is waiting to be let *into* the queue;
+this one is waiting to be let *out of the tracker*, and nothing but you may decide that.
+So when the named original closes, the advocate does not open a session — it puts the
+duplicate in the inbox as a card, with two options and both of them real:
+
+- **Close it — bc-0nea covered it.** The tap *is* the close. Answering a `human` bead
+  closes it, which is why the card is the duplicate itself rather than a separate
+  question about it: nothing to keep in step, nothing to clean up.
+- **Keep it — not the same job.** A `closes: false` option, so it commissions rather than
+  concludes, and it takes the marker off on the way past. A handover that left the marker
+  on would be a button that did not do what it said.
+
+Three writes, in the order that survives a failure halfway: the comment, then the ask
+appended to the bead's notes (`--append-notes`, so nothing it already said is
+overwritten), then the `human` label — which *is* "it is in the inbox", and goes last so
+a card never appears before its options. A retry recognises its own work by a marker in
+those notes, so a label write that failed on the Dolt lock costs a sweep rather than a
+second comment every ten minutes.
+
+Two things it deliberately will not do. **It never asks about a bead whose original it
+could not read**: "the tracker is mid-write" and "that bead is gone" are the same
+sentence from here, and a card claiming a bead had vanished would be wrong every time it
+was the former — so the duplicate stays held and the reason is logged every sweep. And
+**tapping "open a session" on the card does not lift the marker**, unlike the same tap on
+an unendorsed bead. The two markers do not mean the same thing: `unendorsed` is "nobody
+has looked at this", and looking at it is exactly what that tap does, where
+`superseded-by:` is a claim about two beads that opening one of them to read is no
+verdict on.
+
+`askSuperseded: false` switches it off; `supersededIntervalMinutes` is how often it
+looks, defaulting to 10. The worker's brief carries the two commands, which is what makes
+any of it reachable — nothing but a worker ever sets this marker.
 
 ### The session log, kept in the repo
 
@@ -4677,6 +5096,55 @@ Two notes:
   controlling iTerm", approve it once in System Settings → Privacy & Security →
   Automation.
 
+### The card table — where session windows go
+
+A dozen live sessions used to land wherever iTerm cascaded them: across every
+display, half of them stacked, and the newest one on top of the window you were
+typing in. They are dealt instead — one screen, a grid of slots, each window
+wandering a little inside its own slot so the set reads as cards on a table rather
+than a stack of identical rectangles snapped to a grid. Cells tile the screen and a
+card can only move within its own cell, so no amount of wander makes two cards cover
+each other; the emptiest cell always wins, so a table with room in it fills before
+anything doubles up.
+
+Where a card lands is a hash of its bead id, not a die roll, which means the same
+session reopened comes back to the same square of the table. That is worth more than
+it sounds when you are hunting for the session you started twenty minutes ago.
+
+`sessionWindows.screen` picks the display — `largest` by default, which is the
+external monitor when one is plugged in and the laptop when it isn't, so one default
+is right either way. `sessionWindows.card` sizes them, `jitter` sets the wander (`0`
+snaps to the grid), and `layout: false` puts the old cascade back.
+
+The windows also open with a **profile of their own**, written to
+`~/Library/Application Support/iTerm2/DynamicProfiles/beadcause.json` and picked up
+by iTerm without a restart. It inherits from your Default profile, so session windows
+still look like your terminal, and overrides three things a session needs and a shell
+does not: unlimited scrollback (the interesting part of an agent session is usually
+the part that has already scrolled past), no confirmation sheet when a worker closes
+its own window, and a normal window type so a full-screen Default profile can't
+defeat the layout. The file is rewritten only when it changed — iTerm reloads every
+profile on each write. If it isn't loaded yet, the window opens on the default
+profile rather than failing.
+
+#### It hands the keyboard back
+
+Opening a window used to mean losing the sentence you were typing. iTerm brings
+itself to the front and makes a new window key whether or not anybody says
+`activate` — there is no background-window flag in either its AppleScript or its
+Python API, and `set frontmost of <window> to true` doesn't work. So focus is
+*borrowed*, not never taken: the window that had the keyboard gets it back
+(`select`, after a beat long enough to beat iTerm's own activation), and if you were
+in another app entirely — the usual case, since the button that opens a session is on
+a phone — that app is raised again too. Which app that was is read from `lsappinfo`
+rather than System Events, because the daemon runs under launchd, where the
+Automation prompt System Events needs may never be shown to anybody.
+
+A keystroke typed in the half-second while the window is coming up still lands in it.
+What this removes is the far worse case: the window that *keeps* focus, so the rest
+of your command goes into a fresh agent's prompt. Set `sessionWindows.stealFocus:
+true` for the old behaviour.
+
 ## The terminal — driving a session from the phone
 
 That button needs you to walk to the Mac. **⌨️** in the top bar, or **Drive a session
@@ -5502,9 +5970,9 @@ cookie says so), and `/auth/signout` ends the session.
 | Method | Path | Body / params | Returns |
 |---|---|---|---|
 | GET | `/api/health` | — | `{ok, workspaces[]}` · **no token** |
-| GET | `/api/questions` | `?scope=human\|both\|agent` | `{questions[], workspaces[], spaces[], summary, scope}` — `scope` defaults to `human`, and an unrecognised value falls back to it rather than erroring. `summary` is `{sessions, proposals, questions}`, the three counts the inbox's chrome draws |
+| GET | `/api/questions` | `?scope=human\|both\|agent` | `{questions[], requests[], workspaces[], spaces[], filter, dismissAsk, summary, scope, seq}` — `scope` defaults to `human`, and an unrecognised value falls back to it rather than erroring. `summary` is `{sessions, proposals, questions}`, the three counts the inbox's chrome draws. `seq` is where in `/api/poll`'s log this list was true, which is what lets a client park on the poll instead of asking again — see [loaded once](#loaded-once-and-kept--what-a-tab-tap-actually-costs) |
 | GET | `/api/question` | `?workspace=&id=` | one question **plus `comments[]`** |
-| GET | `/api/poll` | `?since=<seq>&wait=<s>` | long-poll: `{seq, resync, events[], questions, workspaces[]}` |
+| GET | `/api/poll` | `?since=<seq>&wait=<s>` | long-poll: `{seq, resync, events[], advocates, presence, observing}` **plus the whole `/api/questions` screen** when something moved — the same `inboxPayload()` builds both, so a client can refresh itself from either and get the same inbox. `questions`, `requests` and `spaces` are `null` rather than `[]` when nothing moved: an empty array means the channel is empty, and a poll that timed out never asked. `want=presence` says the questions are not wanted, which is what makes a quiet poll cost no `bd` at all |
 | POST | `/api/respond` | `{workspace, id, response, create?, edits?}` | comments, then closes the bead. `create` is the 1-based indices of a proposal's beads to file; without it, `CREATE:` in the text means all and `CREATE: 1,3` means those. `edits` is `{n: {title, type, priority, description, acceptance}}` keyed by the same numbers, applied before creating. A `MERGE:` / `CHANGES:` / `DECLINE:` response on a delivery question acts on its pull request first — see [Landing work](#landing-work--a-branch-a-pull-request-and-the-workers-own-merge) |
 | GET | `/api/pr` | `?workspace=&id=` | `{delivery, pr, unavailable}` — the live diffstat, check rollup and mergeability of a delivery question's PR. Every failure is an answer rather than a 500: no `gh`, no remote, GitHub unreachable all come back with `pr: null` and a sentence in `unavailable` |
 | GET | `/api/prs` | `?refresh=1` | the PR board: every pull request in every repo with its Merged · Pushed · Deployed · Live lamps and its rung of [the ladder](#the-ladder-in-one-place), plus `observing`. Read by the board *and* by the inbox, which draws a card per row. Cached 25s on the daemon; `refresh=1` forces the `gh` sweep |
@@ -5516,6 +5984,8 @@ cookie says so), and `/auth/signout` ends the session.
 | POST | `/api/dismiss` | `{workspace, id, reason?}` | takes the card off the screen and **closes nothing**. Writes your note if you typed one, writes nothing at all if you did not, and never touches the status — "I am not dealing with this now" is not "this is decided" |
 | POST | `/api/filter` | `{space, workspace}` | which slice the inbox is, remembered server-side so every client agrees and the notifications match. Each is a name or `all`, bounded at 120 characters. Widening forgets what you had declined |
 | GET | `/api/spaces` | — | what the [space picker](#one-space-at-a-time--the-picker-in-the-top-bar) draws: `{spaces, workspaces[], counts, filter, waiting}`. Costs no `bd` call — the counts are cached off the last sweep — because it is fetched on every page load of every standing view |
+| GET | `/api/space` | `?space=` | one space's own configuration, for the [space details](#space-details--the-page-the-advocate-console-became) screen: `{settings, effective, repos[], defaults, missing[]}`. `settings` is `null` per field for "inherit"; `repos[]` is what each workspace actually resolves to, which is not always what the space says. 404 for anything that is not a configured space, the synthetic `Other` group included |
+| POST | `/api/space` | `{space, settings}` | change that space's settings from the app. A patch — only the keys sent are touched, and `null` clears one back to the global default. `name` and `workspaces` are not settable: moving a repo between spaces decides which questions may reach you and stays a config-file act. Writes the live `cfg` *and* `config.json`, so the running daemon and the next restart agree. Refused on an observer |
 | POST | `/api/notifications/dismiss` | `{keys[], confirm}` | clears the phone's notification rows for beads the filter excludes. `confirm: false` records the decline, which is what stops the next sweep asking again. The beads are untouched either way |
 | POST | `/api/ask` | `{workspace, title, body, priority}` | `{id, key}` — files a new `human` bead |
 | POST | `/api/session` | `{workspace, id}` | `{dir}` — opens iTerm2 + `claude` on that bead |
@@ -5651,6 +6121,11 @@ the fields it always read and renders exactly as it did.
 | `openSessions` | allow `POST /api/session` to open a Claude session on the Mac (default `true`) |
 | `sessionDirs` | override where a workspace's session opens. Normally unnecessary — see Discussing a question on the Mac |
 | `sessionPermissionMode` | `--permission-mode` for an opened session (default `auto`; `null` to omit the flag) |
+| `sessionWindows.layout` | deal session windows onto one screen as cards (default `true`; `false` leaves them wherever iTerm cascades them). See [The card table](#the-card-table--where-session-windows-go) |
+| `sessionWindows.screen` | which display: `largest` (default), `main`, or a 0-based index |
+| `sessionWindows.card` | a card in points, and the gap around it inside its slot (default `{width: 780, height: 540, gap: 24}`) |
+| `sessionWindows.jitter` | how far a card may wander inside its slot (default `18`; `0` snaps them to the grid) |
+| `sessionWindows.stealFocus` | let the new window keep the keyboard (default `false` — the keyboard is handed back to whatever had it) |
 | `beadConsole` | allow the [chat session](#the-chat-session--deciding-what-to-file) to open conversations and create beads (default `true`) |
 | `consoleModel` | model for a chat-session turn (default `null` — whatever `claude` uses on its own; `"sonnet"` for a cheaper conversation) |
 | `consoleTimeoutMs` | kill a chat-session turn that has been going this long (default 15 min) |
@@ -5685,6 +6160,8 @@ the fields it always read and renders exactly as it did.
 | `advocates.tidyAtticDays` | how long a retired worktree stays in `.claude/worktrees-retired/` before the same sweep removes it for good (default 2). `0` keeps the attic forever, which is what this did before — and fractional values are honoured, so a removal rule can be rehearsed at `0.01` on a real attic |
 | `advocates.reconcileLanded` | close beads whose pull request was merged **on github.com** rather than from a card (default `true`). Without it such a bead stays open, stays in `bd ready`, and the advocate opens fresh sessions on work already in `main` |
 | `advocates.landedIntervalMinutes` | how often that asks GitHub (default 10). It also asks *unconditionally* right before opening a session, whatever this says — being late there costs a whole session |
+| `advocates.askSuperseded` | [ask about a bead a worker marked `superseded-by:` another, once that other one closes](#the-duplicate-that-comes-ready-the-moment-its-original-lands) (default `true`). Without it a marked bead is held out of every queue with nothing left to let it out again |
+| `advocates.supersededIntervalMinutes` | how often that looks (default 10). Unlike the sweep above it is never forced before a launch, because a marked bead cannot reach one |
 | `advocates.sessionLog` | archive each finished session to `refs/beadcause/sessions/<bead>` and note its commits (default `true`) |
 | `advocates.sessionTranscripts` | also store the raw Claude Code transcript — megabytes, and it carries paths and tool output (default `false`; set per repo in `perWorkspace`) |
 | `advocates.closeFinishedSessions` | [close a work session's window once its bead is closed](#closing-the-window--a-session-that-has-finished-should-not-still-be-on-screen) (default `true`). `false` leaves every window open, which is what it did before |
@@ -6006,6 +6483,41 @@ is the diagnosis and not merely a field being present. Plus the hop that makes i
 possible — the process serving the console is a grandchild of launchd, so passing down
 `BEADCAUSE_LAUNCHD_PROGRAM` is what stops a healthy install being reported as stale, and
 an *empty* value has to mean "not a launchd job" rather than "read your own argv".
+
+`test/warm.mjs` covers [the warm layer](#loaded-once-and-kept--what-a-tab-tap-actually-costs),
+which is entirely made of things that fail without saying anything. A cache that hands
+back a payload from before its TTL, or half of one, or one a previous version stored in
+a different shape, is a screen showing something that is not true and looks exactly like
+a screen showing something that is — so every one of those is asserted to read as a
+*miss*, because a miss is the case every caller already handles. The same for the
+storage refusing to exist: `sessionStorage` throws on write in more browsers than it
+does not, and the file's whole promise is that a page which cannot warm is merely as
+fast as it was, so a broken store is asserted to make every call a safe no-op and a full
+quota to clear itself rather than spend the rest of the session failing every write.
+The real `public/warm.js` runs in a `vm` with a hand-made storage, the way `test/queue.mjs`
+runs the real send queue: a rewrite of the logic as a test-only module would pass this
+while the phone shipped something else.
+
+Then the two halves that are about cost rather than correctness. `plan()` — the
+reconciler's decisions — is checked in both directions, because the direction that
+matters is invisible: a card wrongly *kept* is a card that has silently stopped
+updating, so a node the file did not paint is asserted to be replaced rather than
+matched, and a repeated key to bail to the whole-list rebuild rather than guess which
+of the two to place. And the background warm is checked against becoming the thing it
+replaced: it skips the view it is on, dedupes the path two views share, skips anything
+fetched inside its floor, gives up when the screen goes dark, and runs once per document
+— each of those is one line, and losing any of them costs the Mac several `bd` sweeps a
+minute for tabs nobody tapped.
+
+The server half is the drift check and the saving. `/api/poll` and `/api/questions` are
+compared field by field against each other, because a field on one and not the other is
+a poll-driven refresh that draws a subtly different inbox from a reload — no counts on
+the chrome, or a filter it does not obey — and nothing anywhere would say so. And the
+quiet poll is asserted as *no calls to `bd` at all*, against a `bd` that records every
+invocation: the saving is not that the sweep got faster, it is that the quiet case does
+not sweep. `paint()` itself is a named `skip` — it is a dozen lines of `insertBefore`
+over what `plan` returns, and testing it here would mean shipping a DOM. The browser
+half is `scripts/warm-check.mjs`, which measures the tab tap and stamps the cards.
 
 `test/css.mjs` covers something nothing else in this repo would ever say a word about: a
 rule in `public/style.css` that has lost its closing brace. Under CSS nesting that is not

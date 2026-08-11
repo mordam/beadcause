@@ -129,6 +129,11 @@
     open: new Set(readOpen()),
     picks: new Map(), // question key → Map(1-based bead index → 'yes' | 'no')
     error: null,
+    /** The selected space's own configuration — see `/api/space` and spaceHtml. */
+    space: null,
+    spaceError: null,
+    /** What the last press changed, in the daemon's words rather than the label's. */
+    spaceSaid: null,
   };
 
   function readOpen() {
@@ -830,11 +835,261 @@
     </div>`;
   }
 
+  /* ------------------------------------------------------- the space's own settings
+
+     What makes this page the details of a *space* rather than a list of advocates that
+     happens to be filtered.
+
+     Every one of these already existed and every one of them was a config hand-edit:
+     `quietHours`, `quietDays`, `ntfyDetail` and `autoDispatch` have been read out of
+     lib/spaces.js since spaces were invented, and `autoMerge`/`requireApproval` joined
+     them with the per-space PR policy. Editing them meant opening
+     `~/.beadcause/config.json` on the Mac — which is exactly the wrong place, because
+     the moment you know a setting is wrong is the moment you are looking at what it
+     did, on a phone, at the weekend.
+
+     Three shapes of control, and the difference between them is the shape of the
+     answer, not a style choice:
+
+     - **Muted** is two-state. There is no global "mute everything" behind it, so
+       "not set" and "off" are the same thing and a third button would be a lie.
+     - **The four with a global behind them** are three-state — On, Off, *Inherit* —
+       because `prPolicyFor` is explicit that a space may override the global in either
+       direction, so "off" and "following the default, which is off" are different
+       answers that must survive the default changing under them. The Inherit button
+       says what it currently resolves to rather than the word alone.
+     - **Quiet hours and quiet days** are a pair of times and a row of days, each
+       clearable, because "no quiet hours" is a state you have to be able to get back
+       to and deleting the key is the only way there.
+  */
+
+  /** The name of the space this page is about, or null when nothing is narrowed to one. */
+  const spaceName = () => {
+    const f = window.beadcause?.space?.filter;
+    return f && f.space && f.space !== 'all' ? f.space : null;
+  };
+
+  const DAYS = [
+    ['mon', 'M'],
+    ['tue', 'T'],
+    ['wed', 'W'],
+    ['thu', 'T'],
+    ['fri', 'F'],
+    ['sat', 'S'],
+    ['sun', 'S'],
+  ];
+
+  /** `true` → "on". The word a control is set to, and the word Inherit resolves to. */
+  const onOff = (v) => (v ? 'on' : 'off');
+
+  /**
+   * One three-state row: On, Off, and Inherit — which names what it inherits *to*.
+   *
+   * `data-value` travels as a string because a data attribute is one; `saveSpace`
+   * turns `"null"` back into the JSON null that means "clear this key", which is the
+   * one value the server reads as "go back to the global".
+   */
+  function tri(field, label, help, value, inherited) {
+    const btn = (v, text, title) =>
+      `<button class="adv-btn${value === v ? ' on' : ''}" data-space-set="${esc(field)}" data-value="${esc(
+        String(v)
+      )}" title="${esc(title)}">${esc(text)}</button>`;
+    return `<div class="space-row">
+      <div class="space-row-head">
+        <span class="space-what">${esc(label)}</span>
+        <span class="space-state ${value === null ? 'dim' : value ? 'live' : 'held'}">${
+          value === null ? `inherited · ${esc(onOff(inherited))}` : esc(onOff(value))
+        }</span>
+      </div>
+      <p class="space-help">${esc(help)}</p>
+      <div class="space-btns">
+        ${btn(true, 'On', `${label} — on for this space, whatever the global says`)}
+        ${btn(false, 'Off', `${label} — off for this space, whatever the global says`)}
+        ${btn(null, `Inherit (${onOff(inherited)})`, `Follow the global default, which is currently ${onOff(inherited)}`)}
+      </div>
+    </div>`;
+  }
+
+  /**
+   * The whole settings card for the selected space.
+   *
+   * Drawn above the advocate cards because it is what the page is *about*, and because
+   * a setting you scrolled past six repos to find is a setting you edit on the Mac
+   * instead. Shut by default like every other section here — you arrive at this page
+   * to see what is running far more often than to change what a space is.
+   */
+  function spaceHtml() {
+    const name = spaceName();
+    if (!name) {
+      // Not an error and not worth a card: nothing is narrowed, so there is no one
+      // space whose settings these would be. The picker in the bar above is the fix,
+      // and saying so once is cheaper than drawing seven controls that write nowhere.
+      return `<p class="subtitle space-none">Pick a space in the bar above to see and change its settings.</p>`;
+    }
+    if (state.spaceError) {
+      // The synthetic "Other" group lands here: it is a place the picker offers, not a
+      // thing with settings, and the server 404s it rather than inventing one.
+      return `<article class="card mon-card plain space-card">
+        <div class="work-head"><h2>${esc(name)}</h2><span class="mon-state dim">no settings</span></div>
+        <p class="subtitle">${esc(state.spaceError)}${
+          name === 'Other'
+            ? ' — repos in no configured space follow the global defaults, and there is nothing here to set on them.'
+            : ''
+        }</p>
+      </article>`;
+    }
+    const d = state.space;
+    if (!d || d.space !== name) return '<p class="subtitle space-none">Reading this space…</p>';
+
+    const s = d.settings;
+    const g = d.defaults;
+    const quiet = d.effective;
+
+    const head = quiet.muted
+      ? { text: 'muted — questions still arrive, the phone stays dark', tone: 'held' }
+      : quiet.quiet
+        ? {
+            text: `quiet${quiet.quietUntil ? ` until ${new Date(quiet.quietUntil).toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' })}` : ''}`,
+            tone: 'held',
+          }
+        : { text: 'may reach you', tone: 'live' };
+
+    const days = s.quietDays || [];
+    const rows = [
+      `<div class="space-row">
+        <div class="space-row-head">
+          <span class="space-what">Muted</span>
+          <span class="space-state ${s.muted ? 'held' : 'dim'}">${s.muted ? 'on' : 'off'}</span>
+        </div>
+        <p class="space-help">Never light the phone up for this space. Its questions still arrive, still list, still count — see lib/spaces.js.</p>
+        <div class="space-btns">
+          <button class="adv-btn${s.muted ? ' on' : ''}" data-space-set="muted" data-value="true">Mute</button>
+          <button class="adv-btn${s.muted ? '' : ' on'}" data-space-set="muted" data-value="null">Unmute</button>
+        </div>
+      </div>`,
+
+      `<div class="space-row">
+        <div class="space-row-head">
+          <span class="space-what">Quiet hours</span>
+          <span class="space-state ${s.quietHours ? 'held' : 'dim'}">${
+            s.quietHours ? `${esc(s.quietHours.from)} → ${esc(s.quietHours.to)}` : 'none'
+          }</span>
+        </div>
+        <p class="space-help">Local time, and a window that crosses midnight is the ordinary case: 18:00 → 09:00 is your evening and your night.</p>
+        <div class="space-btns space-hours">
+          <input type="time" id="qh-from" value="${esc(s.quietHours?.from || '18:00')}" aria-label="Quiet from">
+          <span class="space-arrow" aria-hidden="true">→</span>
+          <input type="time" id="qh-to" value="${esc(s.quietHours?.to || '09:00')}" aria-label="Quiet until">
+          <button class="adv-btn primary" data-space-hours="set">Set</button>
+          ${s.quietHours ? '<button class="adv-btn" data-space-hours="clear">Clear</button>' : ''}
+        </div>
+      </div>`,
+
+      `<div class="space-row">
+        <div class="space-row-head">
+          <span class="space-what">Quiet days</span>
+          <span class="space-state ${days.length ? 'held' : 'dim'}">${days.length ? esc(days.join(', ')) : 'none'}</span>
+        </div>
+        <p class="space-help">Whole days this space may not interrupt. Tap to toggle.</p>
+        <div class="space-btns space-days">
+          ${DAYS.map(
+            ([id, letter]) =>
+              `<button class="adv-btn space-day${days.includes(id) ? ' on' : ''}" data-space-day="${esc(
+                id
+              )}" aria-pressed="${days.includes(id)}" aria-label="${esc(id)}" title="${esc(id)}">${letter}</button>`
+          ).join('')}
+        </div>
+      </div>`,
+
+      `<div class="space-row">
+        <div class="space-row-head">
+          <span class="space-what">Push detail</span>
+          <span class="space-state ${s.ntfyDetail ? 'live' : 'dim'}">${
+            s.ntfyDetail ? esc(s.ntfyDetail) : `inherited · ${esc(g.ntfyDetail)}`
+          }</span>
+        </div>
+        <p class="space-help">What the notification itself says. <b>minimal</b> keeps the bead's words off the relay and sends you a bare "something is waiting".</p>
+        <div class="space-btns">
+          <button class="adv-btn${s.ntfyDetail === 'full' ? ' on' : ''}" data-space-set="ntfyDetail" data-value="full">Full</button>
+          <button class="adv-btn${s.ntfyDetail === 'minimal' ? ' on' : ''}" data-space-set="ntfyDetail" data-value="minimal">Minimal</button>
+          <button class="adv-btn${s.ntfyDetail === null ? ' on' : ''}" data-space-set="ntfyDetail" data-value="null">Inherit (${esc(g.ntfyDetail)})</button>
+        </div>
+      </div>`,
+
+      tri(
+        'autoDispatch',
+        'Agents may answer unasked',
+        'Whether an unattended agent may reply to comments in this space. The global switch is a veto: with it off, nothing here can turn it back on.',
+        s.autoDispatch,
+        g.autoDispatch
+      ),
+      tri(
+        'autoMerge',
+        'Workers merge their own pull requests',
+        'Off means every delivery hands you the pull request instead of landing it — which is what you want anywhere other people read the diff.',
+        s.autoMerge,
+        g.autoMerge
+      ),
+      tri(
+        'requireApproval',
+        'An approving review first',
+        'Only bites while auto-merge is on: with it off every delivery is already a question, and answering it is the approval.',
+        s.requireApproval,
+        g.requireApproval
+      ),
+    ].join('');
+
+    // What each repo actually resolves to, which is not always what the space says:
+    // `ntfy.minimalWorkspaces` and `autoDispatchExclude` are per-repo lists that outrank
+    // it. A screen that showed only the space's answer would be quietly wrong about
+    // exactly the repo that had been singled out.
+    const repos = d.repos.length
+      ? `<div class="space-repos">${d.repos
+          .map(
+            (r) => `<div class="space-repo">
+              <span class="pill id">${esc(r.name)}</span>
+              <span class="tag${r.ntfyDetail === 'minimal' ? ' warn' : ' dim'}">${esc(r.ntfyDetail)} push</span>
+              <span class="tag ${r.autoDispatch ? 'ok' : 'dim'}">${r.autoDispatch ? 'agents may answer' : 'no agent replies'}</span>
+              <span class="tag ${r.autoMerge ? 'ok' : 'warn'}">${r.autoMerge ? 'auto-merge' : 'hands you the PR'}</span>
+              ${r.autoMerge && r.requireApproval ? '<span class="tag warn">approval first</span>' : ''}
+            </div>`
+          )
+          .join('')}</div>`
+      : '<p class="subtitle">No configured repo is in this space.</p>';
+
+    const missing = d.missing.length
+      ? `<div class="adv-note warn">${esc(d.missing.join(', '))} ${
+          d.missing.length === 1 ? 'is named by this space and is not a configured workspace' : 'are named by this space and are not configured workspaces'
+        } — config drift, and nothing here reaches them.</div>`
+      : '';
+
+    return `<article class="card mon-card space-card">
+      <div class="work-head">
+        <h2>${esc(d.space)}</h2>
+        <span class="mon-state ${head.tone}">${esc(head.text)}</span>
+      </div>
+      ${missing}
+      ${state.spaceSaid ? `<div class="adv-note${state.spaceSaid.bad ? ' bad' : ''}">${esc(state.spaceSaid.text)}</div>` : ''}
+      ${section(`space:${d.space}:cfg`, 'Settings', '', rows)}
+      ${section(`space:${d.space}:repos`, 'What each repo resolves to', String(d.repos.length), repos)}
+    </article>`;
+  }
+
   /* ------------------------------------------------------------------- render */
 
-  function render() {
+  /**
+   * `polled` marks the twenty-second repaint, as opposed to one your press asked for.
+   *
+   * The distinction exists for exactly two fields: the quiet-hours clocks are the only
+   * editable inputs on this page, and a poll landing mid-edit would replace the one you
+   * were setting with the value already stored. A press is never skipped — you asked
+   * for it, and the answer has to appear — so the guard is on the poll alone, and the
+   * cost of it is one paint deferred by twenty seconds.
+   */
+  function render({ polled = false } = {}) {
     const data = state.work;
     if (!data) return;
+    if (polled && out.contains(document.activeElement) && document.activeElement?.type === 'time') return;
 
     // Which daemon am I looking at? Two consoles side by side are otherwise
     // identical, and the one that acts is not the one you have been clicking.
@@ -881,7 +1136,24 @@
     const nothing = (data.workspaces || []).length
       ? `<div class="empty">Nothing in ${esc(window.beadcause?.space?.label?.() || 'this space')}.</div>`
       : '<div class="empty">No workspaces configured.</div>';
-    out.innerHTML = serviceHtml(data.service) + routerHtml(data.router) + (cards || nothing);
+    // The space's own settings sit under the two health lines and above the repos: it
+    // is what this page is the details *of*, and a setting you scroll six advocate
+    // cards to reach is a setting you go back to editing the config file for.
+    out.innerHTML = serviceHtml(data.service) + routerHtml(data.router) + spaceHtml() + (cards || nothing);
+
+    // An observer may read this space's settings and may not write them: its `cfg` is
+    // the real daemon's config file, so a press here would change what the *other*
+    // process does at its next restart and nothing at all about what it is doing now.
+    // The server refuses it either way (see POST /api/space); this is so the refusal is
+    // not something you find out by pressing. Same treatment the admin page gives its
+    // own buttons, and drawn rather than hidden — a control that vanished would read as
+    // a feature this build does not have.
+    if (data.observing) {
+      for (const el of out.querySelectorAll('[data-space-set],[data-space-day],[data-space-hours],#qh-from,#qh-to')) {
+        el.disabled = true;
+        el.title = 'This instance only watches — the settings belong to the daemon that acts.';
+      }
+    }
 
     const live = [...advocates.values()].reduce((n, a) => n + a.workers.length, 0);
     // Over the selection, like everything else on the page: the proposals map holds
@@ -912,7 +1184,51 @@
 
   /* --------------------------------------------------------------------- load */
 
-  async function load() {
+  /**
+   * Draw the two payloads this page had last time, before either has been asked for.
+   *
+   * `/api/work` is two `bd` calls per workspace and `/api/questions` is a sweep of its
+   * own, so arriving here from a tab tap used to mean several seconds of an empty pane
+   * over a Mac that was busy answering. What is kept from the last visit paints in the
+   * first frame instead, and `load()` runs behind it. See public/warm.js.
+   */
+  function warmBoot() {
+    const warm = window.beadcause?.warm;
+    const work = warm?.read?.('/api/work');
+    if (!work?.data?.workspaces) return false;
+    state.work = work.data;
+    const questions = warm.read('/api/questions?scope=human');
+    if (questions?.data?.questions) adoptQuestions(questions.data);
+    render();
+    return true;
+  }
+
+  /**
+   * The proposals pane and the picker's numbers, out of an inbox payload.
+   *
+   * Split out of `load` because the warm boot above adopts the same shape — a second
+   * copy of it is how the warm pane would come to disagree with the fetched one.
+   */
+  function adoptQuestions(questions) {
+    // This page sweeps the inbox for the proposals, so it has the picker's numbers
+    // for free — fresher than /api/spaces, which is one poll behind by design.
+    const counts = {};
+    for (const q of questions.questions || []) counts[q.workspace] = (counts[q.workspace] || 0) + 1;
+    window.beadcause?.space?.adopt({
+      spaces: questions.spaces,
+      workspaces: questions.workspaces,
+      counts,
+      filter: questions.filter,
+    });
+    state.proposals = new Map();
+    for (const q of questions.questions || []) {
+      if (!q.proposal?.beads?.length) continue; // Every other question in the inbox.
+      if (!state.proposals.has(q.workspace)) state.proposals.set(q.workspace, []);
+      state.proposals.get(q.workspace).push(q);
+    }
+  }
+
+  async function load({ polled = false } = {}) {
     pulse.classList.add('busy');
     try {
       // Two requests, in parallel and independent: the proposals are ordinary inbox
@@ -923,30 +1239,55 @@
         api('/api/questions?scope=human').catch(() => ({ questions: [] })),
       ]);
       state.work = work;
-      // This page sweeps the inbox for the proposals, so it has the picker's numbers
-      // for free — fresher than /api/spaces, which is one poll behind by design.
-      const counts = {};
-      for (const q of questions.questions || []) counts[q.workspace] = (counts[q.workspace] || 0) + 1;
-      window.beadcause?.space?.adopt({
-        spaces: questions.spaces,
-        workspaces: questions.workspaces,
-        counts,
-        filter: questions.filter,
-      });
-      state.proposals = new Map();
-      for (const q of questions.questions || []) {
-        if (!q.proposal?.beads?.length) continue; // Every other question in the inbox.
-        if (!state.proposals.has(q.workspace)) state.proposals.set(q.workspace, []);
-        state.proposals.get(q.workspace).push(q);
-      }
+      // Kept for the next document that wants them — this page on the next tab tap,
+      // and /admin, which boots from /api/work too.
+      const warm = window.beadcause?.warm;
+      warm?.write?.('/api/work', work);
+      if (questions.questions) warm?.write?.('/api/questions?scope=human', questions, questions.seq);
+      adoptQuestions(questions);
       state.error = null;
-      render();
+      // Before the paint rather than beside it: the settings card is drawn from this,
+      // and painting without it then painting again a moment later would flash "Reading
+      // this space…" over a card that was already correct. Cheap — /api/space is a read
+      // of `cfg`, no `bd` and no disk.
+      await loadSpace();
+      render({ polled });
       pumpLogs();
+      // Only from a request that came back: warming behind a refused credential would
+      // be four more refusals. See public/warm.js.
+      warm?.prewarm?.({ here: 'advocates', api });
     } catch (err) {
       state.error = err.message;
-      out.innerHTML = `<div class="empty"><strong>Can't reach the server</strong>${esc(err.message)}</div>`;
+      // Only over an empty pane. With a warm board already drawn, replacing it with an
+      // error throws away everything still worth reading for a failure the next tick
+      // will most likely undo.
+      if (!state.work) out.innerHTML = `<div class="empty"><strong>Can't reach the server</strong>${esc(err.message)}</div>`;
     } finally {
       pulse.classList.remove('busy');
+    }
+  }
+
+  /**
+   * The selected space's own configuration.
+   *
+   * Nothing to fetch while the picker is on All — there is no one space these would be
+   * the settings of — and the card says so instead. `Other` is a 404 by design and its
+   * message is drawn rather than swallowed: it is a group the picker offers, not a
+   * thing with settings, and "why are there no controls" deserves a sentence.
+   */
+  async function loadSpace() {
+    const name = spaceName();
+    if (!name) {
+      state.space = null;
+      state.spaceError = null;
+      return;
+    }
+    try {
+      state.space = await api(`/api/space?space=${encodeURIComponent(name)}`);
+      state.spaceError = null;
+    } catch (err) {
+      state.space = null;
+      state.spaceError = err.message;
     }
   }
 
@@ -980,7 +1321,9 @@
       })
     );
     if (changed) {
-      render();
+      // A transcript arriving is a poll like any other — and this one is every two and
+      // a half seconds, so it is the paint most likely to land on a clock being set.
+      render({ polled: true });
       // Pin the transcript to its foot, the way a terminal does: this is a live log,
       // and the newest line is the one you are here for.
       for (const el of out.querySelectorAll('.mon-log')) el.scrollTop = el.scrollHeight;
@@ -1007,6 +1350,65 @@
       btn.textContent = was;
       btn.disabled = false;
       btn.closest('.mon-card')?.insertAdjacentHTML('beforeend', `<div class="adv-note bad">${esc(err.message)}</div>`);
+    }
+  }
+
+  /**
+   * Change one of the selected space's settings.
+   *
+   * One field per press, never the whole object: the page repaints every twenty
+   * seconds off a payload assembled before your thumb landed, and a read-modify-write
+   * from that would put back whatever a *second* device changed in between. The server
+   * patches, so a press says only what it means.
+   *
+   * The reply is the new detail, and it is adopted rather than re-fetched — it is the
+   * one answer that is definitely post-write, where a poll racing the same moment
+   * might not be. `changed` is the daemon's own list of what actually moved, which is
+   * shorter than the label promises exactly when it matters: pressing Inherit on a
+   * field that was already inheriting changes nothing, and saying "nothing to change"
+   * is more honest than a tick.
+   */
+  async function saveSpace(patch, btn) {
+    const name = spaceName();
+    if (!name) return;
+    const was = btn?.textContent;
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = '…';
+    }
+    try {
+      const r = await api('/api/space', {
+        method: 'POST',
+        body: JSON.stringify({ space: name, settings: patch }),
+      });
+      state.space = r;
+      state.spaceError = null;
+      state.spaceSaid = {
+        text: r.changed?.length ? `${r.changed.join(', ')} changed` : 'nothing to change — it was already set that way',
+      };
+      // The picker's 🔕 comes off the same config this just wrote, and the server has
+      // already refreshed its cached summary — but the bar in front of you is holding a
+      // copy from the last poll, so it is told directly rather than left to catch up.
+      window.beadcause?.space?.adopt({ spaces: await spaceRows() });
+      render();
+    } catch (err) {
+      state.spaceSaid = { text: err.message, bad: true };
+      if (btn) {
+        btn.textContent = was;
+        btn.disabled = false;
+      }
+      render();
+    }
+  }
+
+  /** The picker's rows, refetched after a write that can have changed one of its flags. */
+  async function spaceRows() {
+    try {
+      return (await api('/api/spaces')).spaces;
+    } catch {
+      // The bar keeps what it had. A stale 🔕 is a smaller wrong than a bar that
+      // emptied itself because one refresh failed.
+      return undefined;
     }
   }
 
@@ -1075,6 +1477,45 @@
   /* ------------------------------------------------------------------- events */
 
   out.addEventListener('click', (e) => {
+    // The space's own settings, before the advocate controls: both draw `.adv-btn`,
+    // and these carry their field on themselves rather than a workspace.
+    const set = e.target.closest('[data-space-set]');
+    if (set) {
+      e.preventDefault();
+      const raw = set.dataset.value;
+      // `null` is the wire's "clear this key and follow the global", and a data
+      // attribute can only carry the word — so it is turned back into the value here,
+      // once, rather than being special-cased per field on the server.
+      const value = raw === 'null' ? null : raw === 'true' ? true : raw === 'false' ? false : raw;
+      saveSpace({ [set.dataset.spaceSet]: value }, set);
+      return;
+    }
+
+    const day = e.target.closest('[data-space-day]');
+    if (day) {
+      e.preventDefault();
+      const days = state.space?.settings?.quietDays || [];
+      const id = day.dataset.spaceDay;
+      const next = days.includes(id) ? days.filter((d) => d !== id) : [...days, id];
+      // An empty list clears the key rather than storing "quiet on no days", which is
+      // the same thing to every reader and one more shape for the config to be in.
+      saveSpace({ quietDays: next.length ? next : null }, day);
+      return;
+    }
+
+    const hours = e.target.closest('[data-space-hours]');
+    if (hours) {
+      e.preventDefault();
+      if (hours.dataset.spaceHours === 'clear') {
+        saveSpace({ quietHours: null }, hours);
+        return;
+      }
+      const from = out.querySelector('#qh-from')?.value;
+      const to = out.querySelector('#qh-to')?.value;
+      saveSpace({ quietHours: { from, to } }, hours);
+      return;
+    }
+
     const sum = e.target.closest('[data-toggle]');
     if (sum) {
       toggle(sum.dataset.toggle);
@@ -1138,13 +1579,20 @@
   });
 
   document.getElementById('refresh').addEventListener('click', load);
-  /* The space picker moved. Nothing is refetched — /api/work already holds every repo
-     and which of them is drawn is decided at paint time. */
-  window.beadcause?.space?.onChange(() => render());
+  /* The space picker moved. Which repos are drawn is decided at paint time off the
+     /api/work payload already in hand — but *whose settings* the card at the top shows
+     has changed, and that is a different space's config, so it is fetched. Painted
+     first all the same: the repos below are correct immediately, and the card says it
+     is reading rather than sitting on the previous space's answers. */
+  window.beadcause?.space?.onChange(() => {
+    state.spaceSaid = null;
+    render();
+    loadSpace().then(render);
+  });
   // Two `bd` calls per workspace every twenty seconds is worth paying for the pane
   // you are looking at and nothing else — the mirror tab sits over this one, and a
   // hidden page must not keep sweeping every tracker on the Mac.
-  setInterval(() => !out.hidden && load(), REFRESH_MS);
+  setInterval(() => !out.hidden && load({ polled: true }), REFRESH_MS);
   setInterval(() => !out.hidden && pumpLogs(), LOG_MS);
 
   // How the tab bar brings this pane back up to date when you return to it.
@@ -1166,6 +1614,9 @@
   if (!token) {
     out.innerHTML = '<div class="empty"><strong>This device is not paired</strong>Open the inbox first.</div>';
   } else {
+    // Paint what this tab had, then go and ask. The order is the whole point: `load`
+    // is not made faster by this, it is made invisible.
+    warmBoot();
     load();
   }
 })();

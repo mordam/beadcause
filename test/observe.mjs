@@ -144,7 +144,9 @@ test('observing:says-so-on-the-wire', async () => {
     host: '127.0.0.1',
     token: 'test-token',
     workspaces: [],
-    spaces: [],
+    // One space, so the write below has something real to be refused about — a 404
+    // would prove nothing about the guard.
+    spaces: [{ name: 'Work', workspaces: [] }],
     claudeSessions: false,
     advocates: { enabled: true, workspaces: [] },
     ntfy: {},
@@ -159,6 +161,23 @@ test('observing:says-so-on-the-wire', async () => {
 
     const poll = await fetch(`http://127.0.0.1:${port}/api/poll`, { headers: { 'x-beadcause-token': cfg.token } });
     assert.equal((await poll.json()).observing, true, '/api/poll must say it too — the TUI reads only this one');
+
+    // And the space settings are read-only here, for the reason POST /api/admin is:
+    // this instance's `cfg` came off the *real* daemon's config file, so a write from
+    // its console would change what the other process does at its next restart while
+    // doing nothing at all about what it is doing now.
+    const read = await fetch(`http://127.0.0.1:${port}/api/space?space=Work`, {
+      headers: { 'x-beadcause-token': cfg.token },
+    });
+    assert.equal(read.status, 200, 'reading a space is fine — the console is still worth looking at');
+
+    const wrote = await fetch(`http://127.0.0.1:${port}/api/space`, {
+      method: 'POST',
+      headers: { 'x-beadcause-token': cfg.token, 'content-type': 'application/json' },
+      body: JSON.stringify({ space: 'Work', settings: { muted: true } }),
+    });
+    assert.equal(wrote.status, 403, 'an observer must not write another daemon`s config');
+    assert.ok(!cfg.spaces[0].muted, 'and must not have changed the object in memory either');
   } finally {
     for (const s of servers) s.close();
   }
