@@ -311,10 +311,17 @@
    * nothing on screen accounts for the difference. Its `why` goes in the tooltip —
    * the pill is the number, "bc-3zo9.1 is ready under it" is the answer to the
    * question the number provokes.
+   *
+   * `heldByTwin` is the fourth, and the only one of them that can move on its own: a
+   * bead held because another one is the same job comes back the moment that other one
+   * closes. Which is exactly why it needs the pill — "1 ready" that never becomes a
+   * session, with nothing on screen naming the bead it is waiting behind, is
+   * indistinguishable from an advocate that has stopped working.
    */
   function domainHtml(w, a) {
     const c = w?.counts || {};
     const waiting = (a && a.heldByChildren) || [];
+    const twins = (a && a.heldByTwin) || [];
     const pills = [
       c.open != null ? `<span class="pill">${c.open} open</span>` : '',
       c.ready ? `<span class="pill">${c.ready} ready</span>` : '',
@@ -336,6 +343,9 @@
         : '',
       waiting.length
         ? `<span class="pill muted" title="${esc(waiting.map((h) => `${h.id} — ${h.why}`).join('\n'))}">${waiting.length} waiting on ${waiting.length === 1 ? 'its children' : 'their children'}</span>`
+        : '',
+      twins.length
+        ? `<span class="pill muted" title="${esc(twins.map((h) => `${h.id} — ${h.why}`).join('\n'))}">${twins.length} the same job under another id</span>`
         : '',
     ].filter(Boolean);
     return `<div class="mon-domain">${pills.join('')}</div>`;
