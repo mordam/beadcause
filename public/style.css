@@ -2797,6 +2797,28 @@ button.work-row {
   border-bottom: 1px solid var(--line);
 }
 .repo-tabs .chip-row { flex: 1; min-width: 0; }
+/*
+  Dismissed, and how many of them. Outside the scrolling row, beside ＋, because a
+  control that says what the list is *not* showing you must not be something you
+  scroll a row of repos to find — that is the same argument that put ＋ there.
+
+  `[hidden]` needs saying out loud: `.chip` sets `display: inline-flex`, and an author
+  rule beats the UA sheet's `[hidden] { display: none }` however specific either is.
+  The same line, for the same reason, is on `.ws-pick` below.
+*/
+.show-dismissed { flex: none; white-space: nowrap; }
+.show-dismissed[hidden] { display: none; }
+/*
+  On, and legibly so. There are two `.chip[aria-pressed]` rules in this file — one
+  quoted `"true"` up at the chips, one quoted `'true'` down at the composer's — and
+  the later one wins the background (a 16% wash) while the earlier one still hands
+  over `color: var(--accent-ink)`, which is nearly black. That lands dark ink on a
+  dark wash for every pressed chip in the app; here it would be a toggle you cannot
+  read in the one state you need to see. The accent as ink is the fix for this
+  control, and it is also quieter than a tab beside it, which is right — the tab
+  chooses what the list is of, this only says how much of it you are seeing.
+*/
+.show-dismissed[aria-pressed="true"] { color: var(--accent); }
 /* Same paint as a pressed chip. A tab is selected, not pressed, so the attribute
    differs and the rule has to say so — see `.chip[aria-pressed="true"]`. */
 .chip[aria-selected="true"] { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
