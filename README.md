@@ -140,7 +140,11 @@ otherwise its poller would keep firing notifications with no listener behind the
   says so rather than pretending to cover the rest. It runs against a throwaway config
   directory on an ephemeral port and never touches `bd`, so it is safe to run with the
   daemon up. The suite proper is `npm test`, and the browser checks it deliberately
-  leaves out are listed with the pages they cover.
+  leaves out — they want a Chrome — are `npm run checks`, all twenty-six of them, four
+  at a time, with a list of which failed. See
+  [`npm run checks`](#npm-run-checks--the-browser-half-and-why-npm-test-can-still-see-it-rot),
+  including the static selector audit that runs inside `npm test` and is the reason a
+  removed chip no longer breaks a check in silence.
 
 ## Asking a question
 
@@ -3205,7 +3209,11 @@ given a card each.
 `node test/prboard.mjs` covers the daemon's half against real git in a temp directory
 with a real `origin` to fetch from — the three-state ancestry, deployed meaning the
 boot commit rather than the newest one, the bead tiers, and that `landLocally` leaves
-a dirty checkout exactly as it found it. `node scripts/prs-check.mjs` covers the
+a dirty checkout exactly as it found it. `landParent` — the same fast-forward asked for
+from inside a worktree, which is how [a worker's own
+delivery](#landing-work--a-branch-a-pull-request-and-the-workers-own-merge) ends — has
+its own real worktree there, because the only thing it adds is *which checkout moves*,
+and it has to be the one the next `git worktree add` will branch from. `node scripts/prs-check.mjs` covers the
 phone's half in headless Chrome with every POST recorded: that the first tap on merge
 sends *nothing*, that Ship is absent until it is merged, that the deploying Ship arms
 and the window-opening one does not, and that a refusal lands under the row as GitHub's
@@ -4306,7 +4314,7 @@ session finishes ──► beadcause-deliver ──► pushes the branch ──�
                         └──► 🔀 PR board: merged, on origin, not yet running → Ship
 ```
 
-Five things follow, and they are the whole of the change:
+Six things follow, and they are the whole of the change:
 
 - **A worker merges, and only ever through a pull request.** Not `git merge`, not
   `git push origin main`, not "just this once because it is trivial". There is still no
@@ -4318,6 +4326,15 @@ Five things follow, and they are the whole of the change:
   branch is the only place that conflict can be resolved by whoever wrote the code, while
   the reasons are still on their screen, so the brief asks for the downmerge *and* for the
   tests to be re-run after it: a clean merge of two working branches is not a working tree.
+- **And it brings the merge back down to this Mac afterwards.** The merge is at GitHub, so
+  `origin/main` has it the instant it lands and the laptop's own `main` does not — until
+  something happens to fetch: a deploy, a merge from the board, a person. Nothing
+  reliably did. In between, every new worktree branched from before the delivery, and the
+  session that got it paid with a downmerge of work it had never heard of. So a delivery
+  ends by fast-forwarding the **main checkout** — not its own worktree, where the ref
+  cannot move anyway — and it is the same `landLocally` the **Merge & push** button uses,
+  refusal and all: *a checkout with uncommitted work in it is not touched*, it says so on
+  the bead instead, and Adam's open files are worth more than a tidy `main`.
 - **It will not merge over a red check, and it will not wait forever for a green one.**
   Failing checks stop it and become a card in your inbox — the button there *does* let
   you merge over red, because a red check is sometimes a flake and judging that is what
@@ -4789,8 +4806,13 @@ decides. None of the three touches the network, a bead, or a repo.
 `node scripts/land-check.mjs` is the end-to-end half, and it is the only place the merge
 itself is exercised: a real `git` against a real bare remote, a real `bd` against a
 scratch workspace under `/tmp`, the real `bin/deliver.js`, and a fake `gh` that logs every
-call. Five scenarios — green checks, a refusal from GitHub, a red check, `--review`, and
-`--owed`. The assertions that matter are the negative ones: `gh pr merge` must not appear
+call. Seven scenarios — green checks, a refusal from GitHub, a red check, `--review`,
+`--owed`, where the merge method comes from, and the local fast-forward. That last one is
+the only scenario that delivers from a real `git worktree`, because that is where a worker
+delivers from and the whole behaviour turns on it: the fake `gh` moves the bare origin's
+`main` on merge, and the checks are that the main checkout ends up at `origin/main` — and
+that it is left alone, with the reason on the bead, when there is an uncommitted edit in
+it. The assertions that matter are the negative ones: `gh pr merge` must not appear
 in the log for the red check or for `--review`, and the work bead must still be open in
 every scenario that did not merge, because a bead closed over work sitting in an unmerged
 pull request is invisible from every screen in the app. `BEADCAUSE_CONFIG_DIR` points it
@@ -6594,6 +6616,109 @@ get wrong in silence: that every `test/*.mjs` on disk is in the list (the chain 
 *be* the inventory; the directory is now), that the two `scripts/` entries which are not
 `test/*.mjs` survive, that the three pinned positions hold, and that a failure still
 stops the run, propagates its exit code, and does not run what comes after it.
+
+### `npm run checks` — the browser half, and why `npm test` can still see it rot
+
+The twenty-six `scripts/*-check.mjs` are the only cover this repo has for layout, taps
+and anything that happens in a thumb, and none of them are in `npm test`: each wants a
+Chrome, a phone-sized viewport and ten to forty seconds, and that suite stays pure Node
+on purpose. Until `npm run checks` there was no way to run them but one at a time by
+name — which in practice meant run by whoever remembered that the page they touched had
+one.
+
+`npm run checks` runs all of them, four Chromes at a time, and ends with a list of which
+failed. Every check binds `127.0.0.1:0` and drives its own temp profile, so there is
+nothing shared to collide over; four minutes serially becomes about one. Their output
+interleaves badly, so each child's is captured whole, only failures are replayed — the
+last 25 lines, which is where the three that matter are — and the full logs are left in a
+temp directory named in the summary. `--list` prints what would run, `--only tabbar,shade`
+narrows it, `--jobs N` changes the width, `--dir <root>` points it at another tree (which
+is how the runner itself is tested). Like the runner for `npm test`, it names no
+individual check: the directory is the inventory, so adding one is adding a file and
+conflicts with nobody.
+
+**Every check is on a four-minute leash**, `--timeout N` to change it and `--timeout 0`
+to take it off. This is not a tidiness rule. A check that hangs is the one failure a
+runner like this newly introduces, and it is silent in the worst available way: the run
+never ends, so nothing is reported about the other twenty-five either — strictly worse
+than the by-hand state it replaced, where at least a person gives up. On the first real
+run of all twenty-six, `agent-chooser-check.mjs` went quiet thirteen assertions in and
+was still sitting there five minutes later. SIGTERM first so a check with a cleanup
+handler gets to run it, SIGKILL five seconds after that, and `timed out after Ns` in the
+summary beside it.
+
+**And the parallel pass is a filter, not the verdict.** Some of these measure time —
+how long a tab takes to warm, whether a bead is still in the air at 400ms — and four
+Chromes on one laptop moves those numbers. On that same first run, `absorb-check.mjs`
+failed a timing assertion and `agent-chooser-check.mjs` was the hang above; both passed
+in seconds when re-run on their own. A runner that reports those as failures teaches
+people to disbelieve it, which is the state this was written to get out of. So every
+failure is run again, serially, with nothing else in flight — the condition each was
+written under — and the second result is what is reported. What it must not do is hide
+it: a check that needed the retry is named at the end as one that *only passes alone*,
+because that is a fact about the check worth knowing, and `--no-retry` shows the raw
+parallel pass. A check that fails both times is reported with `on its own — not a
+scheduling accident` beside it, so a red line cannot be waved away as the scheduler's
+fault.
+
+**Three of the twenty-six are red, and that is the bead in one paragraph.** Two were
+already failing the day this was written, with no mark against them anywhere:
+`shot-check.mjs` has always asserted that the daemon token never reaches `shot.mjs`'s
+output, and the token is now appended to the URL that `shot.mjs` prints, so it does
+(bc-sqab); `dismiss-check.mjs` finds that arming an option no longer disarms the dismiss
+button, so two controls can be armed at once and the next tap is ambiguous (bc-giuc).
+The third arrived while this was being written — merging `main` in took the gap between
+the thread and the answer box from 80px to 134px, over `agent-chooser-check.mjs`'s 110px
+bar (bc-0fi2), found within minutes of the downmerge rather than in a month. Two checks
+in that same range of `main` had already been fixed by hand for the same kind of drift;
+this one was missed, which is the argument for the command.
+
+They are left red on purpose. A green wall bought by deleting the assertions would be
+the same silence in a better disguise.
+
+**But running them is not the problem this was written for.** These checks do not rot by
+failing. They rot by pressing something that is no longer there, and then not being run.
+Working bc-xqnj the inbox's `[data-space]` chips were removed; `shade-check.mjs` pressed
+those chips to narrow the filter, so it broke outright, and two assertions in
+`launcher-check.mjs` went with it. `npm test` was green through all of it. Both were
+found by *reading the scripts*, which is not a mechanism — nothing bounds how long that
+gap can be, and a check that has silently not passed for a month is worse than no check,
+because the next person to run it reads its failures as their own change breaking
+something.
+
+So the load-bearing part is static, and it *is* in `npm test`. `lib/checkaudit.js` reads
+every literal selector every check presses — 313 of them — takes each class, id and
+`data-` attribute apart, and asserts it still appears somewhere in `public/`. That is a
+text search, it costs milliseconds, and it fires on precisely the thing that used to be
+invisible. `npm run checks` prints it before a single Chrome starts, and does not stop on
+it: a stale selector in one check is no reason not to run the other twenty-five.
+
+It is tuned to have no false alarms, so that a finding is always real, and two things
+follow. An interpolated selector — `` `[data-key="${k}"]` `` — has no text to look for and
+is skipped rather than guessed at; `data-key` itself is picked up from the dozen places
+it is written plainly. And a check that serves its own fixture markup owns those classes,
+so the check's own source counts as a home for a token — with its *comments stripped
+first*, because a header paragraph naming `.shade-ask` must not be what keeps the audit
+quiet about `.shade-ask` having left `public/`. What it deliberately cannot see is
+anything about whether the check still *passes*: an element can move, change meaning or
+stop being reachable with its name intact. This is the smoke alarm, not the inspection.
+
+`test/checks.mjs` is where that runs, and half of it is controls, for the reason
+`test/testrunner.mjs` has controls: "the audit found nothing" is the same output whether
+the tree is clean or the audit is broken, and a broken audit is the more likely of the
+two to survive unnoticed, because it is green. So it is measured in both directions
+against synthetic sources — a token removed from `public/` must be found, one still there
+must not be reported, one living only in a check's own fixture must not be, one named
+only in a comment must not vouch for itself — plus an assertion that the count is in the
+hundreds rather than zero, which is the shape a regex that stopped matching would take.
+The rest is inventory: every check on disk is in the list, every check still parses, and
+every relative import in one still resolves — the three ways a check can be dead on
+arrival before Chrome is even reached. And the runner's own endings are held against a
+temp tree of three checks that pass, fail and hang on purpose: exit 1, the failures
+counted and named, their own output replayed rather than just a code, the hang killed at
+the timeout, a passing check not listed among the failures, and an empty tree failing
+rather than passing vacuously. A tree of its own rather than the real twenty-six, because
+those are the thing under observation, not the instrument.
 
 `test/observe.mjs` is about observer mode only, and it is the oldest of them —
 because this is the switch here that fails most quietly. Turn off the terminal

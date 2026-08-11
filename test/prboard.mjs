@@ -185,7 +185,7 @@ const cfg = {
   pr: { base: 'main' },
 };
 
-const { collectBoard, forgetBoard, landLocally, runningBuild } = await import(path.join(ROOT, 'lib', 'prboard.js'));
+const { collectBoard, forgetBoard, landLocally, landParent, runningBuild } = await import(path.join(ROOT, 'lib', 'prboard.js'));
 const prlib = await import(path.join(ROOT, 'lib', 'pr.js'));
 
 /* `deploys: []` on purpose. Two rungs of the ladder are answers about the deploy journal,
@@ -488,6 +488,45 @@ check(
   offBranch.advanced === true && git(REPO, 'rev-parse', 'main') === git(REPO, 'rev-parse', 'origin/main'),
   JSON.stringify(offBranch)
 );
+
+/* ------------------------------------------------- landing it from a worktree */
+
+console.log('\nand from inside a worktree, which is where a worker delivers from');
+
+// The shape every unattended delivery has: the main checkout sitting on `main`, the
+// session in `.claude/worktrees/<name>` on a branch of its own, and `origin/main` a
+// commit ahead of both because GitHub has just merged something.
+git(REPO, 'checkout', '--quiet', 'main');
+const WT = path.join(tmp, 'worktree');
+git(REPO, 'worktree', 'add', '--quiet', '-b', 'worker-branch', WT, 'main');
+git(other, 'commit', '--quiet', '--allow-empty', '-m', 'the worker’s own merge');
+git(other, 'push', '--quiet', 'origin', 'main');
+
+const fromWorktree = await landParent(WT, 'main');
+check('a delivery in a worktree moves the main checkout, not the worktree', fromWorktree.advanced === true, JSON.stringify(fromWorktree));
+check(
+  '  — and it names the checkout it moved, which is not the one it was given',
+  fs.realpathSync(fromWorktree.dir) === fs.realpathSync(REPO) && fromWorktree.dir !== WT,
+  `${fromWorktree.dir} vs ${REPO}`
+);
+check('  — main now has what origin has', git(REPO, 'rev-parse', 'main') === git(REPO, 'rev-parse', 'origin/main'));
+check('  — the worktree is still on its own branch', git(WT, 'rev-parse', '--abbrev-ref', 'HEAD') === 'worker-branch');
+
+// The refusal is the whole reason this goes through landLocally rather than running
+// two git commands of its own: a worker at three in the morning must be no more
+// willing to fast-forward over open files than the button on the phone is.
+git(other, 'commit', '--quiet', '--allow-empty', '-m', 'and another');
+git(other, 'push', '--quiet', 'origin', 'main');
+fs.writeFileSync(path.join(REPO, 'file.txt'), 'adam is mid-edit again\n');
+const heldOff = await landParent(WT, 'main');
+check('a main checkout with uncommitted work in it is left alone', heldOff.advanced === false, JSON.stringify(heldOff));
+check('  — and the note says why, so the bead can carry it', /uncommitted/.test(heldOff.note), heldOff.note);
+check(
+  '  — with the edit untouched',
+  fs.readFileSync(path.join(REPO, 'file.txt'), 'utf8') === 'adam is mid-edit again\n'
+);
+git(REPO, 'checkout', '--quiet', '--', 'file.txt');
+git(REPO, 'worktree', 'remove', '--force', WT);
 
 /* ------------------------------------------------------------------ the build */
 
