@@ -5,11 +5,11 @@
  *     npm test
  *     node test/inboxkinds.mjs
  *
- * The inbox carries four different jobs at one address — a plain question, an
- * advocate's proposal, a worker's merge, and (under `Both` and `Agent`) the live beads
- * nobody is asking you about — and public/inboxfilter.js is the one place that knows
- * which is which. Four things about it are worth a suite, and none is visible by
- * reading one function:
+ * The inbox carries five different jobs at one address — a plain question, an
+ * advocate's proposal, a worker's merge, a pull request, and (under `Both` and `Agent`)
+ * the live beads nobody is asking you about — and public/inboxfilter.js is the one place
+ * that knows which is which. Five things about it are worth a suite, and none is visible
+ * by reading one function:
  *
  * 1. **The kinds have to partition the list.** `KINDS` is a table of predicates, and
  *    two of them being true of one row means a bead counted twice in the chip counts
@@ -31,6 +31,12 @@
  *    hover on a phone, so a CSS-only panel opens on the tap, stays open over the list,
  *    and closes on whatever you tap next — which is a card. Both devices are driven
  *    here through the real file.
+ *
+ * 5. **The one sub-filter must not narrow the list invisibly.** Pull requests are shown
+ *    `unmerged` unless you ask for more, which is a filter nobody set — so the summary
+ *    line has to say so, and a status chosen and then left behind when you widen back to
+ *    `All kinds` has to keep saying so. A list narrowed by something no longer on screen
+ *    is the failure this whole control was built to avoid.
  *
  * The control runs in a vm with a hand-made document, the way test/dictate.mjs runs the
  * real dictation: a rewrite of the logic as a test-only module could not fail while the
@@ -164,8 +170,15 @@ function makeDoc() {
   return doc;
 }
 
-/** The real file, in a room with a document and a localStorage in it. */
-function load({ hover = false, store = new Map() } = {}) {
+/**
+ * The real file, in a room with a document and a localStorage in it.
+ *
+ * public/prcard.js goes in first, because the PR status sub-filter reads its chips off the
+ * status ladder there — the real one, not a stub, so a rung renamed in one file and not the
+ * other fails here as well as in test/prstage.mjs. `card: false` leaves it out, which is
+ * the phone holding one file from an older cache.
+ */
+function load({ hover = false, store = new Map(), card = true } = {}) {
   const doc = makeDoc();
   const window = {
     matchMedia: (q) => ({ matches: q.includes('hover: hover') ? hover : false }),
@@ -175,6 +188,7 @@ function load({ hover = false, store = new Map() } = {}) {
     setItem: (k, v) => store.set(k, String(v)),
   };
   const ctx = vm.createContext({ window, document: doc, localStorage, setTimeout, clearTimeout });
+  if (card) vm.runInContext(read('public/prcard.js'), ctx, { filename: 'prcard.js' });
   vm.runInContext(read('public/inboxfilter.js'), ctx, { filename: 'inboxfilter.js' });
   const host = doc.createElement('nav');
   host.replaceChildren = El.prototype.replaceChildren.bind(host);
@@ -196,6 +210,7 @@ const ROWS = {
   question: { key: 'w/q1', workspace: 'w', title: 'a question' },
   proposal: { key: 'w/p1', workspace: 'w', proposal: { beads: [{ title: 'x' }] } },
   delivery: { key: 'w/d1', workspace: 'w', delivery: { number: 7 } },
+  pr: { key: 'pr:w#7', workspace: 'w', pr: { key: 'w#7', number: 7, stage: 'review' } },
   claimed: { key: 'w/a1', workspace: 'w', agent: true, status: 'in_progress' },
   blocked: { key: 'w/a2', workspace: 'w', agent: true, status: 'blocked' },
   unclaimed: { key: 'w/a3', workspace: 'w', agent: true, status: 'open' },
@@ -203,6 +218,10 @@ const ROWS = {
 
 const QUESTION_KINDS = ['question', 'proposal', 'delivery'];
 const AGENT_KINDS = ['claimed', 'blocked', 'unclaimed'];
+/* On neither side: a pull request comes off `gh`, so every scope can hold one. */
+const ANY_KINDS = ['pr'];
+/** A pull request on a given rung, as the row app.js synthesises from the board. */
+const prOn = (stage) => ({ key: `pr:w#${stage}`, workspace: 'w', pr: { number: 1, stage } });
 
 /* ------------------------------------------------------------------- model */
 
@@ -211,11 +230,11 @@ console.log('\nthe kinds partition the inbox');
 const { filter: model } = load();
 
 await check('every kind in the table is drawn, named and testable', () => {
-  assert.deepEqual(list(model.KINDS).map((k) => k.id), [...QUESTION_KINDS, ...AGENT_KINDS]);
+  assert.deepEqual(list(model.KINDS).map((k) => k.id), [...QUESTION_KINDS, ...ANY_KINDS, ...AGENT_KINDS]);
   for (const k of list(model.KINDS)) {
     assert.ok(k.label, `${k.id} has no label`);
     assert.ok(k.note, `${k.id} has no note — the chip would have no accessible name`);
-    assert.ok(['question', 'agent'].includes(k.side), `${k.id} has no side`);
+    assert.ok(['question', 'agent', 'any'].includes(k.side), `${k.id} has no side`);
     assert.equal(typeof k.test, 'function');
   }
 });
@@ -325,7 +344,7 @@ await check('a selection the new scope keeps is kept', () => {
 /* ------------------------------------------------------------------ chrome */
 
 /** Mount the control with a scope group, the way public/app.js does. */
-function mounted({ hover = false, store = new Map(), kinds = QUESTION_KINDS } = {}) {
+function mounted({ hover = false, store = new Map(), kinds = QUESTION_KINDS, counts } = {}) {
   const { filter, doc, host } = load({ hover, store });
   const scope = { id: 'human' };
   const changes = [];
@@ -344,13 +363,14 @@ function mounted({ hover = false, store = new Map(), kinds = QUESTION_KINDS } = 
     },
   };
   filter.mount(host, { groups: [group], onChange: (ids) => changes.push(ids) });
-  filter.survey({ kinds, counts: { question: 3, proposal: 1, delivery: 2 } });
+  filter.survey({ kinds, counts: counts || { question: 3, proposal: 1, delivery: 2 } });
   const root = host.children[0];
   const summary = root.children[0];
   const panel = root.children[1];
-  const chips = (groupId) => panel.children.find((b) => b.dataset.group === groupId).children[1].children;
+  const box = (groupId) => panel.children.find((b) => b.dataset.group === groupId);
+  const chips = (groupId) => box(groupId).children[1].children;
   const chip = (groupId, id) => chips(groupId).find((c) => c.dataset.chip === id);
-  return { filter, doc, host, root, summary, panel, chips, chip, scope, changes };
+  return { filter, doc, host, root, summary, panel, box, chips, chip, scope, changes };
 }
 
 console.log('\nthe control at rest');
@@ -498,6 +518,146 @@ await check('on a laptop the same pick leaves it open — closing would fight th
   chip('scope', 'agent').fire('click');
   assert.equal(scope.id, 'agent');
   assert.equal(panel.hidden, false);
+});
+
+/* ------------------------------------------------------- the status sub-filter */
+
+console.log('\nthe one sub-filter: which pull requests');
+
+const PR_KINDS = [...QUESTION_KINDS, ...ANY_KINDS];
+
+await check('the default is unmerged, which is not the same as everything', () => {
+  const { filter } = load();
+  assert.ok(filter.matches(prOn('review')), 'a pull request in review was hidden by default');
+  for (const stage of ['merged', 'pushed', 'deployed', 'live', 'closed']) {
+    assert.ok(!filter.matches(prOn(stage)), `a ${stage} pull request was in the list nobody asked for`);
+  }
+});
+
+await check('it applies under All kinds too — it is what the inbox is, not what you tapped', () => {
+  const { filter } = load();
+  assert.deepEqual(list(filter.selected()), []);
+  assert.ok(!filter.matches(prOn('live')));
+});
+
+await check('picking a status shows that rung and nothing else', () => {
+  const { filter } = load();
+  filter.setSub('pr', ['live']);
+  assert.deepEqual(list(filter.selectedSub('pr')), ['live']);
+  assert.ok(filter.matches(prOn('live')));
+  assert.ok(!filter.matches(prOn('review')), 'the default came back over an explicit choice');
+});
+
+await check('two statuses show both, and clearing them goes back to unmerged', () => {
+  const { filter } = load();
+  filter.setSub('pr', ['merged', 'pushed']);
+  assert.ok(filter.matches(prOn('merged')) && filter.matches(prOn('pushed')));
+  filter.setSub('pr', []);
+  assert.ok(filter.matches(prOn('review')) && !filter.matches(prOn('merged')));
+});
+
+await check('a rung the ladder does not offer is dropped, not obeyed', () => {
+  const { filter } = load();
+  // `closed` is real in lib/prstage.js and deliberately not offered here — app.js makes no
+  // card for one — so asking for it must fall back to the default rather than empty the
+  // list in a way nothing on screen explains.
+  filter.setSub('pr', ['closed', 'nonsense']);
+  assert.deepEqual(list(filter.selectedSub('pr')), []);
+  assert.ok(filter.matches(prOn('review')));
+});
+
+await check('the status survives a reload, and the kinds selection does not carry it', () => {
+  const store = new Map();
+  load({ store }).filter.setSub('pr', ['deployed']);
+  const again = load({ store });
+  assert.deepEqual(list(again.filter.selectedSub('pr')), ['deployed']);
+  assert.deepEqual(list(again.filter.selected()), [], 'a status choice selected a kind as well');
+});
+
+await check('a phone that has prcard.js from an older cache still shows the unmerged ones', () => {
+  // No ladder to read chips off, so there are none — and the default is this file's own
+  // word, not the table's, precisely so it survives that.
+  const { filter } = load({ card: false });
+  assert.ok(filter.matches(prOn('review')));
+  assert.ok(!filter.matches(prOn('live')));
+});
+
+await check('the chips appear only once PRs is selected, and they are the ladder minus closed', () => {
+  const { filter, box, chips } = mounted({ kinds: PR_KINDS });
+  assert.equal(box('status').hidden, true, 'the status chips are offered before PRs is picked');
+  filter.set(['pr']);
+  assert.equal(box('status').hidden, false, 'selecting PRs did not reveal the sub-filter');
+  assert.deepEqual(
+    chips('status').map((c) => c.dataset.chip),
+    ['review', 'merged', 'pushed', 'deployed', 'live']
+  );
+  filter.set([]);
+  assert.equal(box('status').hidden, true, 'widening back left the chips on screen');
+});
+
+await check('a status chip carries how many pull requests are on that rung', () => {
+  const { filter, chip } = mounted({ kinds: PR_KINDS });
+  filter.set(['pr']);
+  filter.survey({ counts: { pr: 2 }, sub: { status: { review: 2, merged: 30 } } });
+  assert.equal(chip('status', 'review').children[1].textContent, '2');
+  assert.equal(chip('status', 'merged').children[1].textContent, '30');
+  assert.ok(chip('status', 'live').classes().includes('none'), 'a rung with nothing on it is not dimmed');
+});
+
+await check('tapping a status chip tells the page, and leaves the panel open', () => {
+  const { filter, summary, panel, chip, changes } = mounted({ kinds: PR_KINDS });
+  filter.set(['pr']);
+  summary.fire('click');
+  chip('status', 'live').fire('click');
+  assert.deepEqual(list(filter.selectedSub('pr')), ['live']);
+  assert.deepEqual(list(changes.at(-1)), ['pr'], 'the page was never told the list moved');
+  assert.equal(panel.hidden, false, 'picking a second status would need a second tap');
+});
+
+await check('the line names the narrowing — including the one nobody set', () => {
+  const { filter, summary, root } = mounted({ kinds: PR_KINDS, counts: { question: 3, pr: 4 } });
+  // With pull requests on screen the standing `unmerged` default is a narrowing, so it is
+  // on the line at rest.
+  assert.equal(summary.children[0].textContent, 'Human · All kinds · unmerged');
+  filter.set(['pr']);
+  assert.equal(summary.children[0].textContent, 'Human · PRs · unmerged');
+  filter.setSub('pr', ['live', 'deployed']);
+  assert.equal(summary.children[0].textContent, 'Human · PRs · Deployed, Live');
+  assert.ok(root.classes().includes('narrowed'));
+});
+
+await check('a status left behind when you widen back is still on the line', () => {
+  const { filter, summary, box } = mounted({ kinds: PR_KINDS, counts: { pr: 4 } });
+  filter.set(['pr']);
+  filter.setSub('pr', ['live']);
+  filter.set([]);
+  assert.equal(box('status').hidden, true, 'the chips stayed after the kind was dropped');
+  assert.equal(
+    summary.children[0].textContent,
+    'Human · All kinds · Live',
+    'the list is narrowed to one rung and the control does not admit it'
+  );
+});
+
+await check('on a screen with no pull requests at all, it says nothing about them', () => {
+  const { summary } = mounted({ kinds: PR_KINDS, counts: { question: 3 } });
+  assert.equal(summary.children[0].textContent, 'Human · All kinds');
+});
+
+await check('a scope that cannot hold PRs hides the sub-filter with the chip', () => {
+  // `side: 'any'` means this does not happen in the app — no scope excludes a pull
+  // request. It is asserted anyway: the box is built at mount, when every kind is still
+  // usable, and a box nothing hides is a control that outlives its own chip.
+  const { box } = mounted({ kinds: AGENT_KINDS });
+  assert.equal(box('status').hidden, true);
+});
+
+await check('the empty state can name the status as well as the kind', () => {
+  const { filter } = mounted({ kinds: PR_KINDS });
+  filter.set(['pr']);
+  assert.equal(filter.label(), 'prs (unmerged)');
+  filter.setSub('pr', ['live']);
+  assert.equal(filter.label(), 'prs (live)');
 });
 
 console.log('\nthe 25-second repaint');
