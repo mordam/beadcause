@@ -4328,6 +4328,7 @@ filing one bug forty times:
 | the report's **own request** | a report that reports the failure of reporting is a loop with no floor. `report.js` keeps the `fetch` the page was born with and sends on that, so its traffic cannot reach its own wrapper |
 | the **echo** of a failure already reported | a failed fetch is reported here *and* toasted by the caller a moment later. One incident, one bead — and the same rule collapses "every endpoint is unreachable" onto one bead instead of twelve |
 | a **refusal** | `toast(msg, 'refused')` is red because the app declined what you typed. "Give it a name" is not a bug, and it was a `toast(…, true)` before this existed |
+| **anything, while a deploy is hushing the page** | a restart makes every screen fail every fetch at once, and all of it is the one fact that you pressed Ship. The daemon decides, because only it knows — see below |
 
 **It is deliberately not in the service worker's shell, and the `CACHE` version does not
 move for it.** That version exists to stop a phone holding one release's HTML beside
@@ -4347,13 +4348,71 @@ message', true)`, because a fixed message is the shape of a validation notice an
 is no other way to tell one from a caught error at runtime.
 
 **And a ceiling**: eight reports per page per minute, and the same error not twice inside
-thirty seconds. A render loop that throws on every frame files a handful and stops. That
-is the smaller half of bc-p38c.3 — the bigger half is holding reporting off across a
-deploy, when every page fails every fetch at once and only the daemon's own deploy records
-can say why — and it lives here rather than there because a cap is eight lines and belongs
-next to the reporting. Note what shipping this before that means: a deploy that restarts
-the daemon files nothing *during* the outage, because the report's own request fails with
-everything else and is dropped, but the first reconnects after it can get through.
+thirty seconds. A render loop that throws on every frame files a handful and stops. The
+cap lives next to the reporting because it is eight lines and needs no clock of its own;
+the other half of bc-p38c.3, the quiet window across a deploy, could not — see the next
+section for where it went and why.
+
+### Nothing is filed across a deploy, and the daemon is what decides
+
+Pressing Ship on a beadcause pull request SIGKILLs the daemon (lib/deploy.js). Every open
+page then fails every fetch at once, from four screens, and without a quiet window each of
+those is a P0 in front of the advocate — a dozen beads whose single cause is that you
+pressed a button. They still appear on screen throughout: the toast is drawn before the
+report is built and does not depend on it, because you should see the failure even when
+the tracker should not hear about it.
+
+**The storm is not where you would look for it.** Nothing is filed *during* the outage at
+all — a page whose fetch just failed posts the report through the same dead socket, and
+`report.js` drops what it cannot deliver rather than queueing it. What files is the
+**reconnect**: the daemon is answering again, and the requests that failed a second ago
+are only now being described to it. So the window that matters is a grace period *after*
+the connection comes back, which is `REPORT_GRACE_MS` — thirty seconds, comfortably past
+the last straggler (`stream.js` backs off before retrying, and `warm.js` prefetches four
+other views on a page load) and short enough that a bug you hit while watching a deploy
+land is still filed while you are looking at it.
+
+**`reportingQuiet` in lib/deploy.js is the authority, and `POST /api/error` refuses on its
+own account.** Only the deploy journal knows a restart happened, and putting the decision
+on the daemon is what makes it hold for a phone still running last week's cached copy of
+`report.js` — a client-side-only gate fails on exactly the device the storm arrives from.
+Three states count as quiet, and the middle one is the one nobody guesses:
+
+| The record says | Read as |
+|---|---|
+| a live status with a **live pid** | a deploy in flight. Quiet for one grace period, then asked again |
+| **`deploying` with no runner** | the normal ending of a restart — launchd took the runner along with the daemon — so it reads as "just now". This is the storm |
+| **settled** within the grace period | the pages are reconnecting into it |
+
+Only a deploy that **`restarts`** beadcause. `fly deploy` for another repo takes nothing
+down that a phone was talking to, and is no reason to stop hearing that this app is
+broken. And a `deploying` record more than twenty minutes old counts for nothing, because
+a runner that vanished before the sweep reached it would otherwise silence every report
+this Mac ever makes — a false P0 is a bead you close, and silence is a bug nobody hears
+about.
+
+**The gate is on the route and deliberately not inside `intake`.** bc-p38c.4 files the
+daemon's *own* uncaught exceptions through the same module, and a daemon that crashes
+during its own deploy is the most valuable bead this app can file: it is the new build
+failing to come up. That one has to get through.
+
+**What the page does with the refusal.** The answer carries `quiet.until`, and
+`report.js` then stops asking until then — so a reconnecting page does not spend its eight
+per minute on requests that are dropped on arrival. Dropped, not queued: replaying them
+the moment the daemon is back is the same storm a minute later. Two details worth knowing
+before you touch it. The window is a *floor* — a deploy still in flight has no known end,
+so a page is hushed for one grace period and comes back to ask, rather than being trusted
+for the whole deploy. And the page will not accept a window more than ten minutes ahead
+whatever it is told, because a wall clock arriving over a wire could otherwise produce the
+worst failure available here: a page that has quietly stopped reporting anything, which
+looks exactly like a page with no errors. `window.beadcause.report.quietUntil()` is the
+second thing to check when a report has silently not arrived, after `capacity()`.
+
+**No `CACHE` bump for it, for the same reason as before.** There is no mixed pair that
+breaks: a phone running the old `report.js` against the new daemon is refused server-side
+and merely posts a few reports that are dropped, and the new file against an older daemon
+finds no `quiet` in the answer and behaves as it did. Neither draws a control with nothing
+behind it, which is what that version exists to prevent.
 
 ### Why these are the one thing filed without the hold
 
@@ -4416,6 +4475,20 @@ static reads the stub cannot see: that **every** `public/*.html` loads the file 
 its other scripts, and that each of the four `toast` functions reports *after* it has
 drawn. Neither of those is something the app would tell you about — a page that quietly
 stopped loading the reporter looks exactly like a page with no errors.
+
+`node test/deployquiet.mjs` is the deploy window, in the three layers it has to be right
+in at once. The rule, against hand-written journal records — including a `deploying`
+record whose runner is gone, which is what a restart looks like from the process that came
+back and is the state the whole feature is for. Then the acceptance criterion through the
+real route with a stub tracker behind it: sixteen reports, four pages by four endpoints,
+and `bd create` asserted to have been **unreached** rather than merely unproductive — a
+daemon that filed and then said it had not would be a passing test and a ruined tracker.
+Then the page, in a `vm`, handed *the real body the real route answered* rather than a
+fixture: the payload between the two halves is a bare JSON object with no schema anywhere,
+so a rename of `quiet.until` on either side would otherwise leave both halves green and
+the phone reporting straight through the next deploy. The window it resumes after is made
+short by **aging a real record** — a deploy that settled just before the grace period runs
+out — so the resumption is the code's own arithmetic and not a number the suite invented.
 
 ## Advocates — an agent per repo, whose job is the queue reaching zero
 
