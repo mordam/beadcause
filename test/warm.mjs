@@ -466,7 +466,12 @@ await check('the inbox draws its list through the reconciler, not through innerH
 
 await check('the inbox follows the event log rather than sweeping on a 25-second clock', () => {
   const app = read('public/app.js');
-  assert.ok(/\/api\/poll\?since=\$\{at\}/.test(app), 'the long poll is gone from app.js');
+  // The park itself left this file for public/stream.js (bc-rk2o.1), so the other four
+  // standing views can mount the same loop rather than each growing one. What has to
+  // stay true here is that the inbox is *on* it — checked as the mount, because that is
+  // the only thing that makes the refresh a parked poll rather than a sweep.
+  assert.ok(app.includes('window.beadcause?.stream?.mount?.('), 'the inbox no longer mounts the delta stream');
+  assert.ok(/\/api\/poll\?since=\$\{since\}/.test(read('public/stream.js')), 'the long poll is gone from stream.js');
   // The timer is still here and must be: it is what a wide scope and an old daemon
   // fall back to. What must not come back is `load` being the only thing on it.
   assert.ok(app.includes('POLL_MS[state.scope]'), 'the fallback timer is gone');
