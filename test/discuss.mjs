@@ -60,15 +60,6 @@ fs.mkdirSync(process.env.BEADCAUSE_CONFIG_DIR, { recursive: true });
 const { Bd } = await import(LIB('bd.js'));
 const { UNENDORSED } = await import(LIB('endorse.js'));
 const { FILED_LABEL } = await import(LIB('filing.js'));
-// lib/foundation.js FIRST, and this is not a style choice: it and lib/agents.js are a
-// cycle — foundation reads `DEFAULT_TOOL_LIST` at module scope and agents imports `mark`
-// back — so whichever of the two is evaluated first decides whether the pair loads at
-// all. Reach agents.js first and it dies on `Cannot access 'DEFAULT_TOOL_LIST' before
-// initialization`, which is a real thing `node -e "import('./lib/agents.js')"` does today
-// and has nothing to do with this feature. Every suite that touches the roster already
-// opens this way (test/browse.mjs, test/lookup.mjs, test/agentchats.mjs); saying why here
-// because the next person to add one will not guess it from the failure.
-await import(LIB('foundation.js'));
 const { DEFAULT_TOOL_LIST, BUILTIN_AGENTS, roster } = await import(LIB('agents.js'));
 const { say, toBubble, threadOf, DISCUSS_MAX } = await import(LIB('discuss.js'));
 

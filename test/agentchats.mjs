@@ -99,8 +99,6 @@ write('oldchat', { title: 'From before' });
 
 /* -------------------------------------------------------- withAgentNames */
 
-// foundation.js first: it and agents.js import each other, and agents.js is not the
-// end of that cycle that can be pulled in cold.
 const { AGENTS, mark } = await import(LIB('foundation.js'));
 const { withAgentNames } = await import(LIB('agents.js'));
 
