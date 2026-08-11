@@ -1905,6 +1905,59 @@ differently depending on which repo the process is standing in, and its test wou
 assert whatever this Mac happens to have noted. `git for-each-ref
 refs/beadcause/agents/` is the answer for a human who needs the list.
 
+### How a note reaches a session that never thought to ask
+
+Writing is the easy half. The brief in the system prompt says to check `notes` before
+you start, and that is a *pull* — it costs nothing and it works only on a session that
+remembers to run a command before it has read anything, which most do not. So the work
+brief also **pushes**: `openWorkSession` reads this repo's notes and `workPromptFor`
+puts the likely ones in front of the session, above the paragraph about running the
+tests, which is what a good half of them turn out to be about.
+
+Both halves stay. The pull is the only thing that works for whatever the selection did
+not pick, and the section says so in its own last line.
+
+**Which notes.** Two signals, ranked in that order, in `relevantNotes`:
+
+- **A note that names the bead**, or its parent — matched as a substring, so a note
+  saying `run it for bc-rk2o.2-.5 too` is found by every child in that range. The
+  precision is as good as this gets, because an agent writing `Bead: bc-u4na` at the
+  end of a note is saying *this is what that bead was about* in the one vocabulary both
+  sides share, and it is a real convention rather than a hoped-for one: nineteen of the
+  first twenty notes in this repo's store name at least one bead. It rescues exactly
+  what the second signal misses — a note about a bead's subject in words the bead
+  itself never uses scores 0.9, i.e. noise.
+- **A note that reads like the bead** — ten times the cosine between the two bags of
+  distinctive words, above a floor of `1.6`. The tokeniser keeps `.`, `/` and `-`
+  *inside* a token, because `lib/session.js` and `test/browse.mjs` are where the whole
+  signal is. The floor is a gap between two populations rather than a percentile of
+  one: measured across forty real beads, the noise floor sits at about 1.0 and the
+  correct note scores 2.0 to 4.7. A bead about filling in timesheets tops out at 1.03
+  and is handed nothing, which is the case that has to keep working — a section that is
+  noise once is a section nobody reads again.
+
+**What it costs when the pile is large, which is the part worth being honest about.**
+Bodies are capped at four notes and 4500 characters and always will be; a note is taken
+whole or not at all, since a trap clipped mid-sentence is a trap you cannot act on. What
+is *not* capped is the line of keys underneath, so nothing in the store is ever
+invisible from the brief — the session can see that `sw-cache-version-conflicts` exists
+and go and read it. That line is what makes the cap honest: without it a capped section
+reads as the whole store, and pushing would be strictly worse than pulling for
+everything it left out. At a few hundred notes the key line is itself worth capping;
+until then the ceiling that binds is the bodies.
+
+**A repo whose store is empty gets no section**, not a heading over nothing — an agent
+shown an empty section twice learns the section is furniture and stops reading it on the
+day it has something in it. And a worker is handed **its own kind's notes only**;
+reading another kind's is `notes --of=<agent>`, which the brief names, and whether one
+should be *handed* another's unasked is `bc-pud4`.
+
+`notesIn(dir, agent)` is the one tier-1 read that names a directory, and the daemon is
+the caller it exists for: it opens sessions in four repos from one process and is
+standing in none of them. Every read an *agent* can reach still resolves from
+`process.cwd()`, which is the whole point of the indirection — `lib/foundation.js` draws
+the same line in the same place with `effective(dir, agent)`.
+
 ### Where the rest lives: `~/.config/beadcause` is a git repo
 
 The memory that follows an agent, and the blackboard, have no repo they belong to —
@@ -2743,6 +2796,15 @@ read asserting the Mirror is not in the bar's tab list, that neither the route n
 exists, that the chip and the pane are both still on `monitor.html`, and that the
 device-filter the second reason rests on is still there.
 
+`node test/pagepaths.mjs` holds the same two absences from the other side, and the pair is
+deliberate rather than duplicated. The static read knows the *shape* the route would take
+today — `urlPath === '/mirror'` in `lib/server.js` — and would miss a `/mirror` that arrived
+by any other spelling: a redirect, a prefix match, a `mirror.html` served straight off
+`public/`. So `pagepaths.mjs` asks a running server for `/mirror` and `/mirror.html` and
+requires a 404 from both, which is the claim the decision actually makes — not "the code
+does not say `/mirror`" but "there is nothing there". Reversing the decision on purpose
+means deleting an assertion in each, which is two lines in a diff somebody can argue with.
+
 **What is still owed is the ambiguity, not the decision.** Two tab bars stacked on one
 screen with nothing visual to say that one changes the page and the other changes a pane
 is the actual complaint, and the fix is to restyle the in-page pair as the segmented
@@ -2826,10 +2888,11 @@ notch substituted in, for the Chromes with no `Emulation.setSafeAreaInsets`.
 The *paths* are checked separately, in `npm test`: `node test/pagepaths.mjs` asks a
 real server for every URL a phone might still have on its home screen and checks which
 document came back — all five that reach the advocate console, both that reach the pull
-request board, and so on — plus that `/work.js`, deleted with the sessions view, 404s
-rather than lingering. The aliases live in a run of one-line `if`s in `serveStatic`,
-which is exactly the shape a merge eats, and a broken one is silent: the page is fine,
-the shortcut is not.
+request board, and so on — plus the two kinds of path that must **not** resolve: `/work.js`,
+deleted with the sessions view, and `/mirror` and `/mirror.html`, which were never made
+because [the Mirror is a pane](#the-mirror-is-a-pane-not-a-tab). The aliases live in a
+run of one-line `if`s in `serveStatic`, which is exactly the shape a merge eats, and a
+broken one is silent: the page is fine, the shortcut is not.
 
 ## Loaded once, and kept — what a tab tap actually costs
 
@@ -4164,6 +4227,15 @@ bead can move. On top of that, two exclusions of our own:
 - **P4 is a backlog** — a list of things deliberately not being done. Without this
   the queue can never reach zero and "clear" stops meaning anything. Move the line
   with `minPriority`.
+- **The same job twice is one session.** Two beads can carry near-identical titles
+  without anyone proposing anything — filed by hand, pulled in from JIRA, or created
+  by an approval that *was* flagged as a duplicate and that you tapped anyway. Both
+  are ready, and the second window's first act would be to find the work already
+  committed on the first one's branch. So a bead whose title matches one that is
+  already in progress — or that a session is already open on — waits for it, at the
+  same near-verbatim threshold that refuses a duplicate approval. Waits, not
+  disappears: it is a pill on the repo's advocate card naming the bead it is behind,
+  and it goes back in the queue by itself when that one closes.
 
 When that set is empty the advocate says **clear** and stops. That is the whole of
 "done".
@@ -6968,6 +7040,133 @@ nonce is the one we sent, and that Google says the address is verified — which
 hole the allowlist would otherwise have, since anybody can put any address on an account
 they have not proved they own.
 
+## Publishing a document to Confluence
+
+Work that reaches beadcause produces durable prose. A UX review, a foundation, the
+summary a worker leaves on a bead — all of it ends up either in a repo or on an issue,
+and both of those are places the rest of a team does not look. Confluence is where they
+look. So **any document the [reader tab](#a-repo-that-could-not-be-read-says-so-instead-of-looking-empty)
+can open can be published to a Confluence page, and published again later to the same
+page**, from the same screen you were reading it on.
+
+It is off until you configure it, and an install that has not configured it never draws
+a button, never opens a credential file, and never mentions Confluence at all:
+
+```json
+"confluence": {
+  "site": "https://yourteam.atlassian.net",
+  "email": "you@yourteam.com",
+  "space": "ENG"
+}
+```
+
+```sh
+# the API token goes in a file, never in config.json — same rule as the Google client
+# secret, and for the same reason: that file is committed after every write
+printf '%s' 'ATATT3x…' > ~/.config/beadcause/confluence.key
+chmod 600 ~/.config/beadcause/confluence.key
+```
+
+An [Atlassian API token](https://id.atlassian.com/manage-profile/security/api-tokens) is
+what `email` and that file are: together they are HTTP basic auth against the Cloud REST
+API, which is Atlassian's own answer for a script. `.key` is not a naming preference —
+`~/.config/beadcause` [is a git repo](#where-the-rest-lives-configbeadcause-is-a-git-repo)
+that snapshots itself after every write, and `*.key` is both ignored there *and* on that
+file's `FORBIDDEN` list, so the token is protected by construction rather than by
+somebody choosing a good name. `BEADCAUSE_CONFLUENCE_TOKEN` works too and leaves no copy
+at all; `apiTokenFile` points somewhere else, and beadcause says so in the log if where
+you pointed it is a file that directory would commit.
+
+### Which spaces may publish, and to where
+
+`confluence.space` is the default target. A [space](#spaces--keeping-work-out-of-your-evening)
+may say otherwise, and it is the space rather than the workspace because "where does
+this side of my life get published" is the same kind of answer as "when may it interrupt
+me":
+
+```json
+"spaces": [
+  { "name": "Work", "workspaces": ["acme"], "confluenceSpace": "TEAM" },
+  { "name": "Evening", "workspaces": ["sideproject"], "confluenceSpace": false }
+]
+```
+
+`false` is a refusal and not "inherit" — a space that has said no does not start
+publishing the day a global default appears. Leave `confluence.space` unset entirely and
+**nothing** publishes except the spaces that name their own, which is the way round to
+configure it if most of what you read is not the team's business.
+
+This is deliberately **not** on the [space details screen](#space-details--the-page-the-advocate-console-became)
+with the other nine settings. It is the same line `name` and `workspaces` sit on the far
+side of: choosing which wiki an evening's work is published to is a config-file act, not
+a thing to do with a thumb, and an integration whose whole point is being deliberate
+loses that the moment its target is as easy to change as the act.
+
+### It is a button, pressed twice, under a target named in full
+
+Open a document and the footer says exactly what would happen:
+
+```
+┌────────────────────────────────────────────────────┐
+│  Confluence · ENG / The inbox, reviewed            │
+│  replaces the page that is there · last published  │
+│  3h ago                                            │
+│                                                    │
+│  [            Publish…            ]                │
+└────────────────────────────────────────────────────┘
+```
+
+The first press re-reads it back as the act — **Replace ENG / The inbox, reviewed** —
+and the second one does it. Nothing publishes on a poll, on a merge, or as a side effect
+of anything else: there is no automatic path in the code at all, because a page on a
+wiki other people read is not something a restart takes back.
+
+**The naming is enforced, not promised.** The second press sends the space key and the
+page title *as the screen drew them*, and the daemon re-derives what it would do now and
+refuses with a 409 if either has moved. Edit the document's `# heading` between reading
+the footer and pressing it, and you get "this would now publish … which is not what you
+were shown" instead of a second page under the new name. That is the difference between
+a property of the daemon and a promise the client makes.
+
+**A re-publish updates the page, and overwrites its body.** The page id is remembered in
+`state.json` under `published`, keyed by the document's own path — and unlike every
+other record in that file it has no expiry, because an expired record is not a stale
+fact, it is a duplicate page. If it is lost anyway (a state file restored from an older
+copy, a document published from another machine) the space is still searched for a page
+with that title before anything is created, so the worst case is an update to a page
+beadcause did not know it owned. Overwrite rather than append because the document on
+the Mac is the source of truth and the page is a copy of it; nothing is lost, since
+Confluence keeps its own version history and every update carries a message saying
+beadcause published it and from which file.
+
+**The URL comes back to the bead.** Open a document from a card's document list and the
+link carries the bead with it, so publishing comments the page URL onto that bead —
+which is where somebody looks for "where did this end up", and beadcause's own state
+file is not somewhere they can look at all. That half is best-effort on purpose: the
+page exists by the time the comment is attempted, and failing the request over it would
+tell your phone the publish did not happen when it did. The log says so instead.
+
+### The edges, said out loud
+
+- **Publish-out only.** Reading a Confluence page back in as context for an agent is a
+  different credential, a different surface and a different decision about what an
+  unattended agent may reach. It is scoped separately.
+- **Markdown and text only.** A `.pdf` or a `.csv` opens perfectly well in the reader
+  and there is nothing sensible to make a page out of, so the footer does not appear.
+- **A fenced code block arrives as preformatted text**, not the Confluence code macro,
+  and a mermaid block arrives as its source — Confluence has no mermaid without an app
+  installed, so the honest rendering of a diagram is the text that describes it.
+- **An observer instance may not press it.** Its line is acts on this Mac, and this is
+  further out than that.
+- **The title is the document's first `# heading`**, or its filename if it has none. It
+  is also the key a lost record is recovered by, so two documents that call themselves
+  the same thing are one page.
+
+`node test/confluence.mjs` (part of `npm test`) drives all of it against a fake
+Confluence on loopback that counts the pages it is asked to create — because the
+assertion that matters is not "the second call was an update", it is that **nothing was
+ever created twice**, including with the record deliberately thrown away.
+
 ## HTTP API
 
 Auth on everything under `/api/` except `/api/health`: header
@@ -7010,6 +7209,8 @@ cookie says so), and `/auth/signout` ends the session.
 | GET | `/api/agent-log` | `?workspace=&id=` | `{lines[], running, phase}` — the dispatched agent's log, as the CLI would have shown it |
 | GET | `/api/asset` | `?p=<abs path>` | image/doc bytes, restricted to `assetRoots` |
 | GET | `/doc` | `?p=<abs path>` | the HTML reader page |
+| GET | `/api/confluence` | `?p=<abs path>&workspace=` | what [publishing](#publishing-a-document-to-confluence) this document would do, before it happens: `{configured, publishable, site, spaceKey, title, action, existing, lastPublished}`. `{configured: false}` for an install with no `confluence` block, and it reads no credential to say so — the reader tab draws no button at that answer. Costs two GETs to Atlassian when it is on, because `action` is the thing the screen has to be able to say |
+| POST | `/api/confluence` | `{p, workspace, spaceKey, title, bead?}` | publish it. `spaceKey` and `title` are the confirmation — the target as the screen drew it — and a `409` is what you get if either has moved since, rather than a second page under the new name. Updates the page it made last time and overwrites its body; Confluence keeps the version history. Records the URL in `state.json` and, with `bead`, as a comment on that bead. Refused on an observer |
 | GET | `/api/graph` | `?workspace=&id=` | `{nodes, links}` — the whole workspace with no `id` |
 | GET | `/api/bead` | `?workspace=&id=` | one issue in full, plus `comments[]` — for the graph's detail sheet |
 | GET | `/api/bead-children` | `?workspace=&id=` | `{children[]}` — every child of that bead, closed ones included, open work first. Its own route because `bd show` does not carry children |
@@ -7200,6 +7401,11 @@ the fields it always read and renders exactly as it did.
 | `claudeSessionsDir` | where those per-process records live, if not `$CLAUDE_CONFIG_DIR/sessions` or `~/.claude/sessions` |
 | `claudeProjectsDir` | where session transcripts live, if not the `projects` folder of every `~/.claude…` directory. Takes a list. Governed by `claudeSessions` — off there means no transcripts either |
 | `assetRoots` | the only directories `/api/asset` will read images from |
+| `confluence.site` | your Atlassian Cloud site, e.g. `https://yourteam.atlassian.net`. Absent, [publishing](#publishing-a-document-to-confluence) is off and no credential is read |
+| `confluence.email` | the Atlassian account the API token belongs to — the two together are basic auth |
+| `confluence.space` | the Confluence space a document lands in by default. A beadcause space may name another with `confluenceSpace`, or refuse with `confluenceSpace: false` |
+| `confluence.apiTokenFile` | where the API token is read from, if not `~/.config/beadcause/confluence.key`. **The token itself is never a config field** — this file is committed after every write |
+| `jira` | JIRA per workspace, keyed by workspace name — `{"climative": {"enabled": true, "email": "you@company.com"}}`. Empty by default, and a workspace not named here costs nothing: no call is made about it at all. The site URL and the project keys come from that workspace's own `bd config get jira.url` / `jira.projects`, so `enabled` and `email` are usually the whole setting; `url` / `projects` here override for a workspace whose `bd` was never pointed at JIRA. **There is deliberately no token field** — see [JIRA, per workspace](#jira-per-workspace--read-only-and-one-setting) |
 | `pollSeconds` | how often new `human` beads are looked for (default 30) |
 | `monitor.enabled` | generate the LaunchAgent that opens the [activity monitor](#the-monitor--what-it-is-doing-right-now) at login (default `false`; `npm run monitor` works either way) |
 | `sharedServer` | leave `false` — see the note below |
@@ -7209,6 +7415,73 @@ the fields it always read and renders exactly as it did.
 
 `host` falls back to `127.0.0.1` if Tailscale was down when the config was
 written — fix the IP in the file if the phone can't connect.
+
+### JIRA, per workspace — read-only, and one setting
+
+Turn JIRA on for **one workspace** and the tickets assigned to you start arriving.
+There is nothing global and nothing team-wide about it: a workspace either has a JIRA
+behind it or it does not, and the setting that says so is a boolean and an address.
+
+```json
+"jira": { "climative": { "enabled": true, "email": "you@company.com" } }
+```
+
+Keyed by workspace name, like `sessionDirs` and `advocates.perWorkspace`. It is
+deliberately **not** a field on a `workspaces` entry: that array is discovered from
+`~/beads/*/.beads` and reconciled on every start, so anything written onto it by hand
+disappears at the next restart — which would present as JIRA quietly switching itself
+off overnight.
+
+**Why one setting is enough.** `bd` already holds per-workspace JIRA configuration, and
+if you have ever run `bd jira pull` in that workspace it is already there:
+
+```
+bd config get jira.url       ->  https://your-company.atlassian.net
+bd config get jira.projects  ->  TECH
+bd config get jira.username  ->  you@company.com
+```
+
+Those live in the workspace's Dolt database rather than in `.beads/config.yaml`, so
+they are read by asking `bd` rather than by parsing a file. Set `url` / `projects` in
+the block above only for a workspace whose `bd` has never been pointed at JIRA. One
+trap is worth knowing about, because it fails in the permissive direction: **`bd config
+get` prints `jira.url (not set)` on stdout and exits 0** for a key nobody has set, so a
+reader that trusts the exit code turns that sentence into a hostname. `bdConfig` in
+`lib/jira.js` is the one place that knows.
+
+**The token is the one thing that cannot be reused.** `bd` resolves `jira.api_token`
+from the `JIRA_API_TOKEN` environment variable, which on a machine set up the usual way
+is exported per-directory by a shell function in `~/.zshenv`. That is a *shell*
+mechanism, and beadcause runs under launchd — a client expecting to inherit that token
+would work in every hand-test from a terminal and authenticate as nobody in the only
+place it actually runs. So it goes in a file:
+
+```
+~/.config/beadcause/jira-<workspace>.key       # 0600
+```
+
+The `.key` extension is the entire protection, and it protects by construction rather
+than by anybody choosing well: `~/.config/beadcause` is a git repo that snapshots after
+every write, and `*.key` is both on `lib/commonrepo.js`'s `FORBIDDEN` list and in the
+`.gitignore` it writes. Exactly the reasoning behind
+[`google-client-secret.key`](#where-the-two-secrets-live-and-how-to-rotate-them) — a
+secret in `config.json` is not merely on disk in the clear, it is in a history that a
+rotation cannot reach back into. One file per workspace, because two workspaces may be
+two JIRA sites with two accounts, and a shared credential would quietly authenticate
+one of them as the wrong person.
+
+**Nothing in this path ever writes to JIRA.** Not as a policy anybody has to remember:
+`lib/jira.js` has no function that names an HTTP method and no code path that
+constructs a request body, which is the same way `lib/lookup.js` enforces "GET only"
+for an agent's network grant — a caller cannot reach a write by passing a flag, because
+there is no flag. Making beadcause write to JIRA would mean *adding* the capability,
+which is the point at which somebody has to decide it, explicitly and with an
+allowlist. `node test/jira.mjs` asserts both halves against the module's own source.
+
+A first configuration goes wrong in four ways — no site, a site that is not a URL, no
+address, no credential — and each one is reported as the fix rather than as the
+symptom, because a 401 and a 404 are the same stack trace and completely different
+mornings.
 
 ### Environment
 
@@ -7221,6 +7494,7 @@ written — fix the IP in the file if the phone can't connect.
 | `SKIP_CONFIGURE` | `scripts/install.sh` asks nothing and keeps the answers on file — the same as `--non-interactive`. `CLAUDECODE`, `AI_AGENT` and `CI` imply it, because a question asked of a terminal nobody is watching is a hang; `--interactive` asks anyway |
 | `BEADCAUSE_GOOGLE_CLIENT_SECRET` | the Google OAuth client secret, taking precedence over the secret file. The one place it leaves no copy on disk — see [rotating the two secrets](#where-the-two-secrets-live-and-how-to-rotate-them) |
 | `BEADCAUSE_SESSION_KEY` | the HMAC key sessions are signed with, instead of `~/.config/beadcause/session.key`. Setting it to a new value signs everybody out |
+| `JIRA_API_TOKEN` | a JIRA API token, taking precedence over the per-workspace `.key` file for the same reason the Google one does — it leaves no copy on disk. The daemon runs under launchd and will not have it; this is for a hand-run script or a test |
 | `BEADCAUSE_TAILSCALE` | the `tailscale` binary, overriding the three macOS paths that are searched by default. Has to exist to count — a path typed wrong reads as "no tailscale" rather than failing mysteriously later. See [renewing the certificate](#renewing-it-before-it-expires) |
 
 ### Every state file is replaced, never overwritten

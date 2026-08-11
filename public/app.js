@@ -284,12 +284,21 @@
 
   const isLocalPath = (s) => /^(file:\/\/|~\/|\/)/.test(String(s || '').trim());
 
-  /** A file on the Mac opens in the reader tab, not as a dead file:// link. */
-  function docUrl(p) {
+  /**
+   * A file on the Mac opens in the reader tab, not as a dead file:// link.
+   *
+   * `q` is optional and only the docs list of a card has one to give. It carries the
+   * bead through to the reader tab, which is what lets a publish to Confluence say
+   * where the document ended up *on that bead* rather than only in the daemon's own
+   * state. A path lifted out of prose (`renderMarkdown`) has no bead behind it and
+   * passes nothing, which the reader tab reads as "no bead" and not as an error.
+   */
+  function docUrl(p, q) {
     let s = String(p || '').trim();
     if (s.startsWith('file://')) s = decodeURIComponent(s.slice(7));
     if (s.startsWith('~')) s = s.replace(/^~/, '');
-    return `/doc?p=${encodeURIComponent(s)}`;
+    const from = q?.workspace && q?.id ? `&ws=${encodeURIComponent(q.workspace)}&bead=${encodeURIComponent(q.id)}` : '';
+    return `/doc?p=${encodeURIComponent(s)}${from}`;
   }
 
   /** The bd dependency graph for a question, in its own tab. */
@@ -2673,7 +2682,7 @@
         `<div class="docs">${d.docs
           .map(
             (doc) =>
-              `<a href="${esc(docUrl(doc.path))}" target="_blank" rel="noopener noreferrer"><span>${esc(
+              `<a href="${esc(docUrl(doc.path, q))}" target="_blank" rel="noopener noreferrer"><span>${esc(
                 doc.label
               )}<span class="path">${esc(doc.path)}</span></span></a>`
           )

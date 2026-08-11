@@ -2,7 +2,7 @@
  *
  * The phone is a good place to be *told* something and a poor place to read it: a
  * question's brief is scrolled a paragraph at a time, its thread is behind a tap, and
- * the bead it depends on is a page away. This tab follows the phone — the same card,
+ * the bead it depends on is a page away. This pane follows the phone — the same card,
  * the same chat session, the same list — and draws the version that would not fit: the
  * whole body, every comment, the options as buttons you can actually press.
  *
