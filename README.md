@@ -1817,6 +1817,54 @@ the foreshadow, both stores and the question between them, the "most runs should
 nothing" sentence, and that the three steps come out numbered in the order the marker
 needs.
 
+### Every agent needs a moment, and two of them did not have one
+
+That step turned out to be the general rule rather than the worker's own arrangement.
+Three days after the brief reached all four agents, the roster had one name on it, and
+counting who had written what is what explains it (`bc-sgu4`).
+
+**The read half fires everywhere, because the brief anchors it to a moment every run
+has.** *"Check `recall` and `notes` first"* names a point — the start — and the agents
+take it: thirteen of the thirty-four stored chat conversations open a turn with a
+`beadcause-memory recall`. **The write half names what to keep and never when**, and the
+agents that write are exactly the ones whose own brief supplies the when. A worker's
+numbers it as a closing step, and it began writing two minutes after that step landed —
+ninety-five notes and about eighty-five memories inside the first day. The comment
+answerer's run is one reply and an exit, so its end is unmissable, and its first memory
+landed an hour after the brief reached it. The chat session had no such moment, because
+a chat does not end: you stop replying and the window closes. In three days and
+twenty-eight conversations it read constantly and wrote nothing at all.
+
+So each of the chat session's two protocols now names its own moment, and the moments
+are different because the runs are. The proposal protocol hangs it on the block, which
+is the only terminal act that conversation has and is the right one on the merits — by
+the time it writes a proposal it knows what you asked for, what you cut and what shape
+you wanted, and after the block it may never be asked again. The direct-chat protocol
+hangs it on the turn where something about how that agent works gets settled. A generic
+sentence in `memoryBrief` would have been false for three of the four; this is why the
+moment lives in each agent's own brief and the *what* lives in the shared one.
+`test/memory.mjs` asserts both paragraphs, for the reason it already asserts the brief:
+a prompt paragraph is the load-bearing part of this feature and nothing else notices it
+going missing.
+
+**And the fourth agent's zero was never evidence of anything, which is worth more than
+the fix.** The advocate looked like the strongest case — it is unattended, it surveys
+the same repo again and again, and its brief carries an extra paragraph telling it to
+`recall` before proposing and `remember` what you turned down. It has written nothing
+because it has never been handed the brief: `memoryBrief` reaches it through
+`surveyPrompt` alone, a survey runs only on a tick where the queue is empty of ready
+beads *and* of running workers *and* of epics held by their children *and* of beads
+already in an open pull request, and on this Mac that has not once happened —
+`lastProposalAt` is `null` for all six advocates, and no `<workspace>_advocate.log`
+exists although `agentlog.reset` is the first line of `surveyAgent`. The advocate has a
+second path, `chatProtocol` — a chat on the agents screen runs as its real foundation,
+so `BEADCAUSE_AGENT` is `advocate` and anything written there is the advocate's — and
+the one advocate chat on disk predates the commit that put the brief in that spawn by
+three hours. **Before reading anything into a silent agent, check that the code path
+quoting the brief has ever run.** From outside, "told and declined" and "never told"
+look identical, which is the same lesson as the roster command nobody ran, one level
+further out: there the brief did not name the capability, here the brief did not arrive.
+
 ### Reading another agent, without being able to be one
 
 ```
