@@ -26,11 +26,11 @@
 // ticks cannot tell you is whether eight settings on a 393px screen read as a card or
 // as a wall.
 import fs from 'node:fs';
-import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { freePort } from '../test/helpers/net.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
@@ -61,21 +61,13 @@ const wsDir = (name) => {
   return dir;
 };
 
-const port = await new Promise((resolve, reject) => {
-  const probe = net.createServer();
-  probe.on('error', reject);
-  probe.listen(0, '127.0.0.1', () => {
-    const { port: p } = probe.address();
-    probe.close(() => resolve(p));
-  });
-});
-
 /* `bd` answers everything with an empty list, so the page has real advocates-and-
    sessions machinery running over nothing rather than a tracker sweep in the way. The
    settings card does not read `bd` at all, which is the point of it being cheap. */
 const FAKE_BD = path.join(tmp, 'bd');
 fs.writeFileSync(FAKE_BD, "#!/usr/bin/env node\nprocess.stdout.write('[]');\n", { mode: 0o755 });
 
+const port = await freePort();
 const CONFIG = {
   port,
   host: '127.0.0.1',

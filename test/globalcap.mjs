@@ -28,6 +28,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { boundPort } from './helpers/net.mjs';
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'beadcause-globalcap-'));
 // Before anything under lib/ is imported: CONFIG_DIR resolves once, at module load.
@@ -152,23 +153,13 @@ check('the row is actually styled, rather than inheriting a health line', () => 
    given)" forever. */
 
 const http = await import('node:http');
-const net = await import('node:net');
 const { createApp, listen } = await import('../lib/server.js');
-
-const port = await new Promise((resolve, reject) => {
-  const probe = net.createServer();
-  probe.on('error', reject);
-  probe.listen(0, '127.0.0.1', () => {
-    const { port: p } = probe.address();
-    probe.close(() => resolve(p));
-  });
-});
 
 // The one object the whole process holds — what the endpoint mutates is this.
 const live = {
   host: '127.0.0.1',
   baseUrl: 'http://127.0.0.1',
-  port,
+  port: 0,
   token: 'global-cap-token',
   actor: 'beadcause-test',
   workspaces: [],
@@ -184,6 +175,8 @@ const live = {
 };
 const app = createApp(live);
 const servers = listen(live, app.handler);
+const port = await boundPort(servers);
+live.port = port;
 
 const call = (pathname, body) =>
   new Promise((resolve, reject) => {
@@ -206,15 +199,6 @@ const call = (pathname, body) =>
     req.write(JSON.stringify(body));
     req.end();
   });
-
-for (let i = 0; i < 100; i += 1) {
-  try {
-    await call('/api/health', {});
-    break;
-  } catch {
-    await new Promise((r) => setTimeout(r, 50));
-  }
-}
 
 const stepped = await call('/api/advocate', { action: 'globalLimit', value: 9 });
 check('a press with no workspace is the global cap, not a 404', () => {
