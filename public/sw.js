@@ -82,7 +82,15 @@
    GitHub; one holding v29's app.js against v28's stylesheet opens the sheet with no facts
    column, no pinned action bar and a comment box the buttons sit on top of. Both look like
    a working app, which is the failure a cache version exists to prevent. */
-const CACHE = 'beadcause-v29';
+/* v30: every view moved onto the delta stream. `/stream.js` is a new path *and* all five
+   standing pages mount it in place of the `setInterval` they used to refresh on — so a
+   phone holding v29's cached admin.js, monitor.js or prs.js beside a v30 daemon still has
+   the ten-second sweep this removed, and one holding v30's scripts without the file has
+   four pages that never refresh at all: the timer is deleted in the same change that adds
+   the poll, and nothing else brings a row up to date. That is the strictest version of
+   what a cache version is for — the failure is not a broken page, it is a page that looks
+   right and is quietly hours out of date. */
+const CACHE = 'beadcause-v30';
 const SHELL = [
   '/',
   '/index.html',
@@ -117,6 +125,11 @@ const SHELL = [
   // a page that has to fetch its cache before it can read it has already lost the
   // wait it exists to remove.
   '/warm.js',
+  // How each of those five pages stays current: one long poll on the daemon's event
+  // log, mounted in place of the timer each of them used to refresh on. In the shell
+  // for a stronger reason than warm.js is — a cached page without it does not merely
+  // start slower, it never updates, because the `setInterval` it replaced is gone.
+  '/stream.js',
   // On every page that can open a detail drawer, and on both pages that can be one.
   '/drawer.js',
   '/doc.html',
