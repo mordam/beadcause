@@ -2185,6 +2185,40 @@ The wider scopes poll at 60s rather than the inbox's 25s: they are a full `bd li
 sweep, about 2.5s of `bd` across seven workspaces, and that does not want to run four
 times a minute for a list you are glancing at.
 
+### A repo that could not be read says so, instead of looking empty
+
+A sweep is one `bd` per workspace and those calls fail independently. Embedded Dolt is
+single-writer, twenty-odd agent sessions share these workspaces, and a read losing a
+lock race is an ordinary Tuesday rather than an outage.
+
+The handling used to be a `catch` that logged a line to the daemon's stdout and
+returned `[]` for that repo. Every count on the screen is arithmetic over the rows that
+came back, so a workspace whose `bd human list` threw did not show up as broken — it
+showed up as **quiet**. "Nothing live", a count beside it, and the questions back on
+their own a poll later, with the only record on a console nobody is watching. That is
+this app's one unforgivable failure mode wearing the empty state as a costume.
+
+Three things now stand between a lock collision and a lie:
+
+- **The read is retried.** Two attempts, 400ms apart, and only ever for an error that
+  looks like a lock — the same treatment every *write* has had since the beginning.
+  Anything else still fails at once. Most collisions never get past this, which is the
+  right way for the incident to be invisible.
+- **The last good answer stands in.** A sweep that still fails returns whatever that
+  workspace last said rather than nothing. Stale rows are a smaller lie than none: the
+  bead really is open and really is waiting, and only its age is wrong. Answering a
+  card drops it from what is held, so a write of your own can never be argued with by a
+  sweep that could not read the repo you just wrote to.
+- **It is named on screen.** A pane above the list, outside every filter, saying which
+  repos could not be read, what `bd` said, and how many of their rows are standing in.
+  Above the list rather than inside the empty state, because the usual case is six
+  repos answering and one not — a screen that is six-sevenths of itself and looks
+  exactly like an inbox.
+
+And the picker stops reporting a confident zero: a space holding an unreadable repo
+draws `⚠` beside whatever count it does have. The number is still the best answer
+available. It just stops being presented as a fact.
+
 ### One list, five kinds — and the sub-filter for pull requests
 
 The inbox is not one list. An advocate asking to create beads, a worker asking you to
