@@ -96,6 +96,9 @@ otherwise its poller would keep firing notifications with no listener behind the
    and a path into a phone. The link is `https://<host>.<tailnet>.ts.net:4318` once
    the tailnet can issue certificates, and the Tailscale address over plain http until
    then — see [the URL you are given](#the-url-you-are-given-and-what-happens-to-a-phone-that-already-has-one).
+   The http one pairs a browser and not the Android app, and `npm run qr`
+   [says so on the spot](#npm-run-qr-says-when-the-link-is-a-browser-only-one) rather
+   than leaving you to find out with the phone in your hand.
    Every device needs this once — a
    notification opened on an unpaired phone lands on the token prompt, or on the
    [sign-in screen](#signing-in-with-google) if you have configured Google, which either
@@ -8127,6 +8130,47 @@ and why on the screen. **Scan `npm run qr` again**; it is the same token, and th
 saved pairing is kept rather than cleared until you do, so nothing is lost if you
 scan it a week later. The watcher stays stopped in the meantime — a foreground
 notification that can never hear anything would be worse than its absence.
+
+### `npm run qr` says when the link is a browser-only one
+
+Both halves of that are now true at once: the http address is the right answer for a
+browser, and it is a link the Android app cannot pair with at all. The app explains
+itself when it happens — but the person reading that explanation is holding the phone,
+and the fix is on the Mac they have just walked away from. So the Mac says it first, at
+the one moment it is standing in front of you:
+
+```
+  http://100.96.105.106:4318/?t=…
+
+[beadcause] the Android app will refuse this link — it is plain http, and the app only
+            sends its token to https://<host>.<tailnet>.ts.net. A browser on the tailnet
+            is fine with it.
+[beadcause] turn HTTPS Certificates on for the tailnet
+            (https://login.tailscale.com/admin/dns), then run this again — the daemon
+            picks a certificate up within a minute of it being available.
+```
+
+**On stderr, and only when there is something to say.** `node bin/beadcause.js --url` is
+piped into shell scripts, so its stdout is a value rather than a display and a sentence
+mixed into it would be an address nothing can dial; `npm run qr` prints it after both
+codes, where it is the last thing on the screen you walk away from. An https link — a
+certificate, or a `baseUrl` you set yourself — prints nothing at all, because a line that
+appears on every run is a line nobody reads on the run that matters.
+
+**It is judged on the URL, not on the certificate**, and those are different questions. A
+`baseUrl` pointing at a reverse proxy or a real domain is pairable with no `tailscale
+cert` anywhere in sight. Loopback is exempt for the opposite reason: it is
+[plain http forever](#https-on-the-tailnet-name), and it is the one address the APK still
+permits cleartext to — `10.0.2.2` is how an emulator reaches the Mac it runs on, and
+warning about that would be a warning on every development session. The exception list
+lives in `lib/tls.js` beside the warning, and `test/pairhost.mjs` fails the build if it
+and `Address.LOOPBACK` in the APK ever stop naming the same three hosts.
+
+The pairing panel on the **Admin screen** says the same thing in the same case — it is
+the other place a code is offered to "another device", and on an http origin that device
+cannot be the app. It is told so by the server rather than working it out from the URL,
+for the same reason: a second copy of that rule inside a browser is a copy that goes
+stale unwatched.
 
 ### Renewing it before it expires
 
