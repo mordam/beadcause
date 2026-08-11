@@ -305,7 +305,9 @@ interrupt you*:
     "quietHours": { "from": "18:00", "to": "09:00" },
     "quietDays": ["sat", "sun"],
     "ntfyDetail": "minimal",
-    "autoDispatch": false }
+    "autoDispatch": false,
+    "autoMerge": false,
+    "requireApproval": true }
 ]
 ```
 
@@ -477,6 +479,24 @@ because "after six" means your evening. A malformed time disables the rule rathe
 than muting the space forever. `ntfyDetail` and `autoDispatch` set at space level
 keep applying as you add workspaces to that space — which is exactly the drift that
 otherwise leaks a work question onto a public relay.
+
+**A space also decides who merges.** `autoMerge` and `requireApproval` are the same
+kind of answer as the two above — one you give once for a group of repos rather than
+per repo — and they are the two halves of
+[landing work](#landing-work--a-branch-a-pull-request-and-the-workers-own-merge):
+
+| on a space | what it does |
+|---|---|
+| `"autoMerge": false` | workers there stop after opening the pull request, and the merge is your tap |
+| `"autoMerge": true` | they land their own work, even where the global `pr.autoMerge` says off |
+| `"requireApproval": true` | they land their own work *unless* the pull request has no approving review — a green, unapproved one becomes a card that says so |
+
+The global `pr.*` is the **default** here, not a veto, and that is a deliberate
+difference from `autoDispatch` — where `false` is a safety switch no space may argue
+its way out of. Both of these are ordinary policy, and only a default a space can
+override in either direction expresses the two setups that motivated it: on everywhere
+except the shared repo, and off everywhere except the side project. A space that says
+nothing inherits, and a config with no spaces at all behaves exactly as it always did.
 
 `npm run configure` walks you through it. Run it **in a terminal** — it needs one to
 ask questions. Anywhere else (a pipe, CI, an agent shell) it prints the current
@@ -3149,7 +3169,7 @@ was given, because the whole value of the line is that it is honest:
 | the session | may owe | because |
 |---|---|---|
 | landed its own work | `DEPLOYED`, `REBUILT` — or `REVIEWED` if the merge was refused | the delivery merged and pushed it, so claiming either would describe work already on `origin` |
-| handed the PR over (`pr.autoMerge` off) | `REVIEWED`, and nothing else | it never merges, pushes or deploys; it can owe nothing but your answer |
+| handed the PR over (auto-merge off for its space) | `REVIEWED`, and nothing else | it never merges, pushes or deploys; it can owe nothing but your answer |
 | has no remote to push to | `MERGED`, `PUSHED`, `DEPLOYED`, `REBUILT` | all four are still yours, and the session names them without doing them |
 
 Whatever it writes, it passes the same thing to the delivery as `--owed`, which puts it on
@@ -3468,8 +3488,10 @@ Five things follow, and they are the whole of the change:
 
 **The old ending is intact, and it is the fallback.** Everything below about the card,
 the three answers and the markers is still exactly what happens when the merge does not
-— GitHub refused it, a check went red, the checks never reported, `pr.autoMerge` is off,
-or the session passed `--review` because it wanted a human on this one. It went from
+— GitHub refused it, a check went red, the checks never reported, the space
+[asks for an approving review](#spaces--keeping-work-out-of-your-evening) and there is
+none, auto-merge is off, or the session passed `--review` because it wanted a human on
+this one. It went from
 being every delivery to being the interesting ones.
 
 ### The notification with nothing to answer
@@ -3503,8 +3525,14 @@ sentences, never folded into one polite one:
 | the card says | what happened |
 |---|---|
 | *tried to merge it. **It could not:** …* | GitHub refused, or a check went red, or nothing reported. The reason is quoted from whatever refused |
+| *its checks are green. **It is waiting on an approving review*** | the space asks for one (`requireApproval`) and the pull request has not got it. Nothing refused and nothing is wrong — your **Merge** *is* the review |
 | *could have merged this itself and **deliberately did not*** | the session passed `--review`. Its reason is in the summary |
-| *Nothing is merged until you say so* | `pr.autoMerge` is off, so every delivery is a question and this one is not special |
+| *Nothing is merged until you say so* | auto-merge is off for this space, so every delivery is a question and this one is not special |
+
+The second and the fourth are the pair worth keeping apart. Both are a green pull
+request sitting unmerged, and only one of them is about a switch: a card that said
+*auto-merge is off* over a repo where it is emphatically on would send you looking for
+a setting that is already the way you want it.
 
 A refusal is prose on the card and never a field in the `beadpr` block — the block
 carries identity and intent, and "why it didn't merge this time" is neither. The same
@@ -3775,6 +3803,7 @@ channel would have.
   "base": "main",
   "mergeMethod": "merge",
   "autoMerge": true,
+  "requireApproval": false,
   "mergeWaitMs": 300000,
   "tidyMerged": true
 }
@@ -3821,6 +3850,22 @@ is your tap. Nothing else changes — same branch, same PR, same card, same thre
 so it is a safe thing to flip for an afternoon, and flipping it back needs no cleanup. A
 worker can reach the same ending on its own for one delivery with `--review`, and the
 card says which of you decided.
+
+`requireApproval: true` is the half-measure between the two, and it is the one to reach
+for when other people work in a repo: the worker still opens the pull request and still
+waits for the checks, but a green one with no **approving review** on it becomes a merge
+card rather than a merge. `reviewDecision` is read off the pull request the worker just
+opened — `APPROVED` and nothing else counts, so *changes requested* and *review required*
+both stop it — and the card says outright that a review is what is missing. Your **Merge**
+is that review. This is beadcause's own gate, not GitHub's: branch protection is free to
+require its own on top, and will refuse the merge in its own words if it does.
+
+**Both are per space, and the global here is only the default.** `autoMerge` was one
+global answer for every repo in every space, which is wrong at both edges: a side project
+wants its work landed without being asked at three in the morning, and a shared repo wants
+eyes on the diff. Put the answer on
+[the space](#spaces--keeping-work-out-of-your-evening) instead, in either direction, and
+what is below stays the fallback for everything that has not said.
 
 `mergeWaitMs` is how long a worker waits for its checks before giving up and asking. Too
 short and a repo with CI hands you every delivery as a question — a pull request is at
@@ -3880,7 +3925,12 @@ rule as the sweep — asked only after the local test says no.
 assertion rather than a hope — including the wait for the checks, whose `sleep` is
 injected and is where the fake's world changes, so pending-then-green runs in
 milliseconds. `test/delivery.mjs` covers the block, the markers, the split, and that the
-three openings of a card are three different sentences. `test/land.mjs` covers the thing
+four openings of a card are four different sentences. `test/approval.mjs` covers the
+per-space half end to end — `prPolicyFor` resolving both answers in both directions, and
+the real `bin/deliver.js` against the same fakes, where the assertion that matters is
+again a negative one: a green, unapproved pull request in a require-approval space must
+leave no `gh pr merge` in the call log at all, and must produce a card that says it is
+waiting on a review rather than that auto-merge is off. `test/land.mjs` covers the thing
 with no other interface: the **brief**, which is all beadcause can make a worker do. It
 asserts that the landing ending never tells a session to merge `main` by hand, that its
 marker line cannot claim `CAN BE MERGED` over work already in `main`, that the ask-first
@@ -5308,7 +5358,8 @@ the fields it always read and renders exactly as it did.
 | `pr.enabled` | land finished work as [a pull request the worker merges](#landing-work--a-branch-a-pull-request-and-the-workers-own-merge) (default `true`). `false` puts every workspace back on the oldest ending — work the bead, close the bead. A workspace with no `gh` or no GitHub remote gets that ending anyway, without needing to be named |
 | `pr.base` | what a PR is opened against and merged into (default `main`) |
 | `pr.mergeMethod` | `merge` (default), `squash` or `rebase`. A merge commit because a squash-merged branch is never an ancestor of `main`, and the worktree cleanup will not remove a worktree that fails that test |
-| `pr.autoMerge` | the worker merges its own pull request once the checks report (default `true`). `false` stops it after opening the PR and makes the merge your tap, which is what every delivery used to do. A worker can choose the same for one delivery with `--review` |
+| `pr.autoMerge` | the worker merges its own pull request once the checks report (default `true`). `false` stops it after opening the PR and makes the merge your tap, which is what every delivery used to do. A worker can choose the same for one delivery with `--review`. **A [space](#spaces--keeping-work-out-of-your-evening) overrides this either way**, so this is the default rather than the answer |
+| `pr.requireApproval` | a pull request needs an `APPROVED` review before a worker may merge it (default `false`). Green but unapproved becomes a merge card saying so, rather than a merge — the setting for a repo other people work in. Per space, like `autoMerge` |
 | `pr.mergeWaitMs` | how long a worker waits for its checks before handing the PR over instead (default 5 min). A PR is at its most pending the second after it is opened, so without this a repo with CI would ask you about every delivery |
 | `pr.tidyMerged` | let the worktree sweep ask GitHub whether a branch's PR merged, since a squash-merge never makes it an ancestor of main (default `true`; belt beside `mergeMethod`'s braces) |
 | `advocates.workspaces` | which repos get an [advocate](#advocates--an-agent-per-repo-whose-job-is-the-queue-reaching-zero). **Empty by default**; `["*"]` for every one |
