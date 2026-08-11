@@ -2385,8 +2385,9 @@ bottom bar, which moves between pages, and an in-page pair (Advocates | Mirror) 
 a pane. Either reading was defensible on the face of it — a standing view of its own, or a
 mode of the advocates page — and bc-3xb was the bead about which one it is.
 
-**It is a pane.** Two reasons, and both are about what the Mirror *is* rather than about
-how much room the bar has:
+**It is a pane** — ruled in `docs/ux-review.md` §3 and §5, and approved with the rest of
+that review on bc-j0zl. Two reasons, and both are about what the Mirror *is* rather than
+about how much room the bar has:
 
 - **It is a mode, not a destination.** "Show me what the phone has open instead of what
   this Mac is running" is a lens on the advocates page — the same repos, the same
