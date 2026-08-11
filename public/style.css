@@ -2096,6 +2096,32 @@ button.work-row {
 .rel-dot { flex: none; width: 7px; height: 7px; border-radius: 50%; }
 .rel-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+/* What is under a bead, in the same row as what is around it — see childrenHtml.
+   The heading carries two more things than the relation groups do: the fraction, and
+   the fold. */
+.kids { margin-bottom: 14px; }
+.kids-head { display: flex; align-items: center; gap: 8px; min-height: 36px; }
+.kids-count { font-size: 11px; font-weight: 600; letter-spacing: 0.04em; color: var(--muted); }
+/* Pushed to the far end so it reads as a control on the list rather than a third label
+   in the heading, and 36px tall because it is a thing you hit with a thumb — the same
+   floor .scope-btn holds to. */
+.kids-toggle {
+  margin-left: auto;
+  min-height: 36px;
+  padding: 6px 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 550;
+}
+/* Finished work stays legible — it is the record of what got done, and hiding it is
+   what the button is for — but steps back so the open rows are what the eye lands on.
+   The dot beside it is already grey; this is the rest of the row agreeing. */
+.rel-row.is-closed { opacity: 0.62; }
+
 /* `display: flex` beats the UA's [hidden] rule — see .brief[hidden]. */
 .scope[hidden] { display: none; }
 .scope { position: relative; z-index: 20; display: flex; gap: 8px; padding: 8px 16px 10px; border-bottom: 1px solid var(--line); background: var(--bg); }
