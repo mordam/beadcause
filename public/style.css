@@ -267,6 +267,23 @@ body {
   font-weight: 550;
   cursor: pointer;
 }
+/*
+  The one rule that decides what a pressed chip looks like, anywhere in the app —
+  the filter and scope chips, the space row, the monitor's tabs, the chips the
+  console edits a bead with. A filled accent, the same paint a selected tab gets
+  below, because a chip that is on has been *chosen* and that is worth shouting.
+
+  There used to be a second, unscoped `.chip[aria-pressed]` further down at the
+  composer's suggestion chips, quoted `'true'` where this one is quoted `"true"`
+  — which is why grepping for either came back looking conclusive. Same
+  specificity, so that one won the background (a 16% wash) while this one still
+  handed over `color: var(--accent-ink)`, and every pressed chip in the app was
+  near-black ink on a translucent teal: 1.0:1 in the dark theme, and white on a
+  pale teal at 1.6:1 in the light one, which is invisible rather than merely dim.
+  The wash is a real intent, but it is the *composer's* intent and it is scoped to
+  `.suggested` now — see `.suggested .chip[aria-pressed="true"]`. Anything setting
+  a pressed chip's paint belongs in one of those two rules, quoted `"true"`.
+*/
 .chip[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
 /*
   A muted space. Dimmed, but the count stays at full strength — the questions are
@@ -1473,13 +1490,27 @@ body {
 .chip:active { transform: scale(0.98); }
 .chip .star { color: var(--accent); font-size: 11px; }
 .chip.rec { border-color: color-mix(in srgb, var(--accent) 55%, var(--line)); }
-/* Pressed means "these are the words in the box right now" — it is a statement
-   about the textarea, not a decision, and it goes away the moment you type. */
-.chip[aria-pressed='true'] {
+/*
+  Pressed means "these are the words in the box right now" — it is a statement
+  about the textarea, not a decision, and it goes away the moment you type. So it
+  is a wash and an edge rather than the filled accent a chosen chip gets up at
+  `.chip[aria-pressed="true"]`; that difference is the whole point of the rule.
+
+  Two things it has to say out loud. It is scoped to `.suggested`, because while
+  it was a bare `.chip[aria-pressed]` it was painting every pressed chip in the
+  app with the composer's argument — and only half of it, since it sets no colour
+  and the general rule's `var(--accent-ink)` survived onto the wash. And it names
+  its own ink for the same reason: without `color`, the general rule reaches
+  across the whole stylesheet and hands this chip near-black text again. `--text`
+  rather than `--accent` is what the quiet reading needs anyway — accent on a 16%
+  accent wash measures 3.5:1 in the light theme, under AA, where this is 11:1.
+*/
+.suggested .chip[aria-pressed="true"] {
   background: color-mix(in srgb, var(--accent) 16%, transparent);
   border-color: var(--accent);
+  color: var(--text);
 }
-.chip[aria-pressed='true'] .star { color: var(--accent); }
+.suggested .chip[aria-pressed="true"] .star { color: var(--accent); }
 
 .primary {
   flex: 1;
@@ -3118,17 +3149,11 @@ button.work-row {
 */
 .show-dismissed { flex: none; white-space: nowrap; }
 .show-dismissed[hidden] { display: none; }
-/*
-  On, and legibly so. There are two `.chip[aria-pressed]` rules in this file — one
-  quoted `"true"` up at the chips, one quoted `'true'` down at the composer's — and
-  the later one wins the background (a 16% wash) while the earlier one still hands
-  over `color: var(--accent-ink)`, which is nearly black. That lands dark ink on a
-  dark wash for every pressed chip in the app; here it would be a toggle you cannot
-  read in the one state you need to see. The accent as ink is the fix for this
-  control, and it is also quieter than a tab beside it, which is right — the tab
-  chooses what the list is of, this only says how much of it you are seeing.
-*/
-.show-dismissed[aria-pressed="true"] { color: var(--accent); }
+/* On is just a pressed chip — there is deliberately no rule here. This control
+   carried `color: var(--accent)` of its own (bc-es8) for as long as the two
+   colliding `.chip[aria-pressed]` rules left a pressed chip unreadable; with that
+   collision settled at `.chip[aria-pressed="true"]` the workaround is one control
+   opting out of the app's own paint for no reason a reader could see. */
 /* Same paint as a pressed chip. A tab is selected, not pressed, so the attribute
    differs and the rule has to say so — see `.chip[aria-pressed="true"]`. */
 .chip[aria-selected="true"] { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
