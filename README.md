@@ -2338,19 +2338,55 @@ reloads. Nothing is folded on your behalf.
 This one costs a second `bd` call, and everything about how it is loaded follows from
 that. Children are simply **not in `bd show --json`**: on bc-goo, an epic with seven, it
 returns `dependent_count: 7` and not a single row — the text output has a CHILDREN
-section and the JSON has nothing to read it from. So it is `/api/bead-children`, a route
+section and the JSON has nothing to read it from. So it is `/api/bead-links`, a route
 of its own, and the sheet **does not wait for it**: it paints from `/api/bead`, then
 appends the block below the description when it lands. A call that is slow costs the
 block; a call that fails costs the block and says nothing, because replacing a sheet you
 can already read with an error would take the bead away over the part of it that did not
 arrive.
 
-It is not asked for at all unless the bead could have children, and what decides that is
-`dependent_count` — every edge pointing *at* the bead, of which a child's is one. Zero
-dependents means zero children, so the leaf beads that are most of what you tap ask
-nothing. It is not tight the other way: a bead that blocks something and parents nothing
-costs one call that comes back empty and draws nothing, which is the price of bd offering
-no child count to read.
+It is not asked for at all unless something points at the bead, and what decides that is
+`dependent_count` — every edge pointing *at* it, of which a child's is one. Zero
+dependents means nothing to draw, so the leaf beads that are most of what you tap ask
+nothing.
+
+#### What is waiting on it — the list `blocks 7` used to be
+
+The other half of the same hole, and the reason the route is not called
+`/api/bead-children` any more. `dependent_count` was a pill and nothing else: `blocks 7`,
+not tappable, answering none of the question it raises. Worse, it counts **every** edge
+pointing at the bead and a child's is one of them — so bc-goo, an epic with eleven
+children and nothing whatsoever waiting on it, announced that it blocked eleven beads,
+every one of them already listed under Children.
+
+So the same call answers both, and one row per edge lands under the heading its edge
+actually means:
+
+- **Blocks** — beads that cannot start until this one closes. A queue, and the thing the
+  pill was trying to say.
+- **Discovered here** — work that came *out* of this bead, `discovered-from`. It waits on
+  nothing; calling it blocked would invent a queue.
+- **Related** — `related`, which bd stores once, on whichever bead it was created from.
+  So it appears above the description on one of the pair and down here on the other, under
+  the same word, because it means the same thing from either end.
+- **Children** are lifted out entirely and drawn by the block above. The same eleven beads
+  under two headings is the failure this split exists to prevent.
+
+`bd dep list <id> --direction=up` is what knows. It hands over a full row per edge **plus
+the `dependency_type`**, which is why it replaced `bd list --parent` as the sheet's one
+call rather than being added beside it: parenthood in bd *is* a row in `dependencies` —
+the issues table has no parent column — so `--direction=up` filtered to `parent-child`
+and `list --parent --all` answer with the same eleven ids, and asking for the children
+separately would have been a second round trip for something already in hand.
+`Bd.children` stays for the two callers that only ever wanted children: the close gate and
+the advocate.
+
+**The pill goes when the rows land, and only then** — the rule `waits on N` already
+follows. The count is what can be said before the edges are in hand and a worse version of
+what they say afterwards, so a call that fails leaves it up, because then it really is all
+there is. A bead that blocks something and parents nothing — bc-7w1l, one dependent — used
+to pay for a call that came back with nothing to draw; it gets a row now, which is what
+makes the gate above exact in both directions.
 
 Three bugs found building the sheet, all worth knowing because they're the kind that look
 like something else:
@@ -6507,7 +6543,7 @@ cookie says so), and `/auth/signout` ends the session.
 | GET | `/doc` | `?p=<abs path>` | the HTML reader page |
 | GET | `/api/graph` | `?workspace=&id=` | `{nodes, links}` — the whole workspace with no `id` |
 | GET | `/api/bead` | `?workspace=&id=` | one issue in full, plus `comments[]` — for the graph's detail sheet |
-| GET | `/api/bead-children` | `?workspace=&id=` | `{children[]}` — every child of that bead, closed ones included, open work first. Its own route because `bd show` does not carry children |
+| GET | `/api/bead-links` | `?workspace=&id=` | `{children[], dependents[]}` — everything with an edge pointing at that bead, closed ones included, open work first: the `parent-child` rows as `children`, every other kind as `dependents` with its `dependency_type`. One `bd dep list --direction=up` for both, because `bd show` carries `dependent_count` and not one row behind it |
 | GET | `/api/unendorsed` | `?refresh=1` | `{beads[], counts, truncated, errors[]}` — the endorsement queue: every held bead in every workspace, newest first, each carrying the whole card (description, acceptance, the agent's provenance note) and `from`, the bead it was discovered under. No `workspace` parameter — the space picker narrows it on the client. Cached for a few seconds; a verdict drops that cache |
 | POST | `/api/bead/endorse` | `{workspace, id}` or `{workspace, ids[]}` | takes the `unendorsed` marker off, so the bead becomes ordinary work an advocate will queue and a session can be opened on. **Idempotent** — two taps are one endorsement, no error, no second write — and the one verdict that may be aimed at a bead that is not held |
 | POST | `/api/bead/revoke` | `{workspace, ids[], reason?}` | closes it with your reason under a fixed prefix, and **leaves the marker on**: what an agent filed and what you thought of it both stay on the record. A bead already closed is `already: true` rather than an error; one already endorsed is a `409` |
