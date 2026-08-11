@@ -1741,7 +1741,33 @@ meant the acceptance criteria, the one part you close a bead against, were exact
 that. The description alone stays unlabelled, the way it is on the card, so a bead
 carrying none of the other three looks precisely as it did.
 
-Three bugs found building this, all worth knowing because they're the kind that look
+#### What is under it — the children, and the ones already done
+
+Under the description, an epic lists **every child it has**, one tappable row each, with
+the fraction beside the heading that `bd show` prints under its own CHILDREN section:
+`6/7 done`. Closed children are shown by **default**, because an epic whose finished work
+is invisible reads as though it never started; **Hide closed (6)** folds them away when
+what is left is the question, and that choice is remembered — across sheets, and across
+reloads. Nothing is folded on your behalf.
+
+This one costs a second `bd` call, and everything about how it is loaded follows from
+that. Children are simply **not in `bd show --json`**: on bc-goo, an epic with seven, it
+returns `dependent_count: 7` and not a single row — the text output has a CHILDREN
+section and the JSON has nothing to read it from. So it is `/api/bead-children`, a route
+of its own, and the sheet **does not wait for it**: it paints from `/api/bead`, then
+appends the block below the description when it lands. A call that is slow costs the
+block; a call that fails costs the block and says nothing, because replacing a sheet you
+can already read with an error would take the bead away over the part of it that did not
+arrive.
+
+It is not asked for at all unless the bead could have children, and what decides that is
+`dependent_count` — every edge pointing *at* the bead, of which a child's is one. Zero
+dependents means zero children, so the leaf beads that are most of what you tap ask
+nothing. It is not tight the other way: a bead that blocks something and parents nothing
+costs one call that comes back empty and draws nothing, which is the price of bd offering
+no child count to read.
+
+Three bugs found building the sheet, all worth knowing because they're the kind that look
 like something else:
 
 - **`hidden` loses to `display`.** `#empty` is an absolutely-positioned overlay across
@@ -4260,10 +4286,42 @@ The limits, stated plainly:
   or `lib/config.js` and it says so once in the log; you restart it by hand with
   `launchctl kickstart -k gui/$(id -u)/m4m.beadcause`. It is small and it rarely
   moves, which is the trade.
-- **A build that will not start is tried once.** If the new backend never becomes
-  healthy — a syntax error, a bad import — the old one keeps serving and the failed
-  build is not retried until the files change again, because respawning a broken
-  process every three seconds helps nobody. `npm run swap:status` names it.
+- **A build that *dies* is condemned; a build that is merely slow is retried.** If the
+  new backend exits before it is healthy — a syntax error, a bad import — the old one
+  keeps serving and that build is not retried until the files change again, because
+  respawning a broken process every three seconds helps nobody. But a child that is
+  still alive and simply has not answered yet is a fact about the *machine*, and the
+  two used to be the same thing: on a Mac running ten agent sessions, two other routers
+  and eight headless Chromes, a backend that binds in ~2s did not answer inside the
+  twenty-second window, and a perfectly good build was condemned. Twice, in one evening.
+  So the window scales — it doubles per attempt, and the router remembers how slow this
+  machine has been proving to be — and a build that runs out of patience is *deferred*
+  rather than poisoned: tried again on the clock, with a longer window, until it comes
+  up on its own. `npm run swap:status` says which of the two it is looking at, in the
+  two words that are not interchangeable. See `lib/startup.js`, which is where the
+  policy lives, with no I/O in it so that `npm test` can assert it as arithmetic.
+- **A router with nothing behind it says so, in three places.** The failure above has a
+  worse cousin: when there is *no* old backend to keep serving, the router holds the
+  port and answers 503 to everything. Nothing is down in a way launchd would restart,
+  the port is bound, and the app is gone. Two things follow from that. The router keeps
+  trying — with no active backend, poison and deferral are both ignored, because the
+  worst outcome of retrying a broken build is the 503 you already have, and that retry
+  did not exist before: `watchDisk` returned early with no active backend, so a *first*
+  start that failed was final. And the state gets surfaces that do not depend on the
+  thing that is down: the 503 itself is a page saying which build, whether it died or
+  was only slow, and when the next attempt is (it reloads itself, so it becomes the app
+  again with no tap), and an ntfy push goes to the phone — the same argument as the
+  certificate warning, since every other channel this daemon has runs through the
+  backend that is missing. A recovery push follows, because an alarm you are never told
+  is over is an alarm you learn to ignore.
+- **And the degraded half of that is on the advocate console.** `/api/work` carries
+  `router` beside `service`: one dim line naming the build being served on a good day,
+  and an amber block when the phone is on an older build than the disk — because the
+  newer one died, or because it was too slow and is being retried. Amber rather than
+  the red above it: on all of these the app is up and answering, which is a different
+  sentence. A *total* outage is not visible there by construction — the console is
+  served by the backend that is missing — which is exactly why the 503 and the push
+  exist and why they belong to the router rather than to the app.
 - **The stamp is size and mtime**, over `lib/*.js` and `bin/*.js`. `public/` is
   deliberately absent: it is served from disk per request, so a CSS edit is live
   already and swapping for one would be churn. `touch lib/server.js` is enough to
@@ -4719,7 +4777,8 @@ cookie says so), and `/auth/signout` ends the session.
 | GET | `/doc` | `?p=<abs path>` | the HTML reader page |
 | GET | `/api/graph` | `?workspace=&id=` | `{nodes, links}` — the whole workspace with no `id` |
 | GET | `/api/bead` | `?workspace=&id=` | one issue in full, plus `comments[]` — for the graph's detail sheet |
-| GET | `/api/work` | — | `{workspaces[], elsewhere[], advocates[], service}` — per workspace: claimed beads, live `claude` sessions, counts, errors. `service` is what launchd is running — see the router section |
+| GET | `/api/bead-children` | `?workspace=&id=` | `{children[]}` — every child of that bead, closed ones included, open work first. Its own route because `bd show` does not carry children |
+| GET | `/api/work` | — | `{workspaces[], elsewhere[], advocates[], service, router}` — per workspace: claimed beads, live `claude` sessions, counts, errors. `service` is what launchd is running; `router` is whether that program is actually serving anything, or is on an older build than the disk — see the router section. `router` is `null` under `npm run start:bare`, where there is no router |
 | GET | `/api/agents` | — | `{agents[], default}` — the roster you can address a comment to |
 | POST | `/api/agents` | `{name, description}` | creates one and returns the new roster. `tools` is never accepted here |
 | POST | `/api/agent-arm` | `{id, acknowledge?, disarm?}` | arms that agent's configured tools override for **one** reply. `428` the first time, carrying the warning to show; `409` while it is answering; `400` if it has no override |
@@ -4767,7 +4826,7 @@ the tailnet holding the token could otherwise stop the poller:
 
 | Method | Path | Returns |
 |---|---|---|
-| GET | `/internal/router/state` | `{router, disk, stale, poisoned, active, retiring[]}` — what `npm run swap:status` prints |
+| GET | `/internal/router/state` | `{router, disk, stale, poisoned, deferred, serving, outage, retryAt, slowness, active, retiring[]}` — what `npm run swap:status` prints. `poisoned` is a build that *died* at startup; `deferred` is one that was only slow, and when it will be tried again |
 | POST | `/internal/router/swap` | `{ok, active}` — or `{ok:false, error}` if the new build would not start |
 
 Every proxied response also carries `x-beadcause-build` and `x-beadcause-pid`,

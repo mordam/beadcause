@@ -211,6 +211,25 @@ check(
  *
  * The `none` brief is the important column here. If these ever pass for `land` and
  * `ask` but not for `none`, the coupling is back.
+ *
+ * **The first of the three inverted (bc-3zo9).** A worker used to be told, in these
+ * words, that it may not create a bead: a discovery was a proposal, and nothing existed
+ * until a button was pressed. It now files the bead itself. What replaced the old
+ * assertion is not "it may create beads" but the three sentences that make creating one
+ * safe, and all three have to be in the brief or the feature is a worse version of the
+ * thing it replaced:
+ *
+ *   - the bead is **real** — filed with `beadcause-file`, not proposed;
+ *   - it arrives **unendorsed**, and that means nothing is worked on it until Adam
+ *     says so — a session that does not know this has no reason not to file P0s;
+ *   - the session **carries on** rather than waiting, or the whole point is lost, and
+ *     it does not go and work the bead it just filed, which is the same failure with
+ *     the queue's permission.
+ *
+ * `bd create` stays forbidden, and that assertion is unchanged: the marker, the
+ * provenance label and the `discovered-from` edge are what make an agent-filed bead
+ * safe to have created, and only `beadcause-file` stamps all three (lib/filing.js). A
+ * brief that drifts into naming the raw CLI hands back exactly the hole bc-3zo9.1 shut.
  */
 console.log('\nthe three ways a worker reaches a human, on every repo');
 
@@ -219,12 +238,26 @@ for (const [name, brief] of [
   ['asks first', ask],
   ['no remote', none],
 ]) {
-  check(`"${name}" can propose the work it found`, /--kind discovery/.test(brief) && /propose\.js/.test(brief));
+  check(
+    `"${name}" files the work it found as a real bead, off the bead it was working`,
+    /file\.js -w beadcause --from bc-fmt/.test(brief),
+    (brief.match(/.*file\.js.*/) || [])[0]
+  );
+  check(
+    `"${name}" is told the bead it files cannot be worked until Adam endorses it`,
+    /unendorsed/.test(brief) && /endorses it/.test(brief),
+    (brief.match(/.*unendorsed.*/) || [])[0]
+  );
+  check(
+    `"${name}" is told to carry on rather than wait for the endorsement`,
+    /carry straight on with bc-fmt/.test(brief) && /do not wait for an answer/.test(brief),
+    (brief.match(/.*carry straight on.*/) || [])[0]
+  );
   check(`"${name}" can ask for a fact only Adam has, and park the bead behind it`, /ask\.js/.test(brief) && /--blocks bc-fmt/.test(brief));
   check(`"${name}" can stop on a contradiction rather than pick one`, /--kind conflict/.test(brief));
   check(
-    `"${name}" still may not create a bead itself`,
-    /Do not create beads/.test(brief) && !/\bbd create\b/.test(brief),
+    `"${name}" files through the command that stamps the marker, never bare \`bd create\``,
+    !/\bbd create\b/.test(brief),
     (brief.match(/.*bd create.*/) || [])[0]
   );
   check(

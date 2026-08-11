@@ -29,6 +29,14 @@
  * router is the outage this exists to avoid. A change to its own source is reported
  * loudly and waits for `launchctl kickstart -k gui/$(id -u)/m4m.beadcause`.
  *
+ * **A build that will not start is two different failures, and this used to know only
+ * one of them.** A child that exits is a broken build and is condemned; a child that is
+ * alive and simply has not answered yet is a busy Mac, and condemning it for that left
+ * a perfectly good build unserved until somebody read a log file. The window scales, a
+ * slow start is retried on the clock, and if the router ends up with nothing behind the
+ * port it says so in the 503 itself and pushes it to the phone rather than only logging
+ * it. See lib/startup.js for the policy, and `recover` for the retry that was missing.
+ *
  *   node bin/router.js            supervise (this is what launchd runs)
  *   node bin/router.js --swap     force a swap now, even if nothing changed
  *   node bin/router.js --status   what is running, and on what build
@@ -42,6 +50,18 @@ import { loadConfig, reconcileBaseUrl } from '../lib/config.js';
 import { buildStamp, routerStamp } from '../lib/build.js';
 import { hotSwapProblem, LOADED_ENV } from '../lib/service.js';
 import { certificate, closeServer, secureServer, startRenewal, MIN_VERSION } from '../lib/tls.js';
+import {
+  EXITED,
+  HEALTH_ATTEMPTS,
+  HEALTH_BASE_MS,
+  TIMEOUT,
+  deferralMs,
+  explain,
+  healthDeadline,
+  nextSlowness,
+  outageRetryMs,
+  startupError,
+} from '../lib/startup.js';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const BACKEND = path.join(ROOT, 'bin', 'beadcause.js');
@@ -56,8 +76,16 @@ const WATCH_MS = 3000;
  * state is a stamp nobody should be swapped onto.
  */
 const SETTLE_TICKS = 1;
-/** Long enough for a child to import the app, read config and bind. */
-const HEALTH_TIMEOUT_MS = 20000;
+/**
+ * Long enough for a child to import the app, read config and bind — *on an idle Mac*.
+ *
+ * It is a starting point rather than a verdict now: lib/startup.js widens it per
+ * attempt and remembers how slow this machine has been proving to be, because twenty
+ * seconds turned out to be thin on a laptop running ten agent sessions. Settable for
+ * one reason that is not tuning — a test needs a window it can guarantee will expire,
+ * so it can drive the slow-start path without pretending to be a busy machine.
+ */
+const HEALTH_BASE = Number(cfg.healthTimeoutMs) > 0 ? Number(cfg.healthTimeoutMs) : HEALTH_BASE_MS;
 /** A parked long poll runs 55s. Anything still open past this is not coming back. */
 const DRAIN_MS = 60000;
 /** Between SIGTERM and SIGKILL for a drained backend. */
@@ -122,10 +150,29 @@ const retiring = new Set();
 let shuttingDown = false;
 let swapping = false;
 /**
- * A build that failed to come up. Never retried until the files move again — the
- * alternative is respawning a process with a syntax error every three seconds.
+ * A build that *died* before it was healthy. Never retried until the files move again —
+ * the alternative is respawning a process with a syntax error every three seconds.
+ *
+ * Only ever set for a child that exited. A child that was merely slow to answer is a
+ * fact about the machine and goes in `deferred` instead; see lib/startup.js.
  */
 let poisoned = null;
+/**
+ * A build that ran out of patience, and when it will be tried again.
+ *
+ * `{ build, attempts, until, deferrals }`. Unlike `poisoned` this expires on its own,
+ * which is the whole point: the machine that was too busy at 21:04 is not too busy at
+ * 21:09, and nobody should have to notice and type anything for that to be true.
+ */
+let deferred = null;
+/** Consecutive bring-ups of the same build that timed out. Lengthens the pause. */
+let deferrals = 0;
+/** How slow this machine has been proving to be. Widens the health window. */
+let slowness = 0;
+/** While nothing is being served: consecutive failures, and when to try again. */
+let outage = null;
+let outageRetries = 0;
+let retryAt = 0;
 let candidate = null;
 let candidateTicks = 0;
 /** Backs off a backend that dies immediately, so a crash loop stays legible. */
@@ -137,8 +184,13 @@ let crashBackoffMs = 0;
  * Always standby, even the very first one: "healthy, then activate" is one code
  * path, and it is the only ordering in which a poller cannot start inside a process
  * that then fails to bind.
+ *
+ * Fails in one of two ways and the difference is the whole of bc-excc: a child that
+ * *exited* is a broken build (`EXITED`), and a child that is alive and has not answered
+ * inside `deadlineMs` is a busy machine (`TIMEOUT`). The caller treats them nothing
+ * alike — see `attemptStart`.
  */
-async function spawnBackend() {
+async function spawnBackend(deadlineMs) {
   const port = await freePort();
   const child = spawn(process.execPath, [BACKEND, '--port', String(port), '--standby'], {
     cwd: ROOT,
@@ -176,9 +228,11 @@ async function spawnBackend() {
   };
   child.on('exit', (code, signal) => onBackendExit(be, code, signal));
 
-  const deadline = Date.now() + HEALTH_TIMEOUT_MS;
+  const deadline = Date.now() + deadlineMs;
   for (;;) {
-    if (child.exitCode !== null || child.signalCode) throw new Error(`backend on :${port} exited before it was healthy`);
+    if (child.exitCode !== null || child.signalCode) {
+      throw startupError(EXITED, `backend on :${port} exited before it was healthy`);
+    }
     try {
       const state = await localJson(port, '/internal/state', { timeout: 2000 });
       be.build = state.build;
@@ -188,11 +242,48 @@ async function spawnBackend() {
     } catch (err) {
       if (Date.now() > deadline) {
         child.kill('SIGKILL');
-        throw new Error(`backend on :${port} never became healthy — ${err.message}`);
+        throw startupError(
+          TIMEOUT,
+          `backend on :${port} was still starting after ${Math.round(deadlineMs / 1000)}s — ${err.message}`
+        );
       }
       await new Promise((r) => setTimeout(r, 200));
     }
   }
+}
+
+/**
+ * Spawn until one answers, or until patience runs out — with a longer window each time.
+ *
+ * A child that exits gets no second chance here: it is a broken build and the next
+ * spawn would break identically. A child that ran out of time gets one more, with twice
+ * the window, because a *wedged* child is the only other thing a timeout can mean and a
+ * fresh process is the only cure for that one. Beyond that the answer is not "again,
+ * harder" but "later, wider", which is what `slowness` carries out of here.
+ */
+async function attemptStart(build) {
+  let last = null;
+  for (let attempt = 0; attempt < HEALTH_ATTEMPTS; attempt++) {
+    const ms = healthDeadline(attempt, slowness, HEALTH_BASE);
+    try {
+      const be = await spawnBackend(ms);
+      const was = slowness;
+      slowness = nextSlowness(slowness, { timedOut: false, attempt });
+      if (attempt > 0 || was !== slowness) {
+        log(`build ${build} answered on attempt ${attempt + 1} within ${Math.round(ms / 1000)}s`);
+      }
+      return be;
+    } catch (err) {
+      last = err;
+      if (err.kind !== TIMEOUT) throw err;
+      warn(
+        `build ${build} was still starting after ${Math.round(ms / 1000)}s ` +
+          `(attempt ${attempt + 1}/${HEALTH_ATTEMPTS}) — a slow machine says nothing about the build`
+      );
+    }
+  }
+  slowness = nextSlowness(slowness, { timedOut: true });
+  throw last;
 }
 
 /** SIGTERM, then SIGKILL if it is still there. */
@@ -278,8 +369,10 @@ function onBackendExit(be, code, signal) {
   setTimeout(() => {
     // A build already declared poison is exactly the build to try again here: with
     // no backend at all nothing is being served, and a 502 that might recover beats
-    // a 503 that certainly will not.
+    // a 503 that certainly will not. The same goes for one waiting out a deferral —
+    // the pause exists to protect a working backend, and there is no longer one.
     poisoned = null;
+    deferred = null;
     bringUp('replacing a backend that exited').catch((err) => warn(`replacement failed — ${err.message}`));
   }, crashBackoffMs).unref();
 }
@@ -290,7 +383,7 @@ async function bringUp(reason) {
   swapping = true;
   const attempted = buildStamp();
   try {
-    const next = await spawnBackend();
+    const next = await attemptStart(attempted);
 
     // Stand the old one down BEFORE promoting the new one. Two live pollers would
     // both see a new question and both push it, and a duplicate notification on a
@@ -318,20 +411,91 @@ async function bringUp(reason) {
     const previous = active;
     active = next;
     poisoned = null;
+    deferred = null;
+    deferrals = 0;
+    outageRetries = 0;
+    retryAt = 0;
     crashBackoffMs = 0;
     log(`serving build ${next.build} from pid ${next.pid} on :${next.port} — ${reason}`);
     if (previous) retire(previous);
+    recovered();
     return next;
   } catch (err) {
     // Remember the build we tried, not the one on disk now: if the files moved
     // again while we were failing, that newer build deserves its own attempt.
-    poisoned = attempted;
-    warn(`could not bring up build ${attempted} — ${err.message}`);
+    if (err.kind === TIMEOUT) {
+      // Not poison. The child was alive and unhurried, which is a sentence about this
+      // Mac, and condemning a build for it is how a good build stopped being served
+      // for as long as it took somebody to read a log file. Deferred instead: tried
+      // again on its own, with a window that has already been widened by `slowness`.
+      // Counted per build: a newer build has earned a fresh, short pause rather than
+      // inheriting the one the previous build's failures had grown to.
+      deferrals = deferred?.build === attempted ? deferrals + 1 : 1;
+      const wait = deferralMs(deferrals);
+      deferred = { build: attempted, attempts: HEALTH_ATTEMPTS, until: Date.now() + wait, deferrals };
+      warn(
+        `build ${attempted} would not start in time — retrying in ${Math.round(wait / 1000)}s ` +
+          `with a longer window. The build is not condemned: ${HEALTH_ATTEMPTS} slow starts are ` +
+          'evidence about the machine, not about the code.'
+      );
+    } else {
+      poisoned = attempted;
+      deferred = null;
+      deferrals = 0;
+      warn(`could not bring up build ${attempted} — ${err.message}`);
+    }
     if (active) warn(`still serving build ${active.build} from pid ${active.pid}`);
+    else stillServingNothing(attempted, err);
     throw err;
   } finally {
     swapping = false;
   }
+}
+
+// -------------------------------------------------- nothing is being served at all
+
+/**
+ * The state this bead is named for: the port is held, and there is nothing behind it.
+ *
+ * Everything the router does about a failed swap assumes there is an old backend still
+ * answering, and when there is, a log line is a fair place for the news. When there is
+ * not, the same log line is the *only* evidence that the app is down — launchd sees a
+ * healthy process, the port answers, and the phone gets a 503 with no explanation in it.
+ * That is precisely the shape of failure bc-4irq was filed about, one layer down.
+ *
+ * So an outage gets three surfaces instead of one: the log, the 503 itself (see
+ * `unavailable`), and a push, which is the only one that reaches somebody who is not
+ * looking. Announced once — a retry loop that pushes every two seconds is a phone you
+ * turn off — and again when it comes back, because an alert you are never told is over
+ * is an alert you learn to ignore.
+ */
+function stillServingNothing(build, err) {
+  const first = !outage;
+  outage = outage || { since: Date.now(), build, reason: err?.message || String(err), announced: false };
+  outage.build = build;
+  outage.reason = err?.message || String(err);
+  if (first) warn('NOTHING IS BEING SERVED — the router holds the port and every request is a 503');
+  if (outage.announced) return;
+  outage.announced = true;
+  // Lazily, and never fatally: lib/notify.js is not a leaf, and an outage caused by a
+  // broken lib/ is exactly the case where importing it throws. See notifyCertificate.
+  import('../lib/notify.js')
+    .then(({ pushNoBackend }) => pushNoBackend(cfg, { ...snapshot(), verdict: explain(snapshot()) }))
+    .then((r) => (r?.skipped ? undefined : log('pushed the outage to the phone')))
+    .catch((e) => warn(`could not push the outage (${e.message}) — the log is the only surface left`));
+}
+
+/** The other half of the promise above: say when it is over. */
+function recovered() {
+  if (!outage) return;
+  const down = Math.round((Date.now() - outage.since) / 1000);
+  const announced = outage.announced;
+  outage = null;
+  log(`serving again after ${down}s with nothing behind the port`);
+  if (!announced) return;
+  import('../lib/notify.js')
+    .then(({ pushServingAgain }) => pushServingAgain(cfg, { seconds: down, build: active?.build || null }))
+    .catch((e) => warn(`could not push the recovery — ${e.message}`));
 }
 
 // ------------------------------------------------------------------ watching disk
@@ -346,7 +510,8 @@ async function bringUp(reason) {
  */
 function watchDisk() {
   setInterval(() => {
-    if (shuttingDown || swapping || !active) return;
+    if (shuttingDown || swapping) return;
+    if (!active) return recover();
 
     const disk = buildStamp();
     if (disk === active.build) {
@@ -355,6 +520,13 @@ function watchDisk() {
       return;
     }
     if (disk === poisoned) return;
+    // A build waiting out a deferral, and the pause has not run out yet. Cleared
+    // rather than honoured when the files have moved on — a newer build has earned
+    // its own attempt, and the one being waited on is no longer the question.
+    if (deferred) {
+      if (deferred.build !== disk) deferred = null;
+      else if (Date.now() < deferred.until) return;
+    }
 
     if (disk !== candidate) {
       candidate = disk;
@@ -367,6 +539,31 @@ function watchDisk() {
     candidateTicks = 0;
     bringUp(`disk moved ${active.build} → ${disk}`).catch(() => {});
   }, WATCH_MS).unref();
+}
+
+/**
+ * Nothing is active. Try again — whatever the state of the build on disk says.
+ *
+ * This branch did not exist, and its absence is half of why the daemon stayed 503:
+ * `watchDisk` returned early on `!active`, so a router whose *first* backend failed sat
+ * there watching a disk it had decided not to act on, for as long as the machine was up.
+ * The comment at the bottom of this file promised "the next edit gets retried" and no
+ * code anywhere kept that promise. `onBackendExit` covers the one case that did recover
+ * — a backend that had been running and died — and covers nothing that never ran.
+ *
+ * Poison and deferral are both ignored here on purpose, exactly as they are there:
+ * condemning a build, or making it wait its turn, only makes sense while a working one
+ * is still answering. With nothing behind the port the worst outcome of trying a
+ * condemned build again is the 503 we already have — so neither is cleared, because
+ * both are still the best account of *why* there is nothing to serve, and that account
+ * is what the 503 body and the console health line are made of.
+ */
+function recover() {
+  const now = Date.now();
+  if (now < retryAt) return;
+  outageRetries++;
+  retryAt = now + outageRetryMs(outageRetries);
+  bringUp('nothing is being served — trying again').catch(() => {});
 }
 
 /**
@@ -489,7 +686,19 @@ function snapshot() {
     disk,
     stale: Boolean(active && active.build !== disk),
     swapping,
+    // A build that died at startup, and will not be tried again until the files move.
     poisoned,
+    // A build that was only slow, and will be tried again by the clock. The two are
+    // reported separately because reading one as the other is the whole of bc-excc.
+    deferred: deferred ? { ...deferred } : null,
+    // Whether anything at all is behind the port. `active: null` says the same thing,
+    // but a boolean named for the question is what a health line reads.
+    serving: Boolean(active),
+    outage: outage ? { since: new Date(outage.since).toISOString(), seconds: Math.round((Date.now() - outage.since) / 1000), build: outage.build, reason: outage.reason } : null,
+    // When the next attempt is due while nothing is being served. 0 means "next tick".
+    retryAt: active ? 0 : retryAt,
+    // How much the health window has been widened by what this machine has shown us.
+    slowness,
     active: describe(active),
     retiring: [...retiring].map(describe),
   };
@@ -524,12 +733,64 @@ async function control(req, res, url) {
   return json(res, 404, { error: 'no such control' });
 }
 
+/**
+ * The 503 that used to say `no backend is running — check the log`.
+ *
+ * Which log, on which machine, saying what? That sentence is the app being down, on the
+ * one screen that is definitely being looked at — the phone, held by somebody who just
+ * tapped a notification — and it spent all of it telling them to go and read a file
+ * they cannot reach. Everything the router knows about why is available right here, so
+ * it is said right here: which build, whether it died or was merely slow, and when the
+ * next attempt is. In HTML for a browser, because that is what a phone is showing.
+ *
+ * Deliberately hand-rolled and tiny: this path is reached precisely when `lib/` may be
+ * unloadable, so it cannot read a template off disk or import anything to render one.
+ */
+function unavailable(req, res) {
+  const snap = snapshot();
+  const verdict = explain(snap) || { summary: 'no backend is running', lines: [], code: 'no-backend' };
+  const wantsHtml = /text\/html/.test(String(req.headers.accept || ''));
+  if (!wantsHtml) {
+    return json(res, 503, {
+      error: 'no backend is running',
+      code: verdict.code,
+      summary: verdict.summary,
+      detail: verdict.lines,
+      disk: snap.disk,
+      poisoned: snap.poisoned,
+      deferred: snap.deferred,
+      outage: snap.outage,
+      retryAt: snap.retryAt || null,
+    });
+  }
+  const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]);
+  const body = `<!doctype html><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Beadcause — nothing is being served</title>
+<style>
+ :root{color-scheme:dark light}
+ body{font:16px/1.5 -apple-system,system-ui,sans-serif;margin:0;padding:2rem 1.25rem;max-width:34rem}
+ h1{font-size:1.15rem;margin:0 0 .75rem}
+ p{margin:.5rem 0;opacity:.85}
+ code{font:14px/1.4 ui-monospace,Menlo,monospace;background:rgba(127,127,127,.18);padding:.15rem .35rem;border-radius:4px;user-select:all}
+ .dim{opacity:.6;font-size:.85rem}
+</style>
+<h1>⚠ The router is holding the port and serving nothing</h1>
+${verdict.lines.map((l) => `<p>${esc(l)}</p>`).join('\n')}
+<p class="dim">${esc(snap.outage ? `down for ${snap.outage.seconds}s · ` : '')}disk build ${esc(snap.disk)} · router pid ${snap.router.pid}</p>
+<p class="dim">This page refreshes itself; it will become the app again the moment a backend answers.</p>
+<script>setTimeout(function(){location.reload()},5000)</script>`;
+  if (res.headersSent) return res.destroy();
+  res.writeHead(503, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'retry-after': '5' });
+  res.end(body);
+}
+
 const handler = (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
 
   if (url.pathname.startsWith('/internal/')) return control(req, res, url);
 
-  if (!active) return json(res, 503, { error: 'no backend is running — check the log' });
+  if (!active) return unavailable(req, res);
 
   const target = active;
   target.inflight++;
@@ -808,7 +1069,19 @@ if (process.argv.includes('--status')) {
   console.log(`active   ${line(s.active)}`);
   for (const be of s.retiring) console.log(`draining ${line(be)}`);
   console.log(`disk     ${s.disk}${s.stale ? '  ⚠ STALE — a swap is due' : '  (matches what is running)'}`);
-  if (s.poisoned) console.log(`poisoned ${s.poisoned} — this build failed to start; not retried until the files change`);
+  if (s.poisoned) console.log(`poisoned ${s.poisoned} — this build died at startup; not retried until the files change`);
+  if (s.deferred) {
+    const left = Math.max(0, Math.round((s.deferred.until - Date.now()) / 1000));
+    console.log(`slow     ${s.deferred.build} — too slow to start ${s.deferred.attempts}×; retrying in ~${left}s with a longer window`);
+  }
+  // The verdict in the same words the phone and the console get it in, and the only
+  // line that is worth reading first when it is there.
+  const verdict = explain(s);
+  if (verdict && !verdict.ok) {
+    console.log('');
+    console.log(`⚠ ${verdict.summary}`);
+    for (const l of verdict.lines) console.log(`  ${l}`);
+  }
   process.exit(0);
 }
 
@@ -837,7 +1110,9 @@ log(`supervising ${BACKEND}`);
 await bringUp('first start').catch((err) => {
   // Keep the port. A router that exited here would be restarted by launchd into the
   // same failure with nothing listening in between; holding the socket and answering
-  // 503 at least says what is wrong, and the next edit gets retried.
+  // 503 at least says what is wrong — and `recover`, on the watch tick below, is what
+  // makes the second half of that sentence true. It did not used to be: `watchDisk`
+  // returned early with no active backend, so a first start that failed was final.
   warn(`nothing is being served yet — ${err.message}`);
 });
 watchDisk();
