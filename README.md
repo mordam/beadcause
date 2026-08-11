@@ -2706,6 +2706,15 @@ read asserting the Mirror is not in the bar's tab list, that neither the route n
 exists, that the chip and the pane are both still on `monitor.html`, and that the
 device-filter the second reason rests on is still there.
 
+`node test/pagepaths.mjs` holds the same two absences from the other side, and the pair is
+deliberate rather than duplicated. The static read knows the *shape* the route would take
+today — `urlPath === '/mirror'` in `lib/server.js` — and would miss a `/mirror` that arrived
+by any other spelling: a redirect, a prefix match, a `mirror.html` served straight off
+`public/`. So `pagepaths.mjs` asks a running server for `/mirror` and `/mirror.html` and
+requires a 404 from both, which is the claim the decision actually makes — not "the code
+does not say `/mirror`" but "there is nothing there". Reversing the decision on purpose
+means deleting an assertion in each, which is two lines in a diff somebody can argue with.
+
 **What is still owed is the ambiguity, not the decision.** Two tab bars stacked on one
 screen with nothing visual to say that one changes the page and the other changes a pane
 is the actual complaint, and the fix is to restyle the in-page pair as the segmented
@@ -2789,10 +2798,11 @@ notch substituted in, for the Chromes with no `Emulation.setSafeAreaInsets`.
 The *paths* are checked separately, in `npm test`: `node test/pagepaths.mjs` asks a
 real server for every URL a phone might still have on its home screen and checks which
 document came back — all five that reach the advocate console, both that reach the pull
-request board, and so on — plus that `/work.js`, deleted with the sessions view, 404s
-rather than lingering. The aliases live in a run of one-line `if`s in `serveStatic`,
-which is exactly the shape a merge eats, and a broken one is silent: the page is fine,
-the shortcut is not.
+request board, and so on — plus the two kinds of path that must **not** resolve: `/work.js`,
+deleted with the sessions view, and `/mirror` and `/mirror.html`, which were never made
+because [the Mirror is a pane](#the-mirror-is-a-pane-not-a-tab). The aliases live in a
+run of one-line `if`s in `serveStatic`, which is exactly the shape a merge eats, and a
+broken one is silent: the page is fine, the shortcut is not.
 
 ## Loaded once, and kept — what a tab tap actually costs
 
