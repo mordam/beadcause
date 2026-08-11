@@ -140,7 +140,7 @@ otherwise its poller would keep firing notifications with no listener behind the
   says so rather than pretending to cover the rest. It runs against a throwaway config
   directory on an ephemeral port and never touches `bd`, so it is safe to run with the
   daemon up. The suite proper is `npm test`, and the browser checks it deliberately
-  leaves out — they want a Chrome — are `npm run checks`, all twenty-six of them, four
+  leaves out — they want a Chrome — are `npm run checks`, all twenty-seven of them, four
   at a time, with a list of which failed. See
   [`npm run checks`](#npm-run-checks--the-browser-half-and-why-npm-test-can-still-see-it-rot),
   including the static selector audit that runs inside `npm test` and is the reason a
@@ -5301,6 +5301,68 @@ the committed `console.js`/`console.html`/`style.css`, where there is no All tab
 screens, because a row of passing assertions says nothing about whether the tabs and
 the ＋ fit beside each other at 393px.
 
+### Several chats are open at once, and switching is a repaint
+
+The page used to be about exactly one conversation. `state.console`, `state.seq`, the
+draft, which proposal cards were expanded and the poll loop all described the id in
+`?id=`, and opening another chat was a full page navigation — which threw away the
+transcript you had just read, the place you had scrolled to in it, and anything typed
+into the composer and not yet said. Coming back meant fetching the whole thing again
+and starting from the bottom.
+
+So the singular became a map: `state.chats`, one entry per conversation, and `state.id`
+naming which of them is in front. Everything that used to be a field on `state` is a
+field on a chat, and a tap on a row in the launcher is answered from what is already
+here. Nothing is evicted — a transcript is a few kilobytes and the whole promise of
+holding several open is that going back to one is *free*, not free sometimes.
+
+Three things had to follow, and each of them is a way the feature would otherwise
+half-land:
+
+- **The URL is written on every switch**, with `pushState`. It is the only durable name
+  for where you are: a reload, a bookmark and the link on a bead card all land on the
+  chat it names, and the system back gesture walks back out through the ones you came
+  through. The `?ws=&seed=` way in *replaces* instead, because that address creates a
+  conversation every time it is visited and a back gesture must never point at it.
+- **One transcript poll, for whatever is in front.** A switch aborts the old one rather
+  than letting it expire — it is parked on the server for up to twenty-five seconds, and
+  a chat brought forward inside that window would sit unwatched for the rest of it. The
+  chats in the background are followed by `/api/consoles` instead, every fifteen seconds
+  and all of them in one request: their status is all that is needed, and a parked long
+  poll per open tab is how a phone's connection budget goes. Their transcripts go stale,
+  which is the trade — bringing one forward starts its poll, and one response carries
+  everything said since its sequence number.
+- **One send queue per conversation, not one per page.** This is the one that would have
+  been silent: a single queue holds words said mid-turn until the turn lands, so with
+  two chats open it would deliver what you said to one into whichever happened to be in
+  front when that turn ended. Each chat has its own now. The strip above the composer is
+  still drawn by `public/sendqueue.js` rather than by hand — every queue attaches to the
+  same `#queued` through a selector carrying its own id, which matches only while that
+  chat is in front, so a background queue moving repaints nothing and bringing a chat
+  forward is `repaint()` on its queue.
+
+The launcher rows are still real links to real addresses — copy one, open it in a new
+tab, and it works — and a modified click is still the browser's. Only a plain tap is
+caught and answered with a repaint.
+
+`node scripts/switch-check.mjs` holds it, in headless Chrome at phone size against a
+fixture served by the script: it stamps a word on `window` and asks after every switch
+whether it is still there, which is the one difference a unit test cannot see — both a
+repaint and a page load end with the right transcript on screen. Seventeen assertions:
+the tap opens the chat and names it in the address without leaving the document, the
+second visit costs no `GET /api/console`, the scroll position and the unsent composer
+text come back, the top bar stops belonging to the chat you left, exactly one long poll
+is parked and it names the chat in front, the background is asked about in one request
+and gets no poll of its own, and a reload still lands where the address says.
+`--baseline` serves the committed copies, which navigate for every switch and so fail
+eight of them — the reload is the one that must still pass, because it is the behaviour
+this kept rather than the behaviour it added.
+
+The one thing it routes the long way round is the back gesture through *chats*: the list
+is still the only surface you can switch from, so the history a phone builds today is
+chat, list, chat. Two chats stacked on each other is a tap on a handle, and the handles
+are the next bead.
+
 ### A chat with an agent says so
 
 Two screens start conversations, and they write the same record. `/console` starts a
@@ -5476,6 +5538,15 @@ hand-written copies of the same strip would drift. Each caller keeps its own
 optimistic bubble, though, and that is deliberate too: the round trip is a process
 spawn, and words that vanish for a second read as having been eaten, so the message
 is drawn in the thread the moment it goes and taken back out again if the send fails.
+
+**A queue belongs to a conversation, not to a page.** The bead console holds several
+chats open at once now, so it makes one of these per chat and attaches each to the same
+`#queued` through a selector carrying its own id — the strip is still drawn here, and
+only the queue of the chat in front matches. That is what `repaint()` is for: every
+other paint follows the queue moving, and bringing a chat forward is the one that does
+not. See [several chats at
+once](#several-chats-are-open-at-once-and-switching-is-a-repaint) for why a shared queue
+was the failure that would have been silent.
 
 `test/queue.mjs` (in `npm test`) covers the queue: queued mid-turn, delivered on the
 turn ending, two arriving as one, a refusal that keeps the words and does not spin,
@@ -6951,7 +7022,7 @@ stops the run, propagates its exit code, and does not run what comes after it.
 
 ### `npm run checks` — the browser half, and why `npm test` can still see it rot
 
-The twenty-six `scripts/*-check.mjs` are the only cover this repo has for layout, taps
+The twenty-seven `scripts/*-check.mjs` are the only cover this repo has for layout, taps
 and anything that happens in a thumb, and none of them are in `npm test`: each wants a
 Chrome, a phone-sized viewport and ten to forty seconds, and that suite stays pure Node
 on purpose. Until `npm run checks` there was no way to run them but one at a time by
@@ -6972,7 +7043,7 @@ conflicts with nobody.
 **Every check is on a four-minute leash**, `--timeout N` to change it and `--timeout 0`
 to take it off. This is not a tidiness rule. A check that hangs is the one failure a
 runner like this newly introduces, and it is silent in the worst available way: the run
-never ends, so nothing is reported about the other twenty-five either — strictly worse
+never ends, so nothing is reported about the other twenty-six either — strictly worse
 than the by-hand state it replaced, where at least a person gives up. On the first real
 run of all twenty-six, `agent-chooser-check.mjs` went quiet thirteen assertions in and
 was still sitting there five minutes later. SIGTERM first so a check with a cleanup
@@ -6993,7 +7064,7 @@ parallel pass. A check that fails both times is reported with `on its own — no
 scheduling accident` beside it, so a red line cannot be waved away as the scheduler's
 fault.
 
-**Three of the twenty-six are red, and that is the bead in one paragraph.** Two were
+**Three of the twenty-seven are red, and that is the bead in one paragraph.** Two were
 already failing the day this was written, with no mark against them anywhere:
 `shot-check.mjs` has always asserted that the daemon token never reaches `shot.mjs`'s
 output, and the token is now appended to the URL that `shot.mjs` prints, so it does
@@ -7023,7 +7094,7 @@ every literal selector every check presses — 313 of them — takes each class,
 `data-` attribute apart, and asserts it still appears somewhere in `public/`. That is a
 text search, it costs milliseconds, and it fires on precisely the thing that used to be
 invisible. `npm run checks` prints it before a single Chrome starts, and does not stop on
-it: a stale selector in one check is no reason not to run the other twenty-five.
+it: a stale selector in one check is no reason not to run the other twenty-six.
 
 It is tuned to have no false alarms, so that a finding is always real, and two things
 follow. An interpolated selector — `` `[data-key="${k}"]` `` — has no text to look for and
@@ -7049,7 +7120,7 @@ arrival before Chrome is even reached. And the runner's own endings are held aga
 temp tree of three checks that pass, fail and hang on purpose: exit 1, the failures
 counted and named, their own output replayed rather than just a code, the hang killed at
 the timeout, a passing check not listed among the failures, and an empty tree failing
-rather than passing vacuously. A tree of its own rather than the real twenty-six, because
+rather than passing vacuously. A tree of its own rather than the real twenty-seven, because
 those are the thing under observation, not the instrument.
 
 `test/observe.mjs` is about observer mode only, and it is the oldest of them —
