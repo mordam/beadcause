@@ -39,10 +39,11 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import http from 'node:http';
-import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+import { boundPort } from './helpers/net.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const LIB = (name) => path.join(HERE, '..', 'lib', name);
@@ -319,19 +320,14 @@ await check('a second sweep inside the window is served from memory, and refresh
 
 const { createApp, listen } = await import(LIB('server.js'));
 
-const port = await new Promise((resolve, reject) => {
-  const probe = net.createServer();
-  probe.on('error', reject);
-  probe.listen(0, '127.0.0.1', () => {
-    const { port: p } = probe.address();
-    probe.close(() => resolve(p));
-  });
-});
-
 const cfg = {
   host: '127.0.0.1',
-  port,
-  baseUrl: `http://127.0.0.1:${port}`,
+  // Bound by the kernel and read back off the listener — see test/helpers/net.mjs.
+  // A number picked up front loses a race the moment two `npm test` runs overlap,
+  // and `listen()` answers that with `process.exit(1)`, which reads exactly like a
+  // regression in whatever was under test.
+  port: 0,
+  baseUrl: 'http://127.0.0.1',
   token: 'endorsequeue-token',
   actor: 'beadcause-test',
   bdBin: FAKE_BD,
@@ -347,6 +343,8 @@ const cfg = {
 
 const app = createApp(cfg);
 const servers = listen(cfg, app.handler);
+// Resolves once the socket is up, so there is no boot loop to race against either.
+const port = await boundPort(servers);
 
 const call = (method, pathname, body) =>
   new Promise((resolve, reject) => {
@@ -373,15 +371,6 @@ const call = (method, pathname, body) =>
     if (payload) req.write(payload);
     req.end();
   });
-
-for (let i = 0; i < 100; i += 1) {
-  try {
-    await call('GET', '/api/nothing');
-    break;
-  } catch {
-    await new Promise((r) => setTimeout(r, 20));
-  }
-}
 
 await check('GET /api/unendorsed is the queue, whole, with no workspace to name', async () => {
   forget();
