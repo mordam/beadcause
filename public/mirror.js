@@ -91,6 +91,11 @@
     // Composer text per target, so a refresh — or the phone moving and coming back —
     // cannot eat a half-typed answer.
     drafts: new Map(),
+    // And which option each composer is answering with, `key → option id`. Clicking
+    // a choice here fills the box rather than sending it, exactly as it does on the
+    // phone; this is what remembers the click after you have edited its words, and
+    // it is the only thing that can say whether the answer commissions work.
+    picks: new Map(),
     busy: '',
     note: null,
     active: localStorage.getItem('beadcause.mirror.tab') === 'mirror',
@@ -264,14 +269,18 @@
    * answer it, and an answer closes it. The text is held in `state.drafts` so a
    * repaint — and there are many — cannot swallow it.
    */
-  function composerHtml(key, { placeholder }) {
+  function composerHtml(key, { placeholder, picked = null }) {
     const text = state.drafts.get(key) || '';
     return `<div class="mir-composer">
       <textarea class="mir-input" data-draft="${esc(key)}" rows="3" placeholder="${esc(placeholder)}">${esc(text)}</textarea>
       <div class="mir-actions">
         ${window.beadcause?.dictation?.buttonHtml({ label: 'Dictate this answer' }) || ''}
         <button class="mir-btn" data-mact="comment" ${text.trim() ? '' : 'disabled'}>Comment &amp; ask an agent</button>
-        <button class="mir-btn primary" data-mact="respond" ${text.trim() ? '' : 'disabled'}>Answer &amp; close</button>
+        <button class="mir-btn primary" data-mact="respond" ${text.trim() ? '' : 'disabled'}>${
+          // Same rule as the phone's: a choice marked `closes: false` is a
+          // commission, so the button over it must not promise a close.
+          picked?.closes === false ? 'Answer &amp; commission' : 'Answer &amp; close'
+        }</button>
       </div>
     </div>`;
   }
@@ -298,10 +307,18 @@
             <code>CREATE: 1,3</code> files those two and declines the rest.</p>
         </div>`
       : '';
+    // A click fills the composer below; it does not answer. The phone settled that
+    // — a choice you may want to qualify in a sentence has to reach the box before
+    // it reaches the thread — and a mirror that answered on one click while the
+    // phone was filling a box would be two different apps over one bead.
+    const key = t.key || `${q.workspace}/${q.id}`;
+    const picked = opts.find((o) => o.id === state.picks.get(key)) || null;
     const options = opts.length
       ? `<div class="mir-options">${opts
           .map(
-            (o) => `<button class="mir-opt" data-mact="option" data-opt="${esc(o.id)}" data-response="${esc(o.response)}">
+            (o) => `<button class="mir-opt${o.id === picked?.id ? ' picked' : ''}" data-mact="option" data-opt="${esc(
+              o.id
+            )}" data-response="${esc(o.response)}" aria-pressed="${o.id === picked?.id}">
               <span>${esc(o.label)}</span>${
                 o.closes === false ? '<small>↪ commissions the work — the bead stays open</small>' : ''
               }${o.hint ? `<small>${esc(o.hint)}</small>` : ''}
@@ -321,7 +338,7 @@
         <h3>Thread</h3>
         ${commentsHtml(q.comments)}
       </div>
-      ${composerHtml(t.key || `${q.workspace}/${q.id}`, { placeholder: 'Answer it, or say what you want looked into…' })}
+      ${composerHtml(key, { placeholder: 'Answer it, or say what you want looked into…', picked })}
       <div class="mir-links">
         <a href="/graph?ws=${encodeURIComponent(q.workspace)}&id=${encodeURIComponent(q.id)}" target="_blank" rel="noopener">Graph →</a>
       </div>
@@ -563,6 +580,9 @@
         note('Commented — an agent has been sent to answer it.');
       }
       state.drafts.delete(key);
+      // The pick goes with the words it filled in, or the next card to open under
+      // this key arrives already claiming a choice nobody has made on it.
+      state.picks.delete(key);
       await ensureDetail(true);
     } catch (err) {
       note(err.message, true);
@@ -574,6 +594,9 @@
     if (!box) return;
     const was = draftFor(box.dataset.draft);
     state.drafts.set(box.dataset.draft, box.value);
+    // Editing a choice's words is qualifying it, so the pick survives typing —
+    // emptying the box is the one edit that ends it. Same rule as the phone's.
+    if (!box.value.trim()) state.picks.delete(box.dataset.draft);
     // Only repaint when the buttons have to change state — every keystroke would
     // otherwise rebuild the pane under the thumb it was typed with.
     if (Boolean(was) !== Boolean(box.value.trim())) render();
@@ -603,14 +626,46 @@
       return ensureDetail();
     }
 
-    if (act === 'option') return respond(t, btn.dataset.response, true, btn.dataset.opt || null);
+    /**
+     * A choice, clicked: its words go in the composer and the click is remembered.
+     *
+     * The same three rules the phone's own buttons follow, and the same reasons —
+     * another choice's words are replaced, words of your own are appended to, and
+     * clicking the choice you have already made takes it back, but only while the
+     * box still says exactly what that click put there.
+     */
+    if (act === 'option') {
+      const key = t.key || `${t.workspace}/${t.id}`;
+      const opts = state.detail?.decision?.options || [];
+      const response = btn.dataset.response || '';
+      const current = draftFor(key);
+      if (state.picks.get(key) === btn.dataset.opt && current === response.trim()) {
+        state.picks.delete(key);
+        state.drafts.delete(key);
+      } else {
+        state.picks.set(key, btn.dataset.opt);
+        const mine = current && !opts.some((o) => o.response.trim() === current);
+        state.drafts.set(key, mine ? `${current}\n${response}` : response);
+      }
+      render();
+      // Put the cursor where the words just landed. render() only restores focus it
+      // found on a composer, and what had it a moment ago was the button.
+      const box = pane.querySelector(`[data-draft="${CSS.escape(key)}"]`);
+      if (box) {
+        box.focus();
+        box.setSelectionRange(box.value.length, box.value.length);
+      }
+      return;
+    }
 
     if (act === 'comment' || act === 'respond') {
       const key = t.key || `${t.workspace}/${t.id}`;
       const text = draftFor(key);
       if (!text) return;
       btn.disabled = true;
-      return respond(t, text, act === 'respond');
+      // Which choice the sentence is making, when it is making one — and only on an
+      // answer. A comment settles nothing, so it can commission nothing.
+      return respond(t, text, act === 'respond', act === 'respond' ? state.picks.get(key) || null : null);
     }
 
     if (act === 'send') {

@@ -35,8 +35,13 @@
    app.js without the file would draw an inbox with no scope switch at all: the chips
    that used to be a permanent row are inside the new control, and nothing else draws
    them. They have to arrive together, which is what a cache version is for. */
-/* v24: Chat stopped being a tab. No new path — every file involved is already here —
-   but three of them changed together and a phone holding a mixture of v23 and v24 gets
+/* v24: the endorsement queue. `/endorse` and its script are new paths, and index.html
+   grew the 🗳️ that opens it — so a phone holding an older cached inbox would have
+   neither the door nor the page behind it, and one holding the old `/` beside a v24
+   daemon would show a top-bar button that 404s out of the cache the moment the tailnet
+   is slow. The page they have to arrive with is the whole point of the version. */
+/* v25: Chat stopped being a tab. No new path — every file involved is already here —
+   but three of them changed together and a phone holding a mixture of v24 and v25 gets
    a screen that is wrong in a way it cannot explain: index.html without app.js is a ＋
    that does nothing when tapped, app.js without index.html is an inbox whose rows say
    `data.consoles` and whose create button is not on the page, and either without
@@ -45,7 +50,7 @@
    with a Chat tab and no ＋ — which is the old app, complete, and therefore the one
    mixture nobody would think to suspect. They have to arrive together, which is what a
    cache version is for. */
-const CACHE = 'beadcause-v24';
+const CACHE = 'beadcause-v25';
 const SHELL = [
   '/',
   '/index.html',
@@ -90,6 +95,13 @@ const SHELL = [
   '/pulls',
   '/prs.html',
   '/prs.js',
+  // The endorsement queue. Three paths for one page, the same bargain the console
+  // makes with its five: /endorse is what the 🗳️ in the inbox points at, /queue is
+  // what you type, and /endorsements is what a notification could carry later.
+  '/endorse',
+  '/queue',
+  '/endorse.html',
+  '/endorse.js',
   '/console.html',
   '/console.js',
   // console.js does not merely use the send queue, it is built on it — the composer

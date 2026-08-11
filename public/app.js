@@ -48,8 +48,18 @@
     // reading it.
     dismissAsk: null,
     open: new Set(),
-    armed: null, // key of the option awaiting its confirm tap
+    armed: null, // key of the control awaiting its confirm tap
     armedTimer: null,
+    // Which option each card's answer is currently making — `key → option id`.
+    //
+    // Remembered from the tap rather than derived from the box, unlike the
+    // suggested chips, and the difference is the whole point of an option now
+    // filling the box instead of sending itself: you tap (b) and then qualify it
+    // in a sentence. Deriving would drop the pick at the first keystroke, and
+    // with it the one thing the sentence cannot say — whether this answer
+    // commissions work rather than settling it (`closes: false`, lib/decision.js).
+    // Emptying the box lets it go; see the input listener.
+    picked: new Map(),
     // Which cards have their agent log showing, and the text last fetched for each.
     // Kept out of the question objects so a list refresh can't wipe a pane you are
     // reading mid-run.
@@ -292,7 +302,12 @@
     if (text.trim()) localStorage.setItem(draftKey(key), text);
     else localStorage.removeItem(draftKey(key));
   };
-  const clearDraft = (key) => localStorage.removeItem(draftKey(key));
+  // The pick goes with the words it filled in — a card that comes back later must
+  // not arrive already claiming to be making a choice nobody has made on it since.
+  const clearDraft = (key) => {
+    localStorage.removeItem(draftKey(key));
+    state.picked.delete(key);
+  };
 
   /**
    * Don't yank the textarea out from under a thumb mid-sentence.
@@ -1465,25 +1480,26 @@
       d?.diagrams?.length || d?.links?.length || d?.docs?.length || d?.images?.length || q.sections.length || d?.context
     );
 
+    const chosen = pickedOption(q);
     const options = opts
       .map((o) => {
-        const armed = state.armed === `${q.key}|${o.id}`;
-        // The arm/disarm state is painted in place by paintArmed() — it must never
-        // go through render(), which would rebuild the list under a half-typed answer.
+        // The pressed state is painted in place by paintPicked() — it must never go
+        // through render(), which would rebuild the list under a half-typed answer.
         //
-        // The recommended tag is a *sibling* of `.label`, never inside it, because
-        // paintArmed writes `label.textContent` — a badge nested in there would
-        // survive until the first tap and then silently vanish.
+        // The tags are *siblings* of `.label`, never inside it, because paintPicked
+        // writes `label.textContent`: a badge nested in there would survive until
+        // the first tap and then silently vanish.
+        const picked = chosen?.id === o.id;
         return `<button class="option${o.recommended ? ' rec' : ''}${
-          armed ? ' confirm' : ''
-        }" data-act="option" data-key="${esc(q.key)}" data-opt="${esc(o.id)}" data-label="${esc(o.label)}">
-          <span class="label">${armed ? 'Tap again to confirm · ' : ''}${esc(o.label)}</span>
+          picked ? ' picked' : ''
+        }" data-act="option" data-key="${esc(q.key)}" data-opt="${esc(o.id)}" data-label="${esc(
+          o.label
+        )}" aria-pressed="${picked}">
+          <span class="label">${esc(o.label)}</span>
           ${o.recommended ? '<span class="rec-tag">★ recommended</span>' : ''}
           ${
-            // A sibling of `.label` for the same reason the star is — paintArmed
-            // writes label.textContent, and anything nested in there is gone on the
-            // first tap. Worth saying before the tap rather than only in the toast
-            // after it: this option is an instruction, and the bead stays open.
+            // Worth saying before the tap rather than only in the toast after it:
+            // this option is an instruction, and the bead stays open.
             o.closes === false ? '<span class="hand-tag">↪ commissions the work</span>' : ''
           }
           ${o.hint ? `<span class="hint">${esc(o.hint)}</span>` : ''}
@@ -1592,7 +1608,7 @@
       ? `Decline #${q.delivery.number} &amp; close`
       : q.delivery
       ? 'Request changes &amp; close'
-      : 'Answer &amp; close';
+      : esc(answerLabel(pickedOption(q)));
     return `<div class="freeform${declining ? ' declining' : ''}">
       ${replyBarHtml(q.key)}
       ${gateNoteHtml(q)}
@@ -1613,6 +1629,24 @@
       </div>
       ${declining ? '' : dismissHtml(q)}
     </div>`;
+  }
+
+  /**
+   * What the primary button will actually do, in its own words.
+   *
+   * *Answer & close* is the ordinary ending and stays the default. It becomes a lie
+   * the moment the box holds a **commission** — an option the agent marked
+   * `closes: false`, which puts the answer on the thread, takes the `human` label
+   * off and hands the bead back as work rather than finishing it (lib/decision.js).
+   * That used to be a property of the button you pressed; now that the buttons only
+   * fill the box, the last thing between the pick and the write is this label, so
+   * this is the only place left that can say it.
+   *
+   * Plain text, not HTML — it goes through `esc()` when the card is drawn and
+   * through `textContent` when paintPicked() repaints it.
+   */
+  function answerLabel(chosen) {
+    return chosen?.closes === false ? 'Answer & commission' : 'Answer & close';
   }
 
   /**
@@ -1652,23 +1686,23 @@
   /**
    * The answers this question looks like it has, when nobody wrote it any.
    *
-   * A `decision` block gets `.options`: full-width buttons above the fold that
-   * answer and close on two taps, because an agent wrote the sentence each one
-   * sends. These are the other case — lib/suggest.js read them out of the prose —
-   * and three things follow from that difference.
+   * A `decision` block gets `.options`: full-width buttons above the fold, one per
+   * choice the agent actually wrote. These are the other case — lib/suggest.js read
+   * them out of the prose — and both now do the same thing to the box under them.
+   * What is left of the difference is worth drawing, and is three things.
    *
    * **They live in the answer box, not above the card.** Their whole job is to
    * save you typing into the box under them, and a chip several screens away from
    * the thing it fills is a chip you have to scroll back from to check.
    *
    * **They are chips, not buttons.** The visual weight has to say which kind of
-   * thing this is without a word of explanation, and `.options` already owns the
-   * shape that means "this closes the bead".
+   * thing this is without a word of explanation: `.options` are the answers the
+   * question came with, and these were guessed at by a parser reading a paragraph.
    *
-   * **A tap fills; it never sends.** The words came out of a paragraph rather than
-   * out of an agent's `response:` field, so they go where you can read and edit
-   * them, and *Answer & close* is still the thing that commits them. One tap, no
-   * arming: filling a box you are looking at is not a gesture that needs guarding.
+   * **They let go the moment you edit them.** A pressed chip is a claim that the
+   * box says exactly what the chip says, and nothing more — see paintSuggested. An
+   * option is the opposite and stays lit while you qualify it, because it carries
+   * an id that means something after the words have changed and a chip does not.
    *
    * Only ever drawn on an open card, which is the same as saying you have had the
    * chance to read the brief the chips were lifted from.
@@ -2123,20 +2157,61 @@
   }
 
   /**
-   * Repaint the armed option in place. Cheap, and never touches the textarea.
+   * The option this card's answer is currently making, or null.
+   *
+   * Two sources, and the order matters. The tap wins, because it survives you
+   * editing the words — picking (b) and then qualifying it in a sentence is still
+   * picking (b), and that is the gesture the buttons exist for. Failing that, a
+   * box that still says exactly what one of them would have put there is read as
+   * that pick, which is what carries a choice across a reload: the draft is in
+   * localStorage and `state.picked` is not.
+   */
+  function pickedOption(q) {
+    const opts = q?.decision?.options || [];
+    const tapped = opts.find((o) => o.id === state.picked.get(q?.key));
+    if (tapped) return tapped;
+    const draft = getDraft(q?.key).trim();
+    return (draft && opts.find((o) => o.response.trim() === draft)) || null;
+  }
+
+  /**
+   * Light the option that is in the box, and say what the button under it will do.
+   *
+   * In place, never through render(), for the usual reason — the textarea directly
+   * below is holding the words this is about. The primary button is repainted with
+   * it because the two are one statement: an option marked `closes: false` is a
+   * commission, and *Answer & close* over it would name the one outcome that is
+   * not going to happen.
+   */
+  function paintPicked(key) {
+    const q = byKey(key);
+    const card = listEl.querySelector(`.card[data-key="${CSS.escape(key)}"]`);
+    const buttons = card?.querySelectorAll('.option') || [];
+    // No choices on this card, so nothing here has anything to say — and in
+    // particular it must not touch the primary button, which on a delivery says
+    // "Request changes & close" and is not this function's to rename.
+    if (!q || !buttons.length) return;
+    const chosen = pickedOption(q);
+    for (const btn of buttons) {
+      const picked = chosen?.id === btn.dataset.opt;
+      btn.classList.toggle('picked', picked);
+      btn.setAttribute('aria-pressed', String(picked));
+      const label = btn.querySelector('.label');
+      if (label) label.textContent = btn.dataset.label;
+    }
+    const primary = card?.querySelector('.freeform .primary[data-act="answer"]');
+    if (primary) primary.textContent = answerLabel(chosen);
+  }
+
+  /**
+   * Repaint the armed control in place. Cheap, and never touches the textarea.
    *
    * Every armable control on the list is painted here, not just the one that was
    * tapped — arming any of them disarms the others, and a dismiss button left
-   * reading "Tap again" after an option stole the arm would be a lie about what the
-   * next tap does.
+   * reading "Tap again" after something else stole the arm would be a lie about
+   * what the next tap does.
    */
   function paintArmed() {
-    for (const btn of listEl.querySelectorAll('.option')) {
-      const armed = state.armed === `${btn.dataset.key}|${btn.dataset.opt}`;
-      btn.classList.toggle('confirm', armed);
-      const label = btn.querySelector('.label');
-      if (label) label.textContent = (armed ? 'Tap again to confirm · ' : '') + btn.dataset.label;
-    }
     for (const btn of listEl.querySelectorAll('.dismiss')) {
       const armed = state.armed === `${btn.dataset.key}|dismiss`;
       btn.classList.toggle('confirm', armed);
@@ -3660,24 +3735,65 @@
       return;
     }
 
+    /**
+     * A choice, tapped: put its words in the box. It does not answer.
+     *
+     * These buttons used to answer and close on two taps, the second one confirming
+     * the first. What that shape could not do is the commonest thing anyone wants to
+     * do with a multiple-choice question — pick one *and say something about it*.
+     * The answer went on the thread as the agent's own sentence and nothing else, so
+     * qualifying it meant ignoring the buttons and typing the whole choice out with a
+     * thumb. Now the tap writes the sentence for you and you send it, which is the
+     * same two gestures with the useful half in the middle.
+     *
+     * The pick outlives the words: `state.picked` remembers which button was pressed
+     * even after you have rewritten what it typed, because only the id can say
+     * whether this answer commissions work rather than settling it — see submit()
+     * and lib/decision.js. That is also why the confirm tap is gone rather than
+     * moved: *Answer & close* is now the confirmation, it is a different button in a
+     * different place, and it names what it will do.
+     *
+     * Three rules about text already in the box, and they are the suggested chips'
+     * rules for the same reasons (see the `suggest` handler): another option's words
+     * are replaced, because you are picking again; words of your own are appended to,
+     * because a tap must never eat a sentence you typed; and tapping the pick you
+     * have already made takes it back, because undecided is a real state and there
+     * has to be a way to it — but only while the box still says exactly what that tap
+     * put there, so the way back can never delete anything you wrote.
+     */
     if (act === 'option') {
       const q = byKey(key);
-      const opt = q?.decision?.options.find((o) => o.id === btn.dataset.opt);
+      const opts = q?.decision?.options || [];
+      const opt = opts.find((o) => o.id === btn.dataset.opt);
       if (!opt) return;
-      const token = `${key}|${opt.id}`;
-      if (state.armed !== token) {
-        // Two taps to answer — a stray tap in a pocket shouldn't close a bead.
-        state.armed = token;
-        clearTimeout(state.armedTimer);
-        state.armedTimer = setTimeout(() => {
-          disarm();
-          paintArmed();
-        }, 6000);
-        paintArmed();
-        return;
+
+      // A closed card has no box to fill, so the tap opens it — the same move
+      // `pr-changes` makes, and for the same reason: what happens next is typing.
+      // Through expand() rather than openOnly(), so the brief and the thread arrive
+      // with it: you are about to write an answer, and the card you write it on
+      // should be the whole card.
+      if (!state.open.has(key)) {
+        disarm();
+        await expand(key);
       }
-      disarm();
-      await submit(key, opt.response, { close: true, option: opt.id });
+      const box = listEl.querySelector(`.card[data-key="${CSS.escape(key)}"] [data-role="answer"]`);
+      if (!box) return;
+
+      const current = box.value.trim();
+      if (state.picked.get(key) === opt.id && current === opt.response.trim()) {
+        state.picked.delete(key);
+        box.value = '';
+      } else {
+        state.picked.set(key, opt.id);
+        const mine = current && !opts.some((o) => o.response.trim() === current);
+        box.value = mine ? `${current}\n${opt.response}` : opt.response;
+      }
+
+      setDraft(key, box.value);
+      paintDraftMark(key);
+      paintPicked(key);
+      box.focus();
+      box.setSelectionRange(box.value.length, box.value.length);
       return;
     }
 
@@ -3837,7 +3953,15 @@
        */
       const q = byKey(key);
       const asChanges = act === 'answer' && q?.delivery;
-      await submit(key, asChanges ? `CHANGES: ${text}` : text, { close: act === 'answer' });
+      await submit(key, asChanges ? `CHANGES: ${text}` : text, {
+        close: act === 'answer',
+        // Which choice this sentence is making, when it is making one. The words may
+        // have been edited into a qualified version of it and the server never tries
+        // to read the choice back out of them — the id is what says whether this
+        // answer commissions work, and only the button that filled the box knows it.
+        // A comment names no option: it settles nothing, so it can commission nothing.
+        option: act === 'answer' ? pickedOption(q)?.id || null : null,
+      });
       if (act === 'note') box.value = '';
     }
   });
@@ -3866,6 +3990,12 @@
     // the claim stops being true, so it lets go rather than sitting there lit under
     // an answer that is now yours.
     paintSuggested(key, box.value);
+    // An option is the other way round, and deliberately: editing its words is
+    // *qualifying* the choice, not abandoning it, so the pick survives every
+    // keystroke. Emptying the box is the one edit that ends it — at that point
+    // there is nothing left of the answer it was a claim about.
+    if (!box.value.trim()) state.picked.delete(key);
+    paintPicked(key);
   });
 
   listEl.addEventListener('change', (ev) => {
