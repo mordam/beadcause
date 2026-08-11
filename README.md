@@ -5041,6 +5041,17 @@ close the bead — and everything else carries on. One unremoted repo must never
 to stop the advocate working the rest, which is the failure mode a mandatory PR
 channel would have.
 
+**A `no` to the second question expires; a `yes` does not.** The daemon starts at
+login, which is often before anyone has logged into anything, so the answer it gets
+first is the one most likely to be about to change — and it used to keep that answer
+until the service was restarted, while telling you on every card to run `gh auth
+login`, which is exactly what a process holding a cached answer cannot notice. So an
+unauthenticated or missing `gh` is re-asked a minute later, backing off to a quarter of
+an hour if nothing changes, and a `gh auth login` in a terminal starts working on its
+own. The card names `launchctl kickstart -k gui/$(id -u)/m4m.beadcause` as well, for
+when you would rather not wait the minute. A `yes` is still asked exactly once per
+process — it is read on every poll, and it does not stop being true.
+
 ```json
 "pr": {
   "enabled": true,
