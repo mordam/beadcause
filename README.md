@@ -3004,7 +3004,7 @@ synthetic `Other` group, which is what makes one request enough; the client merg
 
 Three things it does **not** do. It does not filter — status, priority, provenance and an
 id substring are the server's already and the controls for them are their own work. It does
-not stream: every other standing view mounts `stream.js`, and a fifth long poll parked
+not stream: every other standing view mounts `stream.js`, and one more long poll parked
 against a page about what already happened would be paying for liveness nobody asked for,
 so ⟳ is the refresh and a record that reordered itself while your thumb was travelling
 would be worse than one that did not. And **nothing on it writes** — which is also why it
@@ -3272,6 +3272,18 @@ with the view, because only the view knows whether `type: 'merged'` is a lamp, a
 nothing at all. Five hand-rolled long-polls with five subtly different resync behaviours
 was the shape worth not growing into.
 
+**There were six, and the sixth was missed because it is not the only script on its
+page.** The [mirror pane](#the-mirror--whatever-the-phone-has-open-with-room-to-read-it)
+rides `monitor.html` beside the advocates page it is a mode of, and it follows the log for
+a reason of its own — a thumb moving on a phone — on a sequence of its own. A survey by
+page finds five; a survey by `/api/poll?since=` finds six. It is a mount now too, and the
+argument that had kept it hand-rolled is [in its own
+section](#the-mirror--whatever-the-phone-has-open-with-room-to-read-it): the three rules
+it looked to invert turned out to be the browser tab rather than the pane, the retry
+rather than a fallback, and an optional handler. `test/stream.mjs`'s `VIEWS` list is what
+keeps the count honest, and it is keyed on the script rather than the page for exactly
+this reason.
+
 The thing that makes four more parked clients free is `want=presence`. The daemon sweeps
 `bd` for a poll that asked for the inbox questions, and the other four views draw none of
 them — so they ask to be *woken* rather than told, and then go and get their own payload,
@@ -3288,6 +3300,7 @@ each case because what is expensive is different in each case:
 | **Admin** | Reads `observing` off the poll, which is the whole reason it ever touched `/api/work`, and re-asks `/api/admin` — two in-memory reads, no `bd` — when an advocate or a terminal moved. Its numbers are promises about what a press will do, so half-patching them was never an option. |
 | **Board** | Re-asks `/api/prs` when a pull request actually moved. The three lamps are the daemon's own reading of GitHub, `origin/main` and the deploy journal; a client that set them from an event would be a second, worse copy of that ladder. The daemon drops its board cache as those events fire, so the first board through does the one `gh` sweep and every other open board shares it. |
 | **Chat launcher** | Was the odd one out — no timer to delete, just no refresh — and now re-asks `/api/consoles` when something moved. |
+| **Mirror** | The one view for which presence *is* news: it reads `presence` off the wake and re-reads the phone's card only when the phone moved to a different one, or when a non-presence event landed on the key it is already showing. |
 
 Two events were added for it, both on the daemon: opening and closing an in-app terminal
 now say so, because `/admin` draws a count of open terminals into the label of the button
@@ -4050,6 +4063,22 @@ started listening when you looked at it would be a poll with extra steps. The co
 held socket. While the pane is hidden a move only lights the dot on the chip — nothing
 repaints behind a hidden pane, so a parked read would be a held request nobody looks at —
 and coming back forces one fresh read.
+
+**That feed is [the shared one](#the-delta-stream--every-view-on-the-event-log), and was
+hand-rolled for longer than it should have been.** It was left out when the other five
+views were converted, on the reading that three of `stream.js`'s rules are inverted here:
+the loop runs whether or not its pane is showing, it never stops, and it has no fallback
+to stand down to. None of the three survived being checked against the file. The pane
+above is the mirror/advocates toggle *inside* one document and `stream.js` has no opinion
+about it — its rule is `document.hidden`, the browser tab, and a mirror window merely
+unfocused on a second screen is `visible`, which is the entire use case. "Never stops" is
+the retry, which is the default and which walks a dead daemon out to a minute rather than
+re-asking it every three seconds for as long as the page is open, as this loop did. And
+"no fallback" is `onSettle` being optional. So the conversion needed no new options at
+all, and what it bought was that backoff, an abort when the tab hides instead of a socket
+held in the dark, and a `resync` the hand-rolled loop had no concept of — the log rolling
+past leaves `events` empty, which read as *nothing moved* on the one occasion the pane
+could least afford it.
 
 A chat session is the exception, because it changes while nothing moves at all — the agent
 is mid-sentence. That used to be a 1.5s `setInterval` re-reading the whole session, which
