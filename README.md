@@ -6546,14 +6546,20 @@ parallel pass. A check that fails both times is reported with `on its own — no
 scheduling accident` beside it, so a red line cannot be waved away as the scheduler's
 fault.
 
-**Two of the twenty-six were already failing the day this was written**, which is the
-bead in one sentence. `scripts/shot-check.mjs` has always asserted that the daemon token
-never reaches `shot.mjs`'s output; the token is now appended to the URL that `shot.mjs`
-prints, so it does (bc-sqab). And `dismiss-check.mjs` finds that arming an option no
-longer disarms the dismiss button, so two controls can be armed at once and the next tap
-is ambiguous (bc-giuc). Neither had a mark against it anywhere. They are left red on
-purpose: a green wall bought by deleting the assertions would be the same silence in a
-better disguise.
+**Three of the twenty-six are red, and that is the bead in one paragraph.** Two were
+already failing the day this was written, with no mark against them anywhere:
+`shot-check.mjs` has always asserted that the daemon token never reaches `shot.mjs`'s
+output, and the token is now appended to the URL that `shot.mjs` prints, so it does
+(bc-sqab); `dismiss-check.mjs` finds that arming an option no longer disarms the dismiss
+button, so two controls can be armed at once and the next tap is ambiguous (bc-giuc).
+The third arrived while this was being written — merging `main` in took the gap between
+the thread and the answer box from 80px to 134px, over `agent-chooser-check.mjs`'s 110px
+bar (bc-0fi2), found within minutes of the downmerge rather than in a month. Two checks
+in that same range of `main` had already been fixed by hand for the same kind of drift;
+this one was missed, which is the argument for the command.
+
+They are left red on purpose. A green wall bought by deleting the assertions would be
+the same silence in a better disguise.
 
 **But running them is not the problem this was written for.** These checks do not rot by
 failing. They rot by pressing something that is no longer there, and then not being run.
