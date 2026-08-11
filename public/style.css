@@ -764,6 +764,23 @@ body {
   display: inline-block; min-width: 18px;
   color: var(--muted); font-variant-numeric: tabular-nums; font-weight: 700;
 }
+/* "This already exists." The same --warn as an unsent draft, a gate and the shade
+   prompt, for the same reason: the app has noticed something it is about to make a mess
+   of and is saying so. It sits between the head and the body, outside the fold, because
+   it is the only thing on a row that changes what ✓ means — see dupeHtml() in app.js. */
+.prop-dupe {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px;
+  margin-left: 22px; padding: 6px 8px;
+  border: 1px solid color-mix(in srgb, var(--warn) 55%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--warn) 10%, var(--surface));
+  font-size: 12px; line-height: 1.45; color: var(--text);
+}
+.prop-dupe-flag {
+  flex: none;
+  font-size: 10.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--warn);
+}
 .prop-body { display: flex; flex-direction: column; gap: 9px; padding-left: 22px; }
 /* Folded rather than clamped. Three lines of -webkit-line-clamp over markdown cuts a
    list mid-item, and nothing on the row said there was more or offered it; this
@@ -2095,6 +2112,32 @@ button.work-row {
    a live one is not, without a word spent saying so. */
 .rel-dot { flex: none; width: 7px; height: 7px; border-radius: 50%; }
 .rel-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* What is under a bead, in the same row as what is around it — see childrenHtml.
+   The heading carries two more things than the relation groups do: the fraction, and
+   the fold. */
+.kids { margin-bottom: 14px; }
+.kids-head { display: flex; align-items: center; gap: 8px; min-height: 36px; }
+.kids-count { font-size: 11px; font-weight: 600; letter-spacing: 0.04em; color: var(--muted); }
+/* Pushed to the far end so it reads as a control on the list rather than a third label
+   in the heading, and 36px tall because it is a thing you hit with a thumb — the same
+   floor .scope-btn holds to. */
+.kids-toggle {
+  margin-left: auto;
+  min-height: 36px;
+  padding: 6px 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 550;
+}
+/* Finished work stays legible — it is the record of what got done, and hiding it is
+   what the button is for — but steps back so the open rows are what the eye lands on.
+   The dot beside it is already grey; this is the rest of the row agreeing. */
+.rel-row.is-closed { opacity: 0.62; }
 
 /* `display: flex` beats the UA's [hidden] rule — see .brief[hidden]. */
 .scope[hidden] { display: none; }

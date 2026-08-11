@@ -345,6 +345,10 @@ const bd = {
   // one state that reaches `surveyAgent` at all.
   ready: async () => [],
   listLabel: async () => [],
+  // The duplicate check every proposed bead goes through since bc-9frx — including this
+  // one, which is the right answer: a self-request already sitting open should arrive
+  // flagged rather than twice.
+  listStatus: async () => [],
   show: async () => null,
   create: async (workspace, spec) => {
     created.push({ workspace: workspace.name, spec });

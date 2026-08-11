@@ -758,17 +758,91 @@
       ADD_ATTR: ['target', 'rel'],
     });
 
+  /**
+   * Which sheet is on screen, as a number that goes up on every open.
+   *
+   * The children fetch below outlives the sheet that asked for it — tap a bead, read a
+   * line, tap through to another, and the first answer is still in the air. Every async
+   * append checks this before touching the DOM, so a slow reply lands nowhere rather
+   * than under a bead it is not about.
+   */
+  let sheetSeq = 0;
+
+  /**
+   * Whether the closed children are folded away, remembered across sheets and reloads.
+   *
+   * Default is *shown*, which is the whole point of listing them: an epic whose finished
+   * work is invisible reads as though it never started. The fold is for the other
+   * reading — what is left — and the choice outlives the sheet, because making it again
+   * on every bead is not a choice, it is a chore.
+   */
+  const HIDE_CLOSED_KEY = 'beadcause.childrenHideClosed';
+  let hideClosed = localStorage.getItem(HIDE_CLOSED_KEY) === '1';
+
   async function openSheet(d) {
     sheet.hidden = false;
     sheet.classList.add('open');
+    const seq = ++sheetSeq;
     $('sheet-id').textContent = d.id;
     $('sheet-body').innerHTML = '<div class="empty">Loading…</div>';
+    let full;
     try {
-      const full = await api(`/api/bead?workspace=${encodeURIComponent(workspace)}&id=${encodeURIComponent(d.id)}`);
-      $('sheet-body').innerHTML = sheetHtml(full);
+      full = await api(`/api/bead?workspace=${encodeURIComponent(workspace)}&id=${encodeURIComponent(d.id)}`);
     } catch (err) {
-      $('sheet-body').innerHTML = `<div class="empty"><strong>Can't load this bead</strong>${esc(err.message)}</div>`;
+      if (seq === sheetSeq) {
+        $('sheet-body').innerHTML = `<div class="empty"><strong>Can't load this bead</strong>${esc(err.message)}</div>`;
+      }
+      return;
     }
+    if (seq !== sheetSeq) return;
+    $('sheet-body').innerHTML = sheetHtml(full);
+    // Deliberately not awaited. The sheet is on screen and readable at this line, and
+    // the children are an addition to it — see loadChildren for what that buys.
+    loadChildren(full, seq);
+  }
+
+  /**
+   * The children, asked for after the sheet is already up and appended when they land.
+   *
+   * Everything here is arranged so the sheet never waits on this call and never breaks
+   * over it. The caller does not await it, so a slow `bd` costs the block and not the
+   * first screen. A failure is swallowed rather than shown, because replacing a sheet
+   * you can already read with an error message would take the bead away over the part
+   * of it that did not arrive. And an answer for a bead you have since navigated away
+   * from is dropped on the sequence check.
+   *
+   * The toggle re-renders from the rows already in hand — folding the closed ones away
+   * is a question about what is on screen, not a new question for bd.
+   */
+  async function loadChildren(b, seq) {
+    if (!mightHaveChildren(b)) return;
+    let data;
+    try {
+      data = await api(
+        `/api/bead-children?workspace=${encodeURIComponent(workspace)}&id=${encodeURIComponent(b.id)}`
+      );
+    } catch {
+      return;
+    }
+    if (seq !== sheetSeq) return;
+    const kids = (data.children || []).filter(Boolean);
+    const slot = $('sheet-kids');
+    // No children after all — `dependent_count` counts the beads this one blocks as
+    // well, so a bead that blocks something and parents nothing gets here. It draws
+    // nothing, and the empty slot it leaves has no height.
+    if (!slot || !kids.length) return;
+    const paint = () => {
+      slot.innerHTML = childrenHtml(kids, hideClosed);
+    };
+    paint();
+    slot.addEventListener('click', (ev) => {
+      const btn = ev.target.closest('.kids-toggle');
+      if (!btn) return;
+      hideClosed = !hideClosed;
+      if (hideClosed) localStorage.setItem(HIDE_CLOSED_KEY, '1');
+      else localStorage.removeItem(HIDE_CLOSED_KEY);
+      paint();
+    });
   }
 
   /**
@@ -834,6 +908,67 @@
     </div>`;
   }
 
+  /**
+   * Is it worth asking bd what is under this bead?
+   *
+   * There is no child count in the payload to read. What there is is `dependent_count`
+   * — every edge pointing *at* this bead — and a child's `parent-child` edge is one of
+   * them, so a bead with no dependents has no children and the call can be skipped
+   * outright. That is the direction that has to be exact, and it is: this never skips a
+   * bead that has children.
+   *
+   * It is deliberately not tight the other way. A bead that blocks something and parents
+   * nothing — bc-7w1l, one dependent, no children — costs one call that comes back
+   * empty and draws nothing. bd offers nothing better to gate on, and the alternative is
+   * asking on every sheet, which is the leaf beads that are most of what you tap.
+   */
+  const mightHaveChildren = (b) => Boolean(b && b.dependent_count);
+
+  /**
+   * Every child of a bead, with the closed ones foldable.
+   *
+   * The same row as the relations above it, on purpose: a child is another bead you tap
+   * through to, and giving it a second visual language would say it was a different kind
+   * of thing. Status is colour here as it is everywhere else on this page — the dot, the
+   * node outline, the pill — so a finished child is grey, and stepped back besides.
+   *
+   * What is added is the fraction `bd show` prints under its own CHILDREN section, and
+   * the control that folds the closed tail away. The control only exists when there is
+   * something for it to hide: "Hide closed (0)" on an epic that has finished nothing is
+   * a button that does nothing. The count on it is what says how many went, which is the
+   * only thing a fold owes you.
+   *
+   * Pure — the fold state is passed in rather than read here — so the whole block can be
+   * rendered in a test with no DOM and no localStorage behind it.
+   */
+  function childrenHtml(children, hideClosed) {
+    const rows = (children || []).filter(Boolean);
+    if (!rows.length) return '';
+    const done = rows.filter((c) => c.status === 'closed');
+    const shown = hideClosed ? rows.filter((c) => c.status !== 'closed') : rows;
+    const toggle = done.length
+      ? `<button type="button" class="kids-toggle" aria-pressed="${hideClosed ? 'true' : 'false'}">${
+          hideClosed ? `Show closed (${done.length})` : `Hide closed (${done.length})`
+        }</button>`
+      : '';
+    return `<div class="rel-group kids">
+      <div class="kids-head">
+        <span class="rel-kind">Children</span>
+        <span class="kids-count">${done.length}/${rows.length} done</span>
+        ${toggle}
+      </div>
+      ${shown
+        .map(
+          (c) => `<a class="rel-row${c.status === 'closed' ? ' is-closed' : ''}" href="${esc(beadUrl(c.id))}">
+            <span class="rel-dot" style="background:${statusColor(c.status)}"></span>
+            <span class="pill id">${esc(c.id)}</span>
+            <span class="rel-title">${esc(c.title || '')}</span>
+          </a>`
+        )
+        .join('')}
+    </div>`;
+  }
+
   function sheetHtml(b) {
     const parts = [`<h2 class="sheet-title">${esc(b.title || '')}</h2>`];
     const rel = relations(b);
@@ -862,6 +997,15 @@
     ].filter(Boolean);
     if (groups.length) parts.push(`<div class="rel">${groups.join('')}</div>`);
     if (b.description) parts.push(`<div class="md">${md(b.description, FROM_BD)}</div>`);
+    // Where the children land, once the second call has been made for them — empty at
+    // first paint, and absent entirely on a bead that cannot have any.
+    //
+    // Below the description because that is the question children answer: you read what
+    // the epic is *for*, and then what it is made of. And because the sheet opens at the
+    // top, the block arrives in the space under what you are reading rather than pushing
+    // it — the one position where landing late costs nothing. An empty div has no height,
+    // so a call that comes back with nothing leaves no gap and no heading behind it.
+    if (mightHaveChildren(b)) parts.push('<div id="sheet-kids"></div>');
     // The rest of the row, in the order bd itself prints it. `/api/bead` has always
     // returned all of it; the sheet just stopped reading after `description`, so the
     // acceptance criteria — the one part you close a bead against — were readable
