@@ -2532,6 +2532,31 @@ of its paths still serve the page — a bookmark that 404s is a worse outcome th
 with no tab. It keeps the bar, because that is how you leave it, and nothing on the bar is
 marked current there: you are not on one of the three.
 
+### Dismissed is hidden, not gone
+
+The ✕ on a launcher row is soft and always was: it stamps `closedAt`, the transcript
+stays, the id keeps working, and saying anything to that conversation brings it back.
+What it did not do was get the row off the screen. Closed ones sorted under the live
+ones — the right order, and no help after a fortnight, because every one of them is a
+row you have already dealt with and they never stop arriving.
+
+So **the launcher lists the live ones, and a `Dismissed` toggle beside the repo tabs
+gives the rest back**, carrying how many are being held under the tab you are on. The
+count is the point of it: a filtered list that says nothing about being filtered is
+indistinguishable from a repo you have never talked to, which is why the tab counts
+also moved to counting the rows they would actually list — a tab reading 3 over an
+empty list is the same lie one line higher up. A repo whose conversations have *all*
+been dismissed says so in as many words rather than offering the never-used wording.
+
+The revealed rows are marked `dismissed`, dimmed, and still the way back in: tapping
+one opens it, saying anything reopens it, and there is deliberately no "reopen" button,
+because the conversation is the reopen. The answer lives in `sessionStorage`, which is
+the whole design of it — tapping a dismissed row is a navigation and coming back must
+not re-hide what you were reading, while opening the app tomorrow has to start on the
+live ones again, or the ✕ buys you nothing. It is not the repo tab: nobody else's
+screen depends on it and it decides nothing about what your phone rings for, so unlike
+the space picker there is no reason for the server to hold it.
+
 ### The Mirror is a pane, not a tab
 
 `tabbar.js` and the Mirror (`public/mirror.js`, whose header is the prose on what it is)
