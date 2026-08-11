@@ -379,6 +379,48 @@ check(
 );
 check('and never says "merge-merges"', !/merge-merges/.test(bareBrief));
 
+/* ---------------------------------- what the last session in this repo already learned */
+
+console.log('\nthe repo-local notes the brief carries');
+
+// The push half of tier 1. The system prompt already tells every worker to run
+// `beadcause-memory notes` before it starts, and that line stays — but a session that has
+// to remember to read before it has read anything mostly does not, and a store nobody
+// opens is a store that was never worth writing to. So the daemon selects against the
+// bead and puts the likely ones in the brief. The rule and its caps live in lib/memory.js
+// and are tested there; what is asserted here is that the brief carries the result, that
+// it survives a workspace with no notes at all, and — the one that would quietly undo the
+// whole thing — that a section arriving is never allowed to read as permission to skip
+// the rest of the store.
+const NOTES = {
+  'sw-cache-version-conflicts': {
+    value: 'public/sw.js is the most likely merge conflict here — read both blocks before renumbering.',
+    at: '2026-08-11T14:36:36.114Z',
+  },
+  'fixed-port-suites-collide': { value: 'test/dedupe.mjs binds 127.0.0.1:4389, so two suites at once is EADDRINUSE.', at: '2026-08-11T14:08:31.486Z' },
+};
+const WORKED = { id: 'bc-fmt', title: 'Workers land their own work when the bead is done', description: 'public/sw.js and the merge conflict it causes.' };
+const noted = workPromptFor('beadcause', WORKED, 1, MODE(), OWNER, { notes: NOTES });
+
+check('the brief carries the note the bead is about', noted.includes('most likely merge conflict here'), (noted.match(/.*sw\.js.*/) || [])[0]);
+check(
+  'and names the rest by key, so a capped section never reads as the whole store',
+  noted.includes('`fixed-port-suites-collide`') && noted.includes('beadcause-memory notes <key>'),
+  (noted.match(/.*unread here.*/) || [])[0]
+);
+check(
+  'the section sits above the tests paragraph, where what it mostly says is how they are really run',
+  noted.indexOf('already worked out') < noted.indexOf('Run whatever this repo calls its tests'),
+  `${noted.indexOf('already worked out')} vs ${noted.indexOf('Run whatever this repo calls its tests')}`
+);
+// A workspace whose store is empty — every workspace, on the day this shipped — must get
+// no heading rather than a heading over nothing. An agent shown an empty section twice
+// learns the section is furniture, and stops reading it on the day it has something in it.
+check('a workspace with no notes gets no section at all', !land.includes('already worked out') && !land.includes('beadcause-memory notes <key>'), land);
+// Whatever else changes, this cannot: the brief is passed the notes rather than reading
+// them, so every ending stays assertable here without a repo, a ref or a store.
+check('every ending can still carry one', [MODE(), MODE({ autoMerge: false }), null].every((m) => workPromptFor('beadcause', WORKED, 1, m, OWNER, { notes: NOTES }).includes('already worked out')));
+
 /* -------------------------------------------- the stored value the new default needs */
 
 console.log('\nthe one-time move of a stored `squash`');
