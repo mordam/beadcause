@@ -8966,7 +8966,7 @@ history.
 | `auth.google.sessionDays` | how long a signed-in browser stays signed in (default `30`) |
 | `auth.google.enabled` | `false` turns sign-in off while leaving the rest of the block configured (default `true`) |
 | `workspaces` | auto-discovered from `~/beads/*/.beads`, and **reconciled on every start** — entries whose directory has gone are dropped and new ones picked up, both logged. Renaming a workspace directory used to leave a stale entry that failed on every poll tick, silently hiding that whole workspace from the phone |
-| `repos` | the checkouts **one workspace** may be worked in, keyed by workspace name — `{"climative": {"root": "~/climative.dev", "default": "architecture", "approved": ["architecture", "athena-service"]}}`. Empty by default, and a workspace not named here costs nothing: it is one repo, as every workspace was before this existed. `approved` is a list you write and nothing discovers — a directory under `root` that is not in it resolves to nothing. Each repo's identity is the **service token** it declares in its own `config/config.yaml`, read from the checkout rather than restated here; `default` is the repo a bead carrying no token belongs to, and `tokenPath` / `tokenKey` override where the token is read from. See [Many repos, one workspace](#many-repos-one-workspace--the-approved-list-and-the-token-that-names-each) |
+| `repos` | the checkouts **one workspace** may be worked in, keyed by workspace name — `{"climative": {"root": "~/climative.dev", "default": "architecture", "approved": ["architecture", "athena-service"]}}`. Empty by default, and a workspace not named here costs nothing: it is one repo, as every workspace was before this existed. `approved` is a list you write and nothing discovers — a directory under `root` that is not in it resolves to nothing. Each repo's identity is the **service token** it declares in its own `config/config.yaml`, read from the checkout rather than restated here; `default` is the repo a bead carrying no token belongs to, and `tokenPath` / `tokenKey` override where the token is read from. A bead says which repo it is about by carrying that token as a `repo:<token>` label. See [Many repos, one workspace](#many-repos-one-workspace--the-approved-list-and-the-token-that-names-each) and [how a bead names one](#how-a-bead-says-which-repo-it-is-about--repotoken) |
 | `openSessions` | allow `POST /api/session` to open a Claude session on the Mac (default `true`) |
 | `sessionDirs` | override where a workspace's session opens. Normally unnecessary — see Discussing a question on the Mac |
 | `sessionPermissionMode` | `--permission-mode` for an opened session (default `auto`; `null` to omit the flag) |
@@ -9205,6 +9205,73 @@ three it was.
 
 One repo and no `default` is that repo — there is nothing to be wrong about. Several and
 no `default` is no repo, and says so.
+
+### How a bead says which repo it is about — `repo:<token>`
+
+A label, and it is the same shape as
+[`superseded-by:`](#the-duplicate-that-comes-ready-the-moment-its-original-lands):
+
+```
+bd create --title "Athena drops the last page of results" --label repo:as
+bd label add cl-9f2 repo:as
+bd list --label repo:as
+```
+
+A label rather than a field on the bead, because it is the only per-bead thing beads
+itself will carry, sync and filter on without beadcause owning a schema — those three
+commands work today, and the value rides Dolt to every other machine on the workspace.
+The alternative is a line in the description that beadcause parses, and prose that has
+to be parsed correctly is exactly what this whole thing exists to stop relying on.
+
+**`resolveSessionDir` is where it becomes a directory, and it is the only place.**
+Twenty-five call sites go through that one function in `lib/session.js` — the iTerm
+session, the phone terminal, the chat console, the advocate, the PR board, the deploy —
+so everything downstream of a bead lands in whatever it answered, and every one of them
+gets the repo by passing the bead it already holds:
+
+```js
+resolveSessionDir(cfg, workspace, bead)      // the directory
+resolveSessionRepo(cfg, workspace, bead)     // { dir, repo: {name, dir, token} | null }
+```
+
+The third argument is optional at every call site, and `repo` is `null` for every
+workspace that has no approved list — which is `sophab`, `deluvia`, `ehatt`, `beadcause`
+itself and every other install of this. Those workspaces do not reach the new branch at
+all: `multiRepo` is false, nothing is read from disk, and the `sessionDirs` /
+`projectRoot` / `fallbackWorkspace` rules answer exactly as they did before. That is
+asserted in `test/sessiondir.mjs` rather than believed, because "it still works for
+Climative" is not the claim that matters to the four workspaces that were working
+already.
+
+A caller with no bead in hand — the advocate's open-PR sweep, the deploy board — passes
+none and gets the `default` repo. That is the right answer to a question about the
+workspace rather than about one bead, and it is the same answer those callers used to
+get from the one directory a workspace had.
+
+**Four ways a bead names no checkout, and all four refuse.** A token no approved repo
+declares, a token two of them both declare, a bead carrying two different `repo:` labels,
+and a bare `repo:` with nothing after it. Each throws a 409 with its own sentence —
+`lib/server.js` already turns that into the message on whatever screen the tap came from
+— and none of them becomes `architecture`. Only a bead carrying *no* `repo:` label
+resolves to the default, because that is a bead that has said where it belongs. Two
+labels naming the same token is one answer written twice and resolves fine.
+
+**`sessionDirs.<workspace>` does not override this**, and that is a decision. It pins one
+directory, and a workspace with several checkouts has no one directory to pin — honouring
+it would send every bead in the workspace to the same repo however it was labelled, with
+nothing on screen to say why. So the repo the bead named wins, and a workspace configured
+both ways says so in the startup log:
+
+```
+[repos] sessionDirs.climative pins /Users/you/climative.dev/architecture, but climative has an approved repo list — the repo a bead names wins, so that override no longer decides anything. Take it out, or empty repos.climative.approved
+```
+
+**One caller runs it backwards, and needs its own answer.** `ownWorkspace` in
+`lib/deploy.js` maps *this checkout* back to a workspace name, to decide which graph the
+daemon files its own crashes on. Forwards, a multi-repo workspace answers with one repo;
+backwards, every approved checkout **is** that workspace, so all of them are compared. A
+single comparison against the default would have filed a crash from a session running in
+`~/climative.dev/athena-service` onto whichever workspace came next in the list.
 
 ### Environment
 
