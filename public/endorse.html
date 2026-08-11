@@ -30,6 +30,11 @@
     <div class="empty">Asking every workspace…</div>
   </main>
 
+  <!-- Every error this page hits, sent back to the daemon as a P0 bead: an uncaught
+       exception, a rejected promise, a failed fetch, any red toast. Ahead of every
+       other script, because it can only catch what loads after it — and it is purely
+       additive, so a page that fails to load it behaves exactly as it did before. -->
+  <script src="/report.js"></script>
   <script src="/presence.js"></script>
   <script src="/tabbar.js"></script>
   <!-- Which space the queue is about. Before endorse.js, which registers its repaint
