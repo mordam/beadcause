@@ -37,10 +37,10 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import http from 'node:http';
-import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { boundPort } from './helpers/net.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const LIB = (name) => path.join(HERE, '..', 'lib', name);
@@ -438,19 +438,10 @@ await check('and it refuses a bead that is not held, because there is nothing to
  */
 const { createApp, listen } = await import(LIB('server.js'));
 
-const port = await new Promise((resolve, reject) => {
-  const probe = net.createServer();
-  probe.on('error', reject);
-  probe.listen(0, '127.0.0.1', () => {
-    const { port: p } = probe.address();
-    probe.close(() => resolve(p));
-  });
-});
-
 const cfg = {
   host: '127.0.0.1',
-  port,
-  baseUrl: `http://127.0.0.1:${port}`,
+  port: 0,
+  baseUrl: '',
   token: 'verdict-token',
   actor: 'beadcause-test',
   bdBin: FAKE_BD,
@@ -467,6 +458,11 @@ const cfg = {
 
 const app = createApp(cfg);
 const servers = listen(cfg, app.handler);
+const port = await boundPort(servers);
+// createApp and listen hold this object, so the two fields that could only be
+// filled in once the kernel had chosen are filled in here, before the first call.
+cfg.port = port;
+cfg.baseUrl = `http://127.0.0.1:${port}`;
 
 const post = (pathname, body) =>
   new Promise((resolve, reject) => {
@@ -494,15 +490,6 @@ const post = (pathname, body) =>
     req.write(payload);
     req.end();
   });
-
-for (let i = 0; i < 100; i += 1) {
-  try {
-    await post('/api/nothing', {});
-    break;
-  } catch {
-    await new Promise((r) => setTimeout(r, 20));
-  }
-}
 
 await check('POST /api/bead/endorse — a group in one request, a row per bead back', async () => {
   reset();
