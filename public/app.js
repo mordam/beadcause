@@ -5420,6 +5420,87 @@
     window.beadcause?.warm?.prewarm?.({ here: 'inbox', api });
   }
 
+  /**
+   * The last time this page asked `/api/work` on the advocates tab's behalf.
+   *
+   * Seeded with *now* rather than zero, which is the only reason the two warmers cannot
+   * both sweep on boot: `prewarm` fetches this same path 1200ms in, and a poll that
+   * wakes inside that window would otherwise find nothing held and go and ask for it a
+   * second time. The first minute belongs to the background warm, which is doing this
+   * anyway; after that, whichever needs it asks.
+   */
+  let workAskedAt = Date.now();
+
+  /**
+   * Keep the advocates tab's payload warm for as long as you sit here.
+   *
+   * `warmOthers` above fills it *once*, a second after this page boots, and the warm
+   * layer's TTL then throws it away a quarter of an hour later — and `prewarm` is
+   * once-per-document, so nothing puts it back. The inbox being the page you leave open
+   * all day, that made the Advocates tab cold almost every time it was tapped: several
+   * seconds of an empty pane over a Mac running two `bd` calls per workspace, which is
+   * the whole complaint in bc-xxzz. The payload was not *wrong* when it was dropped; it
+   * was old, and the log we are already parked on knows the difference.
+   *
+   * So, on every wake, in the cheap order:
+   *
+   * - **The roster, free.** `/api/poll` carries `advocates.snapshot()` and `observing`
+   *   whatever woke it — most of what that page draws. Folding them into the held copy
+   *   costs no request and, because the write restamps the entry, it is also what stops
+   *   fifteen quiet minutes ageing out a payload nothing has invalidated. The park
+   *   itself is at most 25 seconds, so a wake always beats the TTL.
+   * - **The `bd` half, only when `bd` would answer differently.** Which bead each repo
+   *   has claimed and which sessions are live is behind no event, so it is re-asked when
+   *   `workMoved` says something happened that the roster above does not cover, and
+   *   never otherwise. An idle app still costs nothing, which is bc-rk2o's bargain and
+   *   must stay true; a busy one costs at most one `/api/work` a minute, and that is the
+   *   price of the tab being genuinely loaded rather than merely populated with
+   *   something from an hour ago. A `resync` counts as "something happened" for the same
+   *   reason it does everywhere else: it is the log saying its own events are not the
+   *   whole story.
+   *
+   * Every branch fails soft. No warm layer, no held entry to maintain, a fetch that
+   * throws: all of them leave one cold tab, which is exactly where this started.
+   */
+  function warmWork(data, events, resync) {
+    const warm = window.beadcause?.warm;
+    if (!warm?.available) return;
+    // A warm layer from before `refresh` existed — a service worker cached ahead of this
+    // change. Nothing to do rather than fall through to the fetch: without maintenance
+    // this would be one `/api/work` a minute for a tab nobody tapped, which is the
+    // timer's bill arriving by another route. A tab that is merely as cold as it was
+    // yesterday is the promise this whole layer makes.
+    if (typeof warm.refresh !== 'function') return;
+    const held = warm.refresh('/api/work', (work) => {
+      // An entry from before `/api/work` carried rows in this shape is one we cannot
+      // reason about — re-fetch rather than patch half of it.
+      if (!Array.isArray(work?.workspaces)) return null;
+      return {
+        ...work,
+        advocates: Array.isArray(data?.advocates) ? data.advocates : work.advocates,
+        observing: data?.observing ?? work.observing,
+      };
+    });
+    // `resync` is the log itself saying we were away longer than it goes back, so the
+    // events it hands over are not the whole story and nothing held is provably current.
+    // The roster folded in above still is — that snapshot is of *now* — but the `bd` half
+    // has to be re-asked. This is the one branch that is about what we cannot see.
+    const stale = !held || resync || window.beadcause?.stream?.workMoved?.(events);
+    if (!stale || document.hidden) return;
+    // The floor is the background warm's own, and for the same reason: a burst of events
+    // must not become a `bd` sweep each. `workAskedAt` is set before the request rather
+    // than after it, so two wakes inside one flight cannot both get through.
+    if (Date.now() - workAskedAt < (warm.PREWARM_FLOOR_MS || 60000)) return;
+    workAskedAt = Date.now();
+    api('/api/work')
+      .then((work) => warm.write('/api/work', work, Number(work?.seq) || 0))
+      .catch(() => {
+        /* One cold tab, which is where it started. The next event that matters comes
+           round on its own, and a phone that cannot reach the daemon has a worse
+           problem than a tab that has to wait for its own sweep. */
+      });
+  }
+
   /** #workspace/id from an ntfy notification tap, or the Android shell's deep link. */
   let hashHandled = '';
   async function focusHash() {
@@ -5655,10 +5736,13 @@
     // and `onSettle` is what puts it back on. The other four have nothing to fall back
     // to and let the stream try again for them.
     retryMs: 0,
-    onWake({ data }) {
+    onWake({ data, events, resync }) {
       // The poll answered, so the credential is good and the daemon is up: the one
       // moment it is safe to go and warm the other four tabs.
       warmOthers();
+      // And to keep the heaviest of them warm rather than leaving it to age out — this
+      // is the wake the advocates tab is preloaded from. See `warmWork`.
+      warmWork(data, events, resync);
       // Null means the park timed out with nothing but presence traffic — the quiet
       // case, and the whole point: no sweep ran on the daemon and nothing repaints
       // here. An empty array would mean "the inbox is empty", which is why the two

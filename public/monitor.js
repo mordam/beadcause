@@ -90,14 +90,12 @@
      is the busy one. */
   const LOG_MS = 2500;
 
-  /**
-   * Advocate actions that change the roster and nothing `bd` would answer differently.
-   *
-   * The roster is on the poll, so these repaint for free. Everything else an advocate
-   * does — launching a session, closing one, landing a delivery — moves a row that comes
-   * out of `bd` or off the filesystem, and those are worth going back for.
-   */
-  const ROSTER_ONLY = new Set(['checked-in', 'surveying', 'idle', 'paused', 'resumed', 'forgot', 'limit']);
+  /* Which advocate actions repaint for free and which are worth going back to `bd` for
+     used to be a set and a predicate here. Both moved into public/stream.js as
+     `workMoved` (bc-xxzz), because the inbox asks the same question about the copy it
+     holds *for* this page, and two copies of that judgement drifting apart would mean
+     the inbox handing this page a warm payload missing exactly the row you tapped
+     through to see. See `follow` below for the only use of it left here. */
 
   const esc = (s) =>
     String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -1430,7 +1428,9 @@
       // Kept for the next document that wants them — this page on the next tab tap,
       // and /admin, which boots from /api/work too.
       const warm = window.beadcause?.warm;
-      warm?.write?.('/api/work', work);
+      // With its sequence, so the inbox can tell whether the copy it is holding for this
+      // page has been invalidated by anything since — see `warmWork` in public/app.js.
+      warm?.write?.('/api/work', work, Number(work?.seq) || 0);
       if (questions.questions) warm?.write?.('/api/questions?scope=human', questions, questions.seq);
       adoptQuestions(questions);
       state.error = null;
@@ -1845,10 +1845,7 @@
         }
         // Presence is a thumb moving on somebody's phone, and an advocate saying it is
         // still surveying is the roster above. Neither is a reason to sweep `bd`.
-        const worth = events.some(
-          (e) => e.type !== 'presence' && !(e.type === 'advocate' && ROSTER_ONLY.has(e.action))
-        );
-        if (worth) load({ polled: true });
+        if (window.beadcause.stream.workMoved(events)) load({ polled: true });
       },
     });
     stream.start();

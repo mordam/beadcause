@@ -324,6 +324,27 @@ await check('presence is not news, and the finer question is answerable too', ()
   assert.equal(stream.touched([{ type: 'merged' }], 'merged'), true, 'one type, not in an array');
 });
 
+await check('and "would `bd` answer /api/work differently" is one judgement, not two', () => {
+  const { stream } = mount();
+  // The advocates page asks this to decide whether to sweep; the inbox asks it about the
+  // copy it holds *for* that page (bc-xxzz). Both directions matter. A roster-only
+  // advocate action is already on the poll, so sweeping for it is the timer's bill
+  // arriving by another route — and treating a claimed bead as roster-only would hand the
+  // advocates tab a warm payload missing exactly the row you tapped through to see.
+  for (const action of ['checked-in', 'surveying', 'idle', 'paused', 'resumed', 'forgot', 'limit']) {
+    assert.equal(stream.workMoved([{ type: 'advocate', action }]), false, `${action} rides the poll already`);
+  }
+  assert.equal(stream.workMoved([{ type: 'presence' }]), false);
+  assert.equal(stream.workMoved([{ type: 'advocate', action: 'opened' }]), true, 'a session opening moves a row');
+  assert.equal(stream.workMoved([{ type: 'claimed' }]), true);
+  assert.equal(stream.workMoved([{ type: 'presence' }, { type: 'advocate', action: 'idle' }, { type: 'merged' }]), true);
+  assert.equal(stream.workMoved([]), false);
+  assert.equal(stream.workMoved(undefined), false, 'a missing events array must read as "nothing moved"');
+  // An advocate event with no action at all is not one of the free ones — an unknown
+  // shape has to fall on the side that goes and asks.
+  assert.equal(stream.workMoved([{ type: 'advocate' }]), true);
+});
+
 /* ========================================================== the five views half */
 
 const VIEWS = [
