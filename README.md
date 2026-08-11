@@ -3003,7 +3003,11 @@ given a card each.
 `node test/prboard.mjs` covers the daemon's half against real git in a temp directory
 with a real `origin` to fetch from — the three-state ancestry, deployed meaning the
 boot commit rather than the newest one, the bead tiers, and that `landLocally` leaves
-a dirty checkout exactly as it found it. `node scripts/prs-check.mjs` covers the
+a dirty checkout exactly as it found it. `landParent` — the same fast-forward asked for
+from inside a worktree, which is how [a worker's own
+delivery](#landing-work--a-branch-a-pull-request-and-the-workers-own-merge) ends — has
+its own real worktree there, because the only thing it adds is *which checkout moves*,
+and it has to be the one the next `git worktree add` will branch from. `node scripts/prs-check.mjs` covers the
 phone's half in headless Chrome with every POST recorded: that the first tap on merge
 sends *nothing*, that Ship is absent until it is merged, that the deploying Ship arms
 and the window-opening one does not, and that a refusal lands under the row as GitHub's
@@ -4104,7 +4108,7 @@ session finishes ──► beadcause-deliver ──► pushes the branch ──�
                         └──► 🔀 PR board: merged, on origin, not yet running → Ship
 ```
 
-Five things follow, and they are the whole of the change:
+Six things follow, and they are the whole of the change:
 
 - **A worker merges, and only ever through a pull request.** Not `git merge`, not
   `git push origin main`, not "just this once because it is trivial". There is still no
@@ -4116,6 +4120,15 @@ Five things follow, and they are the whole of the change:
   branch is the only place that conflict can be resolved by whoever wrote the code, while
   the reasons are still on their screen, so the brief asks for the downmerge *and* for the
   tests to be re-run after it: a clean merge of two working branches is not a working tree.
+- **And it brings the merge back down to this Mac afterwards.** The merge is at GitHub, so
+  `origin/main` has it the instant it lands and the laptop's own `main` does not — until
+  something happens to fetch: a deploy, a merge from the board, a person. Nothing
+  reliably did. In between, every new worktree branched from before the delivery, and the
+  session that got it paid with a downmerge of work it had never heard of. So a delivery
+  ends by fast-forwarding the **main checkout** — not its own worktree, where the ref
+  cannot move anyway — and it is the same `landLocally` the **Merge & push** button uses,
+  refusal and all: *a checkout with uncommitted work in it is not touched*, it says so on
+  the bead instead, and Adam's open files are worth more than a tidy `main`.
 - **It will not merge over a red check, and it will not wait forever for a green one.**
   Failing checks stop it and become a card in your inbox — the button there *does* let
   you merge over red, because a red check is sometimes a flake and judging that is what
@@ -4587,8 +4600,13 @@ decides. None of the three touches the network, a bead, or a repo.
 `node scripts/land-check.mjs` is the end-to-end half, and it is the only place the merge
 itself is exercised: a real `git` against a real bare remote, a real `bd` against a
 scratch workspace under `/tmp`, the real `bin/deliver.js`, and a fake `gh` that logs every
-call. Five scenarios — green checks, a refusal from GitHub, a red check, `--review`, and
-`--owed`. The assertions that matter are the negative ones: `gh pr merge` must not appear
+call. Seven scenarios — green checks, a refusal from GitHub, a red check, `--review`,
+`--owed`, where the merge method comes from, and the local fast-forward. That last one is
+the only scenario that delivers from a real `git worktree`, because that is where a worker
+delivers from and the whole behaviour turns on it: the fake `gh` moves the bare origin's
+`main` on merge, and the checks are that the main checkout ends up at `origin/main` — and
+that it is left alone, with the reason on the bead, when there is an uncommitted edit in
+it. The assertions that matter are the negative ones: `gh pr merge` must not appear
 in the log for the red check or for `--review`, and the work bead must still be open in
 every scenario that did not merge, because a bead closed over work sitting in an unmerged
 pull request is invisible from every screen in the app. `BEADCAUSE_CONFIG_DIR` points it
