@@ -2872,9 +2872,40 @@ The waiting list survives a restart, alongside the workers and for the same reas
 the windows are still open, and a daemon that forgot them would leave the pile this
 was written to clear. An observer instance signals nothing at all.
 
-Windows already open when this shipped are not swept up: their workers left the slot
-list long ago, so nothing knows their pids. Close them by hand once; everything from
-then on closes itself.
+##### The windows nobody is holding
+
+Everything above starts from a **worker**: a row on the slot list, carrying the pid the
+advocate launched. That is the narrowest possible claim to a window and it is why the
+signal is safe. It is also why it could not touch the pile it was written for — those
+windows had left the slot list hours or days before the feature existed, so nothing knew
+their pids and nothing was ever going to signal them. Same for any window open when the
+daemon was down: the session finished, the worker was reconciled away, and the window
+stayed.
+
+`sweepFinishedWindows` is the other end of the same job. It reads every live Claude Code
+session in the advocate's workspace — whether or not this daemon opened it — and puts the
+finished ones on the same closing list, where the four guards above decide the rest. That
+is a genuinely wider claim than a worker row, which is why it is its own setting rather
+than a detail of the one above, and why the two guards that replace the worker row are
+the two that carry the weight:
+
+| before a window with no worker is queued at all | why |
+|---|---|
+| its name **starts** with `DONE-` or `done-` | not a guess about the session — the session's own account of itself. Both the work brief and `rename-session.sh --done` write that prefix at the end of the work and nowhere else. A window that closed its bead and never got as far as renaming itself is missed on purpose: a session that did not finish its own protocol is a window somebody should read |
+| the bead named in that name is **closed** | guard 1 again, and the one that does the work here. The case this widening risks is a window of *yours*, opened by hand and named after a bead — and while that bead is open, nothing can reach it |
+| it has been **idle** for `sweepIdleMinutes` (default 20) | minutes rather than the 90 seconds a worker's window gets, because this window's identity is inferred from its *name* and not from a launch we made. Anybody actually reading it would have touched it inside twenty |
+
+The bead id is read out of the name as the left-most lowercase `prefix-slug` — the second
+field, ahead of the title — so a title may contain hyphenated words or mention other
+beads. `DONE-Beadcause` is that exact shape and is *not* an id: matching is
+case-sensitive, which is what tells a project name from a bead.
+
+The sweep looks every `sweepIntervalMinutes` (default 5) rather than every poll, because
+each candidate window costs a `bd show` and nothing makes one appear suddenly. It runs
+while an advocate is paused — pausing means "open no more sessions", not "leave the
+screen full" — and never while observing. `closeFinishedSessions: false` switches it off
+along with everything else in this section: an off switch that only delayed the signal by
+twenty minutes would not be one.
 
 #### Reclaiming a slot, by asking
 
@@ -4990,6 +5021,8 @@ the fields it always read and renders exactly as it did.
 | `advocates.closeFinishedSessions` | [close a work session's window once its bead is closed](#closing-the-window--a-session-that-has-finished-should-not-still-be-on-screen) (default `true`). `false` leaves every window open, which is what it did before |
 | `advocates.closeGraceSeconds` | how long an idle session gets between its bead closing and the first signal (default 90) |
 | `advocates.closeHardSeconds`, `advocates.closeGiveUpMinutes` | how long `SIGTERM` gets before `SIGKILL` (default 45), and how long the whole thing gets before it gives up and leaves the window for you (default 30 min) |
+| `advocates.sweepFinishedWindows` | [also close finished windows no advocate is holding a worker for](#the-windows-nobody-is-holding) — the ones already open when the above shipped, and any left by a daemon that was down (default `true`). Only a name starting `DONE-`, only a closed bead; `false` leaves your own windows where you put them |
+| `advocates.sweepIdleMinutes`, `advocates.sweepIntervalMinutes` | how long such a window must have been idle first (default 20), and how often the sweep looks at all (default 5) |
 | `agents` | extra reply agents beyond the four built in — `{id, name, emoji, description}`, plus `tools`/`model` if you set them by hand |
 | `defaultAgent` | which one answers when you haven't picked (default `answerer`) |
 | `agents[].tools` | the allowlist that agent may be *armed* with, for one reply at a time. Config-file only — see [Allow tools](#allow-tools--for-one-comment-and-only-that-one) |
