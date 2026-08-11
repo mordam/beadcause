@@ -42,9 +42,24 @@
            tabs now — the bar at the foot of every page owns them, so they are one
            tap from anywhere rather than one tap from the inbox. What is left is
            what acts on *this* view (⟳) or is not a standing view of its own.
-           The variation selector on ⌨️ is load-bearing: bare U+2328 renders
-           text-style, which beside ⚖️ reads as a broken glyph rather than an icon. -->
-      <a href="/terminal" class="icon-btn" aria-label="Terminal — drive a Claude session from here">⌨️</a>
+
+           The terminal (⌨️) used to hang here too and does not any more (bc-l8jp.2):
+           it is the least-opened surface in the app and this is the most-opened
+           screen, so it moved to the one page that is already about the daemon
+           rather than about beads — see the terminal card on public/admin.html.
+           Nothing about the terminal itself moved: /terminal still answers, so a
+           bookmark or a home-screen shortcut pointed at it is untouched, and a
+           card's ⌨️ menu item still opens one seeded on that bead (menuHtml in
+           app.js), which is how a terminal is usually reached from here anyway —
+           with the bead already in it.
+
+           Naming that file bare, without its `public/` prefix, is not a slip: the
+           wiring check in test/inboxkinds.mjs locates the script tags in this document
+           with indexOf, so a slash-prefixed script name anywhere above them — in prose
+           as much as in markup — reads as that script loading first, and fails the
+           suite. Every comment in this file that names one drops the slash for that
+           reason. -->
+
       <!-- The endorsement queue: beads an agent filed mid-task, which nothing may open
            a session on until you say so. A door in the chrome rather than a sixth tab
            on the bottom bar — the bar is full at five and what gives up its place is

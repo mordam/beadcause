@@ -54,6 +54,38 @@
       <div class="empty">Asking the daemon…</div>
     </div>
 
+    <!--
+      The way in to the in-app terminal, and now the only standing one: it used to be
+      a ⌨️ in the inbox header, which spent the widest screen in the app on the thing
+      it is opened least for (bc-l8jp.2). Here because this is the page about what is
+      running on this Mac rather than about beads, and next to the pause controls
+      because "open one" and "pause the ones that are open" are the same subject —
+      #admin above already draws an In-app terminals row per space.
+
+      Static markup rather than a row rendered by admin.js, deliberately. Everything
+      inside #admin depends on /api/admin answering with a payload this page
+      understands, and an older daemon — an installed APK, a cached service worker —
+      makes that whole block collapse to one sentence saying so. The only door to the
+      terminal must not be behind that.
+
+      Not hidden when terminals are disabled in config either, for the same reason the
+      header link never was: /terminal says so itself, in a sentence, which is more
+      than a missing button ever says.
+    -->
+    <section class="card admin-card">
+      <div class="admin-head">
+        <h2>Terminal</h2>
+      </div>
+      <div class="admin-row">
+        <p class="admin-detail">
+          A real shell on this Mac, in the browser — a Claude session you drive from
+          the phone. Opening one from a bead instead, with the bead already in it, is
+          the ⌨️ item on that bead's menu in the inbox.
+        </p>
+        <a class="primary admin-door" href="/terminal">⌨️ Open a terminal</a>
+      </div>
+    </section>
+
     <!-- HTTPS. Below the pause controls because that is what this screen is opened
          for, and on this screen at all because the alternative is a hand-edit of
          ~/.config/beadcause/config.json and a setting on Tailscale's website that

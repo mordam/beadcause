@@ -55,7 +55,17 @@
    holding v26's app.js without the file would fall back to the whole-list rebuild
    and a cold fetch per tab, which is the entire thing being fixed. They have to
    arrive together, which is what a cache version is for. */
-const CACHE = 'beadcause-v26';
+/* v27: the terminal's door moved off the inbox header and onto /admin (bc-l8jp.2). No
+   new path — every file involved is already in this list — but the move is a *pair* of
+   documents, and both of them are precached: index.html without the ⌨️ and admin.html
+   with the card that replaces it. A phone holding v26's cached `/` beside v27's
+   `/admin` would show the button in both places; one holding v26's `/admin` beside
+   v27's `/` would have no standing way into the terminal at all, which is worse — the
+   header button it used to reach it by is exactly what this version takes away. The
+   stylesheet is the third: `.admin-door` is what makes the new anchor a button rather
+   than a line of blue text. They have to arrive together, which is what a cache
+   version is for. */
+const CACHE = 'beadcause-v27';
 const SHELL = [
   '/',
   '/index.html',
