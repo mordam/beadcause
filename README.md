@@ -2914,7 +2914,10 @@ standing page reads it at the top of its own boot: the inbox, the board, the adv
 console, the launcher and the switches all draw the list they had last time in the
 first frame and refresh underneath it. Behind that — once the view you actually asked
 for is on screen — the *other* views' payloads are fetched in the background, so the
-tab you tap next is warm before you tap it. `node scripts/warm-check.mjs` measures
+tab you tap next is warm before you tap it, and the two tabs come first in that queue
+because they are the only ones a thumb can reach in one tap ([staying
+warm](#filled-once-is-not-kept-warm) is what happens to those entries afterwards, and it
+is a separate promise from this one). `node scripts/warm-check.mjs` measures
 exactly this against a fixture whose sweep takes 900ms: a cold load takes just over a
 second, and coming back to the tab draws five cards in **under a tenth of it**, with
 the counter proving no request was answered during the paint.
@@ -2982,7 +2985,7 @@ each case because what is expensive is different in each case:
 
 | View | On a wake |
 |---|---|
-| **Inbox** | Adopts the questions the poll carries. It is the one view whose park does ask for them, and the payload arrives with the wake. |
+| **Inbox** | Adopts the questions the poll carries. It is the one view whose park does ask for them, and the payload arrives with the wake. It also keeps the *advocates* payload warm on the same wake, for the page it is not — see [staying warm](#filled-once-is-not-kept-warm). |
 | **Advocates** | Takes the advocate roster straight off the poll — `advocates.snapshot()` rides every wake — so a pause, a resume or a check-in repaints with no request at all. It goes back to `bd` only for events `bd` would answer differently, which an advocate saying it is still surveying is not. |
 | **Admin** | Reads `observing` off the poll, which is the whole reason it ever touched `/api/work`, and re-asks `/api/admin` — two in-memory reads, no `bd` — when an advocate or a terminal moved. Its numbers are promises about what a press will do, so half-patching them was never an option. |
 | **Board** | Re-asks `/api/prs` when a pull request actually moved. The three lamps are the daemon's own reading of GitHub, `origin/main` and the deploy journal; a client that set them from an event would be a second, worse copy of that ladder. The daemon drops its board cache as those events fire, so the first board through does the one `gh` sweep and every other open board shares it. |
@@ -3002,6 +3005,63 @@ being paid for with a sweep a minute on every open page, and in practice a runni
 advocate emits several events a minute, so the page it matters on is the busy one.
 
 With the app open and nothing moving, the daemon now logs no periodic sweeps at all.
+
+### Filled once is not kept warm
+
+The background fill above has a limit that took a while to show itself, because it is
+invisible for the first quarter of an hour and total after it. It runs **once per
+document**, and the warm layer's TTL is **fifteen minutes**. That bargain is right for a
+page you pass through — the entry is there when you tap on, and gone by the time it could
+have been misleading — and wrong for the one page you *sit* on. The inbox is open all
+day. So for the first fifteen minutes Advocates opened instantly, and after that it was
+a cold `bd` sweep across every workspace, every single time, with nothing able to put the
+entry back: the once-per-document flag never goes false again while the document lives.
+Which made the fix look like the bug. The tab was slow *because* it was preloaded, badly.
+
+The entry was not wrong when it was dropped. It was *old* — and the log the inbox is
+already parked on knows the difference. So the heaviest tab's payload is now
+**maintained** rather than merely stored, in two halves that are separated by exactly one
+question: does the delta stream carry it?
+
+- **The advocate roster does, on every wake, whatever woke it.** `advocates.snapshot()`
+  and `observing` ride every answer `/api/poll` gives, including the quiet one that timed
+  out with nothing to say. So on each wake the inbox folds them into the copy it is
+  holding for the advocates page, through `warm.refresh()` — which also restamps the
+  entry, and *that* is the half that matters most. A park is at most 25 seconds, so a
+  wake always beats the TTL, and a payload nothing has invalidated can no longer age out
+  from under a tab you have not tapped.
+- **Which bead each repo has claimed does not.** That is `bd`, behind no event that
+  carries it, so it is re-asked — once, when `stream.workMoved()` says something happened
+  that the roster does not already answer, and never otherwise. A `resync` counts, for the
+  reason it counts everywhere else: it is the log admitting its own events are not the
+  whole story. A `bd` sweep is floored at one a minute, so a burst of events cannot become
+  a sweep each.
+
+Read that as a bill: **an idle app still costs nothing**, which is the promise the
+section above makes and this must not quietly break, and a *busy* one costs at most one
+`/api/work` a minute for a tab nobody has tapped yet. That is the trade, deliberately
+taken. Advocates is where you go to see what the advocates are doing while they are doing
+it, and a board painted instantly from an hour-old sweep is not "already loaded", it is a
+wrong screen that arrives quickly.
+
+`stream.workMoved()` is one function rather than two on purpose. The advocates page asks
+it to decide whether to sweep; the inbox asks it about the copy it holds *for* that page.
+Two copies of that judgement drifting apart has an ugly failure — an inbox that thought a
+claimed bead was a free repaint would hand the tab a warm payload missing exactly the row
+you tapped through to look at.
+
+`/api/work` carries a `seq` for this, the same field `/api/questions` has and for the same
+reason, and it is read off the log *before* the sweep rather than after it: an event that
+lands while `bd` is being asked is one the payload does not contain, and a sequence taken
+afterwards would claim it does. Erring early means one refresh too many, which is the
+harmless direction.
+
+Claim 5 of `scripts/warm-check.mjs` is the gate, and it is stated in requests rather than
+in seconds, because no check can sit out a fifteen-minute TTL: the entry is filled without
+being asked for, 27 idle seconds leave it with a **newer stamp and no extra request**, an
+advocate pausing lands in it for nothing, a bead moving inside the floor does not become a
+second sweep, and a claimed bead is re-asked exactly once. Against `--baseline` the middle
+three of those fail, with `stamp 0ms newer` — which is the bug, printed.
 
 ### A repaint that leaves alone what did not change
 
