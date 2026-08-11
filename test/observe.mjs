@@ -72,6 +72,7 @@ test('observing:withholds', async () => {
   const { OBSERVING } = await import(LIB('config.js'));
   const { dispatchReply } = await import(LIB('dispatch.js'));
   const { pushQuestion, pushReply } = await import(LIB('notify.js'));
+  const { postQuestion, settleQuestion } = await import(LIB('slack.js'));
   assert.equal(OBSERVING, true, 'this case must run with the flag on');
 
   // Both subsystems fully ON in the config, so a pass can only come from the flag.
@@ -84,6 +85,12 @@ test('observing:withholds', async () => {
     baseUrl: 'http://127.0.0.1:4372',
     token: 'x',
     ntfy: { enabled: true, topic: 'never-hit', detail: 'full', actionButtons: true },
+    // The other delivery surface, and the reason it is here rather than only in
+    // test/slack.mjs: an observer is booted from a *copy* of a live config, so its Slack
+    // block names the live instance's channel and its state file may name the live
+    // instance's posted messages. Two questions in the channel whose buttons answer via
+    // two different ports is a worse room than no second instance at all.
+    slack: { enabled: true, channel: 'C-NEVER-HIT', apiBase: 'http://127.0.0.1:1/never', botTokenFile: null, buttons: true },
   };
   const q = { key: 'w/x-1', workspace: 'w', id: 'x-1', question: 'x', decision: { options: [] } };
 
@@ -97,6 +104,13 @@ test('observing:withholds', async () => {
   // `skipped` is the whole assertion.
   assert.equal((await pushQuestion(cfg, q)).skipped, true, 'no question push');
   assert.equal((await pushReply(cfg, q, { author: 'a', text: 't' })).skipped, true, 'no reply push');
+
+  // Same shape of assertion for Slack, and the reason word is the point: `observing` can
+  // only come from the gate above the one that reads the token, so this is also the
+  // check that an observer touches neither credential. `apiBase` points at a port
+  // nothing is listening on, so a post that was not skipped would fail rather than pass.
+  assert.equal((await postQuestion(cfg, q)).skipped, 'observing', 'no question posted to Slack');
+  assert.equal((await settleQuestion(cfg, q.key)).skipped, 'observing', 'and no message of the live instance rewritten');
 });
 
 test('observing:advocate-launches-nothing', async () => {
