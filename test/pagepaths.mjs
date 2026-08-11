@@ -142,6 +142,29 @@ const PAGES = [
    coming back is a failing test rather than a page nobody maintains. */
 const GONE = ['/work.js'];
 
+/**
+ * Paths that were never made, and the decision that says they never will be.
+ *
+ * The Mirror is a *pane* on the advocates page, not a fifth bottom tab (bc-3xb — the
+ * reasons are in the README under "The Mirror is a pane, not a tab"). The other way was
+ * a `/mirror` route and a `mirror.html`, and the cheapest way for this decision to come
+ * undone is for one of those to appear in the run of one-line `if`s above — a merge, a
+ * half-remembered plan, a session that never read the bead. That would be silent: a new
+ * page nobody objected to.
+ *
+ * `test/mirrorpane.mjs` asserts the same two absences by reading the sources, and this is
+ * the other side of that pair rather than a second copy of it. A static read has to know
+ * the shape the route would take — it greps `lib/server.js` for `urlPath === '/mirror'` —
+ * so a redirect, a prefix match, or a `mirror.html` dropped into `public/` and served by
+ * the static handler would all pass it. This asks a running server instead, which is the
+ * claim the decision makes: not that the code avoids a string, but that there is nothing
+ * at either path.
+ */
+const NEVER_MADE = [
+  { path: '/mirror', why: 'the mirror is a pane on /monitor, not a page (bc-3xb)' },
+  { path: '/mirror.html', why: 'and there is no document behind it to serve' },
+];
+
 console.log('\npage paths\n');
 
 for (const page of PAGES) {
@@ -157,6 +180,12 @@ for (const p of GONE) {
   const res = await get(p);
   if (res.status === 404) ok(`${p} is gone, and says so`);
   else bad(`${p} is gone, and says so`, `HTTP ${res.status}`);
+}
+
+for (const { path: p, why } of NEVER_MADE) {
+  const res = await get(p);
+  if (res.status === 404) ok(`${p} 404s — ${why}`);
+  else bad(`${p} 404s — ${why}`, `HTTP ${res.status}: something is serving a page this decision says does not exist`);
 }
 
 for (const s of servers || []) s.close?.();
