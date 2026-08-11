@@ -3429,15 +3429,31 @@ description, what done looks like, and how it found it. Nothing is created until
 say so. Approving runs `bd create` for each, labelled `advocate`, and the answer
 comes back with the new ids in it.
 
-**Each bead gets its own ✓ and ✕, and there are bulk controls above them.** A
+**Each bead gets its own ✓ and ✕, and the bulk controls are in the card's top bar.** A
 proposal is *n* decisions that happen to arrive together, and flattening them into
 all-or-nothing is what makes an agent's suggestions annoying: one good bead in three
 is an ordinary outcome, and having to decline all three to avoid the two bad ones
 teaches you to decline everything. So the card draws a row per bead — approve,
-decline, or leave it undecided — with **Approve all** / **Decline all** beside an
-undecided count, and one primary button that says exactly what it will do (*"Create 2
-of 3"*). Two taps to commit, like every other answer here. The YAML block no longer
-renders on the phone at all; it is parsed out and drawn as those rows.
+decline, or leave it undecided — and **Approve** / **Decline** sit up in the top bar
+beside an undecided count, hard right of the details toggle. Two taps to commit, like
+every other answer here. The YAML block no longer renders on the phone at all; it is
+parsed out and drawn as those rows.
+
+**There is no third button, and the two that are left are not symmetrical.** The card
+used to end in three full-width buttons — the two bulk ones, which only *marked* every
+row, and a primary underneath that did the filing. Two of them existed to set up the
+third, which is a lot of a phone screen for one decision, and none of the three
+answered the question they sat under. So the bulk pair took the primary's job: each
+arms on the first tap and files on the second. **Approve** files everything you have
+not explicitly declined, which is what keeps *"Approve 1 of 2"* reachable with the
+primary gone — ✕ the one you don't want, then approve. **Decline** files nothing at
+all whatever the rows say; it is the full stop, and a full stop that quietly created
+two beads would be the worst button in the app. Both name their count before the
+second tap (*"Tap again · create 2 of 3"*, *"Tap again · create nothing"*), because
+the exact number the next tap files is the one thing the old primary carried that had
+to survive the move. Undecided rows are still counted rather than folded into the
+declines: *"3 undecided"* is the difference between a considered decline and a
+half-read card.
 
 **Each row is the whole record, not a summary of one.** The number sits in a gutter
 and the body hangs off it, so the column reads as a numbered list of beads. Under the
@@ -3452,15 +3468,17 @@ an argument for the bead and not part of it. A long row starts folded with a **S
 the rest** under it, so three proposals still fit on a screen — a fold and not a
 clamp, because a clamp cuts a list mid-item and offers no way to see the rest.
 Unfolding touches that one row and nothing else: the picks you have already made, and
-the primary button's count, are exactly where you left them.
+the count on the approve button, are exactly where you left them.
 
 `node scripts/proposal-check.mjs` checks that: headless Chrome at phone size driving
 the real `public/app.js` against a proposal built by `lib/proposal.js` and parsed back
 by `lib/decision.js`, so the fixture is a round trip and it never touches a bead. It
 asserts the lists render as lists under their labels, that every field appears, that
 the body lines up under the title, that a long row folds and a short one is left
-alone, that unfolding leaves the picks and the button untouched — and that a poll
-does not fold the row back up under you. `--baseline` serves `HEAD:public/app.js`
+alone, that unfolding leaves the picks and the button untouched, that the bulk pair
+is in the top bar with no third button under the rows, and that each of them arms,
+disarms the other and says its own count — and that a poll does not fold the row back
+up under you. `--baseline` serves `HEAD:public/app.js`
 and `HEAD:public/style.css` instead of the working copy, which is how you tell a real
 failure from a flaky one. `--out=<dir>` writes a screenshot of each state.
 

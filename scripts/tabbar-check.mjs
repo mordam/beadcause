@@ -589,7 +589,12 @@ try {
         ok(card.open, `a card opens${card.why ? ` — ${card.why}` : ''}`);
         if (card.open) {
           ok(card.over && card.covers, 'an open card takes the whole screen, tab bar included');
-          await evalJs(s, `document.querySelector('.card.open [data-act="toggle"]')?.click()`);
+          // Collapse first: an open card's way out is `↑ Collapse` in its top bar,
+          // and the details toggle it used to also carry at the foot is gone.
+          await evalJs(
+            s,
+            `document.querySelector('.card.open [data-act="collapse"], .card.open [data-act="toggle"]')?.click()`
+          );
           await sleep(200);
           ok(
             await evalJs(s, `!!document.elementFromPoint(innerWidth / 2, innerHeight - 20)?.closest('.tabbar')`),
