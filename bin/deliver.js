@@ -25,7 +25,12 @@
  * 4. Merges it, through `gh`, the same call and the same preflight as the button on
  *    the phone. GitHub serialises the merges, which is what keeps step 5 of five
  *    concurrent workers from being the race this was invented to stop, and it is why
- *    the merge happens *there* rather than in a `git merge` on local main.
+ *    the merge happens *there* rather than in a `git merge` on local main. That
+ *    preflight includes a second, shorter wait than step 3's — GitHub computes
+ *    mergeability asynchronously and reports `UNKNOWN` for a few seconds after a push,
+ *    which in a repo with no checks is exactly where step 3 leaves this standing. See
+ *    `mergeability` in lib/pr.js; without it a delivery can report a conflict over a
+ *    branch that merges perfectly well a moment later.
  * 5. Brings **this Mac's own `main`** up to the merge that just landed on `origin`.
  *    The merge is at GitHub, so the laptop's `main` is now a commit behind, and it
  *    stays behind until something happens to fetch it — a deploy, a board merge, a

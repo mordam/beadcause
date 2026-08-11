@@ -4952,6 +4952,19 @@ short and a repo with CI hands you every delivery as a question — a pull reque
 its most pending in the second after it is opened. Too long and a stuck CI queue holds a
 worker's window open for an hour. Five minutes, then it asks.
 
+**There is a second wait, and it has no setting.** GitHub works out whether a pull request
+can merge *asynchronously*: for a few seconds after a push, `mergeable` is `UNKNOWN` —
+which is not "we looked and cannot tell" but "we have not looked yet" — and a merge sent
+inside that window is refused with **Pull request is not mergeable**, word for word what
+it says about a genuine conflict. A repo with no CI reaches the merge a second after the
+push every time, because the checks wait above has nothing to wait for. So the merge
+preflight polls for up to thirty seconds, three seconds apart, until GitHub has an answer;
+if it never gets one it sends the merge anyway — GitHub's own endpoint is the only thing
+that can settle it — and any refusal that comes back says the mergeability was still
+unknown, rather than reporting a conflict nothing established. That length is not a
+preference but the size of a race in somebody else's bookkeeping, so it is a constant in
+`lib/pr.js` rather than a key here.
+
 ### What it does to the two things that were already here
 
 **A fourth ending.** The advocate reads three endings off a session that exits: closed,
