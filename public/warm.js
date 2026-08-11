@@ -55,12 +55,15 @@
    * order a thumb travels along them. One list, one place to add a view — the same
    * argument as `TABS` in tabbar.js, and the two have to stay in step: a view added
    * there and forgotten here is a tab that is still cold, which is invisible until
-   * you are on a phone wondering why one tab is slower than the other four.
+   * you are on a phone wondering why one tab is slower than the other two.
    *
-   * A **view** is not the same thing as a tab, though, and `prs` is the one that proves
-   * it: the board lost its tab in bc-l8jp.6 and is still a standing page — reached from
-   * every PR card in the inbox — still boots from `/api/prs`, and is therefore still
-   * warmed. What belongs here is a page somebody arrives at, not a place on a bar.
+   * A **view** is not the same thing as a tab, though, and two entries here prove it:
+   * the board lost its tab in bc-l8jp.6 and the chat session lost its in bc-l8jp.5, and
+   * both are still standing pages — reached from a PR card, a chat row or the ＋, all of
+   * them on the inbox — that still boot from `/api/prs` and `/api/consoles` and are
+   * therefore still worth warming. If anything the taps that reach them matter more now
+   * than they did on the bar. What belongs here is a page somebody arrives at, not a
+   * place on a bar.
    *
    * `/api/prs` is deliberately **not** listed under `inbox`, even though the inbox now
    * draws a card per pull request off it. A path under a view is a path that view does not

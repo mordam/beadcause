@@ -55,13 +55,18 @@
    holding v26's app.js without the file would fall back to the whole-list rebuild
    and a cold fetch per tab, which is the entire thing being fixed. They have to
    arrive together, which is what a cache version is for. */
-/* v27: pull requests stopped being a tab and became inbox cards. `/prcard.js` is a new
-   path *and* four cached files disagree without it: tabbar.js no longer draws the PRs
-   tab, app.js draws cards it cannot render without prcard.js, inboxfilter.js builds its
-   status sub-filter off the ladder in it, and prs.js takes its own row renderer apart
-   from it — a board page cached at v26 beside a v27 prs.js is a blank board. Every one of
-   those is an old app that looks complete, which is the failure a version exists to
-   prevent. */
+/* v27: two tabs left the bar in the same breath, and each put its rows in the inbox.
+   Pull requests became cards: `/prcard.js` is a new path *and* four cached files
+   disagree without it — tabbar.js no longer draws the PRs tab, app.js draws cards it
+   cannot render without prcard.js, inboxfilter.js builds its status sub-filter off the
+   ladder in it, and prs.js takes its own row renderer from it, so a board page cached at
+   v26 beside a v27 prs.js is a blank board. Chat went the same way with no new path at
+   all, which is the more dangerous half: index.html without app.js is a ＋ that does
+   nothing when tapped, app.js without index.html is an inbox whose rows say
+   `data.consoles` and whose create button is not on the page, and either without
+   style.css is a floating button with no shape sitting over the last card. Every one of
+   those is an old app that looks complete — a bar with both tabs still on it most of all
+   — which is the failure a version exists to prevent. */
 const CACHE = 'beadcause-v27';
 const SHELL = [
   '/',

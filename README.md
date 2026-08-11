@@ -2382,19 +2382,19 @@ way **What this is blocking** does and asserts that bead ends up under it.
 
 The standing views — it started as four: the **inbox**, the **chat session**, the
 **sessions** and the **advocates**, with the **pull requests** and the **admin**
-screen since, and Sessions gone again because it and Advocates turned out to be one
-view drawn twice. The bar labels the chat session just **Chat**, because the bar was five
-tabs wide when that label was chosen and there was no room for two words at 360px. They
-are separate pages, and each one used to end in an ✕ in the top right that hard-navigated
-back to `/`. That made the inbox a hallway — chat session to advocates was two taps
-through a page you did not want — and the ad-hoc cross-links that grew to paper over it
-(sessions → advocates, advocates → sessions) were the same complaint, admitting itself.
+screen since. Three of the six have left again: **Sessions**, because it and Advocates
+turned out to be one view drawn twice, and then **Chat** and **PRs**, both for the reason
+given below. They are separate pages, and each one used to end in an ✕ in the top right
+that hard-navigated back to `/`. That made the inbox a hallway — chat session to advocates
+was two taps through a page you did not want — and the ad-hoc cross-links that grew to
+paper over it (sessions → advocates, advocates → sessions) were the same complaint,
+admitting itself.
 
 So all of them carry the same bar along the bottom, where a thumb already is:
 
 ```
-  📥      🧾        📣         ⏸
- Inbox   Chat   Advocates   Admin
+  📥         📣         ⏸
+ Inbox   Advocates   Admin              ＋
  ▔▔▔▔▔
 ```
 
@@ -2412,11 +2412,43 @@ and it is checked: `scripts/tabbar-check.mjs` carries it with `tab: null`, asser
 bar is still there (it is the only way off the page) and that no tab lights for a page this
 is not. A page can be reachable, load-bearing, and not a tab.
 
-Four tabs is 90px each at 360px. Five was 72px, which "Advocates" fits; six would be 60px,
-which it does not — so the stylesheet steps the type down when a sixth tab is there
-(`.tabbar:has(.tab-item:nth-child(6))`), keyed off the bar's own contents rather than
-off a count written down somewhere, so adding or removing a tab needs nothing else.
-It is dormant below six and will come back on its own if a tab does.
+Three tabs is 120px each at 360px. Four was 90px, five was 72px — which "Advocates" still
+fits — and six would be 60px, which it does not, so the stylesheet steps the type down when
+a sixth tab is there (`.tabbar:has(.tab-item:nth-child(6))`), keyed off the bar's own
+contents rather than off a count written down somewhere, so adding or removing a tab needs
+nothing else. It is dormant below six and will come back on its own if the bar fills up
+again.
+
+### Why Chat is not a tab, and ＋ is not a tab either
+
+Chat went the same way as PRs, in the same afternoon, and for one more reason on top of
+the one above: it was two jobs at one address — the conversations you had already started,
+and the only way to start another. Neither belonged on this bar.
+
+The **list** is incoming work like everything else the inbox holds — a conversation
+you left half-finished is a thing waiting on you in exactly the sense a question is —
+so open chat sessions are rows in the inbox now, under their own category in the
+[kind filter](#what-the-inbox-shows), beside Questions, Proposals, Merges and PRs. The row
+says which conversation it is and what state it is in without opening it: the repo, a
+breathing spark while the agent is composing, "2 proposed · your turn" when there is a
+proposal waiting to be read, and when it last moved. Tapping it goes into the session.
+
+**Starting** one is the ＋ in the bottom-right corner of the inbox, above the bar. A
+bar drawn identically on every standing page cannot hold a *create*, because whatever it
+did would have to mean the same thing on all of them and creating does not; and the button
+belongs next to the thumb rather than in the top bar with ⟳, because it is the primary
+action of the app. It floats over the list and the list pays for it — the foot of the
+page reserves the button's height, the same way it reserves the bar's, so the last card
+still clears everything. With one repo in the selected space it starts there; with
+more it asks which, because offering to start work in a repo the app is not showing
+you is the one thing the space picker exists to stop. Either way it lands on
+`/console?id=<id>`, which is exactly where the launcher's own ＋ lands.
+
+**`/console` is still a live route with no tab pointing at it**, exactly as `/prs` is. The
+id and the href are in stored conversation records and on the phone's home screen, so both
+of its paths still serve the page — a bookmark that 404s is a worse outcome than a page
+with no tab. It keeps the bar, because that is how you leave it, and nothing on the bar is
+marked current there: you are not on one of the three.
 
 ### The Mirror is a pane, not a tab
 
@@ -2498,10 +2530,13 @@ could not leave, on a view whose first load unfolds one.
 
 `node scripts/tabbar-check.mjs` checks it, headless at phone size against fixtures
 the script serves itself: the bar is on every page and pinned to the bottom,
-exactly one tab is current and it is the right one — or, on the pull request board, that
-**none** is — the current tab is not a link,
-and the last row of the list, the chat session's composer and the last advocate card all
-clear it — in both colour schemes. `--fake-inset` re-runs the safe-area sums with a
+exactly one tab is current and it is the right one — or, on the chat session and the pull
+request board, that **none** is — the current tab is not a link, and the last row of the
+list, the chat session's composer and the last advocate card all clear it. ＋ is checked
+there too, and driven rather than read: it is a real tap target, it sits above the bar
+rather than over it, the last card clears *it* as well, and tapping it asks which repo
+and then lands on the conversation it just made. All of it in both colour schemes.
+`--fake-inset` re-runs the safe-area sums with a
 notch substituted in, for the Chromes with no `Emulation.setSafeAreaInsets`.
 
 The *paths* are checked separately, in `npm test`: `node test/pagepaths.mjs` asks a
@@ -5075,9 +5110,12 @@ Everything above acts on beads that already exist. The chat session is upstream 
 a chat where you work out *what the next bead should be*, and beadcause creates it
 only once you have read the proposal and pressed the button.
 
-**🧾 Chat in the tab bar** opens it. Pick a repo and press **＋** — or open one **on an
-existing bead**, from *Work out the next beads from this* at the foot of any card,
-which starts the conversation with that bead already read.
+**＋ on the inbox** opens one — in the repo the space picker has selected, or asking
+which if the space holds more than one. Or open one **on an existing bead**, from
+*Work out the next beads from this* at the foot of any card, which starts the
+conversation with that bead already read. The ones you have open are rows in the inbox
+([why Chat is not a tab](#why-chat-is-not-a-tab-and--is-not-a-tab-either)); `/console`
+with no id is still the launcher, with every conversation including the finished ones.
 
 ```
 you: the install script never checks that iTerm2 is there before

@@ -18,14 +18,21 @@
   rows moved into the inbox and the board kept its URLs without keeping a fifth of the
   bar. A page can be reachable, load-bearing and not a tab — and several are.
 
+  **Chat** went the same way in the same breath (bc-l8jp.5), for a second reason on top
+  of that one: it was the one tab that was also the way to *create* something, and a bar
+  drawn identically on every page cannot hold a create — whatever it did would have to
+  mean the same thing on all of them, and creating does not. So the conversations you
+  have open are inbox rows like the pull requests, and starting one is ＋ on the inbox.
+  The bar navigates; the inbox creates.
+
   The same rule is what keeps the **Mirror** out of this list (bc-3xb), and it is worth
-  knowing before you fill the place PRs left. The Mirror is a *mode* of the advocates
-  page — the same repos and sessions seen from the phone rather than from this Mac — and
-  it is the one surface here that is meaningless on the device a bottom tab is tapped
-  from: it follows another device and drops its own (`notMe` in mirror.js), so a phone
-  tapping a Mirror tab would read "Looking for a device…" forever. It stays an in-page
-  pane on monitor.html. That there is now room on the bar is not an argument for putting
-  it here; see README, "The Mirror is a pane, not a tab".
+  knowing before you fill either of the places those two left. The Mirror is a *mode* of
+  the advocates page — the same repos and sessions seen from the phone rather than from
+  this Mac — and it is the one surface here that is meaningless on the device a bottom tab
+  is tapped from: it follows another device and drops its own (`notMe` in mirror.js), so a
+  phone tapping a Mirror tab would read "Looking for a device…" forever. It stays an
+  in-page pane on monitor.html. That there is now room on the bar is not an argument for
+  putting it here; see README, "The Mirror is a pane, not a tab".
 
   It is built here rather than pasted into five <head>-alike blocks of HTML because
   there is no templating in this app and a bar that says different things on
@@ -48,26 +55,29 @@
     // to recognise all of them or the bar shows nothing as current on a page you are
     // plainly looking at.
     { id: 'inbox', href: '/', icon: '📥', label: 'Inbox', paths: ['/', '/index.html'] },
-    // Everywhere else this is a "chat session" — the page title, the <h1>, the
-    // foundation, the README. Here it is one word, and the bar is why: five tabs
-    // give each label 72px at 360px, and "Chat session" measures 68px *unwrapped*,
-    // so it takes two lines while its three neighbours take one and its icon rides
-    // higher than theirs. 360px is the common Android width and the app is a WebView
-    // shell, so that is the ordinary case, not the edge. The word it might be
-    // confused with — the agent chats on /foundations — is not a tab; the tab that
-    // *was* ambiguous with it, "Sessions", is gone, and the short label is still the
-    // right one on a bar this tight.
-    // The id and the href stay `console`: they live in stored conversation records
-    // and on the phone's home screen.
-    // 💬 rather than the 🧾 this used to be (bc-6np). The receipt was right when the
-    // entry meant the proposal it produces, and it still is on the three places that
-    // do mean that — the proposal button on the page itself, the "proposed N beads —
-    // review" link, and the inbox's "work out the next beads from this". The tab means
-    // the conversation, and the session rows already draw an open one with 💬, so this
-    // agrees with them rather than colliding. No U+FE0F: unlike the ⌨ trap recorded in
-    // index.html, U+1F4AC is emoji-presentation by default and needs no coaxing.
-    { id: 'console', href: '/console', icon: '💬', label: 'Chat', paths: ['/console', '/console.html'] },
-    // There was a **PRs** tab here, next to Advocates. It is gone (bc-l8jp.6) and the
+    // There was a **Chat** tab here, and it is gone (bc-l8jp.5). Not because the chat
+    // session mattered less than the ones that are left, but because it was the one
+    // tab that was two things at once: a *list* of conversations you had already
+    // started, and the only way to start another. Both belong somewhere better. The
+    // list is a category in the inbox now — the conversations you have open are
+    // incoming things, exactly like a question or a pull request, and the inbox's kind
+    // filter already had a table to add them to. Starting one is the ＋ on the inbox,
+    // which is the primary action of the whole app and was never a navigation.
+    //
+    // **`/console` is still a live route with no tab pointing at it.** The id and the
+    // href live in stored conversation records and on people's home screens, so the
+    // page answers to both of its paths exactly as before (see `serveStatic`, and
+    // test/pagepaths.mjs); it is reached from a row in the inbox or from ＋ rather
+    // than from here, and the bar on it marks nothing as current because you are not
+    // on one of these views. It freed a slot on what was then a five-tab bar, which is
+    // what §6 step 8 of the UX review and bc-3xb were both arguments about — and the
+    // tab below went the same way in the same breath, so that argument is settled twice
+    // over rather than narrowly.
+    //
+    // The 💬 the tab had taken by the end (bc-6np, over the 🧾 it started with) went with
+    // it, and it is not lost: the inbox's own session rows draw an open conversation with
+    // exactly that, which is where the icon now does its work.
+    // There was a **PRs** tab here too, next to Advocates. It is gone (bc-l8jp.6) and the
     // reason is the same as the gap above it: a tab is a claim that a screen is somewhere
     // you *live*, and the pull request board is somewhere you glance — "did that ship?" —
     // and then act on twice a day. The rows themselves are incoming work like everything
@@ -76,9 +86,9 @@
     // serve the board, which is still the whole of the shipping screen; what points at it
     // is a link on every PR card rather than a fifth of this bar.
     //
-    // Which means the board is a page the bar marks nothing as current on. That is
-    // deliberate and it is checked (scripts/tabbar-check.mjs): the bar is still there,
-    // because it is the only way off any of these pages.
+    // Which means the board, like the chat session, is a page the bar marks nothing as
+    // current on. That is deliberate and it is checked (scripts/tabbar-check.mjs): the
+    // bar is still there, because it is the only way off any of these pages.
     // The sessions view too. `/sessions`, `/work` and `/work.html` all serve this page
     // now, and they stay in `paths` so the bar marks the right tab for a phone opening
     // the shortcut it has had on its home screen for months.
