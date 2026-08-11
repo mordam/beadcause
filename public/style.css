@@ -2557,6 +2557,29 @@ button.work-row {
 .sheet-title { margin: 0 0 10px; font-size: 18px; line-height: 1.3; }
 .sheet-body .meta { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
 
+/* How a closed bead ended, straight under its pills. The pill says "closed" and stops;
+   this is the sentence bin/deliver.js (or an answer, or a revoke) actually wrote, and
+   this sheet is the only place in the app that shows it whole — /history clamps its own
+   copy to two lines (`.hist-why`) on the understanding that tapping the row lands here.
+   So nothing here clamps: the worst reason in this tracker is 1664 characters and the
+   sheet body already scrolls.
+
+   Framed rather than headed, and the frame is why it can sit above the description
+   without a `.section-label` — a label there would put a full-width rule between the
+   pills and the bead, which reads as the end of the sheet rather than the start of it. */
+.closed-note {
+  margin-bottom: 14px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--muted);
+  border-radius: 10px;
+  background: var(--surface-2);
+}
+.closed-when { font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+.closed-note .md { font-size: 13.5px; line-height: 1.5; }
+.closed-note .md p, .closed-note .md ul, .closed-note .md ol { margin: 0 0 8px; }
+.closed-note .md > *:last-child { margin-bottom: 0; }
+
 /* Where the bead sits: its parent, and what it is stuck behind. Above the
    description, quiet enough not to compete with the title, and every row a link —
    the count these replace was the one part of the sheet you could read and not

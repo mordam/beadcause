@@ -563,6 +563,12 @@ console.log('\none pull request, full screen\n');
   check('and the bead it carries', /zz-work/.test(brief), brief.slice(0, 300));
   check('it says the branch is what is behind, not main', /branch is what is behind/.test(brief), brief.slice(0, 400));
   check('it sends the session to a worktree rather than the shared checkout', /git worktree list/.test(brief), brief.slice(0, 700));
+  // The second layer under lib/resolvers.js, for the two resolvers that are already up
+  // rather than the second one that must not be opened. bc-utyr: a `git merge --abort`
+  // between another session's resolution and its commit is what wrote conflict markers
+  // into a commit with two parents and an ordinary merge shape.
+  check('it stands down on a merge somebody else started', /already mid-merge, stop/.test(brief), brief.slice(0, 900));
+  check('and names the abort it must not run', /do \*\*not\*\* run `git merge --abort`/.test(brief), brief.slice(0, 900));
   check('it runs the repo’s own gate afterwards', /CLAUDE\.md/.test(brief), brief);
   check('and it stops at a push — the merge stays a tap', /Push the branch\. Then stop\./.test(brief), brief.slice(-500));
   check('nothing in it merges into the base', !/merge .*into \\?`main/.test(brief.replace(/branch is what is behind[^\n]*\n/, '')), brief);
