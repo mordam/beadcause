@@ -37,7 +37,8 @@
  * neither could close. See `clearOpenCards` below.
  *
  * **The old ending is intact and it is the fallback.** Anything that stops the merge —
- * GitHub refusing it, a red check, checks that never reported, `pr.autoMerge` off, or
+ * GitHub refusing it, a red check, checks that never reported, a space that asks for an
+ * approving review the pull request has not got, auto-merge off for that space, or
  * `--review` because the session wants a human on this one — files exactly the
  * question it always filed, with the reason on it, and parks the bead behind it. That
  * is not a failure path bolted on the side; it is the same forty lines it always was,
@@ -66,6 +67,7 @@ import { landedReason } from '../lib/landed.js';
 import { pushLanded } from '../lib/notify.js';
 import { oweClose } from '../lib/owed.js';
 import * as pr from '../lib/pr.js';
+import { prPolicyFor } from '../lib/spaces.js';
 
 function arg(...names) {
   for (const n of names) {
@@ -290,11 +292,21 @@ try {
   die(`could not push ${branch} — ${String(err.message).split('\n').slice(-2).join(' ')}`, 5);
 }
 
-// Whether this delivery intends to end in a merge. Read before the PR body is built,
-// because the body's last line is a promise about what happens next and it has to be
-// the right one — a merged PR whose description says it is waiting for approval is a
-// small lie that outlives the session by as long as the repo does.
-const autoMerge = cfg.pr?.autoMerge !== false && !review;
+// Whether this delivery intends to end in a merge, and on what terms. Read before the
+// PR body is built, because the body's last line is a promise about what happens next
+// and it has to be the right one — a merged PR whose description says it is waiting for
+// approval is a small lie that outlives the session by as long as the repo does.
+//
+// Resolved per *space* rather than off `cfg.pr` directly, and through the same helper
+// `lib/session.js` uses to write the brief: the brief promises what this command will
+// do, and the two reading different answers is how a window reports work as landed over
+// a bead that says otherwise.
+const policy = prPolicyFor(cfg, ws.name);
+const autoMerge = policy.autoMerge && !review;
+// Green checks are not enough in a space that asks for a review first. Only consulted
+// inside the `autoMerge` branch below — with auto-merge off every delivery is already a
+// question, and answering it *is* the approval.
+const requireApproval = policy.requireApproval;
 
 const prBody = [
   `Closes ${beadId} once merged.`,
@@ -306,7 +318,8 @@ const prBody = [
   '',
   '---',
   autoMerge
-    ? `_Opened by a beadcause worker session on ${beadId}, which merges it itself once the checks report. If it is ` +
+    ? `_Opened by a beadcause worker session on ${beadId}, which merges it itself once the checks report` +
+      `${requireApproval ? ' and it has an approving review' : ''}. If it is ` +
       `still open, something stopped that — the reason is on ${beadId} and in ${owner}'s inbox._`
     : `_Opened by a beadcause worker session on ${beadId}. It is not merged until ${owner} answers the question in their inbox._`,
 ]
@@ -428,6 +441,12 @@ function clearOpenCards(why) {
  */
 let landed = null;
 let refused = '';
+// Set instead of `refused` when the checks are green and the only thing missing is a
+// human's approval. A separate flag rather than a fourth sentence in `refused`, because
+// the card's opening is built from *why it exists* and this one is not a refusal: it
+// never asked GitHub to merge anything, so there is no refusal to quote and "it tried
+// and could not" would be describing an attempt that was never made.
+let awaitingApproval = false;
 
 if (autoMerge) {
   const waitMs = Math.max(0, Number(cfg.pr?.mergeWaitMs ?? 300000) || 0);
@@ -443,6 +462,14 @@ if (autoMerge) {
     refused =
       `${settled.checks.failing} check${settled.checks.failing === 1 ? '' : 's'} failing${named}. ` +
       `A worker will not merge over a red check — if it is a flake, that is your call to make.`;
+  } else if (requireApproval && settled.reviewDecision !== 'APPROVED') {
+    // After the checks and before the merge, and that order is the whole of it: a red
+    // check is the more useful thing to be told about, and asking for an approval on a
+    // pull request that is about to be rejected by its own CI wastes the tap. `gh` says
+    // `APPROVED`, `CHANGES_REQUESTED`, `REVIEW_REQUIRED`, or nothing at all when the
+    // repo requires no review; only the first is an approval, and the last three all
+    // mean the same thing here — nobody has said yes yet.
+    awaitingApproval = true;
   } else {
     try {
       // `deleteBranch: false`, always, and not a preference: this runs in the worker's
@@ -559,9 +586,11 @@ async function landHere(landed, { external = false } = {}) {
 if (landed) await landHere(landed);
 
 // Everything from here down is the older ending, unchanged: it is what a delivery does
-// when the merge was refused, when `--review` asked for a human, or when `autoMerge` is
-// off. `refused` is empty in the last two, which is how the card knows which it was.
+// when the merge was refused, when the space asks for an approving review and there is
+// none, when `--review` asked for a human, or when `autoMerge` is off. `refused` is
+// empty in the last three, which is half of how the card knows which it was.
 if (refused) console.error(`beadcause-deliver: not merged — ${refused}`);
+if (awaitingApproval) console.error(`beadcause-deliver: not merged — #${request.number} is green but has no approving review.`);
 
 /* ----------------------------------------------------------- the question bead */
 
@@ -625,11 +654,16 @@ const out = bd([
   deliveryBody(delivery, {
     context: `**${request.files ?? 0} file${request.files === 1 ? '' : 's'}**, +${request.additions ?? 0} −${request.deletions ?? 0}, ${ahead} commit${ahead === 1 ? '' : 's'}.`,
     // Which of the three reasons this card exists. `asked` is deliberately narrower
-    // than `review` on its own: with `pr.autoMerge` off, every delivery is a question
+    // than `review` on its own: with auto-merge off for this space, every delivery is a question
     // and `--review` asked for nothing that was not already going to happen, so a card
     // claiming the worker chose this would be crediting it with a decision it never had.
     refused,
-    asked: review && cfg.pr?.autoMerge !== false,
+    // Whether this space asked for a review the pull request has not got. Second in the
+    // card's precedence, behind a refusal that actually happened and ahead of the
+    // worker's own `--review`, because it is the only one of the three whose sentence
+    // has to explain a *green* pull request sitting unmerged.
+    approval: awaitingApproval,
+    asked: review && policy.autoMerge,
     ship: shipHint,
   }),
   '--json',
@@ -655,6 +689,7 @@ try {
         ? ` It replaces ${superseded.join(', ')}, which asked the same question and ${superseded.length === 1 ? 'was' : 'were'} never answered.`
         : '') +
       (refused ? ` The worker tried to merge it and could not: ${refused}` : '') +
+      (awaitingApproval ? ` Its checks are green; it is waiting on an approving review, which is what answering ${questionId} gives it.` : '') +
       (owed ? ` Still owed after the merge: ${owed}.` : ''),
   ]);
 } catch {
@@ -664,9 +699,17 @@ try {
 // And on the pull request itself, because that is where whoever opens the diff is
 // standing. A green PR sitting open for two days with nothing on it to say why is the
 // state this whole fallback exists to avoid being mysterious about.
-if (refused) {
+// The approval case is the one this matters most on, because there is nothing else on
+// the pull request to explain it: the checks are green, the branch is clean, and it is
+// sitting open anyway.
+const prNote = refused
+  ? `A beadcause worker tried to merge this and could not: ${refused}`
+  : awaitingApproval
+    ? `A beadcause worker opened this and stopped: its checks are green, but this space asks for an approving review before anything merges.`
+    : '';
+if (prNote) {
   await pr
-    .comment(dir, request.number, `A beadcause worker tried to merge this and could not: ${refused}\n\nIt is now ${owner}'s call — see ${questionId}.`)
+    .comment(dir, request.number, `${prNote}\n\nIt is now ${owner}'s call — see ${questionId}.`)
     .catch((err) => console.error(`beadcause-deliver: could not comment on #${request.number} — ${first(err)}`));
 }
 

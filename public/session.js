@@ -474,10 +474,12 @@
 
   // Opened on its own, the ✕ means the tab. In a drawer it never gets here —
   // drawer.js takes the click first, and `data-drawer-close` is what tells it to.
-  document.getElementById('session-close').addEventListener('click', () => {
-    window.close();
-    setTimeout(() => (location.href = '/sessions'), 120);
-  });
+  //
+  // It used to go to `/sessions` from here, which was right while a sessions view
+  // existed and became a ✕ that closed one view by opening a different tab the day
+  // Advocates absorbed it. There is one rule now and it is in drawer.js's header:
+  // to what was underneath, and to the inbox when nothing was.
+  document.getElementById('session-close').addEventListener('click', () => window.beadcause.closeView());
 
   setTitle();
 

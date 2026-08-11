@@ -122,7 +122,9 @@ otherwise its poller would keep firing notifications with no listener behind the
   a TLS 1.2 floor — once *HTTPS Certificates* is enabled for the tailnet. Until then it
   logs why and serves plain http. Loopback is plain http on purpose. The daemon
   [renews the certificate under itself](#renewing-it-before-it-expires) and pushes to
-  your phone if it ever cannot. See
+  your phone if it ever cannot, and the **Admin screen** turns it on, says what it will
+  cost and hands you the new pairing code — see
+  [the switch on the Admin screen](#the-switch-on-the-admin-screen) and
   [HTTPS on the tailnet name](#https-on-the-tailnet-name).
 - **Two credentials, and the token is not going anywhere.** Everything that is not a
   browser uses the shared token, exactly as it always did. A browser can *also* sign in
@@ -305,7 +307,9 @@ interrupt you*:
     "quietHours": { "from": "18:00", "to": "09:00" },
     "quietDays": ["sat", "sun"],
     "ntfyDetail": "minimal",
-    "autoDispatch": false }
+    "autoDispatch": false,
+    "autoMerge": false,
+    "requireApproval": true }
 ]
 ```
 
@@ -477,6 +481,24 @@ because "after six" means your evening. A malformed time disables the rule rathe
 than muting the space forever. `ntfyDetail` and `autoDispatch` set at space level
 keep applying as you add workspaces to that space — which is exactly the drift that
 otherwise leaks a work question onto a public relay.
+
+**A space also decides who merges.** `autoMerge` and `requireApproval` are the same
+kind of answer as the two above — one you give once for a group of repos rather than
+per repo — and they are the two halves of
+[landing work](#landing-work--a-branch-a-pull-request-and-the-workers-own-merge):
+
+| on a space | what it does |
+|---|---|
+| `"autoMerge": false` | workers there stop after opening the pull request, and the merge is your tap |
+| `"autoMerge": true` | they land their own work, even where the global `pr.autoMerge` says off |
+| `"requireApproval": true` | they land their own work *unless* the pull request has no approving review — a green, unapproved one becomes a card that says so |
+
+The global `pr.*` is the **default** here, not a veto, and that is a deliberate
+difference from `autoDispatch` — where `false` is a safety switch no space may argue
+its way out of. Both of these are ordinary policy, and only a default a space can
+override in either direction expresses the two setups that motivated it: on everywhere
+except the shared repo, and off everywhere except the side project. A space that says
+nothing inherits, and a config with no spaces at all behaves exactly as it always did.
 
 `npm run configure` walks you through it. Run it **in a terminal** — it needs one to
 ask questions. Anywhere else (a pipe, CI, an agent shell) it prints the current
@@ -2087,6 +2109,47 @@ load and opening `DocActivity` on top of a drawer that stayed empty behind it. I
 leaves anything that is not the main frame alone; a `/doc` link that *is* a main-frame
 navigation — a notification, a deep link — still opens the native reader.
 
+### Closing a subordinate view — one rule, in one place
+
+The ✕ on a subordinate view obeys one sentence, and `public/drawer.js` is where it is
+written down — the header for the prose, `beadcause.closeView()` for the code:
+
+> **A subordinate view closes to the view it opened over, and to the inbox when there
+> is not one.**
+
+Three cases and no more. **In a drawer**, the view underneath is the tab the panel is
+over, so closing is a dismissal rather than a navigation — and `history.back()`, so the
+one entry the drawer spent is given back and the phone's own back button needs one
+press afterwards rather than two. **In a tab this app opened** — long-press → open in
+new tab, or a `target=_blank` out of a brief — the view underneath is the tab that
+opened it, and `window.close()` hands it back. **Anything else** — a pasted URL, a
+notification, a home-screen shortcut — has nothing underneath, and the inbox is the
+main page.
+
+That last case is deliberately *not* "wherever you came from". The standalone page is
+the fallback for an address that arrived from outside the app, where the history behind
+it is whatever you were doing before the app was open, and `back()` there is a promise
+the ✕ cannot keep.
+
+It reads like an obvious rule and the app had three of them, which is the bug this
+replaced. `/session`'s ✕ went to `/sessions` — correct on the day it was written, and a
+✕ that closed one view by *opening a different tab* from the day Advocates
+[absorbed the sessions view](#getting-around--the-tab-bar), since that path has served
+the advocate console ever since. `/doc` and `/graph` went to `/`, each carrying its own
+copy of the `window.close()`-then-navigate dance. And the drawer dismissed to whatever
+was underneath, which is right, and is the only exit in the app that can leave you on
+the pull request board — which is what the symptom was reported as.
+
+None of the three was wrong enough on its own to notice. What was wrong was that there
+were three: changing what closing means was three edits, and the third was always the
+one forgotten, which is exactly how `/sessions` outlived the sessions view. So the
+three pages now ask for the rule rather than each answering it, and `node
+test/closeview.mjs` — in `npm test`, a static read of `public/*.js` — asserts that none
+of them decides its own way out, that `closeView()` is defined once, that nothing
+closes to `/sessions` any more, and that every page carrying such a ✕ loads
+`drawer.js` (and that the service worker precaches it, since a notification on a bad
+link is exactly when these pages are opened).
+
 ### Checking that it gives the tab back
 
 `node scripts/drawer-check.mjs` drives the real `public/*.js` in headless Chrome at
@@ -2116,6 +2179,12 @@ detail sheet opening inside the panel and closing back to the graph rather than
 closing the drawer; the page's own ✕ dismissing the drawer rather than the app if
 anything ever reaches it; and both pages standing on their own — header, ✕ and no
 drawer mode — when they are loaded as pages.
+
+Standing on their own, it then taps each of those three ✕s and asserts **where it
+actually lands**: the inbox, all three, which is the rule above. A path rather than a
+"not `/sessions`", because the next wrong answer will be a different path — and it is
+the half `test/closeview.mjs` cannot make, since a source read can only say that the
+three pages call one function, not what that function does to the address bar.
 
 `--baseline` serves the committed copies instead of the working ones, which is how
 you check a failure here is a real one: whatever a change brings has to fail without
@@ -3210,7 +3279,7 @@ was given, because the whole value of the line is that it is honest:
 | the session | may owe | because |
 |---|---|---|
 | landed its own work | `DEPLOYED`, `REBUILT` — or `REVIEWED` if the merge was refused | the delivery merged and pushed it, so claiming either would describe work already on `origin` |
-| handed the PR over (`pr.autoMerge` off) | `REVIEWED`, and nothing else | it never merges, pushes or deploys; it can owe nothing but your answer |
+| handed the PR over (auto-merge off for its space) | `REVIEWED`, and nothing else | it never merges, pushes or deploys; it can owe nothing but your answer |
 | has no remote to push to | `MERGED`, `PUSHED`, `DEPLOYED`, `REBUILT` | all four are still yours, and the session names them without doing them |
 
 Whatever it writes, it passes the same thing to the delivery as `--owed`, which puts it on
@@ -3529,8 +3598,10 @@ Five things follow, and they are the whole of the change:
 
 **The old ending is intact, and it is the fallback.** Everything below about the card,
 the three answers and the markers is still exactly what happens when the merge does not
-— GitHub refused it, a check went red, the checks never reported, `pr.autoMerge` is off,
-or the session passed `--review` because it wanted a human on this one. It went from
+— GitHub refused it, a check went red, the checks never reported, the space
+[asks for an approving review](#spaces--keeping-work-out-of-your-evening) and there is
+none, auto-merge is off, or the session passed `--review` because it wanted a human on
+this one. It went from
 being every delivery to being the interesting ones.
 
 ### The notification with nothing to answer
@@ -3564,8 +3635,14 @@ sentences, never folded into one polite one:
 | the card says | what happened |
 |---|---|
 | *tried to merge it. **It could not:** …* | GitHub refused, or a check went red, or nothing reported. The reason is quoted from whatever refused |
+| *its checks are green. **It is waiting on an approving review*** | the space asks for one (`requireApproval`) and the pull request has not got it. Nothing refused and nothing is wrong — your **Merge** *is* the review |
 | *could have merged this itself and **deliberately did not*** | the session passed `--review`. Its reason is in the summary |
-| *Nothing is merged until you say so* | `pr.autoMerge` is off, so every delivery is a question and this one is not special |
+| *Nothing is merged until you say so* | auto-merge is off for this space, so every delivery is a question and this one is not special |
+
+The second and the fourth are the pair worth keeping apart. Both are a green pull
+request sitting unmerged, and only one of them is about a switch: a card that said
+*auto-merge is off* over a repo where it is emphatically on would send you looking for
+a setting that is already the way you want it.
 
 A refusal is prose on the card and never a field in the `beadpr` block — the block
 carries identity and intent, and "why it didn't merge this time" is neither. The same
@@ -3836,6 +3913,7 @@ channel would have.
   "base": "main",
   "mergeMethod": "merge",
   "autoMerge": true,
+  "requireApproval": false,
   "mergeWaitMs": 300000,
   "tidyMerged": true
 }
@@ -3882,6 +3960,22 @@ is your tap. Nothing else changes — same branch, same PR, same card, same thre
 so it is a safe thing to flip for an afternoon, and flipping it back needs no cleanup. A
 worker can reach the same ending on its own for one delivery with `--review`, and the
 card says which of you decided.
+
+`requireApproval: true` is the half-measure between the two, and it is the one to reach
+for when other people work in a repo: the worker still opens the pull request and still
+waits for the checks, but a green one with no **approving review** on it becomes a merge
+card rather than a merge. `reviewDecision` is read off the pull request the worker just
+opened — `APPROVED` and nothing else counts, so *changes requested* and *review required*
+both stop it — and the card says outright that a review is what is missing. Your **Merge**
+is that review. This is beadcause's own gate, not GitHub's: branch protection is free to
+require its own on top, and will refuse the merge in its own words if it does.
+
+**Both are per space, and the global here is only the default.** `autoMerge` was one
+global answer for every repo in every space, which is wrong at both edges: a side project
+wants its work landed without being asked at three in the morning, and a shared repo wants
+eyes on the diff. Put the answer on
+[the space](#spaces--keeping-work-out-of-your-evening) instead, in either direction, and
+what is below stays the fallback for everything that has not said.
 
 `mergeWaitMs` is how long a worker waits for its checks before giving up and asking. Too
 short and a repo with CI hands you every delivery as a question — a pull request is at
@@ -3941,7 +4035,12 @@ rule as the sweep — asked only after the local test says no.
 assertion rather than a hope — including the wait for the checks, whose `sleep` is
 injected and is where the fake's world changes, so pending-then-green runs in
 milliseconds. `test/delivery.mjs` covers the block, the markers, the split, and that the
-three openings of a card are three different sentences. `test/land.mjs` covers the thing
+four openings of a card are four different sentences. `test/approval.mjs` covers the
+per-space half end to end — `prPolicyFor` resolving both answers in both directions, and
+the real `bin/deliver.js` against the same fakes, where the assertion that matters is
+again a negative one: a green, unapproved pull request in a require-approval space must
+leave no `gh pr merge` in the call log at all, and must produce a card that says it is
+waiting on a review rather than that auto-merge is off. `test/land.mjs` covers the thing
 with no other interface: the **brief**, which is all beadcause can make a worker do. It
 asserts that the landing ending never tells a session to merge `main` by hand, that its
 marker line cannot claim `CAN BE MERGED` over work already in `main`, that the ask-first
@@ -4844,7 +4943,9 @@ before** — a daemon that refused to boot over a certificate would take the inb
 for a feature nobody had asked for yet.
 
 **Switching it on is two steps, and the second one is the one people miss.** The click
-changes the tailnet; it does not reach into a daemon that is already running. The
+changes the tailnet; it does not reach into a daemon that is already running. Both steps
+are on [the switch on the Admin screen](#the-switch-on-the-admin-screen) if you are
+holding a phone rather than sitting at the Mac. The
 certificate is fetched by whichever process owns port 4318 — the router — and it is
 fetched *once, at boot*, so a daemon that came up before the switch was flipped keeps
 serving plain http indefinitely and every URL it prints stays honest about that.
@@ -4896,6 +4997,57 @@ curl -sI https://$(tailscale status --json | jq -r .Self.DNSName | sed 's/\.$//'
 curl -sI http://127.0.0.1:4318/api/health          # still plain, still the control plane
 openssl s_client -connect <name>:4318 -tls1_1      # refused: alert 70, protocol version
 ```
+
+### The switch on the Admin screen
+
+Everything above used to be reachable only from the Mac: `tls.enabled` is a key in
+`~/.config/beadcause/config.json`, the certificate comes from a command, and the one
+failure that matters announces itself in a launchd log. So the honest description of
+the feature was *a setting you cannot see, gated on a setting on a different website,
+failing somewhere you would have to be at the Mac to read.* The **HTTPS** card at the
+bottom of `/admin` is that switch, and it says the three things the log cannot.
+
+**What is true now.** The setting, the certificate's name and how many days are left on
+it, and — separately — what is on the socket. Those last two are apart exactly between
+pressing the switch and restarting the daemon, which is the window in which somebody is
+actually reading this screen. A certificate inside the renewal loop's alarm window is
+marked rather than merely printed, using the same two thresholds the push uses, so the
+screen cannot call "fine" something your phone is being nagged about.
+
+**What pressing it costs, in the button, before you press it.** Turning HTTPS on moves
+the origin, and the token lives in `localStorage`, which is per origin — so *every
+paired browser is signed out, including the one you are pressing it with*. The button
+arms rather than acting: the second tap is the one that fires, and the first turns the
+button into `every paired browser signs out (100.96.105.106 → adams-macbook-pro-m4…)`.
+Afterwards a **Pair again** panel appears with the new link and a QR of it: the link is
+one tap for the phone in your hand, the code is for every other device. It stays until
+you dismiss it — it is the way back in, and a ten-second repaint taking it away
+mid-scan is the one failure that leaves you locked out with the Mac in another room.
+
+**Which failure it is.** `tailscale cert` exits 0 and writes nothing when the tailnet
+has *HTTPS Certificates* off, so that case is recognised by its sentence and drawn as
+itself: what Tailscale said, that nothing here can fix it, and a **Tailscale · HTTPS
+Certificates** button that opens the page — through the Tailscale app on Android where
+it claims the link, and as the web page everywhere else, because no documented scheme
+reaches a tailnet setting in the iOS or macOS app and a tap that does nothing is worse
+than a page that opens. Nothing else is classified as that failure: an ACME rate limit
+sent to that page would leave you turning on a setting that is already on. Press the
+switch again once the tailnet is fixed and it asks for the certificate again — the reply
+says whether it worked without restarting anything to find out.
+
+**It writes the setting before it fetches.** A fetch that fails leaves `tls.enabled:
+true` on disk on purpose: the intent is recorded, and the next restart after the tailnet
+is fixed picks a certificate up without anybody coming back to this screen. And it binds
+nothing — TLS is decided when the listener is created, so the card says plainly that the
+restart is what makes it true, and gives the command. Turning it off keeps the
+certificate where it is; only the setting moves.
+
+`GET /api/tls` is the same picture for anything else that wants it, and is cheap enough
+to poll: two file reads, a certificate parse and a memoised MagicDNS name, and it never
+asks `tailscale cert` for anything. `POST /api/tls {enabled}` is the switch, refused for
+an [observer](#a-second-instance--observer-mode) — a spare-port instance shares this config
+with the live daemon, and a press there would sign every paired browser out of the real
+origin.
 
 ### The URL you are given, and what happens to a phone that already has one
 
@@ -5274,6 +5426,8 @@ cookie says so), and `/auth/signout` ends the session.
 | GET | `/terminal` | `?id=` or `?ws=&seed=` | the terminal page |
 | GET | `/api/admin` | — | every scope and what pausing it would cost. Read-only and cheap — no `bd` call, no spawn — because `/admin` polls it and the counts on the buttons have to be current when you press one |
 | POST | `/api/admin` | `{action, what, scope, mode}` | pause or resume everything, one space, or one half of it. `what` is `all` · `advocates` · `terminals`; `mode` is `drain` (default — no new launches, running workers finish untouched) or `kill`. Never run at boot: a `launchctl kickstart -k` behaves exactly as it did. Refused on an observer |
+| GET | `/api/tls` | `?pairing=1` | what HTTPS is doing: the setting, the certificate on disk (name, days left), what the socket is actually serving, the URL a phone would be handed, and whether a restart is owed. Cheap enough to poll — two file reads and a memoised MagicDNS name, and it never asks `tailscale cert` for anything. `?pairing=1` adds the link and a QR |
+| POST | `/api/tls` | `{enabled}` | turns HTTPS on or off: writes `tls.enabled`, fetches the certificate when it is on (asynchronously — the synchronous one would block every request for the length of a Let's Encrypt round trip), and moves `baseUrl`. Pressing it while it is already on is the retry. Binds nothing: TLS is decided when the listener is created, so the reply carries `restartNeeded`. Refused on an observer, which shares this config with the live daemon |
 | GET | `/api/deploys` | `?limit=` or `?id=` | the recent deploys, or one with its log. Four endings, not two: `ok`, `failed`, and the two that mean nobody knows — `unconfirmed` (the ordinary ending of a restart) and `lost` |
 | POST | `/api/deploy` | `{workspace, bead?, reason?}` | runs that repo's declared deploy. `409` with no declaration, or if one is already running. Means "written down and a process owns it", never "it worked". Refused on an observer |
 | POST | `/api/presence` | `{device, view, key}` | which view this device has open, so the mirror can follow it. Wakes `/api/poll` without costing a `bd` sweep — see `changed` there |
@@ -5343,7 +5497,7 @@ the fields it always read and renders exactly as it did.
 | `owner` | what the agents call you. It goes into every agent prompt ("*<name>* is not at the keyboard", "*<name>* approves every bead before it exists"), the body of every pull request an agent opens, and the notes that land on a bead. Asked first by `npm run configure`; guessed from your git `user.name` (first word) when it has never been set |
 | `port`, `host` | listens on `127.0.0.1` **and** the Tailscale IP only — never the LAN. The *address* is what gets bound; `baseUrl` is what gets handed out, and they differ on purpose |
 | `baseUrl` | the origin every generated link is built from — the pairing QR, the APK code, every notification's click target and action button, the terminal's `wss://`. Maintained for you: `https://<host>.<tailnet>.ts.net:<port>` when there is a certificate to serve it, the Tailscale address over plain http when there is not, and moved between the two on its own. Set it to something else — a real domain, a proxy — and it is never rewritten. See [the URL you are given](#the-url-you-are-given-and-what-happens-to-a-phone-that-already-has-one) |
-| `tls.enabled` | HTTPS on the tailnet address with a `tailscale cert` certificate and a TLS 1.2 floor (default `true`). Loopback is never TLS whatever this says, and a tailnet without *HTTPS Certificates* enabled falls back to plain http with the reason in the log — see [HTTPS on the tailnet name](#https-on-the-tailnet-name) |
+| `tls.enabled` | HTTPS on the tailnet address with a `tailscale cert` certificate and a TLS 1.2 floor (default `true`). Loopback is never TLS whatever this says, and a tailnet without *HTTPS Certificates* enabled falls back to plain http with the reason in the log. Set from the HTTPS card on `/admin` rather than by hand — see [the switch on the Admin screen](#the-switch-on-the-admin-screen) and [HTTPS on the tailnet name](#https-on-the-tailnet-name) |
 | `tls.name` | the name to get a certificate for, if not the MagicDNS name `tailscale status` reports (default `null` — ask). The protocol floor is deliberately not a setting |
 | `token` | required on every `/api/*` call; regenerate by deleting the file |
 | `auth.google.clientId` | the OAuth **Web application** client for this Mac (default `null` — sign-in off). All of this key, a secret and a non-empty `allowed` are needed before sign-in switches on at all — see [Signing in with Google](#signing-in-with-google) |
@@ -5370,7 +5524,8 @@ the fields it always read and renders exactly as it did.
 | `pr.enabled` | land finished work as [a pull request the worker merges](#landing-work--a-branch-a-pull-request-and-the-workers-own-merge) (default `true`). `false` puts every workspace back on the oldest ending — work the bead, close the bead. A workspace with no `gh` or no GitHub remote gets that ending anyway, without needing to be named |
 | `pr.base` | what a PR is opened against and merged into (default `main`) |
 | `pr.mergeMethod` | `merge` (default), `squash` or `rebase`. A merge commit because a squash-merged branch is never an ancestor of `main`, and the worktree cleanup will not remove a worktree that fails that test |
-| `pr.autoMerge` | the worker merges its own pull request once the checks report (default `true`). `false` stops it after opening the PR and makes the merge your tap, which is what every delivery used to do. A worker can choose the same for one delivery with `--review` |
+| `pr.autoMerge` | the worker merges its own pull request once the checks report (default `true`). `false` stops it after opening the PR and makes the merge your tap, which is what every delivery used to do. A worker can choose the same for one delivery with `--review`. **A [space](#spaces--keeping-work-out-of-your-evening) overrides this either way**, so this is the default rather than the answer |
+| `pr.requireApproval` | a pull request needs an `APPROVED` review before a worker may merge it (default `false`). Green but unapproved becomes a merge card saying so, rather than a merge — the setting for a repo other people work in. Per space, like `autoMerge` |
 | `pr.mergeWaitMs` | how long a worker waits for its checks before handing the PR over instead (default 5 min). A PR is at its most pending the second after it is opened, so without this a repo with CI would ask you about every delivery |
 | `pr.tidyMerged` | let the worktree sweep ask GitHub whether a branch's PR merged, since a squash-merge never makes it an ancestor of main (default `true`; belt beside `mergeMethod`'s braces) |
 | `advocates.workspaces` | which repos get an [advocate](#advocates--an-agent-per-repo-whose-job-is-the-queue-reaching-zero). **Empty by default**; `["*"]` for every one |

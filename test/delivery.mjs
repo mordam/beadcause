@@ -27,10 +27,14 @@
  * tested both ways round, since only one of them is the one you happen to generate.
  *
  * Third: the first paragraph. A worker merges its own pull request now, so one of these
- * cards means something went differently — GitHub refused the merge, or the session
- * asked for a human on purpose — and the three openings must not collapse into one
- * polite sentence. A card that cannot say which of them happened is a card that invites
- * a puzzled look at a green pull request.
+ * cards means something went differently — GitHub refused the merge, the space it is in
+ * asks for an approving review and has not got one, or the session asked for a human on
+ * purpose — and the four openings must not collapse into one polite sentence. A card
+ * that cannot say which of them happened is a card that invites a puzzled look at a
+ * green pull request. The approval one is the newest and the easiest to lose: without a
+ * sentence of its own it reads as *auto-merge is off*, which is a fact about a switch
+ * that is emphatically on, and sends you hunting for a setting already set the way you
+ * want it.
  *
  * Fourth: an unparseable block must be an `error`, never a `null`. Null is the answer
  * for every ordinary question in the inbox, so a delivery that degrades to null does
@@ -398,9 +402,10 @@ check('the label is the one `bd list --label=` searches for', DELIVERY_LABEL ===
 console.log('\nthe first paragraph says which of the three things happened');
 
 // A worker normally merges its own pull request, so a card in the inbox is now the
-// exception — and the first thing to know is *which* exception. Three openings, and
+// exception — and the first thing to know is *which* exception. Four openings, and
 // the failure worth testing is any two of them reading the same.
 const refusedBody = deliveryBody(D(), { refused: '#42 conflicts with main — the branch needs a rebase before it can merge.' });
+const approvalBody = deliveryBody(D(), { approval: true });
 const askedBody = deliveryBody(D(), { asked: true });
 const plainBody = deliveryBody(D());
 
@@ -425,8 +430,24 @@ check(
   plainBody.split('\n')[0]
 );
 check(
-  'the three openings are three different sentences',
-  new Set([refusedBody, askedBody, plainBody].map((b) => b.split('\n')[0])).size === 3
+  'a green pull request waiting on a review says that, and does not claim anything refused it',
+  /waiting on an approving review/.test(approvalBody) && !/tried to merge|deliberately did not/.test(approvalBody),
+  approvalBody.split('\n')[0]
+);
+check(
+  'and it says the tap is the review, since that is the whole of what answering does',
+  /Your \*\*Merge\*\* is that review/.test(approvalBody),
+  approvalBody.split('\n')[0]
+);
+check(
+  'a refusal that actually happened outranks the policy that would have stopped one',
+  /tried to merge it/.test(deliveryBody(D(), { refused: 'GitHub said no.', approval: true })) &&
+    !/waiting on an approving review/.test(deliveryBody(D(), { refused: 'GitHub said no.', approval: true })),
+  deliveryBody(D(), { refused: 'GitHub said no.', approval: true }).split('\n')[0]
+);
+check(
+  'the four openings are four different sentences',
+  new Set([refusedBody, approvalBody, askedBody, plainBody].map((b) => b.split('\n')[0])).size === 4
 );
 check(
   'a refusal is prose on the card and never a field in the block — the block is identity and intent',
@@ -435,7 +456,7 @@ check(
 );
 check(
   'and every opening still ends up offering the same three answers',
-  [refusedBody, askedBody, plainBody].every((b) => /id: merge/.test(b) && /id: changes/.test(b) && /id: decline/.test(b))
+  [refusedBody, approvalBody, askedBody, plainBody].every((b) => /id: merge/.test(b) && /id: changes/.test(b) && /id: decline/.test(b))
 );
 check(
   'and each of them gains Ship in a repo that has a deploy — the reason the card exists does not decide that',
