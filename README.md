@@ -4944,12 +4944,12 @@ the ＋ fit beside each other at 393px.
 Two screens start conversations, and they write the same record. `/console` starts a
 **chat session** — describe a thing, get a proposal. [The agents
 screen](#what-an-agent-is--and-how-it-asks-to-be-different) starts a **chat with one of
-the agents** — the Critic, the Researcher, whoever — which is the same
+the agents** — the advocate, the dispatcher, the work session — which is the same
 machinery with a different foundation and no proposal expected. Both carry a workspace,
 so both are in `/api/consoles`, and the repo tabs made that *more* visible rather than
 less: an agent chat lands under its repo's tab as if it had been started there.
 
-Which left a chat with the Critic sitting in *Pick up again* looking exactly like a
+Which left a chat with the advocate sitting in *Pick up again* looking exactly like a
 conversation about what to file next, with only its title to tell them apart — and a
 title is the one thing on that row you can rename.
 
@@ -4957,7 +4957,7 @@ So an agent chat is marked twice:
 
 - **The agent's own emoji in the phase slot**, where a chat session draws 💬. Free, and
   it is the first thing your eye lands on down the left edge of the list.
-- **A tinted pill beside the repo**, `🧨 Critic`, and this is the one that holds. The
+- **A tinted pill beside the repo**, `📣 Advocate`, and this is the one that holds. The
   phase slot is *status* as well: a running turn draws a spark there and a finished one
   a tick, and both of those take the emoji away. The pill never moves.
 
@@ -4975,6 +4975,22 @@ returns a fresh list the phone renders directly, so an undecorated one there wou
 un-mark every agent chat on screen until the next reload. An id with nothing behind it
 any more keeps its own name and a generic 🤖 rather than falling back to the default
 agent — the conversation happened, whatever the roster says now.
+
+**There are two rosters, and for a while the pill was reading the wrong one.** The
+names and emoji above came from `roster(cfg)` in lib/agents.js — the **reply personas**,
+the chip row the phone offers when you comment on a bead. The ids a conversation can
+actually be *opened* with are the **agent kinds** in lib/foundation.js, because that is
+what `POST /api/console` gates on: the advocate, the dispatcher, the work session. The
+two lists share no ids, so every real agent chat resolved to nothing and fell down the
+unknown-id path — drawn `🤖 advocate`, lower-case, with the mark of a fallback where a
+name belongs. Correct behaviour over a roster it was never in, and still the one row in
+the list that read as a miss (bc-rjes). Each kind now carries its own label and emoji
+(`mark`, lib/foundation.js), consulted before the personas: an id that is a kind *is*
+that kind, whatever a persona of the same name would like to be called, since a persona
+cannot own one of these records at all. The advocate's is 📣 — [the Advocates
+tab's](#getting-around--the-tab-bar) icon, because it is the same thing and the
+rest of its work is on that screen. A kind added to `BASELINES` with no mark fails
+`test/agentchats.mjs` rather than quietly shipping as another 🤖.
 
 `node test/agentchats.mjs` (in `npm test`) covers the naming and both routes;
 `scripts/launcher-check.mjs` covers what the row draws.
