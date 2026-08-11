@@ -38,7 +38,11 @@ class WatchService : Service() {
         private val BACKOFF = longArrayOf(2_000, 5_000, 15_000, 30_000, 60_000, 120_000)
 
         fun start(ctx: Context) {
-            if (!Prefs.isPaired(ctx)) return
+            // isLive, not isPaired: a pairing left on the old cleartext URL cannot be
+            // polled at all — every request dies at the socket on the platform's
+            // cleartext policy — so starting would be a foreground notification that
+            // never hears anything. MainActivity sends that case to the QR screen.
+            if (!Prefs.isLive(ctx)) return
             val intent = Intent(ctx, WatchService::class.java)
             try {
                 ctx.startForegroundService(intent)

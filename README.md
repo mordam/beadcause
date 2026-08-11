@@ -4796,11 +4796,14 @@ npm run android:key     # once: sideload signing key in ~/.config/beadcause
 npm run android         # build, and publish the APK to public/
 ```
 
-Then on the phone, **open `http://<tailnet-ip>:4318/beadcause.apk`** and install it
-— the same tailnet that carries the questions carries the app, so there's no cable
-and no Play track. `npm run android -- --install` uses `adb` instead if a device is
-attached. Pair by scanning the `npm run qr` code, which is the same QR the PWA uses:
-the URL carries the token, and the app stores it in EncryptedSharedPreferences.
+Then on the phone, **open `https://<host>.<tailnet>.ts.net:4318/beadcause.apk`** and
+install it — the same tailnet that carries the questions carries the app, so there's no
+cable and no Play track. `npm run android -- --install` uses `adb` instead if a device
+is attached. Pair by scanning the `npm run qr` code, which is the same QR the PWA uses:
+the URL carries the token, and the app stores it in EncryptedSharedPreferences. The app
+pairs over https only, so the tailnet needs
+[*HTTPS Certificates*](#https-on-the-tailnet-name) switched on before that QR is worth
+scanning.
 
 Needs the Homebrew Android toolchain, not Android Studio:
 
@@ -4831,9 +4834,26 @@ sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
   `specialUse` has no timeout; it needs a Play Store justification, which a
   sideloaded build never has to give. This is the concrete reason distribution and
   push transport aren't independent choices.
-- **Cleartext HTTP is permitted only for `100.64.0.0/10`** (Tailscale's range) plus
-  loopback, via `network_security_config.xml`. A mistyped pairing address pointed at
-  a public host will refuse to connect rather than send the token in the clear.
+- **The app talks https to the MagicDNS name, and nothing else.** Cleartext is off in
+  `network_security_config.xml` except to loopback and `10.0.2.2` (the emulator's route
+  to the host Mac), and `Address.kt` refuses to send the token anywhere but
+  `https://<host>.<tailnet>.ts.net` — *before* the first request, which is the only
+  moment a refusal is worth anything. The two files are different questions: the config
+  says what the socket may carry, `Address` says where a bearer credential may go, and
+  the second is the stricter one. A blanket "any https" would not do — a certificate is
+  something anyone can get for a domain they own. The suffix narrows that to *a*
+  tailnet and honestly not to *yours*: somebody else's tailnet has `.ts.net` names too,
+  and nothing on the phone has ever been told which tailnet is yours. What it rules out
+  is every host that is on none of them, and the whole of cleartext.
+  `test/pairhost.mjs` fails the build if the two files stop agreeing about the loopback
+  exceptions.
+- **So the app needs *HTTPS Certificates* on, and says so when it isn't.** With no
+  certificate the Mac serves plain http on `100.x.y.z` and puts *that* in the QR — the
+  [documented, deliberate fallback](#the-url-you-are-given-and-what-happens-to-a-phone-that-already-has-one)
+  — and the app cannot use it. Scanning it is not a silent failure: the pairing screen
+  names the address, says the Mac has no certificate yet, and points at the tailnet DNS
+  page. The PWA in a browser still works over http, so this is a constraint on the APK
+  and not on beadcause.
 - **Samsung will kill it.** On a Galaxy, add Beadcause to Settings → Battery →
   Background usage limits → **Never sleeping apps**, or the watcher dies silently
   after a few hours.
@@ -5878,6 +5898,18 @@ different origin from `http://100.x.y.z:4318` — so the redirect lands on a pag
 asks for a token it cannot see. **Scan the QR from `npm run qr` again**, once per
 device, and the new origin captures the token the same way the first one did. The old
 shortcut can then be deleted; leaving it costs a redirect and a token prompt.
+
+**The Android app is the one case that does not keep working, and it tells you so.**
+It cannot follow that 307: a phone paired before HTTPS holds `http://100.x.y.z:4318`,
+and [cleartext is off](#what-it-costs-you-to-know) in the APK, so the request dies at
+the socket before there is a redirect to follow. That is a deliberate trade — the
+platform refusing cleartext outright is worth more than one hop of automatic
+migration — so the app is built to make it a sentence rather than a mystery. Opening
+it after the update goes straight to the QR screen, with the address it is refusing
+and why on the screen. **Scan `npm run qr` again**; it is the same token, and the
+saved pairing is kept rather than cleared until you do, so nothing is lost if you
+scan it a week later. The watcher stays stopped in the meantime — a foreground
+notification that can never hear anything would be worse than its absence.
 
 ### Renewing it before it expires
 
