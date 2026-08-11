@@ -329,12 +329,17 @@ check(() => {
 
 const drawer = fs.readFileSync(PUBLIC('drawer.js'), 'utf8');
 check(() => {
-  const line = drawer.split('\n').find((l) => l.includes('const DETAIL'));
-  assert.ok(line, 'no DETAIL set in public/drawer.js');
-  assert.ok(line.includes("'/session'"), line.trim());
+  // The whole declaration, not the line it starts on: a set of paths grows one entry per
+  // page the drawer learns to own, and any formatter breaks it across lines long before
+  // that stops. Reading the line made the assertion fail with `const DETAIL = new Set([`
+  // — the paths still there, simply out of view — so match to the closing `]` instead.
+  const decl = drawer.match(/const DETAIL = new Set\(\[[\s\S]*?\]\)/);
+  assert.ok(decl, 'no DETAIL set in public/drawer.js');
+  const set = decl[0].replace(/\s+/g, ' ');
+  assert.ok(set.includes("'/session'"), set);
   // The .html twin matters: serveStatic rewrites /session to /session.html, so a
   // request that arrives already spelled that way must be recognised too.
-  assert.ok(line.includes("'/session.html'"), line.trim());
+  assert.ok(set.includes("'/session.html'"), set);
 }, 'the drawer owns /session, so a row opens over the tab rather than navigating it away');
 
 /* Every page in public/ that lists a session. `work.js` was one until the sessions view
