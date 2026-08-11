@@ -12,13 +12,18 @@
  * ntfy off, advocates off, and `bd` pointed at a stub that prints `[]`. Nothing here
  * reads a real workspace, opens a session, or sends a notification.
  *
- * One path is **not** covered, on purpose: a build that fails to start. Proving it
+ * One path is **not** covered, on purpose: a build that *dies* at startup. Proving it
  * means leaving a syntax error in a tracked file for ten seconds, and a test that is
  * interrupted at the wrong moment would leave the checkout broken — too sharp an
  * edge to keep in a repo for a path this simple. Verify it by hand instead:
  * append rubbish to `lib/notify.js`, watch the log say `could not bring up build …`
  * once and only once, confirm the port is still answering from the old pid, then put
  * the file back and watch it swap on its own.
+ *
+ * The other startup failure — a build that is merely *slow*, which is a fact about the
+ * machine and not about the code — is covered, in `test/slowstart.mjs`. It needs no
+ * sharp edge: a 250ms health window is one no node process can start inside, so the
+ * timeout is guaranteed without pretending to be a loaded Mac.
  */
 import fs from 'node:fs';
 import os from 'node:os';

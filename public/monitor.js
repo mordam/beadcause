@@ -769,6 +769,45 @@
     </div>`;
   }
 
+  /**
+   * And whether that program is serving anything — the line under the line above.
+   *
+   * The launchd line answers "is the right program running". This answers the question
+   * that turned out to sit underneath it: a router can be the right program, hold the
+   * port, pass every check launchd makes, and have *no backend behind it* — in which
+   * case the phone gets a 503 and the only record is a log file. Twice in one evening a
+   * build that was perfectly fine was condemned for being slow to start on a loaded Mac,
+   * and stayed condemned, because "poisoned" made no distinction between a syntax error
+   * and a busy machine.
+   *
+   * What this can show is the *degraded* half of that, and only that: serving a stale
+   * build because the newer one died, or because it was too slow and is being retried.
+   * A total outage is not visible from a page the daemon cannot serve — bin/router.js
+   * answers that one itself, in the 503 body and in a push to the phone.
+   *
+   * Amber rather than red: the app is up and answering on all of these, which is a
+   * different sentence from HOT-SWAP IS NOT LIVE above it, and colour is how you tell
+   * "look at this soon" from "nothing you are reading is current".
+   */
+  function routerHtml(r) {
+    if (!r) return ''; // start:bare, or an older daemon: say nothing, invent nothing.
+    if (r.ok) {
+      return `<div class="svc ok" title="${esc(r.disk || '')}">
+        <span class="svc-dot">✓</span>
+        <span>serving build <code>${esc(r.build || '?')}</code>${r.pid ? ` from pid ${esc(r.pid)}` : ''}</span>
+      </div>`;
+    }
+    return `<div class="svc warn">
+      <div class="svc-head"><span class="svc-dot">⚠</span>${
+        r.serving ? 'THE PHONE IS ON AN OLDER BUILD' : 'NOTHING IS BEING SERVED'
+      }<span class="pill id">${esc(r.code)}</span></div>
+      <div class="svc-what">${esc(r.summary)}</div>
+      ${r.detail ? `<div class="svc-line">${esc(r.detail)}</div>` : ''}
+      ${r.fix ? `<div class="svc-fix">force it: <code>${esc(r.fix)}</code></div>` : ''}
+      <div class="svc-foot">disk ${esc(r.disk || '?')}</div>
+    </div>`;
+  }
+
   /* ------------------------------------------------------------------- render */
 
   function render() {
@@ -809,7 +848,8 @@
     // Above every card, including the "nothing configured" case: a daemon serving the
     // wrong program is the one thing you want said before anything it goes on to say
     // about the repos.
-    out.innerHTML = serviceHtml(data.service) + (cards || '<div class="empty">No workspaces configured.</div>');
+    out.innerHTML =
+      serviceHtml(data.service) + routerHtml(data.router) + (cards || '<div class="empty">No workspaces configured.</div>');
 
     const live = [...advocates.values()].reduce((n, a) => n + a.workers.length, 0);
     const waiting = [...state.proposals.values()].reduce((n, qs) => n + qs.length, 0);
