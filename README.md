@@ -4539,7 +4539,13 @@ The limits, stated plainly:
   again with no tap), and an ntfy push goes to the phone — the same argument as the
   certificate warning, since every other channel this daemon has runs through the
   backend that is missing. A recovery push follows, because an alarm you are never told
-  is over is an alarm you learn to ignore.
+  is over is an alarm you learn to ignore. All three surfaces are tested against a real
+  router driven into the outage on purpose: `test/slowstart.mjs` for the log and the
+  503, and `test/outagepush.mjs` for the push, which points `ntfy.server` at a ten-line
+  http server inside the test and asserts that exactly one outage push arrives however
+  many bring-ups fail after it, that it names the build, and that the recovery push
+  arrives too. The push was the one surface with no test for a while, which is the wrong
+  way round — it is also the only one that works when nobody is at the Mac.
 - **And the degraded half of that is on the advocate console.** `/api/work` carries
   `router` beside `service`: one dim line naming the build being served on a good day,
   and an amber block when the phone is on an older build than the disk — because the
