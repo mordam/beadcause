@@ -838,9 +838,6 @@ const cfg = {
   advocates: { enabled: false, workspaces: [] },
 };
 
-// foundation.js first: it and agents.js import each other, and agents.js is not the end
-// of that cycle that can be pulled in cold. See test/routes.mjs.
-await import(LIB('foundation.js'));
 const { createApp, listen } = await import(LIB('server.js'));
 const { boundPort } = await import('./helpers/net.mjs');
 

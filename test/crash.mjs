@@ -560,7 +560,7 @@ await check('bin/router.js arms them too — after the port is held, and never a
   // The whole of bc-ega4's risk, and the only part of it a diff can undo by accident.
   // A *static* import of lib/crash.js or lib/deploy.js would put five to thirteen modules
   // of app in front of the one process that must always be able to bind 4318 — lib/deploy.js
-  // reaches lib/session.js, and so the lib/foundation.js ↔ lib/agents.js cycle (bc-u4na).
+  // reaches lib/session.js, which reaches most of the roster and the foundations.
   // Loading them after listen() means the worst a broken module can do is cost the beads.
   const statics = [...src.matchAll(/^import[\s\S]*?from '(\.\.\/lib\/[a-z]+\.js)';$/gm)].map((m) => m[1]);
   for (const forbidden of ['../lib/crash.js', '../lib/deploy.js', '../lib/bd.js']) {

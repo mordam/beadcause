@@ -190,9 +190,6 @@ const cfg = {
   advocates: { enabled: false, workspaces: [] },
 };
 
-// foundation.js first: it and agents.js import each other, and agents.js is not the
-// end of that cycle that can be pulled in cold.
-await import(LIB('foundation.js'));
 const { createApp, listen, routeTable, assertRoutes } = await import(LIB('server.js'));
 
 const app = createApp(cfg);
