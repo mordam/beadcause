@@ -3823,6 +3823,14 @@ request was for (`lib/beadref.js`, the same tiering the [PR board](#pull-request
 closed, and the stale "Merge #42?" card in front of them is closed first — bd refuses to
 close a bead with an open blocker, and that card is the blocker.
 
+**The card closes on the merge, not on the bead.** It used to close only while a bead
+behind that pull request was still open and unswept, which left it on the phone forever
+in three ordinary states: a work bead somebody closed by hand, a bead reopened
+deliberately (left alone by the rule below), and a pull request tied to no bead at all —
+hand-opened, or one the tracker would not resolve that tick. Nothing else sweeps a
+delivery card. The card asks one question, *merge #42?*, and `state: MERGED` answers it
+whatever became of the work afterwards.
+
 Two things it will not do. **A bead that already says it landed is left alone**: `bd`
 clears `closed_at` on reopen, so an open bead carrying `Landed as [#42](…)` is the trace
 of *you* reopening something this closed, and closing it again would be a fight rather
