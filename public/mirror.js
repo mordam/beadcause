@@ -13,7 +13,9 @@
  *     takes the wheel deliberately and says so, with one press to hand it back.
  *   - **It waits on the bus, not on a timer.** The presence event wakes the parked
  *     `/api/poll`, so a card opening in a hand shows up here as fast as the network
- *     allows, and nothing is polled in between.
+ *     allows, and nothing is polled in between. A chat session, which moves without
+ *     the phone moving, has a parked request of its own on the same principle — see
+ *     the console feed at the foot of this file.
  *   - **Every button here is an endpoint that already existed.** Answering, commenting
  *     and talking to a chat session are the phone's own writes; this page has no privilege
  *     of its own and adds no state to the daemon.
@@ -39,10 +41,12 @@
   const tabsEl = document.getElementById('mon-tabs');
   const dot = document.getElementById('mirror-dot');
 
-  /* A chat session is in-memory on the daemon, so following one closely costs a map
-     lookup. Everything else behind this view costs `bd`, and is fetched on a move. */
-  const CONSOLE_MS = 1500;
   const RETRY_MS = 3000;
+  /* The shortest gap between two rebuilds of this pane. A streamed turn moves a chat
+     session's sequence once per token, so the console feed below can be handed a new
+     state several times a second; see paint() for why they are coalesced here and not
+     on the console's own page. */
+  const PAINT_MS = 120;
 
   const esc = (s) =>
     String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -125,7 +129,13 @@
         ...(opts.headers || {}),
       },
     });
-    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `HTTP ${res.status}`);
+    // The status rides along: the console feed has to tell a session that is gone —
+    // which is an ending, and stops the loop — from a daemon that restarted mid-park,
+    // which is a pause.
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw Object.assign(new Error(body.error || `HTTP ${res.status}`), { status: res.status });
+    }
     return res.json();
   }
 
@@ -175,6 +185,10 @@
     const key = targetKey(t);
     if (!force && key === state.detailKey) return;
     state.detailKey = key;
+    // Whatever the console feed was following, it is not what this pane is about to
+    // show — including when the same key is being re-read, because the read replaces
+    // the state the parked poll is sitting on.
+    stopConsole();
     state.detail = null;
     state.error = null;
     if (!t) return render();
@@ -185,7 +199,11 @@
       state.error = err.message;
     }
     // Another move landed while we were fetching; that fetch owns the screen now.
-    if (targetKey(target()) === key) render();
+    if (targetKey(target()) !== key) return;
+    render();
+    // The one read is what draws the frame and reports a session that is already
+    // gone. From here the poll has it, parked on the sequence that read came back on.
+    if (t.view === 'console' && state.detail?.id) followConsole(state.detail.id, state.detail.seq);
   }
 
   function fetchFor(t) {
@@ -561,6 +579,37 @@
     if (thread) thread.scrollTop = thread.scrollHeight;
   }
 
+  /**
+   * render(), but at most once every PAINT_MS, and never dropping the last state.
+   *
+   * A turn moves the chat session's sequence once per streamed token, so the feed
+   * below can hand this pane a new state as fast as the round trips allow. The
+   * console's own page repaints per token quite happily; this one must not, because
+   * its composer is *inside* the pane render() rebuilds — retyping the DOM under a
+   * focused textarea ten times a second is a worse thing to do to someone than
+   * showing them a tenth of a second less of an agent's sentence.
+   */
+  let paintedAt = 0;
+  let paintTimer = null;
+
+  function paint() {
+    const wait = PAINT_MS - (Date.now() - paintedAt);
+    if (wait <= 0) {
+      clearTimeout(paintTimer);
+      paintTimer = null;
+      paintedAt = Date.now();
+      return render();
+    }
+    // Already one scheduled: it will paint whatever the latest state is by then,
+    // which is the point of coalescing rather than queueing.
+    if (paintTimer) return;
+    paintTimer = setTimeout(() => {
+      paintTimer = null;
+      paintedAt = Date.now();
+      render();
+    }, wait);
+  }
+
   function note(text, bad = false) {
     state.note = { text, bad };
     render();
@@ -574,6 +623,19 @@
   /* ------------------------------------------------------------------- actions */
 
   const draftFor = (key) => (state.drafts.get(key) || '').trim();
+
+  /**
+   * After a write to a chat session: let the feed carry it, unless there is no feed.
+   *
+   * Every write this pane can make to a session moves its sequence, so the parked
+   * poll is already bringing the result back. The fallback is for the one case where
+   * it is not — a feed that stood itself down on a 404, which the write just proved
+   * wrong.
+   */
+  async function settled(id) {
+    if (feedId === id) return render();
+    return ensureDetail(true);
+  }
 
   async function respond(t, text, close, option = null) {
     const key = t.key || `${t.workspace}/${t.id}`;
@@ -688,7 +750,11 @@
       try {
         await api('/api/console/message', { method: 'POST', body: JSON.stringify({ id: btn.dataset.id, text }) });
         state.drafts.delete(key);
-        await ensureDetail(true);
+        // The words are already on their way back down the feed — appending the user's
+        // own message is the first thing a turn does to the session, and that moves the
+        // sequence the poll is parked on. Re-reading it here would only take the pane
+        // back to "Reading it…" for a round trip it does not need.
+        await settled(btn.dataset.id);
       } catch (err) {
         note(err.message, true);
       }
@@ -698,7 +764,8 @@
     if (act === 'close-console') {
       try {
         await api('/api/console/close', { method: 'POST', body: JSON.stringify({ id: btn.dataset.id }) });
-        await ensureDetail(true);
+        // Closing appends a system message, so the feed carries this one too.
+        await settled(btn.dataset.id);
       } catch (err) {
         note(err.message, true);
       }
@@ -744,12 +811,71 @@
     }
   }
 
-  // A chat session is the one view that changes without the phone moving and without a bus
-  // event — the agent is mid-sentence. Cheap enough to follow closely: it is a read
-  // out of the daemon's own memory.
-  setInterval(() => {
-    if (state.active && target()?.view === 'console') ensureDetail(true);
-  }, CONSOLE_MS);
+  /* ------------------------------------------------------------------- console */
+
+  /**
+   * A chat session, followed as it is written.
+   *
+   * It is the one view that changes without the phone moving and without a bus event
+   * — the agent is mid-sentence — so it gets a parked request of its own rather than
+   * a timer. `/api/console/poll` waits on that session's own sequence and hands back
+   * the whole session the moment it moves, which is exactly what the console's own
+   * page lives on (public/console.js) and what the chat tab on the advocates page
+   * does (public/foundations.js). Doing the same here means a turn lands as it is
+   * written instead of up to a second and a half late, and a session nobody is
+   * talking to costs one held request rather than forty a minute.
+   *
+   * The whole session comes back, not a diff — which is what makes a mirror that
+   * missed half a turn (asleep, off the tailnet) correct on the first response
+   * instead of having to reconcile a stream it never saw.
+   */
+  let feedGen = 0;
+  let feedId = '';
+
+  /** Stand the current loop down. Its parked request is abandoned, not awaited. */
+  function stopConsole() {
+    feedId = '';
+    feedGen += 1;
+  }
+
+  function followConsole(id, since) {
+    if (!id || id === feedId) return;
+    feedId = id;
+    consoleFeed(id, Number(since) || 0, ++feedGen);
+  }
+
+  /**
+   * `gen` is what stands a stale loop down rather than the id alone: the phone can
+   * leave a session and come back to it while the previous poll is still parked, and
+   * a response to *that* request would paint over a newer read of the same session.
+   */
+  async function consoleFeed(id, since, gen) {
+    let seq = since;
+    // Re-read every time round, so a loop that was stood down while it was parked —
+    // or while it was backing off — never asks for anything again.
+    while (gen === feedGen) {
+      try {
+        const c = await api(`/api/console/poll?id=${encodeURIComponent(id)}&since=${seq}&wait=25`);
+        if (gen !== feedGen) return;
+        seq = c.seq ?? seq;
+        state.detail = c;
+        paint();
+      } catch (err) {
+        if (gen !== feedGen) return;
+        if (err.status === 404) {
+          // Gone — closed and swept, or a daemon that no longer remembers it. There
+          // is nothing left to wait for, so say so once and stop, rather than asking
+          // again every three seconds until the phone happens to move.
+          state.error = err.message;
+          feedId = '';
+          return paint();
+        }
+        // Off the tailnet, or the daemon restarted under the parked request. `seq` is
+        // kept, so whatever streamed during the gap arrives with the next response.
+        await new Promise((r) => setTimeout(r, RETRY_MS));
+      }
+    }
+  }
 
   /* ---------------------------------------------------------------------- tabs */
 
@@ -769,6 +895,10 @@
       dot.hidden = true;
       ensureDetail(true);
     } else {
+      // Nothing repaints while this pane is hidden, so a parked poll on the way back
+      // would only be a held request nobody reads. Coming back forces a fresh read,
+      // which starts a fresh one.
+      stopConsole();
       window.beadcause?.monitor?.refresh();
     }
   }
