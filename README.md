@@ -2548,7 +2548,8 @@ issue descriptions we would throw away.
 
 Tapping a node raises a **card** with the whole title, its status, priority and type,
 and two buttons. **Details** opens the bead itself in a sheet — who owns it, what it
-blocks and what it waits on, **how it ended** if it has, then the whole body:
+blocks and what it waits on, **how it ended** if it has, **what its session did** where
+one ran, then the whole body:
 description, **acceptance**, **design**, **notes** and the thread, each rendered as
 markdown under its own label, in the order `bd` itself prints them. Served by `/api/bead`, which is `bd show` plus
 comments rather than `/api/question`'s decision shape (every node is an ordinary
@@ -2596,6 +2597,57 @@ bead with neither draws nothing at all, and looks precisely as it did before.
 `test/graphsheet.mjs` covers it, in the same node:vm slice of the real `sheetHtml` the
 relations block is checked in — including that the stylesheet has rules for the block
 and that none of them clamp.
+
+#### The way through — what its session did
+
+The close reason says a bead landed. It does not say what the session that landed it
+*did*, and that is archived in full: a log, its metrics, the memories it left, where its
+worktree went. So under the outcome block the sheet carries one more row, and it is the
+only row on the sheet that leaves the tracker — everything else here goes to another bead.
+Tapping it opens
+[`/bead-session?workspace=…&id=…`](#reading-it-back-on-the-phone--bead-session) in the same
+drawer panel the sheet itself opens in, so one back gesture returns you to whatever list
+you came from.
+
+That completes the trail the [History tab](#the-ledger--the-history-tab) starts. A row
+there carries `🗄` when a session was archived for that bead, tapping the row opens this
+sheet, and until now the mark you followed was the end of the road: the page behind it
+existed and nothing in the app pointed at it. The row wears the same glyph deliberately —
+the mark you chased is the mark you land on.
+
+**Three states, and the interesting part is which way each is allowed to be wrong.** The
+row is drawn on every bead at first paint, before the answer is in, because finding out
+costs a request and the sheet may not wait on one — the same trade the children block
+makes. So it starts as *looking*, and resolves to either a link or a plain sentence:
+
+- *Looking* is deliberately **not tappable**. A row that is a link and then stops being one
+  loses the tap of somebody who reached for it as it resolved; quiet-then-tappable cannot
+  lose anything. The flicker only goes one way.
+- **An archive** is a link, with how many sessions ran on the bead and when the newest one
+  did. Three sessions on a bead is a fact about the bead, and the page opens on the newest.
+- **Nothing archived** is the same box, muted, and a `<div>` — nothing to tap, nothing to
+  focus. That matters more than it sounds: most beads in this tracker were never worked by
+  a session at all, and a link that opened *"not available"* three times in a row would
+  teach you to stop following it.
+
+And a **check that fails offers the link anyway**, which looks like the wrong branch and is
+not. The two mistakes are not symmetrical. Saying *no session* over a bead that has one
+hides the page for good, because nothing on the sheet would ever suggest looking again;
+offering a link over a bead that has none costs one tap onto a page whose entire design is
+[saying plainly what is not there](#reading-it-back-on-the-phone--bead-session). The
+degraded path goes the way you can recover from.
+
+**It asks `/api/session-archive`, not the endpoint the page itself uses.** Not a field on
+`/api/bead`, for the reason `/api/bead-children` is a route of its own: anything folded in
+there is a `git` call every sheet open waits for. Not `/api/bead-session` either, though
+that is what `/bead-session` loads — it reads the archived tree, `meta.json` and the state
+of the worktree, which is several `git` invocations spent answering what is really
+`sessions.length > 0`. `?workspace=&id=` on `/api/session-archive` is one `git log` over
+one ref, it already existed, and presence plus a date is the whole of what the row draws.
+
+`test/graphsheet.mjs` covers all three states out of the same slice, plus the four lines
+that do the resolving — asserted on the source, because every render check above them
+passes just as happily over a row stuck saying *looking…* forever.
 
 #### What is under it — the children, and the ones already done
 
@@ -2768,7 +2820,9 @@ throws away — and the rest of it is one tap down, on
 [the sheet's own outcome block](#how-it-ended--the-close-reason-and-when). Tapping one
 opens the bead detail sheet that already exists — `/graph?ws=…&id=…&open=1`, the deep
 link `&open=1` was built for — so this page needed no detail view of its own and does
-not have one. The rows are real `<a href>`s, which is what
+not have one. The `🗄` marker leads somewhere too, one hop further on: the sheet carries
+[a row through to what that session did](#the-way-through--what-its-session-did), which is
+what makes the mark on the row worth following rather than a fact about it. The rows are real `<a href>`s, which is what
 lets [the drawer](#detail-opens-over-the-tab-not-instead-of-it) hold that sheet *over* the list: this
 is the one list you legitimately scroll four hundred rows down, and a full-page navigation
 would spend that scroll on every bead you looked at.
