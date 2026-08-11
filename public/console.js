@@ -226,13 +226,15 @@
   }
 
   let toastTimer;
+  /** Red when something went wrong — and `bad === true` files it. See app.js's toast. */
   function toast(msg, bad = false) {
     const el = $('#toast');
     el.textContent = msg;
-    el.classList.toggle('bad', bad);
+    el.classList.toggle('bad', Boolean(bad));
     el.hidden = false;
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => (el.hidden = true), bad ? 6000 : 3000);
+    if (bad === true) window.beadcause?.report?.toast?.(msg);
   }
 
   const relTime = (iso) => {
@@ -1503,7 +1505,7 @@
       chat.draftDirty = false;
       toast(`created ${out.created.length} bead${out.created.length === 1 ? '' : 's'}`);
       closeSheet();
-      for (const w of out.warnings || []) toast(w, true);
+      for (const w of out.warnings || []) toast(w, 'refused');
       // Accepting ends the conversation: the beads exist and the chat session that argued
       // them into shape is done, so it closes itself and drops you back to the list.
       // Unless there were warnings — those have to be read on the screen that
