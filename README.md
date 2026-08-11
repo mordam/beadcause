@@ -6005,6 +6005,54 @@ than a sweep. And **a close bd would refuse writes nothing at all** — the comm
 that guard reads, so a comment left over a close that failed would blind this to that
 bead permanently. `reconcileLanded: false` switches the whole thing off.
 
+#### The fortnight that was really forty rows
+
+The sweep says it looks back fourteen days, and for its first weeks it did not. It asked
+for the **forty most recent merged pull requests** and *then* filtered those to a
+fortnight, so the forty decided and the fourteen days were decoration — forty merges is
+under a day on this repo, which merged 152 pull requests in the two days to 2026-08-11.
+
+That is worse than a short window, because it does not expire. A bead past the fortieth
+row is not stranded for a fortnight, it is stranded **for good**: the next sweep asks the
+same question of a window that has moved further forward, so nothing ever looks at it
+again. bc-8ug and bc-jin are the worked examples — both merged well inside the fourteen
+days, both about a hundred pull requests back by the time anything swept, both left
+`in_progress` over shipped work, and bc-jin holding three beads out of `bd ready` behind
+it for two days. They were closed by hand.
+
+The cap was not carelessness; it was buying something. `beadsFor` costs a `bd show` per
+candidate id on every row it is handed, and each bead it resolves costs a `bd comments`
+and another `bd show` behind that. `bd` here is a subprocess and a Dolt read, so a wide
+window multiplied subprocesses by how busy the fortnight had been — every ten minutes,
+for rows the sweep had already decided about. Three changes bought it back:
+
+- **The window goes into the query.** `pr.listMergedSince` asks GitHub for a span of time
+  — `merged:A..B` — and halves the interval whenever a slice comes back full, so the
+  fortnight is the fortnight and the limit is only a guard against a runaway answer. It
+  bisects rather than walking backwards a page at a time because `gh pr list --search`
+  answers in **creation** order, not merge order: a full page is an arbitrary subset with
+  respect to `mergedAt`, so moving the bound to its oldest row steps straight over
+  everything that merged in between and was not on that page. A slice that answers with
+  fewer rows than the limit answered whole, and that is the only fact being relied on.
+- **The fields shrink.** A merged pull request is not a merge decision, so the sweep stops
+  asking for `statusCheckRollup` — which walks every check run on every row. Measured
+  against the same 152 merges: **15.9 seconds with it, 2.2 without**. Asking about a
+  fortnight is now four times faster than asking about forty rows used to be.
+- **The per-row `bd` work is gated on one query.** `candidateTiers` is pure string work —
+  it reads the title, the branch and the body — so every id a pull request could resolve
+  to is knowable for free, and one `bd list` says which beads are not closed. A row naming
+  no live bead is decided without spawning anything, which on a fortnight of merges is
+  very nearly all of them. A quiet fortnight and a frantic one now cost the same sweep.
+
+Two things that deliberately did not change. **Retries.** A bead a transient refusal
+skipped stays open, so it stays in the live set, so its pull request is looked at again on
+every tick for the full fourteen days — which is why the gate is built from open beads
+rather than from a memo of pull requests already decided about. And **the truncation
+report**, which arrived with bc-4qmp: a ceiling that cannot be paged past is still a
+ceiling, so `result.truncated` still says how far back the sweep actually reached, and the
+advocate still logs it when the answer *changes* rather than every ten minutes. It is no
+longer reached on a quiet Tuesday.
+
 The same hole had a second side. `beadcause-deliver` on a branch whose pull request has
 already merged has nothing to push and nothing to open, and it used to die there with
 `exit 2` — so the one command a worker is given to land work with could not close the
