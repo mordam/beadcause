@@ -15,7 +15,7 @@
  * next bead to touch the same file started from a `main` that did not have it. The
  * gate was doing far less reviewing than waiting.
  *
- * So this now does five things, in this order, and the fifth is the whole change:
+ * So this now does six things, in this order, and the fourth is the whole change:
  *
  * 1. Pushes the branch. **Only ever a branch** — this refuses to run on main, and
  *    nothing in beadcause can push to main at all.
@@ -26,7 +26,14 @@
  *    the phone. GitHub serialises the merges, which is what keeps step 5 of five
  *    concurrent workers from being the race this was invented to stop, and it is why
  *    the merge happens *there* rather than in a `git merge` on local main.
- * 5. Closes the work bead, because the merge is what made it true, and pushes a
+ * 5. Brings **this Mac's own `main`** up to the merge that just landed on `origin`.
+ *    The merge is at GitHub, so the laptop's `main` is now a commit behind, and it
+ *    stays behind until something happens to fetch it — a deploy, a board merge, a
+ *    human. In between, every new worktree branches from before this delivery, which
+ *    is half of what a "surprise downmerge" is made of. `landParent` in lib/prboard.js
+ *    does it, in the main checkout rather than this worktree, and **will not touch a
+ *    checkout with uncommitted work in it**.
+ * 6. Closes the work bead, because the merge is what made it true, and pushes a
  *    notification with nothing to answer.
  *
  * **One card per pull request, whichever ending this takes.** Both endings begin by
@@ -67,6 +74,7 @@ import { landedReason } from '../lib/landed.js';
 import { pushLanded } from '../lib/notify.js';
 import { oweClose } from '../lib/owed.js';
 import * as pr from '../lib/pr.js';
+import { landParent } from '../lib/prboard.js';
 import { prPolicyFor } from '../lib/spaces.js';
 
 function arg(...names) {
@@ -504,6 +512,32 @@ async function landHere(landed, { external = false } = {}) {
   const sha = String(landed.mergeCommit || '').slice(0, 8);
   const where = `#${request.number}${sha ? ` as ${sha}` : ''}`;
 
+  /**
+   * This Mac's own `base`, which the merge has just left a commit behind.
+   *
+   * First, because everything after it is a *record* of what happened and this is the
+   * last thing that happens. The merge is on `origin`; the laptop finds out about it
+   * when something fetches, and until then every `git worktree add` here branches from
+   * before this delivery — which is how a session two hours from now ends up doing a
+   * downmerge nobody asked for, of work it has never heard of.
+   *
+   * The act itself is `landLocally`'s, unchanged, aimed at the main checkout rather
+   * than this worktree — including the part that matters most, which is that it does
+   * **not** touch a checkout with uncommitted work in it. Adam edits in these while
+   * sessions run.
+   *
+   * Nothing about it can fail a delivery. The merge has already happened, the work is
+   * on `origin` whatever this checkout does, and a laptop that is a commit behind is
+   * the state this whole function is an improvement on rather than a regression from.
+   */
+  let followed = null;
+  try {
+    followed = await landParent(dir, base);
+    console.error(`beadcause-deliver: ${followed.note}`);
+  } catch (err) {
+    console.error(`beadcause-deliver: merged ${where}, but could not bring local ${base} up — ${first(err)}`);
+  }
+
   // The bead, in two writes and in this order: the comment is the record of what
   // happened, and the close is the claim that it is finished. Both are wrapped,
   // separately, because the merge has *already happened* — a tracker that would not
@@ -520,7 +554,13 @@ async function landHere(landed, { external = false } = {}) {
     : landed.alreadyMerged
       ? `was already merged into \`${base}\``
       : `${method}-merged into \`${base}\` by the worker session`;
-  const note = `Landed as [${where}](${request.url}) — ${how}, on \`${branch}\`.${owed ? ` Still owed: ${owed}.` : ''}`;
+  const note =
+    `Landed as [${where}](${request.url}) — ${how}, on \`${branch}\`.${owed ? ` Still owed: ${owed}.` : ''}` +
+    // What this Mac's checkout did about it, in landLocally's own words. On the bead
+    // rather than only in a session log because "left main where it is — there is
+    // uncommitted work in beadcause" is the one outcome somebody has to act on, and a
+    // session log is read by nobody once its window is closed.
+    (followed?.note ? ` This Mac's checkout: ${followed.note}.` : '');
   try {
     bd(['comment', beadId, note]);
   } catch (err) {
