@@ -49,7 +49,7 @@ import { fileURLToPath } from 'node:url';
 import { loadConfig, reconcileBaseUrl } from '../lib/config.js';
 import { buildStamp, routerStamp } from '../lib/build.js';
 import { hotSwapProblem, LOADED_ENV } from '../lib/service.js';
-import { certificate, closeServer, secureServer, startRenewal, MIN_VERSION } from '../lib/tls.js';
+import { certificate, closeServer, daysLeftOf, isSecure, secureServer, startRenewal, MIN_VERSION } from '../lib/tls.js';
 import {
   EXITED,
   HEALTH_ATTEMPTS,
@@ -699,9 +699,29 @@ function snapshot() {
     retryAt: active ? 0 : retryAt,
     // How much the health window has been widened by what this machine has shown us.
     slowness,
+    // What is on the *socket*, which is the one fact about TLS no other process can
+    // work out: the setting on disk and the certificate in `~/.config/beadcause/tls`
+    // both say what a listener would bind if one were created now, and this says what
+    // the listener that exists actually did. The admin screen's "restart to serve it"
+    // is exactly the difference between the two — see lib/tlsswitch.js.
+    certificate: certificateOnSocket(),
     active: describe(active),
     retiring: [...retiring].map(describe),
   };
+}
+
+/**
+ * The certificate this router is serving, or null when it is serving plain HTTP.
+ *
+ * Read off `tlsMaterial`, which `secureServer` hangs on the server and `renewOnce`
+ * replaces — so a renewal that swapped the certificate without a restart is reflected
+ * here the moment it happens, rather than reporting whatever was true at boot.
+ */
+function certificateOnSocket() {
+  const material = (servers || []).filter(isSecure).find((s) => s.tlsMaterial)?.tlsMaterial;
+  if (!material) return null;
+  const left = daysLeftOf(material.cert);
+  return { name: material.name, daysLeft: left === null ? null : Math.round(left * 10) / 10 };
 }
 
 /**

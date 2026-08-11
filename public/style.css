@@ -3818,3 +3818,41 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
 }
 .admin-warn { margin: 7px 0 4px; font-size: 12.5px; line-height: 1.5; color: var(--warn); }
 .admin-warn strong { font-weight: 700; }
+
+/* The HTTPS card.
+
+   A URL is the subject of half of it — the address a phone is handed, the address it
+   is about to become — so those are set in the mono face wherever they appear: a
+   hostname in body text is read as prose and mistyped, and the whole point of showing
+   it is that somebody may have to type it. */
+.admin-detail code, .admin-warn code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.94em;
+  overflow-wrap: anywhere;
+}
+
+/* A link, not a button, because it leaves the app — and the only control on this
+   screen that does. Full width under the two that act on the daemon, so the eye reads
+   "and here is the setting that is not ours" rather than a third switch. */
+.tls-link {
+  display: flex; align-items: center; justify-content: center;
+  margin-top: 8px;
+  text-decoration: none;
+}
+.tls-foot { margin: 8px 0 0; font-size: 12px; }
+
+/* The pairing code. White plate under it whatever the theme is: the SVG paints its own
+   quiet zone, and a dark card behind a code that ends at the modules would eat it. */
+.tls-pairing .tls-qr {
+  margin: 10px auto 12px;
+  max-width: 260px;
+  padding: 10px;
+  border-radius: 12px;
+  background: #fff;
+}
+.tls-pairing .tls-qr svg { display: block; width: 100%; height: auto; }
+.tls-pairing .primary {
+  display: flex; align-items: center; justify-content: center;
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}

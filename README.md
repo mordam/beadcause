@@ -122,7 +122,9 @@ otherwise its poller would keep firing notifications with no listener behind the
   a TLS 1.2 floor — once *HTTPS Certificates* is enabled for the tailnet. Until then it
   logs why and serves plain http. Loopback is plain http on purpose. The daemon
   [renews the certificate under itself](#renewing-it-before-it-expires) and pushes to
-  your phone if it ever cannot. See
+  your phone if it ever cannot, and the **Admin screen** turns it on, says what it will
+  cost and hands you the new pairing code — see
+  [the switch on the Admin screen](#the-switch-on-the-admin-screen) and
   [HTTPS on the tailnet name](#https-on-the-tailnet-name).
 - **Two credentials, and the token is not going anywhere.** Everything that is not a
   browser uses the shared token, exactly as it always did. A browser can *also* sign in
@@ -4663,7 +4665,9 @@ before** — a daemon that refused to boot over a certificate would take the inb
 for a feature nobody had asked for yet.
 
 **Switching it on is two steps, and the second one is the one people miss.** The click
-changes the tailnet; it does not reach into a daemon that is already running. The
+changes the tailnet; it does not reach into a daemon that is already running. Both steps
+are on [the switch on the Admin screen](#the-switch-on-the-admin-screen) if you are
+holding a phone rather than sitting at the Mac. The
 certificate is fetched by whichever process owns port 4318 — the router — and it is
 fetched *once, at boot*, so a daemon that came up before the switch was flipped keeps
 serving plain http indefinitely and every URL it prints stays honest about that.
@@ -4715,6 +4719,57 @@ curl -sI https://$(tailscale status --json | jq -r .Self.DNSName | sed 's/\.$//'
 curl -sI http://127.0.0.1:4318/api/health          # still plain, still the control plane
 openssl s_client -connect <name>:4318 -tls1_1      # refused: alert 70, protocol version
 ```
+
+### The switch on the Admin screen
+
+Everything above used to be reachable only from the Mac: `tls.enabled` is a key in
+`~/.config/beadcause/config.json`, the certificate comes from a command, and the one
+failure that matters announces itself in a launchd log. So the honest description of
+the feature was *a setting you cannot see, gated on a setting on a different website,
+failing somewhere you would have to be at the Mac to read.* The **HTTPS** card at the
+bottom of `/admin` is that switch, and it says the three things the log cannot.
+
+**What is true now.** The setting, the certificate's name and how many days are left on
+it, and — separately — what is on the socket. Those last two are apart exactly between
+pressing the switch and restarting the daemon, which is the window in which somebody is
+actually reading this screen. A certificate inside the renewal loop's alarm window is
+marked rather than merely printed, using the same two thresholds the push uses, so the
+screen cannot call "fine" something your phone is being nagged about.
+
+**What pressing it costs, in the button, before you press it.** Turning HTTPS on moves
+the origin, and the token lives in `localStorage`, which is per origin — so *every
+paired browser is signed out, including the one you are pressing it with*. The button
+arms rather than acting: the second tap is the one that fires, and the first turns the
+button into `every paired browser signs out (100.96.105.106 → adams-macbook-pro-m4…)`.
+Afterwards a **Pair again** panel appears with the new link and a QR of it: the link is
+one tap for the phone in your hand, the code is for every other device. It stays until
+you dismiss it — it is the way back in, and a ten-second repaint taking it away
+mid-scan is the one failure that leaves you locked out with the Mac in another room.
+
+**Which failure it is.** `tailscale cert` exits 0 and writes nothing when the tailnet
+has *HTTPS Certificates* off, so that case is recognised by its sentence and drawn as
+itself: what Tailscale said, that nothing here can fix it, and a **Tailscale · HTTPS
+Certificates** button that opens the page — through the Tailscale app on Android where
+it claims the link, and as the web page everywhere else, because no documented scheme
+reaches a tailnet setting in the iOS or macOS app and a tap that does nothing is worse
+than a page that opens. Nothing else is classified as that failure: an ACME rate limit
+sent to that page would leave you turning on a setting that is already on. Press the
+switch again once the tailnet is fixed and it asks for the certificate again — the reply
+says whether it worked without restarting anything to find out.
+
+**It writes the setting before it fetches.** A fetch that fails leaves `tls.enabled:
+true` on disk on purpose: the intent is recorded, and the next restart after the tailnet
+is fixed picks a certificate up without anybody coming back to this screen. And it binds
+nothing — TLS is decided when the listener is created, so the card says plainly that the
+restart is what makes it true, and gives the command. Turning it off keeps the
+certificate where it is; only the setting moves.
+
+`GET /api/tls` is the same picture for anything else that wants it, and is cheap enough
+to poll: two file reads, a certificate parse and a memoised MagicDNS name, and it never
+asks `tailscale cert` for anything. `POST /api/tls {enabled}` is the switch, refused for
+an [observer](#a-second-instance--observer-mode) — a spare-port instance shares this config
+with the live daemon, and a press there would sign every paired browser out of the real
+origin.
 
 ### The URL you are given, and what happens to a phone that already has one
 
@@ -5067,6 +5122,8 @@ cookie says so), and `/auth/signout` ends the session.
 | GET | `/terminal` | `?id=` or `?ws=&seed=` | the terminal page |
 | GET | `/api/admin` | — | every scope and what pausing it would cost. Read-only and cheap — no `bd` call, no spawn — because `/admin` polls it and the counts on the buttons have to be current when you press one |
 | POST | `/api/admin` | `{action, what, scope, mode}` | pause or resume everything, one space, or one half of it. `what` is `all` · `advocates` · `terminals`; `mode` is `drain` (default — no new launches, running workers finish untouched) or `kill`. Never run at boot: a `launchctl kickstart -k` behaves exactly as it did. Refused on an observer |
+| GET | `/api/tls` | `?pairing=1` | what HTTPS is doing: the setting, the certificate on disk (name, days left), what the socket is actually serving, the URL a phone would be handed, and whether a restart is owed. Cheap enough to poll — two file reads and a memoised MagicDNS name, and it never asks `tailscale cert` for anything. `?pairing=1` adds the link and a QR |
+| POST | `/api/tls` | `{enabled}` | turns HTTPS on or off: writes `tls.enabled`, fetches the certificate when it is on (asynchronously — the synchronous one would block every request for the length of a Let's Encrypt round trip), and moves `baseUrl`. Pressing it while it is already on is the retry. Binds nothing: TLS is decided when the listener is created, so the reply carries `restartNeeded`. Refused on an observer, which shares this config with the live daemon |
 | GET | `/api/deploys` | `?limit=` or `?id=` | the recent deploys, or one with its log. Four endings, not two: `ok`, `failed`, and the two that mean nobody knows — `unconfirmed` (the ordinary ending of a restart) and `lost` |
 | POST | `/api/deploy` | `{workspace, bead?, reason?}` | runs that repo's declared deploy. `409` with no declaration, or if one is already running. Means "written down and a process owns it", never "it worked". Refused on an observer |
 | POST | `/api/presence` | `{device, view, key}` | which view this device has open, so the mirror can follow it. Wakes `/api/poll` without costing a `bd` sweep — see `changed` there |
@@ -5136,7 +5193,7 @@ the fields it always read and renders exactly as it did.
 | `owner` | what the agents call you. It goes into every agent prompt ("*<name>* is not at the keyboard", "*<name>* approves every bead before it exists"), the body of every pull request an agent opens, and the notes that land on a bead. Asked first by `npm run configure`; guessed from your git `user.name` (first word) when it has never been set |
 | `port`, `host` | listens on `127.0.0.1` **and** the Tailscale IP only — never the LAN. The *address* is what gets bound; `baseUrl` is what gets handed out, and they differ on purpose |
 | `baseUrl` | the origin every generated link is built from — the pairing QR, the APK code, every notification's click target and action button, the terminal's `wss://`. Maintained for you: `https://<host>.<tailnet>.ts.net:<port>` when there is a certificate to serve it, the Tailscale address over plain http when there is not, and moved between the two on its own. Set it to something else — a real domain, a proxy — and it is never rewritten. See [the URL you are given](#the-url-you-are-given-and-what-happens-to-a-phone-that-already-has-one) |
-| `tls.enabled` | HTTPS on the tailnet address with a `tailscale cert` certificate and a TLS 1.2 floor (default `true`). Loopback is never TLS whatever this says, and a tailnet without *HTTPS Certificates* enabled falls back to plain http with the reason in the log — see [HTTPS on the tailnet name](#https-on-the-tailnet-name) |
+| `tls.enabled` | HTTPS on the tailnet address with a `tailscale cert` certificate and a TLS 1.2 floor (default `true`). Loopback is never TLS whatever this says, and a tailnet without *HTTPS Certificates* enabled falls back to plain http with the reason in the log. Set from the HTTPS card on `/admin` rather than by hand — see [the switch on the Admin screen](#the-switch-on-the-admin-screen) and [HTTPS on the tailnet name](#https-on-the-tailnet-name) |
 | `tls.name` | the name to get a certificate for, if not the MagicDNS name `tailscale status` reports (default `null` — ask). The protocol floor is deliberately not a setting |
 | `token` | required on every `/api/*` call; regenerate by deleting the file |
 | `auth.google.clientId` | the OAuth **Web application** client for this Mac (default `null` — sign-in off). All of this key, a secret and a non-empty `allowed` are needed before sign-in switches on at all — see [Signing in with Google](#signing-in-with-google) |
