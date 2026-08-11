@@ -1,0 +1,391 @@
+#!/usr/bin/env node
+/**
+ * The service worker's own errors — that they are noticed, and that they arrive.
+ *
+ *     npm test
+ *     node test/swreport.mjs
+ *
+ * public/sw.js was the one piece of the app with nothing watching it (bc-u3g4): it runs
+ * in its own global, so public/report.js — the reporter on all twelve pages — cannot see
+ * a single thing that happens inside it. `caches.addAll(SHELL)` rejecting on install
+ * leaves the whole shell uncached and says nothing, and the symptom is an app that is a
+ * bit slow offline, for as long as that worker lives.
+ *
+ * Both halves are loaded here, the real files in a `vm` the way test/reporter.mjs loads
+ * report.js, so a rewrite of either as a test-only copy cannot pass this:
+ *
+ * 1. **The worker end**, with a hand-made `self`, `caches` and `clients`. Install,
+ *    activate, the fetch handler and a failed `cache.put` each relay; the offline path
+ *    does not, because being in a tunnel is not a bug; and a worker with no page open
+ *    drops the report rather than throwing inside the thing that was recording it.
+ * 2. **The page end**, with a hand-made `navigator.serviceWorker`, proving the relayed
+ *    message becomes `POST /api/error` with everything a report costs still spent — and
+ *    that `startMessages()` is called, without which the listener is registered, correct,
+ *    and never fires.
+ * 3. **The seam**, statically: the two files agree on the message type, the worker never
+ *    posts to the endpoint itself, and two different worker failures fingerprint apart
+ *    rather than commenting onto one another's bead.
+ */
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import vm from 'node:vm';
+import { fileURLToPath } from 'node:url';
+
+import { fingerprint } from '../lib/errors.js';
+
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const ROOT = path.join(HERE, '..');
+const PUBLIC = (f) => path.join(ROOT, 'public', f);
+const SW_SOURCE = fs.readFileSync(PUBLIC('sw.js'), 'utf8');
+const REPORT_SOURCE = fs.readFileSync(PUBLIC('report.js'), 'utf8');
+
+/** The token in storage. If it ever reaches a report body, that is bc-sqab again. */
+const TOKEN = 'sekrit-daemon-token-9f2c';
+
+/* --------------------------------------------------------------------- harness */
+
+let failures = 0;
+let ran = 0;
+async function check(name, fn) {
+  ran += 1;
+  try {
+    await fn();
+    console.log(`  \x1b[32m✓\x1b[0m ${name}`);
+  } catch (err) {
+    failures += 1;
+    console.log(`  \x1b[31m✗\x1b[0m ${name}`);
+    console.log(`      ${String(err.message).split('\n')[0]}`);
+  }
+}
+
+/** Let every queued microtask run. The relay is two `then`s deep and nothing awaits it. */
+const settle = async () => {
+  for (let i = 0; i < 20; i += 1) await new Promise((r) => setImmediate(r));
+};
+
+/** A promise's outcome, without a rejection taking the test down with it. */
+const outcome = async (p) => {
+  if (!p || typeof p.then !== 'function') return { missing: true };
+  try {
+    return { value: await p };
+  } catch (err) {
+    return { error: err };
+  }
+};
+
+/**
+ * The real public/sw.js, in a global with nothing in it but the four things a worker has.
+ *
+ * Every fake is a promise-returning stub the test can point at a failure, because every
+ * failure this file is about is a rejected promise inside a browser API — there is no
+ * other shape for "the cache said no".
+ */
+function loadWorker(opts = {}) {
+  const listeners = new Map();
+  const posted = [];
+  const clients =
+    opts.clients === undefined
+      ? [{ id: 'w1', focused: true, postMessage: (m) => posted.push(m) }]
+      : opts.clients.map((c) => ({ ...c, postMessage: (m) => posted.push({ ...m, to: c.id }) }));
+  const cache = {
+    addAll: opts.addAll || (() => Promise.resolve()),
+    put: opts.put || (() => Promise.resolve()),
+  };
+  const self_ = {
+    addEventListener: (type, fn) => listeners.set(type, fn),
+    skipWaiting: () => Promise.resolve(),
+    clients: {
+      claim: () => Promise.resolve(),
+      matchAll: () => (opts.matchAllRejects ? Promise.reject(new Error('no clients')) : Promise.resolve(clients)),
+    },
+  };
+  const caches = {
+    open: opts.open || (() => Promise.resolve(cache)),
+    keys: opts.keys || (() => Promise.resolve([])),
+    delete: () => Promise.resolve(true),
+    match: opts.match || (() => Promise.resolve(undefined)),
+  };
+  const fetchStub =
+    opts.fetch ||
+    ((request) =>
+      Promise.resolve({
+        ok: true,
+        status: 200,
+        redirected: false,
+        url: `http://127.0.0.1:4317${request.path || '/app.js'}`,
+        clone: () => ({ body: 'copy' }),
+      }));
+  const ctx = vm.createContext({ self: self_, caches, fetch: fetchStub, URL, console });
+  vm.runInContext(SW_SOURCE, ctx, { filename: 'sw.js' });
+
+  const fire = (type, event) => {
+    const fn = listeners.get(type);
+    assert.ok(fn, `nothing in sw.js listens for ${type}`);
+    return fn(event);
+  };
+  /** The install/activate shape: one promise, handed over and never awaited by anyone. */
+  const lifecycle = (type) => {
+    let held = null;
+    fire(type, { waitUntil: (p) => { held = p; } });
+    return held;
+  };
+  /** The fetch shape: a request in, whatever the handler decided to answer with out. */
+  const request = (pathname, method = 'GET') => {
+    let answer;
+    fire('fetch', {
+      request: { url: `http://127.0.0.1:4317${pathname}`, method, path: pathname },
+      respondWith: (p) => { answer = p; },
+    });
+    return answer;
+  };
+  return { posted, fire, lifecycle, request, listeners };
+}
+
+/**
+ * The real public/report.js, with a service worker to hear from.
+ *
+ * A trimmed copy of test/reporter.mjs's loader — that file owns the reporter's own
+ * behaviour, and this one only needs the wire the worker's messages come in on.
+ */
+function loadPage({ respond = null } = {}) {
+  const listeners = new Map();
+  const swListeners = new Map();
+  const calls = [];
+  let started = 0;
+  const window = {
+    location: { href: `http://127.0.0.1:4317/?t=${TOKEN}`, pathname: '/', origin: 'http://127.0.0.1:4317' },
+    navigator: {
+      userAgent: 'test-agent/1',
+      serviceWorker: {
+        addEventListener: (type, fn) => swListeners.set(type, fn),
+        startMessages: () => { started += 1; },
+      },
+    },
+    localStorage: { getItem: (k) => (k === 'beadcause.token' ? TOKEN : null) },
+    addEventListener: (type, fn) => listeners.set(type, fn),
+    fetch: (input, init) => {
+      calls.push({ input, init });
+      return respond ? respond(input, init) : Promise.resolve({ status: 200, ok: true });
+    },
+  };
+  const ctx = vm.createContext({ window, URL, setTimeout, clearTimeout, console });
+  vm.runInContext(REPORT_SOURCE, ctx, { filename: 'report.js' });
+  const reports = () =>
+    calls
+      .filter((c) => c.input === '/api/error')
+      .map((c) => ({ headers: c.init.headers, body: JSON.parse(c.init.body) }));
+  const fromWorker = (data) => {
+    const fn = swListeners.get('message');
+    assert.ok(fn, 'report.js does not listen to the service worker at all');
+    return fn({ data });
+  };
+  return { reports, fromWorker, started: () => started, calls };
+}
+
+/* ------------------------------------------------ the acceptance criteria: install */
+
+await check('a shell that will not cache is relayed to the page, and the install still fails', async () => {
+  const boom = Object.assign(new Error("Failed to execute 'addAll' on 'Cache': Request failed"), {
+    stack: "TypeError: Failed to execute 'addAll'\n    at http://127.0.0.1:4317/sw.js:262:8",
+  });
+  const sw = loadWorker({ addAll: () => Promise.reject(boom) });
+  const held = sw.lifecycle('install');
+  const out = await outcome(held);
+  await settle();
+  assert.ok(out.error, 'the install resolved — a half-empty cache would look installed');
+  assert.equal(out.error.message, boom.message, 'it did not re-throw what actually went wrong');
+  const [msg] = sw.posted;
+  assert.ok(msg, 'nothing was relayed to the page');
+  assert.equal(msg.type, 'beadcause:sw-error');
+  assert.match(msg.message, /^service worker — install/);
+  assert.match(msg.message, /Request failed/);
+  assert.match(msg.stack, /sw\.js:262/, 'the stack is what gives the report a source at all');
+});
+
+await check('a healthy install relays nothing and still skips waiting', async () => {
+  const sw = loadWorker();
+  const out = await outcome(sw.lifecycle('install'));
+  await settle();
+  assert.ok(!out.error, `a working install failed: ${out.error?.message}`);
+  assert.equal(sw.posted.length, 0, 'a working install reported something');
+});
+
+await check('an activate that cannot sweep the old caches is relayed, and re-thrown', async () => {
+  const sw = loadWorker({ keys: () => Promise.reject(new Error('the cache index is unreadable')) });
+  const out = await outcome(sw.lifecycle('activate'));
+  await settle();
+  assert.ok(out.error, 'activate swallowed it');
+  assert.match(sw.posted[0]?.message || '', /^service worker — activate/);
+});
+
+/* -------------------------------------------------- the fetch handler, both ways */
+
+await check('offline with the page in the cache is not a failure and reports nothing', async () => {
+  const sw = loadWorker({
+    fetch: () => Promise.reject(new Error('Failed to fetch')),
+    match: () => Promise.resolve({ body: 'the cached page' }),
+  });
+  const out = await outcome(sw.request('/app.js'));
+  await settle();
+  assert.deepEqual(out.value, { body: 'the cached page' }, 'the cached copy did not come back');
+  assert.equal(sw.posted.length, 0, 'a phone in a tunnel filed a bead');
+});
+
+await check('a cache that refuses to answer is relayed — that one is not the tunnel', async () => {
+  const sw = loadWorker({
+    fetch: () => Promise.reject(new Error('Failed to fetch')),
+    match: () => Promise.reject(new Error('UnknownError: Database deleted by request of the user')),
+  });
+  const out = await outcome(sw.request('/app.js'));
+  await settle();
+  assert.ok(out.error, 'a cache that cannot answer must still be a network error to the page');
+  assert.match(sw.posted[0]?.message || '', /the cache could not answer \/app\.js/);
+});
+
+await check('and the last resort is watched too, not only the first look', async () => {
+  // The request misses cleanly and then the index page — the fallback of the fallback —
+  // is what the storage chokes on. An easy one to leave uncovered by hanging the
+  // rejection handler off the first `caches.match` alone.
+  let asked = 0;
+  const sw = loadWorker({
+    fetch: () => Promise.reject(new Error('Failed to fetch')),
+    match: () => (++asked === 1 ? Promise.resolve(undefined) : Promise.reject(new Error('UnknownError: Database deleted'))),
+  });
+  const out = await outcome(sw.request('/app.js'));
+  await settle();
+  assert.ok(out.error, 'it must still be a network error to the page');
+  assert.match(sw.posted[0]?.message || '', /the cache could not answer \/app\.js/);
+});
+
+await check('nothing cached at all rejects with the path, rather than answering undefined', async () => {
+  const sw = loadWorker({
+    fetch: () => Promise.reject(new Error('Failed to fetch')),
+    match: () => Promise.resolve(undefined),
+  });
+  const out = await outcome(sw.request('/history.js'));
+  await settle();
+  assert.ok(out.error, 'respondWith was handed undefined, which is a network error nobody can read');
+  assert.match(out.error.message, /nothing cached for \/history\.js/);
+  assert.equal(sw.posted.length, 0, 'an empty cache offline is not worth a bead per request');
+});
+
+await check('a response that cannot be stored is relayed — a full phone stops caching silently', async () => {
+  const sw = loadWorker({
+    put: () => Promise.reject(new Error('QuotaExceededError: Quota exceeded.')),
+  });
+  const out = await outcome(sw.request('/app.js'));
+  await settle();
+  assert.ok(!out.error, 'the page must still get its response');
+  assert.match(sw.posted[0]?.message || '', /a response could not be stored/);
+  assert.match(sw.posted[0]?.message || '', /Quota exceeded/);
+});
+
+/* ------------------------------------------------------- what it must not do */
+
+await check('the same failure twice inside the cooldown is relayed once', async () => {
+  const sw = loadWorker({ put: () => Promise.reject(new Error('QuotaExceededError: Quota exceeded.')) });
+  await outcome(sw.request('/app.js'));
+  await settle();
+  await outcome(sw.request('/style.css'));
+  await settle();
+  assert.equal(sw.posted.length, 1, `a worker with a full cache posted ${sw.posted.length} times`);
+});
+
+await check('no page open drops the report instead of throwing inside the reporter', async () => {
+  const sw = loadWorker({ clients: [], addAll: () => Promise.reject(new Error('Request failed')) });
+  const out = await outcome(sw.lifecycle('install'));
+  await settle();
+  assert.ok(out.error, 'the install must still fail');
+  assert.equal(sw.posted.length, 0);
+});
+
+await check('clients.matchAll rejecting is not an error raised by the error reporter', async () => {
+  const sw = loadWorker({ matchAllRejects: true, addAll: () => Promise.reject(new Error('Request failed')) });
+  const out = await outcome(sw.lifecycle('install'));
+  await settle();
+  assert.equal(out.error?.message, 'Request failed', 'the install failure was replaced by the relay failure');
+});
+
+await check('only one page is told, so one failure is not two reports', async () => {
+  const sw = loadWorker({
+    clients: [{ id: 'background' }, { id: 'onscreen', focused: true }],
+    addAll: () => Promise.reject(new Error('Request failed')),
+  });
+  await outcome(sw.lifecycle('install'));
+  await settle();
+  assert.equal(sw.posted.length, 1, 'every open tab reported the same worker failure');
+  assert.equal(sw.posted[0].to, 'onscreen', 'the background tab was told instead of the one on screen');
+});
+
+await check('the global handlers are the backstop for anything not wrapped above', async () => {
+  const sw = loadWorker();
+  sw.fire('error', { message: 'Script error.', error: Object.assign(new Error('boom'), { stack: 'at sw.js:9:1' }) });
+  await settle();
+  assert.match(sw.posted[0]?.message || '', /^service worker — uncaught: boom/);
+  sw.fire('unhandledrejection', { reason: new Error('a promise nobody awaited') });
+  await settle();
+  assert.match(sw.posted[1]?.message || '', /^service worker — unhandled rejection: a promise nobody awaited/);
+});
+
+/* ------------------------------------------------- the page end, and the whole wire */
+
+await check('a relayed failure becomes POST /api/error, with the token and no page URL', async () => {
+  const page = loadPage();
+  assert.equal(page.started(), 1, 'startMessages() was not called — the listener would never fire');
+  page.fromWorker({
+    type: 'beadcause:sw-error',
+    message: "service worker — install — the shell could not be cached (46 paths): Failed to execute 'addAll'",
+    stack: 'TypeError\n    at http://127.0.0.1:4317/sw.js:262:8',
+  });
+  const [r] = page.reports();
+  assert.ok(r, 'nothing was posted to the endpoint');
+  assert.equal(r.body.kind, 'sw');
+  assert.match(r.body.message, /^service worker — install/);
+  assert.equal(r.headers['x-beadcause-token'], TOKEN, 'the report went out without the credential the worker has not got');
+  assert.ok(!JSON.stringify(r.body).includes(TOKEN), 'the token reached the body of a report');
+  assert.match(r.body.stack, /sw\.js:262/);
+});
+
+await check('a message that is not a relayed failure is ignored', async () => {
+  const page = loadPage();
+  page.fromWorker({ type: 'something-else', message: 'hello' });
+  page.fromWorker(null);
+  page.fromWorker({ type: 'beadcause:sw-error' });
+  assert.equal(page.reports().length, 0);
+});
+
+await check('the report still leaves when the page cannot reach the daemon', async () => {
+  const page = loadPage({ respond: () => Promise.reject(new Error('Failed to fetch')) });
+  page.fromWorker({ type: 'beadcause:sw-error', message: 'service worker — install: Request failed' });
+  await settle();
+  assert.equal(page.reports().length, 1, 'a report that cannot be delivered must still be attempted, and then dropped');
+});
+
+/* ------------------------------------------------------------------ the seam */
+
+await check('both files name the same message type', () => {
+  const inWorker = /const REPORT_MESSAGE = '([^']+)'/.exec(SW_SOURCE);
+  const inPage = /const SW_MESSAGE = '([^']+)'/.exec(REPORT_SOURCE);
+  assert.ok(inWorker && inPage, 'one of the two constants has been renamed away');
+  assert.equal(inWorker[1], inPage[1], 'the worker relays under a name the page does not listen for');
+});
+
+await check('the worker never posts to the endpoint itself', () => {
+  assert.ok(!/\/api\/error/.test(SW_SOURCE.replace(/\/\*[\s\S]*?\*\//g, '')), 'sw.js reaches for the endpoint it has no token for');
+});
+
+await check('two different worker failures fingerprint apart', () => {
+  const install = fingerprint({ message: 'service worker — install: Request failed', kind: 'sw' });
+  const quota = fingerprint({ message: 'service worker — cache — a response could not be stored: Quota exceeded.', kind: 'sw' });
+  assert.notEqual(install.msgLabel, quota.msgLabel);
+  assert.equal(install.atLabel, '', 'a source-less report must not key on a source');
+  assert.equal(
+    fingerprint({ message: 'x', source: '/sw.js' }).atLabel,
+    fingerprint({ message: 'y', source: '/sw.js' }).atLabel,
+    'and this is why: a constant source would fold every worker failure onto one bead'
+  );
+});
+
+console.log(`\n${ran - failures}/${ran} checks passed`);
+process.exit(failures ? 1 : 0);
