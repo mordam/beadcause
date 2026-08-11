@@ -2260,7 +2260,11 @@
    *
    * - **It is not filtered by space or workspace.** Those answer "which of my lives
    *   is this about", and an agent's definition is not in one of them — it is the
-   *   same chat session whichever repo it was working in when it hit the wall.
+   *   same chat session whichever repo it was working in when it hit the wall. The
+   *   push agrees, as of bc-8on: `quietReasonFor` in lib/spaces.js exempts this
+   *   channel from the filter, so a request cannot be visible here and silent on the
+   *   phone at the same time. A mute still quietens it — that one is about your
+   *   evening rather than about which life the bead is in.
    * - **It is not sorted with the questions, or counted with them.** A P0 question
    *   is urgent; a request to change what an agent is is *pending*, indefinitely, and
    *   letting the two compete for the top of the screen would mean either the urgent

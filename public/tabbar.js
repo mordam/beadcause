@@ -25,6 +25,14 @@
   have open are inbox rows like the pull requests, and starting one is ＋ on the inbox.
   The bar navigates; the inbox creates.
 
+  The same rule is what keeps the **Mirror** out of this list (bc-3xb), and it is worth
+  knowing before you fill either of the places those two left. The Mirror is a *mode* of
+  the advocates page — the same repos and sessions seen from the phone rather than from
+  this Mac — and it is the one surface here that is meaningless on the device a bottom tab
+  is tapped from: it follows another device and drops its own (`notMe` in mirror.js), so a
+  phone tapping a Mirror tab would read "Looking for a device…" forever. It stays an
+  in-page pane on monitor.html. That there is now room on the bar is not an argument for
+  putting it here; see README, "The Mirror is a pane, not a tab".
 
   It is built here rather than pasted into five <head>-alike blocks of HTML because
   there is no templating in this app and a bar that says different things on
@@ -65,6 +73,10 @@
     // what §6 step 8 of the UX review and bc-3xb were both arguments about — and the
     // tab below went the same way in the same breath, so that argument is settled twice
     // over rather than narrowly.
+    //
+    // The 💬 the tab had taken by the end (bc-6np, over the 🧾 it started with) went with
+    // it, and it is not lost: the inbox's own session rows draw an open conversation with
+    // exactly that, which is where the icon now does its work.
     // There was a **PRs** tab here too, next to Advocates. It is gone (bc-l8jp.6) and the
     // reason is the same as the gap above it: a tab is a claim that a screen is somewhere
     // you *live*, and the pull request board is somewhere you glance — "did that ship?" —

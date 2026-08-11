@@ -107,6 +107,48 @@ for (const file of fs.readdirSync(PUBLIC).filter((f) => f.endsWith('.css'))) {
   );
 }
 
+/* ------------------------------------------------------- one bar, one selector (bc-4aw)
+ *
+ * The other way a rule goes quiet: not truncated, but written twice. `.tabs` was
+ * declared once for the agents page's four tabs and again, four hundred lines below,
+ * for the monitor's two. Same selector, same specificity, one stylesheet — so the
+ * later block won every property they shared and each bar was half-drawn by the other
+ * page's rule. Nothing looked wrong, which is what made it expensive: the next edit to
+ * either bar would have moved a page its author was not looking at.
+ *
+ * So each bar owns a selector of its own, and this says so out loud. It is deliberately
+ * narrow — the general "no top-level selector appears twice" check wants the rest of the
+ * file's duplicates resolved first (bc-297u, bc-5orx, bc-b4dk) — but these two are the
+ * pair that already collided, and a fix nothing asserts is a fix waiting to be merged
+ * back over.
+ */
+
+console.log('\nthe tab bars');
+
+{
+  const css = fs.readFileSync(path.join(PUBLIC, 'style.css'), 'utf8');
+  const top = blocks(css).found.filter((b) => !b.atRule && !b.parent && !b.stray);
+  const linesOf = (sel) => top.filter((b) => b.prelude === sel).map((b) => b.line);
+
+  for (const sel of ['.agent-tabs', '.mon-tabs']) {
+    const at = linesOf(sel);
+    check(`${sel} is declared exactly once`, at.length === 1, at.length ? `also at line ${at.join(', ')}` : 'declared nowhere');
+  }
+
+  check(
+    'and the bare .tabs both bars used to share is gone',
+    linesOf('.tabs').length === 0,
+    `line ${linesOf('.tabs').join(', ')}: .tabs is back, and whichever bar is second wins`
+  );
+
+  // The other half of the pair: a selector nothing wears is as dead as one written
+  // twice, so the markup is asked which class each bar is actually carrying.
+  const wears = (file, cls) => new RegExp(`class="[^"]*\\b${cls.slice(1)}\\b`).test(fs.readFileSync(path.join(PUBLIC, file), 'utf8'));
+  check('the agents page wears .agent-tabs', wears('foundations.html', '.agent-tabs'));
+  check('the monitor wears .mon-tabs', wears('monitor.html', '.mon-tabs'));
+  check('and neither page wears the other bar’s class', !wears('foundations.html', '.mon-tabs') && !wears('monitor.html', '.agent-tabs'));
+}
+
 /* ------------------------------------------------------------------ the detector works
  *
  * A guard that cannot fail is a guard nobody should trust, and this one would have

@@ -140,7 +140,11 @@ otherwise its poller would keep firing notifications with no listener behind the
   says so rather than pretending to cover the rest. It runs against a throwaway config
   directory on an ephemeral port and never touches `bd`, so it is safe to run with the
   daemon up. The suite proper is `npm test`, and the browser checks it deliberately
-  leaves out are listed with the pages they cover.
+  leaves out — they want a Chrome — are `npm run checks`, all twenty-six of them, four
+  at a time, with a list of which failed. See
+  [`npm run checks`](#npm-run-checks--the-browser-half-and-why-npm-test-can-still-see-it-rot),
+  including the static selector audit that runs inside `npm test` and is the reason a
+  removed chip no longer breaks a check in silence.
 
 ## Asking a question
 
@@ -360,6 +364,15 @@ you press **All**:
 [beadcause] acme/cl-9x2 arrived quietly (Work is muted right now)
 ```
 
+**One channel is exempt: a foundation request is never quietened by the filter.** The
+filter's two levels are space and workspace, and both answer "which of my lives is this
+about" — a question an agent asking to change what it *is* has no answer to. The inbox
+draws that channel above the list and outside every filter on it, so honouring the
+filter in the push meant a request sitting visible on the screen and silent on the
+phone, with no widening left that would bring it back. A mute still quietens it: that
+one is about whether anything may reach you right now, and an amendment has been
+waiting for a session anyway.
+
 ### One space at a time — the picker in the top bar
 
 Beadcause reads every workspace under `~/beads/`, which in practice is every repo you
@@ -448,10 +461,11 @@ Every setting a space has is one you used to change by opening `~/.beadcause/con
 in an editor, on the Mac, with the daemon running. That was fine while a space was two
 lines of quiet hours written once. It stopped being fine when a space became the unit
 that decides whether an unattended agent may answer a comment (`autoDispatch`), whether a
-bead an agent filed may be worked before you have read it (`autoEndorse`), and whether a
-worker merges its own pull request without asking you (`autoMerge`, `requireApproval`) —
-because the moment you know one of those is set wrong is the moment you are looking at
-what it did, on a phone, at the weekend.
+bead an agent filed may be worked before you have read it (`autoEndorse`), whether a
+worker merges its own pull request without asking you (`autoMerge`, `requireApproval`),
+and whether that merge then deploys itself (`autoShip`) — because the moment you know one
+of those is set wrong is the moment you are looking at what it did, on a phone, at the
+weekend.
 
 So **`/monitor` is the details of the space the picker has selected**, and its settings
 are on it:
@@ -473,6 +487,7 @@ are on it:
 │      Beads agents file arrive endorsed   on  │
 │      Workers merge their own PRs         on  │
 │      An approving review first  inherited·off│
+│      Merges ship themselves              on  │
 │  ▸ WHAT EACH REPO RESOLVES TO            3   │
 ├──────────────────────────────────────────────┤
 │  beadcause      3 of 3 sessions              │
@@ -490,10 +505,11 @@ editing the config file for.
 **Three shapes of control, and the shape is the shape of the answer.** `Muted` is
 two-state, because there is no global mute behind it and a third button would be a
 lie. Quiet hours and quiet days are a pair of clocks and a row of days, each clearable,
-because "no quiet hours" is a state you have to be able to get back to. The five with a
+because "no quiet hours" is a state you have to be able to get back to. The six with a
 global default behind them — push detail, agents-may-answer, filings-arrive-endorsed,
-auto-merge, approval-first — are **three**-state: On, Off, and *Inherit*, which names what
-it currently resolves to. That third button is not a nicety: `prPolicyFor` is explicit
+auto-merge, approval-first, ships-itself — are **three**-state: On, Off, and *Inherit*,
+which names what it currently resolves to. That third button is not a nicety:
+`prPolicyFor` is explicit
 that a space may override the global in *either* direction, so "off" and "following a
 default that is currently off" are different answers, and only one of them survives the
 default changing.
@@ -1520,6 +1536,7 @@ is handed two lists rather than one list it has to filter correctly:
 | **ntfy** | `pushQuestion` — bead priority, 💭 | `pushFoundationRequest` — always priority 3, ⚖️, leads with the *scope* |
 | **Android** | channel `questions_v2`, tray card 3 | channel `foundation_v1`, tray card 4 |
 | **PWA** | the list, under the space and workspace filters | a pane above it, outside every filter, badged on ⚖️ |
+| **Filter** | outside it arrives quiet — see *Spaces* | the filter does not reach this channel at all; a mute still does |
 | **Terminal** | the `questions` pane | its own `foundation requests` pane, in the head |
 
 Three things are deliberate in there:
@@ -2402,6 +2419,51 @@ of its paths still serve the page — a bookmark that 404s is a worse outcome th
 with no tab. It keeps the bar, because that is how you leave it, and nothing on the bar is
 marked current there: you are not on one of the three.
 
+### The Mirror is a pane, not a tab
+
+`tabbar.js` and the Mirror (`public/mirror.js`, whose header is the prose on what it is)
+landed in the same window, so for two days `/monitor` carried **two rows of tabs**: the
+bottom bar, which moves between pages, and an in-page pair (Advocates | Mirror) that swaps
+a pane. Either reading was defensible on the face of it — a standing view of its own, or a
+mode of the advocates page — and bc-3xb was the bead about which one it is.
+
+**It is a pane** — ruled in `docs/ux-review.md` §3 and §5, and approved with the rest of
+that review on bc-j0zl. Two reasons, and both are about what the Mirror *is* rather than
+about how much room the bar has:
+
+- **It is a mode, not a destination.** "Show me what the phone has open instead of what
+  this Mac is running" is a lens on the advocates page — the same repos, the same
+  sessions, the same questions, seen from the other device. The rule above decides it:
+  a tab is a claim that the page is somewhere you live, and nobody lives in a lens.
+- **It is the one surface in the app that is meaningless on a phone** — which is the
+  device a bottom tab is tapped from. The Mirror follows *another* device and drops its
+  own (`notMe` in `public/mirror.js`, and `showTab` reports `view: null` while the pane is
+  up, so a mirror cannot circle back onto the page it is drawn on). A phone that tapped a
+  Mirror tab would therefore find nothing to follow and read "Looking for a device…"
+  forever. That is not a tab, it is a dead end with an icon.
+
+There was a third reason when this was decided — *the bar is full at five, and
+`style.css`'s `:has(.tab-item:nth-child(6))` rule is the stylesheet quietly admitting
+it* — and it has **since expired**: PRs left the bar in bc-l8jp.6 and there is a free
+place on it again. The decision does not move, and that is the point of writing the other
+two down: the next person to notice the empty slot should not have to re-derive why the
+Mirror is not what goes in it.
+
+So `public/mirror.js` stays a pane inside `monitor.html`, and what the other answer would
+have cost is not spent: no `/mirror` route, no `mirror.html`, and the pane-swap keeps the
+one-line `.work[hidden]` rule it runs on. `node test/mirrorpane.mjs` holds it — a static
+read asserting the Mirror is not in the bar's tab list, that neither the route nor the page
+exists, that the chip and the pane are both still on `monitor.html`, and that the
+device-filter the second reason rests on is still there.
+
+**What is still owed is the ambiguity, not the decision.** Two tab bars stacked on one
+screen with nothing visual to say that one changes the page and the other changes a pane
+is the actual complaint, and the fix is to restyle the in-page pair as the segmented
+control it already is (two mutually exclusive modes) — filed as bc-stci. The edit it was
+meant to share, scoping this bar's CSS apart from the foundations page's, has landed
+ahead of it as bc-4aw: `.mon-tabs` is now this bar's own selector, which is what a
+restyle needs to be able to move it without moving the other page.
+
 Advocates carries a **badge** when there is something behind it — how many advocates
 are waiting on an answer. The number rides the inbox's own poll (`/api/questions`
 carries it; see [the three counts on the poll](#the-three-counts-on-the-poll)), so it
@@ -3150,7 +3212,7 @@ and it closes itself when the merge goes live. One per pull request, labelled `s
 carrying a `ship: <repo>#<n>` marker that makes filing idempotent whatever else is going
 on, and labelled `unendorsed` — lib/endorse.js's hold, which is a filter in every
 advocate queue *and* a refusal in the launcher — so nothing ever opens a session on one:
-shipping is a tap, not an agent. Two things bound it,
+shipping is a tap or nothing (see auto-ship below), never an agent. Two things bound it,
 because a tracker filling with chores is worse than no tracker at all —
 
 - **The first sight of a repo files nothing.** The board carries three weeks of merged
@@ -3165,6 +3227,63 @@ because a tracker filling with chores is worse than no tracker at all —
 (300) is how often the queue is swept, which is slow on purpose — it is a `gh` call per
 repo when nobody has looked at the board recently, and "this merged and has not shipped"
 keeps for five minutes.
+
+### Auto-ship — the merge that does not wait for the tap
+
+Everything above ends at a bead that waits for you. That is the right default and it is
+not always the right answer: on a repo you are the only reader of, "merged, not live"
+is a state with no purpose, and the work sits on `origin/main` for as long as it takes
+you to notice a bead. So a space may say **`autoShip`** and the release queue runs the
+repo's own declared deploy itself — no session, no tap, and the ship bead then closes on
+exactly the evidence it always did.
+
+It is a space setting for the same reason `autoMerge` is one, with the same three values
+(on, off, and absent meaning inherit) and the same global default behind it —
+`release.autoShip`, **off**, which is what every install does today. And it is the space
+that is overridden rather than the last word: **an epic beats it, in either direction.**
+Label an epic `no-auto-ship` and its work stays parked on a space that ships everything
+else; label one `auto-ship` and it goes out on a space that does not. A merge finds its
+epic by walking up from the bead it delivered (`parent`, one `bd show` per level) and the
+*nearest* opinion wins, so an exception written on the work beats the rule written above
+it. A label rather than a config key because it is visible on the bead you are looking
+at, and because it is one word to add from anywhere.
+
+Four properties make it safe to leave running while nobody is watching:
+
+- **A settle window, not a trigger.** The first merge that may ship arms a ten-minute
+  clock on the workspace and nothing happens; merges arriving while it runs join the same
+  batch and do **not** push it back. Four merges in ten minutes are one deploy carrying
+  all four — which is what pressing Ship does anyway, and what a deploy that restarts
+  beadcause itself demands. `release.settleSeconds` moves it. It is a timestamp in
+  `releases.json` rather than a timer, because a timer does not survive the deploy it is
+  waiting to start.
+- **One attempt per merge, ever.** Firing stamps every merge in the batch as tried
+  *before* the deploy is spawned, so **a failed deploy is not retried** — its beads stay
+  open, the Ship button stays armed, and the fallback is exactly today's behaviour: your
+  tap. Nothing unattended runs a failing deploy in a loop against the thing that restarts
+  the server. A ledger that will not write cancels the fire rather than deploying and
+  hoping.
+- **Not knowing is not a yes.** A tracker mid-write — Dolt is single-writer and six
+  sessions share it — means the epic could not be read, and that falls through to doing
+  *nothing this tick*, never to the space's own answer. The next sweep asks again.
+- **A repo that declares no deploy is untouched.** beadcause cannot ship it, so it files
+  the bead and waits for a session, exactly as before.
+
+The deploy it starts is the same `startDeploy` the button calls, with the queue named in
+its reason and the oldest merge's bead on the record — so it is indistinguishable
+afterwards from one you pressed, every screen that draws deploys draws it, and its
+outcome reaches you through the space's ordinary deploy notification. One thing `false`
+does not buy, and it is a property of deploying rather than a gap: a deploy makes
+everything on `origin/main` live at once, so a parked merge still goes out if something
+*else* fires a deploy of that checkout. What `false` guarantees is that nothing in this
+space is ever the reason a deploy ran.
+
+`node test/autoship.mjs` covers it with a `ship` stub that starts nothing: that the
+window arms rather than deploys, that a second merge joins it without moving it, that one
+deploy carries both, that a merge already tried never arms again — the retry loop, proved
+absent over merges that are still owed — that a failed deploy leaves the beads open, that
+an epic saying no holds its work back on a space saying yes, and that with auto-ship off
+the bead filed is byte for byte the one filed today, tap and all.
 
 ### What it costs, and what it keeps
 
@@ -4177,6 +4296,51 @@ verdict on.
 looks, defaulting to 10. The worker's brief carries the two commands, which is what makes
 any of it reachable — nothing but a worker ever sets this marker.
 
+### The bead whose branch is already in main
+
+The third member of that family, and the one whose evidence is weakest — which is exactly
+why it is the one that may not close anything.
+
+bc-u5f asked for `worktree-sessions-accordion-log-5f7` to be landed. It had been: the
+branch came into `main` inside the `land-six-branches-q8v` batch, which landed six
+branches under one bead and closed only its own. No pull request named bc-u5f, so
+[the sweep above](#the-merge-that-happened-somewhere-else) could not see it; nothing had
+marked it a duplicate, so the [one before that](#the-duplicate-that-comes-ready-the-moment-its-original-lands) could not either. So bc-u5f stayed open, stayed in
+`bd ready`, kept bc-h2s blocked behind it, and was handed to an unattended session that
+spent its turn proving the work was already there.
+
+So every `inMainIntervalMinutes`, before the survey, the advocate reads its open beads for
+a `worktree-*` branch name and asks git whether that branch is already in `origin/main`. On
+a hit it does what the superseded sweep does — a line on the thread, an ask with two real
+options appended to the notes, the `human` label — and **nothing else**. It cannot close a
+bead and does not try: "the branch is in main" is a fact, and "so the bead is finished" is
+a judgement, because a bead can name a branch that landed and still want more than what
+landed. "Keep it open" is a `closes: false` option, so it hands the bead straight back to
+`bd ready` with the finding on it.
+
+The label is also the whole of the saving. `bd ready` excludes `human`, so a flagged bead
+is out of the queue built moments later in the same tick and no session is opened on it —
+which is the cost this exists to avoid, collected without anybody having answered yet.
+
+**Ancestry alone is not the test, and that is the one part worth reading.** A fresh
+worktree branches from `main`, so its tip *is* a main commit, so
+`git merge-base --is-ancestor` says yes — and a bead filed by a session mid-task would be
+told its work had landed before it had written a line. That is the one way this could do
+real harm. So a hit needs a second parent: some **merge** between the branch tip and the
+base must hold that tip as a *later* parent, which is the only trace git keeps of "main
+took this in". An unstarted branch's tip is a commit on main's own line, so every merge
+past it holds it as a *first* parent, and it is refused.
+
+Three things it will not claim. A **squash merge** — the squash commit carries the tree and
+none of the history, so ancestry is false forever and this says nothing at all; that case
+is GitHub's to answer and the sweep above already reads it. A **fast-forward**, where there
+is no merge commit to find and an unstarted branch looks identical. And anything measured
+against this laptop's own `main`: the base is `origin/main` where it exists, because a
+dozen sessions land through GitHub and pull at their own pace, so local `main` routinely
+carries what nobody else has. It asks once per bead per branch, recognising its own work by
+a marker in the notes — the `human` label cannot be the guard, because answering "keep it
+open" takes that label off. `flagInMain: false` switches it off.
+
 ### The session log, kept in the repo
 
 A session's window closes when it exits, the rendered log in `~/.config/beadcause/`
@@ -4978,12 +5142,12 @@ the ＋ fit beside each other at 393px.
 Two screens start conversations, and they write the same record. `/console` starts a
 **chat session** — describe a thing, get a proposal. [The agents
 screen](#what-an-agent-is--and-how-it-asks-to-be-different) starts a **chat with one of
-the agents** — the Critic, the Researcher, whoever — which is the same
+the agents** — the advocate, the dispatcher, the work session — which is the same
 machinery with a different foundation and no proposal expected. Both carry a workspace,
 so both are in `/api/consoles`, and the repo tabs made that *more* visible rather than
 less: an agent chat lands under its repo's tab as if it had been started there.
 
-Which left a chat with the Critic sitting in *Pick up again* looking exactly like a
+Which left a chat with the advocate sitting in *Pick up again* looking exactly like a
 conversation about what to file next, with only its title to tell them apart — and a
 title is the one thing on that row you can rename.
 
@@ -4991,7 +5155,7 @@ So an agent chat is marked twice:
 
 - **The agent's own emoji in the phase slot**, where a chat session draws 💬. Free, and
   it is the first thing your eye lands on down the left edge of the list.
-- **A tinted pill beside the repo**, `🧨 Critic`, and this is the one that holds. The
+- **A tinted pill beside the repo**, `📣 Advocate`, and this is the one that holds. The
   phase slot is *status* as well: a running turn draws a spark there and a finished one
   a tick, and both of those take the emoji away. The pill never moves.
 
@@ -5009,6 +5173,22 @@ returns a fresh list the phone renders directly, so an undecorated one there wou
 un-mark every agent chat on screen until the next reload. An id with nothing behind it
 any more keeps its own name and a generic 🤖 rather than falling back to the default
 agent — the conversation happened, whatever the roster says now.
+
+**There are two rosters, and for a while the pill was reading the wrong one.** The
+names and emoji above came from `roster(cfg)` in lib/agents.js — the **reply personas**,
+the chip row the phone offers when you comment on a bead. The ids a conversation can
+actually be *opened* with are the **agent kinds** in lib/foundation.js, because that is
+what `POST /api/console` gates on: the advocate, the dispatcher, the work session. The
+two lists share no ids, so every real agent chat resolved to nothing and fell down the
+unknown-id path — drawn `🤖 advocate`, lower-case, with the mark of a fallback where a
+name belongs. Correct behaviour over a roster it was never in, and still the one row in
+the list that read as a miss (bc-rjes). Each kind now carries its own label and emoji
+(`mark`, lib/foundation.js), consulted before the personas: an id that is a kind *is*
+that kind, whatever a persona of the same name would like to be called, since a persona
+cannot own one of these records at all. The advocate's is 📣 — [the Advocates
+tab's](#getting-around--the-tab-bar) icon, because it is the same thing and the
+rest of its work is on that screen. A kind added to `BASELINES` with no mark fails
+`test/agentchats.mjs` rather than quietly shipping as another 🤖.
 
 `node test/agentchats.mjs` (in `npm test`) covers the naming and both routes;
 `scripts/launcher-check.mjs` covers what the row draws.
@@ -6384,6 +6564,8 @@ the fields it always read and renders exactly as it did.
 | `advocates.landedIntervalMinutes` | how often that asks GitHub (default 10). It also asks *unconditionally* right before opening a session, whatever this says — being late there costs a whole session |
 | `advocates.askSuperseded` | [ask about a bead a worker marked `superseded-by:` another, once that other one closes](#the-duplicate-that-comes-ready-the-moment-its-original-lands) (default `true`). Without it a marked bead is held out of every queue with nothing left to let it out again |
 | `advocates.supersededIntervalMinutes` | how often that looks (default 10). Unlike the sweep above it is never forced before a launch, because a marked bead cannot reach one |
+| `advocates.flagInMain` | [ask about an open bead naming a `worktree-*` branch that is already in `origin/main`](#the-bead-whose-branch-is-already-in-main) (default `true`). It never closes anything — a merged branch is a fact, "so the bead is done" is your call |
+| `advocates.inMainIntervalMinutes` | how often that looks (default 10). It runs before the survey, so a bead it flags is out of the queue in the same tick and no session is opened on it |
 | `advocates.sessionLog` | archive each finished session to `refs/beadcause/sessions/<bead>` and note its commits (default `true`) |
 | `advocates.sessionTranscripts` | also store the raw Claude Code transcript — megabytes, and it carries paths and tool output (default `false`; set per repo in `perWorkspace`) |
 | `advocates.closeFinishedSessions` | [close a work session's window once its bead is closed](#closing-the-window--a-session-that-has-finished-should-not-still-be-on-screen) (default `true`). `false` leaves every window open, which is what it did before |
@@ -6590,6 +6772,109 @@ get wrong in silence: that every `test/*.mjs` on disk is in the list (the chain 
 *be* the inventory; the directory is now), that the two `scripts/` entries which are not
 `test/*.mjs` survive, that the three pinned positions hold, and that a failure still
 stops the run, propagates its exit code, and does not run what comes after it.
+
+### `npm run checks` — the browser half, and why `npm test` can still see it rot
+
+The twenty-six `scripts/*-check.mjs` are the only cover this repo has for layout, taps
+and anything that happens in a thumb, and none of them are in `npm test`: each wants a
+Chrome, a phone-sized viewport and ten to forty seconds, and that suite stays pure Node
+on purpose. Until `npm run checks` there was no way to run them but one at a time by
+name — which in practice meant run by whoever remembered that the page they touched had
+one.
+
+`npm run checks` runs all of them, four Chromes at a time, and ends with a list of which
+failed. Every check binds `127.0.0.1:0` and drives its own temp profile, so there is
+nothing shared to collide over; four minutes serially becomes about one. Their output
+interleaves badly, so each child's is captured whole, only failures are replayed — the
+last 25 lines, which is where the three that matter are — and the full logs are left in a
+temp directory named in the summary. `--list` prints what would run, `--only tabbar,shade`
+narrows it, `--jobs N` changes the width, `--dir <root>` points it at another tree (which
+is how the runner itself is tested). Like the runner for `npm test`, it names no
+individual check: the directory is the inventory, so adding one is adding a file and
+conflicts with nobody.
+
+**Every check is on a four-minute leash**, `--timeout N` to change it and `--timeout 0`
+to take it off. This is not a tidiness rule. A check that hangs is the one failure a
+runner like this newly introduces, and it is silent in the worst available way: the run
+never ends, so nothing is reported about the other twenty-five either — strictly worse
+than the by-hand state it replaced, where at least a person gives up. On the first real
+run of all twenty-six, `agent-chooser-check.mjs` went quiet thirteen assertions in and
+was still sitting there five minutes later. SIGTERM first so a check with a cleanup
+handler gets to run it, SIGKILL five seconds after that, and `timed out after Ns` in the
+summary beside it.
+
+**And the parallel pass is a filter, not the verdict.** Some of these measure time —
+how long a tab takes to warm, whether a bead is still in the air at 400ms — and four
+Chromes on one laptop moves those numbers. On that same first run, `absorb-check.mjs`
+failed a timing assertion and `agent-chooser-check.mjs` was the hang above; both passed
+in seconds when re-run on their own. A runner that reports those as failures teaches
+people to disbelieve it, which is the state this was written to get out of. So every
+failure is run again, serially, with nothing else in flight — the condition each was
+written under — and the second result is what is reported. What it must not do is hide
+it: a check that needed the retry is named at the end as one that *only passes alone*,
+because that is a fact about the check worth knowing, and `--no-retry` shows the raw
+parallel pass. A check that fails both times is reported with `on its own — not a
+scheduling accident` beside it, so a red line cannot be waved away as the scheduler's
+fault.
+
+**Three of the twenty-six are red, and that is the bead in one paragraph.** Two were
+already failing the day this was written, with no mark against them anywhere:
+`shot-check.mjs` has always asserted that the daemon token never reaches `shot.mjs`'s
+output, and the token is now appended to the URL that `shot.mjs` prints, so it does
+(bc-sqab); `dismiss-check.mjs` finds that arming an option no longer disarms the dismiss
+button, so two controls can be armed at once and the next tap is ambiguous (bc-giuc).
+The third arrived while this was being written — merging `main` in took the gap between
+the thread and the answer box from 80px to 134px, over `agent-chooser-check.mjs`'s 110px
+bar (bc-0fi2), found within minutes of the downmerge rather than in a month. Two checks
+in that same range of `main` had already been fixed by hand for the same kind of drift;
+this one was missed, which is the argument for the command.
+
+They are left red on purpose. A green wall bought by deleting the assertions would be
+the same silence in a better disguise.
+
+**But running them is not the problem this was written for.** These checks do not rot by
+failing. They rot by pressing something that is no longer there, and then not being run.
+Working bc-xqnj the inbox's `[data-space]` chips were removed; `shade-check.mjs` pressed
+those chips to narrow the filter, so it broke outright, and two assertions in
+`launcher-check.mjs` went with it. `npm test` was green through all of it. Both were
+found by *reading the scripts*, which is not a mechanism — nothing bounds how long that
+gap can be, and a check that has silently not passed for a month is worse than no check,
+because the next person to run it reads its failures as their own change breaking
+something.
+
+So the load-bearing part is static, and it *is* in `npm test`. `lib/checkaudit.js` reads
+every literal selector every check presses — 313 of them — takes each class, id and
+`data-` attribute apart, and asserts it still appears somewhere in `public/`. That is a
+text search, it costs milliseconds, and it fires on precisely the thing that used to be
+invisible. `npm run checks` prints it before a single Chrome starts, and does not stop on
+it: a stale selector in one check is no reason not to run the other twenty-five.
+
+It is tuned to have no false alarms, so that a finding is always real, and two things
+follow. An interpolated selector — `` `[data-key="${k}"]` `` — has no text to look for and
+is skipped rather than guessed at; `data-key` itself is picked up from the dozen places
+it is written plainly. And a check that serves its own fixture markup owns those classes,
+so the check's own source counts as a home for a token — with its *comments stripped
+first*, because a header paragraph naming `.shade-ask` must not be what keeps the audit
+quiet about `.shade-ask` having left `public/`. What it deliberately cannot see is
+anything about whether the check still *passes*: an element can move, change meaning or
+stop being reachable with its name intact. This is the smoke alarm, not the inspection.
+
+`test/checks.mjs` is where that runs, and half of it is controls, for the reason
+`test/testrunner.mjs` has controls: "the audit found nothing" is the same output whether
+the tree is clean or the audit is broken, and a broken audit is the more likely of the
+two to survive unnoticed, because it is green. So it is measured in both directions
+against synthetic sources — a token removed from `public/` must be found, one still there
+must not be reported, one living only in a check's own fixture must not be, one named
+only in a comment must not vouch for itself — plus an assertion that the count is in the
+hundreds rather than zero, which is the shape a regex that stopped matching would take.
+The rest is inventory: every check on disk is in the list, every check still parses, and
+every relative import in one still resolves — the three ways a check can be dead on
+arrival before Chrome is even reached. And the runner's own endings are held against a
+temp tree of three checks that pass, fail and hang on purpose: exit 1, the failures
+counted and named, their own output replayed rather than just a code, the hang killed at
+the timeout, a passing check not listed among the failures, and an empty tree failing
+rather than passing vacuously. A tree of its own rather than the real twenty-six, because
+those are the thing under observation, not the instrument.
 
 `test/observe.mjs` is about observer mode only, and it is the oldest of them —
 because this is the switch here that fails most quietly. Turn off the terminal
