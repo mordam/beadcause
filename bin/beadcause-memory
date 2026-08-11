@@ -8,10 +8,20 @@
  *
  *   beadcause-memory remember <key> <value...>
  *   beadcause-memory recall [<key>] [--of=<agent>]
+ *   beadcause-memory note <key> <value...>
+ *   beadcause-memory notes [<key>] [--of=<agent>]
  *   beadcause-memory post <topic> <message...>
  *   beadcause-memory read <topic> [--since=N]
  *   beadcause-memory topics
  *   beadcause-memory agents
+ *
+ * **`note` and `notes` are the same two verbs against the other store** — what this
+ * agent knows about the repo the command was run in, rather than what it knows
+ * everywhere. Nothing selects between them but the verb: there is no `--repo`, no
+ * `--here` and no environment variable, because the store *is* where you are standing.
+ * A flag would mean an agent could get it wrong in the direction that is invisible —
+ * writing a fact about this codebase into the memory that follows it into every other
+ * one — and two verbs cannot be forgotten the way a flag can.
  *
  * **Who you are is not an argument.** `--agent` exists for a human debugging from a
  * terminal, but an agent never passes it: the daemon exports `BEADCAUSE_AGENT` when
@@ -24,16 +34,19 @@
  * not read the advocate's memory so much as become the advocate, and a `remember`
  * in the same invocation writes into their file. That is tolerable for a human
  * debugging at a terminal and wrong as an API. So the read half gets its own flag,
- * which names a *subject* and never an author: `recall` is the only command that
- * accepts it, and every command that writes refuses it outright rather than
- * quietly treating it as identity. Two flags is the cheapest way to make "read
+ * which names a *subject* and never an author: `recall` and `notes` are the only
+ * commands that accept it, and every command that writes refuses it outright rather
+ * than quietly treating it as identity. Two flags is the cheapest way to make "read
  * another agent" and "act as another agent" impossible to confuse.
  *
  * **No repo is named here either**, in any command or any flag — that is the whole
  * point of the indirection in lib/memory.js, and a `--repo` flag would hand it
- * straight back.
+ * straight back. It is the same rule for the repo-local half, where it is easier to
+ * doubt: `note` writes to the repo you are in because that is the only repo whose
+ * knowledge you have, and a run from the wrong directory should be fixed by `cd`,
+ * which is checkable, rather than by an argument, which is not.
  */
-import { remember, recall, recallDetail, post, read, topics, agents } from '../lib/memory.js';
+import { remember, recall, recallDetail, note, notes, notesDetail, post, read, topics, agents } from '../lib/memory.js';
 
 const argv = process.argv.slice(2);
 const flags = new Map();
@@ -49,19 +62,26 @@ const who = String(flags.get('agent') || process.env.BEADCAUSE_AGENT || '');
 
 const USAGE = `beadcause-memory — what an agent knows, and what agents tell each other
 
-  remember <key> <value...>     store something worth knowing next session
+  remember <key> <value...>     store something true in any repo, for next session
   recall [<key>]                read it back; no key lists everything
   recall --of=<agent> [<key>]   read another agent's memory (read-only)
+  note <key> <value...>         store something about the repo you are in
+  notes [<key>]                 read that back; no key lists everything
+  notes --of=<agent> [<key>]    read another agent's notes on this repo (read-only)
   post <topic> <message...>     say something to whoever is listening
   read <topic> [--since=N]      what has been said since message N
   topics                        which topics exist
   agents                        which agents have remembered anything
 
   --agent=<id>   whose memory (default: $BEADCAUSE_AGENT)
-  --of=<agent>   read that agent's memory instead of your own; recall only
+  --of=<agent>   read that agent's memory instead of your own; recall/notes only
   --since=<n>    the seq of the last message you saw, or an ISO timestamp
   --limit=<n>    how many messages at most (default 50)
-  --json         machine-readable output`;
+  --json         machine-readable output
+
+There is no flag for which store or which repo. \`remember\`/\`recall\` follow you
+anywhere; \`note\`/\`notes\` belong to the repo this was run in, and a worktree of it
+sees the same notes as its main checkout.`;
 
 /** Identity is required for the halves that write in someone's name. */
 function me() {
@@ -103,16 +123,58 @@ const provenance = (of) =>
 
 const out = (human, value) => console.log(asJson ? JSON.stringify(value, null, 2) : human);
 
+/**
+ * Every command that only reads somebody's memory. What `--of` is allowed on.
+ *
+ * A list rather than a check per command, so the guard below stays one line and a
+ * subcommand added later is refused by default — the failure that matters is a *write*
+ * quietly accepting `--of` as an identity, and that is the case a forgotten entry here
+ * cannot produce.
+ */
+const READS = new Set(['recall', 'notes']);
+
+/**
+ * The read half of both stores, which is the same read twice.
+ *
+ * `recall`/`recallDetail` and `notes`/`notesDetail` differ only in which ref they go
+ * to, so the subject resolution, the provenance note, the miss exit code and the
+ * listing format live here once. They are worth sharing precisely because the parts
+ * that are easy to get subtly different — a miss that prints `null`, a `$( )` capture
+ * that gains a line — are the parts a caller depends on byte for byte.
+ */
+async function readBack(key, { one, detail, empty }) {
+  const of = subject();
+  const target = of ?? me();
+  if (of && of !== who) provenance(of);
+  if (key) {
+    const value = await one(target, key);
+    // Nothing on stdout and a non-zero exit for a miss, so `recall x || echo none`
+    // works in the shell an agent is actually using.
+    if (value === null) {
+      process.exitCode = 1;
+      return out('', null);
+    }
+    return out(typeof value === 'string' ? value : JSON.stringify(value, null, 2), value);
+  }
+  const all = await detail(target);
+  const keys = Object.entries(all);
+  if (!keys.length) return out(empty(target), {});
+  return out(
+    keys.map(([k, v]) => `${k}  ${typeof v.value === 'string' ? v.value : JSON.stringify(v.value)}  (${v.at})`).join('\n'),
+    Object.fromEntries(keys.map(([k, v]) => [k, v.value]))
+  );
+}
+
 async function main() {
   const [command, ...rest] = args;
 
   // The whole safety of the read half is that it cannot reach a command that writes.
   // Checked once, here, rather than inside each case: a subcommand added later is
   // refused by default instead of silently inheriting `--of` as an identity.
-  if (flags.has('of') && command !== 'recall') {
+  if (flags.has('of') && !READS.has(command)) {
     throw new Error(
       `--of reads another agent's memory and cannot be combined with ${command ? `\`${command}\`` : 'anything else'} — ` +
-        'only `recall` takes it, and it never writes'
+        'only `recall` and `notes` take it, and neither writes'
     );
   }
 
@@ -124,31 +186,31 @@ async function main() {
       return out(`remembered ${r.agent}.${r.key}`, r);
     }
 
-    case 'recall': {
-      const [key] = rest;
+    case 'recall':
       // `--of` needs no identity of its own: reading does not attribute to anybody,
       // so a caller with no BEADCAUSE_AGENT can still look somebody up.
-      const of = subject();
-      const target = of ?? me();
-      if (of && of !== who) provenance(of);
-      if (key) {
-        const value = await recall(target, key);
-        // Nothing on stdout and a non-zero exit for a miss, so `recall x || echo none`
-        // works in the shell an agent is actually using.
-        if (value === null) {
-          process.exitCode = 1;
-          return out('', null);
-        }
-        return out(typeof value === 'string' ? value : JSON.stringify(value, null, 2), value);
-      }
-      const all = await recallDetail(target);
-      const keys = Object.entries(all);
-      if (!keys.length) return out(`${target} has remembered nothing yet`, {});
-      return out(
-        keys.map(([k, v]) => `${k}  ${typeof v.value === 'string' ? v.value : JSON.stringify(v.value)}  (${v.at})`).join('\n'),
-        Object.fromEntries(keys.map(([k, v]) => [k, v.value]))
-      );
+      return readBack(rest[0], {
+        one: recall,
+        detail: recallDetail,
+        empty: (target) => `${target} has remembered nothing yet`,
+      });
+
+    case 'note': {
+      const [key, ...value] = rest;
+      if (!key || !value.length) throw new Error('usage: note <key> <value...>');
+      const r = await note(me(), key, value.join(' '));
+      return out(`noted ${r.agent}.${r.key} in ${r.repo}`, r);
     }
+
+    case 'notes':
+      return readBack(rest[0], {
+        one: notes,
+        detail: notesDetail,
+        // Named as being about *this repo*, because that is the half of the answer a
+        // reader can act on: the same command one directory over is a different answer,
+        // and "nothing yet" without the where reads like the store is empty.
+        empty: (target) => `${target} has noted nothing about this repo yet`,
+      });
 
     case 'post': {
       const [topic, ...message] = rest;

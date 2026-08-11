@@ -58,6 +58,9 @@
     link.addEventListener('click', async (e) => {
       e.preventDefault();
       await fetch('/auth/signout', { method: 'POST' }).catch(() => {});
+      // Whatever the warm layer is holding stopped being yours the moment you signed
+      // out, and the next page load must not paint it back. See public/warm.js.
+      window.beadcause?.warm?.forget?.();
       location.assign('/login');
     });
     el.append(link);
@@ -346,9 +349,33 @@
     if (btn) press(btn);
   });
 
+  /**
+   * Draw the switches this tab had last time, before anything has been asked for.
+   *
+   * The one page you open *because* something needs stopping now — which is exactly
+   * the moment the link is worst. sw.js already puts the shell on screen instantly
+   * for that reason; this is the other half, so what arrives with it is the switches
+   * and not a spinner over them. See public/warm.js.
+   */
+  function warmBoot() {
+    const warm = window.beadcause?.warm;
+    const hit = warm?.read?.('/api/admin');
+    if (!hit?.data) return false;
+    state = hit.data;
+    render();
+    // Held rather than fetched, and only to grey the buttons out. Absent is not
+    // "not an observer" — it is "we do not know yet", and the fetch behind this
+    // settles it either way a moment later.
+    const work = warm.read('/api/work');
+    if (work?.data && observing) observing.hidden = !work.data.observing;
+    return true;
+  }
+
   async function load() {
+    const warm = window.beadcause?.warm;
     try {
       state = await api('/api/admin');
+      warm?.write?.('/api/admin', state);
       pulse?.classList.remove('bad');
       render();
     } catch (err) {
@@ -359,10 +386,14 @@
     // same one /monitor shows, for the same reason: which daemon this is.
     try {
       const work = await api('/api/work');
+      warm?.write?.('/api/work', work);
       if (observing) observing.hidden = !work.observing;
       if (work.observing) {
         for (const b of out.querySelectorAll('button[data-do]')) b.disabled = true;
       }
+      // Both requests came back, so the credential is good: the moment it is safe to
+      // go and warm the other four tabs. Once per document — see public/warm.js.
+      warm?.prewarm?.({ here: 'admin', api });
     } catch {
       /* The page is still useful without it. */
     }
@@ -665,6 +696,7 @@
     if (!busy && !armed) load();
     if (!busy && !armed) loadTls();
   }, REFRESH_MS);
+  warmBoot();
   load();
   loadTls();
 })();
