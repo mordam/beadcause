@@ -223,12 +223,95 @@
       data = await api('/api/consoles');
     } catch (err) {
       if (err.message !== 'token rejected') toast(err.message, true);
+      // Still followed. A launcher opened while the daemon is restarting had nothing to
+      // bring it back before — this page has never had a timer — and the stream, with
+      // its backoff, is what fills the list in when the daemon returns.
+      followLauncher();
       return;
     }
     warm?.write?.('/api/consoles', data);
     adoptConsoles(data);
     // Only from a request that came back, and once per document — see public/warm.js.
     warm?.prewarm?.({ here: 'console', api });
+    // The launcher stops being a snapshot of the moment you arrived and starts
+    // following the log. See `followLauncher`.
+    followLauncher();
+  }
+
+  /* ------------------------------------------------------- the launcher's stream */
+
+  /**
+   * Keep the launcher current, off the daemon's event log.
+   *
+   * This page is the odd one out of the five: the other four refreshed on a wall-clock
+   * timer and this one had no refresh at all, so the list of conversations was a
+   * photograph of the moment you arrived. A turn finishing, a chat closed on the other
+   * device, beads created out of a proposal — none of it showed until you navigated
+   * away and came back.
+   *
+   * `want: 'presence'` is what makes the park free. The daemon sweeps `bd` for a poll
+   * that asked for the inbox questions, and this page draws none of them: it wants to
+   * be *woken*, and then it asks for its own list, which is two in-memory reads on the
+   * daemon rather than a sweep. `cold: true` because nothing this page fetches carries
+   * a sequence — a `since`-less poll is how it learns where in the log it is, and with
+   * `want: 'presence'` that first request costs nothing either.
+   */
+  let stream = null;
+  let listing = false;
+
+  function followLauncher() {
+    if (!window.beadcause?.stream) return;
+    // Mounted once and started every time the launcher is shown, so coming back from a
+    // conversation picks the log up again — `ready` went false while the thread was up.
+    // `start` on a stream that is already parked is a no-op.
+    if (stream) return stream.start();
+    stream = window.beadcause.stream.follow({
+      api,
+      want: 'presence',
+      cold: true,
+      // Not behind an open conversation: the thread has its own feed
+      // (`/api/console/poll`), and repainting a launcher nobody can see would be a
+      // request per event for a screen that is hidden.
+      ready: () => Boolean(state.token) && !$('#launcher').hidden,
+      onWake({ events, resync }) {
+        // Presence is a thumb moving on somebody's phone. It wakes this poll on
+        // purpose — that is how the mirror works — but it has not changed a
+        // conversation, and refetching for it would be a timer built out of somebody
+        // else's scrolling.
+        if (!resync && !window.beadcause.stream.moved(events)) return;
+        // The ＋ picker is open under a thumb. `adoptConsoles` closes it, so a wake
+        // arriving now would take the repo list away mid-choice; the next event
+        // repaints, and so does closing the picker.
+        if (pickerOpen()) return;
+        refreshConsoles();
+      },
+    });
+    stream.start();
+  }
+
+  /**
+   * Go and get the list again, because something moved.
+   *
+   * Deliberately the whole list rather than a patch of the row an event named: an event
+   * says a bead was created or a card answered, and what that did to *these* rows —
+   * which conversation proposed it, how many of its beads now exist — is knowledge the
+   * daemon has and this page does not. It is a cheap thing to ask for, which is the
+   * reason that is an acceptable answer here and not on the pages whose payload is a
+   * `bd` sweep: `/api/consoles` reads the in-memory registry and nothing else.
+   */
+  async function refreshConsoles() {
+    if (listing) return;
+    listing = true;
+    try {
+      const data = await api('/api/consoles');
+      window.beadcause?.warm?.write?.('/api/consoles', data);
+      adoptConsoles(data);
+    } catch {
+      /* The list on screen is still the list. A refused credential has already put the
+         prompt up, and anything else the next event will try again. */
+    } finally {
+      listing = false;
+    }
   }
 
   /**
@@ -391,20 +474,19 @@
     } dismissed — <em>Dismissed</em> above shows them. ＋ starts a new one${
       now === 'all' ? '' : ` in ${esc(now)}`
     }.`;
-    $('#recent').innerHTML = listed.length
-      ? listed.map(consoleRowHtml).join('')
-      : `<div class="empty">${dismissed.length ? allDismissed : nothingYet}</div>`;
+    const chunks = listed.length
+      ? listed.map((c) => ({ key: c.id, html: consoleRowHtml(c) }))
+      : [{ key: '@empty', html: `<div class="empty">${dismissed.length ? allDismissed : nothingYet}</div>` }];
+    // Keyed rather than rebuilt from joined HTML, because this list now repaints on the
+    // delta stream rather than only when you arrive: a turn finishing in one
+    // conversation must not throw away the other nine rows and the scroll position over
+    // them. See public/warm.js. A browser that dropped the file falls back to the
+    // rebuild this used to be, which is a working list.
+    const paint = window.beadcause?.warm?.paint;
+    if (paint) paint($('#recent'), chunks);
+    else $('#recent').innerHTML = chunks.map((c) => c.html).join('');
 
     renderDismissToggle(dismissed.length);
-
-    for (const btn of $('#recent').querySelectorAll('[data-close]')) {
-      btn.addEventListener('click', (ev) => {
-        // The row is a link. Closing it must not also open it.
-        ev.preventDefault();
-        ev.stopPropagation();
-        closeConsole(btn.dataset.close, btn);
-      });
-    }
   }
 
   /**
@@ -1291,6 +1373,20 @@
     $('#ws-row').addEventListener('click', (ev) => {
       const btn = ev.target.closest('[data-ws]');
       if (btn) setRepo(btn.dataset.ws);
+    });
+
+    /* Closing one from the list. Delegated rather than bound per row, and that became
+       load-bearing when the list stopped being rebuilt on every paint: the reconciler
+       keeps the nodes it did not have to touch, so a listener hung on each ✕ at render
+       time would be hung a second time on the same button the next time anything moved
+       — and one tap would then close the conversation twice. */
+    $('#recent').addEventListener('click', (ev) => {
+      const btn = ev.target.closest('[data-close]');
+      if (!btn) return;
+      // The row is a link. Closing it must not also open it.
+      ev.preventDefault();
+      ev.stopPropagation();
+      closeConsole(btn.dataset.close, btn);
     });
 
     // Not delegated like the tabs: this button is in the page, not rebuilt by a paint.
