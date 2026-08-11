@@ -764,6 +764,26 @@
     }).join('');
   }
 
+  /**
+   * "This already exists" — outside the fold, deliberately.
+   *
+   * Every other field on a row lives in `.prop-body`, which a long row starts folded
+   * (see below). This one cannot: it is the only thing on the card that changes what
+   * ✓ *means*, and a warning you have to tap "Show the rest" to find is a warning that
+   * arrives after the decision. It is stamped on by lib/dupe.js when the proposal is
+   * written, and it rides through the stored bead in the `beadproposal` block, so what
+   * is drawn here is what the server itself would find.
+   */
+  function dupeHtml(b) {
+    const d = b.duplicate;
+    if (!d?.id) return '';
+    const where = d.status === 'proposed' ? 'already proposed in' : `already ${esc(d.status)} as`;
+    return `<div class="prop-dupe">
+      <span class="prop-dupe-flag">Possible duplicate</span>
+      <span>${where} <span class="pill id">${esc(d.id)}</span>${d.title ? ` — ${esc(d.title)}` : ''}</span>
+    </div>`;
+  }
+
   // A phone column fits about this many characters, and this many lines of one row
   // is as much as can sit above the next proposal and still leave it scannable.
   const PHONE_COLS = 42;
@@ -825,6 +845,7 @@
             <div class="prop-head"><span class="prop-n">${n}</span><span class="prop-title">${esc(b.title)}</span>${
           adjusted ? '<span class="pill adjusted">adjusted</span>' : ''
         }</div>
+            ${dupeHtml(b)}
             ${
               editing
                 ? propEditHtml(q.key, raw, n)
@@ -2864,7 +2885,14 @@
         toast(
           dismiss
             ? `${q.id} set aside — back when ${res?.until ? `${res.until} clears` : 'someone comments'}`
-            : // A commission leaves the inbox without being finished, and the card
+            : // An approval the server would not act on, and the one outcome here that
+              // is genuinely unexpected: a proposed bead that already exists is not
+              // created, however the tap read. First, because "Answered" over a create
+              // that did not happen is the sort of quiet difference you find out about
+              // a fortnight later. The whole sentence is on the thread.
+              res?.skipped?.length
+              ? `Answered ${q.id} — ${res.skipped.length} already filed, not created again`
+              : // A commission leaves the inbox without being finished, and the card
               // vanishing looks identical either way. This line is the only place
               // the difference is visible, so it comes off what the server did
               // rather than off which button was pressed.
@@ -3546,7 +3574,12 @@
           method: 'POST',
           body: JSON.stringify({ workspace: q.workspace, id: q.id }),
         });
-        toast(`Session open in ${res.dir.split('/').pop()} — go to your Mac`);
+        // `endorsed` is the server saying this bead was being held back from every
+        // agent until this tap (lib/endorse.js). Worth a word: it is a decision you
+        // just made, and nothing else on this card says you made it.
+        toast(
+          `${res.endorsed ? 'Endorsed it — session' : 'Session'} open in ${res.dir.split('/').pop()} — go to your Mac`
+        );
       } catch (err) {
         toast(err.message, true);
       } finally {

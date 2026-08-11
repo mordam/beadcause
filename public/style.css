@@ -764,6 +764,23 @@ body {
   display: inline-block; min-width: 18px;
   color: var(--muted); font-variant-numeric: tabular-nums; font-weight: 700;
 }
+/* "This already exists." The same --warn as an unsent draft, a gate and the shade
+   prompt, for the same reason: the app has noticed something it is about to make a mess
+   of and is saying so. It sits between the head and the body, outside the fold, because
+   it is the only thing on a row that changes what ✓ means — see dupeHtml() in app.js. */
+.prop-dupe {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px;
+  margin-left: 22px; padding: 6px 8px;
+  border: 1px solid color-mix(in srgb, var(--warn) 55%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--warn) 10%, var(--surface));
+  font-size: 12px; line-height: 1.45; color: var(--text);
+}
+.prop-dupe-flag {
+  flex: none;
+  font-size: 10.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--warn);
+}
 .prop-body { display: flex; flex-direction: column; gap: 9px; padding-left: 22px; }
 /* Folded rather than clamped. Three lines of -webkit-line-clamp over markdown cuts a
    list mid-item, and nothing on the row said there was more or offered it; this
