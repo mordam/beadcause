@@ -9,7 +9,7 @@
  * quietly wrong:
  *
  * 1. **It costs a `bd` call.** The poll runs every thirty seconds on a phone, and
- *    /api/work is two `bd` calls per workspace. A stub `bd` here logs every
+ *    /api/work is three `bd` calls per workspace. A stub `bd` here logs every
  *    invocation, so a sweep added by accident fails the test rather than showing up
  *    as a slower inbox months later.
  * 2. **The count means different things in different scopes.** The `agent` scope
