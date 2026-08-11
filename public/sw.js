@@ -28,7 +28,14 @@
    the inbox with neither the picker nor the two chip rows it replaced: no way at all to
    change which repo you are looking at. They have to arrive together, which is what a
    cache version is for. */
-const CACHE = 'beadcause-v22';
+/* v23: /monitor became the space details screen — the selected space's own settings,
+   written from the page through `POST /api/space`, plus a gear to /admin. No new path:
+   monitor.html, monitor.js and style.css are all already in the shell. The version is
+   what makes the three arrive together, and they have to: a phone holding v22's cached
+   monitor.js beside v23's monitor.html would draw a gear over a page with no settings
+   card, and one holding v23's script against v22's stylesheet would draw seven controls
+   with no layout at all — a wall of unstyled buttons over the advocate cards. */
+const CACHE = 'beadcause-v23';
 const SHELL = [
   '/',
   '/index.html',

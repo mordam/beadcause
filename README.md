@@ -410,6 +410,104 @@ suite is the one nobody can do by reading: the client's `matches()` and the serv
 workspace, because those two disagreeing in the direction "rings but is not shown" is a
 question you were told about and cannot find.
 
+### Space details — the page the advocate console became
+
+Every setting a space has is one you used to change by opening `~/.beadcause/config.json`
+in an editor, on the Mac, with the daemon running. That was fine while a space was two
+lines of quiet hours written once. It stopped being fine when a space became the unit
+that decides whether an unattended agent may answer a comment (`autoDispatch`) and
+whether a worker merges its own pull request without asking you (`autoMerge`,
+`requireApproval`) — because the moment you know one of those is set wrong is the moment
+you are looking at what it did, on a phone, at the weekend.
+
+So **`/monitor` is the details of the space the picker has selected**, and its settings
+are on it:
+
+```
+┌──────────────────────────────────────────────┐
+│  ● Space                        ⚙  ⟳         │
+│  ┌────────────────────────────────┐  ┌───┐   │
+│  │ Personal · 3               ▾   │  │ 3 │   │
+│  └────────────────────────────────┘  └───┘   │
+├──────────────────────────────────────────────┤
+│  Personal                    may reach you   │
+│  ▾ SETTINGS                                  │
+│      Muted                             off   │
+│      Quiet hours              18:00 → 09:00  │
+│      Quiet days                     sat, sun │
+│      Push detail             inherited · full│
+│      Agents may answer unasked          off  │
+│      Workers merge their own PRs         on  │
+│      An approving review first  inherited·off│
+│  ▸ WHAT EACH REPO RESOLVES TO            3   │
+├──────────────────────────────────────────────┤
+│  beadcause      3 of 3 sessions              │
+│  …the advocate cards, exactly as before      │
+└──────────────────────────────────────────────┘
+```
+
+Nothing the page already did has gone: the advocates and their pause, reclaim and
+limit controls, the sessions view it absorbed (`/sessions`, `/work` and `/work.html`
+still serve it), the proposal cards, the launchd and router health lines, the mirror
+pane. The settings card sits above them because it is what the page is the details
+*of*, and a setting you scroll six advocate cards to reach is a setting you go back to
+editing the config file for.
+
+**Three shapes of control, and the shape is the shape of the answer.** `Muted` is
+two-state, because there is no global mute behind it and a third button would be a
+lie. Quiet hours and quiet days are a pair of clocks and a row of days, each clearable,
+because "no quiet hours" is a state you have to be able to get back to. The four with a
+global default behind them — push detail, agents-may-answer, auto-merge,
+approval-first — are **three**-state: On, Off, and *Inherit*, which names what it
+currently resolves to. That third button is not a nicety: `prPolicyFor` is explicit
+that a space may override the global in *either* direction, so "off" and "following a
+default that is currently off" are different answers, and only one of them survives the
+default changing.
+
+**"What each repo resolves to" is the panel that stops the screen lying.** The space is
+not the last word on two of these settings: `ntfy.minimalWorkspaces` and
+`autoDispatchExclude` are per-repo lists that outrank it, so a space set to `full` can
+contain one repo that pushes minimally. The panel runs every workspace in the space
+through the same four resolvers the daemon itself uses and prints the answers, because
+a screen showing only the space's own setting would be quietly wrong about exactly the
+repo somebody had singled out — and wrong in the direction of promising more detail on
+your phone than you are going to get.
+
+**A press changes the running daemon, not just the file.** `POST /api/space` patches
+the space object inside the live `cfg` — the same object every push decision reads
+through `quietReasonFor`, every delivery through `prPolicyFor`, every reply agent
+through `autoDispatchAllowed` — and then writes `config.json` so it survives a restart.
+Both halves, in that order. Sending one field per press rather than the whole object is
+what stops a phone and a laptop, each a poll behind the other, putting back settings
+neither of them touched.
+
+**What it will not edit is a space's `name` or its `workspaces`.** Moving a repo
+between spaces decides which questions are allowed to reach you at all; that stays a
+config-file act, and the endpoint refuses those fields rather than dropping them
+quietly. It refuses anything it does not understand, in fact, with the reason — a
+setting silently ignored is precisely the failure this screen exists to end.
+
+**And the ⚙ in the top bar goes to Admin** — pause everything, the in-app terminals,
+sign out. It is a second way in from the one page whose per-space settings sit beside
+it, not a replacement for the Admin tab: the two answer different questions, and
+"stop everything" should still be a page you arrive at deliberately.
+
+An observer instance may read all of this and press none of it, the same guard
+`POST /api/admin` has and for the same reason: its `cfg` is the real daemon's config
+file, so a write from here would change what the *other* process does at its next
+restart while doing nothing at all about what it is doing now.
+
+`node test/spacedetails.mjs` (part of `npm test`) holds the contract — that `null` and
+`false` stay different answers, that a patch touches only what it names, that `name`
+and `workspaces` are refused rather than dropped, that a write lands in the live `cfg`
+*and* in `config.json`, and that the per-repo panel resolves through the lists which
+outrank the space. `node scripts/space-check.mjs` is the other half and wants Chrome on
+the machine: the real `public/monitor.js` in a phone-sized headless browser over a real
+`bin/beadcause.js`, pressing the buttons and reading the config file back after each
+one. `--shot <file.png>` writes a picture of the card with both panels open, which is
+the one thing a list of ticks cannot tell you — whether seven settings on a 393px screen
+read as a card or as a wall.
+
 ### And it offers to tidy up the noise it already made
 
 Narrowing the filter silences what comes *next*. It used to say nothing at all about
@@ -5212,6 +5310,8 @@ cookie says so), and `/auth/signout` ends the session.
 | POST | `/api/dismiss` | `{workspace, id, reason?}` | takes the card off the screen and **closes nothing**. Writes your note if you typed one, writes nothing at all if you did not, and never touches the status — "I am not dealing with this now" is not "this is decided" |
 | POST | `/api/filter` | `{space, workspace}` | which slice the inbox is, remembered server-side so every client agrees and the notifications match. Each is a name or `all`, bounded at 120 characters. Widening forgets what you had declined |
 | GET | `/api/spaces` | — | what the [space picker](#one-space-at-a-time--the-picker-in-the-top-bar) draws: `{spaces, workspaces[], counts, filter, waiting}`. Costs no `bd` call — the counts are cached off the last sweep — because it is fetched on every page load of every standing view |
+| GET | `/api/space` | `?space=` | one space's own configuration, for the [space details](#space-details--the-page-the-advocate-console-became) screen: `{settings, effective, repos[], defaults, missing[]}`. `settings` is `null` per field for "inherit"; `repos[]` is what each workspace actually resolves to, which is not always what the space says. 404 for anything that is not a configured space, the synthetic `Other` group included |
+| POST | `/api/space` | `{space, settings}` | change that space's settings from the app. A patch — only the keys sent are touched, and `null` clears one back to the global default. `name` and `workspaces` are not settable: moving a repo between spaces decides which questions may reach you and stays a config-file act. Writes the live `cfg` *and* `config.json`, so the running daemon and the next restart agree. Refused on an observer |
 | POST | `/api/notifications/dismiss` | `{keys[], confirm}` | clears the phone's notification rows for beads the filter excludes. `confirm: false` records the decline, which is what stops the next sweep asking again. The beads are untouched either way |
 | POST | `/api/ask` | `{workspace, title, body, priority}` | `{id, key}` — files a new `human` bead |
 | POST | `/api/session` | `{workspace, id}` | `{dir}` — opens iTerm2 + `claude` on that bead |
