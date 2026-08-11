@@ -10,6 +10,7 @@
     "beadcause-monitor": "bin/monitor.js",
     "beadcause-memory": "bin/beadcause-memory",
     "beadcause-get": "bin/beadcause-get",
+    "beadcause-browse": "bin/beadcause-browse",
     "beadcause-file": "bin/file.js",
     "beadcause-propose": "bin/propose.js",
     "beadcause-ask": "bin/ask.js",
