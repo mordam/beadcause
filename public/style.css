@@ -2942,6 +2942,16 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
   border: 1px solid color-mix(in srgb, var(--danger) 55%, var(--line));
   background: color-mix(in srgb, var(--danger) 10%, var(--surface));
 }
+/* The router's own verdict, when it is not "serving what is on disk". Amber, because
+   on every one of these states the app is up and answering — the phone is just on an
+   older build than the disk is. Red above it means nothing you are reading is current;
+   this means look at it soon. Same block, one colour apart. */
+.svc.warn {
+  padding: 10px 12px; color: var(--text);
+  border: 1px solid color-mix(in srgb, var(--warn) 55%, var(--line));
+  background: color-mix(in srgb, var(--warn) 10%, var(--surface));
+}
+.svc.warn .svc-head { color: var(--warn); }
 .svc-head {
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
   font-size: 13.5px; font-weight: 700; letter-spacing: 0.02em; color: var(--danger);
