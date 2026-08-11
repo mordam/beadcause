@@ -74,6 +74,34 @@ const done = (code) => {
 
 /* ------------------------------------------------------------------ fixtures */
 
+/**
+ * A throwaway certificate that is genuinely past its date, for the one question no
+ * `-days` can ask: `-days` will not go backwards, so the two dates are given outright.
+ * `-not_before`/`-not_after` arrived in OpenSSL 3.5 and are absent from LibreSSL, so
+ * this returns null there and the checks that need it skip out loud.
+ */
+const stamp = (msFromNow) => new Date(Date.now() + msFromNow).toISOString().replace(/[-:T]/g, '').replace(/\.\d+Z$/, 'Z');
+function expiredPair(agoDays) {
+  const certFile = path.join(tmp, 'old-c.pem');
+  const keyFile = path.join(tmp, 'old-k.pem');
+  try {
+    execFileSync(
+      'openssl',
+      [
+        'req', '-x509', '-newkey', 'rsa:2048', '-nodes',
+        '-keyout', keyFile, '-out', certFile,
+        '-not_before', stamp(-(agoDays + 90) * 86400000),
+        '-not_after', stamp(-agoDays * 86400000),
+        '-subj', '/CN=localhost',
+      ],
+      { stdio: ['ignore', 'ignore', 'ignore'], timeout: 60000 }
+    );
+  } catch {
+    return null;
+  }
+  return { cert: fs.readFileSync(certFile), key: fs.readFileSync(keyFile) };
+}
+
 /** A throwaway certificate. Self-signed: nothing here is asking anyone to trust it. */
 function selfSigned() {
   const certFile = path.join(tmp, 'c.pem');
@@ -396,6 +424,32 @@ await check('a cached pair moves the URL onto the name it is for, on the configu
   assert.equal(publicBaseUrl(CFG), `https://${NAME}:4318`);
   assert.equal(publicBaseUrl({ ...CFG, port: 4444 }), `https://${NAME}:4444`);
 });
+
+// bc-jv86: past the expiry date the socket still carries the certificate and the front
+// still 307s plain http to the name — so the URL has to keep saying the same thing. It
+// did not: `certificateName` wanted a day left, `publicBaseUrl` fell back to
+// `http://100.x.y.z:4318`, `reconcileBaseUrl` persisted that on the next `loadConfig()`,
+// and the priority-5 "certificate has EXPIRED" push — whose tap target is `cfg.baseUrl`
+// — then opened the one URL the running daemon bounces straight back to https. The
+// certificate being expired is an outage with an alarm on it, not a reason for the two
+// halves of the daemon to describe themselves differently.
+const expired = expiredPair(3);
+if (!expired) {
+  skip('an expired certificate still names the URL it is served on — this openssl cannot mint one');
+} else {
+  await check('an expired certificate still names the URL it is served on', () => {
+    plant(expired);
+    assert.equal(certificateName(CFG), NAME, 'the socket keeps serving it, so the URL must keep pointing at it');
+    assert.equal(publicBaseUrl(CFG), `https://${NAME}:4318`);
+  });
+
+  await check('and the saved baseUrl is not quietly downgraded to http when the date passes', () => {
+    plant(expired);
+    const cfg = { ...CFG, baseUrl: `https://${NAME}:4318` };
+    quietly(() => reconcileBaseUrl(cfg));
+    assert.equal(cfg.baseUrl, `https://${NAME}:4318`, 'the EXPIRED push taps this URL — it must be one the daemon serves');
+  });
+}
 
 await check('and tls.enabled false is never an https URL, certificate or no certificate', () => {
   plant(material);

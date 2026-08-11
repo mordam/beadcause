@@ -545,6 +545,9 @@
   function certPhrase(t) {
     if (!t.name) return 'Tailscale has not named this Mac yet — `tailscale status` did not answer.';
     if (!t.have) return `No certificate for ${t.name} yet.`;
+    // Expired is a fact about the calendar and not about whether there is one: the
+    // daemon keeps serving it on purpose (bc-jv86), so this says which of the two.
+    if (t.expired) return `Certificate for ${t.name} — EXPIRED ${Math.abs(Math.round(t.daysLeft))} days ago.`;
     const days = t.daysLeft === null ? 'an unreadable expiry' : `${Math.round(t.daysLeft)} days left`;
     return `Certificate for ${t.name} — ${days}${t.renewing ? ', renewing' : ''}.`;
   }
@@ -578,19 +581,23 @@
   function tlsCard(t) {
     const serving = t.serving;
     const ready = t.enabled && t.have;
-    const state3 = serving?.tls
-      ? { text: `serving ${serving.name || 'https'}`, tone: 'live' }
-      : t.restartNeeded
-        ? // A certificate is ready and the socket is still plain: the process holding the
-          // port looks for one every minute and adopts it without being restarted, so this
-          // is a wait rather than a chore. Turning HTTPS *off* is the direction that still
-          // needs a restart — a listener already terminating TLS cannot stop without one.
-          { text: ready ? 'ready — picked up within a minute' : 'restart to stop serving it', tone: 'held' }
-        : ready
-          ? { text: 'on', tone: 'live' }
-          : t.enabled
-            ? { text: 'on, no certificate', tone: 'held' }
-            : { text: 'off', tone: 'dim' };
+    const state3 = t.expired
+      ? // Served, and broken: the chip is the first thing read on this card and it must
+        // not say "serving" about an origin every browser is refusing.
+        { text: 'expired — every phone is warned', tone: 'held' }
+      : serving?.tls
+        ? { text: `serving ${serving.name || 'https'}`, tone: 'live' }
+        : t.restartNeeded
+          ? // A certificate is ready and the socket is still plain: the process holding the
+            // port looks for one every minute and adopts it without being restarted, so this
+            // is a wait rather than a chore. Turning HTTPS *off* is the direction that still
+            // needs a restart — a listener already terminating TLS cannot stop without one.
+            { text: ready ? 'ready — picked up within a minute' : 'restart to stop serving it', tone: 'held' }
+          : ready
+            ? { text: 'on', tone: 'live' }
+            : t.enabled
+              ? { text: 'on, no certificate', tone: 'held' }
+              : { text: 'off', tone: 'dim' };
 
     // What the switch costs, said in the button rather than beside it. Only when the
     // origin actually moves: a `baseUrl` you set by hand — a reverse proxy, a real
@@ -608,7 +615,8 @@
         }</button>`
       );
     } else {
-      if (!t.have) buttons.push(`<button class="primary" data-tls="on">Try again — ask Tailscale for a certificate</button>`);
+      if (!t.have || t.expired)
+        buttons.push(`<button class="primary" data-tls="on">Try again — ask Tailscale for a certificate</button>`);
       buttons.push(`<button class="secondary" data-tls="off" data-confirm="${cost}">Turn HTTPS off</button>`);
     }
 
@@ -622,10 +630,16 @@
         Phones are handed <code>${esc(t.wouldServe)}</code>.
       </p>
       ${
-        t.alarming && t.have
-          ? `<p class="admin-warn"><strong>This certificate is nearly out.</strong> The daemon renews inside the last
+        t.expired
+          ? `<p class="admin-warn"><strong>This certificate has expired, and is still what is being served.</strong> Every
+             phone now gets a certificate warning on every page, and the installed app cannot fetch anything — but the
+             origin has not quietly dropped to plain http, which would turn off the microphone and the offline app with
+             nothing on screen to say why. Fix it with <code>tailscale cert ${esc(t.name || '')}</code> on the Mac; the
+             socket picks the new one up within six hours, or press <strong>Try again</strong> here.</p>`
+          : t.alarming && t.have
+            ? `<p class="admin-warn"><strong>This certificate is nearly out.</strong> The daemon renews inside the last
              month; still being this close means the renewal is not working.</p>`
-          : ''
+            : ''
       }
       ${askFailure(tlsDid?.asked)}
       ${
