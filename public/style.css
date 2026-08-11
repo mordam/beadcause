@@ -66,9 +66,9 @@ body {
   justify-content: space-between;
   /* The space picker is a full-width third child (see .spacebar), so the bar wraps to
      two lines on the pages that have one and stays a single line on the pages that do
-     not. It is its own row because the first one is already full: a mark, a dot, a
-     count chip and four icons is a 360px phone spent, and a dropdown squeezed in
-     between them would have room for about five characters of a repo name. */
+     not. It is its own row because the first one is already full — measured, not
+     assumed, and the arithmetic is in .spacebar below. `scripts/topbar-check.mjs` is
+     what keeps a third row from arriving without anybody deciding to spend it. */
   flex-wrap: wrap;
   gap: 12px;
   padding: calc(env(safe-area-inset-top) + 10px) 16px 10px;
@@ -290,6 +290,63 @@ body {
   without it, iOS and Android each impose their own chrome and the bar has a
   platform-shaped hole in it — and the wheel or menu that opens on tap is still the
   operating system's own, which no scripted dropdown gets to be.
+
+  ## The row it costs, and why it keeps it (bc-hne3)
+
+  A row of sticky chrome on a phone is worth arguing about, so it was measured rather
+  than argued: `scripts/topbar-check.mjs` at 360×640, six workspaces, the inbox's
+  "3 waiting" chip drawn.
+
+  The row is **43px** — a 31px control and the bar's own 12px gap. The bar goes 61px →
+  104px, and the bar plus the tab bar goes 116px → 159px, which is 18% → 25% of a
+  640px screen. That is the real price. Against it: the two levels of the selection,
+  the count, and the accent border that says five other repos are being held off this
+  screen, all of which are how you know what the list under them is about.
+
+  **The first row cannot hold it, and that is arithmetic.** 360px less the bar's 32px
+  of padding is 328px. On the inbox the brand is 133px with the "3 waiting" chip in it,
+  and the icon buttons are 172px — four of them at their 40px minimum with 4px between,
+  the fifth (open-in-Chrome) being 0px wide because it is not drawn on a phone. With the
+  bar's two 12px gaps that is 329px, so the row is already one pixel *over* full before
+  a picker is mentioned. Inline, the picker needs 184px — 148px for its widest row
+  (`Personal — all · 3`: 106px of text in 42px of padding) and 36px for the count and
+  its gap. Even with the chip taken away, 88px is left and it is 96px short, so what
+  would ship is a dropdown ellipsing its own repo name.
+
+  Three ways out were tried against the real pages. None of them survives the numbers:
+
+  - **Collapse into the first row when it fits** (`flex: 1 1 <basis>` instead of
+    `1 0 100%`, so wrapping does the deciding). Hiding the "3 waiting" chip while a
+    repo is picked does *not* buy the inbox back: measured, it stays two lines with
+    the chip gone, because the icon buttons are 172 of the 328 on their own. A
+    150px basis collapses `/console`, `/monitor` and `/endorse` only — and on
+    `/monitor` the select lands at 122px against a 123px label, clipped on arrival. A
+    basis wide enough for the label (190px) collapses nothing at 360px. So the offer
+    is: the picker keeps its row on the inbox, the PR board and the foundations
+    screen, moves and shrinks on the other three, and clips on one. One control that
+    is the same on every page is most of what the picker bought (see the header of
+    public/spacebar.js); a control that is a title here and a chip there is four
+    controls again, wearing one name.
+  - **Hide it on scroll down, bring it back on scroll up.** The bar is `position:
+    sticky`, so it is in flow: shrinking it while you are scrolled into the list moves
+    every card up 43px under your thumb. Doing it honestly means a fixed, translated
+    header on six pages — and the row is back the moment you scroll up, which is the
+    moment you were reading it anyway.
+  - **Fold it into the brand — tap the mark to change repo.** The only one that gets
+    one row at 360px, and it pays with the thing the picker is for: the repo name is
+    exactly what does not fit beside four icon buttons, so what is left is a control
+    whose current value is invisible. An app that looks identical showing everything
+    and showing one sixth of it is one you stop trusting (see `.narrowed` below).
+
+  So the row stays, and what settles it is how far the first row would have to be
+  cleared to hold the picker instead. Measured at 360px: two of the four icon buttons
+  gone leaves 87px; two gone *and* the chip hidden leaves 176px, which is still 8px
+  short of the 184px; it takes **three of the four buttons and the chip** to clear it,
+  at 220px. That is not a layout trick, it is emptying the bar — and if the icons ever
+  do get thinned that far, `scripts/topbar-check.mjs` says so in as many words.
+
+  Note the control is already 31px against the 40px every icon button on the bar has,
+  which is the other reason not to shave the row: the height is the tap target.
 */
 .spacebar {
   flex: 1 0 100%;
@@ -1778,6 +1835,21 @@ body {
 .doc { padding: 16px 16px 40px; max-width: 780px; margin: 0 auto; }
 .doc pre { white-space: pre-wrap; }
 .doc .pdf { width: 100%; height: calc(100vh - 140px); border: 1px solid var(--line); border-radius: 10px; }
+/* Publishing this document to Confluence. A footer rather than anything in the top
+   bar: it is the last thing on the page on purpose, so it is read after the document
+   and never pressed instead of scrolling. Drawn at all only when there is a Confluence
+   to publish to — see doc.js. */
+.publish {
+  max-width: 780px;
+  margin: 0 auto 40px;
+  padding: 12px 16px calc(env(safe-area-inset-bottom) + 12px);
+  border-top: 1px solid var(--line);
+  display: flex; flex-direction: column; gap: 10px;
+}
+.publish-target { font-size: 14px; line-height: 1.45; }
+.publish-what { display: block; color: var(--muted); font-size: 13px; margin-top: 2px; }
+.publish-note { color: var(--muted); font-size: 13px; line-height: 1.45; }
+.publish-err { color: var(--danger); }
 /* The work view: one card per workspace, its claimed beads, a way into its graph. */
 .work { padding: 12px 16px 40px; max-width: 780px; margin: 0 auto; display: flex; flex-direction: column; gap: 12px; }
 .work-card { padding: 12px 14px; }
@@ -1936,6 +2008,32 @@ button.work-row {
    under it would put the answer above the question. This way the reading order is the
    causal order — say it, watch it land. See public/session.js. */
 .say-block { display: contents; }
+
+/* Pointing the Mac at it — the button above the box. `display: contents` for the same
+   reason the say block has it: both are wrappers that exist so one half of the page can
+   be repainted without rebuilding the transcript, and neither should introduce a box of
+   its own into the flow. */
+.win-block { display: contents; }
+.win-block .say-note { margin-top: 4px; }
+/* At the far end of the label row, on the same terms as `.label-mic` above and for the
+   same reason: a row of its own for one button is 44px of transcript pushed under the
+   fold, and scripts/say-check.mjs measures exactly that. */
+.label-win { margin-left: auto; align-self: center; }
+/* Not `.primary`. Sending a message is the act this page is for and owns the one filled
+   button; bringing a window to the front is a convenience beside it, and two filled
+   buttons an inch apart would make you read both to find out which one talks to the
+   session. Sized to the label's line box, like the mic — wide enough to stay a real tap
+   target, short enough that the row is the height it always was. */
+.win-btn {
+  min-height: 28px;
+  padding: 0 12px;
+  border-radius: 999px; border: 1px solid var(--line);
+  background: var(--surface); color: var(--text);
+  font: inherit; font-size: 12.5px; font-weight: 600; letter-spacing: 0;
+  text-transform: none;
+  cursor: pointer;
+}
+.win-btn:disabled { opacity: 0.5; }
 .session-say { display: flex; gap: 8px; align-items: flex-end; margin-top: 6px; }
 /* Borrowed wholesale from `.composer textarea` rather than restyled: this is the same
    act on the same phone as the bead console's box, and two composers that look
@@ -1981,14 +2079,18 @@ button.work-row {
    lines.
 
    The offset grew when the composer arrived above it: a box, its send button and a line
-   of hint are about 120px that used to be transcript. The floor is what stops a landscape
-   phone — where 100dvh is barely 390px — from computing a negative height and showing
-   nothing at all. */
+   of hint are about 120px that used to be transcript. It grew again by 60 when the
+   window button did — one more label row, and a button on it that is taller than the
+   line of text it sits beside. Both times the number is a measurement, and
+   scripts/say-check.mjs is what measures it: it asserts the pane still ends on the
+   screen of a 393×852 phone, which is the assertion that catches the next thing added
+   here. The floor is what stops a landscape phone — where 100dvh is barely 390px — from
+   computing a negative height and showing nothing at all. */
 .session-page { padding-bottom: 24px; }
 .session-solo { padding-bottom: 0; }
 .session-solo .agent-log {
   max-height: none;
-  height: calc(100dvh - 380px);
+  height: calc(100dvh - 440px);
   min-height: 160px;
 }
 
