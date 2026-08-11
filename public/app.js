@@ -573,26 +573,43 @@
   }
 
   /**
-   * The corner controls an open card carries: the kebab, and collapse — hard right.
+   * The card's own top bar: everything that is *about* the card rather than an
+   * answer to it.
    *
-   * A card only grows these once it is open, because closed it is a row in a list
-   * and has nothing to collapse. Both corners get a way out: the top one is where
-   * your thumb already is when the card opens, the bottom one is where you land
-   * after reading a brief with a diagram and a thread in it.
+   * It used to be the two corner controls an open card grew — the kebab and
+   * collapse — and everything else queued up at the foot instead: the details
+   * toggle, then a bulk approve/decline row, then a full-width primary. Three
+   * full-width buttons under the question, none of which answered it, and the one
+   * that did the work looked exactly like the two that did not.
    *
-   * Everything that is neither reading nor answering lives behind the kebab — the
-   * card is a question, and a third full-width button under the answer box read as
-   * a third way to answer it.
+   * So they come up here. Reading (the details toggle) is hard left; acting on the
+   * whole card (a proposal's bulk approve/decline) is hard right, next to the way
+   * out. The foot keeps only what is genuinely a second body of content — the
+   * session log — and an answer box, when there is one, is then the only full-width
+   * control on the card.
+   *
+   * Two things stay conditional on `open`, because closed the card is a row in a
+   * list: the kebab, and collapse. And an open card does *not* also get a "Hide
+   * details" — collapse is that button, one row to the right of where it would go.
    */
-  function cardTopHtml(q) {
+  function cardTopHtml(q, opts = {}) {
     const on = state.menu === q.key;
+    const open = state.open.has(q.key);
     return `<div class="card-top">
-      <div class="menu-wrap">
+      ${open ? '' : `<button class="top-btn detail" data-act="toggle" data-key="${esc(q.key)}">${esc(
+        opts.detailLabel || 'Show details'
+      )}</button>`}
+      ${propBulkHtml(q)}
+      ${
+        open
+          ? `<div class="menu-wrap">
         <button class="kebab${on ? ' on' : ''}" data-act="menu" data-key="${esc(q.key)}"
           aria-haspopup="true" aria-expanded="${on}" aria-label="More actions">⋮</button>
         ${on ? menuHtml(q.key) : ''}
       </div>
-      <button class="collapse" data-act="collapse" data-key="${esc(q.key)}">↑ Collapse</button>
+      <button class="collapse" data-act="collapse" data-key="${esc(q.key)}">↑ Collapse</button>`
+          : ''
+      }
     </div>`;
   }
 
@@ -663,9 +680,6 @@
     if (!state.picks.has(key)) state.picks.set(key, new Map());
     return state.picks.get(key);
   };
-
-  const approvedIndices = (key, beads) =>
-    beads.map((_, i) => i + 1).filter((n) => picksFor(key).get(n) === 'yes');
 
   /* ------------------------------------------------------------- adjusting */
 
@@ -835,17 +849,15 @@
    * ordinary outcome, and having to decline all three to avoid the two bad ones
    * teaches you to decline everything.
    *
-   * So: approve and decline per row, two bulk controls for when they all point the
-   * same way, and one primary action that says exactly how many it will file. It
-   * paints in place — see paintPicks — because a re-render would rebuild the card
-   * under a decision you are halfway through making.
+   * So: approve and decline per row, and — in the card's top bar rather than under
+   * the rows, see propBulkHtml — the two bulk controls that say exactly how many
+   * each of them will file. It paints in place, see paintPicks, because a re-render
+   * would rebuild the card under a decision you are halfway through making.
    */
   function proposalHtml(q) {
     const beads = q.proposal?.beads || [];
     if (!beads.length) return '';
     const picks = picksFor(q.key);
-    const approved = approvedIndices(q.key, beads);
-    const armed = state.armed === `${q.key}|proposal`;
 
     const rows = beads
       .map((raw, i) => {
@@ -908,40 +920,90 @@
       })
       .join('');
 
-    // Undecided rows are counted, not silently treated as a no: "3 undecided" is the
-    // difference between a considered decline and a half-read card.
-    const undecided = beads.length - [...picks.values()].filter((v) => v === 'yes' || v === 'no').length;
-
     return `<div class="proposal" data-key="${esc(q.key)}">
       <div class="section-label">${beads.length} bead${beads.length === 1 ? '' : 's'} proposed <span>nothing is created until you say so</span></div>
       ${rows}
-      <div class="prop-bulk">
-        <button class="linkish" data-act="pick-all" data-key="${esc(q.key)}" data-pick="yes">Approve all</button>
-        <button class="linkish" data-act="pick-all" data-key="${esc(q.key)}" data-pick="no">Decline all</button>
-        <span class="prop-count">${undecided ? `${undecided} undecided` : ''}</span>
-      </div>
-      <button class="primary prop-go${armed ? ' confirm' : ''}" data-act="pick-submit" data-key="${esc(q.key)}" ${
-        approved.length || undecided === 0 ? '' : 'disabled'
-      }>${propGoLabel(approved.length, beads.length, armed)}</button>
     </div>`;
   }
 
-  /** The primary button says what it will do, including when that is "create nothing". */
-  function propGoLabel(approved, total, armed) {
-    const what = approved === 0 ? 'Decline all — create nothing' : approved === total ? `Create all ${total}` : `Create ${approved} of ${total}`;
-    return armed ? `Tap again to confirm · ${what}` : what;
+  /**
+   * The two bulk controls, in the card's top bar — see cardTopHtml.
+   *
+   * There used to be three buttons at the foot of a proposal: Approve all and
+   * Decline all, which only *marked* every row, and a primary underneath that did
+   * the filing. Two of the three were a way of setting up the third, which is a lot
+   * of screen for one decision. Now the two are the decision: each arms on the first
+   * tap and files on the second, and `state.armed` is the same mechanism every other
+   * two-tap answer in this app uses.
+   *
+   * What each one does, and why they are not symmetrical:
+   *
+   * - **Approve** files everything you have not explicitly declined. That is what
+   *   keeps "2 of 3" reachable with the third button gone — pick ✕ on the one you
+   *   don't want, then approve — and it is why undecided rows are counted rather
+   *   than folded into the declines.
+   * - **Decline** files nothing at all, whatever the rows say. It is the full stop,
+   *   and a full stop that quietly created two beads would be the worst button in
+   *   the app.
+   *
+   * Both name their count before the second tap: the exact number this tap will
+   * create is the one fact the old primary carried that had to survive the move.
+   */
+  function propBulkHtml(q) {
+    const beads = q.proposal?.beads || [];
+    if (!beads.length) return '';
+    const undecided = undecidedCount(q.key, beads);
+    const canApprove = keepIndices(q.key, beads).length > 0;
+    return `<div class="prop-bulk">
+      <span class="prop-count">${undecided ? `${undecided} undecided` : ''}</span>
+      <button class="top-btn bulk approve${state.armed === `${q.key}|prop-yes` ? ' confirm' : ''}"
+        data-act="prop-bulk" data-key="${esc(q.key)}" data-pick="yes" ${canApprove ? '' : 'disabled'}
+        >${propBulkLabel(q.key, beads, 'yes')}</button>
+      <button class="top-btn bulk decline${state.armed === `${q.key}|prop-no` ? ' confirm' : ''}"
+        data-act="prop-bulk" data-key="${esc(q.key)}" data-pick="no"
+        >${propBulkLabel(q.key, beads, 'no')}</button>
+    </div>`;
+  }
+
+  /** Rows an approve would file: everything not explicitly declined. */
+  const keepIndices = (key, beads) =>
+    beads.map((_, i) => i + 1).filter((n) => picksFor(key).get(n) !== 'no');
+
+  /**
+   * Rows you have not answered either way. Counted, not silently treated as a no:
+   * "3 undecided" is the difference between a considered decline and a half-read card.
+   */
+  const undecidedCount = (key, beads) =>
+    beads.length - [...picksFor(key).values()].filter((v) => v === 'yes' || v === 'no').length;
+
+  /** What a bulk button will do, said as a count, armed or not. */
+  function propBulkLabel(key, beads, side) {
+    const total = beads.length;
+    const n = side === 'yes' ? keepIndices(key, beads).length : 0;
+    const armed = state.armed === `${key}|prop-${side}`;
+    const what = n === 0 ? 'create nothing' : n === total ? `create all ${total}` : `create ${n} of ${total}`;
+    if (armed) return `Tap again · ${what}`;
+    if (side === 'no') return total === 1 ? 'Decline it' : `Decline all ${total}`;
+    if (n === total) return total === 1 ? 'Approve it' : `Approve all ${total}`;
+    return `Approve ${n} of ${total}`;
   }
 
   /**
-   * Repaint one proposal in place: row states, the undecided count and the primary
-   * button. Deliberately not a render() — that rebuilds every card in the list, and
+   * Repaint one proposal in place: row states, the undecided count and the two bulk
+   * buttons. Deliberately not a render() — that rebuilds every card in the list, and
    * this runs on every tap.
+   *
+   * Framed on the *card* rather than on `.proposal`, because the bulk controls live
+   * in the card's top bar now and the rows live in the block below it. One query for
+   * the card is what keeps the count and the buttons in step with the ✓/✕ that moved
+   * them.
    */
   function paintPicks(key) {
     const q = byKey(key);
     const beads = q?.proposal?.beads || [];
-    const block = listEl.querySelector(`.proposal[data-key="${CSS.escape(key)}"]`);
-    if (!block || !beads.length) return;
+    const card = listEl.querySelector(`.card[data-key="${CSS.escape(key)}"]`);
+    const block = card?.querySelector('.proposal');
+    if (!card || !block || !beads.length) return;
     const picks = picksFor(key);
 
     for (const row of block.querySelectorAll('.prop-row')) {
@@ -954,17 +1016,16 @@
       }
     }
 
-    const decided = [...picks.values()].filter((v) => v === 'yes' || v === 'no').length;
-    const undecided = beads.length - decided;
-    const approved = approvedIndices(key, beads).length;
-    const count = block.querySelector('.prop-count');
+    const undecided = undecidedCount(key, beads);
+    const count = card.querySelector('.prop-count');
     if (count) count.textContent = undecided ? `${undecided} undecided` : '';
-    const go = block.querySelector('.prop-go');
-    if (go) {
-      const armed = state.armed === `${key}|proposal`;
-      go.textContent = propGoLabel(approved, beads.length, armed);
-      go.classList.toggle('confirm', armed);
-      go.disabled = !(approved || undecided === 0);
+    for (const btn of card.querySelectorAll('.prop-bulk .bulk')) {
+      const side = btn.dataset.pick;
+      btn.textContent = propBulkLabel(key, beads, side);
+      btn.classList.toggle('confirm', state.armed === `${key}|prop-${side}`);
+      // Only the approve side can run out of things to do: decline is always
+      // available, because "create nothing" is always an answer.
+      if (side === 'yes') btn.disabled = keepIndices(key, beads).length === 0;
     }
   }
 
@@ -1687,7 +1748,9 @@
     return `<article class="card${open ? ' open' : ''}${draft ? ' has-draft' : ''}${
       q.awaitingAgent ? ' replied' : ''
     }" id="card-${cardId(q.key)}" data-key="${esc(q.key)}">
-      ${open ? cardTopHtml(q) : ''}
+      ${cardTopHtml(q, {
+        detailLabel: draft ? 'Resume your answer' : hasBrief ? 'Show details' : 'Write an answer',
+      })}
       <div class="card-head">
         <div class="meta">
           <span class="pill">${esc(q.workspace)}</span>
@@ -1706,21 +1769,21 @@
       ${proposalHtml(q)}
       ${deliveryHtml(q)}
       ${options ? `<div class="options">${options}</div>` : ''}
-      <div class="actions">
-        <button class="linkish" data-act="toggle" data-key="${esc(q.key)}">
-          ${open ? 'Hide details' : draft ? 'Resume your answer' : hasBrief ? 'Show details' : 'Write an answer'}
-        </button>
-        ${
-          // While an agent has it, or for as long as its pane is open: the reply can
-          // land while you are still reading the log, and a pane whose button has
-          // gone with the flag that drew it is one you can no longer close.
-          q.awaitingAgent || state.logs.has(q.key)
-            ? `<button class="linkish log-btn" data-act="log" data-key="${esc(q.key)}">${
-                state.logs.has(q.key) ? 'Hide session log' : 'Session log'
-              }</button>`
-            : ''
-        }
-      </div>
+      ${
+        // The foot is down to one thing, and it is a body of content rather than a
+        // control: the details toggle is in the top bar and the log is the only
+        // button left that opens a second pane on the card. Drawn only while an
+        // agent has it, or for as long as its pane is open — the reply can land
+        // while you are still reading the log, and a pane whose button has gone
+        // with the flag that drew it is one you can no longer close.
+        q.awaitingAgent || state.logs.has(q.key)
+          ? `<div class="actions">
+        <button class="linkish log-btn" data-act="log" data-key="${esc(q.key)}">${
+          state.logs.has(q.key) ? 'Hide session log' : 'Session log'
+        }</button>
+      </div>`
+          : ''
+      }
       ${
         state.logs.has(q.key)
           ? `<pre class="agent-log" data-log="${esc(q.key)}">${esc(state.logText.get(q.key) || 'opening the log…')}</pre>`
@@ -2001,7 +2064,7 @@
   function agentCardHtml(q) {
     const open = state.open.has(q.key);
     return `<article class="card agent-card" id="card-${cardId(q.key)}" data-key="${esc(q.key)}">
-      ${open ? cardTopHtml(q) : ''}
+      ${cardTopHtml(q)}
       <div class="card-head">
         <div class="meta">
           <span class="pill">${esc(q.workspace)}</span>
@@ -2020,7 +2083,6 @@
         }
       </div>
       <div class="actions">
-        <button class="linkish" data-act="toggle" data-key="${esc(q.key)}">${open ? 'Hide details' : 'Show details'}</button>
         <a class="linkish" href="${esc(graphUrl(q))}" target="_blank" rel="noopener noreferrer">Graph →</a>
       </div>
       <div class="brief"${open ? '' : ' hidden'}>${open ? agentBriefHtml(q) : ''}</div>
@@ -2383,6 +2445,15 @@
       const armed = state.armed === `${btn.dataset.key}|dismiss`;
       btn.classList.toggle('confirm', armed);
       btn.textContent = dismissLabel(btn.dataset.key, btn.dataset.id, armed);
+    }
+    // A proposal's two bulk buttons are armable the same way, and they are the only
+    // armed control in the app that also *creates* something — a stale "Tap again"
+    // on one of them is the one worth least leaving on screen.
+    for (const btn of listEl.querySelectorAll('.prop-bulk .bulk')) {
+      const beads = byKey(btn.dataset.key)?.proposal?.beads || [];
+      if (!beads.length) continue;
+      btn.textContent = propBulkLabel(btn.dataset.key, beads, btn.dataset.pick);
+      btn.classList.toggle('confirm', state.armed === `${btn.dataset.key}|prop-${btn.dataset.pick}`);
     }
   }
 
@@ -3696,20 +3767,21 @@
       return;
     }
 
-    if (act === 'pick-all') {
-      const q = byKey(key);
-      const picks = picksFor(key);
-      (q?.proposal?.beads || []).forEach((_, i) => picks.set(i + 1, btn.dataset.pick));
-      disarm();
-      paintPicks(key);
-      return;
-    }
-
-    if (act === 'pick-submit') {
+    /**
+     * The bulk answer: approve what you have not declined, or decline the lot.
+     *
+     * Both sides come through here because both *are* the same answer with a
+     * different set — which is what let the third button go. See propBulkHtml for
+     * why they are not symmetrical: `yes` files everything not explicitly declined,
+     * `no` files nothing whatever the rows say.
+     */
+    if (act === 'prop-bulk') {
       const q = byKey(key);
       const beads = q?.proposal?.beads || [];
-      const approved = approvedIndices(key, beads);
-      const token = `${key}|proposal`;
+      if (!beads.length) return;
+      const side = btn.dataset.pick;
+      const approved = side === 'yes' ? keepIndices(key, beads) : [];
+      const token = `${key}|prop-${side}`;
       if (state.armed !== token) {
         // The same two taps every other answer needs. This one creates beads.
         state.armed = token;
@@ -3720,6 +3792,7 @@
           paintArmed();
         }, 6000);
         paintPicks(key);
+        paintArmed();
         return;
       }
       disarm();

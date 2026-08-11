@@ -1008,10 +1008,17 @@ body {
 .edit-field textarea { resize: vertical; min-height: 60px; }
 .edit-row { display: flex; gap: 10px; }
 .edit-row .edit-field.small { flex: 1; }
-.prop-bulk { display: flex; align-items: center; gap: 14px; padding: 10px 0 12px; border-top: 1px solid var(--line); }
-.prop-count { margin-left: auto; font-size: 12px; color: var(--warn); }
-.prop-go { width: 100%; }
-.prop-go.confirm { background: var(--warn); color: var(--accent-ink); }
+/*
+  A proposal's two bulk controls, which live in the card's top bar — see .card-top
+  and public/app.js's propBulkHtml. They used to be a row under the last proposed
+  bead with a full-width primary beneath them; the count that primary carried is on
+  the buttons themselves now, so this is a group that has to stay readable at any
+  width rather than a row that owns one.
+*/
+.prop-bulk { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; }
+/* Warn-coloured because it is the one thing on the bar arguing against tapping
+   either button yet: rows you have not read are not the same as rows you declined. */
+.prop-count { font-size: 12px; color: var(--warn); }
 
 /* ---- delivery: a worker handing back a pull request -------------------- */
 
@@ -1419,14 +1426,47 @@ body {
 }
 
 /*
-  An open card's corner controls, hard right in both corners: the ⋮ and, beside it,
-  the way out. Right because that is the side a thumb reaches on a phone, and the
-  same side in both corners so collapsing is one habit rather than two.
+  The card's top bar. Reading on the left, acting on the right — and on an open card
+  the ⋮ and the way out beyond that, hard right because that is the side a thumb
+  reaches on a phone and the same side in both corners, so collapsing is one habit
+  rather than two.
+
+  It wraps rather than shrinking: at 393px a three-bead proposal's two bulk buttons
+  and the details toggle do not fit on one line, and a bar that squeezed them would
+  clip a label whose whole job is to say how many beads the next tap creates.
 */
-.card-top { display: flex; justify-content: flex-end; align-items: center; gap: 8px; padding: 12px 15px 0; }
+.card-top {
+  display: flex; flex-wrap: wrap;
+  justify-content: flex-end; align-items: center;
+  gap: 8px;
+  padding: 12px 15px 0;
+}
+/* Hard left, and the only thing on the bar that is about reading the card. */
+.card-top > .detail { margin-right: auto; }
 /* The head brings its own top padding; with a row above it that reads as a gap. */
 .card-top + .card-head { padding-top: 6px; }
 .agent-card .card-top { padding: 10px 14px 0; }
+
+/*
+  Everything on the bar is this button: smaller than a `.linkish` because it is
+  chrome rather than an answer, and pill-shaped like `.collapse` beside it. Still a
+  real target — 38px with the bar's own padding around it clears a thumb.
+*/
+.top-btn {
+  min-height: 38px;
+  padding: 0 14px;
+  border: 1px solid var(--line); border-radius: 999px;
+  background: transparent; color: var(--muted);
+  font: inherit; font-size: 13px; font-weight: 550;
+  cursor: pointer;
+  white-space: nowrap;
+}
+/* The one that files beads reads as the affirmative of the pair; the decline stays
+   quiet, because "create nothing" is the safe half and does not need arguing for. */
+.top-btn.approve { color: var(--text); border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
+/* Armed, both of them: the same amber every other second tap in this app wears. */
+.top-btn.confirm { background: var(--warn); color: var(--accent-ink); border-color: var(--warn); }
+.top-btn[disabled] { opacity: 0.45; cursor: default; }
 
 .kebab {
   flex: none;

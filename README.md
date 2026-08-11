@@ -120,10 +120,11 @@ otherwise its poller would keep firing notifications with no listener behind the
   Tailscale IP, never `0.0.0.0`; the backends behind it bind loopback only.
 - **The tailnet address is HTTPS**, with a real certificate for your MagicDNS name and
   a TLS 1.2 floor — once *HTTPS Certificates* is enabled for the tailnet. Until then it
-  logs why and serves plain http. Loopback is plain http on purpose. The daemon
-  [renews the certificate under itself](#renewing-it-before-it-expires) and pushes to
-  your phone if it ever cannot, and the **Admin screen** turns it on, says what it will
-  cost and hands you the new pairing code — see
+  logs why, serves plain http, and keeps asking: a certificate that turns up later goes
+  onto the socket it is already holding, with no restart. Loopback is plain http on
+  purpose. The daemon [renews the certificate under itself](#renewing-it-before-it-expires)
+  and pushes to your phone if it ever cannot, and the **Admin screen** turns it on, says
+  what it will cost and hands you the new pairing code — see
   [the switch on the Admin screen](#the-switch-on-the-admin-screen) and
   [HTTPS on the tailnet name](#https-on-the-tailnet-name).
 - **Two credentials, and the token is not going anywhere.** Everything that is not a
@@ -336,6 +337,7 @@ interrupt you*:
     "quietDays": ["sat", "sun"],
     "ntfyDetail": "minimal",
     "autoDispatch": false,
+    "autoEndorse": false,
     "autoMerge": false,
     "requireApproval": true }
 ]
@@ -445,10 +447,11 @@ question you were told about and cannot find.
 Every setting a space has is one you used to change by opening `~/.beadcause/config.json`
 in an editor, on the Mac, with the daemon running. That was fine while a space was two
 lines of quiet hours written once. It stopped being fine when a space became the unit
-that decides whether an unattended agent may answer a comment (`autoDispatch`) and
-whether a worker merges its own pull request without asking you (`autoMerge`,
-`requireApproval`) — because the moment you know one of those is set wrong is the moment
-you are looking at what it did, on a phone, at the weekend.
+that decides whether an unattended agent may answer a comment (`autoDispatch`), whether a
+bead an agent filed may be worked before you have read it (`autoEndorse`), and whether a
+worker merges its own pull request without asking you (`autoMerge`, `requireApproval`) —
+because the moment you know one of those is set wrong is the moment you are looking at
+what it did, on a phone, at the weekend.
 
 So **`/monitor` is the details of the space the picker has selected**, and its settings
 are on it:
@@ -467,6 +470,7 @@ are on it:
 │      Quiet days                     sat, sun │
 │      Push detail             inherited · full│
 │      Agents may answer unasked          off  │
+│      Beads agents file arrive endorsed   on  │
 │      Workers merge their own PRs         on  │
 │      An approving review first  inherited·off│
 │  ▸ WHAT EACH REPO RESOLVES TO            3   │
@@ -486,10 +490,10 @@ editing the config file for.
 **Three shapes of control, and the shape is the shape of the answer.** `Muted` is
 two-state, because there is no global mute behind it and a third button would be a
 lie. Quiet hours and quiet days are a pair of clocks and a row of days, each clearable,
-because "no quiet hours" is a state you have to be able to get back to. The four with a
-global default behind them — push detail, agents-may-answer, auto-merge,
-approval-first — are **three**-state: On, Off, and *Inherit*, which names what it
-currently resolves to. That third button is not a nicety: `prPolicyFor` is explicit
+because "no quiet hours" is a state you have to be able to get back to. The five with a
+global default behind them — push detail, agents-may-answer, filings-arrive-endorsed,
+auto-merge, approval-first — are **three**-state: On, Off, and *Inherit*, which names what
+it currently resolves to. That third button is not a nicety: `prPolicyFor` is explicit
 that a space may override the global in *either* direction, so "off" and "following a
 default that is currently off" are different answers, and only one of them survives the
 default changing.
@@ -498,7 +502,7 @@ default changing.
 not the last word on two of these settings: `ntfy.minimalWorkspaces` and
 `autoDispatchExclude` are per-repo lists that outrank it, so a space set to `full` can
 contain one repo that pushes minimally. The panel runs every workspace in the space
-through the same four resolvers the daemon itself uses and prints the answers, because
+through the same resolvers the daemon itself uses and prints the answers, because
 a screen showing only the space's own setting would be quietly wrong about exactly the
 repo somebody had singled out — and wrong in the direction of promising more detail on
 your phone than you are going to get.
@@ -625,6 +629,29 @@ its way out of. Both of these are ordinary policy, and only a default a space ca
 override in either direction expresses the two setups that motivated it: on everywhere
 except the shared repo, and off everywhere except the side project. A space that says
 nothing inherits, and a config with no spaces at all behaves exactly as it always did.
+
+**And a space decides whether the endorsement tap is a review or a formality.**
+`autoEndorse: true` files the beads agents discover in that space *without* the
+[`unendorsed` hold](#the-endorsement-queue--a-group-tap-or-a-row-at-a-time): they are
+ready work the moment they exist, an advocate queues them on its next tick, and you read
+them afterwards instead of before. The case for it is the repo where the only reader of
+the tracker is the person who would have pressed Endorse — there the tap is not a review,
+it is a delay with a notification attached.
+
+It is the one setting here that is **off unless you ask for it in as many words**
+(`cfg.autoEndorse === true`, not `!== false`), because it is the only one whose worst case
+is an unattended session on work nobody has read. Everything else on the bead is
+unchanged: the P2 ceiling still applies, `agent-filed` still goes on, the
+`discovered-from` edge still points back at the work that found it, and the bead's own
+notes say plainly that nobody read it before it became workable. With the hold gone that
+provenance is the whole of the audit, so it is not optional — `bd list --label
+agent-filed` is how you see what arrived while you were asleep.
+
+| on a space | what it does |
+|---|---|
+| `"autoEndorse": true` | discoveries filed there are ready work immediately, even where the global says no |
+| `"autoEndorse": false` | they are held for your tap, even where the global says yes |
+| unset | follows the global `autoEndorse`, which is `false` unless you changed it |
 
 `npm run configure` walks you through it. Run it **in a terminal** — it needs one to
 ask questions. Anywhere else (a pipe, CI, an agent shell) it prints the current
@@ -1558,6 +1585,35 @@ into another's memory it would be indistinguishable from the other agent having
 written it. It is the *foundation's* id, so `answerer` and `critic` — who share the
 dispatch foundation — share what dispatch has learned. Memory belongs to the thing
 that has a definition, which is the same boundary the amendment loop draws.
+
+### The one agent nobody spawns
+
+Three of the four are a `spawn` from the daemon, so `agentEnv` hands them an env
+object and that is the whole of it. The worker — the agent that does every piece of
+code work here — is not one of them. `launch` in `lib/session.js` writes a *command
+string*, hands it to `osascript`, and iTerm types it into a **fresh login shell**:
+nothing in the daemon's own environment crosses that gap, so an env object passed to
+`osascript` reaches osascript and stops. The exports have to be **in the line**, which
+is what `agentExports` renders — the same three decisions as `agentEnv`, written for a
+shell instead of for `execve`, with `BEADCAUSE_AGENT` emitted last because a later
+`export` wins exactly the way a later key in an object literal does.
+
+It is worth saying what the missing half looked like, because it was invisible from
+every direction. For one release the worker's launch read its foundation and took two
+fields off it — the model and the permission mode — and applied neither the role nor
+the environment. So `beadcause-memory` was not on the sessions' PATH, and had it been,
+every write would have failed for want of an agent to write as. The agents doing all
+the code work were the only ones that could not reach the store, and from outside that
+is indistinguishable from them having nothing to say.
+
+The role travels the same way and had the same gap. A worker's is delivered as a
+**system prompt** (`--append-system-prompt-file`, the way the chat session's is) rather
+than folded into the brief the way dispatch and advocate fold theirs: a work session
+runs for as long as the work takes, and what it *is* has to still be in front of it on
+the fortieth turn rather than buried under forty turns of a task. The memory brief is
+quoted after it, from the one copy in `lib/memory.js` — which means an amendment to
+`role` can change what a work session is without being able to delete the paragraph
+that tells it it has a memory at all.
 
 ### Which of the two, and the one question that decides it
 
@@ -3252,6 +3308,14 @@ That trade only holds up if the other end of it exists. Until this screen the he
 beads were a muted pill on the advocate console reading `3 held for endorsement` —
 a number with no door behind it, and no way at all to see which three from a phone.
 
+**A space can opt out of this screen entirely**, and it is worth knowing before you read
+the rest of it: `autoEndorse` on the space
+([above](#spaces--keeping-work-out-of-your-evening)) files without the hold, so those
+workspaces' discoveries never appear in this queue at all — they go straight to `bd ready`
+and the advocate picks them up. Off unless you ask for it, per space, and the bead still
+says on its face that nobody read it first. The queue below is what happens everywhere
+else, which is everywhere by default.
+
 **`/endorse` is the door** (`/queue` and `/endorsements` reach the same page). One
 list, every workspace at once, newest first, narrowed by the space picker in the top
 bar like every other standing view.
@@ -3470,15 +3534,31 @@ description, what done looks like, and how it found it. Nothing is created until
 say so. Approving runs `bd create` for each, labelled `advocate`, and the answer
 comes back with the new ids in it.
 
-**Each bead gets its own ✓ and ✕, and there are bulk controls above them.** A
+**Each bead gets its own ✓ and ✕, and the bulk controls are in the card's top bar.** A
 proposal is *n* decisions that happen to arrive together, and flattening them into
 all-or-nothing is what makes an agent's suggestions annoying: one good bead in three
 is an ordinary outcome, and having to decline all three to avoid the two bad ones
 teaches you to decline everything. So the card draws a row per bead — approve,
-decline, or leave it undecided — with **Approve all** / **Decline all** beside an
-undecided count, and one primary button that says exactly what it will do (*"Create 2
-of 3"*). Two taps to commit, like every other answer here. The YAML block no longer
-renders on the phone at all; it is parsed out and drawn as those rows.
+decline, or leave it undecided — and **Approve** / **Decline** sit up in the top bar
+beside an undecided count, hard right of the details toggle. Two taps to commit, like
+every other answer here. The YAML block no longer renders on the phone at all; it is
+parsed out and drawn as those rows.
+
+**There is no third button, and the two that are left are not symmetrical.** The card
+used to end in three full-width buttons — the two bulk ones, which only *marked* every
+row, and a primary underneath that did the filing. Two of them existed to set up the
+third, which is a lot of a phone screen for one decision, and none of the three
+answered the question they sat under. So the bulk pair took the primary's job: each
+arms on the first tap and files on the second. **Approve** files everything you have
+not explicitly declined, which is what keeps *"Approve 1 of 2"* reachable with the
+primary gone — ✕ the one you don't want, then approve. **Decline** files nothing at
+all whatever the rows say; it is the full stop, and a full stop that quietly created
+two beads would be the worst button in the app. Both name their count before the
+second tap (*"Tap again · create 2 of 3"*, *"Tap again · create nothing"*), because
+the exact number the next tap files is the one thing the old primary carried that had
+to survive the move. Undecided rows are still counted rather than folded into the
+declines: *"3 undecided"* is the difference between a considered decline and a
+half-read card.
 
 **Each row is the whole record, not a summary of one.** The number sits in a gutter
 and the body hangs off it, so the column reads as a numbered list of beads. Under the
@@ -3493,15 +3573,17 @@ an argument for the bead and not part of it. A long row starts folded with a **S
 the rest** under it, so three proposals still fit on a screen — a fold and not a
 clamp, because a clamp cuts a list mid-item and offers no way to see the rest.
 Unfolding touches that one row and nothing else: the picks you have already made, and
-the primary button's count, are exactly where you left them.
+the count on the approve button, are exactly where you left them.
 
 `node scripts/proposal-check.mjs` checks that: headless Chrome at phone size driving
 the real `public/app.js` against a proposal built by `lib/proposal.js` and parsed back
 by `lib/decision.js`, so the fixture is a round trip and it never touches a bead. It
 asserts the lists render as lists under their labels, that every field appears, that
 the body lines up under the title, that a long row folds and a short one is left
-alone, that unfolding leaves the picks and the button untouched — and that a poll
-does not fold the row back up under you. `--baseline` serves `HEAD:public/app.js`
+alone, that unfolding leaves the picks and the button untouched, that the bulk pair
+is in the top bar with no third button under the rows, and that each of them arms,
+disarms the other and says its own count — and that a poll does not fold the row back
+up under you. `--baseline` serves `HEAD:public/app.js`
 and `HEAD:public/style.css` instead of the working copy, which is how you tell a real
 failure from a flaky one. `--out=<dir>` writes a screenshot of each state.
 
@@ -5551,23 +5633,43 @@ TLS certs", and beadcause says so in the log and **serves plain http exactly as
 before** — a daemon that refused to boot over a certificate would take the inbox down
 for a feature nobody had asked for yet.
 
-**Switching it on is two steps, and the second one is the one people miss.** The click
-changes the tailnet; it does not reach into a daemon that is already running. Both steps
-are on [the switch on the Admin screen](#the-switch-on-the-admin-screen) if you are
-holding a phone rather than sitting at the Mac. The
-certificate is fetched by whichever process owns port 4318 — the router — and it is
-fetched *once, at boot*, so a daemon that came up before the switch was flipped keeps
-serving plain http indefinitely and every URL it prints stays honest about that.
-Restart the service (`launchctl kickstart -k gui/$(id -u)/m4m.beadcause`); the boot
-after that logs `certificate for <name> — 90 days left` and rewrites `baseUrl` to the
-`https://` name. Two things about the first fetch specifically: it can fail with
-`CreateOrder: 404 … Certificate not found` when the tailnet's new certificate
-permission has not finished propagating to Let's Encrypt — **run `tailscale cert
-<name>` again and it succeeds**, usually within a minute of the click — and because the
-fetch only happens at boot, a restart that lands inside that window gets plain http and
-will not try again on its own until the next restart. If the log says plain http and
-`tailscale cert` works by hand, that is the order things happened in, not a
-misconfiguration.
+**Switching it on is one step, and you can watch it land.** The click changes the
+tailnet, which cannot reach into a daemon that is already running — so the daemon goes
+looking. The certificate belongs to whichever process owns port 4318 — the router — and
+that process comes up with a socket that can be *given* one later: plain http behind the
+same one-byte sniffing front TLS sits behind, and a check **every minute** for a
+certificate to put on it. So within about a minute of the click the log says
+
+```
+[beadcause] tls  adopted a certificate for mac.tailnet.ts.net without a restart — 89.9
+                 days left; https from the next connection
+```
+
+`baseUrl` moves to the `https://` name in the same breath, port 4318 is never let go of,
+and nothing open is dropped. [The switch on the Admin
+screen](#the-switch-on-the-admin-screen) is the same thing from a phone.
+
+**It used to be two steps, and this is what went wrong with the first fetch.** A
+`tailscale cert` run seconds after the click can fail with `CreateOrder: 404 …
+Certificate not found`, because the tailnet's new certificate permission has not finished
+propagating to Let's Encrypt — and the identical command a moment later writes the pair.
+The fetch used to happen *once, at boot*, so a restart landing inside that window bought
+plain http until somebody restarted the service again, with a perfectly good certificate
+available the whole time. That is what the retry above exists for (bc-ij1e), and it is
+also why the ask **backs off** — a minute, two, four, doubling to six hours — rather than
+knocking on Let's Encrypt once a minute for a year on a tailnet that is never going to
+issue one. Between asks the check is two file reads, which is what catches a certificate
+some *other* process wrote: the Admin switch fetches into
+`~/.config/beadcause/tls/` from a backend, and the router picks it up on the next tick.
+
+If it truly cannot get one it says so on your phone — once, not daily, because plain http
+is a supported configuration and not an outage:
+
+```
+[beadcause] tls  STILL NO CERTIFICATE — serving plain http on the tailnet address:
+                 your Tailscale account does not support getting TLS certs
+[beadcause] tls  fix it by hand: tailscale cert mac.tailnet.ts.net
+```
 
 **Terminated in the daemon, not by `tailscale serve`.** Fronting it with Tailscale's
 own proxy would be less code and the same certificate, but then the protocol floor
@@ -5617,9 +5719,10 @@ failing somewhere you would have to be at the Mac to read.* The **HTTPS** card a
 bottom of `/admin` is that switch, and it says the three things the log cannot.
 
 **What is true now.** The setting, the certificate's name and how many days are left on
-it, and — separately — what is on the socket. Those last two are apart exactly between
-pressing the switch and restarting the daemon, which is the window in which somebody is
-actually reading this screen. A certificate inside the renewal loop's alarm window is
+it, and — separately — what is on the socket. Those last two are apart for about a minute
+after pressing the switch, until the process that owns the port adopts what this one
+fetched, which is the window in which somebody is actually reading this screen. A
+certificate inside the renewal loop's alarm window is
 marked rather than merely printed, using the same two thresholds the push uses, so the
 screen cannot call "fine" something your phone is being nagged about.
 
@@ -5645,11 +5748,14 @@ switch again once the tailnet is fixed and it asks for the certificate again —
 says whether it worked without restarting anything to find out.
 
 **It writes the setting before it fetches.** A fetch that fails leaves `tls.enabled:
-true` on disk on purpose: the intent is recorded, and the next restart after the tailnet
-is fixed picks a certificate up without anybody coming back to this screen. And it binds
-nothing — TLS is decided when the listener is created, so the card says plainly that the
-restart is what makes it true, and gives the command. Turning it off keeps the
-certificate where it is; only the setting moves.
+true` on disk on purpose: the intent is recorded, and the daemon picks a certificate up
+once the tailnet is fixed without anybody coming back to this screen. And it binds
+nothing — this is a *backend*, and the port belongs to the router — but it no longer has
+to: a pair written into `~/.config/beadcause/tls/` here is on the router's socket about a
+minute later, so the card's `restart needed` turns itself off rather than being a chore
+it hands you. It is still shown for the case it is still true of — turning HTTPS *off*,
+which a listener already terminating TLS cannot do without being rebound. Turning it off
+keeps the certificate where it is; only the setting moves.
 
 `GET /api/tls` is the same picture for anything else that wants it, and is cheap enough
 to poll: two file reads, a certificate parse and a memoised MagicDNS name, and it never
@@ -5677,12 +5783,15 @@ to a port serving plain HTTP is a TLS parse error with nothing on screen, and it
 be generated precisely on the machines that cannot fix it. So the address is not a
 fallback so much as the honest answer to what the daemon is actually serving.
 
-The move happens on its own, in two places. Every `loadConfig()` — so every `npm run
+The move happens on its own, in three places. Every `loadConfig()` — so every `npm run
 qr`, every `--url`, every `beadcause-ask` — reads the cached certificate off disk and
-builds the URL from it; that costs nothing and never fetches. And the daemon asks again
-straight after `listen()`, because that is the one moment a certificate can *appear*:
-the first boot after you switch HTTPS on obtains one, and the config is rewritten then
-so the next `npm run qr` in a different process agrees. A saved `baseUrl` only moves if
+builds the URL from it; that costs nothing and never fetches. The daemon asks again
+straight after `listen()`, because that is one moment a certificate can *appear*: the
+first boot after you switch HTTPS on obtains one, and the config is rewritten then so the
+next `npm run qr` in a different process agrees. And it asks a third time at the other
+such moment — when a listener that came up on plain http
+[adopts a certificate under itself](#renewing-it-before-it-expires), minutes or hours
+later, with no restart in between. A saved `baseUrl` only moves if
 this repo generated it — a Tailscale address, loopback, or a `.ts.net` name. A real
 domain, a LAN address or a proxy is yours and is never rewritten.
 
@@ -5747,6 +5856,25 @@ Two details worth knowing if you ever debug this:
   yours). It is what lets `test/certrenew.mjs` drive the whole renewal against
   certificates it mints itself instead of asking Let's Encrypt for a real one every time
   somebody runs the suite.
+
+**And the same machinery gets the *first* certificate, which is the half that used to be
+missing.** A listener that could not fetch one at boot is not a plain-http listener with
+nothing watching it: it is a **provisional** one — plain http behind the same
+`net.Server` that TLS sits behind — and the loop above runs on a one-minute clock instead
+of a six-hour one until there is something to serve. When there is, it goes on through
+the same `setSecureContext`, so adopting a first certificate costs exactly what renewing
+one costs: nothing rebound, nothing dropped, and `baseUrl` moved onto the name in the same
+breath. `test/certrenew.mjs` drives it as the sequence that produced the bug — a first
+`tailscale cert` that refuses, then a second that works — and checks that the port it
+answers https on is the same port it was answering plain http on a moment before.
+
+Two ways it does *not* behave like the renewal loop, both deliberate. The asks **back
+off** (a minute, two, four, doubling to six hours) because a machine whose tailnet will
+never issue a certificate must not ask Let's Encrypt about it once a minute forever, and
+failed-validation limits there are per hour. And "there is still no certificate" is pushed
+**once** rather than daily: a tailnet without *HTTPS Certificates* is a configuration this
+repo supports, so the first notification is news and the ninetieth is not — unlike a
+renewal that is failing, which is an outage with a date on it.
 
 ## Signing in with Google
 
@@ -6137,6 +6265,7 @@ the fields it always read and renders exactly as it did.
 | `autoDispatch` | commenting spawns an unattended agent to reply (default `true`) |
 | `autoDispatchExclude` | workspaces that never auto-dispatch — put shared trackers here |
 | `autoDispatchTimeoutMs` | kill a dispatched agent after this long (default 10 min) |
+| `autoEndorse` | beads an agent files itself arrive **endorsed** — workable, queued, launchable — instead of held for your tap (default `false`). The one policy default here that is the restrictive one, and the only one that needs a literal `true`: its worst case is an unattended session on work nobody has read. Set it **per [space](#spaces--keeping-work-out-of-your-evening)** rather than here; the P2 ceiling, `agent-filed` and the `discovered-from` edge all still go on either way |
 | `pr.enabled` | land finished work as [a pull request the worker merges](#landing-work--a-branch-a-pull-request-and-the-workers-own-merge) (default `true`). `false` puts every workspace back on the oldest ending — work the bead, close the bead. A workspace with no `gh` or no GitHub remote gets that ending anyway, without needing to be named |
 | `pr.base` | what a PR is opened against and merged into (default `main`) |
 | `pr.mergeMethod` | `merge` (default), `squash` or `rebase`. A merge commit because a squash-merged branch is never an ancestor of `main`, and the worktree cleanup will not remove a worktree that fails that test |
@@ -6462,7 +6591,7 @@ script that answers `status --json` and mints certificates with `openssl`, so wh
 is the real `obtain()` — the same `spawnSync`, the same "the files decide whether this
 worked" rule — against a certificate authority the test made up. Its `refuse` mode is the
 actual failure, reproduced faithfully: stderr gets a 500, and the exit code is **0**.
-Four things are held. A certificate with months left costs nothing (asserted as *no
+Five things are held. A certificate with months left costs nothing (asserted as *no
 calls to tailscale at all*, not as a fast return). A renewal that fails keeps the working
 certificate on the socket, says `CERTIFICATE NOT RENEWING` in the log with the fixing
 command beside it, and pushes **once** across six checks rather than once per check. A
@@ -6472,6 +6601,16 @@ refusing 1.1, and **a WebSocket opened before the swap still echoing a message a
 it**, which is the acceptance criterion no amount of reading the code proves. And behind
 the router, where the listener is loopback-only plain http, the whole thing is a no-op
 that starts no timer.
+
+The fifth is the one that has to hold a *sequence* rather than a state, and it is bc-ij1e:
+a listener built with no certificate at all serves plain http on a real port (not a
+redirect, and not a dead socket — a client that guesses `https` there is destroyed rather
+than shown something untrue), keeps asking while the tailnet refuses, pushes `absent`
+once with Tailscale's own sentence on it, and then — `refuse` flipped to `days=90`, the
+one command that failed a moment ago now working — adopts it. What is asserted after that
+is the whole point of the design: the front is still listening **on the same port
+number**, https answers there, and the plain http that was being served a moment before is
+now a 307 to the certificate's name.
 
 `test/service.mjs` covers whether anything notices that launchd is running the wrong
 program — the [three-day bug](#the-router--why-you-never-restart-it) — in two halves.
