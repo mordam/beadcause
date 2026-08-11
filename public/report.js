@@ -18,6 +18,10 @@
   4. **Any `toast(msg, true)`.** If the app thought a failure was worth a red bar across
      the screen, it is worth a bead. This is the one that needed the four copied `toast`
      functions to grow a line each; the other three are wired here and nowhere else.
+  5. **Anything the service worker hit** (bc-u3g4). Added last and lost worst: public/sw.js
+     runs in its own global and none of the four above can reach into it, so the shell
+     failing to cache on install was silent for as long as that worker lived. It notices
+     and relays; this file is what sends. See the `service worker` section below.
 
   **It is additive, and that is a hard constraint rather than a nicety.** The toast still
   appears, unchanged, whether or not a report can be sent — so everything below is inside
@@ -76,6 +80,9 @@
 
   /** Where the pages keep the daemon token. The same key `api()` reads in every page. */
   const TOKEN_KEY = 'beadcause.token';
+
+  /** What public/sw.js relays its own failures under. Changing it means changing both. */
+  const SW_MESSAGE = 'beadcause:sw-error';
 
   /** The window the cap is measured over, and how many reports may leave inside it. */
   const WINDOW_MS = 60 * 1000;
@@ -473,6 +480,44 @@
     if (url.pathname === ENDPOINT) return null;
     const method = String(init?.method || (typeof input === 'object' && input?.method) || 'GET').toUpperCase();
     return { method, path: url.pathname };
+  }
+
+  /* ----------------------------------------------------------- service worker */
+
+  /**
+   * The one part of this app that none of the above can see (bc-u3g4).
+   *
+   * public/sw.js runs in its own global: its own `self.onerror`, no `window`, no
+   * `localStorage` to read the token out of, and no page scripts. Nothing above catches
+   * anything that happens in there, and what happens in there is the shell failing to
+   * cache and a response failing to be stored — failures that look like a slow app and
+   * survive a reload.
+   *
+   * So the worker notices and this end sends. Everything a report costs is spent here,
+   * unchanged: the cap, the cooldown, the deploy quiet window, the scrub, the token.
+   * The worker holds none of that and needs none of it, which is the point of the split
+   * — see the long comment at the top of the reporting block in sw.js.
+   *
+   * **`startMessages()` is load-bearing, not defensive.** A message posted to a page is
+   * queued until that page's message channel is started, and setting `onmessage` starts
+   * it implicitly while `addEventListener` does *not*. Without the call this listener is
+   * correct, registered, and never fires — which is the precise failure this whole file
+   * exists to stop, wearing the costume of a feature that works.
+   */
+  try {
+    const sw = window.navigator?.serviceWorker;
+    if (sw && typeof sw.addEventListener === 'function') {
+      sw.addEventListener('message', (event) => {
+        const data = event?.data;
+        if (!data || data.type !== SW_MESSAGE) return;
+        // No `source`: the worker deliberately sends none, so the daemon fingerprints on
+        // the stack's own frame or on the message. See `report` in sw.js.
+        report('sw', { message: data.message, stack: data.stack });
+      });
+      sw.startMessages?.();
+    }
+  } catch {
+    /* a browser with no service worker is a browser with no worker to hear from */
   }
 
   /* -------------------------------------------------------------------- toast */

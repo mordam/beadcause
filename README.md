@@ -4430,7 +4430,7 @@ way to see that a bug has been moving around a file for three weeks.
 ### The reporter on the page, and the six beads it refuses to file
 
 `public/report.js` is the caller. One file, loaded ahead of every other script on every
-page, and it watches four things — three of which nothing was watching:
+page, and it watches five things — four of which nothing was watching:
 
 | It sees | Which was previously |
 |---|---|
@@ -4438,6 +4438,7 @@ page, and it watches four things — three of which nothing was watching:
 | `unhandledrejection` | nothing at all, and worse: silent even in a console, on a phone that has none |
 | a **failed fetch** | what most errors here actually are — the daemon is on a tailnet address and the phone is on a train |
 | any **`toast(msg, true)`** | a red bar for five seconds. If it was worth showing red, it is worth a bead |
+| anything the **service worker** hit | nothing at all, and invisible from here by construction — see [the one part of the app the page cannot see](#the-one-part-of-the-app-the-page-cannot-see) |
 
 The toast is the one that needed the four copies to grow a line each, and they grew the
 same line: `if (bad === true) window.beadcause?.report?.toast?.(msg)`, **last** in the
@@ -4499,6 +4500,68 @@ thirty seconds. A render loop that throws on every frame files a handful and sto
 cap lives next to the reporting because it is eight lines and needs no clock of its own;
 the other half of bc-p38c.3, the quiet window across a deploy, could not — see the next
 section for where it went and why.
+
+### The one part of the app the page cannot see
+
+Everything above is a page watching itself, and `public/sw.js` is not on the page. A
+service worker runs in its own global — its own `self.onerror`, no `window`, no
+`localStorage`, and none of the twelve `<script>` tags that put a reporter on every
+screen. So the piece of the app whose failures are hardest to notice was, until bc-u3g4,
+the only piece with nothing watching it at all:
+
+| What went wrong in there | What you saw |
+|---|---|
+| `caches.addAll(SHELL)` rejecting on install — **one** path in the list that 404s after a rename | nothing. The install fails whole, the shell is not cached at all, and the app is merely *slow*, for as long as that version of the worker lives |
+| a `cache.put` rejecting on a phone with no room left | nothing, and it was an unhandled rejection inside a worker nobody was watching. The cache silently stops being maintained; the app works perfectly until the day you are offline |
+| `caches.match` rejecting — storage evicted or gone bad under an installed app | a blank screen. The fetch handler's own fallback is what failed, so there was no answer and nowhere for the failure to go |
+
+**The worker notices and the page sends**, and the split is the whole design rather than
+an implementation detail. The obvious shape is a `fetch('/api/error')` from inside the
+worker, and it is wrong twice over. The endpoint is behind the daemon token, which lives
+in `localStorage` — which a worker does not have — so a direct post would work only where
+Google sign-in is on and the session cookie happened to ride along, and would silently
+401 everywhere else: **reporting that reports nothing is worse than no reporting, because
+it reads as no errors.** And `report.js` is four hundred lines of judgement about what
+*not* to file — the eight-per-minute cap, the thirty-second cooldown, the deploy quiet
+window, the credential scrub, the shutter on `pagehide` — every line of which was a false
+P0 filed on a page that was working. A second copy in the worker would have drifted from
+the first the first time either changed.
+
+So the worker `postMessage`s one line to whichever page is on screen, and `report.js`
+turns it into a report like any other — kind `sw`, and every guard above still spent on
+it. Three consequences worth knowing:
+
+- **It cannot loop.** The relay is a message, not a request, and the report leaves the
+  *page* as `POST /api/error`, which the fetch handler ignores twice over: not a `GET`,
+  and inside `/api/`. There is no path by which the failure of a report re-enters the
+  worker.
+- **A failure with no page open is dropped, not queued** — the same argument the deploy
+  window makes below. Every event the worker can raise is raised *because* a page asked
+  for something, so the empty case is close to hypothetical.
+- **Being offline is not a failure.** A rejected `fetch` in the handler is expected, and a
+  hit out of the cache is what the cache is for; only the cache *itself* refusing is
+  reported. Without that line this feature would file a bead every time the phone went
+  into a tunnel.
+
+**No `source` goes with a worker report, on purpose.** The daemon fingerprints by
+source-and-line first (`lib/errors.js`), so a constant `/sw.js` with no line would make a
+broken install, a full cache and a bad request all match each other and comment onto one
+bead. The stack carries a real frame where the browser has one; where it does not, the
+message alone is the honest key. `node test/swreport.mjs` holds that, along with both
+halves of the wire — the real files in a `vm`, with a hand-made `self`/`caches`/`clients`
+on one side and a hand-made `navigator.serviceWorker` on the other.
+
+**And `startMessages()` is load-bearing.** A message posted to a page is queued until that
+page's message channel is started; setting `onmessage` starts it implicitly and
+`addEventListener` does not. Without the call the listener is registered, correct, and
+never fires — which is exactly the failure this feature exists to end, wearing the costume
+of one that works.
+
+The `CACHE` version does not move for any of this, for the reason it did not move for
+`report.js`: there is no mixed pair. A phone holding the old worker beside the new
+`report.js` has a listener nothing talks to, and the new worker beside an old cached
+`report.js` posts a message nothing hears — both are the app exactly as it was last week,
+which is *older*, not broken.
 
 ### Nothing is filed across a deploy, and the daemon is what decides
 
