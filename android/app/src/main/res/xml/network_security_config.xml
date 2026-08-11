@@ -1,20 +1,32 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  The server is plain HTTP on a Tailscale address — the tailnet is the encryption
-  layer, and there is no certificate to issue to a 100.x.y.z host anyway. So
-  cleartext has to be permitted.
+  The server is HTTPS on its MagicDNS name — `<host>.<tailnet>.ts.net`, with a
+  certificate from `tailscale cert`. So cleartext is off, and the platform is the
+  thing that enforces it: a request to an http:// URL fails at the socket with
+  `UnknownServiceException`, before any of this app's own code gets a say.
 
-  It is NOT restricted here, and that is deliberate rather than lazy: a
-  network-security-config matches hostnames by DNS suffix, right to left, so a
-  `<domain includeSubdomains="true">100.96</domain>` entry matches `foo.100.96` and
-  emphatically not `100.96.105.106`. There is no way to express "the 100.64.0.0/10
-  range" in this file at all.
+  The exceptions are loopback and nothing else. `10.0.2.2` is how an emulator reaches
+  the Mac it is running on; `127.0.0.1` and `localhost` are the same hop by other
+  names. There is no wire there to eavesdrop on and no certificate to be had for it,
+  and it is the one path development cannot do without.
 
-  The restriction therefore lives where it can actually do arithmetic on the
-  address: `PairActivity.isPrivateAddress` refuses to pair with a cleartext host
-  outside the Tailscale CGNAT range or loopback. That check runs before the token is
-  ever sent, which is the moment that matters.
+  What this file still cannot express is a *range*: it matches hostnames by DNS
+  suffix, right to left, so `<domain includeSubdomains="true">100.96</domain>` would
+  match `foo.100.96` and emphatically not `100.96.105.106`. That is why Tailscale's
+  100.64.0.0/10 was never restricted here and could not be. It no longer needs to be
+  — cleartext to it is simply refused now, by the line below.
+
+  `Address.kt` is the other half, and the halves are not interchangeable. This file
+  decides what the socket may carry; `Address` decides where the *token* may go, which
+  is a stricter question and one that has to be answered before the first request.
+  Its LOOPBACK set and the domains here are the same three names, and
+  `test/pairhost.mjs` fails the build if they ever stop being.
 -->
 <network-security-config>
-    <base-config cleartextTrafficPermitted="true" />
+    <base-config cleartextTrafficPermitted="false" />
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">localhost</domain>
+        <domain includeSubdomains="false">127.0.0.1</domain>
+        <domain includeSubdomains="false">10.0.2.2</domain>
+    </domain-config>
 </network-security-config>

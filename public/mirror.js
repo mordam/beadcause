@@ -19,6 +19,18 @@
  *   - **Every button here is an endpoint that already existed.** Answering, commenting
  *     and talking to a chat session are the phone's own writes; this page has no privilege
  *     of its own and adds no state to the daemon.
+ *
+ * **And a pane rather than a tab of its own (bc-3xb).** This landed in the same window as
+ * the bottom tab bar, which left /monitor carrying two rows of tabs and an open question
+ * about which row this belongs on. It belongs here: the three properties above make it a
+ * *mode* of the advocates page — that page's repos and sessions, seen from the other
+ * device — and the first of them makes it the one surface in the app that is meaningless
+ * on a phone, which is where a bottom tab is tapped. `notMe` below drops this device from
+ * the list, and `showTab` reports `view: null` while the pane is up, precisely so a mirror
+ * cannot follow itself; a phone that tapped a Mirror tab would hit both of those and read
+ * "Looking for a device…" for as long as it looked. The bar had no sixth place when this
+ * was decided and has a free one now, and the answer is the same either way — see README,
+ * "The Mirror is a pane, not a tab".
  */
 (() => {
   'use strict';

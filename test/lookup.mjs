@@ -44,15 +44,23 @@ const ROOT = path.join(HERE, '..');
 const GET = path.join(ROOT, 'bin', 'beadcause-get');
 
 /**
- * The three lookup grants, spelled out.
+ * The four lookup grants, spelled out.
  *
  * If you are here because this array made a test fail: that is the test working. Adding
- * a fourth reach for an unattended agent is a decision, and the decision is Adam's —
- * bc-awr is where the last one was argued. Update this list in the same commit that
- * updates the foundation, and say in the commit message what the new one can do that
- * these three cannot.
+ * a reach for an unattended agent is a decision, and the decision is Adam's. Update this
+ * list in the same commit that updates the foundation, and say in the commit message
+ * what the new one can do that the others cannot.
+ *
+ * The fourth arrived that way and is what the rule looks like when it works: bc-awr
+ * argued browsing and ruled on its *shape* — a headless Chrome with a throwaway profile,
+ * never the claude-in-chrome extension — and bc-8yw implemented it, which made this
+ * array fail until it was updated on purpose. `beadcause-browse` reads a page that only
+ * exists once its JavaScript has run, which is the one case the three above cannot: to
+ * them such a page is indistinguishable from a page that says nothing. Its own rules
+ * live in test/browse.mjs, because "may an agent browse?" and "whose browser is it?" are
+ * different questions and only the first belongs here.
  */
-const LOOKUP_GRANTS = ['WebSearch', 'WebFetch', 'Bash(beadcause-get:*)'];
+const LOOKUP_GRANTS = ['WebSearch', 'WebFetch', 'Bash(beadcause-get:*)', 'Bash(beadcause-browse:*)'];
 
 /** Agents that get to look things up, and agents that deliberately do not. */
 const MAY_LOOK_UP = ['dispatch', 'advocate'];
@@ -150,7 +158,8 @@ await test('the agents are told the capability exists', () => {
   // it deciding not to. The prompt builders are module-private, so this asserts on
   // the call site rather than on the rendered prompt.
   const brief = lookupBrief('Adam');
-  for (const cmd of ['WebSearch', 'WebFetch', 'beadcause-get']) assert.ok(brief.includes(cmd), `the brief never mentions ${cmd}`);
+  for (const cmd of ['WebSearch', 'WebFetch', 'beadcause-get', 'beadcause-browse'])
+    assert.ok(brief.includes(cmd), `the brief never mentions ${cmd}`);
   assert.match(brief, /Cite what you read/);
   for (const file of ['lib/dispatch.js', 'lib/advocate.js']) {
     const src = fs.readFileSync(path.join(ROOT, file), 'utf8');

@@ -341,8 +341,20 @@ await check('the brief promises the hold only where the hold is real', async () 
   const free = workPromptFor('loose', bead, 1, null, 'Adam', { autoEndorse: true });
   const held = workPromptFor('tight', bead, 1, null, 'Adam');
 
+  /**
+   * The brief with the absolute paths taken out of it.
+   *
+   * The claim below is about what the brief *says* — and the brief also quotes the
+   * checkout's own path four times, at `bin/file.js`, `bin/ask.js` and friends. A
+   * checkout whose directory happens to contain the word would fail this for a reason
+   * that has nothing to do with the prompt, which is not hypothetical: it failed on a
+   * worktree called `discuss-unendorsed-3zo95`, where the only thing promising the hold
+   * was a folder name. Nothing is weakened by eliding them — a path is not a promise.
+   */
+  const prose = (s) => s.split(ROOT).join('<repo>');
+
   assert.match(free, /arrives endorsed/, 'a worker told otherwise would watch a session open on what it filed');
-  assert.ok(!new RegExp(UNENDORSED).test(free), 'and the word that is not true here does not appear');
+  assert.ok(!new RegExp(UNENDORSED).test(prose(free)), 'and the word that is not true here does not appear');
   assert.ok(!/until\s+Adam endorses it/.test(free));
   // The one sentence that has to survive either wording: what a session does next.
   assert.match(free, /carry straight on with zz-loose/);
