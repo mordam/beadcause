@@ -192,6 +192,10 @@
       // box for a token it was never using.
       if (state.token) localStorage.removeItem('beadcause.token');
       state.token = '';
+      // Held payloads are somebody's inbox, and as of this refusal not provably
+      // yours. Dropped before the sign-in prompt goes up, so nothing warms the next
+      // page from a list the daemon has stopped agreeing to send.
+      window.beadcause?.warm?.forget?.();
       needCredential();
       throw new Error('token rejected');
     }
@@ -2657,6 +2661,21 @@
     drawn.then(() => restorePlace(place)).catch(() => {});
   }
 
+  /**
+   * Draw the keyed chunks, through the reconciler when there is one.
+   *
+   * The fallback is the whole-list `innerHTML` this used to do unconditionally, and
+   * it is not dead code: `warm.js` is a separate file, and a phone holding a service
+   * worker from before it existed loads this page without it. That phone gets the
+   * inbox exactly as it had it last week rather than a blank list, which is the only
+   * acceptable way for a speed-up to be missing.
+   */
+  function paintList(chunks) {
+    const warm = window.beadcause?.warm;
+    if (warm?.paint) warm.paint(listEl, chunks);
+    else listEl.innerHTML = chunks.map((c) => c.html).join('');
+  }
+
   function render(force = false) {
     if (!force && isAnswering()) {
       pendingRender = true;
@@ -2687,21 +2706,35 @@
     // something with nothing in it is the most likely way to get here, and the pane
     // asking about the notifications you just hid must not be the thing that is missing
     // from an otherwise empty screen.
-    const channel = dismissAskHtml() + requestsHtml();
+    // The list as keyed chunks rather than one string, because what gets drawn from
+    // here is a reconcile: `warm.paint` replaces only the chunks whose HTML actually
+    // differs and leaves the rest of the DOM alone. On a 25-second poll where one
+    // bead moved, that is one card rebuilt instead of forty — and, more to the point,
+    // it is forty rendered mermaid diagrams, one open ⋮ menu and the caret in a
+    // textarea that never have to be put back, because they were never taken away.
+    //
+    // The `@` keys are the panes that are not beads. A bead key is `workspace/id` and
+    // can never begin with one, so the two namespaces cannot collide.
+    const chunks = [];
+    const ask = dismissAskHtml();
+    if (ask) chunks.push({ key: '@shade', html: ask });
+    const reqs = requestsHtml();
+    if (reqs) chunks.push({ key: '@requests', html: reqs });
 
     if (!state.questions.length) {
-      listEl.innerHTML = channel + emptyHtml();
+      chunks.push({ key: '@empty', html: emptyHtml() });
     } else if (!visible.length) {
       const where = state.workspace !== 'all' ? state.workspace : state.space !== 'all' ? state.space : '';
       // Which of the two filters emptied it. The kind filter is collapsed to one line
       // by design, so an empty list that it caused has to name it — otherwise the
       // reason the screen is blank is a word you have to hover to read.
       const kinded = inRepo.length > 0;
-      listEl.innerHTML =
-        channel +
-        `<div class="empty">Nothing waiting${where ? ` in ${esc(where)}` : ''}.${
+      chunks.push({
+        key: '@empty',
+        html: `<div class="empty">Nothing waiting${where ? ` in ${esc(where)}` : ''}.${
           kinded ? kindNudge() : widenNudge()
-        }</div>`;
+        }</div>`,
+      });
     } else {
       // Anything you've already replied to sinks to the bottom. It is not waiting on
       // you any more — an agent has it — so it must not sit between you and the
@@ -2709,8 +2742,9 @@
       // sent it (priority, then age).
       const waiting = visible.filter((q) => !q.awaitingAgent);
       const replied = visible.filter((q) => q.awaitingAgent);
-      listEl.innerHTML = channel + [...waiting, ...replied].map(cardHtml).join('');
+      for (const q of [...waiting, ...replied]) chunks.push({ key: q.key, html: cardHtml(q) });
     }
+    paintList(chunks);
 
     paintRequestBadge();
     paintSummary();
@@ -4042,7 +4076,17 @@
     // would blank a pending constitutional request for a couple of seconds because
     // you tapped a filter that has nothing to do with it.
     state.questions = [];
-    listEl.innerHTML = requestsHtml() + '<div class="empty">Asking bd…</div>';
+    // The scope you have just switched to may be one this tab has already had —
+    // flipping between `human` and `both` and back is an ordinary thing to do — and
+    // then there is a list to draw rather than a wait to sit through. `load()` runs
+    // behind it either way: a scope change is still confirmed with the server.
+    if (!warmBoot()) {
+      const reqs = requestsHtml();
+      paintList([
+        ...(reqs ? [{ key: '@requests', html: reqs }] : []),
+        { key: '@empty', html: '<div class="empty">Asking bd…</div>' },
+      ]);
+    }
     load();
   }
 
@@ -4055,6 +4099,98 @@
   let loading = false;
   let loadAgain = false;
 
+  /** The path whose payload is this scope's — and the key it is warmed under. */
+  const questionsPath = (scope) => `/api/questions?scope=${encodeURIComponent(scope)}`;
+
+  /**
+   * Where in `/api/poll`'s event log the list on screen was true.
+   *
+   * 0 means "we do not know" — an old daemon that does not send it, or nothing
+   * fetched yet — and every reader treats that as a reason to fall back to the timer.
+   */
+  let seq = 0;
+
+  /**
+   * Take a payload and become it.
+   *
+   * Split out of `load` because three things now arrive with this shape and all of
+   * them have to be adopted identically: the cold fetch below, the payload kept from
+   * the last visit to this tab, and `/api/poll` waking with the list on it. A second
+   * copy of this merge for the poll is how the poll would end up drawing a subtly
+   * different inbox from the one a reload gives you.
+   */
+  function adopt(data) {
+    const openKeys = state.open;
+    // Keep any already-fetched detail so an open card doesn't flicker. Both
+    // channels are merged against the same map: a bead moves between them only by
+    // gaining or losing a label, and when it does the fresh row is what is right.
+    const prev = new Map([...state.questions, ...(state.requests || [])].map((q) => [q.key, q]));
+    // `agent` has to be reset before the merge, not left to it: a question payload
+    // omits the field rather than sending false, so a bead that has just gained the
+    // `human` label would otherwise keep rendering as read-only agent work for as
+    // long as the tab stayed open.
+    const merge = (q) => {
+      const before = prev.get(q.key);
+      return before ? Object.assign(before, { agent: false }, q) : q;
+    };
+    // A question whose answer is written but not yet acknowledged is still open on
+    // the server, so it is still in this payload — and putting it back would drop a
+    // card into the list underneath the bead that is at that moment flying out of
+    // it. It comes back only if the write is refused, from submit()'s own copy.
+    const live = (q) => !state.inFlight.has(q.key);
+    // Absent rather than empty means an old server that predates the channel — keep
+    // whatever is on screen instead of silently emptying the pane.
+    state.requests = Array.isArray(data.requests) ? data.requests.map(merge).filter(live) : state.requests;
+    state.questions = data.questions.map(merge).filter(live);
+    state.spaces = data.spaces || [];
+    // Absent means a server that predates the counts — keep the last ones rather
+    // than blanking the chrome, exactly as the requests pane does above.
+    if (data.summary) state.summary = data.summary;
+    // The filter is the server's, so every load adopts it — that is what makes a
+    // change on the phone show up on the laptop. The exception is a write of our
+    // own still in flight: this payload was assembled before it landed, so applying
+    // it would snap the chip back to the value the tap just replaced.
+    if (data.filter && !window.beadcause?.space?.writing?.()) {
+      state.space = data.filter.space || 'all';
+      state.workspace = data.filter.workspace || 'all';
+      // The prompt travels with the filter and is adopted on the same terms, because
+      // it is a fact about that filter: the laptop can narrow it, and then this phone
+      // is the device holding the notifications and the only one that can be asked.
+      // Skipped while a write of our own is in flight for the same reason as above —
+      // this payload was assembled before the tap that changed it. `shadeWrites`
+      // covers the second tap that can be in flight here: the answer to the prompt.
+      if (!shadeWrites) state.dismissAsk = data.dismissAsk?.count ? data.dismissAsk : null;
+    }
+    // A space that has been renamed or removed in config would otherwise leave the
+    // filter pinned to something that no longer exists, showing an empty list.
+    if (state.space !== 'all' && !state.spaces.some((s) => s.name === state.space)) state.space = 'all';
+    // The same for a workspace, which now outlives the page and so can name one that
+    // has since left the config. Checked against the configured list rather than the
+    // beads on screen: a workspace that exists but has nothing in this space is
+    // legitimately an empty list, not a stale filter to silently reset.
+    if (state.workspace !== 'all' && Array.isArray(data.workspaces) && !data.workspaces.includes(state.workspace)) {
+      state.workspace = 'all';
+    }
+    // After the two reconciliations above, so the picker is handed what this page has
+    // decided to show rather than what the payload said — those two can differ by
+    // exactly one config change, and the picker is where it would be visible.
+    publishSpaces({ ...data, filter: { space: state.space, workspace: state.workspace } });
+    // Kept open across a refresh only if the bead is still somewhere — in either
+    // channel. Checking only `questions` would collapse an open request every 25
+    // seconds, mid-read.
+    state.open = new Set([...openKeys].filter((k) => Boolean(byKey(k))));
+    render();
+    focusHash();
+  }
+
+  /**
+   * Ask `bd` for the whole list.
+   *
+   * The expensive one — a sweep across every workspace — and after this change it is
+   * no longer what keeps the page current. It runs on the cold boot that has nothing
+   * warm to draw, on a scope change, on the ⟳, and whenever the poll below has lost
+   * its place. The steady state is the poll.
+   */
   async function load() {
     if (!state.token) return;
     // A scope switch made while a poll is in flight must not be dropped on the
@@ -4069,74 +4205,30 @@
     pulseEl.classList.add('busy');
     try {
       const asked = state.scope;
-      const data = await api(`/api/questions?scope=${encodeURIComponent(asked)}`);
+      const data = await api(questionsPath(asked));
       // Changed under us while the request was out. These are rows from the list
       // you just left; the re-run queued above is the one that counts.
       if (asked !== state.scope) return;
-      const openKeys = state.open;
-      // Keep any already-fetched detail so an open card doesn't flicker. Both
-      // channels are merged against the same map: a bead moves between them only by
-      // gaining or losing a label, and when it does the fresh row is what is right.
-      const prev = new Map([...state.questions, ...(state.requests || [])].map((q) => [q.key, q]));
-      // `agent` has to be reset before the merge, not left to it: a question payload
-      // omits the field rather than sending false, so a bead that has just gained the
-      // `human` label would otherwise keep rendering as read-only agent work for as
-      // long as the tab stayed open.
-      const merge = (q) => {
-        const before = prev.get(q.key);
-        return before ? Object.assign(before, { agent: false }, q) : q;
-      };
-      // A question whose answer is written but not yet acknowledged is still open on
-      // the server, so it is still in this payload — and putting it back would drop a
-      // card into the list underneath the bead that is at that moment flying out of
-      // it. It comes back only if the write is refused, from submit()'s own copy.
-      const live = (q) => !state.inFlight.has(q.key);
-      // Absent rather than empty means an old server that predates the channel — keep
-      // whatever is on screen instead of silently emptying the pane.
-      state.requests = Array.isArray(data.requests) ? data.requests.map(merge).filter(live) : state.requests;
-      state.questions = data.questions.map(merge).filter(live);
-      state.spaces = data.spaces || [];
-      // Absent means a server that predates the counts — keep the last ones rather
-      // than blanking the chrome, exactly as the requests pane does above.
-      if (data.summary) state.summary = data.summary;
-      // The filter is the server's, so every load adopts it — that is what makes a
-      // change on the phone show up on the laptop. The exception is a write of our
-      // own still in flight: this payload was assembled before it landed, so applying
-      // it would snap the chip back to the value the tap just replaced.
-      if (data.filter && !window.beadcause?.space?.writing?.()) {
-        state.space = data.filter.space || 'all';
-        state.workspace = data.filter.workspace || 'all';
-        // The prompt travels with the filter and is adopted on the same terms, because
-        // it is a fact about that filter: the laptop can narrow it, and then this phone
-        // is the device holding the notifications and the only one that can be asked.
-        // Skipped while a write of our own is in flight for the same reason as above —
-        // this payload was assembled before the tap that changed it. `shadeWrites`
-        // covers the second tap that can be in flight here: the answer to the prompt.
-        if (!shadeWrites) state.dismissAsk = data.dismissAsk?.count ? data.dismissAsk : null;
-      }
-      // A space that has been renamed or removed in config would otherwise leave the
-      // filter pinned to something that no longer exists, showing an empty list.
-      if (state.space !== 'all' && !state.spaces.some((s) => s.name === state.space)) state.space = 'all';
-      // The same for a workspace, which now outlives the page and so can name one that
-      // has since left the config. Checked against the configured list rather than the
-      // beads on screen: a workspace that exists but has nothing in this space is
-      // legitimately an empty list, not a stale filter to silently reset.
-      if (state.workspace !== 'all' && Array.isArray(data.workspaces) && !data.workspaces.includes(state.workspace)) {
-        state.workspace = 'all';
-      }
-      // After the two reconciliations above, so the picker is handed what this page has
-      // decided to show rather than what the payload said — those two can differ by
-      // exactly one config change, and the picker is where it would be visible.
-      publishSpaces({ ...data, filter: { space: state.space, workspace: state.workspace } });
-      // Kept open across a refresh only if the bead is still somewhere — in either
-      // channel. Checking only `questions` would collapse an open request every 25
-      // seconds, mid-read.
-      state.open = new Set([...openKeys].filter((k) => Boolean(byKey(k))));
-      render();
-      focusHash();
+      seq = Number(data.seq) || 0;
+      keep(asked, data);
+      adopt(data);
+      // This is where the timer hands over: the sweep that just ran is also the thing
+      // that told us where in the log we are, so the next refresh can be the log
+      // waking us rather than another sweep. A no-op when the log is already being
+      // followed, and a no-op on a daemon that sends no sequence.
+      schedulePoll();
+      warmOthers();
     } catch (err) {
       if (err.message !== 'token rejected') {
-        listEl.innerHTML = `<div class="empty"><strong>Can't reach the server</strong>${esc(err.message)}</div>`;
+        // Only over an empty list. With cards already on screen — warm ones, or the
+        // ones from before the link went — replacing the lot with an error message
+        // throws away everything the page could still usefully show, and the poll
+        // that failed will simply come back.
+        if (!state.questions.length && !(state.requests || []).length) {
+          paintList([
+            { key: '@empty', html: `<div class="empty"><strong>Can't reach the server</strong>${esc(err.message)}</div>` },
+          ]);
+        }
       }
     } finally {
       loading = false;
@@ -4146,6 +4238,60 @@
         load();
       }
     }
+  }
+
+  /**
+   * Keep this payload for the next document that wants it.
+   *
+   * Which is this page, next time you tap Inbox: a tab switch throws the document
+   * away, and without this the next one starts from nothing and waits out a `bd`
+   * sweep with a blank list on screen. See public/warm.js.
+   */
+  function keep(scope, data) {
+    // Trimmed to what `adopt` reads, rather than kept whole. Two of the three payloads
+    // that reach here come off `/api/poll`, which carries the advocate snapshot, the
+    // event log and the presence list as well — none of which this page draws, all of
+    // which would be sat in the phone's storage for nothing, and one of which is a list
+    // of devices. What is stored is exactly what would be painted back.
+    const { questions, requests, workspaces, spaces, filter, dismissAsk, summary } = data;
+    window.beadcause?.warm?.write?.(
+      questionsPath(scope),
+      { questions, requests, workspaces, spaces, filter, dismissAsk, summary },
+      Number(data.seq) || 0
+    );
+  }
+
+  /**
+   * Draw the list this tab had last time, before anything has been asked for.
+   *
+   * This is the whole tab-switch saving. The shell is already cached, so the page is
+   * on screen in a frame; what you used to wait for after that was a `bd` sweep with
+   * an empty list underneath it. The payload kept from the last visit paints in that
+   * frame instead, and the sequence it carries is what lets the refresh behind it be
+   * a parked poll rather than a second sweep.
+   *
+   * Returns whether anything was drawn, because the caller's next move depends on it:
+   * with a warm list up there is no hurry, and without one there is nothing at all.
+   */
+  function warmBoot() {
+    const hit = window.beadcause?.warm?.read?.(questionsPath(state.scope));
+    if (!Array.isArray(hit?.data?.questions)) return false;
+    seq = hit.seq;
+    adopt(hit.data);
+    return true;
+  }
+
+  /**
+   * Fetch the other tabs' payloads, behind this one.
+   *
+   * Called only from a request that has already come back 200: a 401 here would put
+   * the sign-in dialog up over a page nobody asked to sign in on, so proving the
+   * credential first is not politeness, it is the condition. Called from both refresh
+   * paths and on every one of them, because `prewarm` is itself once-per-document —
+   * see public/warm.js for that and for what else stops it doing too much.
+   */
+  function warmOthers() {
+    window.beadcause?.warm?.prewarm?.({ here: 'inbox', api });
   }
 
   /** #workspace/id from an ntfy notification tap, or the Android shell's deep link. */
@@ -4208,16 +4354,110 @@
     focusHash();
   });
   /**
-   * How often to re-ask. Scope decides, because the two scopes cost very different
-   * amounts: `human` is one `bd human list` per workspace and stays where it was,
-   * while the wider ones are a full `bd list` sweep — around 2.5s of `bd` across
-   * seven workspaces — so they back off rather than keeping seven CLI processes
-   * warm on the Mac for a list you are probably just glancing at.
+   * How often to re-ask, for the scopes that have to ask on a clock.
+   *
+   * Scope decides, because they cost very different amounts: `human` is one
+   * `bd human list` per workspace and stays where it was, while the wider ones are a
+   * full `bd list` sweep — around 2.5s of `bd` across seven workspaces — so they back
+   * off rather than keeping seven CLI processes warm on the Mac for a list you are
+   * probably just glancing at.
+   *
+   * `human` is not on this clock any more; see `follow` below. It is left in the
+   * table because the fallback path uses it whenever the long-poll cannot run.
    */
   const POLL_MS = { human: 25000, both: 60000, agent: 60000 };
   let pollTimer = null;
+
+  /* -------------------------------------------------------------- the long poll */
+
+  /**
+   * Follow the event log instead of re-asking on a timer.
+   *
+   * `/api/poll` parks until the daemon's sequence moves and only then sweeps `bd` —
+   * so an idle inbox costs one held socket instead of a sweep across seven workspaces
+   * every 25 seconds, and a bead that moves lands here in the moment it moved rather
+   * than up to 25 seconds later. Faster *and* cheaper, which is unusual enough to be
+   * worth saying: the sweep was never doing anything the log could not say for free.
+   *
+   * Three things keep it honest:
+   *
+   * - **Only in `human` scope.** The poll's `questions` is the human channel; the
+   *   wider scopes are a different sweep the log does not carry, so they stay on the
+   *   clock. This is the scope the app is nearly always in and the one that polled
+   *   fastest, so it is where all of the saving was.
+   * - **Only with a sequence to start from.** `seq` comes off the payload; a daemon
+   *   that predates it sends none, and this never starts.
+   * - **Every failure falls back rather than stopping.** A refused or broken poll
+   *   drops to the timer, which is what the page did before this existed. The one
+   *   thing that must never happen is an inbox that has quietly stopped refreshing.
+   */
+  let following = false;
+  let pollAbort = null;
+
+  const canFollow = () => state.scope === 'human' && seq > 0 && Boolean(state.token);
+
+  async function follow() {
+    if (following || !canFollow()) return;
+    following = true;
+    try {
+      while (canFollow() && !document.hidden) {
+        const at = seq;
+        pollAbort = new AbortController();
+        let data;
+        try {
+          data = await api(`/api/poll?since=${at}&wait=25`, { signal: pollAbort.signal });
+        } finally {
+          pollAbort = null;
+        }
+        // The scope changed while we were parked, or the token went. Either way this
+        // answer is about a list nobody is looking at.
+        if (!canFollow() || at !== seq) break;
+        // The poll answered, so the credential is good and the daemon is up: the one
+        // moment it is safe to go and warm the other four tabs.
+        warmOthers();
+        seq = Number(data.seq) || 0;
+        // Null means the park timed out with nothing but presence traffic — the quiet
+        // case, and the whole point: no sweep ran on the daemon and nothing repaints
+        // here. An empty array would mean "the inbox is empty", which is why the two
+        // are different values on the wire.
+        if (Array.isArray(data.questions)) {
+          keep('human', { ...data, seq });
+          adopt(data);
+        }
+        if (!seq) break; // an old daemon answering without one; nothing to follow
+      }
+    } catch (err) {
+      // An abort is us, on the way to somewhere else. Anything else — the daemon
+      // restarting, the tailnet dropping, a 401 — falls through to the timer, and
+      // the visibility handler will try to pick the log back up.
+      if (err?.name !== 'AbortError' && err?.message !== 'token rejected') seq = 0;
+    } finally {
+      following = false;
+      schedulePoll();
+    }
+  }
+
+  /** Stop waiting on an answer about a list we have stopped showing. */
+  function unfollow() {
+    pollAbort?.abort();
+    pollAbort = null;
+  }
+
+  /**
+   * The timer, which now runs only when the log cannot be followed — a wide scope, an
+   * old daemon, or a poll that failed. `follow()` is started from the same place, so
+   * exactly one of the two is ever live.
+   */
   function schedulePoll() {
     clearInterval(pollTimer);
+    if (canFollow() && !document.hidden) {
+      follow();
+      return;
+    }
+    // Whatever is parked is parked on a list this page has stopped drawing — a scope
+    // it left, or a screen that has gone dark. Dropped here rather than left to time
+    // out, so exactly one of the two refresh paths is ever live.
+    unfollow();
     pollTimer = setInterval(() => {
       if (!document.hidden) load();
     }, POLL_MS[state.scope] || 25000);
@@ -4225,7 +4465,15 @@
 
   // These keep fetching; render() decides whether it's safe to repaint.
   document.addEventListener('visibilitychange', () => {
-    if (!document.hidden) load();
+    if (document.hidden) {
+      // A parked socket in a pocket. The daemon drops the waiter when the request
+      // closes, so this costs nothing on either end — and coming back re-asks from
+      // the sequence we left off at, which is what makes the return instant.
+      unfollow();
+      return;
+    }
+    if (canFollow()) schedulePoll();
+    else load();
   });
   schedulePoll();
 
@@ -4277,7 +4525,12 @@
 
   bootToken();
   bootScope();
-  load();
+  // Warm first, then decide what to ask for. With a list on screen and a place in the
+  // event log, the refresh is a parked poll that costs the daemon nothing until
+  // something moves — so the ordinary tab tap does no `bd` sweep at all. Without
+  // either, this is the cold start it always was.
+  if (warmBoot() && canFollow()) schedulePoll();
+  else load();
   // After the list, and never blocking it: the chooser only appears inside an open
   // card, so there is nothing on screen waiting for this.
   loadAgents();

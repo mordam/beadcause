@@ -2162,6 +2162,98 @@ rather than lingering. The aliases live in a run of one-line `if`s in `serveStat
 which is exactly the shape a merge eats, and a broken one is silent: the page is fine,
 the shortcut is not.
 
+## Loaded once, and kept — what a tab tap actually costs
+
+Five standing views, five documents. Tapping a tab is a navigation: the page you were
+on is thrown away, the next one is parsed, and *then* its script goes and fetches
+everything it needs before it can draw a row. The shell itself has been instant for a
+long time — `sw.js` precaches every page — so what you were waiting for on the other
+side of that tap was the fetch. On the inbox and the advocate console that fetch is a
+`bd` sweep across seven workspaces, about a second, and it was paid on every tap, all
+day. On a phone over the tailnet that is the whole difference between an app and a
+website.
+
+Two things fix it, and neither of them makes anything faster: they stop the same work
+being done twice.
+
+**The payload each view booted from is kept, and painted before the next request has
+left.** `public/warm.js` holds one entry per endpoint in `sessionStorage`, and every
+standing page reads it at the top of its own boot: the inbox, the board, the advocate
+console, the launcher and the switches all draw the list they had last time in the
+first frame and refresh underneath it. Behind that — once the view you actually asked
+for is on screen — the *other* views' payloads are fetched in the background, so the
+tab you tap next is warm before you tap it. `node scripts/warm-check.mjs` measures
+exactly this against a fixture whose sweep takes 900ms: a cold load takes just over a
+second, and coming back to the tab draws five cards in **under a tenth of it**, with
+the counter proving no request was answered during the paint.
+
+It is `sessionStorage` and not `localStorage` on purpose. A tab switch is a navigation
+inside one tab, which is precisely what sessionStorage survives; closing the app takes
+the cache with it, so bead text is not left on the phone's disk between one evening and
+the next. A cold start after that is a cold start — which is the case the inbox-first
+boot is for, since the inbox is what a notification opens and the only view that is
+ever urgent. And none of it is load-bearing: a browser that refuses the storage, a full
+quota, an entry past its fifteen minutes, a half-written one — every failure reads as a
+miss, and a page that cannot warm is a page that is merely as fast as it was last week.
+
+**The inbox follows the event log instead of re-asking on a clock.** `/api/poll` was
+already a long-poll that parks until the daemon's sequence moves and only sweeps `bd`
+when something actually did; the inbox was not using it for this and re-fetched the
+whole list every 25 seconds instead. It parks on it now. An idle inbox costs one held
+socket rather than a sweep across seven workspaces every twenty-five seconds, and a
+bead that moves lands on the phone in the moment it moved rather than up to 25 seconds
+later — faster *and* cheaper, which is unusual enough to be worth saying out loud. The
+sweep was never doing anything the log could not say for free.
+
+That needed one change on the daemon: `/api/poll` and `/api/questions` now answer with
+the *same* screen. They did not use to — the poll carried the rows and the spaces and
+none of the filter, the counts or the notification prompt — and that gap is exactly why
+the client's answer to any event was to throw the poll away and sweep again. Both are
+built by one `inboxPayload()` in `lib/server.js` so they cannot drift apart quietly,
+and `test/warm.mjs` compares the two responses field by field rather than trusting
+anyone to read two functions and agree they match. `/api/questions` also carries a
+`seq` now — where in the log its list was true — which is what lets a page that booted
+from the cache park on the poll rather than sweep to find out where it is.
+
+Three things keep the long poll honest, and all three are fallbacks rather than
+cleverness. It runs in the `human` scope only, because the poll's `questions` is the
+human channel and the wider scopes are a different sweep the log does not carry. It
+runs only with a sequence to start from, so a daemon that predates the field never
+starts one. And every failure — a refused poll, a dropped tailnet, a restart — falls
+back to the 25-second timer that was there before. The one thing that must never happen
+is an inbox that has quietly stopped refreshing.
+
+### A repaint that leaves alone what did not change
+
+The other half is inside one document. The inbox rebuilt its whole list with
+`innerHTML` on every refresh — forty cards discarded and re-parsed because one bead
+gained a comment, and with them every rendered mermaid diagram, the open ⋮ menu, the
+caret in a half-typed answer and the scroll position, all of which then had to be
+measured and put back by hand ([keeping your place](#keeping-your-place-in-a-long-brief)
+is that machinery, and it is not going anywhere — it is what covers the cards that
+*do* change).
+
+`render()` now hands the list to `warm.paint` as keyed chunks — one per bead, plus
+`@shade`, `@requests` and `@empty` for the panes that are not beads, with the `@` being
+what keeps those out of a namespace where every other key is `workspace/id`. Chunks
+whose HTML is identical to what is already on screen are not touched at all: not
+re-parsed, not re-inserted, not re-rendered. A bead answered, a comment landed, an
+advocate moved — one card is rebuilt and the rest of the list is the same DOM it was a
+second ago, diagrams and caret and all. `scripts/warm-check.mjs` proves it the only way
+that cannot agree with a bug in the thing it is checking: it stamps every card node
+with an attribute the app knows nothing about, changes one bead, and reads back which
+stamps survived. Four of five, every time; a rebuilt list loses all of them.
+
+The decision half is `warm.plan()`, which is pure and lives in `test/warm.mjs` —
+insert, replace, keep and remove over two keyed lists, including the reorder that must
+be free (an answered card sinking to the bottom moves a node, it does not rebuild one)
+and the one case that must give up rather than guess: a repeated key, where two chunks
+claim one identity and the honest answer is the whole-list rebuild this used to do
+anyway. That fallback is live in three other places too — a page loaded without
+`warm.js` at all, a chunk that is not a single element, and a browser with no
+`sessionStorage`. In every one of them the inbox is exactly the inbox it was before
+this section existed.
+
 ## Detail opens over the tab, not instead of it
 
 The graph and the reader are linked from every view that names a bead — the inbox,
@@ -4712,6 +4804,55 @@ Two notes:
   controlling iTerm", approve it once in System Settings → Privacy & Security →
   Automation.
 
+### The card table — where session windows go
+
+A dozen live sessions used to land wherever iTerm cascaded them: across every
+display, half of them stacked, and the newest one on top of the window you were
+typing in. They are dealt instead — one screen, a grid of slots, each window
+wandering a little inside its own slot so the set reads as cards on a table rather
+than a stack of identical rectangles snapped to a grid. Cells tile the screen and a
+card can only move within its own cell, so no amount of wander makes two cards cover
+each other; the emptiest cell always wins, so a table with room in it fills before
+anything doubles up.
+
+Where a card lands is a hash of its bead id, not a die roll, which means the same
+session reopened comes back to the same square of the table. That is worth more than
+it sounds when you are hunting for the session you started twenty minutes ago.
+
+`sessionWindows.screen` picks the display — `largest` by default, which is the
+external monitor when one is plugged in and the laptop when it isn't, so one default
+is right either way. `sessionWindows.card` sizes them, `jitter` sets the wander (`0`
+snaps to the grid), and `layout: false` puts the old cascade back.
+
+The windows also open with a **profile of their own**, written to
+`~/Library/Application Support/iTerm2/DynamicProfiles/beadcause.json` and picked up
+by iTerm without a restart. It inherits from your Default profile, so session windows
+still look like your terminal, and overrides three things a session needs and a shell
+does not: unlimited scrollback (the interesting part of an agent session is usually
+the part that has already scrolled past), no confirmation sheet when a worker closes
+its own window, and a normal window type so a full-screen Default profile can't
+defeat the layout. The file is rewritten only when it changed — iTerm reloads every
+profile on each write. If it isn't loaded yet, the window opens on the default
+profile rather than failing.
+
+#### It hands the keyboard back
+
+Opening a window used to mean losing the sentence you were typing. iTerm brings
+itself to the front and makes a new window key whether or not anybody says
+`activate` — there is no background-window flag in either its AppleScript or its
+Python API, and `set frontmost of <window> to true` doesn't work. So focus is
+*borrowed*, not never taken: the window that had the keyboard gets it back
+(`select`, after a beat long enough to beat iTerm's own activation), and if you were
+in another app entirely — the usual case, since the button that opens a session is on
+a phone — that app is raised again too. Which app that was is read from `lsappinfo`
+rather than System Events, because the daemon runs under launchd, where the
+Automation prompt System Events needs may never be shown to anybody.
+
+A keystroke typed in the half-second while the window is coming up still lands in it.
+What this removes is the far worse case: the window that *keeps* focus, so the rest
+of your command goes into a fresh agent's prompt. Set `sessionWindows.stealFocus:
+true` for the old behaviour.
+
 ## The terminal — driving a session from the phone
 
 That button needs you to walk to the Mac. **⌨️** in the top bar, or **Drive a session
@@ -5537,9 +5678,9 @@ cookie says so), and `/auth/signout` ends the session.
 | Method | Path | Body / params | Returns |
 |---|---|---|---|
 | GET | `/api/health` | — | `{ok, workspaces[]}` · **no token** |
-| GET | `/api/questions` | `?scope=human\|both\|agent` | `{questions[], workspaces[], spaces[], summary, scope}` — `scope` defaults to `human`, and an unrecognised value falls back to it rather than erroring. `summary` is `{sessions, proposals, questions}`, the three counts the inbox's chrome draws |
+| GET | `/api/questions` | `?scope=human\|both\|agent` | `{questions[], requests[], workspaces[], spaces[], filter, dismissAsk, summary, scope, seq}` — `scope` defaults to `human`, and an unrecognised value falls back to it rather than erroring. `summary` is `{sessions, proposals, questions}`, the three counts the inbox's chrome draws. `seq` is where in `/api/poll`'s log this list was true, which is what lets a client park on the poll instead of asking again — see [loaded once](#loaded-once-and-kept--what-a-tab-tap-actually-costs) |
 | GET | `/api/question` | `?workspace=&id=` | one question **plus `comments[]`** |
-| GET | `/api/poll` | `?since=<seq>&wait=<s>` | long-poll: `{seq, resync, events[], questions, workspaces[]}` |
+| GET | `/api/poll` | `?since=<seq>&wait=<s>` | long-poll: `{seq, resync, events[], advocates, presence, observing}` **plus the whole `/api/questions` screen** when something moved — the same `inboxPayload()` builds both, so a client can refresh itself from either and get the same inbox. `questions`, `requests` and `spaces` are `null` rather than `[]` when nothing moved: an empty array means the channel is empty, and a poll that timed out never asked. `want=presence` says the questions are not wanted, which is what makes a quiet poll cost no `bd` at all |
 | POST | `/api/respond` | `{workspace, id, response, create?, edits?}` | comments, then closes the bead. `create` is the 1-based indices of a proposal's beads to file; without it, `CREATE:` in the text means all and `CREATE: 1,3` means those. `edits` is `{n: {title, type, priority, description, acceptance}}` keyed by the same numbers, applied before creating. A `MERGE:` / `CHANGES:` / `DECLINE:` response on a delivery question acts on its pull request first — see [Landing work](#landing-work--a-branch-a-pull-request-and-the-workers-own-merge) |
 | GET | `/api/pr` | `?workspace=&id=` | `{delivery, pr, unavailable}` — the live diffstat, check rollup and mergeability of a delivery question's PR. Every failure is an answer rather than a 500: no `gh`, no remote, GitHub unreachable all come back with `pr: null` and a sentence in `unavailable` |
 | GET | `/api/prs` | `?refresh=1` | the PR board: every pull request in every repo with its Merged · Pushed · Deployed lamps, plus `observing`. Cached 25s on the daemon; `refresh=1` forces the `gh` sweep |
@@ -5688,6 +5829,11 @@ the fields it always read and renders exactly as it did.
 | `openSessions` | allow `POST /api/session` to open a Claude session on the Mac (default `true`) |
 | `sessionDirs` | override where a workspace's session opens. Normally unnecessary — see Discussing a question on the Mac |
 | `sessionPermissionMode` | `--permission-mode` for an opened session (default `auto`; `null` to omit the flag) |
+| `sessionWindows.layout` | deal session windows onto one screen as cards (default `true`; `false` leaves them wherever iTerm cascades them). See [The card table](#the-card-table--where-session-windows-go) |
+| `sessionWindows.screen` | which display: `largest` (default), `main`, or a 0-based index |
+| `sessionWindows.card` | a card in points, and the gap around it inside its slot (default `{width: 780, height: 540, gap: 24}`) |
+| `sessionWindows.jitter` | how far a card may wander inside its slot (default `18`; `0` snaps them to the grid) |
+| `sessionWindows.stealFocus` | let the new window keep the keyboard (default `false` — the keyboard is handed back to whatever had it) |
 | `beadConsole` | allow the [chat session](#the-chat-session--deciding-what-to-file) to open conversations and create beads (default `true`) |
 | `consoleModel` | model for a chat-session turn (default `null` — whatever `claude` uses on its own; `"sonnet"` for a cheaper conversation) |
 | `consoleTimeoutMs` | kill a chat-session turn that has been going this long (default 15 min) |
@@ -6043,6 +6189,41 @@ is the diagnosis and not merely a field being present. Plus the hop that makes i
 possible — the process serving the console is a grandchild of launchd, so passing down
 `BEADCAUSE_LAUNCHD_PROGRAM` is what stops a healthy install being reported as stale, and
 an *empty* value has to mean "not a launchd job" rather than "read your own argv".
+
+`test/warm.mjs` covers [the warm layer](#loaded-once-and-kept--what-a-tab-tap-actually-costs),
+which is entirely made of things that fail without saying anything. A cache that hands
+back a payload from before its TTL, or half of one, or one a previous version stored in
+a different shape, is a screen showing something that is not true and looks exactly like
+a screen showing something that is — so every one of those is asserted to read as a
+*miss*, because a miss is the case every caller already handles. The same for the
+storage refusing to exist: `sessionStorage` throws on write in more browsers than it
+does not, and the file's whole promise is that a page which cannot warm is merely as
+fast as it was, so a broken store is asserted to make every call a safe no-op and a full
+quota to clear itself rather than spend the rest of the session failing every write.
+The real `public/warm.js` runs in a `vm` with a hand-made storage, the way `test/queue.mjs`
+runs the real send queue: a rewrite of the logic as a test-only module would pass this
+while the phone shipped something else.
+
+Then the two halves that are about cost rather than correctness. `plan()` — the
+reconciler's decisions — is checked in both directions, because the direction that
+matters is invisible: a card wrongly *kept* is a card that has silently stopped
+updating, so a node the file did not paint is asserted to be replaced rather than
+matched, and a repeated key to bail to the whole-list rebuild rather than guess which
+of the two to place. And the background warm is checked against becoming the thing it
+replaced: it skips the view it is on, dedupes the path two views share, skips anything
+fetched inside its floor, gives up when the screen goes dark, and runs once per document
+— each of those is one line, and losing any of them costs the Mac several `bd` sweeps a
+minute for tabs nobody tapped.
+
+The server half is the drift check and the saving. `/api/poll` and `/api/questions` are
+compared field by field against each other, because a field on one and not the other is
+a poll-driven refresh that draws a subtly different inbox from a reload — no counts on
+the chrome, or a filter it does not obey — and nothing anywhere would say so. And the
+quiet poll is asserted as *no calls to `bd` at all*, against a `bd` that records every
+invocation: the saving is not that the sweep got faster, it is that the quiet case does
+not sweep. `paint()` itself is a named `skip` — it is a dozen lines of `insertBefore`
+over what `plan` returns, and testing it here would mean shipping a DOM. The browser
+half is `scripts/warm-check.mjs`, which measures the tab tap and stamps the cards.
 
 `test/css.mjs` covers something nothing else in this repo would ever say a word about: a
 rule in `public/style.css` that has lost its closing brace. Under CSS nesting that is not
