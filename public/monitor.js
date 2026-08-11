@@ -1184,6 +1184,50 @@
 
   /* --------------------------------------------------------------------- load */
 
+  /**
+   * Draw the two payloads this page had last time, before either has been asked for.
+   *
+   * `/api/work` is two `bd` calls per workspace and `/api/questions` is a sweep of its
+   * own, so arriving here from a tab tap used to mean several seconds of an empty pane
+   * over a Mac that was busy answering. What is kept from the last visit paints in the
+   * first frame instead, and `load()` runs behind it. See public/warm.js.
+   */
+  function warmBoot() {
+    const warm = window.beadcause?.warm;
+    const work = warm?.read?.('/api/work');
+    if (!work?.data?.workspaces) return false;
+    state.work = work.data;
+    const questions = warm.read('/api/questions?scope=human');
+    if (questions?.data?.questions) adoptQuestions(questions.data);
+    render();
+    return true;
+  }
+
+  /**
+   * The proposals pane and the picker's numbers, out of an inbox payload.
+   *
+   * Split out of `load` because the warm boot above adopts the same shape — a second
+   * copy of it is how the warm pane would come to disagree with the fetched one.
+   */
+  function adoptQuestions(questions) {
+    // This page sweeps the inbox for the proposals, so it has the picker's numbers
+    // for free — fresher than /api/spaces, which is one poll behind by design.
+    const counts = {};
+    for (const q of questions.questions || []) counts[q.workspace] = (counts[q.workspace] || 0) + 1;
+    window.beadcause?.space?.adopt({
+      spaces: questions.spaces,
+      workspaces: questions.workspaces,
+      counts,
+      filter: questions.filter,
+    });
+    state.proposals = new Map();
+    for (const q of questions.questions || []) {
+      if (!q.proposal?.beads?.length) continue; // Every other question in the inbox.
+      if (!state.proposals.has(q.workspace)) state.proposals.set(q.workspace, []);
+      state.proposals.get(q.workspace).push(q);
+    }
+  }
+
   async function load({ polled = false } = {}) {
     pulse.classList.add('busy');
     try {
@@ -1195,22 +1239,12 @@
         api('/api/questions?scope=human').catch(() => ({ questions: [] })),
       ]);
       state.work = work;
-      // This page sweeps the inbox for the proposals, so it has the picker's numbers
-      // for free — fresher than /api/spaces, which is one poll behind by design.
-      const counts = {};
-      for (const q of questions.questions || []) counts[q.workspace] = (counts[q.workspace] || 0) + 1;
-      window.beadcause?.space?.adopt({
-        spaces: questions.spaces,
-        workspaces: questions.workspaces,
-        counts,
-        filter: questions.filter,
-      });
-      state.proposals = new Map();
-      for (const q of questions.questions || []) {
-        if (!q.proposal?.beads?.length) continue; // Every other question in the inbox.
-        if (!state.proposals.has(q.workspace)) state.proposals.set(q.workspace, []);
-        state.proposals.get(q.workspace).push(q);
-      }
+      // Kept for the next document that wants them — this page on the next tab tap,
+      // and /admin, which boots from /api/work too.
+      const warm = window.beadcause?.warm;
+      warm?.write?.('/api/work', work);
+      if (questions.questions) warm?.write?.('/api/questions?scope=human', questions, questions.seq);
+      adoptQuestions(questions);
       state.error = null;
       // Before the paint rather than beside it: the settings card is drawn from this,
       // and painting without it then painting again a moment later would flash "Reading
@@ -1219,9 +1253,15 @@
       await loadSpace();
       render({ polled });
       pumpLogs();
+      // Only from a request that came back: warming behind a refused credential would
+      // be four more refusals. See public/warm.js.
+      warm?.prewarm?.({ here: 'advocates', api });
     } catch (err) {
       state.error = err.message;
-      out.innerHTML = `<div class="empty"><strong>Can't reach the server</strong>${esc(err.message)}</div>`;
+      // Only over an empty pane. With a warm board already drawn, replacing it with an
+      // error throws away everything still worth reading for a failure the next tick
+      // will most likely undo.
+      if (!state.work) out.innerHTML = `<div class="empty"><strong>Can't reach the server</strong>${esc(err.message)}</div>`;
     } finally {
       pulse.classList.remove('busy');
     }
@@ -1574,6 +1614,9 @@
   if (!token) {
     out.innerHTML = '<div class="empty"><strong>This device is not paired</strong>Open the inbox first.</div>';
   } else {
+    // Paint what this tab had, then go and ask. The order is the whole point: `load`
+    // is not made faster by this, it is made invisible.
+    warmBoot();
     load();
   }
 })();
