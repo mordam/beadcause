@@ -2170,66 +2170,45 @@
     `</div>`;
 
   /**
-   * The filter rows: scope on top, then spaces, then workspaces.
+   * The scope row, and only the scope row.
    *
-   * Coarsest first, and the scope is the coarsest of all — it decides which slice of
-   * the tracker the other two are filtering. It is also the only one that costs a
-   * refetch, which is why it lived behind a gear for a while; but a setting that
-   * changes what every count below it means has to be readable without a tap, so it
-   * is a row of chips like the rest and the panel is gone.
+   * There used to be three rows here, coarsest first: which slice of the tracker, then
+   * which space, then which workspace within it. The bottom two are the space picker in
+   * the top bar now (public/spacebar.js) — they were the inbox's private copy of a
+   * choice that four other pages were each making their own way, and this page was the
+   * only one where it was visible at all.
    *
-   * A muted space still shows its count — the whole design is that a quiet space is
-   * quiet, not hidden. The bell tells you why nothing buzzed, so silence never looks
-   * like a bug.
+   * What is left is genuinely a different kind of control, which is why it stayed: the
+   * scope decides what gets *fetched* — questions, or every live bead — while the picker
+   * decides which repo any of it is about. Two axes, and only one of them belongs to the
+   * whole app.
    */
-  function renderFilters(inSpace) {
-    const spaces = state.spaces || [];
-    const showSpaces = spaces.length >= 2;
-    const names = [...new Set(inSpace.map((q) => q.workspace))].sort();
-    const showWorkspaces = names.length >= 2;
-
-    // The scope row is unconditional, so the nav no longer hides itself.
+  function renderFilters() {
+    // Unconditional, so the nav no longer hides itself.
     filtersEl.hidden = false;
+    filtersEl.innerHTML = scopeRowHtml();
+  }
 
-    const rows = [scopeRowHtml()];
-
-    if (showSpaces) {
-      const total = state.questions.length;
-      rows.push(
-        `<div class="chip-row spaces">` +
-          `<button class="chip" data-space="all" aria-pressed="${state.space === 'all'}">All ${total}</button>` +
-          spaces
-            .map(
-              (s) =>
-                `<button class="chip${s.quiet ? ' quiet' : ''}" data-space="${esc(s.name)}" aria-pressed="${
-                  state.space === s.name
-                }" title="${s.quiet ? 'Muted right now — arrives without notifying' : ''}">${esc(s.name)} ${s.count}${
-                  s.quiet ? ' <span class="bell">🔕</span>' : ''
-                }</button>`
-            )
-            .join('') +
-          `</div>`
-      );
-    }
-
-    if (showWorkspaces) {
-      const counts = (ws) => inSpace.filter((q) => q.workspace === ws).length;
-      rows.push(
-        `<div class="chip-row">` +
-          `<button class="chip" data-ws="all" aria-pressed="${state.workspace === 'all'}">All ${inSpace.length}</button>` +
-          names
-            .map(
-              (ws) =>
-                `<button class="chip" data-ws="${esc(ws)}" aria-pressed="${state.workspace === ws}">${esc(ws)} ${counts(
-                  ws
-                )}</button>`
-            )
-            .join('') +
-          `</div>`
-      );
-    }
-
-    filtersEl.innerHTML = rows.join('');
+  /**
+   * Hand the picker the numbers this page has just fetched.
+   *
+   * The inbox is the one page that sweeps the tracker, so its counts are fresher than
+   * /api/spaces can be — and they are counted over the *scope* on screen, which is what
+   * makes the picker agree with the list under it when you are looking at `Both`. The
+   * filter is handed over too, because this payload is also how a change made on the
+   * laptop reaches the phone.
+   */
+  function publishSpaces(data) {
+    const counts = {};
+    for (const q of state.questions) counts[q.workspace] = (counts[q.workspace] || 0) + 1;
+    window.beadcause?.space?.adopt({
+      spaces: state.spaces,
+      // Configured workspaces, not the ones with something in them: the picker is how
+      // you reach a quiet repo.
+      workspaces: Array.isArray(data.workspaces) ? data.workspaces : undefined,
+      counts,
+      filter: data.filter,
+    });
   }
 
   let pendingRender = false;
@@ -2591,7 +2570,7 @@
 
     paintRequestBadge();
     paintSummary();
-    renderFilters(inSpace);
+    renderFilters();
     // The live half of any delivery on screen. `ensurePr` is a no-op for a card it
     // has already fetched, so this costs one GitHub round trip per pull request for
     // the life of the tab, not one per render.
@@ -3787,62 +3766,41 @@
     if (pendingRender && !isAnswering()) render();
   });
 
-  /**
-   * How many filter writes are in flight, so a poll that overlaps one does not undo
-   * it. A counter and not a boolean: tapping two chips quickly starts a second write
-   * before the first has answered, and a boolean would clear on the first reply and
-   * leave the second still exposed.
-   *
-   * The render is not waiting on the network — the chip moves immediately and the
-   * write follows. A failed write therefore costs the persistence, not the filtering,
-   * which is the right way round: the next poll puts the stored value back.
-   */
-  let filterWrites = 0;
-  /** The same, for an answer to the notification prompt. See the `shade-clear` handler. */
+  /** How many answers to the notification prompt are in flight. See the `shade-clear`
+   *  handler. The filter's own writes are the picker's now — `space.writing()`. */
   let shadeWrites = 0;
-  function persistFilter() {
-    filterWrites += 1;
-    api('/api/filter', { method: 'POST', body: JSON.stringify({ space: state.space, workspace: state.workspace }) })
-      .then((res) => {
-        // The write is also what asks about the notifications the new filter excludes —
-        // this response, not a later poll, because "at the moment of the change" is the
-        // only moment where clearing them is obviously part of the same act. Absent
-        // means nothing to ask, which is also what an older daemon sends.
-        const ask = res?.dismissAsk?.count ? res.dismissAsk : null;
-        if (!ask && !state.dismissAsk) return;
-        state.dismissAsk = ask;
-        render(true);
-      })
-      .catch(() => {})
-      .finally(() => {
-        filterWrites -= 1;
-      });
-  }
+
+  /**
+   * The picker moved: adopt it and repaint.
+   *
+   * `state.space` / `state.workspace` stay this page's own mirror of the selection
+   * rather than being read off the picker at every use — there are a dozen readers and
+   * a mirror keeps the diff honest — but the picker is the only writer, both to the
+   * server and to here.
+   *
+   * The `ask` source is the same tap, arriving a round trip later: the write that
+   * narrows the filter is what asks about the notifications the new filter excludes,
+   * because "at the moment of the change" is the only moment where clearing them is
+   * obviously part of the same act. The inbox is the only page that can draw that
+   * prompt, so it is the only page that listens for it.
+   */
+  window.beadcause?.space?.onChange(({ filter, source, dismissAsk }) => {
+    if (source === 'ask') {
+      // Nothing to ask and nothing being asked is not a repaint. Widening away from a
+      // prompt that *is* up is, which is the whole reason `null` is announced at all.
+      if (!dismissAsk && !state.dismissAsk) return;
+      state.dismissAsk = dismissAsk || null;
+      render(true);
+      return;
+    }
+    state.space = filter.space || 'all';
+    state.workspace = filter.workspace || 'all';
+    render(true);
+  });
 
   filtersEl.addEventListener('click', (ev) => {
-    // Coarsest first, and the only one of the three that refetches rather than
-    // filtering what is already here — so it returns before the two that persist a
-    // filter server-side, which this is not.
     const scopeChip = ev.target.closest('[data-scope]');
-    if (scopeChip) {
-      chooseScope(scopeChip.dataset.scope);
-      return;
-    }
-    const spaceChip = ev.target.closest('[data-space]');
-    if (spaceChip) {
-      state.space = spaceChip.dataset.space;
-      // The workspace filter belongs to the space you just left; keeping it would
-      // usually leave you staring at an empty list.
-      state.workspace = 'all';
-      render(true);
-      persistFilter();
-      return;
-    }
-    const chip = ev.target.closest('[data-ws]');
-    if (!chip) return;
-    state.workspace = chip.dataset.ws;
-    render(true);
-    persistFilter();
+    if (scopeChip) chooseScope(scopeChip.dataset.scope);
   });
 
   /* ---------------------------------------------------------------- scope */
@@ -3876,9 +3834,12 @@
     state.scope = next;
     localStorage.setItem('beadcause.scope', state.scope);
     paintScope();
-    // The workspace filter was almost certainly pointing at the one workspace that
-    // had a question in it; keeping it would hide everything the widening just let in.
-    state.workspace = 'all';
+    // The workspace filter used to be cleared here, on the grounds that it was probably
+    // pointing at the one workspace that had a question in it and would hide everything
+    // the widening let in. It is not cleared any more, and the reason is that it stopped
+    // being this page's filter: it is the space picker, it is on every screen, it is
+    // stored on the server, and it decides whether the phone rings. A scope tap must not
+    // quietly change what you are working on — on this device or on the other one.
     schedulePoll();
     // Only the questions. The scope is a setting about which slice of *work* the
     // list is, and the other channel is not a slice of it — clearing the pane here
@@ -3946,7 +3907,7 @@
       // change on the phone show up on the laptop. The exception is a write of our
       // own still in flight: this payload was assembled before it landed, so applying
       // it would snap the chip back to the value the tap just replaced.
-      if (data.filter && !filterWrites) {
+      if (data.filter && !window.beadcause?.space?.writing?.()) {
         state.space = data.filter.space || 'all';
         state.workspace = data.filter.workspace || 'all';
         // The prompt travels with the filter and is adopted on the same terms, because
@@ -3967,6 +3928,10 @@
       if (state.workspace !== 'all' && Array.isArray(data.workspaces) && !data.workspaces.includes(state.workspace)) {
         state.workspace = 'all';
       }
+      // After the two reconciliations above, so the picker is handed what this page has
+      // decided to show rather than what the payload said — those two can differ by
+      // exactly one config change, and the picker is where it would be visible.
+      publishSpaces({ ...data, filter: { space: state.space, workspace: state.workspace } });
       // Kept open across a refresh only if the bead is still somewhere — in either
       // channel. Checking only `questions` would collapse an open request every 25
       // seconds, mid-read.

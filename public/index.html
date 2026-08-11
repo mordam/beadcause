@@ -98,6 +98,11 @@
   <script src="/vendor/purify.js"></script>
   <script src="/presence.js"></script>
   <script src="/tabbar.js"></script>
+  <!-- The space picker in the top bar — which repo the whole app is about. Before
+       app.js, because app.js registers its repaint on it at the top of its own IIFE;
+       and it is what the two chip rows that used to be in #filters became, so the list
+       below is filtered by the bar above it rather than by a row of its own. -->
+  <script src="/spacebar.js"></script>
   <!-- The answer collapsing into beads and the beads going into the mark. Before
        app.js because submit() reaches for it on the tap; it registers itself on
        `beadcause` and touches nothing else, so a page that drops it still answers
