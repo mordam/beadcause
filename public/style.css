@@ -2037,6 +2037,62 @@ button.work-row {
   min-height: 160px;
 }
 
+/* ------------------------------------------- and the same bead, once it has finished */
+
+/* /bead-session?workspace=&id= — what a session left behind, read weeks later. It
+   borrows `.session-detail`, `.session-facts` and `.agent-log` from the live page above
+   on purpose: it is the same subject at a different time, and a second set of facts
+   styles would drift from the first inside a month. What is here is only the part that
+   is genuinely new, which is *absence* — three sections that are each missing
+   independently and have to say so without looking broken.
+
+   No `.session-solo` here, deliberately. That rule sizes the transcript to fill the
+   screen because the live page is a pane you watch; this one is three blocks you scroll
+   through, and a log pinned to `100dvh - 440px` would push the worktree section — the
+   answer to "where did the work go" — permanently under the fold. */
+.bead-session { padding-bottom: 24px; }
+
+/* "Not available", and the reason. Muted, because on most beads this is what the whole
+   page says and a wall of warning-coloured text would read as an error rather than as
+   the ordinary state of a bead nobody's session ever touched. `strong` carries the two
+   words, so the answer is legible before the sentence explaining it. */
+.arc-none { margin: 8px 0 0; color: var(--muted); font-size: 12.5px; line-height: 1.5; }
+.arc-none strong { color: var(--text); font-weight: 600; }
+.arc-none code { font-size: 11.5px; }
+
+/* What the session learned, exactly as it typed it — see public/beadsession.js for why
+   this is not rendered markdown. `pre-wrap` keeps its line breaks and wraps its prose,
+   which is the one piece of structure a memory has; the prose font rather than the
+   monospace one, because this is the only thing on the page written to be read. */
+.arc-memory {
+  margin: 10px 0 0;
+  padding: 11px 13px;
+  border: 1px solid var(--line); border-radius: 10px;
+  background: var(--bg);
+  color: var(--prose);
+  font-size: 13px; line-height: 1.55;
+  white-space: pre-wrap; overflow-wrap: anywhere;
+}
+
+/* One sentence above the worktree's own facts: which of the three states it is in, in
+   words, before the table says it in a field. */
+.arc-where { margin: 8px 0 0; font-size: 12.5px; line-height: 1.5; color: var(--text); }
+
+/* The pills: the other sessions on this bead, and the diff. Shaped like `.work-graph`
+   because they do the same job — a link out of a detail view — and an empty row of them
+   collapses to nothing rather than leaving a gap where a control would be. */
+.arc-links { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.arc-links:empty { display: none; }
+.arc-link {
+  flex: none; min-height: 34px; display: inline-flex; align-items: center;
+  padding: 5px 12px;
+  border: 1px solid var(--line); border-radius: 999px;
+  color: var(--text); text-decoration: none; font-size: 12.5px; font-weight: 550;
+}
+/* The one you are already reading. Still in the row — dropping it would renumber the
+   list under your thumb every time you moved between sessions — and not a link. */
+.arc-link.is-here { color: var(--muted); border-style: dashed; }
+
 .work-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
 .work-foot .meta { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; }
 .work-graph {

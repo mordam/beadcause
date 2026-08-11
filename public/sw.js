@@ -106,7 +106,13 @@
    unstyled button into the middle of a label row and sizes the transcript as though it
    were not there, pushing the log off the bottom of the phone. Both look like a working
    page, which is the failure a cache version exists to prevent. */
-const CACHE = 'beadcause-v32';
+/* v33: the other half of that page — `/bead-session?workspace=&id=`, what a session left
+   behind, for a bead whose session finished (bc-nib3.5). Three new paths, and they have
+   to arrive together with the stylesheet for the usual reason: a phone holding v32's
+   style.css against v33's beadsession.js draws the three "not available" sentences and
+   the memory block with no styling at all, which on the page that says nothing is there
+   most of the time is indistinguishable from a page that failed to load. */
+const CACHE = 'beadcause-v33';
 const SHELL = [
   '/',
   '/index.html',
@@ -159,6 +165,14 @@ const SHELL = [
   '/session',
   '/session.html',
   '/session.js',
+  // And the fourth: the same detail for a session that has *finished*, addressed by bead
+  // rather than by pid. Its own paths because it is its own document — a pid stops
+  // identifying anything once the process is gone, and this is the page you reach from a
+  // bead that closed months ago. `/archive` is here because it is a path a person types.
+  '/bead-session',
+  '/archive',
+  '/beadsession.html',
+  '/beadsession.js',
   // The pull request board. Both paths, the same way the advocate console has five:
   // /pulls is what you type when GitHub's own word for the tab is the one in your head.
   '/prs',

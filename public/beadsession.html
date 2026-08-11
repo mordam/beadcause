@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0b0f14" media="(prefers-color-scheme: dark)">
+  <meta name="theme-color" content="#f6f7f9" media="(prefers-color-scheme: light)">
+  <title>Beadcause · what its session did</title>
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body class="doc-body">
+  <header class="topbar">
+    <div class="brand">
+      <span class="dot" id="pulse"></span>
+      <h1 id="arc-title">Loading…</h1>
+    </div>
+    <button id="arc-close" class="icon-btn" data-drawer-close aria-label="Close tab">✕</button>
+  </header>
+
+  <main id="beadsession" class="doc session-page">
+    <div class="empty">Looking for what that session left…</div>
+  </main>
+
+  <script src="/presence.js"></script>
+  <!-- The other half of the drawer, exactly as /session, /doc and /graph load it: in a
+       panel this page puts its top bar away and hands its name up, and its ✕ dismisses
+       the drawer. Opened on its own — a pasted URL, a long-press → new tab — it installs
+       nothing at all and the top bar above is the only chrome there is.
+
+       No dictate.js here, unlike /session: there is nothing on this page to speak into.
+       A finished session cannot be answered, which is the whole difference between the
+       two pages. -->
+  <script src="/beadsession.js"></script>
+  <script src="/drawer.js"></script>
+</body>
+</html>
