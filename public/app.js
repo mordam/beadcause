@@ -38,8 +38,18 @@
     // reading it.
     dismissAsk: null,
     open: new Set(),
-    armed: null, // key of the option awaiting its confirm tap
+    armed: null, // key of the control awaiting its confirm tap
     armedTimer: null,
+    // Which option each card's answer is currently making — `key → option id`.
+    //
+    // Remembered from the tap rather than derived from the box, unlike the
+    // suggested chips, and the difference is the whole point of an option now
+    // filling the box instead of sending itself: you tap (b) and then qualify it
+    // in a sentence. Deriving would drop the pick at the first keystroke, and
+    // with it the one thing the sentence cannot say — whether this answer
+    // commissions work rather than settling it (`closes: false`, lib/decision.js).
+    // Emptying the box lets it go; see the input listener.
+    picked: new Map(),
     // Which cards have their agent log showing, and the text last fetched for each.
     // Kept out of the question objects so a list refresh can't wipe a pane you are
     // reading mid-run.
@@ -286,7 +296,12 @@
     if (text.trim()) localStorage.setItem(draftKey(key), text);
     else localStorage.removeItem(draftKey(key));
   };
-  const clearDraft = (key) => localStorage.removeItem(draftKey(key));
+  // The pick goes with the words it filled in — a card that comes back later must
+  // not arrive already claiming to be making a choice nobody has made on it since.
+  const clearDraft = (key) => {
+    localStorage.removeItem(draftKey(key));
+    state.picked.delete(key);
+  };
 
   /**
    * Don't yank the textarea out from under a thumb mid-sentence.
@@ -1459,25 +1474,26 @@
       d?.diagrams?.length || d?.links?.length || d?.docs?.length || d?.images?.length || q.sections.length || d?.context
     );
 
+    const chosen = pickedOption(q);
     const options = opts
       .map((o) => {
-        const armed = state.armed === `${q.key}|${o.id}`;
-        // The arm/disarm state is painted in place by paintArmed() — it must never
-        // go through render(), which would rebuild the list under a half-typed answer.
+        // The pressed state is painted in place by paintPicked() — it must never go
+        // through render(), which would rebuild the list under a half-typed answer.
         //
-        // The recommended tag is a *sibling* of `.label`, never inside it, because
-        // paintArmed writes `label.textContent` — a badge nested in there would
-        // survive until the first tap and then silently vanish.
+        // The tags are *siblings* of `.label`, never inside it, because paintPicked
+        // writes `label.textContent`: a badge nested in there would survive until
+        // the first tap and then silently vanish.
+        const picked = chosen?.id === o.id;
         return `<button class="option${o.recommended ? ' rec' : ''}${
-          armed ? ' confirm' : ''
-        }" data-act="option" data-key="${esc(q.key)}" data-opt="${esc(o.id)}" data-label="${esc(o.label)}">
-          <span class="label">${armed ? 'Tap again to confirm · ' : ''}${esc(o.label)}</span>
+          picked ? ' picked' : ''
+        }" data-act="option" data-key="${esc(q.key)}" data-opt="${esc(o.id)}" data-label="${esc(
+          o.label
+        )}" aria-pressed="${picked}">
+          <span class="label">${esc(o.label)}</span>
           ${o.recommended ? '<span class="rec-tag">★ recommended</span>' : ''}
           ${
-            // A sibling of `.label` for the same reason the star is — paintArmed
-            // writes label.textContent, and anything nested in there is gone on the
-            // first tap. Worth saying before the tap rather than only in the toast
-            // after it: this option is an instruction, and the bead stays open.
+            // Worth saying before the tap rather than only in the toast after it:
+            // this option is an instruction, and the bead stays open.
             o.closes === false ? '<span class="hand-tag">↪ commissions the work</span>' : ''
           }
           ${o.hint ? `<span class="hint">${esc(o.hint)}</span>` : ''}
@@ -1586,7 +1602,7 @@
       ? `Decline #${q.delivery.number} &amp; close`
       : q.delivery
       ? 'Request changes &amp; close'
-      : 'Answer &amp; close';
+      : esc(answerLabel(pickedOption(q)));
     return `<div class="freeform${declining ? ' declining' : ''}">
       ${replyBarHtml(q.key)}
       ${gateNoteHtml(q)}
@@ -1607,6 +1623,24 @@
       </div>
       ${declining ? '' : dismissHtml(q)}
     </div>`;
+  }
+
+  /**
+   * What the primary button will actually do, in its own words.
+   *
+   * *Answer & close* is the ordinary ending and stays the default. It becomes a lie
+   * the moment the box holds a **commission** — an option the agent marked
+   * `closes: false`, which puts the answer on the thread, takes the `human` label
+   * off and hands the bead back as work rather than finishing it (lib/decision.js).
+   * That used to be a property of the button you pressed; now that the buttons only
+   * fill the box, the last thing between the pick and the write is this label, so
+   * this is the only place left that can say it.
+   *
+   * Plain text, not HTML — it goes through `esc()` when the card is drawn and
+   * through `textContent` when paintPicked() repaints it.
+   */
+  function answerLabel(chosen) {
+    return chosen?.closes === false ? 'Answer & commission' : 'Answer & close';
   }
 
   /**
@@ -1646,23 +1680,23 @@
   /**
    * The answers this question looks like it has, when nobody wrote it any.
    *
-   * A `decision` block gets `.options`: full-width buttons above the fold that
-   * answer and close on two taps, because an agent wrote the sentence each one
-   * sends. These are the other case — lib/suggest.js read them out of the prose —
-   * and three things follow from that difference.
+   * A `decision` block gets `.options`: full-width buttons above the fold, one per
+   * choice the agent actually wrote. These are the other case — lib/suggest.js read
+   * them out of the prose — and both now do the same thing to the box under them.
+   * What is left of the difference is worth drawing, and is three things.
    *
    * **They live in the answer box, not above the card.** Their whole job is to
    * save you typing into the box under them, and a chip several screens away from
    * the thing it fills is a chip you have to scroll back from to check.
    *
    * **They are chips, not buttons.** The visual weight has to say which kind of
-   * thing this is without a word of explanation, and `.options` already owns the
-   * shape that means "this closes the bead".
+   * thing this is without a word of explanation: `.options` are the answers the
+   * question came with, and these were guessed at by a parser reading a paragraph.
    *
-   * **A tap fills; it never sends.** The words came out of a paragraph rather than
-   * out of an agent's `response:` field, so they go where you can read and edit
-   * them, and *Answer & close* is still the thing that commits them. One tap, no
-   * arming: filling a box you are looking at is not a gesture that needs guarding.
+   * **They let go the moment you edit them.** A pressed chip is a claim that the
+   * box says exactly what the chip says, and nothing more — see paintSuggested. An
+   * option is the opposite and stays lit while you qualify it, because it carries
+   * an id that means something after the words have changed and a chip does not.
    *
    * Only ever drawn on an open card, which is the same as saying you have had the
    * chance to read the brief the chips were lifted from.
@@ -1939,6 +1973,17 @@
   const widenNudge = () =>
     state.scope === 'human' ? ' Tap <b>Both</b> above to include the work agents are on.' : '';
 
+  /**
+   * The other way to empty the list: the kind filter, which is one collapsed line and
+   * therefore the easiest thing on the screen to forget you set. Says what it is set
+   * to, so the way out is a fact rather than a hunt.
+   */
+  const kindNudge = () => {
+    const f = window.beadcause?.inboxFilter;
+    if (!f || !f.selected().length) return widenNudge();
+    return ` The filter above is showing only <b>${esc(f.label())}</b>.`;
+  };
+
   function emptyHtml() {
     // "Nothing to decide" printed directly under a pane saying an agent is asking to
     // be changed is the app contradicting itself. The empty state is about the
@@ -2066,7 +2111,13 @@
     const s = state.summary || {};
     const swept = state.scope !== 'agent';
     const held = Number(s.questions);
-    const waiting = swept || !Number.isFinite(held) ? state.questions.filter((q) => !q.agent).length : held;
+    // The kind filter narrows this too, and has to: it sits directly above the list
+    // and the number is the list's own count. The server's held figure cannot know
+    // about it, so a kind filter forces the local sweep — which is available for
+    // exactly the scopes that can have questions in them.
+    const narrowed = Boolean(window.beadcause?.inboxFilter?.selected?.().length);
+    const local = state.questions.filter((q) => !q.agent && (!narrowed || inKind(q))).length;
+    const waiting = swept || narrowed || !Number.isFinite(held) ? local : held;
 
     const el = $('#waiting');
     if (el) {
@@ -2097,20 +2148,61 @@
   }
 
   /**
-   * Repaint the armed option in place. Cheap, and never touches the textarea.
+   * The option this card's answer is currently making, or null.
+   *
+   * Two sources, and the order matters. The tap wins, because it survives you
+   * editing the words — picking (b) and then qualifying it in a sentence is still
+   * picking (b), and that is the gesture the buttons exist for. Failing that, a
+   * box that still says exactly what one of them would have put there is read as
+   * that pick, which is what carries a choice across a reload: the draft is in
+   * localStorage and `state.picked` is not.
+   */
+  function pickedOption(q) {
+    const opts = q?.decision?.options || [];
+    const tapped = opts.find((o) => o.id === state.picked.get(q?.key));
+    if (tapped) return tapped;
+    const draft = getDraft(q?.key).trim();
+    return (draft && opts.find((o) => o.response.trim() === draft)) || null;
+  }
+
+  /**
+   * Light the option that is in the box, and say what the button under it will do.
+   *
+   * In place, never through render(), for the usual reason — the textarea directly
+   * below is holding the words this is about. The primary button is repainted with
+   * it because the two are one statement: an option marked `closes: false` is a
+   * commission, and *Answer & close* over it would name the one outcome that is
+   * not going to happen.
+   */
+  function paintPicked(key) {
+    const q = byKey(key);
+    const card = listEl.querySelector(`.card[data-key="${CSS.escape(key)}"]`);
+    const buttons = card?.querySelectorAll('.option') || [];
+    // No choices on this card, so nothing here has anything to say — and in
+    // particular it must not touch the primary button, which on a delivery says
+    // "Request changes & close" and is not this function's to rename.
+    if (!q || !buttons.length) return;
+    const chosen = pickedOption(q);
+    for (const btn of buttons) {
+      const picked = chosen?.id === btn.dataset.opt;
+      btn.classList.toggle('picked', picked);
+      btn.setAttribute('aria-pressed', String(picked));
+      const label = btn.querySelector('.label');
+      if (label) label.textContent = btn.dataset.label;
+    }
+    const primary = card?.querySelector('.freeform .primary[data-act="answer"]');
+    if (primary) primary.textContent = answerLabel(chosen);
+  }
+
+  /**
+   * Repaint the armed control in place. Cheap, and never touches the textarea.
    *
    * Every armable control on the list is painted here, not just the one that was
    * tapped — arming any of them disarms the others, and a dismiss button left
-   * reading "Tap again" after an option stole the arm would be a lie about what the
-   * next tap does.
+   * reading "Tap again" after something else stole the arm would be a lie about
+   * what the next tap does.
    */
   function paintArmed() {
-    for (const btn of listEl.querySelectorAll('.option')) {
-      const armed = state.armed === `${btn.dataset.key}|${btn.dataset.opt}`;
-      btn.classList.toggle('confirm', armed);
-      const label = btn.querySelector('.label');
-      if (label) label.textContent = (armed ? 'Tap again to confirm · ' : '') + btn.dataset.label;
-    }
     for (const btn of listEl.querySelectorAll('.dismiss')) {
       const armed = state.armed === `${btn.dataset.key}|dismiss`;
       btn.classList.toggle('confirm', armed);
@@ -2163,34 +2255,68 @@
     ['agent', 'Agent', 'Only what the agents are on: every live bead that is not a question.'],
   ];
 
-  const scopeRowHtml = () =>
-    `<div class="chip-row scopes" role="group" aria-label="Which beads to list">` +
-    SCOPE_CHIPS.map(
-      ([id, label, note]) =>
-        `<button class="chip" data-scope="${id}" aria-pressed="${state.scope === id}" title="${esc(
-          note
-        )}" aria-label="${esc(`${label} — ${note}`)}">${label}</button>`
-    ).join('') +
-    `</div>`;
+  /**
+   * The scope, as a group of chips inside the filter menu.
+   *
+   * There used to be three rows in `#filters`, coarsest first: which slice of the
+   * tracker, then which space, then which workspace within it. The bottom two are the
+   * space picker in the top bar now (public/spacebar.js) — they were the inbox's
+   * private copy of a choice that four other pages were each making their own way, and
+   * this page was the only one where it was visible at all.
+   *
+   * The scope stayed, because it is genuinely a different kind of control: it decides
+   * what gets *fetched* — questions, or every live bead — while the picker decides
+   * which repo any of it is about. Two axes, and only one of them belongs to the whole
+   * app. What has changed is that it no longer costs a permanent row: it shares the
+   * hover-open panel with the kind chips (public/inboxfilter.js), because two
+   * collapsing controls side by side would be the three rows again with extra steps.
+   */
+  const scopeGroup = {
+    id: 'scope',
+    legend: 'Show',
+    all: 'Everything',
+    options: () => SCOPE_CHIPS.map(([id, label, note]) => ({ id, label, note, on: state.scope === id })),
+    pick: (id) => chooseScope(id),
+  };
 
   /**
-   * The scope row, and only the scope row.
+   * Which kinds this scope can contain at all.
    *
-   * There used to be three rows here, coarsest first: which slice of the tracker, then
-   * which space, then which workspace within it. The bottom two are the space picker in
-   * the top bar now (public/spacebar.js) — they were the inbox's private copy of a
-   * choice that four other pages were each making their own way, and this page was the
-   * only one where it was visible at all.
-   *
-   * What is left is genuinely a different kind of control, which is why it stayed: the
-   * scope decides what gets *fetched* — questions, or every live bead — while the picker
-   * decides which repo any of it is about. Two axes, and only one of them belongs to the
-   * whole app.
+   * `human` sweeps the questions, `agent` sweeps the live beads nobody is asking you
+   * about, `both` does both — so a chip for the other side would be a control that
+   * cannot change anything. The filter drops any selection this leaves unreachable;
+   * see `survey` in public/inboxfilter.js.
    */
+  const kindsForScope = () =>
+    (window.beadcause?.inboxFilter?.KINDS || [])
+      .filter((k) => (state.scope === 'both' ? true : k.side === (state.scope === 'human' ? 'question' : 'agent')))
+      .map((k) => k.id);
+
+  /** Does this row survive the kind filter? True when the control never loaded. */
+  const inKind = (q) => window.beadcause?.inboxFilter?.matches?.(q) ?? true;
+
+  /**
+   * Hand the control what this render is about to draw: which kinds are reachable, and
+   * how many of each survived the space picker. The numbers are counted *before* the
+   * kind filter, so a chip's count is what picking it would leave you with.
+   */
+  function surveyKinds(rows) {
+    const f = window.beadcause?.inboxFilter;
+    if (!f) return;
+    const counts = {};
+    for (const q of rows) {
+      const kind = f.kindOf(q);
+      if (kind) counts[kind] = (counts[kind] || 0) + 1;
+    }
+    f.survey({ kinds: kindsForScope(), counts });
+  }
+
+  /** Chips and the one line above them, repainted in place. Never rebuilds the panel. */
   function renderFilters() {
-    // Unconditional, so the nav no longer hides itself.
-    filtersEl.hidden = false;
-    filtersEl.innerHTML = scopeRowHtml();
+    // Hidden only if the control never mounted — an empty nav with padding in it is a
+    // gap above the list that nothing explains.
+    filtersEl.hidden = !filtersEl.firstElementChild;
+    window.beadcause?.inboxFilter?.paint?.();
   }
 
   /**
@@ -2204,7 +2330,13 @@
    */
   function publishSpaces(data) {
     const counts = {};
-    for (const q of state.questions) counts[q.workspace] = (counts[q.workspace] || 0) + 1;
+    // Over the kind filter as well as the scope, for the same reason: a picker saying
+    // 5 above a list showing 1 is the two halves of one screen disagreeing about the
+    // same beads.
+    for (const q of state.questions) {
+      if (!inKind(q)) continue;
+      counts[q.workspace] = (counts[q.workspace] || 0) + 1;
+    }
     window.beadcause?.space?.adopt({
       spaces: state.spaces,
       // Configured workspaces, not the ones with something in them: the picker is how
@@ -2559,8 +2691,13 @@
       state.space === 'all'
         ? state.questions
         : state.questions.filter((q) => spaceOf(q) === state.space);
-    const visible =
+    const inRepo =
       state.workspace === 'all' ? inSpace : inSpace.filter((q) => q.workspace === state.workspace);
+    // Then the third, which is this page's own and lives in the collapsed control
+    // above the list: which *kinds* of incoming thing to show. Surveyed first so the
+    // chips can carry counts of what they would leave you with, then applied.
+    surveyKinds(inRepo);
+    const visible = inRepo.filter(inKind);
 
     // The other channel, always first and never filtered. It is rare enough that
     // putting it at the top costs nothing on the days there is nothing in it, and on
@@ -2588,9 +2725,15 @@
       chunks.push({ key: '@empty', html: emptyHtml() });
     } else if (!visible.length) {
       const where = state.workspace !== 'all' ? state.workspace : state.space !== 'all' ? state.space : '';
+      // Which of the two filters emptied it. The kind filter is collapsed to one line
+      // by design, so an empty list that it caused has to name it — otherwise the
+      // reason the screen is blank is a word you have to hover to read.
+      const kinded = inRepo.length > 0;
       chunks.push({
         key: '@empty',
-        html: `<div class="empty">Nothing waiting${where ? ` in ${esc(where)}` : ''}.${widenNudge()}</div>`,
+        html: `<div class="empty">Nothing waiting${where ? ` in ${esc(where)}` : ''}.${
+          kinded ? kindNudge() : widenNudge()
+        }</div>`,
       });
     } else {
       // Anything you've already replied to sinks to the bottom. It is not waiting on
@@ -3519,24 +3662,65 @@
       return;
     }
 
+    /**
+     * A choice, tapped: put its words in the box. It does not answer.
+     *
+     * These buttons used to answer and close on two taps, the second one confirming
+     * the first. What that shape could not do is the commonest thing anyone wants to
+     * do with a multiple-choice question — pick one *and say something about it*.
+     * The answer went on the thread as the agent's own sentence and nothing else, so
+     * qualifying it meant ignoring the buttons and typing the whole choice out with a
+     * thumb. Now the tap writes the sentence for you and you send it, which is the
+     * same two gestures with the useful half in the middle.
+     *
+     * The pick outlives the words: `state.picked` remembers which button was pressed
+     * even after you have rewritten what it typed, because only the id can say
+     * whether this answer commissions work rather than settling it — see submit()
+     * and lib/decision.js. That is also why the confirm tap is gone rather than
+     * moved: *Answer & close* is now the confirmation, it is a different button in a
+     * different place, and it names what it will do.
+     *
+     * Three rules about text already in the box, and they are the suggested chips'
+     * rules for the same reasons (see the `suggest` handler): another option's words
+     * are replaced, because you are picking again; words of your own are appended to,
+     * because a tap must never eat a sentence you typed; and tapping the pick you
+     * have already made takes it back, because undecided is a real state and there
+     * has to be a way to it — but only while the box still says exactly what that tap
+     * put there, so the way back can never delete anything you wrote.
+     */
     if (act === 'option') {
       const q = byKey(key);
-      const opt = q?.decision?.options.find((o) => o.id === btn.dataset.opt);
+      const opts = q?.decision?.options || [];
+      const opt = opts.find((o) => o.id === btn.dataset.opt);
       if (!opt) return;
-      const token = `${key}|${opt.id}`;
-      if (state.armed !== token) {
-        // Two taps to answer — a stray tap in a pocket shouldn't close a bead.
-        state.armed = token;
-        clearTimeout(state.armedTimer);
-        state.armedTimer = setTimeout(() => {
-          disarm();
-          paintArmed();
-        }, 6000);
-        paintArmed();
-        return;
+
+      // A closed card has no box to fill, so the tap opens it — the same move
+      // `pr-changes` makes, and for the same reason: what happens next is typing.
+      // Through expand() rather than openOnly(), so the brief and the thread arrive
+      // with it: you are about to write an answer, and the card you write it on
+      // should be the whole card.
+      if (!state.open.has(key)) {
+        disarm();
+        await expand(key);
       }
-      disarm();
-      await submit(key, opt.response, { close: true, option: opt.id });
+      const box = listEl.querySelector(`.card[data-key="${CSS.escape(key)}"] [data-role="answer"]`);
+      if (!box) return;
+
+      const current = box.value.trim();
+      if (state.picked.get(key) === opt.id && current === opt.response.trim()) {
+        state.picked.delete(key);
+        box.value = '';
+      } else {
+        state.picked.set(key, opt.id);
+        const mine = current && !opts.some((o) => o.response.trim() === current);
+        box.value = mine ? `${current}\n${opt.response}` : opt.response;
+      }
+
+      setDraft(key, box.value);
+      paintDraftMark(key);
+      paintPicked(key);
+      box.focus();
+      box.setSelectionRange(box.value.length, box.value.length);
       return;
     }
 
@@ -3696,7 +3880,15 @@
        */
       const q = byKey(key);
       const asChanges = act === 'answer' && q?.delivery;
-      await submit(key, asChanges ? `CHANGES: ${text}` : text, { close: act === 'answer' });
+      await submit(key, asChanges ? `CHANGES: ${text}` : text, {
+        close: act === 'answer',
+        // Which choice this sentence is making, when it is making one. The words may
+        // have been edited into a qualified version of it and the server never tries
+        // to read the choice back out of them — the id is what says whether this
+        // answer commissions work, and only the button that filled the box knows it.
+        // A comment names no option: it settles nothing, so it can commission nothing.
+        option: act === 'answer' ? pickedOption(q)?.id || null : null,
+      });
       if (act === 'note') box.value = '';
     }
   });
@@ -3725,6 +3917,12 @@
     // the claim stops being true, so it lets go rather than sitting there lit under
     // an answer that is now yours.
     paintSuggested(key, box.value);
+    // An option is the other way round, and deliberately: editing its words is
+    // *qualifying* the choice, not abandoning it, so the pick survives every
+    // keystroke. Emptying the box is the one edit that ends it — at that point
+    // there is nothing left of the answer it was a claim about.
+    if (!box.value.trim()) state.picked.delete(key);
+    paintPicked(key);
   });
 
   listEl.addEventListener('change', (ev) => {
@@ -3833,26 +4031,18 @@
     render(true);
   });
 
-  filtersEl.addEventListener('click', (ev) => {
-    const scopeChip = ev.target.closest('[data-scope]');
-    if (scopeChip) chooseScope(scopeChip.dataset.scope);
-  });
-
   /* ---------------------------------------------------------------- scope */
 
   /**
-   * Move the armed scope chip without rebuilding the row.
+   * Move the armed scope chip, and the line above it, without rebuilding the panel.
    *
-   * The scope row is painted by renderFilters(), but the switch below clears the list
-   * and waits on `bd` rather than rendering — so on the tap itself there is nothing to
-   * repaint the chips. Doing it in place also keeps the spaces and workspaces rows on
-   * screen while the fetch is out; rendering with an emptied list would drop them and
-   * then bring them back a couple of seconds later.
+   * The chips are painted by renderFilters(), but the switch below clears the list and
+   * waits on `bd` rather than rendering — so on the tap itself there is nothing to
+   * repaint them. The control's own `paint()` also touches nothing structural, which
+   * is what lets it be called while the panel is open under a pointer.
    */
   function paintScope() {
-    for (const btn of filtersEl.querySelectorAll('[data-scope]')) {
-      btn.setAttribute('aria-pressed', String(btn.dataset.scope === state.scope));
-    }
+    window.beadcause?.inboxFilter?.paint?.();
   }
 
   /**
@@ -3868,6 +4058,11 @@
     if (!SCOPES.includes(next) || next === state.scope) return;
     state.scope = next;
     localStorage.setItem('beadcause.scope', state.scope);
+    // Before the paint, because the scope decides which kind chips exist at all — and
+    // a selection the new scope cannot produce is dropped here rather than left to
+    // hide every row the refetch is about to bring back. Counts go to zero with the
+    // list; the fetch below is what fills them in again.
+    surveyKinds([]);
     paintScope();
     // The workspace filter used to be cleared here, on the grounds that it was probably
     // pointing at the one workspace that had a question in it and would hide everything
@@ -4300,11 +4495,32 @@
   function bootScope() {
     const saved = localStorage.getItem('beadcause.scope');
     if (SCOPES.includes(saved)) state.scope = saved;
-    // Painted here rather than waiting for the first render, so the row that says
-    // which slice you are looking at is on screen while `bd` is still being asked —
-    // which is exactly when a wide scope makes the wait long enough to wonder.
-    filtersEl.innerHTML = scopeRowHtml();
-    filtersEl.hidden = false;
+    mountFilters();
+  }
+
+  /**
+   * Build the filter control, once, before the first fetch answers.
+   *
+   * Early on purpose: the line that says which slice you are looking at has to be on
+   * screen while `bd` is still being asked, which is exactly when a wide scope makes
+   * the wait long enough to wonder. The kinds group is the control's own — see
+   * public/inboxfilter.js — and the scope group is handed over, so the two share one
+   * panel instead of stacking two rows.
+   *
+   * A page served without the file still works: `renderFilters` and `inKind` both fall
+   * back to doing nothing, which is the unfiltered list this page has always drawn.
+   */
+  function mountFilters() {
+    const f = window.beadcause?.inboxFilter;
+    if (!f) return;
+    f.mount(filtersEl, {
+      groups: [scopeGroup],
+      // Nothing is refetched — the kinds are a view over rows already in hand — so a
+      // plain repaint is the whole of it. Forced, because a filter tap is a decision
+      // and must not be deferred behind a half-written answer.
+      onChange: () => render(true),
+    });
+    f.survey({ kinds: kindsForScope() });
   }
 
   bootToken();

@@ -28,15 +28,27 @@
    the inbox with neither the picker nor the two chip rows it replaced: no way at all to
    change which repo you are looking at. They have to arrive together, which is what a
    cache version is for. */
-/* v23: the warm layer. `/warm.js` is a new path *and* all five standing pages now
+/* v23: the inbox filter collapsed into one hover-open line, and grew a chip per kind
+   of incoming thing. `/inboxfilter.js` is a new path *and* app.js now hands it the
+   scope group and asks it whether each row is in view — so a phone holding v22's cached
+   app.js beside v23's file would draw a panel nothing read, and a phone holding v23's
+   app.js without the file would draw an inbox with no scope switch at all: the chips
+   that used to be a permanent row are inside the new control, and nothing else draws
+   them. They have to arrive together, which is what a cache version is for. */
+/* v24: the endorsement queue. `/endorse` and its script are new paths, and index.html
+   grew the 🗳️ that opens it — so a phone holding an older cached inbox would have
+   neither the door nor the page behind it, and one holding the old `/` beside a v24
+   daemon would show a top-bar button that 404s out of the cache the moment the tailnet
+   is slow. The page they have to arrive with is the whole point of the version. */
+/* v25: the warm layer. `/warm.js` is a new path *and* all five standing pages now
    boot through it — app.js, prs.js, monitor.js, console.js and admin.js each ask it
    for the payload they had last time before asking the daemon for a fresh one, and
-   the inbox draws its list through its reconciler. A phone holding v22's cached
-   app.js beside v23's would call a file that is not there on every repaint; one
-   holding v23's app.js without the file would fall back to the whole-list rebuild
+   the inbox draws its list through its reconciler. A phone holding v24's cached
+   app.js beside v25's would call a file that is not there on every repaint; one
+   holding v25's app.js without the file would fall back to the whole-list rebuild
    and a cold fetch per tab, which is the entire thing being fixed. They have to
    arrive together, which is what a cache version is for. */
-const CACHE = 'beadcause-v23';
+const CACHE = 'beadcause-v25';
 const SHELL = [
   '/',
   '/index.html',
@@ -58,7 +70,11 @@ const SHELL = [
   // page cached without it is a page with no way to change which repo the app is about,
   // and on the inbox it is what the space and workspace chip rows became.
   '/spacebar.js',
-  // What each of those five pages boots from. In the shell rather than left to
+  // The inbox's own filter — the scope switch and the kind chips, in one collapsed
+  // line. In the shell for the same reason the picker is: without it the inbox has no
+  // control on it at all to say which slice of the tracker you are looking at.
+  '/inboxfilter.js',
+  // What each of the five standing pages boots from. In the shell rather than left to
   // network-first because the whole point of it is the first frame after a tab tap:
   // a page that has to fetch its cache before it can read it has already lost the
   // wait it exists to remove.
@@ -82,6 +98,13 @@ const SHELL = [
   '/pulls',
   '/prs.html',
   '/prs.js',
+  // The endorsement queue. Three paths for one page, the same bargain the console
+  // makes with its five: /endorse is what the 🗳️ in the inbox points at, /queue is
+  // what you type, and /endorsements is what a notification could carry later.
+  '/endorse',
+  '/queue',
+  '/endorse.html',
+  '/endorse.js',
   '/console.html',
   '/console.js',
   // console.js does not merely use the send queue, it is built on it — the composer

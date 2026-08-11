@@ -15,12 +15,11 @@
   document.title = `${name} · Beadcause`;
   window.beadcause?.presence?.report({ view: 'doc', id: filePath, detail: name });
 
-  document.getElementById('doc-close').addEventListener('click', () => {
-    // Opened via target=_blank, so this usually closes; if the browser refuses,
-    // fall back to the inbox.
-    window.close();
-    setTimeout(() => (location.href = '/'), 120);
-  });
+  // One rule for what closing a subordinate view means, and it lives in drawer.js —
+  // see its header. Usually this is a tab opened via target=_blank and closing it
+  // gives back the one underneath; from a pasted URL there is nothing underneath and
+  // it is the inbox. In a drawer this button is hidden and drawer.js has the click.
+  document.getElementById('doc-close').addEventListener('click', () => window.beadcause.closeView());
 
   const assetUrl = (p) => `/api/asset?p=${encodeURIComponent(p)}&t=${encodeURIComponent(token)}`;
 

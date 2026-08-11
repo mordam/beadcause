@@ -161,6 +161,70 @@ check(
   show(starred(handoff))
 );
 
+// The shape bc-j0zl asked its question in — three lettered ways to make room on the
+// bottom bar — which got no buttons at all until this strategy existed. A bracketed
+// letter is not the word "Option", and the bold each item is wrapped in made every
+// label read `(a)`.
+const LETTERS = `Foundations is a standing view reached by a glyph in the inbox's
+header, with two controls in its own header that both go back to the inbox and no
+bottom bar at all. The bar has five tabs and \`style.css:3345\` already shrinks the
+labels to 9.5px if a sixth appears. Three ways:
+
+- **(a)** Foundations takes Admin's place on the bar; Admin moves behind Foundations.
+- **(b)** Foundations stays a header glyph but gets the bottom bar on its own page and
+  loses the duplicate \`‹\`/\`✕\`. Cheapest, fixes the hallway, leaves the bar alone.
+- **(c)** Six tabs, and accept the 9.5px labels the stylesheet is already prepared for.
+
+I recommend **(b)** now, and letting (a) wait until Foundations has been usable long
+enough for you to know how often you open it.`;
+const letters = suggestOptions(LETTERS);
+check('a lettered set — (a), (b), (c) — becomes options', letters?.length === 3, show(letters));
+check(
+  'and the letter stays on the chip, because it is the word the question itself used',
+  labels(letters).every((l, i) => l.startsWith(`(${'abc'[i]}) `)),
+  show(labels(letters))
+);
+check(
+  'the letter is in the answer too, so the thread records the choice the way it was asked',
+  letters?.[2].response.startsWith('(c) Six tabs'),
+  letters?.[2].response
+);
+check(
+  '"I recommend (b)" stars the option it names, which no label match could find',
+  starred(letters).join().startsWith('(b)'),
+  show(starred(letters))
+);
+check(
+  'and the sentence after the letter does not leak into the answer',
+  !/nobody knows yet|usable long enough/.test(letters?.[1].response ?? ''),
+  letters?.[1].response
+);
+
+const PAREN_FREE = `Pick one:
+
+a) Keep the daemon polling every 25 seconds.
+
+b) Wake it on the bus and drop the timer.`;
+check(
+  'the opening bracket is optional — "a)" is as explicit as "(a)"',
+  labels(suggestOptions(PAREN_FREE)).join(' | ') ===
+    '(a) Keep the daemon polling every 25 seconds. | (b) Wake it on the bus and drop the timer.',
+  show(suggestOptions(PAREN_FREE))
+);
+
+// Bracketed, because a bare `1)` at the start of a line is an ordered list item and
+// markdown has already eaten the number by the time anything here sees it.
+const NUMBERED_MARKERS = `Which retention?
+
+- **(1)** Thirty days, and the bill stays where it is.
+- **(2)** A year, which is four times the bill.`;
+check(
+  'and it counts as well as it letters',
+  labels(suggestOptions(NUMBERED_MARKERS)).join(' | ') ===
+    '(1) Thirty days, and the bill stays where it is. | (2) A year, which is four times the bill.',
+  show(suggestOptions(NUMBERED_MARKERS))
+);
+
 /* ------------------------------------------------------------ the rejections */
 
 console.log('\nshapes it must refuse');
@@ -180,6 +244,14 @@ refuses(
 refuses(
   'a checklist — those are work, not answers',
   'The options:\n\n- [ ] **Ship it** now\n- [x] **Wait** for the review'
+);
+refuses(
+  'lettered items that do not start at the beginning — that is a fragment of somewhere else',
+  'As I said above:\n\n- **(b)** Keep the glyph.\n- **(c)** Six tabs.'
+);
+refuses(
+  'and lettered items that skip — a run with a hole in it was not written as a set',
+  'Pick one:\n\n- **(a)** Keep the glyph.\n- **(c)** Six tabs.'
 );
 refuses(
   'a list inside a fenced block — a transcript is not a set of answers',
@@ -395,6 +467,51 @@ check(
   'it writes the draft, so a suggestion survives the card being collapsed like anything else typed',
   /setDraft\(/.test(body),
   body
+);
+
+/* --------------------------------------- and the same rule for a written option */
+
+// The buttons a real `decision` block draws are not this file's output, but they are
+// now governed by the same rule and are one careless refactor from breaking it: they
+// used to answer and close on two taps, and the second tap is gone. scripts/option-check.mjs
+// proves the whole gesture in a browser; these two are here because they cost nothing
+// and run without Chrome, which is what `npm test` has.
+const optHandler = app.slice(app.indexOf("if (act === 'option')"));
+const optBody = optHandler.slice(0, optHandler.indexOf('\n    }\n') + 1);
+check('the client still has a handler for a written option', optBody.length > 100, String(optBody.length));
+check(
+  'and it fills the box rather than sending it — a choice is picked here and committed by the button under it',
+  !/submit\(|api\(/.test(optBody),
+  (optBody.match(/.*(submit\(|api\().*/) || [])[0]
+);
+check(
+  'it remembers which choice was made, because the words can be edited and the id cannot',
+  /state\.picked\.set\(/.test(optBody),
+  optBody
+);
+check(
+  'and the answer carries that id, which is the only thing that can say it commissions work',
+  /option:\s*act === 'answer' \? pickedOption\(q\)\?\.id/.test(app),
+  (app.match(/.*pickedOption\(q\)\?\.id.*/) || [])[0] || 'no option id on the answer path'
+);
+
+// The mirror is the same card on a screen with room for it, and it answers through
+// the same endpoints. It has no browser harness of its own, so the one rule that
+// must not drift between the two surfaces is pinned here by reading it: a click
+// fills the composer, and `respond()` is reached only from the button under it.
+const mirror = fs.readFileSync(path.join(HERE, '..', 'public', 'mirror.js'), 'utf8');
+const mirrorHandler = mirror.slice(mirror.indexOf("if (act === 'option')"));
+const mirrorBody = mirrorHandler.slice(0, mirrorHandler.indexOf('\n    }\n') + 1);
+check('the mirror has a handler for a written option too', mirrorBody.length > 100, String(mirrorBody.length));
+check(
+  'and it fills the composer rather than answering — the same bead must not behave differently on the two screens',
+  !/respond\(|api\(/.test(mirrorBody),
+  (mirrorBody.match(/.*(respond\(|api\().*/) || [])[0]
+);
+check(
+  'its answer carries the pick, so a commission is still a commission from the Mac',
+  /respond\(t, text, act === 'respond', act === 'respond' \? state\.picks\.get\(key\)/.test(mirror),
+  (mirror.match(/.*respond\(t, text.*/) || [])[0] || 'no pick on the mirror answer path'
 );
 
 /* ------------------------------------------------------------------ verdict */

@@ -399,12 +399,292 @@
     }
   }
 
+  /* ---------------------------------------------------------------------- TLS */
+
+  /*
+   * HTTPS, as a switch rather than a file on the Mac.
+   *
+   * The whole feature was previously reachable only by editing `tls.enabled` in
+   * ~/.config/beadcause/config.json — on a machine you would have to be sitting at —
+   * and it is gated on **HTTPS Certificates** being enabled for the tailnet, which is
+   * a setting on Tailscale's website that announces its absence in one sentence in a
+   * launchd log. So this card exists to say three things a log cannot: what is being
+   * served, what pressing the switch costs, and which of the two failures you are
+   * looking at.
+   *
+   * **The cost is stated before the press, in the button.** Turning HTTPS on moves the
+   * origin from `http://100.x.y.z:4318` to `https://<name>.ts.net:4318`, and the token
+   * lives in localStorage, which is per-origin — so every paired browser, including
+   * the one reading this, is signed out by it. The arm-then-press pattern the kill
+   * button uses puts that sentence in the button you are about to press again, and the
+   * pairing link and QR appear underneath afterwards. A control that signed you out
+   * with no explanation would be worse than no control.
+   */
+  const tlsOut = document.getElementById('tls');
+  const pairingOut = document.getElementById('pairing');
+
+  /** The last `/api/tls` body, and the last press's `did`, which outlives a repaint. */
+  let tls = null;
+  let tlsDid = null;
+
+  /**
+   * The Tailscale HTTPS-certificates page, opened by whatever can best take it here.
+   *
+   * Three environments, and only one of them has a hand-off worth making:
+   *
+   * - **A browser on Android** gets an `intent:` URL naming Tailscale's package with
+   *   `browser_fallback_url` set to the same page. Chrome resolves it to the app when
+   *   the app claims that link and loads the page itself when it does not, so the tap
+   *   cannot be dead either way.
+   * - **The beadcause app's own WebView** (it stamps `Beadcause/<version>` on the user
+   *   agent) gets the plain URL, because MainActivity hands external links to
+   *   `Links.open`, which puts an http(s) URL in a Custom Tab — already signed in to
+   *   Tailscale — and would silently drop an `intent:` one.
+   * - **Everything else** — iOS, the Mac, a desktop browser — gets the plain URL.
+   *   Tailscale publishes no documented scheme for reaching a tailnet setting in its
+   *   iOS or macOS app, and inventing one would trade a page that opens for a tap that
+   *   does nothing.
+   */
+  function tailscaleHref(url) {
+    const ua = navigator.userAgent || '';
+    if (!/Android/i.test(ua) || /Beadcause\//.test(ua)) return url;
+    const bare = url.replace(/^https?:\/\//, '');
+    return `intent://${bare}#Intent;scheme=https;package=com.tailscale.ipn;S.browser_fallback_url=${encodeURIComponent(
+      url
+    )};end`;
+  }
+
+  /** The host of a URL, or the whole string. A hand-set `baseUrl` need not parse, and
+   *  a card that throws on one is a blank screen where the switch used to be. */
+  function hostOf(url) {
+    try {
+      return new URL(url).host;
+    } catch {
+      return String(url || '');
+    }
+  }
+
+  /** How the certificate is doing, in a phrase. */
+  function certPhrase(t) {
+    if (!t.name) return 'Tailscale has not named this Mac yet — `tailscale status` did not answer.';
+    if (!t.have) return `No certificate for ${t.name} yet.`;
+    const days = t.daysLeft === null ? 'an unreadable expiry' : `${Math.round(t.daysLeft)} days left`;
+    return `Certificate for ${t.name} — ${days}${t.renewing ? ', renewing' : ''}.`;
+  }
+
+  /**
+   * Why the last fetch failed, in the words that decide what to do about it.
+   *
+   * `tailnet-https-off` is the whole reason this card exists: `tailscale cert` exits 0
+   * and writes nothing when HTTPS Certificates are off for the tailnet, there is
+   * nothing the daemon can do about it, and the fix is two taps on a page this screen
+   * can link to. Anything else is shown verbatim — a paraphrase of an error nobody has
+   * classified is how you lose the one sentence that would have explained it.
+   */
+  function askFailure(asked) {
+    if (!asked || asked.ok) return '';
+    if (asked.reason === 'tailnet-https-off') {
+      return `<p class="admin-warn"><strong>HTTPS Certificates are off for this tailnet.</strong> Tailscale said:
+        “${esc(asked.detail)}”. Turn them on with the button below, then press <strong>Try again</strong> — nothing
+        here can do it for you.</p>`;
+    }
+    if (asked.reason === 'no-tailscale') {
+      return `<p class="admin-warn"><strong>No tailscale command on this Mac.</strong> ${esc(asked.detail)}</p>`;
+    }
+    if (asked.reason === 'no-name') {
+      return `<p class="admin-warn"><strong>Tailscale has not named this Mac.</strong> ${esc(asked.detail)} — a
+        certificate is for the MagicDNS name, so there is nothing to ask for one for.</p>`;
+    }
+    return `<p class="admin-warn"><strong>No certificate came back.</strong> ${esc(asked.detail)}</p>`;
+  }
+
+  function tlsCard(t) {
+    const serving = t.serving;
+    const ready = t.enabled && t.have;
+    const state3 = serving?.tls
+      ? { text: `serving ${serving.name || 'https'}`, tone: 'live' }
+      : t.restartNeeded
+        ? { text: ready ? 'ready — restart to serve it' : 'restart to stop serving it', tone: 'held' }
+        : ready
+          ? { text: 'on', tone: 'live' }
+          : t.enabled
+            ? { text: 'on, no certificate', tone: 'held' }
+            : { text: 'off', tone: 'dim' };
+
+    // What the switch costs, said in the button rather than beside it. Only when the
+    // origin actually moves: a `baseUrl` you set by hand — a reverse proxy, a real
+    // domain — is left alone by the daemon, and warning about a sign-out that will not
+    // happen is how a warning stops being read.
+    const cost = t.originWillChange
+      ? `Tap again — every paired browser signs out (${esc(hostOf(t.wouldServe))} → ${esc(hostOf(t.ifFlipped))})`
+      : 'Tap again to confirm';
+
+    const buttons = [];
+    if (!t.enabled) {
+      buttons.push(
+        `<button class="secondary" data-tls="on" data-confirm="${cost}">Turn HTTPS on${
+          t.have ? '' : ' — and ask for a certificate'
+        }</button>`
+      );
+    } else {
+      if (!t.have) buttons.push(`<button class="primary" data-tls="on">Try again — ask Tailscale for a certificate</button>`);
+      buttons.push(`<button class="secondary" data-tls="off" data-confirm="${cost}">Turn HTTPS off</button>`);
+    }
+
+    return `<section class="card admin-card">
+      <div class="admin-head">
+        <h2>HTTPS</h2>
+        <span class="admin-state ${state3.tone}">${esc(state3.text)}</span>
+      </div>
+      <p class="admin-detail">
+        ${esc(certPhrase(t))}
+        Phones are handed <code>${esc(t.wouldServe)}</code>.
+      </p>
+      ${
+        t.alarming && t.have
+          ? `<p class="admin-warn"><strong>This certificate is nearly out.</strong> The daemon renews inside the last
+             month; still being this close means the renewal is not working.</p>`
+          : ''
+      }
+      ${askFailure(tlsDid?.asked)}
+      ${
+        t.restartNeeded
+          ? `<p class="admin-warn"><strong>The daemon is still serving the old socket.</strong> TLS is decided when the
+             listener is created, so this takes effect on the next restart — the Deploy button for beadcause on the PRs
+             screen does one, or on the Mac:<br><code>${esc(t.restartCommand)}</code></p>`
+          : ''
+      }
+      <div class="admin-btns">${buttons.join('')}</div>
+      <a class="secondary tls-link" href="${esc(tailscaleHref(t.tailnetHttpsUrl))}" target="_blank" rel="noreferrer noopener">
+        Tailscale · HTTPS Certificates ↗
+      </a>
+      <p class="admin-detail tls-foot">A certificate can only be had if that setting is on for the tailnet. It is not a
+        setting on this Mac and nothing here can change it.</p>
+    </section>`;
+  }
+
+  /**
+   * The pairing panel: the link and the code that undo the sign-out.
+   *
+   * Both, because they answer different phones. The link is one tap for the browser
+   * that is reading this — the one that has just been signed out of the origin it is
+   * on — and the code is for every other device, which cannot be handed a link at all.
+   * It stays on screen until you dismiss it: it holds the token, and a repaint taking
+   * it away mid-scan is the one failure that leaves you locked out with the Mac in
+   * another room.
+   */
+  function showPairing(view, did) {
+    if (!view?.pairing) return;
+    pairingOut.innerHTML = `<section class="card admin-card tls-pairing">
+      <div class="admin-head">
+        <h2>Pair again</h2>
+        <span class="admin-state ${did?.originMoved ? 'held' : 'dim'}">${
+          did?.originMoved ? 'the address changed' : 'the address is unchanged'
+        }</span>
+      </div>
+      <p class="admin-detail">${
+        did?.originMoved
+          ? `Everything paired with <code>${esc(did.from)}</code> is signed out — the token is stored per origin.
+             Open the new address here, or scan it on another device.`
+          : 'Nothing moved, so nothing was signed out. The code is here anyway.'
+      }</p>
+      <div class="tls-qr">${view.pairing.qr}</div>
+      <div class="admin-btns">
+        <a class="primary" href="${esc(view.pairing.url)}">Open ${esc(hostOf(view.pairing.origin))}</a>
+        <button class="secondary" data-tls="dismiss">Done</button>
+      </div>
+    </section>`;
+    pairingOut.hidden = false;
+  }
+
+  function renderTls() {
+    if (!tls) {
+      tlsOut.innerHTML = '';
+      return;
+    }
+    disarm();
+    tlsOut.innerHTML = tlsCard(tls);
+    if (tls.observing) for (const b of tlsOut.querySelectorAll('button[data-tls]')) b.disabled = true;
+  }
+
+  /**
+   * Press the switch.
+   *
+   * Deliberately not sharing `press()` above: that one posts to /api/admin and repaints
+   * the scope cards, and this one may take a Let's Encrypt round trip, so the button
+   * says which of the two waits you are in rather than an anonymous ellipsis.
+   */
+  async function pressTls(btn) {
+    if (busy) return;
+    if (btn.dataset.tls === 'dismiss') {
+      pairingOut.hidden = true;
+      pairingOut.innerHTML = '';
+      return;
+    }
+    if (btn.dataset.confirm && btn.dataset.armed !== 'yes') {
+      const was = btn.textContent;
+      btn.dataset.armed = 'yes';
+      btn.classList.add('armed');
+      btn.textContent = btn.dataset.confirm;
+      armed = { btn, was, timer: setTimeout(() => disarm(), 6000) };
+      return;
+    }
+    disarm({ keep: btn });
+
+    const on = btn.dataset.tls === 'on';
+    busy = true;
+    const was = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = on ? 'Asking Tailscale for a certificate…' : 'Turning HTTPS off…';
+    try {
+      const r = await api('/api/tls', { method: 'POST', body: JSON.stringify({ enabled: on }) });
+      tls = r.view;
+      tlsDid = r.did;
+      renderTls();
+      showPairing(r.view, r.did);
+      const bits = [r.did.now ? 'HTTPS on' : 'HTTPS off'];
+      if (r.did.asked?.ok) bits.push(r.view.have ? `certificate for ${r.view.name}` : 'certificate ok');
+      else if (r.did.asked) bits.push('no certificate — see below');
+      if (r.did.originMoved) bits.push(`address is now ${hostOf(r.did.to)}`);
+      if (r.view.restartNeeded) bits.push('restart to serve it');
+      said.textContent = bits.join(' · ');
+      said.hidden = false;
+    } catch (err) {
+      btn.textContent = `${was} — ${err.message}`;
+      btn.disabled = false;
+    } finally {
+      busy = false;
+    }
+  }
+
+  tlsOut.addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-tls]');
+    if (btn) pressTls(btn);
+  });
+  pairingOut.addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-tls]');
+    if (btn) pressTls(btn);
+  });
+
+  async function loadTls() {
+    try {
+      tls = await api('/api/tls');
+      renderTls();
+    } catch {
+      /* The pause controls are the point of this page; a daemon too old to have
+         /api/tls draws no card rather than an error where one has never been. */
+    }
+  }
+
+  refresh?.addEventListener('click', loadTls);
   refresh?.addEventListener('click', load);
   // Not while a press is in flight, and not while a destructive button is armed:
   // either would redraw the button out from under the thumb already moving to it.
   setInterval(() => {
     if (!busy && !armed) load();
+    if (!busy && !armed) loadTls();
   }, REFRESH_MS);
   warmBoot();
   load();
+  loadTls();
 })();

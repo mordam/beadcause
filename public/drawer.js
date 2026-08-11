@@ -45,6 +45,42 @@
  * whole reason the drawer exists, and also why there is no scroll-restore code
  * here. The inbox's own anchoring (see capturePlace in app.js) keeps working behind
  * the panel, undisturbed.
+ *
+ * ## Closing a subordinate view — the rule, and this is the one place it is written
+ *
+ * `beadcause.closeView()`, at the foot of this file, is what a *page's* ✕ calls —
+ * doc.js, graph.js and session.js, none of which answers this for itself any more.
+ * The panel's own ✕ is not a page's and goes straight to `close()` below, which is
+ * case 1 of the same rule with the mechanism to hand. The rule is one sentence:
+ *
+ *   **A subordinate view closes to the view it opened over, and to the inbox when
+ *   there is not one.**
+ *
+ * Which is three cases and no more:
+ *
+ *   1. **In a drawer** — the view underneath is the tab the panel is over, so
+ *      closing is a dismissal and not a navigation at all. The drawer spent one
+ *      history entry to get here and `history.back()` is what gives it back, so the
+ *      phone's own back button needs one press afterwards rather than two.
+ *   2. **A tab this app opened** — long-press → open in new tab, or a `target=_blank`
+ *      out of a brief. The view underneath is the tab that opened it, and handing
+ *      that back is `window.close()`.
+ *   3. **Anything else** — a pasted URL, a notification, a home-screen shortcut.
+ *      Nothing is underneath: the inbox is the main page, and that is where it goes.
+ *
+ * It reads like an obvious rule and the app had three of them, which is the bug this
+ * replaced (bc-l8jp.3). `/session`'s ✕ went to `/sessions`, correct on the day the
+ * sessions view existed and, since Advocates absorbed it, a ✕ that closed one view by
+ * opening a different tab. `/doc` and `/graph` went to `/` by way of their own copies
+ * of the window.close()-then-navigate dance, so a change to what closing means was
+ * three edits and the third was always the one forgotten. And the drawer's `back()`
+ * lands wherever you came from — right, and the only exit in the app that can put you
+ * on the PR board, which is what the bug was reported as.
+ *
+ * Case 3 is deliberately *not* "wherever you came from". A standalone detail page is
+ * the fallback for an address that arrived from outside the app, where the history
+ * behind it belongs to whatever you were doing before the app — and `back()` there is
+ * a promise the ✕ cannot keep.
  */
 (() => {
   'use strict';
@@ -54,6 +90,14 @@
   const TITLE = 'beadcause:drawer-title';
   const DETAIL = new Set(['/graph', '/graph.html', '/doc', '/doc.html', '/session', '/session.html']);
   const SLIDE_MS = 240;
+  /* Where a subordinate view with nothing underneath it closes to — the inbox, which
+     is the main page. Named once, here, because "which page is home" is exactly the
+     kind of answer that gets copied into four files and then changed in three. */
+  const HOME = '/';
+  /* Long enough for window.close() to have taken the tab if it was ever going to.
+     A browser that refuses it does so silently, so the only way to tell is to still
+     be here afterwards. */
+  const CLOSE_MS = 120;
 
   /** The href of a link the drawer owns, normalised — null for everything else. */
   function detailUrl(href) {
@@ -335,9 +379,46 @@
     );
   }
 
+  /* ------------------------------------------------------------- the way out */
+
+  /**
+   * What the ✕ on a subordinate view does. The rule is in this file's header; this
+   * is the whole of the code that implements it, and every ✕ that means "close this
+   * view" calls it rather than deciding for itself.
+   *
+   * Exported rather than wired to a selector, because the three pages that need it
+   * already have their own buttons and their own reasons to be doing something else
+   * first — `/session` posts its presence away, and a page that grows a "are you
+   * sure" one day needs to run before the exit, not instead of it.
+   */
+  function closeView() {
+    // In a drawer. The ✕ inside the panel is drawer.js's own and never reaches here;
+    // this is the page's own button, which the capture handler above normally takes
+    // first. It is still worth answering: a stylesheet that has not landed leaves
+    // that button live, and navigating an iframe to the inbox would paint a second
+    // copy of the whole app inside the panel.
+    if (window.top !== window.self) {
+      parent.postMessage({ type: CLOSE }, location.origin);
+      return;
+    }
+    // A tab this app opened is one it can give back. Called unconditionally rather
+    // than behind a `window.opener` test: `rel=noopener` and the Android shell both
+    // leave the opener null on tabs that can nonetheless be closed, and a browser
+    // that refuses simply does nothing.
+    window.close();
+    // Still here, so it refused, or there was no tab to close: the inbox.
+    setTimeout(() => {
+      location.href = HOME;
+    }, CLOSE_MS);
+  }
+
+  window.beadcause = window.beadcause || {};
+  window.beadcause.closeView = closeView;
+
   // A detail page opened on its own is left exactly as it was — no drawer over a
   // drawer's worth of the same thing, and the standalone page stays the fallback a
-  // pasted URL lands on.
+  // pasted URL lands on. It still gets `closeView` above, which is the half of this
+  // file such a page does need: it has a ✕ and it has to mean something.
   if (window.top !== window.self) drawer();
   else if (!DETAIL.has(location.pathname)) tab();
 })();

@@ -294,7 +294,13 @@
       // Ready in every way but the one that counts — see lib/endorse.js. It sits next to
       // `ready` because it is the part of the tracker's own ready number that has been
       // taken out of it, and an unexplained gap between the two reads as a bug.
-      c.held ? `<span class="pill muted">${c.held} held for endorsement</span>` : '',
+      //
+      // A link, and the main door to the endorsement queue: this was the number with no
+      // way through it — "3 held for endorsement" and no way to see which three from a
+      // phone. The queue is not a tab (the bottom bar is full at five, and what gives up
+      // its place is bc-j0zl's decision, not this pill's), so the count you were already
+      // reading is what opens it.
+      c.held ? `<a class="pill muted" href="/endorse">${c.held} held for endorsement</a>` : '',
       c.inProgress ? `<span class="pill on">${c.inProgress} in progress</span>` : '',
       c.blocked ? `<span class="pill p1">${c.blocked} blocked</span>` : '',
       a && a.queue ? `<span class="pill mine">${a.queue} for the advocate</span>` : '',

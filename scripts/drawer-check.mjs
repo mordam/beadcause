@@ -19,7 +19,11 @@
 //     the page inside handed up — and that ✕ closes the drawer rather than calling
 //     window.close() on a tab it does not own or navigating the app to the inbox;
 //   - the page's own chrome comes back when it really is a page, because that is the
-//     fallback a pasted URL lands on and out there the top bar is all there is;
+//     fallback a pasted URL lands on and out there the top bar is all there is —
+//     and out there its ✕ lands on the *inbox*, all three of them, which is the one
+//     rule for closing a subordinate view (public/drawer.js's header, and bc-l8jp.3:
+//     `/session` used to close to `/sessions`, a path that has served the Advocates
+//     page since it absorbed the sessions view, so closing one view opened another);
 //   - the graph is still the graph in there: the scope toggle works at drawer width
 //     and renames the header with it, and the detail sheet opens inside the panel
 //     rather than across the window;
@@ -211,7 +215,11 @@ const TYPES = {
 const BASE_FILES = [
   '/index.html',
   '/doc.html',
+  // The two page scripts that own a ✕, so `--baseline` really does serve the old way
+  // out of them and not the new one under an old page.
+  '/doc.js',
   '/graph.html',
+  '/graph.js',
   '/monitor.html',
   '/monitor.js',
   '/mirror.js',
@@ -559,6 +567,23 @@ const SHEET = `(() => {
     return { up: false, text: '' };
   }
 })()`;
+
+/**
+ * Tap a standalone page's own ✕ and say where it left you.
+ *
+ * Only meaningful out here: in the drawer that button is hidden and drawer.js has the
+ * click. `window.close()` runs first and is refused — this is not a script-opened tab
+ * — so the navigation is the fallback, 120ms behind the tap.
+ */
+const closeAndLand = async (s, sel) => {
+  await evalJs(s, clickSel(sel));
+  await sleep(900);
+  try {
+    return await evalJs(s, `location.pathname`);
+  } catch {
+    return 'mid-navigation';
+  }
+};
 
 const clickInDrawer = (sel) => `(() => {
   const f = document.querySelector('.drawer-frame');
@@ -1009,6 +1034,9 @@ try {
     `${chrome.bars} header(s), ${chrome.closes} ✕, saying ${JSON.stringify(chrome.title)}`
   );
 
+  const graphLanding = await closeAndLand(s, '#graph-close');
+  check('and out there its ✕ lands on the inbox', graphLanding === '/', `landed on ${graphLanding}`);
+
   await s.send('Page.navigate', { url: `${BASE}${SESSION_HREF}` });
   const pastedSession = await waitFor(s, `document.body.innerText.includes(${JSON.stringify(IN_TRANSCRIPT)})`, 60);
   const sessionChrome = await evalJs(
@@ -1034,6 +1062,18 @@ try {
     }`
   );
 
+  // The one that was wrong: this ✕ went to `/sessions`, which has served the advocate
+  // console since it absorbed the sessions view — so closing the session you were
+  // reading dropped you on a different tab entirely, with no way back to where you
+  // had been. Asserted as a path rather than as "not /sessions", because the next
+  // wrong answer will be a different path.
+  const sessionLanding = await closeAndLand(s, '#session-close');
+  check(
+    'and out there its ✕ lands on the inbox, not on the tab that absorbed the sessions view',
+    sessionLanding === '/',
+    `landed on ${sessionLanding}`
+  );
+
   await s.send('Page.navigate', { url: `${BASE}/doc?p=${encodeURIComponent(SPEC)}` });
   await waitFor(s, `document.body.innerText.includes(${JSON.stringify(IN_SPEC)})`, 40);
   const docChrome = await evalJs(
@@ -1049,6 +1089,9 @@ try {
     docChrome.bars === 1 && docChrome.closes === 1 && docChrome.title === 'SPEC.md',
     `${docChrome.bars} header(s), ${docChrome.closes} ✕, saying ${JSON.stringify(docChrome.title)}`
   );
+
+  const docLanding = await closeAndLand(s, '#doc-close');
+  check('and its ✕ lands on the inbox too — one rule, all three', docLanding === '/', `landed on ${docLanding}`);
 } finally {
   close();
   server.closeAllConnections?.();

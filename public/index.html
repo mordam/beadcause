@@ -45,6 +45,19 @@
            The variation selector on ⌨️ is load-bearing: bare U+2328 renders
            text-style, which beside ⚖️ reads as a broken glyph rather than an icon. -->
       <a href="/terminal" class="icon-btn" aria-label="Terminal — drive a Claude session from here">⌨️</a>
+      <!-- The endorsement queue: beads an agent filed mid-task, which nothing may open
+           a session on until you say so. A door in the chrome rather than a sixth tab
+           on the bottom bar — the bar is full at five and what gives up its place is
+           its own decision (bc-j0zl), which a screen squeezing itself in would settle
+           by force.
+
+           No badge, deliberately, and it is the one thing here that has one and should
+           not. The count would cost a `bd list --label unendorsed` per workspace on
+           every thirty-second poll — the inbox's three counts are all free by-products
+           of a sweep the poller already makes, and this would be the first that is not.
+           The number lives where it is already computed: the `N held for endorsement`
+           pill on the advocate console, which is also a link to this page. -->
+      <a href="/endorse" class="icon-btn" aria-label="Endorsement queue — beads an agent filed, waiting on you">🗳️</a>
       <!-- The badge is the channel's presence in the chrome: a request never appears
            in the list below, so without this the only sign one is waiting would be a
            notification you may have already swiped away. -->
@@ -60,11 +73,14 @@
   </header>
 
   <!--
-    Which slice of the tracker the list is, then which space, then which workspace —
-    three rows of chips, coarsest first, all painted by renderFilters() in app.js.
-    The first of them used to be a gear opening a modal; it is a row like the others
-    now, because a setting that changes what every count on the screen means should
-    not need a tap to read.
+    The inbox's own filter, and all of it: which slice of the tracker, and which kinds
+    of incoming thing. Built by public/inboxfilter.js — one line at rest saying what is
+    selected, the full set of chips on hover with a pointer and on a tap without one.
+
+    It held three permanent rows once, coarsest first: the scope, then the space, then
+    the workspace. The bottom two are the space picker in the top bar now; the top one
+    is inside the panel with the kinds, because two rows of chips above the list is two
+    questions you cannot see on a phone.
   -->
   <nav class="filters" id="filters" hidden></nav>
 
@@ -108,6 +124,11 @@
        and it is what the two chip rows that used to be in #filters became, so the list
        below is filtered by the bar above it rather than by a row of its own. -->
   <script src="/spacebar.js"></script>
+  <!-- The inbox's filter: the scope and a chip per kind of incoming thing, behind one
+       collapsed line. Before app.js, because app.js hands it the scope group and asks
+       it whether each row is in view as it renders — and a page that drops it falls
+       back to the unfiltered list rather than to no list. -->
+  <script src="/inboxfilter.js"></script>
   <!-- The answer collapsing into beads and the beads going into the mark. Before
        app.js because submit() reaches for it on the tap; it registers itself on
        `beadcause` and touches nothing else, so a page that drops it still answers

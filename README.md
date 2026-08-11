@@ -122,7 +122,9 @@ otherwise its poller would keep firing notifications with no listener behind the
   a TLS 1.2 floor — once *HTTPS Certificates* is enabled for the tailnet. Until then it
   logs why and serves plain http. Loopback is plain http on purpose. The daemon
   [renews the certificate under itself](#renewing-it-before-it-expires) and pushes to
-  your phone if it ever cannot. See
+  your phone if it ever cannot, and the **Admin screen** turns it on, says what it will
+  cost and hands you the new pairing code — see
+  [the switch on the Admin screen](#the-switch-on-the-admin-screen) and
   [HTTPS on the tailnet name](#https-on-the-tailnet-name).
 - **Two credentials, and the token is not going anywhere.** Everything that is not a
   browser uses the shared token, exactly as it always did. A browser can *also* sign in
@@ -173,8 +175,17 @@ images:
 ```
 ````
 
+- **A choice writes the answer; it does not send it.** Tapping an option opens the
+  card if it was closed and puts that option's `response` in the answer box, where
+  it is yours to edit, qualify or take back — *Answer & close* under the box is what
+  commits it. The commonest thing anyone wants to do with a multiple-choice question
+  is pick one *and say something about it*, and a button that answered outright had
+  nowhere to put the second half. Tapping a second choice replaces the first; tapping
+  the one you already picked empties the box again; and a choice tapped after you have
+  typed something appends to it, because words you wrote are never thrown away.
 - `options[].response` is the exact text recorded as the answer — write it so a
-  future agent can act on it without re-reading the question.
+  future agent can act on it without re-reading the question. It is what lands in the
+  box, so write it as a sentence rather than as a button label.
 - `recommended: true` on one option puts a ★ and a tag on its button. `recommend:
   <id or label>` beside the list is the same thing said once instead of per row,
   and wins if both are written. Only one option is ever starred: two is the block
@@ -186,8 +197,12 @@ images:
   comments the answer, drops the `human` label and leaves the bead open and
   unclaimed — so it goes straight into `bd ready` and an advocate picks it up as
   work, instead of a session having to reopen it by hand and put the card back in
-  your inbox. Everything else about the tap is the same, including the card
-  leaving the inbox; the toast says which of the two happened.
+  your inbox. Everything else is the same, including the card leaving the inbox; the
+  toast says which of the two happened. **The button under the box says so before you
+  press it** — it reads *Answer & commission* while that choice is the one in the box,
+  because the close is the one outcome that is not going to happen. The option's id
+  rides with the answer and the server re-reads the bead to decide, so editing the
+  sentence into your own words does not turn a commission back into a close.
 - `diagram` is mermaid, rendered on the phone. ` ```mermaid ` fences in the prose
   render too.
 - `docs` are files on the Mac you need to read before answering. Each opens in the
@@ -239,19 +254,26 @@ Suggested — read out of the design            tap to fill the box
 [ ★ Restore at promotion ]  [ Restore at startup ]
 ```
 
-**A chip fills the box; it never sends.** That is the whole difference between
-these and the buttons above. An `options[].response` was written by an agent as
-the answer, so tapping it twice answers and closes. A suggestion is a sentence
-this parser lifted out of a paragraph, so it goes where you can read it, edit it
-and add a caveat, and *Answer & close* is still what commits it. Tapping a second
-chip swaps your pick; tapping one after you have typed something appends, because
-the words you wrote are never thrown away.
+**A chip fills the box, exactly as a written option does.** Tapping a second chip
+swaps your pick; tapping one after you have typed something appends, because the
+words you wrote are never thrown away. Two differences from the buttons above
+survive, and both come from where the words came from. A chip **lets go the moment
+you edit it** — it is only ever a claim that the box says exactly what the chip
+says, while an option stays lit while you qualify it. And a chip **carries no id**,
+so it cannot commission work: `closes: false` is a thing an agent wrote about an
+answer it wrote, and this parser is guessing.
 
 **Write the list and it will be found.** Any of these parse, in this order:
 
 - `**Bold label** — the rest.` as a bulleted or numbered list. The bold run
   becomes the chip; everything after it rides along in the answer.
 - `Option A — …`, `Option B: …`, anywhere — list, heading or bare paragraph.
+- `**(a)** …`, `(b) …`, `c) …` — a lettered or numbered run, as list items or as
+  paragraphs. The letter stays on the chip and in the answer, because it is the
+  word the question itself used: *I recommend (b)* stars the right one, which no
+  amount of matching on labels could work out. The run has to start at `a` (or `1`)
+  and have no holes in it — a pair that starts at `(c)` is a fragment of something
+  quoted, not a question being asked here.
 - A plain list directly under a lead-in line: *The options:*, *Choices:*,
   *Candidates:*, *Two ways forward:*.
 
@@ -272,8 +294,9 @@ and a second set of chips beside them would be two answers to one question
 disagreeing about what the question is.
 
 **A `decision` block is still better** and is what to write when you know the
-question is going to a phone: it gets full-width buttons above the fold, the
-exact sentence you chose recorded as the answer, and one tap fewer. This is the
+question is going to a phone: full-width buttons above the fold rather than chips
+in the box, the sentence you meant recorded as the answer rather than one lifted
+out of a paragraph, and the only place `closes: false` can be said. This is the
 safety net under everything else.
 
 #### Checking it
@@ -292,6 +315,13 @@ Two, because the parser and the gesture fail in different ways:
   reads like tidying up a duplicate. `--baseline` serves the committed `public/`,
   where it must score 7/23: every suggestion case failing, every control passing.
   Not in `npm test` — it needs Chrome.
+- **`node scripts/option-check.mjs`** — the same, for the buttons a real block
+  draws. It counts writes too, and adds the three things a written option has that
+  a chip does not: that the pick survives you rewriting its words, that the id
+  reaches `/api/respond` when you finally press the button, and that the button
+  renames itself over a commission. `--baseline` stops at the sixth check, because
+  the committed build arms the first tap instead of opening the card. Not in
+  `npm test` — it needs Chrome.
 
 ## Spaces — keeping work out of your evening
 
@@ -305,7 +335,9 @@ interrupt you*:
     "quietHours": { "from": "18:00", "to": "09:00" },
     "quietDays": ["sat", "sun"],
     "ntfyDetail": "minimal",
-    "autoDispatch": false }
+    "autoDispatch": false,
+    "autoMerge": false,
+    "requireApproval": true }
 ]
 ```
 
@@ -478,6 +510,24 @@ than muting the space forever. `ntfyDetail` and `autoDispatch` set at space leve
 keep applying as you add workspaces to that space — which is exactly the drift that
 otherwise leaks a work question onto a public relay.
 
+**A space also decides who merges.** `autoMerge` and `requireApproval` are the same
+kind of answer as the two above — one you give once for a group of repos rather than
+per repo — and they are the two halves of
+[landing work](#landing-work--a-branch-a-pull-request-and-the-workers-own-merge):
+
+| on a space | what it does |
+|---|---|
+| `"autoMerge": false` | workers there stop after opening the pull request, and the merge is your tap |
+| `"autoMerge": true` | they land their own work, even where the global `pr.autoMerge` says off |
+| `"requireApproval": true` | they land their own work *unless* the pull request has no approving review — a green, unapproved one becomes a card that says so |
+
+The global `pr.*` is the **default** here, not a veto, and that is a deliberate
+difference from `autoDispatch` — where `false` is a safety switch no space may argue
+its way out of. Both of these are ordinary policy, and only a default a space can
+override in either direction expresses the two setups that motivated it: on everywhere
+except the shared repo, and off everywhere except the side project. A space that says
+nothing inherits, and a config with no spaces at all behaves exactly as it always did.
+
 `npm run configure` walks you through it. Run it **in a terminal** — it needs one to
 ask questions. Anywhere else (a pipe, CI, an agent shell) it prints the current
 configuration and changes nothing, which also makes it a quick way to see what is
@@ -493,19 +543,23 @@ set.
   and another at the foot of the brief, where you land after a diagram and a thread.
   Collapsing scrolls you back onto the card you were reading rather than leaving you
   wherever the shrinking list happened to put you.
-- **Two taps on an option.** The first arms it, the second commits — a pocket tap
-  shouldn't close a bead. It disarms after 6s.
+- **An option fills the box.** Tapping a choice opens the card and writes that
+  choice's own sentence into the answer box, still editable and unsent; the button
+  under the box commits it. It replaced a two-tap arm-then-confirm, which was safe
+  against a pocket tap but had nowhere to put the qualifying sentence that usually
+  comes with a choice. The pocket is still covered: nothing leaves the phone until
+  you press the button under the words you are looking at.
 - **Free text**, with *Answer & close* or *Comment only* if you want the question
   to stay open. **Drafts are saved on every keystroke** to localStorage, so
   collapsing the card, opening a doc, a background refresh, or the phone killing
   the tab can't eat a half-written answer. A collapsed card with a draft says
   *Resume your answer* and shows a "draft saved" flag; the draft is cleared only
   once the answer is accepted. **The list never repaints while an answer is in
-  progress** — not on the 25s refresh, not when the two-tap arm timer expires.
+  progress** — not on the 25s refresh, not when a two-tap arm timer expires.
   Rebuilding it would destroy the textarea, drop focus, close the keyboard and
   reset scroll, which reads exactly like the answer being thrown away. Repaints
-  are deferred until the box is empty and unfocused; the armed-option state is
-  painted in place instead.
+  are deferred until the box is empty and unfocused; which option is lit, and what
+  the button under the box promises, are painted in place instead.
 - **Or set it aside**, under the two buttons — see [Setting a card
   aside](#setting-a-card-aside-is-not-answering-it) below. Two taps like everything
   else that makes something disappear, and the second one spells out what it is
@@ -653,11 +707,15 @@ a gate that appeared **between** the card opening and the press — a child reop
 a blocker filed while you were reading. That window is real, so nothing about the
 server-side check is relaxed on the strength of the card having asked first.
 
-Two known limits, both deliberate: a **decision block's option buttons** and a
-**proposal's Create-all** also close the bead and are still drawn on a gated card,
-falling back to the `409` note when pressed — hiding them would leave a decision
-card with no visible way to decide. And a **delivery** keeps its three buttons,
-because those are about a pull request rather than about the bead.
+One known limit, deliberate: a **proposal's Create-all** also closes the bead and is
+still drawn on a gated card, falling back to the `409` note when pressed — hiding it
+would leave a proposal with no visible way to approve it. And a **delivery** keeps its
+three buttons, because those are about a pull request rather than about the bead.
+
+A **decision block's option buttons** used to be on that list and no longer are:
+tapping one writes into the answer box and closes nothing, so on a gated card it
+fills a box whose only button is *Comment*. The choice reaches the thread, the bead
+stays open because it was always going to, and nothing has to be refused to say so.
 
 ### What is gated, and what is deliberately not
 
@@ -2179,6 +2237,47 @@ load and opening `DocActivity` on top of a drawer that stayed empty behind it. I
 leaves anything that is not the main frame alone; a `/doc` link that *is* a main-frame
 navigation — a notification, a deep link — still opens the native reader.
 
+### Closing a subordinate view — one rule, in one place
+
+The ✕ on a subordinate view obeys one sentence, and `public/drawer.js` is where it is
+written down — the header for the prose, `beadcause.closeView()` for the code:
+
+> **A subordinate view closes to the view it opened over, and to the inbox when there
+> is not one.**
+
+Three cases and no more. **In a drawer**, the view underneath is the tab the panel is
+over, so closing is a dismissal rather than a navigation — and `history.back()`, so the
+one entry the drawer spent is given back and the phone's own back button needs one
+press afterwards rather than two. **In a tab this app opened** — long-press → open in
+new tab, or a `target=_blank` out of a brief — the view underneath is the tab that
+opened it, and `window.close()` hands it back. **Anything else** — a pasted URL, a
+notification, a home-screen shortcut — has nothing underneath, and the inbox is the
+main page.
+
+That last case is deliberately *not* "wherever you came from". The standalone page is
+the fallback for an address that arrived from outside the app, where the history behind
+it is whatever you were doing before the app was open, and `back()` there is a promise
+the ✕ cannot keep.
+
+It reads like an obvious rule and the app had three of them, which is the bug this
+replaced. `/session`'s ✕ went to `/sessions` — correct on the day it was written, and a
+✕ that closed one view by *opening a different tab* from the day Advocates
+[absorbed the sessions view](#getting-around--the-tab-bar), since that path has served
+the advocate console ever since. `/doc` and `/graph` went to `/`, each carrying its own
+copy of the `window.close()`-then-navigate dance. And the drawer dismissed to whatever
+was underneath, which is right, and is the only exit in the app that can leave you on
+the pull request board — which is what the symptom was reported as.
+
+None of the three was wrong enough on its own to notice. What was wrong was that there
+were three: changing what closing means was three edits, and the third was always the
+one forgotten, which is exactly how `/sessions` outlived the sessions view. So the
+three pages now ask for the rule rather than each answering it, and `node
+test/closeview.mjs` — in `npm test`, a static read of `public/*.js` — asserts that none
+of them decides its own way out, that `closeView()` is defined once, that nothing
+closes to `/sessions` any more, and that every page carrying such a ✕ loads
+`drawer.js` (and that the service worker precaches it, since a notification on a bad
+link is exactly when these pages are opened).
+
 ### Checking that it gives the tab back
 
 `node scripts/drawer-check.mjs` drives the real `public/*.js` in headless Chrome at
@@ -2208,6 +2307,12 @@ detail sheet opening inside the panel and closing back to the graph rather than
 closing the drawer; the page's own ✕ dismissing the drawer rather than the app if
 anything ever reaches it; and both pages standing on their own — header, ✕ and no
 drawer mode — when they are loaded as pages.
+
+Standing on their own, it then taps each of those three ✕s and asserts **where it
+actually lands**: the inbox, all three, which is the rule above. A path rather than a
+"not `/sessions`", because the next wrong answer will be a different path — and it is
+the half `test/closeview.mjs` cannot make, since a source read can only say that the
+three pages call one function, not what that function does to the address bar.
 
 `--baseline` serves the committed copies instead of the working ones, which is how
 you check a failure here is a real one: whatever a change brings has to fail without
@@ -2838,6 +2943,114 @@ exactly as it was found, that a rebuild fires only for the paths that moved, tha
 `startDeploy` returns while its command is still running, and that a runner with a dead
 pid settles to `unconfirmed` or `lost` and never to `ok`.
 
+## The endorsement queue — a group tap, or a row at a time
+
+A worker that trips over work no longer stops to ask. It files the bead there and then
+with `beadcause-file`, and the bead arrives carrying `unendorsed`, which is a hold with
+teeth: no advocate queues it, no launcher will open a session on it, and it is out of
+every count that says how much work is waiting (lib/endorse.js, lib/filing.js). The
+decision is still yours and it is still made before an agent spends an hour on the
+thing; it is simply no longer the thing the finder waits on.
+
+That trade only holds up if the other end of it exists. Until this screen the held
+beads were a muted pill on the advocate console reading `3 held for endorsement` —
+a number with no door behind it, and no way at all to see which three from a phone.
+
+**`/endorse` is the door** (`/queue` and `/endorsements` reach the same page). One
+list, every workspace at once, newest first, narrowed by the space picker in the top
+bar like every other standing view.
+
+### The row is the bead, not a summary of it
+
+Unfolded, a row shows what the agent actually wrote: what the work is, what done looks
+like, and the provenance paragraph saying how it was found — whether the priority was
+clamped, whether it looks like a duplicate. Everywhere else in this app a list row is
+a teaser for a sheet. Here the sheet is the point, so it is in the list: you are being
+asked whether an hour of unattended agent should go on this, and a decision made off a
+title is a rubber stamp with extra steps.
+
+Folded, the row carries the id, the workspace, the type, the priority — and **the bead
+it was found under**, which is the one sentence a bead cannot say about itself and
+usually the thing that tells you whether this is a real discovery or a tangent. That
+line costs a `bd show` per row, because `bd list --json` carries every text field but
+not `dependencies[]`, and the `discovered-from` edge is where the answer lives. It is
+bounded and it is a read, so it never queues behind Dolt's single writer; a lookup that
+fails costs the row its provenance line and nothing else.
+
+The list caps at sixty and **says so when it has** — an endorsement queue with sixty
+beads in it is a backlog to answer, not a list to page through, and a silent truncation
+would read as "you have answered them all". A workspace whose `bd` fell over is named
+on the page for the same reason: an empty queue over a broken tracker is the one lie
+this screen could tell.
+
+### Four verdicts per row, and a group tap above them
+
+The four are lib/verdict.js and they are four different acts:
+
+- **Endorse** — the marker comes off and the bead becomes ordinary work. One tap, no
+  arming: it is idempotent all the way down, so two taps on a train are one
+  endorsement and no error card.
+- **Adjust ✎** — the six fields the proposal card offers, aimed at a bead that already
+  exists: title, type, priority, description, acceptance, labels. The two labels the
+  daemon owns are kept out of the box entirely rather than shown and then stripped.
+  Saving **keeps the hold** — rewriting a title is not the same act as agreeing to the
+  work — and *Save & endorse* is the one tap that does both.
+- **Ask for changes** — your objection on the thread, the bead left exactly where it
+  was, so the next session that touches it reads what is wrong instead of re-filing the
+  same bead next week. The note is required, and an empty box says so rather than
+  quietly doing nothing.
+- **Revoke** — closed, with your reason, and the marker left on so the discovery and
+  your rejection both stay on the record. This is the one that cannot be taken back, so
+  it is the one that **arms**: the first press writes nothing at all and the button
+  changes to say what the second will do. The same trade Merge makes on the PR board,
+  and for the same reason — a `confirm()` on a phone is a sheet you dismiss by reflex.
+
+Above the list, rows **tick**. Six discoveries filed overnight and five of them
+obviously fine is what a busy week actually produces, so the bar endorses every
+selected bead in one request per workspace — not one request per bead, which would be
+six Dolt write locks taken in a row over a phone link. Group revoke is there too and it
+arms; group *adjust* and group *ask for changes* are deliberately not, even though the
+API takes them, because one title cannot be given to six beads and one objection typed
+at six is an objection about none of them.
+
+What happened is never toasted away. An endorsed bead leaves the queue immediately, so
+its outcome is pinned to the top of the list where the rows used to be — the only
+evidence the tap worked, on a screen where "did that go through?" must not be a question
+you answer by opening a laptop. Each verdict says what it actually did, including when
+that is nothing: *already endorsed*, *nothing to change — it already reads that way*,
+*endorsed 5 of 6* with the reason the sixth did not.
+
+### Where it lives, and the tab it is not
+
+Two doors, and neither of them is a sixth tab. The bottom bar is full at five and what
+gives up its place is its own decision (bc-j0zl); a screen that settled that by
+squeezing itself in would be answering a question nobody asked it.
+
+- **The advocate console's `N held for endorsement` pill is a link.** That is the
+  number you were already reading, and it was the thing with no door behind it.
+- **🗳️ in the inbox's top bar**, beside ⚖️.
+
+The inbox door carries **no badge**, deliberately, and it is the one thing on this page
+that has an obvious one and should not: the count would cost a `bd list --label
+unendorsed` per workspace on every thirty-second poll, where the three counts already
+in that bar are free by-products of a sweep the poller was making anyway. The number
+lives where it is already computed.
+
+### Checking it
+
+`node test/endorsequeue.mjs` covers the sweep with a stub `bd`: that the provenance
+comes off the edge rather than the prose and that the edge beats the parent, that the
+two fields bd names differently arrive renamed, that the list is one list across
+workspaces, that a broken workspace is named and the rest still answer, that the cap is
+reported, and that a verdict drops the cache — so the laptop on its own poll stops
+drawing a bead the phone has just endorsed.
+
+`node scripts/endorse-check.mjs [--out=DIR]` drives the real page in a headless Chrome
+the size of a phone, against a fixture that records every write. The two assertions it
+exists for are the ones invisible from the server: that a group tap is **one request
+per workspace** carrying all of its ids, and that the first press of Revoke writes
+**nothing at all**.
+
 ## Advocates — an agent per repo, whose job is the queue reaching zero
 
 Everything above is a **channel**. A question reaches your phone, an answer reaches
@@ -3194,7 +3407,7 @@ was given, because the whole value of the line is that it is honest:
 | the session | may owe | because |
 |---|---|---|
 | landed its own work | `DEPLOYED`, `REBUILT` — or `REVIEWED` if the merge was refused | the delivery merged and pushed it, so claiming either would describe work already on `origin` |
-| handed the PR over (`pr.autoMerge` off) | `REVIEWED`, and nothing else | it never merges, pushes or deploys; it can owe nothing but your answer |
+| handed the PR over (auto-merge off for its space) | `REVIEWED`, and nothing else | it never merges, pushes or deploys; it can owe nothing but your answer |
 | has no remote to push to | `MERGED`, `PUSHED`, `DEPLOYED`, `REBUILT` | all four are still yours, and the session names them without doing them |
 
 Whatever it writes, it passes the same thing to the delivery as `--owed`, which puts it on
@@ -3513,8 +3726,10 @@ Five things follow, and they are the whole of the change:
 
 **The old ending is intact, and it is the fallback.** Everything below about the card,
 the three answers and the markers is still exactly what happens when the merge does not
-— GitHub refused it, a check went red, the checks never reported, `pr.autoMerge` is off,
-or the session passed `--review` because it wanted a human on this one. It went from
+— GitHub refused it, a check went red, the checks never reported, the space
+[asks for an approving review](#spaces--keeping-work-out-of-your-evening) and there is
+none, auto-merge is off, or the session passed `--review` because it wanted a human on
+this one. It went from
 being every delivery to being the interesting ones.
 
 ### The notification with nothing to answer
@@ -3548,8 +3763,14 @@ sentences, never folded into one polite one:
 | the card says | what happened |
 |---|---|
 | *tried to merge it. **It could not:** …* | GitHub refused, or a check went red, or nothing reported. The reason is quoted from whatever refused |
+| *its checks are green. **It is waiting on an approving review*** | the space asks for one (`requireApproval`) and the pull request has not got it. Nothing refused and nothing is wrong — your **Merge** *is* the review |
 | *could have merged this itself and **deliberately did not*** | the session passed `--review`. Its reason is in the summary |
-| *Nothing is merged until you say so* | `pr.autoMerge` is off, so every delivery is a question and this one is not special |
+| *Nothing is merged until you say so* | auto-merge is off for this space, so every delivery is a question and this one is not special |
+
+The second and the fourth are the pair worth keeping apart. Both are a green pull
+request sitting unmerged, and only one of them is about a switch: a card that said
+*auto-merge is off* over a repo where it is emphatically on would send you looking for
+a setting that is already the way you want it.
 
 A refusal is prose on the card and never a field in the `beadpr` block — the block
 carries identity and intent, and "why it didn't merge this time" is neither. The same
@@ -3820,6 +4041,7 @@ channel would have.
   "base": "main",
   "mergeMethod": "merge",
   "autoMerge": true,
+  "requireApproval": false,
   "mergeWaitMs": 300000,
   "tidyMerged": true
 }
@@ -3866,6 +4088,22 @@ is your tap. Nothing else changes — same branch, same PR, same card, same thre
 so it is a safe thing to flip for an afternoon, and flipping it back needs no cleanup. A
 worker can reach the same ending on its own for one delivery with `--review`, and the
 card says which of you decided.
+
+`requireApproval: true` is the half-measure between the two, and it is the one to reach
+for when other people work in a repo: the worker still opens the pull request and still
+waits for the checks, but a green one with no **approving review** on it becomes a merge
+card rather than a merge. `reviewDecision` is read off the pull request the worker just
+opened — `APPROVED` and nothing else counts, so *changes requested* and *review required*
+both stop it — and the card says outright that a review is what is missing. Your **Merge**
+is that review. This is beadcause's own gate, not GitHub's: branch protection is free to
+require its own on top, and will refuse the merge in its own words if it does.
+
+**Both are per space, and the global here is only the default.** `autoMerge` was one
+global answer for every repo in every space, which is wrong at both edges: a side project
+wants its work landed without being asked at three in the morning, and a shared repo wants
+eyes on the diff. Put the answer on
+[the space](#spaces--keeping-work-out-of-your-evening) instead, in either direction, and
+what is below stays the fallback for everything that has not said.
 
 `mergeWaitMs` is how long a worker waits for its checks before giving up and asking. Too
 short and a repo with CI hands you every delivery as a question — a pull request is at
@@ -3925,7 +4163,12 @@ rule as the sweep — asked only after the local test says no.
 assertion rather than a hope — including the wait for the checks, whose `sleep` is
 injected and is where the fake's world changes, so pending-then-green runs in
 milliseconds. `test/delivery.mjs` covers the block, the markers, the split, and that the
-three openings of a card are three different sentences. `test/land.mjs` covers the thing
+four openings of a card are four different sentences. `test/approval.mjs` covers the
+per-space half end to end — `prPolicyFor` resolving both answers in both directions, and
+the real `bin/deliver.js` against the same fakes, where the assertion that matters is
+again a negative one: a green, unapproved pull request in a require-approval space must
+leave no `gh pr merge` in the call log at all, and must produce a card that says it is
+waiting on a review rather than that auto-merge is off. `test/land.mjs` covers the thing
 with no other interface: the **brief**, which is all beadcause can make a worker do. It
 asserts that the landing ending never tells a session to merge `main` by hand, that its
 marker line cannot claim `CAN BE MERGED` over work already in `main`, that the ask-first
@@ -4828,7 +5071,9 @@ before** — a daemon that refused to boot over a certificate would take the inb
 for a feature nobody had asked for yet.
 
 **Switching it on is two steps, and the second one is the one people miss.** The click
-changes the tailnet; it does not reach into a daemon that is already running. The
+changes the tailnet; it does not reach into a daemon that is already running. Both steps
+are on [the switch on the Admin screen](#the-switch-on-the-admin-screen) if you are
+holding a phone rather than sitting at the Mac. The
 certificate is fetched by whichever process owns port 4318 — the router — and it is
 fetched *once, at boot*, so a daemon that came up before the switch was flipped keeps
 serving plain http indefinitely and every URL it prints stays honest about that.
@@ -4880,6 +5125,57 @@ curl -sI https://$(tailscale status --json | jq -r .Self.DNSName | sed 's/\.$//'
 curl -sI http://127.0.0.1:4318/api/health          # still plain, still the control plane
 openssl s_client -connect <name>:4318 -tls1_1      # refused: alert 70, protocol version
 ```
+
+### The switch on the Admin screen
+
+Everything above used to be reachable only from the Mac: `tls.enabled` is a key in
+`~/.config/beadcause/config.json`, the certificate comes from a command, and the one
+failure that matters announces itself in a launchd log. So the honest description of
+the feature was *a setting you cannot see, gated on a setting on a different website,
+failing somewhere you would have to be at the Mac to read.* The **HTTPS** card at the
+bottom of `/admin` is that switch, and it says the three things the log cannot.
+
+**What is true now.** The setting, the certificate's name and how many days are left on
+it, and — separately — what is on the socket. Those last two are apart exactly between
+pressing the switch and restarting the daemon, which is the window in which somebody is
+actually reading this screen. A certificate inside the renewal loop's alarm window is
+marked rather than merely printed, using the same two thresholds the push uses, so the
+screen cannot call "fine" something your phone is being nagged about.
+
+**What pressing it costs, in the button, before you press it.** Turning HTTPS on moves
+the origin, and the token lives in `localStorage`, which is per origin — so *every
+paired browser is signed out, including the one you are pressing it with*. The button
+arms rather than acting: the second tap is the one that fires, and the first turns the
+button into `every paired browser signs out (100.96.105.106 → adams-macbook-pro-m4…)`.
+Afterwards a **Pair again** panel appears with the new link and a QR of it: the link is
+one tap for the phone in your hand, the code is for every other device. It stays until
+you dismiss it — it is the way back in, and a ten-second repaint taking it away
+mid-scan is the one failure that leaves you locked out with the Mac in another room.
+
+**Which failure it is.** `tailscale cert` exits 0 and writes nothing when the tailnet
+has *HTTPS Certificates* off, so that case is recognised by its sentence and drawn as
+itself: what Tailscale said, that nothing here can fix it, and a **Tailscale · HTTPS
+Certificates** button that opens the page — through the Tailscale app on Android where
+it claims the link, and as the web page everywhere else, because no documented scheme
+reaches a tailnet setting in the iOS or macOS app and a tap that does nothing is worse
+than a page that opens. Nothing else is classified as that failure: an ACME rate limit
+sent to that page would leave you turning on a setting that is already on. Press the
+switch again once the tailnet is fixed and it asks for the certificate again — the reply
+says whether it worked without restarting anything to find out.
+
+**It writes the setting before it fetches.** A fetch that fails leaves `tls.enabled:
+true` on disk on purpose: the intent is recorded, and the next restart after the tailnet
+is fixed picks a certificate up without anybody coming back to this screen. And it binds
+nothing — TLS is decided when the listener is created, so the card says plainly that the
+restart is what makes it true, and gives the command. Turning it off keeps the
+certificate where it is; only the setting moves.
+
+`GET /api/tls` is the same picture for anything else that wants it, and is cheap enough
+to poll: two file reads, a certificate parse and a memoised MagicDNS name, and it never
+asks `tailscale cert` for anything. `POST /api/tls {enabled}` is the switch, refused for
+an [observer](#a-second-instance--observer-mode) — a spare-port instance shares this config
+with the live daemon, and a press there would sign every paired browser out of the real
+origin.
 
 ### The URL you are given, and what happens to a phone that already has one
 
@@ -5217,6 +5513,7 @@ cookie says so), and `/auth/signout` ends the session.
 | GET | `/api/graph` | `?workspace=&id=` | `{nodes, links}` — the whole workspace with no `id` |
 | GET | `/api/bead` | `?workspace=&id=` | one issue in full, plus `comments[]` — for the graph's detail sheet |
 | GET | `/api/bead-children` | `?workspace=&id=` | `{children[]}` — every child of that bead, closed ones included, open work first. Its own route because `bd show` does not carry children |
+| GET | `/api/unendorsed` | `?refresh=1` | `{beads[], counts, truncated, errors[]}` — the endorsement queue: every held bead in every workspace, newest first, each carrying the whole card (description, acceptance, the agent's provenance note) and `from`, the bead it was discovered under. No `workspace` parameter — the space picker narrows it on the client. Cached for a few seconds; a verdict drops that cache |
 | POST | `/api/bead/endorse` | `{workspace, id}` or `{workspace, ids[]}` | takes the `unendorsed` marker off, so the bead becomes ordinary work an advocate will queue and a session can be opened on. **Idempotent** — two taps are one endorsement, no error, no second write — and the one verdict that may be aimed at a bead that is not held |
 | POST | `/api/bead/revoke` | `{workspace, ids[], reason?}` | closes it with your reason under a fixed prefix, and **leaves the marker on**: what an agent filed and what you thought of it both stay on the record. A bead already closed is `already: true` rather than an error; one already endorsed is a `409` |
 | POST | `/api/bead/adjust` | `{workspace, ids[], edits, endorse?}` | the ✎ of the proposal card, aimed at a bead that exists. `edits` may name `title, type, priority, description, acceptance, labels`, through the same clamps a proposed bead goes through; the two labels the daemon owns (`unendorsed`, `agent-filed`) are not yours to set. **Keeps the marker** unless `endorse: true`. A title may not be given to a group |
@@ -5257,6 +5554,8 @@ cookie says so), and `/auth/signout` ends the session.
 | GET | `/terminal` | `?id=` or `?ws=&seed=` | the terminal page |
 | GET | `/api/admin` | — | every scope and what pausing it would cost. Read-only and cheap — no `bd` call, no spawn — because `/admin` polls it and the counts on the buttons have to be current when you press one |
 | POST | `/api/admin` | `{action, what, scope, mode}` | pause or resume everything, one space, or one half of it. `what` is `all` · `advocates` · `terminals`; `mode` is `drain` (default — no new launches, running workers finish untouched) or `kill`. Never run at boot: a `launchctl kickstart -k` behaves exactly as it did. Refused on an observer |
+| GET | `/api/tls` | `?pairing=1` | what HTTPS is doing: the setting, the certificate on disk (name, days left), what the socket is actually serving, the URL a phone would be handed, and whether a restart is owed. Cheap enough to poll — two file reads and a memoised MagicDNS name, and it never asks `tailscale cert` for anything. `?pairing=1` adds the link and a QR |
+| POST | `/api/tls` | `{enabled}` | turns HTTPS on or off: writes `tls.enabled`, fetches the certificate when it is on (asynchronously — the synchronous one would block every request for the length of a Let's Encrypt round trip), and moves `baseUrl`. Pressing it while it is already on is the retry. Binds nothing: TLS is decided when the listener is created, so the reply carries `restartNeeded`. Refused on an observer, which shares this config with the live daemon |
 | GET | `/api/deploys` | `?limit=` or `?id=` | the recent deploys, or one with its log. Four endings, not two: `ok`, `failed`, and the two that mean nobody knows — `unconfirmed` (the ordinary ending of a restart) and `lost` |
 | POST | `/api/deploy` | `{workspace, bead?, reason?}` | runs that repo's declared deploy. `409` with no declaration, or if one is already running. Means "written down and a process owns it", never "it worked". Refused on an observer |
 | POST | `/api/presence` | `{device, view, key}` | which view this device has open, so the mirror can follow it. Wakes `/api/poll` without costing a `bd` sweep — see `changed` there |
@@ -5326,7 +5625,7 @@ the fields it always read and renders exactly as it did.
 | `owner` | what the agents call you. It goes into every agent prompt ("*<name>* is not at the keyboard", "*<name>* approves every bead before it exists"), the body of every pull request an agent opens, and the notes that land on a bead. Asked first by `npm run configure`; guessed from your git `user.name` (first word) when it has never been set |
 | `port`, `host` | listens on `127.0.0.1` **and** the Tailscale IP only — never the LAN. The *address* is what gets bound; `baseUrl` is what gets handed out, and they differ on purpose |
 | `baseUrl` | the origin every generated link is built from — the pairing QR, the APK code, every notification's click target and action button, the terminal's `wss://`. Maintained for you: `https://<host>.<tailnet>.ts.net:<port>` when there is a certificate to serve it, the Tailscale address over plain http when there is not, and moved between the two on its own. Set it to something else — a real domain, a proxy — and it is never rewritten. See [the URL you are given](#the-url-you-are-given-and-what-happens-to-a-phone-that-already-has-one) |
-| `tls.enabled` | HTTPS on the tailnet address with a `tailscale cert` certificate and a TLS 1.2 floor (default `true`). Loopback is never TLS whatever this says, and a tailnet without *HTTPS Certificates* enabled falls back to plain http with the reason in the log — see [HTTPS on the tailnet name](#https-on-the-tailnet-name) |
+| `tls.enabled` | HTTPS on the tailnet address with a `tailscale cert` certificate and a TLS 1.2 floor (default `true`). Loopback is never TLS whatever this says, and a tailnet without *HTTPS Certificates* enabled falls back to plain http with the reason in the log. Set from the HTTPS card on `/admin` rather than by hand — see [the switch on the Admin screen](#the-switch-on-the-admin-screen) and [HTTPS on the tailnet name](#https-on-the-tailnet-name) |
 | `tls.name` | the name to get a certificate for, if not the MagicDNS name `tailscale status` reports (default `null` — ask). The protocol floor is deliberately not a setting |
 | `token` | required on every `/api/*` call; regenerate by deleting the file |
 | `auth.google.clientId` | the OAuth **Web application** client for this Mac (default `null` — sign-in off). All of this key, a secret and a non-empty `allowed` are needed before sign-in switches on at all — see [Signing in with Google](#signing-in-with-google) |
@@ -5353,7 +5652,8 @@ the fields it always read and renders exactly as it did.
 | `pr.enabled` | land finished work as [a pull request the worker merges](#landing-work--a-branch-a-pull-request-and-the-workers-own-merge) (default `true`). `false` puts every workspace back on the oldest ending — work the bead, close the bead. A workspace with no `gh` or no GitHub remote gets that ending anyway, without needing to be named |
 | `pr.base` | what a PR is opened against and merged into (default `main`) |
 | `pr.mergeMethod` | `merge` (default), `squash` or `rebase`. A merge commit because a squash-merged branch is never an ancestor of `main`, and the worktree cleanup will not remove a worktree that fails that test |
-| `pr.autoMerge` | the worker merges its own pull request once the checks report (default `true`). `false` stops it after opening the PR and makes the merge your tap, which is what every delivery used to do. A worker can choose the same for one delivery with `--review` |
+| `pr.autoMerge` | the worker merges its own pull request once the checks report (default `true`). `false` stops it after opening the PR and makes the merge your tap, which is what every delivery used to do. A worker can choose the same for one delivery with `--review`. **A [space](#spaces--keeping-work-out-of-your-evening) overrides this either way**, so this is the default rather than the answer |
+| `pr.requireApproval` | a pull request needs an `APPROVED` review before a worker may merge it (default `false`). Green but unapproved becomes a merge card saying so, rather than a merge — the setting for a repo other people work in. Per space, like `autoMerge` |
 | `pr.mergeWaitMs` | how long a worker waits for its checks before handing the PR over instead (default 5 min). A PR is at its most pending the second after it is opened, so without this a repo with CI would ask you about every delivery |
 | `pr.tidyMerged` | let the worktree sweep ask GitHub whether a branch's PR merged, since a squash-merge never makes it an ancestor of main (default `true`; belt beside `mergeMethod`'s braces) |
 | `advocates.workspaces` | which repos get an [advocate](#advocates--an-agent-per-repo-whose-job-is-the-queue-reaching-zero). **Empty by default**; `["*"]` for every one |
