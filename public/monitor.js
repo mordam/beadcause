@@ -72,7 +72,7 @@
   const tally = document.getElementById('tally');
   const observing = document.getElementById('observing');
 
-  /* Two `bd` calls per workspace behind /api/work, so this refreshes on a timer
+  /* Three `bd` calls per workspace behind /api/work, so this refreshes on a timer
      rather than streaming. The transcript poll below is the fast one — a file read. */
   const REFRESH_MS = 20000;
   const LOG_MS = 2500;
@@ -273,32 +273,36 @@
    *
    * This is the "relates to its domain" half. The tracker's own numbers come first,
    * then the two that say what this advocate can actually act on: `queue` is what it
-   * would take (ready, minus questions, minus anything under the priority floor), and
-   * `deferredByPriority` is the part of `ready` it is deliberately leaving alone. The
-   * difference between "4 ready" and "4 ready, 3 of them below the floor" is the
-   * difference between an advocate that is idle and one that is behaving as told.
+   * would take (ready, minus questions, minus held, minus anything under the priority
+   * floor), and `deferredByPriority` is the part of `ready` it is deliberately leaving
+   * alone. The difference between "4 ready" and "4 ready, 3 of them below the floor" is
+   * the difference between an advocate that is idle and one that is behaving as told.
    *
-   * `heldByChildren` is the second such subtraction, and it earns a pill for the same
+   * `heldByChildren` is the third such subtraction, and it earns a pill for the same
    * reason: an epic whose children are the work is ready by bd's reckoning and not by
    * the advocate's, so without this the queue is one shorter than `bd ready` says and
    * nothing on screen accounts for the difference. Its `why` goes in the tooltip —
-   * "held" is the number, "bc-3zo9.1 is ready under it" is the answer to the question
-   * the number provokes.
+   * the pill is the number, "bc-3zo9.1 is ready under it" is the answer to the
+   * question the number provokes.
    */
   function domainHtml(w, a) {
     const c = w?.counts || {};
-    const held = (a && a.heldByChildren) || [];
+    const waiting = (a && a.heldByChildren) || [];
     const pills = [
       c.open != null ? `<span class="pill">${c.open} open</span>` : '',
       c.ready ? `<span class="pill">${c.ready} ready</span>` : '',
+      // Ready in every way but the one that counts — see lib/endorse.js. It sits next to
+      // `ready` because it is the part of the tracker's own ready number that has been
+      // taken out of it, and an unexplained gap between the two reads as a bug.
+      c.held ? `<span class="pill muted">${c.held} held for endorsement</span>` : '',
       c.inProgress ? `<span class="pill on">${c.inProgress} in progress</span>` : '',
       c.blocked ? `<span class="pill p1">${c.blocked} blocked</span>` : '',
       a && a.queue ? `<span class="pill mine">${a.queue} for the advocate</span>` : '',
       a && a.deferredByPriority
         ? `<span class="pill muted">${a.deferredByPriority} below the priority floor</span>`
         : '',
-      held.length
-        ? `<span class="pill muted" title="${esc(held.map((h) => `${h.id} — ${h.why}`).join('\n'))}">${held.length} waiting on ${held.length === 1 ? 'its children' : 'their children'}</span>`
+      waiting.length
+        ? `<span class="pill muted" title="${esc(waiting.map((h) => `${h.id} — ${h.why}`).join('\n'))}">${waiting.length} waiting on ${waiting.length === 1 ? 'its children' : 'their children'}</span>`
         : '',
     ].filter(Boolean);
     return `<div class="mon-domain">${pills.join('')}</div>`;
