@@ -82,7 +82,15 @@
    GitHub; one holding v29's app.js against v28's stylesheet opens the sheet with no facts
    column, no pinned action bar and a comment box the buttons sit on top of. Both look like
    a working app, which is the failure a cache version exists to prevent. */
-const CACHE = 'beadcause-v29';
+/* v30: the reader tab can publish a document to Confluence (bc-c6qp). No new path —
+   doc.html, doc.js and style.css are all already here — and the three have to arrive
+   together: a phone holding v29's doc.html beside v30's doc.js has nowhere to draw the
+   footer into, so the button silently never appears; one holding v30's doc.html against
+   v29's stylesheet draws an unstyled block of text under every document it opens, with
+   an accent-coloured button in the middle of it. app.js moves too, because the link that
+   opens a document from a card now carries the bead — and that is the only reason the
+   published URL can end up on the bead instead of only in the daemon's state. */
+const CACHE = 'beadcause-v30';
 const SHELL = [
   '/',
   '/index.html',
