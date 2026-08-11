@@ -2677,8 +2677,8 @@ admitting itself.
 So all of them carry the same bar along the bottom, where a thumb already is:
 
 ```
-  📥         📣         ⏸
- Inbox   Advocates   Admin              ＋
+  📥         📣         📜        ⏸
+ Inbox   Advocates   History   Admin     ＋
  ▔▔▔▔▔
 ```
 
@@ -2696,12 +2696,99 @@ and it is checked: `scripts/tabbar-check.mjs` carries it with `tab: null`, asser
 bar is still there (it is the only way off the page) and that no tab lights for a page this
 is not. A page can be reachable, load-bearing, and not a tab.
 
-Three tabs is 120px each at 360px. Four was 90px, five was 72px — which "Advocates" still
+Four tabs is 90px each at 360px. Three was 120px, five was 72px — which "Advocates" still
 fits — and six would be 60px, which it does not, so the stylesheet steps the type down when
 a sixth tab is there (`.tabbar:has(.tab-item:nth-child(6))`), keyed off the bar's own
 contents rather than off a count written down somewhere, so adding or removing a tab needs
 nothing else. It is dormant below six and will come back on its own if the bar fills up
 again.
+
+### The ledger — the History tab
+
+There was no way to look back. The inbox is what is arriving, the advocate console is what
+is running this minute, and a bead that closed last week had left both lists by definition:
+it was reachable only if you still remembered its id and could be bothered to type it into
+the graph's query string. Meanwhile 298 beads are closed in beadcause alone, and their
+close reasons are unusually good — `Landed as #92 as 677b5a5b — still owed: DEPLOYED` is a
+better answer to *did that ship?* than the PR board can give. The record existed in full
+and nothing displayed it.
+
+So **📜 History is the fourth tab**, and it earns one by the rule above rather than in
+spite of it: the historical record is somewhere you live — it is where you go to ask *what
+happened to that*. It sits third, between Advocates and Admin, which is two decisions at
+once. The bar had to grow in the **middle**: Inbox stays leftmost because it is home and
+it is `/`, Admin stays rightmost because it is the tab you least want under a stray thumb,
+so neither of the two positions anybody has learned moves to a different edge. And of the
+two middle slots it takes the later one, because the first three then read left to right
+in the order the work does — what is **arriving**, what is **running**, what is
+**finished** — and Inbox and Advocates, which are the pair you cross between all day, stay
+adjacent.
+
+The page is the selected space's beads, **most recently updated first**, paged as you reach
+the end of it. Each row carries the id, the title, the type, the status, the priority, when
+it last moved, its close reason when it has one, and a marker when a session was archived
+for it. Tapping one opens the bead detail sheet that already exists —
+`/graph?ws=…&id=…&open=1`, the deep link `&open=1` was built for — so this page needed no
+detail view of its own and does not have one. The rows are real `<a href>`s, which is what
+lets [the drawer](#detail-opens-over-the-tab-not-instead-of-it) hold that sheet *over* the list: this
+is the one list you legitimately scroll four hundred rows down, and a full-page navigation
+would spend that scroll on every bead you looked at.
+
+**One picker, one request.** The [top-level picker](#one-space-at-a-time--the-picker-in-the-top-bar)
+has exactly three states and `GET /api/history` takes exactly the same three: one repo is
+`workspace=`, a space is `space=`, and `All spaces` is neither. So the selection is not a
+filter applied to the response — it *is* the request, handed straight through, and what
+comes back is already merged, sorted and paged across every repo in the selection, with a
+`total` counted over all of them. What is left in the page is a cursor: an `offset`, a
+`more` the server counted rather than inferred, and rows appended in the order they came.
+
+One parameter and not two, which is the one place this is easy to get wrong: the picker
+fills the *space* half in whenever you pick a workspace, so `{space: 'Personal', workspace:
+'beadcause'}` means **one repo**, and sending both would be asking the server to guess
+which of the two was meant. A page that got that wrong would draw a plausible list of the
+wrong beads, which is the failure nobody reports because it looks like data.
+
+This page was first built the other way, and the other way looked reasonable: one request
+per repo and a k-way merge in the client over a buffer each, re-filling whichever ran dry
+before the next comparison. It worked, and it was a second implementation of what
+`lib/history.js` already does — with the subtlety in the merge, so having two was one to
+disagree with the other. `ledgerWorkspaces` resolves all three picker states including the
+synthetic `Other` group, which is what makes one request enough; the client merge is gone.
+
+Three things it does **not** do. It does not filter — status, priority, provenance and an
+id substring are the server's already and the controls for them are their own work. It does
+not stream: every other standing view mounts `stream.js`, and a fifth long poll parked
+against a page about what already happened would be paying for liveness nobody asked for,
+so ⟳ is the refresh and a record that reordered itself while your thumb was travelling
+would be worse than one that did not. And **nothing on it writes** — which is also why it
+is the one standing view with no `⦿ observing` chip: that chip warns you that a button
+might reach a Mac you are not looking at, and there is no such button on a ledger.
+
+A repo that will not answer is named above the list rather than taking the other repos down
+with it, and the total is drawn only when nothing is in `errors[]` — a count over the repos
+that replied, presented as the whole, is the same class of lie the picker's ⚠ exists to
+prevent. When the answer is empty *and* something failed, the page says only that it could
+not read: a selection nobody could read gives no grounds for a claim about what is in it.
+
+Two things about failure and waiting here are not visible in the obvious place, and both
+would look like a bug in the page:
+
+- **A repo whose `bd` fell over is a `200`.** It comes back with a row in `errors[]` and
+  the other repos' rows still present, not a failed request — so reading the status code
+  alone draws it as a repo with nothing in it, and under a space of several repos that is
+  one of them silently vanishing out of a merged list with nothing on screen to say so. The
+  page reads `errors[]` and treats it exactly as it treats a refusal, every response rather
+  than only when it is non-empty, so a repo that recovers on ⟳ stops being warned about.
+- **The first read of a repo is slow, and legitimately so.** The daemon holds the
+  unfiltered sweep for ten seconds, which makes the whole scroll free — but the sweep
+  behind it has been measured at about a second for 500 beads on an idle Mac and **28
+  seconds** on one under the load an ordinary afternoon here produces. So the page arms no
+  client-side timeout at all (the daemon's own is 120s, and anything shorter here would
+  make the tab look broken on exactly the busy afternoons somebody opens it to catch up),
+  and it draws *Reading the ledger…* rather than an empty one, because `{rows: [], total:
+  0}` is a perfectly good answer for a repo nobody has filed anything in and the two are
+  otherwise the same blank card. ⟳ sends `refresh=1` and forces a fresh sweep — once per
+  press, not once per page of the scroll that follows it.
 
 ### Why Chat is not a tab, and ＋ is not a tab either
 
@@ -2732,7 +2819,7 @@ you is the one thing the space picker exists to stop. Either way it lands on
 id and the href are in stored conversation records and on the phone's home screen, so both
 of its paths still serve the page — a bookmark that 404s is a worse outcome than a page
 with no tab. It keeps the bar, because that is how you leave it, and nothing on the bar is
-marked current there: you are not on one of the three.
+marked current there: you are not on one of the four.
 
 ### Dismissed is hidden, not gone
 

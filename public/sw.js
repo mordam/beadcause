@@ -118,7 +118,16 @@
    safe by construction: v32's warm.js under v33's app.js has no `refresh`, and app.js
    looks for it and does nothing — that page is as cold as it was and no more expensive,
    which is the fallback the warm layer promises everywhere else. */
-const CACHE = 'beadcause-v33';
+/* v34: the History tab (bc-nib3.2). `/history`, `/history.html` and `/history.js` are
+   new paths *and* `/tabbar.js` moves in the same change, which is the pairing that makes
+   this a version bump rather than three additions to the list. A phone holding v33's
+   cached tabbar.js has a three-tab bar with no History on it, so the page behind the new
+   paths is unreachable from every screen in the app; one holding v34's tabbar.js without
+   the three new entries has a tab that 404s out of the cache the moment the tailnet is
+   slow — a bar whose whole job is that you can always leave a page, with an entry that
+   goes nowhere. The bar and the page it points at have to arrive together, which is what
+   a cache version is for. */
+const CACHE = 'beadcause-v34';
 const SHELL = [
   '/',
   '/index.html',
@@ -203,6 +212,14 @@ const SHELL = [
   '/work.html',
   '/monitor.html',
   '/monitor.js',
+  // The ledger. In the shell because it is a tab: every tab has to open instantly from
+  // the bar whatever the link is doing, and this is the one page in the app you might
+  // reasonably open *because* you are somewhere with no signal and are trying to
+  // remember what happened to something. Its rows come from /api/history, which is
+  // never cached — so offline it is an honest empty list rather than a stale one.
+  '/history',
+  '/history.html',
+  '/history.js',
   // Pause all / resume all. In the shell for the reason the terminal is: you open
   // it because something needs stopping now, and that is often the moment the link
   // is worst. The page is useless without the daemon — but it says so instantly

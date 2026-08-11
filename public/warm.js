@@ -100,6 +100,24 @@
     // view does not warm for the others, and leaving it here would have left /monitor
     // cold every time you arrived from /admin. /admin still *reads* a held `/api/work`
     // for its first frame; it is simply no longer the page that fills it.
+    //
+    // The ledger (bc-nib3.2) is here in tab order and is the one view that warms
+    // **nothing** — a recorded decision rather than a gap, because a tab missing from
+    // this list is a tab that stays cold and nobody notices until they are on a phone
+    // wondering why one is slower than the others.
+    //
+    // Every path above is a constant, which is the whole mechanism: the list is fetched
+    // from whatever page you are on, for the pages you are not. History has no constant
+    // to offer. Its boot request carries the space picker's current selection —
+    // `workspace=`, or `space=`, or neither — so any path written here would be the
+    // right ledger only for whoever happened to have the picker set the way this file
+    // guessed, and warming every selection is a sweep of the whole tracker to fill a
+    // cache for a page that may not be opened.
+    //
+    // It is also the view that needs it least: the one screen in the app explicitly
+    // about what has already happened, where an instant first frame of slightly stale
+    // rows buys less than it does anywhere else.
+    { id: 'history', paths: [] },
     { id: 'admin', paths: ['/api/admin'] },
     // Below the bar: both are reached from a row on the inbox rather than from a tab,
     // so they are warmed after the tabs are — and `/api/prs` last of all, because it is

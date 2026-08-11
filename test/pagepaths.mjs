@@ -125,6 +125,10 @@ const PAGES = [
     marker: '/endorse.js',
     paths: ['/endorse', '/queue', '/endorsements', '/endorse.html'],
   },
+  // The ledger. Two paths and not three, unlike the queue above it: it has been a tab
+  // on the bottom bar since the day it existed, so the bar is the only thing that has
+  // ever linked to it and there is no older name in anybody's home screen to keep alive.
+  { what: 'the history tab', marker: '/history.js', paths: ['/history', '/history.html'] },
   { what: 'the chat session', marker: '/console.js', paths: ['/console', '/console.html'] },
   { what: 'the in-app terminal', marker: '/term.js', paths: ['/terminal', '/term.html'] },
   { what: 'the admin screen', marker: '/admin.js', paths: ['/admin', '/admin.html'] },

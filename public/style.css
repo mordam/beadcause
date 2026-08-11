@@ -4577,3 +4577,80 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
    and the bead ids on every board. Nothing had said so, and a browser's own underline
    under an uppercase 11px chip reads as a rendering fault rather than as a link. */
 a.pill { text-decoration: none; }
+
+/* ------------------------------------------------------------------ the ledger
+
+   The History tab (bc-nib3.2): every bead the selected space has ever had, most
+   recently touched first. It is a list you *scan* — the opposite bargain from the
+   endorsement queue, which puts the whole bead in the row because you are being asked
+   to decide about it. So: one line of chips, one line of title, and the close reason
+   underneath when there is one, because that sentence is the single most useful thing
+   in the whole record ("Landed as #92 as 677b5a5b — still owed: DEPLOYED").
+
+   Built on `.card` for the surface and its own rows rather than on `.work-row`, which
+   is a one-line flex row and cannot hold three stacked lines without fighting it. */
+.hist-count { margin: 0 0 2px; font-size: 13px; color: var(--muted); }
+.hist-trouble {
+  margin: 0 0 4px;
+  font-size: 13px; line-height: 1.45;
+  color: var(--warn);
+}
+.hist-list { padding: 0 14px 0 4px; }
+
+/* The left padding is on *every* row and not only the marked ones. The accent rule
+   below is an inset shadow, which draws inside the box — so a `padding-left` that
+   arrived with the marker would shunt those rows 10px right and leave the list ragged
+   down its own left edge, which is worse than no marker at all on a list this long. The
+   gutter is always there; the rule moves into it. */
+.hist-row {
+  display: flex; align-items: flex-start; gap: 10px;
+  min-height: var(--tap);
+  padding: 10px 0 10px 10px;
+  border-top: 1px solid var(--line);
+  color: var(--text); text-decoration: none;
+}
+.hist-list .hist-row:first-child { border-top: 0; }
+.hist-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.hist-top { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
+.hist-title { font-size: 14.5px; line-height: 1.35; overflow-wrap: anywhere; }
+/* The close reason, at prose weight and clamped to two lines. Clamped rather than
+   ellipsised on one: these sentences carry a PR number and a sha at the *end*, which is
+   the half a single line would throw away. */
+.hist-why {
+  font-size: 12.5px; line-height: 1.4; color: var(--muted);
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+  overflow: hidden; overflow-wrap: anywhere;
+}
+.hist-row > time {
+  flex: none;
+  font-size: 12px; color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  padding-top: 3px;
+}
+/* A finished bead is not a quiet one — the record is mostly closed beads and dimming
+   the majority of a list dims the list. Only the id goes quiet, which is enough to
+   separate the handful of live rows at a glance. */
+.hist-row.is-closed .pill.id { opacity: 0.72; }
+/* The type, and the repo when more than one is in view — text rather than chips, so the
+   row's three pills stay the three things worth a chip. */
+.hist-kind { font-size: 11.5px; color: var(--muted); }
+.pill.st-closed { background: transparent; color: var(--muted); }
+
+/* A bead whose session was archived — the thing you are actually looking for when you
+   came here to ask what happened. Marked three ways on purpose, because this is a list
+   of two hundred near-identical rows and a tint alone disappears in one: the glyph, the
+   accent rule down the left edge, and the `aria-label` on the glyph for a reader that
+   gets neither. Same inset-shadow idiom as `.eq-bead.unfolded`. */
+.hist-row.has-session { box-shadow: inset 3px 0 0 var(--accent); }
+.hist-sess { font-size: 12px; line-height: 1; }
+
+.hist-foot { display: flex; justify-content: center; padding: 4px 0 2px; }
+.hist-more-note { font-size: 12.5px; color: var(--muted); }
+.hist-more {
+  min-height: 40px;
+  padding: 0 18px;
+  border: 1px solid var(--line); border-radius: 10px;
+  background: var(--surface);
+  color: var(--text); font-size: 14px; font-weight: 600;
+  cursor: pointer;
+}

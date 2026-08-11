@@ -544,6 +544,15 @@ await check('every tab the bar draws has a view — and two views are deliberate
     firstOther === -1 || firstOther > lastTab,
     `${views[firstOther]} is warmed before a tab is — the tabs come first, and this list is the warm order`
   );
+  // A view may warm nothing, and exactly one does. `paths: []` satisfies the loop above
+  // without prefetching a byte, so it is the obvious way to *silence* this check rather
+  // than answer it — and the answer is only defensible for History, whose boot request
+  // carries the space picker's current selection and is therefore not a constant this
+  // file could hold. Any other pathless view is a tab that stays cold behind an entry
+  // claiming it does not, which is worse than the missing entry this check was written
+  // to catch.
+  const empty = plain(warm.VIEWS).filter((v) => !plain(v.paths).length).map((v) => v.id);
+  assert.deepEqual(empty, ['history'], `a view that warms nothing has to be a decision: ${empty.join(', ')}`);
 });
 
 await check('the inbox draws its list through the reconciler, not through innerHTML', () => {
