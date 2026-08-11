@@ -241,18 +241,166 @@ const SHELL = [
   '/vendor/xterm-addon-fit.js',
 ];
 
+/* ------------------------------------------------------------------ reporting */
+
+/*
+  The worker's own failures, handed to a page so the page can report them (bc-u3g4).
+
+  public/report.js put a reporter on every page and it cannot see this file at all: a
+  service worker runs in its own global, with its own `self.onerror`, and it does not
+  load page scripts. So the one piece of the app whose failures are hardest to notice
+  was also the only piece with nothing watching it. `caches.addAll(SHELL)` rejecting on
+  install — one path in the list that 404s after a rename — leaves the whole shell
+  uncached and says nothing; a `cache.put` rejecting on a full phone quietly stops
+  anything being stored at all. Both survive a reload, and both look like "the app is a
+  bit slow offline".
+
+  **It relays rather than posting, and that is the whole design.** The obvious shape is
+  a `fetch('/api/error')` from here, and it is the wrong one twice over. The endpoint is
+  behind the daemon token, which lives in `localStorage` — a thing this global does not
+  have — so a direct post would work only where Google sign-in is on and the session
+  cookie happened to ride along, and would silently 401 everywhere else: reporting that
+  reports nothing is worse than no reporting, because it reads as no errors. And
+  report.js is four hundred lines of judgement about *what not to file* — the
+  eight-per-minute cap, the thirty-second cooldown, the deploy quiet window, the
+  credential scrub, the shutter on `pagehide` — every one of which was a false P0 filed
+  on a page that was working perfectly. A second copy of that here would drift from the
+  first. So this end does the one thing only it can do (notice), and the page does the
+  one thing only it can do (send).
+
+  **It cannot loop.** The relay is a `postMessage`, not a request, and the report itself
+  leaves the page as `POST /api/error` — which the fetch handler below ignores twice
+  over, being neither a GET nor outside `/api/`. There is no path by which the failure
+  of a report re-enters this file.
+
+  **A failure with no page open is dropped, not queued.** `clients.matchAll` answers an
+  empty list when nothing is on screen, and a worker holding reports for the next visit
+  would be a worker replaying a storm into a daemon that has just come back up — the
+  same argument report.js makes about the deploy window. Every event this file can raise
+  (install, activate, fetch) is raised *because* a page asked for something, so the empty
+  case is close to hypothetical anyway.
+*/
+
+/** What report.js listens for. Changing it means changing both files. */
+const REPORT_MESSAGE = 'beadcause:sw-error';
+
+/**
+ * How long one distinct worker failure waits before it is relayed again.
+ *
+ * The page caps and dedupes on its own, so this is not what stops a bead per frame; it
+ * stops a `postMessage` per request from a worker whose cache has gone bad, which would
+ * be several hundred a minute at exactly the moment the phone can least spare them.
+ * Deliberately the same thirty seconds report.js uses, so the two ends agree about what
+ * "again" means.
+ */
+const RELAY_REPEAT_MS = 30 * 1000;
+
+/** The last time each distinct failure was relayed. Reset whenever the worker is. */
+const relayed = new Map();
+
+/**
+ * Say that something failed here, to whichever page is on screen.
+ *
+ * Wrapped whole in a `try` for the reason report.js's funnel is: this runs on the error
+ * path of a worker that is already having a bad time, and throwing from the handler
+ * meant to record a failure is the one outcome worse than losing the record.
+ *
+ * No explicit `source` goes with it, deliberately. The daemon fingerprints a report by
+ * source-and-line first (lib/errors.js), and a constant `/sw.js` with no line would make
+ * every distinct failure in this file — a broken install, a full cache, a bad request —
+ * match each other and comment onto one bead. The stack carries a real frame where the
+ * browser has one, and where it does not the message alone is the honest key.
+ */
+function report(where, error) {
+  try {
+    const detail = (error && (error.message || error.name)) || String(error);
+    const message = `service worker — ${where}: ${detail}`;
+    const now = Date.now();
+    const last = relayed.get(message);
+    if (last !== undefined && now - last < RELAY_REPEAT_MS) return;
+    // One entry per distinct failure, and a worker with more than this many has nothing
+    // left worth deduplicating.
+    if (relayed.size > 32) relayed.clear();
+    relayed.set(message, now);
+    self.clients.matchAll({ includeUncontrolled: true, type: 'window' }).then((all) => {
+      // The focused page first, because it is the one whose report.js is certainly
+      // running and not about to be discarded. Only one is told: two pages reporting one
+      // failure is two requests racing the daemon's own dedupe for one bug.
+      const client = all.find((c) => c.focused) || all[0];
+      if (!client) return;
+      client.postMessage({ type: REPORT_MESSAGE, message, stack: String((error && error.stack) || '') });
+    }, () => {});
+  } catch {
+    /* never from here */
+  }
+}
+
+/**
+ * The backstop, for anything this file throws outside the three handlers below.
+ *
+ * A worker's global `error` and `unhandledrejection` are the same two events report.js
+ * hangs a page off, and they are here for the same reason: the failures worth having are
+ * the ones nobody thought to wrap.
+ */
+self.addEventListener('error', (event) => {
+  report('uncaught', (event && event.error) || { message: (event && event.message) || 'an error with no message' });
+});
+
+self.addEventListener('unhandledrejection', (event) => {
+  report('unhandled rejection', event && event.reason);
+});
+
+/* ------------------------------------------------------------------ lifecycle */
+
+/**
+ * The headline case, and the one this reporting is mostly about.
+ *
+ * `addAll` is all-or-nothing: one path in SHELL that 404s after a rename rejects the
+ * whole thing, nothing at all is cached, and the only symptom is an app that is slow —
+ * for as long as this version of the worker lives.
+ *
+ * Reported and then **re-thrown**. Swallowing it would leave the browser believing the
+ * install succeeded over a cache that is empty, which is the same silence one layer
+ * down.
+ */
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
+  e.waitUntil(
+    caches
+      .open(CACHE)
+      .then((c) => c.addAll(SHELL))
+      .then(() => self.skipWaiting())
+      .catch((err) => {
+        report(`install — the shell could not be cached (${SHELL.length} paths)`, err);
+        throw err;
+      })
+  );
 });
 
 self.addEventListener('activate', (e) => {
   e.waitUntil(
-    caches.keys().then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k)))).then(() => self.clients.claim())
+    caches
+      .keys()
+      .then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
+      .then(() => self.clients.claim())
+      .catch((err) => {
+        report('activate — the old caches could not be swept', err);
+        throw err;
+      })
   );
 });
 
 self.addEventListener('fetch', (e) => {
-  const url = new URL(e.request.url);
+  let url;
+  try {
+    url = new URL(e.request.url);
+  } catch (err) {
+    // Not reachable from a browser, which does not dispatch a fetch for a URL it could
+    // not parse — which is exactly why it is worth a line rather than a crash: if it
+    // ever happens, the alternative is a handler that throws on every request the app
+    // makes, silently, from inside the thing serving them.
+    report('fetch — the request URL could not be read', err);
+    return;
+  }
   if (e.request.method !== 'GET' || url.pathname.startsWith('/api/')) return;
 
   // Vendor bundles are immutable: cache-first.
@@ -262,8 +410,42 @@ self.addEventListener('fetch', (e) => {
   }
 
   // Everything else: network-first, cache as the offline fallback.
-  e.respondWith(fetchAndStore(e.request).catch(() => caches.match(e.request).then((hit) => hit || caches.match('/'))));
+  e.respondWith(fetchAndStore(e.request).catch(() => fallback(e.request, url)));
 });
+
+/**
+ * What answers when the network did not — and what is worth reporting about it.
+ *
+ * **Being offline is not a failure**, and that is the line that keeps this from filing a
+ * bead every time the phone goes into a tunnel. A rejected `fetch` is expected here, and
+ * a hit out of the cache is the whole point of having one. What is *not* expected is the
+ * cache itself refusing to answer: a `caches.match` that rejects is storage gone bad or
+ * evicted out from under an installed app, and today that is a blank screen with nothing
+ * said anywhere.
+ *
+ * The last resort stays what it was — the index page, answered to a request for
+ * something else, which is a deliberate trade for an offline navigation. When even that
+ * is missing the request is rejected rather than answered with `undefined`: both are a
+ * network error to the browser, but one of them says which request it was.
+ */
+function fallback(request, url) {
+  // Made up front and compared by identity below, because the two ways this can end
+  // without a response have to be told apart and their messages cannot do it: an empty
+  // cache is a phone that has never been online, and a *rejecting* cache is storage that
+  // has gone bad under an installed app. Only the second is worth waking anybody for.
+  const missing = new Error(`nothing cached for ${url.pathname}`);
+  return caches
+    .match(request)
+    .then((hit) => hit || caches.match('/'))
+    .then((hit) => {
+      if (hit) return hit;
+      throw missing;
+    })
+    .catch((err) => {
+      if (err !== missing) report(`fetch — the cache could not answer ${url.pathname}`, err);
+      throw err;
+    });
+}
 
 function fetchAndStore(request) {
   return fetch(request).then((res) => {
@@ -277,7 +459,15 @@ function fetchAndStore(request) {
     const login = res.redirected || new URL(res.url || request.url).pathname === '/login';
     if (res.ok && !login) {
       const copy = res.clone();
-      caches.open(CACHE).then((c) => c.put(request, copy));
+      // Nothing waits for the store, and nothing ever did — the response goes back to
+      // the page either way. What is new is that the *failure* to store is said out
+      // loud: a phone with no room left rejects every `put`, so the cache stops being
+      // maintained and the app goes on working perfectly until the day it is offline.
+      // That was an unhandled rejection in a worker nobody was watching.
+      caches
+        .open(CACHE)
+        .then((c) => c.put(request, copy))
+        .catch((err) => report('cache — a response could not be stored', err));
     }
     return res;
   });
