@@ -22,11 +22,13 @@
 // adjustment, which is the one thing a list of ticks cannot show you: whether a pill
 // with Apply inside it still reads as one control.
 import fs from 'node:fs';
-import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+// The daemon is a child reading a config.json this writes, so the port has to be known
+// before the process that binds it exists — which is exactly what `freePort` is for.
+import { freePort } from '../test/helpers/net.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
@@ -56,14 +58,7 @@ const wsDir = (name) => {
   return dir;
 };
 
-const port = await new Promise((resolve, reject) => {
-  const probe = net.createServer();
-  probe.on('error', reject);
-  probe.listen(0, '127.0.0.1', () => {
-    const { port: p } = probe.address();
-    probe.close(() => resolve(p));
-  });
-});
+const port = await freePort();
 
 /* `bd` answers everything with an empty list, so there is a real advocate with a real
    queue of nothing: it surveys, finds no work, and launches no windows. The steppers
