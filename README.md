@@ -4743,9 +4743,49 @@ be anything except code that is wrong — becomes a P0 naming the sweep it came 
 somebody else's output being parsed, and a real syntax error in this repo would stop the
 module loading rather than surface in a tick.
 
-The honest limit: `bin/router.js` is a separate process and has no handlers yet, so the
-loudest crash there is — the one that takes the phone's whole service down — is still only
-a log line. That is bc-ega4.
+#### And the router, which was the crash that mattered most
+
+All of the above was the *backend*, and the backend is the survivable half. A backend that
+dies is replaced by the router inside a few seconds and the phone never notices. The
+process holding port 4318 is `bin/router.js`, it is the one launchd runs, it is the one
+carrying the certificate — and when it dies the whole service is gone until launchd
+notices. So the crash least worth a bead had one and the crash most worth a bead had none.
+It has one now (bc-ega4), through exactly the same `lib/crash.js`: same handlers, same
+fingerprint, same graph, so a bug that kills the router and a bug that kills a backend land
+on the same bead if they are the same bug.
+
+Two things had to be decided differently there, and both are about the port.
+
+**It arms itself *after* `listen()`, by dynamic import.** The rule `bin/router.js` lives by
+is that nothing in the app can stop it binding — every `import` at the top of that file is a
+leaf, which is what makes a syntax error in `lib/server.js` cost you a swap rather than the
+port. A static `import` of `lib/crash.js` would have quietly spent that: it reaches
+`lib/errors.js`, `lib/filing.js`, `lib/proposal.js` and `lib/endorse.js`, and `ownWorkspace`
+lives in `lib/deploy.js`, which reaches `lib/session.js` and so the `lib/foundation.js` ↔
+`lib/agents.js` cycle (bc-u4na) — a graph whose *evaluation order* decides whether it loads
+at all. Loading it after the socket is bound inverts the failure: the worst case is a router
+that serves normally and says in its log that its crashes are only log lines, which is
+precisely what it did before any of this. `notifyCertificate` loads `lib/notify.js` the same
+way for the same reason. The arming says which graph it chose, in one line, because the
+alternative is silence in both directions:
+
+```
+[router] own crashes file on beadcause, with 5000ms to do it
+```
+
+**And it gives filing five seconds rather than ten.** `FILE_TIMEOUT_MS` bounds a dying
+backend, which costs nothing at all — the router is what the phone is talking to either
+way. Here the process being held open is the one launchd restarts. That is *not* an
+outage: an `uncaughtException` does not close a server, so 4318 stays bound and proxying
+for the whole window — which is exactly the argument against being generous with it, since
+what is answering is a router whose invariants have just been shown to be wrong. Five and
+not one, though: a `bd create` that hits a lock retry takes a couple of seconds, and this
+is the crash it would be worst to lose the bead for.
+
+The one thing the router does not get is the event bus — that belongs to the backend, in
+another process — so a bead filed here reaches a parked phone on its next poll rather than
+immediately. The router is on its way out at that point and the poll is about to be
+reconnected regardless.
 
 ### Checking it
 
@@ -4796,13 +4836,37 @@ fingerprint arriving twice at once, and the same error arriving forever), and so
 case the whole in-process design exists for: a daemon crash in `lib/graph.js:41` and a
 browser report from the same line land on **one** bead, asserted rather than assumed.
 
-Two of its checks read source rather than behaviour, which is worth knowing before one
+Several of its checks read source rather than behaviour, which is worth knowing before one
 fails on you. Observer mode is driven in a child process, because `OBSERVING` is read from
-the environment once at module load and cannot be flipped in-process. And the six swallowed
+the environment once at module load and cannot be flipped in-process. The six swallowed
 failures are asserted by grepping `lib/server.js` for their `sweepFailed('…')` labels — a
 seventh added to the poll cycle without one will fail that check by name, which is the whole
 intent: the list going stale silently is how "logged for a week with nobody reading it"
-comes back.
+comes back. And the arming in `bin/beadcause.js` and `bin/router.js` is read the same way,
+including the negative one that matters most: neither `lib/crash.js` nor `lib/deploy.js`
+may appear in the router's *static* imports. That is the single line of bc-ega4 a later diff
+could undo by accident — an editor's auto-import would do it — and the cost is not a failed
+test, it is port 4318 held hostage to a syntax error somewhere in `lib/`.
+
+`node test/routercrash.mjs` is the end-to-end half, and it has to be: what is being
+asserted about the router is wiring, and no module in isolation can tell you whether a real
+process armed anything. So it spawns a real `bin/router.js` against a scratch config and a
+stubbed `bd`, and really crashes it — an uncaught exception becomes a P0 carrying the
+stack, on this checkout's graph and not on the decoy sitting first in `workspaces`, and the
+process still exits 1; then a second router is SIGTERMed and broken on the way down, and
+files nothing, which is what stops every `launchctl kickstart` from filing a P0 about a
+router doing as it was told. The crash comes from *outside* the program —
+`test/helpers/crashon.cjs` is preloaded with `node --require` and throws on SIGUSR2 — so
+that the one file this repo works hardest to keep free of seams did not have to grow one
+for a test. Two things about it are worth knowing before changing it: the router's output
+goes to a *file* and not a pipe, because writes to a pipe are asynchronous and
+`process.exit()` drops them, so the last lines a dying process writes are the ones that
+disappear; and the signal has to wait for the first bring-up to finish, because
+`process.on('SIGTERM')` is registered on the last line of `bin/router.js` and a router
+signalled before that is killed by node's default disposition without running `shutdown` at
+all. Both of those failed by going *quiet*, which reads as a broken exemption rather than
+as a test that was early.
+
 
 ## Advocates — an agent per repo, whose job is the queue reaching zero
 

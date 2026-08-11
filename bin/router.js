@@ -21,9 +21,12 @@
  * Why a router at all, rather than two processes sharing the port: `reusePort` is
  * ENOTSUP on macOS under Node 22, so two processes cannot hold 4318 between them.
  * One has to own it, and it has to be the one that never needs replacing — which
- * means it must stay small and depend on almost nothing. It imports `lib/config.js`
- * and `lib/build.js`, both leaves, and nothing else from the app. A syntax error
- * anywhere in `lib/server.js` costs you a swap, not the port.
+ * means it must stay small and depend on almost nothing. Every `import` at the top of
+ * this file is a leaf — config, build, service, startup, tls — and none of them reaches
+ * `lib/server.js`, so a syntax error in the app costs you a swap and not the port.
+ * What it needs from the app proper it loads *after* `listen()`, by dynamic import, so
+ * the worst a broken module can do is cost a feature: `armCrashHandlers` and
+ * `notifyCertificate` are both that, and both say why at their own length.
  *
  * The one thing it cannot do is replace itself: giving up the socket to exec a new
  * router is the outage this exists to avoid. A change to its own source is reported
@@ -136,6 +139,12 @@ function localJson(port, pathname, { method = 'GET', timeout = 5000 } = {}) {
 }
 
 // ------------------------------------------------------------------- the backends
+
+/**
+ * lib/crash.js once it has loaded, or null — see `armCrashHandlers`. Read by `shutdown`,
+ * which runs both long before arming and long after it, and has to work either way.
+ */
+let crash = null;
 
 /**
  * Every backend this router has spawned.
@@ -1129,6 +1138,85 @@ if (process.argv.includes('--swap')) {
 
 // ------------------------------------------------------------------- supervise
 
+/**
+ * How long the router gives filing before it stops waiting and exits — half what the
+ * backend allows itself, and the difference is the port.
+ *
+ * `FILE_TIMEOUT_MS` bounds a *dying backend* held open, which costs nothing at all: the
+ * router replaces it, and the phone is talking to the router either way. Here the process
+ * being held open is the one launchd restarts, so the window is time added to the recovery
+ * of the only socket a phone can reach. It is not an outage — an `uncaughtException` does
+ * not close the server, so 4318 stays bound and proxying for the whole window, and that is
+ * exactly the problem with being generous with it: what is answering is a router whose
+ * invariants have just been shown to be wrong.
+ *
+ * Five seconds, then, rather than one: a `bd create` that hits a lock retry takes a couple
+ * of seconds and this crash is the single most worth having a bead for, so a window too
+ * short to file in would defeat the whole change. A filing that does not land in five
+ * seconds says so in the log and the router goes down on time.
+ */
+const CRASH_FILE_TIMEOUT_MS = 5000;
+
+/**
+ * Arm lib/crash.js — **after `listen()`, by dynamic import, and never at the top of this
+ * file.**
+ *
+ * The rule this process lives by is that almost nothing can stop it coming up, and a
+ * static `import` of lib/crash.js would have quietly spent it: crash → errors → filing →
+ * proposal → endorse is five modules of app, and a syntax error in any of them would cost
+ * port 4318 rather than a swap. lib/deploy.js is worse — it reaches lib/session.js, and so
+ * lib/foundation.js and lib/agents.js, which are a live import cycle whose evaluation
+ * order decides whether the pair loads at all (bc-u4na). Importing it *here* inverts the
+ * failure: the port is already bound, the worst case is a router that serves normally and
+ * says in the log that its crashes are only a log line, and that is strictly what it did
+ * before this existed. `notifyCertificate` below loads lib/notify.js lazily for the same
+ * reason and says so at more length.
+ *
+ * The workspace is this checkout's own, exactly as bin/beadcause.js picks it and for the
+ * same reason: a beadcause bug belongs on the beadcause graph, and `cfg.workspaces[0]` is
+ * very often somebody's JIRA. `where` is a function because what the router is serving
+ * moves — the bead should say which build was up when it died, not which one was up when
+ * it started.
+ *
+ * No `bus`: the event bus belongs to the backend, in another process, and a bead filed
+ * here reaches a parked phone on its next poll instead. That is a few seconds later, and
+ * the router is on its way out anyway — the poll is about to be reconnected regardless.
+ */
+async function armCrashHandlers() {
+  try {
+    const [c, { ownWorkspace }, { Bd }] = await Promise.all([
+      import('../lib/crash.js'),
+      import('../lib/deploy.js'),
+      import('../lib/bd.js'),
+    ]);
+    const ws = cfg.workspaces.find((w) => w.name === ownWorkspace(cfg)) || cfg.workspaces[0];
+    if (!ws) return warn('no beads workspace to file this router’s own crashes on — they stay log lines');
+    c.installCrashHandlers(cfg, {
+      bd: new Bd({ bin: cfg.bdBin, actor: cfg.actor, sharedServer: cfg.sharedServer }),
+      workspace: ws,
+      timeoutMs: CRASH_FILE_TIMEOUT_MS,
+      where: () =>
+        `the beadcause router — pid ${process.pid} on :${cfg.port}, build ${routerBuildAtStart}, serving ${
+          active ? `build ${active.build} from pid ${active.pid}` : 'nothing yet'
+        }`,
+    });
+    crash = c;
+    // Said out loud, because the alternative is silence in both directions: this is the
+    // only line that distinguishes "a crash here is a bead now" from the arming having
+    // failed on a machine where nobody reads the warning either. It also names the graph,
+    // which is the part that is worth checking when a bead turns up on the wrong one.
+    log(`own crashes file on ${ws.name}, with ${CRASH_FILE_TIMEOUT_MS}ms to do it`);
+    // Armed after the signal already arrived: a SIGTERM during those imports would have
+    // run `shutdown` with `crash` still null, so nothing told lib/crash.js we are going
+    // down and the teardown's own rejections would file. Say it now instead.
+    if (shuttingDown) c.beginShutdown();
+  } catch (err) {
+    // Deliberately not fatal. See the header: the port is the thing being protected here,
+    // and a router that cannot file its crashes is the router we have had all along.
+    warn(`could not arm the crash handlers — this router’s crashes stay log lines: ${err?.message || err}`);
+  }
+}
+
 const routerBuildAtStart = routerStamp();
 
 const servers = listen();
@@ -1138,6 +1226,13 @@ const servers = listen();
 // the renewal loop, because this is about the certificate `listen()` has already got
 // and that one is about the next one.
 reconcileBaseUrl(cfg, { persist: true });
+// From here on a crash in *this* process is a bead rather than only a log line — bc-ega4,
+// which is bc-p38c.4 finished. The backend got that first and it was the smaller half: a
+// backend that dies is replaced by the router within seconds and the phone never notices,
+// so its crashes are the survivable ones. This process is the one holding the certificate
+// on the real port, and its crash takes the whole service down until launchd notices — so
+// it was the crash most worth a bead and the one that had none.
+await armCrashHandlers();
 // The router is what holds the certificate on the real port, so the router is what has
 // to keep it alive — a 90-day certificate outlives no restart this process ever gets —
 // and what has to *get* one when `listen()` came up without: `onAcquired` is the same
@@ -1165,6 +1260,11 @@ heartbeat();
 const shutdown = () => {
   if (shuttingDown) return;
   shuttingDown = true;
+  // Before anything is closed. A teardown makes things in flight reject, and the router
+  // tears down on every `launchctl kickstart` — so without this every restart would file a
+  // P0 about a router doing exactly as it was told. `crash` is null until `armCrashHandlers`
+  // has finished, which is why that function checks `shuttingDown` on its way out.
+  crash?.beginShutdown();
   log('shutting down — stopping backends');
   for (const be of [active, ...retiring].filter(Boolean)) stop(be);
   // `closeServer`, because `listen()` now hands back the request server: on the tailnet
