@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 //
-// Can you say something to a live session from the phone, and is it honest about it?
+// Can you say something to a live session from the phone — and go and find it — and is
+// the page honest about both?
 //
 //   node scripts/say-check.mjs [--baseline] [--keep] [--out=DIR]
 //
@@ -32,6 +33,23 @@
 // nothing on the page claims a flattening that no longer happens. A warning left behind
 // after the behaviour it described is a page lying about something it used to be honest
 // about.
+//
+// And then the other half of what you can do to a session from here, which arrived after
+// the box and is checked in the same file because it is the same page, the same reach and
+// the same kind of promise. The button raises that session's iTerm window on the Mac and
+// doubles it, and closing the view puts it back. Three things about it fail silently:
+//
+//   - **The page must not decide for itself whether the window is up.** The rectangle to
+//     restore to is held by the daemon (lib/focus.js), so `focused` comes back with the
+//     facts and the button obeys it — a page that kept its own idea would offer to
+//     enlarge a window that already was, and the way back would be lost.
+//   - **The second tap is a restore, not a second enlarge.** Doubling a doubled window
+//     is how a window ends up with no rectangle to go back to.
+//   - **Leaving the view puts it back.** Not on a lock — that is the lease's job, and
+//     shrinking the window while you walk to the Mac would undo the whole feature — but
+//     on a close, which reaches the daemon as a beacon from a page being torn down. That
+//     one is checked here because a beacon is the kind of thing that works in every
+//     example and not in the document that is actually going away.
 //
 // The real public/session.js in a headless Chrome the size of a phone, against fixtures
 // served from this process — so nothing here touches the daemon, a real session, or an
@@ -120,6 +138,16 @@ const committed = (rel) => execFileSync('git', ['show', `HEAD:${rel}`], { cwd: R
 const behave = { mode: 'ok', queued: true };
 /** Every send that arrived, so a case can assert what was actually on the wire. */
 const received = [];
+/**
+ * The other half: whether the fixture is holding the live session's window up.
+ *
+ * Server-side, exactly as the daemon holds it, because that is the thing under test —
+ * the page must not decide for itself whether the window is big, or a reload would
+ * offer to enlarge one that already is.
+ */
+const win = { focused: false, mode: 'ok' };
+/** Every focus or restore that arrived, including the one a closing page beacons out. */
+const asks = [];
 /** Flipped once a send is accepted: the session has answered, in the transcript. */
 let replied = false;
 
@@ -137,7 +165,28 @@ function serve() {
       const s = SESSIONS[pid];
       if (!s) return json({ error: `no session running as pid ${pid}` }, 404);
       const lines = [FIRST_LINE, ...(replied && pid === LIVE ? [REPLY] : [])];
-      return json({ ...s, file: '/tmp/whatever.jsonl', lines });
+      return json({ ...s, file: '/tmp/whatever.jsonl', lines, focused: pid === LIVE && win.focused });
+    }
+
+    // Raise that session's window on the Mac, or put it back. The real one drives
+    // AppleScript; here it only has to remember, which is the whole of what the page
+    // is not allowed to do for itself.
+    if (p === '/api/session-focus' && req.method === 'POST') {
+      let body = '';
+      req.on('data', (c) => (body += c));
+      return req.on('end', () => {
+        const ask = JSON.parse(body || '{}');
+        asks.push(ask);
+        if (ask.action === 'restore') {
+          win.focused = false;
+          return json({ ok: true, focused: false, restored: true });
+        }
+        if (win.mode === 'closed') {
+          return json({ error: 'That window has closed — /dev/ttys004 is no longer an iTerm session.' }, 409);
+        }
+        win.focused = true;
+        return json({ ok: true, focused: true });
+      });
     }
 
     if (p === '/api/session-say' && req.method === 'POST') {
@@ -303,6 +352,38 @@ const SAY = `(() => {
     empty: t('.empty'),
   };
 })()`;
+
+// Everything the window button is saying, in one read. Same rule as SAY above:
+// `offsetParent` rather than a class check, because what matters is whether a thumb
+// could press it.
+const WIN = `(() => {
+  const b = document.querySelector('.win-btn');
+  const row = document.querySelector('.win-block .session-label');
+  const t = (sel) => [...document.querySelectorAll(sel)].map((el) => el.textContent.trim()).join(' ');
+  return {
+    btn: !!b && b.offsetParent !== null,
+    label: b ? b.textContent.trim() : null,
+    action: b ? b.dataset.focus : null,
+    row: row ? row.textContent.replace(/\\s+/g, ' ').trim() : null,
+    note: t('.win-block .say-note'),
+  };
+})()`;
+
+const tapWindow = `(() => {
+  const b = document.querySelector('.win-btn');
+  if (!b) return false;
+  b.click();
+  return true;
+})()`;
+
+/** Wait for the fixture to have been asked something — the beacon arrives after the page has gone. */
+async function asked(action, tries = 40) {
+  for (let i = 0; i < tries; i++) {
+    if (asks.some((a) => a.action === action)) return true;
+    await sleep(50);
+  }
+  return false;
+}
 
 /** Put words in the box the way a thumb would: value, then the event the page listens for. */
 const type = (text) => `(() => {
@@ -520,11 +601,94 @@ try {
     `box ${v.box ? 'still there' : 'gone'}; blocked said ${JSON.stringify(v.blocked)}`
   );
 
-  /* ---- a session that was never reachable: the reason, and no box at all ---- */
+  /* ---- the other half: the button that brings that window to the front ---- */
 
   behave.mode = 'ok';
+  if (!(await openSession(LIVE))) throw new Error('the session page never came back');
+  await waitFor(s, `!!document.querySelector('.win-btn')`, 40);
+  asks.length = 0;
+  let w = await evalJs(s, WIN);
+  check(
+    'a session in an iTerm window gets a button that brings it up',
+    w.btn && w.action === 'focus',
+    JSON.stringify(w)
+  );
+
+  await evalJs(s, tapWindow);
+  await waitFor(s, `(${WIN}).action === 'restore'`, 40);
+  w = await evalJs(s, WIN);
+  check(
+    'tapping it asks the daemon to focus that pid, and nothing else',
+    asks.length === 1 && asks[0].pid === LIVE && asks[0].action === 'focus',
+    JSON.stringify(asks)
+  );
+  check('and the button becomes the way back', w.label === 'Put it back', JSON.stringify(w));
+  await shot(s, 'phone-session-window-up');
+
+  // The second tap is a restore, not a second enlarge — the daemon is holding the
+  // rectangle from before the first one, and asking it to focus again would be asking
+  // it to double a doubled window.
+  await evalJs(s, tapWindow);
+  await waitFor(s, `(${WIN}).action === 'focus'`, 40);
+  check(
+    'and tapping it again puts the window back rather than doubling it a second time',
+    asks.length === 2 && asks[1].action === 'restore',
+    JSON.stringify(asks)
+  );
+
+  /* ---- the daemon owns whether it is up, so a reload does not offer a second enlarge ---- */
+
+  // Set *after* the page is up, because a reload is itself a close: this page beacons a
+  // restore as it goes away, so arranging the fixture before navigating would have the
+  // page correctly undo it on the way in. What is under test is that the page follows
+  // the daemon — the poll below carries `focused`, and the button has to obey it.
+  asks.length = 0;
+  if (!(await openSession(LIVE))) throw new Error('the session page never came back');
+  await waitFor(s, `!!document.querySelector('.win-btn')`, 40);
+  win.focused = true;
+  const followed = await waitFor(s, `(${WIN}).action === 'restore'`, 80);
+  check(
+    'a page told the window is already up offers the way back, not another enlarge',
+    followed,
+    JSON.stringify(await evalJs(s, WIN))
+  );
+
+  /* ---- and closing the view puts it back, which is the half nothing else can do ---- */
+
+  asks.length = 0;
+  if (!(await openSession(DEAD))) throw new Error('the page never went away');
+  check(
+    'leaving the view sends the restore, so a window is never left doubled behind you',
+    await asked('restore'),
+    JSON.stringify(asks)
+  );
+
+  /* ---- a window that closed under the tap: the button stays the enlarge, and says why ---- */
+
+  win.focused = false;
+  win.mode = 'closed';
+  if (!(await openSession(LIVE))) throw new Error('the session page never came back');
+  await waitFor(s, `!!document.querySelector('.win-btn')`, 40);
+  await evalJs(s, tapWindow);
+  await waitFor(s, `(${WIN}).note.length > 0`, 40);
+  w = await evalJs(s, WIN);
+  check(
+    'a window closed under the tap says so, and the button still offers to bring one up',
+    /closed/i.test(w.note) && w.action === 'focus',
+    JSON.stringify(w)
+  );
+  win.mode = 'ok';
+
+  /* ---- a session that was never reachable: the reason, and no box at all ---- */
+
   if (!(await openSession(NO_TTY))) throw new Error('the unreachable session page never rendered');
   await sleep(400);
+  w = await evalJs(s, WIN);
+  check(
+    'a session with no iTerm window gets no button, and its row says there is none to bring up',
+    !w.btn && /no window|none to bring up|isn.t one/i.test(w.row || ''),
+    JSON.stringify(w)
+  );
   v = await evalJs(s, SAY);
   check(
     'a session with no terminal says why it cannot be spoken to',

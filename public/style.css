@@ -1951,6 +1951,32 @@ button.work-row {
    under it would put the answer above the question. This way the reading order is the
    causal order — say it, watch it land. See public/session.js. */
 .say-block { display: contents; }
+
+/* Pointing the Mac at it — the button above the box. `display: contents` for the same
+   reason the say block has it: both are wrappers that exist so one half of the page can
+   be repainted without rebuilding the transcript, and neither should introduce a box of
+   its own into the flow. */
+.win-block { display: contents; }
+.win-block .say-note { margin-top: 4px; }
+/* At the far end of the label row, on the same terms as `.label-mic` above and for the
+   same reason: a row of its own for one button is 44px of transcript pushed under the
+   fold, and scripts/say-check.mjs measures exactly that. */
+.label-win { margin-left: auto; align-self: center; }
+/* Not `.primary`. Sending a message is the act this page is for and owns the one filled
+   button; bringing a window to the front is a convenience beside it, and two filled
+   buttons an inch apart would make you read both to find out which one talks to the
+   session. Sized to the label's line box, like the mic — wide enough to stay a real tap
+   target, short enough that the row is the height it always was. */
+.win-btn {
+  min-height: 28px;
+  padding: 0 12px;
+  border-radius: 999px; border: 1px solid var(--line);
+  background: var(--surface); color: var(--text);
+  font: inherit; font-size: 12.5px; font-weight: 600; letter-spacing: 0;
+  text-transform: none;
+  cursor: pointer;
+}
+.win-btn:disabled { opacity: 0.5; }
 .session-say { display: flex; gap: 8px; align-items: flex-end; margin-top: 6px; }
 /* Borrowed wholesale from `.composer textarea` rather than restyled: this is the same
    act on the same phone as the bead console's box, and two composers that look
@@ -1996,14 +2022,18 @@ button.work-row {
    lines.
 
    The offset grew when the composer arrived above it: a box, its send button and a line
-   of hint are about 120px that used to be transcript. The floor is what stops a landscape
-   phone — where 100dvh is barely 390px — from computing a negative height and showing
-   nothing at all. */
+   of hint are about 120px that used to be transcript. It grew again by 60 when the
+   window button did — one more label row, and a button on it that is taller than the
+   line of text it sits beside. Both times the number is a measurement, and
+   scripts/say-check.mjs is what measures it: it asserts the pane still ends on the
+   screen of a 393×852 phone, which is the assertion that catches the next thing added
+   here. The floor is what stops a landscape phone — where 100dvh is barely 390px — from
+   computing a negative height and showing nothing at all. */
 .session-page { padding-bottom: 24px; }
 .session-solo { padding-bottom: 0; }
 .session-solo .agent-log {
   max-height: none;
-  height: calc(100dvh - 380px);
+  height: calc(100dvh - 440px);
   min-height: 160px;
 }
 

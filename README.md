@@ -3416,6 +3416,58 @@ instead: reach refusing a pid with no terminal, the length refused on the messag
 typed rather than on a flattened one, and the AppleScript matching a tty as well as an id
 and sending its paste with `newline no` and exactly one Return after it.
 
+### …and then go and find it on the Mac
+
+The dead end after that one. You could read a session and answer it, and still not know
+*which of a dozen worktree windows on the desk it is* — finding it meant going through
+iTerm's window list by hand, comparing paths, on the machine you had just walked over to.
+So the same page has a **Bring it up** button above the box. One tap raises that
+session's iTerm window over everything else and doubles it in place, twice as wide and
+twice as tall, and closing the view puts it back at exactly the bounds and position it
+had. It is gated on the same `reach` as the composer, from the same response, so a
+session in Terminal.app or tmux says there is no window rather than offering a button
+that would do nothing.
+
+Four things about it are decisions rather than details:
+
+- **The rectangle to go back to lives in the daemon, not the page.** `lib/focus.js`
+  holds it keyed by pid, read off the window in the same `osascript` call that enlarges
+  it — split into two calls, the second would read the rectangle the first had already
+  enlarged and save *that*, so a second tap would leave a window nothing could restore.
+  It is also why a phone that reloads mid-way finds the window as it left it, and why
+  the second tap is a *restore* rather than a second enlarge.
+- **It is clamped to the screen it is on.** A window doubled about its centre near an
+  edge would put half of itself off the display, and the half that goes missing is as
+  likely as not to be the one you drag the window by. `magnify` in `lib/iterm.js` caps
+  the size at the screen and slides the result back inside it, so a window already
+  filling its display simply does not move. When nothing could be measured it grows from
+  its top left corner instead of its centre — not a lesser version of the same thing, but
+  the recoverable direction. That case is not hypothetical: the screen probe and the
+  `activate` were fired at iTerm together in the first draft, the probe lost the race and
+  came back empty, and a real window grew 368px off the left of a real display. The probe
+  now runs first, alone.
+- **Closing the view is what puts it back, and a locked phone is not a close.** The page
+  beacons a restore as it is torn down — the ✕, the back button, a closed tab. It
+  deliberately does *not* act on `visibilitychange`: you tap the button, put the phone in
+  your pocket and walk to the Mac, and a window that shrank at that moment would have
+  undone the one thing you asked for. The ways of leaving that send nothing — a lock that
+  never comes back, a discarded tab — are covered by a lease renewed by the page's own
+  two-second poll, and three minutes after nothing is watching, the daemon puts the
+  window back on its own.
+- **Nothing is persisted, and focus is not handed back.** These rectangles live as long
+  as the process does; a daemon restart forgets them and leaves the window big, which is
+  the lesser evil, because a pid is reused and a rectangle read off disk after a reboot
+  could move a window belonging to something else entirely. And the app that had the
+  keyboard does not get it back on close: you asked for that window to be in front
+  because you are about to use it.
+
+`test/focus.mjs` covers the arithmetic and the rules over a window made of numbers — the
+saved rectangle written once, a restore consuming it, a refused restore keeping the
+record so the sweep can retry rather than stranding the window, and the clamp checked
+against the same measured three-display fixture `test/cards.mjs` uses. The page half is
+in `scripts/say-check.mjs` alongside the composer, including the one thing only a real
+browser can show: that the beacon really does leave a document that is going away.
+
 Every card has a **Graph →** into the whole workspace — which is also the answer to
 "how do I see what another session just created", since the graph draws every open
 issue rather than only the questions.
@@ -7334,6 +7386,7 @@ cookie says so), and `/auth/signout` ends the session.
 | GET | `/api/presence` | — | `{devices[]}` — who is where |
 | DELETE | `/api/presence` | `{device}` | forget one device |
 | POST | `/api/session-say` | `{pid, text}` | says one line into a live session's own iTerm window. `413` with the words left in the box if it is past `SAY_MAX` — the message rides to `osascript` as an argument, and past `ARG_MAX` the failure reads as "the session is gone", which is the one thing this must not lie about |
+| POST | `/api/session-focus` | `{pid, action}` | `focus` raises that session's iTerm window and doubles it in place; `restore` puts it back at the bounds it was read at. Focusing is gated on the same `reach` as the composer and on the pid still being live; restoring is gated on neither, because it arrives by `sendBeacon` from a page being torn down and must work for a window whose session has since exited |
 
 Two more, **loopback and token only**, and never proxied to a backend — anyone on
 the tailnet holding the token could otherwise stop the poller:
