@@ -4893,11 +4893,11 @@ What that costs is per-session revocation, so be clear about what each act does:
 
 ### Whose answer it is
 
-A session is an identity, so it is used as one: **an answer, a comment or a dismissal
-note written by a signed-in browser goes onto the bead under that address**, not under
-`beadcause`. That is `bd`'s `--actor` (and `BEADS_ACTOR`, which it has to agree with —
-see `lib/bd.js`), so it is on the comment, on the close, and in `bd show` six months
-later, which is the only place the question "who decided this" ever actually gets asked.
+A session is an identity, so it is used as one: **what you say or decide from a
+signed-in browser goes onto the bead under that address**, not under `beadcause`. That
+is `bd`'s `--actor` (and `BEADS_ACTOR`, which it has to agree with — see `lib/bd.js`),
+so it is on the comment, on the close, and in `bd show` six months later, which is the
+only place the question "who decided this" ever actually gets asked.
 
 Two rules keep it honest:
 
@@ -4907,12 +4907,36 @@ Two rules keep it honest:
   `config.json`. A request carrying **both** a token and a session is a signed-in
   browser (the phone sends its pairing token on every fetch), and the session wins;
   otherwise the attribution would never once apply to the device it was built for.
-- **Only what you *said* gets your name.** The `human-replied` label, the status
-  changes behind a hand-back, the beads a "yes" creates and the note a merge leaves on
-  a work bead are all the daemon's record of its own actions, and they stay
-  `beadcause`. A byline on those would read as you having done them by hand.
+- **Only what you *said or decided* gets your name.** The answer, the comment, the
+  dismissal note; the beads a "yes" files — through the share target, the chat session,
+  or an approved advocate proposal; and a pull request's verdict — the "changes
+  requested" and "declined" notes on the work bead, and the close reason on a merge.
+  What stays `beadcause` is everything that is bookkeeping rather than a sentence: the
+  `human-replied` label, the reopen-and-unclaim that puts a bead back in the queue, the
+  `bd dep add` behind a console create, and the daemon's own note about a create it
+  refused. A byline on those would read as you having done them by hand.
 
-`test/attribution.mjs` holds both halves.
+**A create was the case that looked dangerous and is not.** It was held back at first
+on the belief that `--actor` set a new bead's `owner` — which *is* read as whose queue
+a bead belongs to, by `bd ready` and by the agents screen — so filing under your address
+might have quietly moved work out of the advocate's reach. It does not: `--actor` writes
+`created_by`, a byline, and `owner` comes from the git identity of the directory `bd`
+runs in, untouched by the flag and by `BEADS_ACTOR`. `test/attribution.mjs` asks the
+**real** `bd` binary that question — one bead filed each way, asserting the two owners
+are identical and both come back from `bd ready` — because it is the fact the whole
+decision rests on and a fake `bd` cannot keep it honest. That section skips itself,
+loudly, where `bd` is not installed.
+
+One thing a name cannot reach: the GitHub half of a verdict. `gh pr comment` posts as
+whoever `gh` is authenticated as on this Mac, and no flag here changes that.
+
+A merge close that `bd` refuses — a work bead still gated by a blocker — is written down
+in `lib/owed.js` and retried on a later poll, minutes afterwards, with no request behind
+it. So the address is stored in the owed record and the retry closes under it. Otherwise
+the same tap would say your name or `beadcause` depending on nothing you did: whether the
+blocker happened to have cleared by the time you tapped.
+
+`test/attribution.mjs` holds all of it.
 
 ### Where the two secrets live, and how to rotate them
 
