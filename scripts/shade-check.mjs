@@ -141,6 +141,19 @@ function serve() {
         scope: 'human',
       });
     }
+    // What the space picker draws itself from on a page that has not swept the tracker.
+    // The inbox has, so it feeds the picker off `/api/questions` above and this is only
+    // the first paint — but a 404 here would leave the bar hidden until that arrives,
+    // and the checks below drive the bar.
+    if (p === '/api/spaces') {
+      return json({
+        spaces: SPACES,
+        workspaces: ['alpha', 'beta'],
+        counts: QUESTIONS.reduce((acc, q) => ({ ...acc, [q.workspace]: (acc[q.workspace] || 0) + 1 }), {}),
+        filter,
+        waiting: QUESTIONS.length,
+      });
+    }
     if (p === '/api/filter' && req.method === 'POST') {
       return void read((parsed) => {
         writes.push({ path: p, ...parsed });
@@ -312,7 +325,27 @@ const press = async (sel) => {
   return there;
 };
 const act = (name) => press(`[data-act="${name}"]`);
-const chip = (space) => press(`[data-space="${space}"]`);
+
+/**
+ * Narrow the inbox to a space — through the space picker in the top bar, which is what
+ * the two chip rows became (public/spacebar.js). A `<select>` is not something you can
+ * `.click()` into a value, so this is the value plus the `change` the page listens for.
+ *
+ * Same contract as `press` above: it reports whether the control was there rather than
+ * throwing, because `--baseline` serves an app.js that has never heard of any of this.
+ */
+const chip = async (space) => {
+  const there = await evalJs(`document.querySelector('#space-pick') !== null`);
+  if (!there) return false;
+  const value = space === 'all' ? 'all' : `space:${space}`;
+  return evalJs(`(() => {
+    const s = document.querySelector('#space-pick');
+    if (![...s.options].some((o) => o.value === ${JSON.stringify(value)})) return false;
+    s.value = ${JSON.stringify(value)};
+    s.dispatchEvent(new Event('change'));
+    return true;
+  })()`);
+};
 
 try {
   await s.send('Page.enable');

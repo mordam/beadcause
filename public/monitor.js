@@ -838,8 +838,13 @@
     observing.title = data.observing
       ? 'This instance watches and never acts: no sessions, proposals, worktree sweeps, session logs, reply agents or pushes.'
       : '';
-    const advocates = new Map((data.advocates || []).map((a) => [a.workspace, a]));
-    const spaces = data.workspaces || [];
+    // Everything on this page belongs to one repo — an advocate, its workers, the
+    // sessions it opened, the proposals it is waiting on — so the space picker in the
+    // bar above filters the lot. See public/spacebar.js.
+    const advocates = new Map(
+      (data.advocates || []).filter((a) => inSpace(a.workspace)).map((a) => [a.workspace, a])
+    );
+    const spaces = (data.workspaces || []).filter((w) => inSpace(w.name));
 
     // Advocated repos first, and the busiest of those at the top: this page is about
     // the advocates, and a repo with three sessions open is why you opened it.
@@ -864,19 +869,33 @@
     // Above every card, including the "nothing configured" case: a daemon serving the
     // wrong program is the one thing you want said before anything it goes on to say
     // about the repos.
-    out.innerHTML =
-      serviceHtml(data.service) + routerHtml(data.router) + (cards || '<div class="empty">No workspaces configured.</div>');
+    // Empty because nothing is configured, or empty because you are looking at one
+    // space and it has no advocates? The bar above is the fix for one of those and not
+    // for the other, so the two do not share a sentence.
+    const nothing = (data.workspaces || []).length
+      ? `<div class="empty">Nothing in ${esc(window.beadcause?.space?.label?.() || 'this space')}.</div>`
+      : '<div class="empty">No workspaces configured.</div>';
+    out.innerHTML = serviceHtml(data.service) + routerHtml(data.router) + (cards || nothing);
 
     const live = [...advocates.values()].reduce((n, a) => n + a.workers.length, 0);
-    const waiting = [...state.proposals.values()].reduce((n, qs) => n + qs.length, 0);
+    // Over the selection, like everything else on the page: the proposals map holds
+    // every workspace's, because the inbox sweep it comes from is not filtered.
+    const waiting = [...state.proposals.entries()]
+      .filter(([ws]) => inSpace(ws))
+      .reduce((n, [, qs]) => n + qs.length, 0);
     tally.textContent = [live ? `${live} working` : '', waiting ? `${waiting} to answer` : '']
       .filter(Boolean)
       .join(' · ');
     tally.className = `mon-tally${waiting ? ' warn' : ''}`;
   }
 
+  /** Is this repo in the selected space? See public/spacebar.js. */
+  const inSpace = (workspace) => window.beadcause?.space?.matches?.(workspace) ?? true;
+
   function elsewhereHtml(sessions) {
-    if (!sessions.length) return '';
+    // A session outside every workspace is in no space, so it is out while one is
+    // selected — `matches('')` is what decides that, in one place, for the whole app.
+    if (!sessions.length || !inSpace('')) return '';
     return `<article class="card work-card mon-card plain">
       <div class="work-head"><h2>Elsewhere</h2><span class="mon-state dim">${esc(
         plural(sessions.length, 'session')
@@ -898,6 +917,16 @@
         api('/api/questions?scope=human').catch(() => ({ questions: [] })),
       ]);
       state.work = work;
+      // This page sweeps the inbox for the proposals, so it has the picker's numbers
+      // for free — fresher than /api/spaces, which is one poll behind by design.
+      const counts = {};
+      for (const q of questions.questions || []) counts[q.workspace] = (counts[q.workspace] || 0) + 1;
+      window.beadcause?.space?.adopt({
+        spaces: questions.spaces,
+        workspaces: questions.workspaces,
+        counts,
+        filter: questions.filter,
+      });
       state.proposals = new Map();
       for (const q of questions.questions || []) {
         if (!q.proposal?.beads?.length) continue; // Every other question in the inbox.
@@ -1103,6 +1132,9 @@
   });
 
   document.getElementById('refresh').addEventListener('click', load);
+  /* The space picker moved. Nothing is refetched — /api/work already holds every repo
+     and which of them is drawn is decided at paint time. */
+  window.beadcause?.space?.onChange(() => render());
   // Two `bd` calls per workspace every twenty seconds is worth paying for the pane
   // you are looking at and nothing else — the mirror tab sits over this one, and a
   // hidden page must not keep sweeping every tracker on the Mac.

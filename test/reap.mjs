@@ -20,6 +20,14 @@
  *    back for a decision, timed out: all of those have something on screen worth
  *    reading, and only a *closed bead* means there is not.
  *
+ * The second half of the file is the *sweep* — the same signal aimed at a window this
+ * daemon holds no worker for, which is what the windows already open when the above
+ * shipped all were. It starts from a session record rather than from a launch, so the
+ * checks are about the two guards that replace the worker row: the window's name has to
+ * begin `DONE-`, and the bead that name points at has to be closed. The one that matters
+ * most is the negative — a hand-run window named after a bead still in progress — and it
+ * is checked against a real process, like the rest.
+ *
  * No iTerm and no `bd` — `createAdvocates` is called directly with a fake tracker, and
  * `claudeSessionsDir` points at a directory this file writes. `npm test`.
  */
@@ -44,7 +52,9 @@ const SESSIONS = path.join(tmp, 'claude-sessions');
 fs.mkdirSync(SESSIONS, { recursive: true });
 
 const { createAdvocates } = await import(LIB('advocate.js'));
-const { decide, closingFor, namesBead, REAP_DEFAULTS } = await import(LIB('reap.js'));
+const { decide, closingFor, namesBead, beadInName, saidDone, sweepCandidate, REAP_DEFAULTS } = await import(
+  LIB('reap.js')
+);
 
 /* ------------------------------------------------------------------ fixtures */
 
@@ -82,11 +92,24 @@ const baseConfig = () => ({
   },
 });
 
-/** One `~/.claude/sessions/<pid>.json`, the shape lib/claude.js reads. */
-function writeSessionRecord(pid, { name, status = 'idle', cwd = REPO } = {}) {
+/**
+ * One `~/.claude/sessions/<pid>.json`, the shape lib/claude.js reads.
+ *
+ * `idleSecs` is how long ago the status was last written, which is what the window
+ * sweep measures "idle for long enough" against — every sweep check needs to be able
+ * to say the window has been quiet for twenty minutes without waiting twenty minutes.
+ */
+function writeSessionRecord(pid, { name, status = 'idle', cwd = REPO, idleSecs = 0 } = {}) {
   fs.writeFileSync(
     path.join(SESSIONS, `${pid}.json`),
-    JSON.stringify({ pid, sessionId: `sess-${pid}`, name, cwd, status, statusUpdatedAt: Date.now() })
+    JSON.stringify({
+      pid,
+      sessionId: `sess-${pid}`,
+      name,
+      cwd,
+      status,
+      statusUpdatedAt: Date.now() - idleSecs * 1000,
+    })
   );
 }
 
@@ -142,6 +165,18 @@ function harness({ show, overrides = {} } = {}) {
 /** Seed the persisted state the way a restart would find it, then build the advocate. */
 function withWorker(worker, opts = {}) {
   fs.writeFileSync(STATE, JSON.stringify({ alpha: { workers: [worker], attempts: {} } }));
+  return harness(opts);
+}
+
+/**
+ * An advocate holding nothing at all — which is the whole premise of the window sweep.
+ *
+ * The state has to be written and not merely left: every check above seeds a worker,
+ * and inheriting one would mean the sweep never sees its candidate, because a window
+ * the advocate is holding is `reconcile`'s to deal with.
+ */
+function withNoWorkers(opts = {}) {
+  fs.writeFileSync(STATE, JSON.stringify({ alpha: { workers: [], closing: [], attempts: {} } }));
   return harness(opts);
 }
 
@@ -319,6 +354,149 @@ await check('a window still waiting survives a restart', async () => {
   writeSessionRecord(victim.pid, { name: 'DONE-Alpha - al-1 a bead', status: 'idle' });
   await restarted.tick();
   assert.ok(await goneWithin(victim.pid, 4000), 'it never closed the window it was holding');
+});
+
+/* ------------------------------------------- the windows nobody is holding */
+
+/*
+ * The sweep starts from a live session rather than from a worker row, so its whole risk
+ * is reading a window as finished when it is not. Both halves of that get checked: the
+ * name-and-clock half here, and the closed-bead half against a real process below.
+ */
+
+const idle = (over = {}) => ({
+  pid: 4242,
+  name: 'DONE-Alpha - al-1 a bead',
+  status: 'idle',
+  at: ago(3600),
+  sessionId: 'sess-4242',
+  ...over,
+});
+
+await check('only a window that called itself finished is a candidate', () => {
+  assert.ok(saidDone('DONE-Alpha - al-1 a bead'));
+  assert.ok(saidDone('done- Sophab - sp-iai s-sheet, shipped'), 'the by-hand spelling counts too');
+  assert.ok(!saidDone('Alpha - al-1 a bead'), 'a session still working says nothing');
+  assert.ok(!saidDone('Alpha - al-1 the thing is done'), 'and "done" in a title is not a claim');
+  assert.ok(!saidDone(''));
+  assert.equal(sweepCandidate(idle({ name: 'Alpha - al-1 a bead' })), null);
+});
+
+await check('the bead id comes out of the name, or nothing does', () => {
+  assert.equal(beadInName('DONE-Alpha - al-1 a bead'), 'al-1');
+  assert.equal(beadInName('DONE-Beadcause - bc-t6je no deploys entry'), 'bc-t6je');
+  assert.equal(beadInName('Deluvia - dv-5i2.81 Entry 091'), 'dv-5i2.81', 'a subtask id is an id');
+  // `DONE-Beadcause` is a dash-joined pair of words in exactly an id's shape, and it is
+  // in front of every swept window's name. Case is what tells them apart.
+  assert.equal(beadInName('DONE-Beadcause'), null);
+  assert.equal(beadInName('DONE-Alpha - nothing here'), null);
+  // The id is the second field, so the left-most match is it — and a title is allowed
+  // to contain hyphenated words and to mention other beads.
+  assert.equal(beadInName('DONE-Alpha - al-1 the auto-close catch-up'), 'al-1');
+  assert.equal(beadInName('DONE-Alpha - al-1 supersedes al-2'), 'al-1');
+  assert.equal(sweepCandidate(idle({ name: 'DONE-Alpha - al-1 supersedes al-2' }))?.id, 'al-1');
+});
+
+await check('a busy or freshly-quiet window is not a candidate', () => {
+  assert.deepEqual(sweepCandidate(idle()), { id: 'al-1', pid: 4242, sessionId: 'sess-4242' });
+  assert.equal(sweepCandidate(idle({ status: 'busy' })), null);
+  assert.equal(sweepCandidate(idle({ status: '' })), null, 'a record that has not said is not idle');
+  assert.equal(sweepCandidate(idle({ at: ago(60) })), null, 'a minute quiet is a gap between turns');
+  assert.equal(sweepCandidate(idle({ at: ago(300) })), null, 'and so, at this end, is five');
+  assert.equal(sweepCandidate(idle({ at: ago(300) }), { sweepIdleMinutes: 2 })?.id, 'al-1', 'the wait is tunable');
+  assert.equal(sweepCandidate(idle({ pid: 0 })), null);
+  assert.equal(sweepCandidate(null), null);
+  assert.equal(sweepCandidate(idle(), { sweepFinishedWindows: false }), null, 'its own off switch');
+  assert.equal(REAP_DEFAULTS.sweepFinishedWindows, true, 'and it is on by default');
+  assert.equal(REAP_DEFAULTS.sweepIdleMinutes, 20);
+});
+
+await check('a finished window with no worker behind it is closed', async () => {
+  clearSessionRecords();
+  const victim = spawnVictim();
+  // Nothing on the slot list knows this pid — which is the state every window in the
+  // pile this was written for was in.
+  writeSessionRecord(victim.pid, { name: 'DONE-Alpha - al-1 a bead', idleSecs: 3600 });
+  const { advocates, events } = withNoWorkers({
+    show: async (id) => {
+      assert.equal(id, 'al-1', 'it asked the tracker about a bead it read out of the window name');
+      return { id, status: 'closed', title: 'a bead' };
+    },
+  });
+
+  await advocates.tick();
+  assert.ok(await goneWithin(victim.pid, 4000), 'the window nobody was holding is still open');
+  assert.ok(events.some((e) => e.action === 'closed' && e.id === 'al-1'), 'and it said so on the bus');
+});
+
+await check('a window whose bead is still open is left alone — this is the one that matters', async () => {
+  clearSessionRecords();
+  // A session named after a bead that is not closed is the case the widening risks: a
+  // window opened by hand, on work still in progress, that happens to be idle.
+  const mine = spawnVictim();
+  writeSessionRecord(mine.pid, { name: 'done- Alpha - al-1 mid-flight', idleSecs: 7200 });
+  const { advocates } = withNoWorkers({ show: async (id) => ({ id, status: 'in_progress' }) });
+
+  await advocates.tick();
+  await new Promise((r) => setTimeout(r, 250));
+  assert.ok(alive(mine.pid), 'it signalled a window whose bead was open');
+  assert.equal(card(advocates).closing.length, 0, 'and it is not waiting to, either');
+  mine.kill('SIGKILL');
+});
+
+await check('a bead the tracker will not answer for is not evidence of anything', async () => {
+  clearSessionRecords();
+  const mine = spawnVictim();
+  writeSessionRecord(mine.pid, { name: 'DONE-Alpha - al-9 a bead in another tracker', idleSecs: 3600 });
+  const { advocates } = withNoWorkers({
+    show: async () => {
+      throw new Error('no issue found matching "al-9"');
+    },
+  });
+
+  await advocates.tick();
+  await new Promise((r) => setTimeout(r, 250));
+  assert.ok(alive(mine.pid), 'an unreadable tracker read as a closed bead');
+  mine.kill('SIGKILL');
+});
+
+for (const off of [{ sweepFinishedWindows: false }, { closeFinishedSessions: false }]) {
+  const which = Object.keys(off)[0];
+  await check(`${which}:false leaves a window nobody is holding alone`, async () => {
+    clearSessionRecords();
+    const mine = spawnVictim();
+    writeSessionRecord(mine.pid, { name: 'DONE-Alpha - al-1 a bead', idleSecs: 3600 });
+    const { advocates } = withNoWorkers({
+      show: async (id) => ({ id, status: 'closed' }),
+      overrides: off,
+    });
+
+    await advocates.tick();
+    await new Promise((r) => setTimeout(r, 250));
+    assert.ok(alive(mine.pid), `${which} did not switch anything off`);
+    assert.equal(card(advocates).closing.length, 0);
+    mine.kill('SIGKILL');
+  });
+}
+
+await check('the sweep does not queue a window the closing list already has', async () => {
+  clearSessionRecords();
+  const victim = spawnVictim();
+  writeSessionRecord(victim.pid, { name: 'DONE-Alpha - al-1 a bead', idleSecs: 3600 });
+  // A worker on the slot list whose bead has closed. `reconcile` retires it and queues
+  // the window; the sweep, running on the same pid a moment later, must recognise it
+  // rather than adding a second record and signalling twice. A real grace period so the
+  // window is still there to be double-counted when the sweep looks.
+  const { advocates } = withWorker(
+    { id: 'al-1', title: 'a bead', at: ago(300), dir: REPO, attempt: 1 },
+    { show: async () => ({ id: 'al-1', status: 'closed' }), overrides: { closeGraceSeconds: 300 } }
+  );
+
+  await advocates.tick();
+  assert.equal(card(advocates).workers.length, 0, 'the worker was retired');
+  assert.equal(card(advocates).closing.length, 1, 'one window, one closing record');
+  assert.ok(alive(victim.pid), 'and the grace period is still the grace period');
+  victim.kill('SIGKILL');
 });
 
 /* ---------------------------------------------------------------------- out */

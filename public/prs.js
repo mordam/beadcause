@@ -307,9 +307,20 @@
     </article>`;
   }
 
+  /* The two numbers this board is about, as predicates, so the card head and the tab
+     badge cannot drift apart on what "to ship" means. The rule itself belongs to
+     `count()` in lib/prboard.js — this is the same rule applied to a *subset*, which is
+     what the space picker makes possible: the server counts every repo, and a board
+     showing one of them must not carry the other six on its tab. */
+  const isOpen = (p) => p.stage === 'open';
+  const isOwed = (p) => p.stage === 'merged' || (p.stage === 'pushed' && p.deployTracked);
+
+  /** Is this repo in the selected space? See public/spacebar.js. */
+  const inSpace = (r) => window.beadcause?.space?.matches?.(r.workspace) ?? true;
+
   function repoHtml(c) {
-    const open = c.prs.filter((p) => p.stage === 'open').length;
-    const owed = c.prs.filter((p) => p.stage === 'merged' || (p.stage === 'pushed' && p.deployTracked)).length;
+    const open = c.prs.filter(isOpen).length;
+    const owed = c.prs.filter(isOwed).length;
     const summary = [open ? `${open} open` : '', owed ? `${owed} to ship` : '', c.error ? 'error' : '']
       .filter(Boolean)
       .join(' · ');
@@ -487,7 +498,11 @@
    * strip is the only thing on the page that can say why.
    */
   function deploysHtml() {
-    const list = deploys();
+    // A deploy belongs to the repo it ships, so the strip narrows with everything else.
+    // The banner does not: a restart of beadcause itself is why this page is blank, and
+    // suppressing the one line that says so because the deploy was of another repo
+    // would leave the screen unexplained.
+    const list = deploys().filter(inSpace);
     const banner =
       state.gone && restarting()
         ? `<p class="deploy-banner">beadcause is restarting — that is the deploy. This page comes back on its own.</p>`
@@ -533,7 +548,11 @@
     // trackers rather than GitHub repos — was eight hundred pixels of scrolling past
     // the word "none" to reach a build line. They are still named, because "which
     // repos did it even look at" is a question this screen has to answer.
-    const repos = d.repos || [];
+    // Only the repos in the selected space. Which is also why the "nothing here" line
+    // below distinguishes the two ways of being empty: no repos at all is a
+    // configuration to go and fix, and no repos *in this space* is one tap from being
+    // undone in the bar above.
+    const repos = (d.repos || []).filter(inSpace);
     const quiet = repos.filter((r) => !r.prs.length && !r.error);
     const cards = repos.filter((r) => r.prs.length || r.error).map(repoHtml).join('');
     const rest = quiet.length
@@ -544,7 +563,9 @@
     // The build line rides under the cards rather than in the header: it is the
     // footnote that defines the third lamp, and it only means something once you have
     // seen one.
-    return cards || rest ? stale + cards + rest + build : `${stale}<div class="empty">No workspaces configured.</div>`;
+    if (cards || rest) return stale + cards + rest + build;
+    const only = (d.repos || []).length ? ` in ${esc(window.beadcause?.space?.label?.() || 'this space')}` : '';
+    return `${stale}<div class="empty">${only ? `No repos${only}.` : 'No workspaces configured.'}</div>`;
   }
 
   function render() {
@@ -557,9 +578,15 @@
     // decisions plus merged work that is not running. Set from here rather than from
     // the inbox's poll, because this is the only page that fetches the board.
     if (state.data) {
-      const c = state.data.counts || {};
-      const n = (c.open || 0) + (c.owed || 0);
-      window.beadcause?.tabBadge?.('prs', n, n ? `${plural(c.open || 0, 'open pull request')}, ${c.owed || 0} to ship` : '');
+      // Counted over the repos in the selected space rather than read off
+      // `state.data.counts`, which is every repo the server looked at. A badge that
+      // counted six repos over a board showing one would be the tab arguing with the
+      // page it opens.
+      const rows = (state.data.repos || []).filter(inSpace).flatMap((r) => r.prs);
+      const open = rows.filter(isOpen).length;
+      const owed = rows.filter(isOwed).length;
+      const n = open + owed;
+      window.beadcause?.tabBadge?.('prs', n, n ? `${plural(open, 'open pull request')}, ${owed} to ship` : '');
     }
 
     window.scrollTo(0, scrollY);
@@ -750,8 +777,9 @@
       if (state.first) {
         state.first = false;
         // Unfold the repo with something to act on — arriving at a closed heading
-        // would make the fold cost a tap on every visit for no reason.
-        state.card = (state.data.repos || []).find((r) => r.prs.length)?.workspace || null;
+        // would make the fold cost a tap on every visit for no reason. Inside the
+        // selected space, or it would unfold a card this board is not drawing.
+        state.card = (state.data.repos || []).find((r) => r.prs.length && inSpace(r))?.workspace || null;
       }
       state.error = null;
       render();
@@ -844,6 +872,17 @@
   }
 
   window.beadcause?.presence?.report({ view: 'prs' });
+
+  /* The space picker moved — on this device or on the other one. Nothing is refetched:
+     the board already holds every repo, and which of them is drawn is a decision made
+     at paint time. An open card in a repo that has just been filtered away is closed
+     with it, or reopening the space would leave a fold nobody remembers opening. */
+  window.beadcause?.space?.onChange(() => {
+    if (state.card && !(state.data?.repos || []).some((r) => r.workspace === state.card && inSpace(r))) {
+      state.card = null;
+    }
+    render();
+  });
 
   document.getElementById('prs-refresh').addEventListener('click', () => {
     loadDeploys();

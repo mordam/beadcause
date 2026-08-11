@@ -118,6 +118,8 @@ const BASELINED = ['/console.js', '/console.html', '/style.css'];
 const parked = new Set();
 /** Every POST /api/console the page made, in order — what ＋ actually asked for. */
 const started = [];
+/** The server-owned space filter, which is where the selected repo now lives. */
+let filter = { space: 'all', workspace: 'all' };
 
 function serve() {
   const server = http.createServer((req, res) => {
@@ -128,6 +130,22 @@ function serve() {
       res.end(JSON.stringify(body));
     };
     if (p === '/api/consoles') return json({ consoles: CONSOLES, workspaces: WORKSPACES });
+    /* The repo tabs are a face of the space picker now (public/spacebar.js), so which
+       repo the launcher is on is a value on the server rather than in localStorage —
+       which is exactly what makes it survive a reload here. Two endpoints, and the
+       fixture has to hold the value between them or the tab would come back as All. */
+    if (p === '/api/spaces') {
+      return json({ spaces: [], workspaces: WORKSPACES, counts: {}, filter, waiting: 0 });
+    }
+    if (p === '/api/filter' && req.method === 'POST') {
+      let body = '';
+      req.on('data', (c) => (body += c));
+      return void req.on('end', () => {
+        const parsed = JSON.parse(body || '{}');
+        filter = { space: parsed.space || 'all', workspace: parsed.workspace || 'all' };
+        json({ ok: true, filter, dismissAsk: null });
+      });
+    }
     if (p === '/api/console' && req.method === 'POST') {
       let body = '';
       req.on('data', (c) => (body += c));
@@ -383,6 +401,36 @@ try {
     after.filter((t) => t.on).map((t) => t.ws).join(',')
   );
 
+  /* ---- the row and the dropdown above it are one control ---- */
+  const pick = async (value) => {
+    await evalJs(
+      s,
+      `(() => {
+        const el = document.querySelector('#space-pick');
+        if (!el) return false;
+        el.value = ${JSON.stringify(value)};
+        el.dispatchEvent(new Event('change'));
+        return true;
+      })()`
+    );
+    await sleep(400);
+  };
+  await pick('ws:beadcause');
+  const viaBar = await evalJs(s, ROWS);
+  const barTab = await evalJs(s, TABS);
+  check(
+    'the space picker in the top bar filters the same list',
+    viaBar.length === COUNTS.beadcause && viaBar.every((w) => w === 'beadcause'),
+    viaBar.join(',') || 'nothing'
+  );
+  check(
+    'and the row follows it, rather than disagreeing with it',
+    barTab.find((t) => t.on)?.ws === 'beadcause',
+    JSON.stringify(barTab.find((t) => t.on))
+  );
+  // Back where the rest of the run expects to be.
+  await pick('ws:sophab');
+
   /* ---- the selection survives a reload ---- */
   await openLauncher();
   const back = await evalJs(s, TABS);
@@ -456,15 +504,26 @@ try {
     JSON.stringify(empty)
   );
 
-  /* ---- a repo that is gone is not remembered forever ---- */
+  /* ---- the retired per-device key is not read any anymore ----
+
+     `beadcause.console.repo` was this page's own memory of which repo you were in, and
+     the space picker replaced it with a value on the server. The key is deliberately
+     *not* migrated: a tab tapped on one device last week is exactly what the selection
+     stopped being, and reading it at startup would narrow the whole app — the
+     notifications included — on the strength of it. So writing it must change nothing.
+     A repo that has *left the config* is the server's problem now, and reconcileFilter
+     is where it is solved — see test/spacebar.mjs. */
   await evalJs(s, `localStorage.setItem('beadcause.console.repo', 'a-repo-that-was-removed')`);
   await openLauncher();
   const recovered = await evalJs(s, TABS);
   check(
-    'a remembered repo that no longer exists falls back to All',
-    recovered.find((t) => t.on)?.ws === 'all' && (await evalJs(s, ROWS)).length === COUNTS.all,
+    'the retired per-device repo key is ignored — the picker owns the selection',
+    recovered.find((t) => t.on)?.ws === 'deluvia',
     JSON.stringify(recovered.find((t) => t.on))
   );
+  await tapTab('all');
+  const widened = await evalJs(s, ROWS);
+  check('and All is still the way back out to every repo', widened.length === COUNTS.all, String(widened.length));
 
   /* ---- opening one by id is untouched ---- */
   await s.send('Page.navigate', { url: `${BASE}/console?id=${THREAD.id}` });
