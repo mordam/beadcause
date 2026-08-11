@@ -5,8 +5,10 @@
  *     npm test
  *     node test/stream.mjs
  *
- * `public/stream.js` is one long poll on `/api/poll`, mounted by all five standing
- * views. Before it, the inbox followed the log with a loop written inside `app.js` and
+ * `public/stream.js` is one long poll on `/api/poll`, mounted by all six standing
+ * views — five pages and the mirror pane, which shares the advocates page's document
+ * and follows the log on its own sequence for its own reason (bc-2ml3).
+ * Before it, the inbox followed the log with a loop written inside `app.js` and
  * the other four re-asked for their whole payload on a `setInterval` — ten seconds on
  * /admin, twenty on /monitor, sixty on /prs, and never on the chat launcher, which
  * simply went stale. Two of those timers pulled a `bd` sweep across every workspace
@@ -345,14 +347,24 @@ await check('and "would `bd` answer /api/work differently" is one judgement, not
   assert.equal(stream.workMoved([{ type: 'advocate' }]), true);
 });
 
-/* ========================================================== the five views half */
+/* =========================================================== the six views half */
 
+/**
+ * Every mount of the shared loop.
+ *
+ * Six rather than five, and the sixth is a second script on a page already here: the
+ * mirror pane rides `monitor.html` beside the advocates page it is a mode of, and it
+ * follows the log for its own reason (a phone moving) with its own sequence. It was
+ * left hand-rolled when the other five were converted — see bc-2ml3, and the note at
+ * `feed()` in mirror.js for why the three rules it looked to invert turned out not to.
+ */
 const VIEWS = [
   { page: 'public/index.html', script: 'public/app.js', id: 'inbox' },
   { page: 'public/admin.html', script: 'public/admin.js', id: 'admin' },
   { page: 'public/monitor.html', script: 'public/monitor.js', id: 'advocates' },
   { page: 'public/prs.html', script: 'public/prs.js', id: 'prs' },
   { page: 'public/console.html', script: 'public/console.js', id: 'console' },
+  { page: 'public/monitor.html', script: 'public/mirror.js', id: 'mirror' },
 ];
 
 await check('every standing page loads the file, before the script that mounts it', () => {
@@ -376,7 +388,7 @@ await check('the service worker ships it, or a cached page never refreshes at al
   assert.ok(Number(version[2]) >= 28, `the cache version is still ${version[1]}`);
 });
 
-await check('all five views mount the shared stream, and none of them writes its own', () => {
+await check('all six views mount the shared stream, and none of them writes its own', () => {
   for (const v of VIEWS) {
     const src = read(v.script);
     // Optional chaining allowed and, on the inbox, required: a page served from a
@@ -385,7 +397,9 @@ await check('all five views mount the shared stream, and none of them writes its
     // a blank inbox rather than a slow one.
     assert.ok(/\.stream\??\.follow\??\.?\(/.test(src), `${v.script} does not mount the shared stream`);
     // The loop lives in one file. A second `/api/poll?since=` anywhere else is the
-    // fifth hand-rolled long-poll this was written to prevent.
+    // next hand-rolled long-poll this was written to prevent — and the mirror is here
+    // because it was exactly that, missed for a while because it is not the only
+    // script on its page.
     assert.ok(!/\/api\/poll\?since=/.test(src), `${v.script} has a long poll of its own`);
   }
 });
@@ -402,7 +416,7 @@ await check('the four converted views have no wall-clock refresh left', () => {
 });
 
 await check('the non-inbox views park without asking the daemon to sweep bd for them', () => {
-  for (const f of ['public/admin.js', 'public/monitor.js', 'public/prs.js', 'public/console.js']) {
+  for (const f of ['public/admin.js', 'public/monitor.js', 'public/prs.js', 'public/console.js', 'public/mirror.js']) {
     assert.ok(/want:\s*'presence'/.test(read(f)), `${f} parks on a poll that sweeps every workspace`);
   }
 });
