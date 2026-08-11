@@ -1008,10 +1008,17 @@ body {
 .edit-field textarea { resize: vertical; min-height: 60px; }
 .edit-row { display: flex; gap: 10px; }
 .edit-row .edit-field.small { flex: 1; }
-.prop-bulk { display: flex; align-items: center; gap: 14px; padding: 10px 0 12px; border-top: 1px solid var(--line); }
-.prop-count { margin-left: auto; font-size: 12px; color: var(--warn); }
-.prop-go { width: 100%; }
-.prop-go.confirm { background: var(--warn); color: var(--accent-ink); }
+/*
+  A proposal's two bulk controls, which live in the card's top bar — see .card-top
+  and public/app.js's propBulkHtml. They used to be a row under the last proposed
+  bead with a full-width primary beneath them; the count that primary carried is on
+  the buttons themselves now, so this is a group that has to stay readable at any
+  width rather than a row that owns one.
+*/
+.prop-bulk { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; }
+/* Warn-coloured because it is the one thing on the bar arguing against tapping
+   either button yet: rows you have not read are not the same as rows you declined. */
+.prop-count { font-size: 12px; color: var(--warn); }
 
 /* ---- delivery: a worker handing back a pull request -------------------- */
 
@@ -1419,14 +1426,47 @@ body {
 }
 
 /*
-  An open card's corner controls, hard right in both corners: the ⋮ and, beside it,
-  the way out. Right because that is the side a thumb reaches on a phone, and the
-  same side in both corners so collapsing is one habit rather than two.
+  The card's top bar. Reading on the left, acting on the right — and on an open card
+  the ⋮ and the way out beyond that, hard right because that is the side a thumb
+  reaches on a phone and the same side in both corners, so collapsing is one habit
+  rather than two.
+
+  It wraps rather than shrinking: at 393px a three-bead proposal's two bulk buttons
+  and the details toggle do not fit on one line, and a bar that squeezed them would
+  clip a label whose whole job is to say how many beads the next tap creates.
 */
-.card-top { display: flex; justify-content: flex-end; align-items: center; gap: 8px; padding: 12px 15px 0; }
+.card-top {
+  display: flex; flex-wrap: wrap;
+  justify-content: flex-end; align-items: center;
+  gap: 8px;
+  padding: 12px 15px 0;
+}
+/* Hard left, and the only thing on the bar that is about reading the card. */
+.card-top > .detail { margin-right: auto; }
 /* The head brings its own top padding; with a row above it that reads as a gap. */
 .card-top + .card-head { padding-top: 6px; }
 .agent-card .card-top { padding: 10px 14px 0; }
+
+/*
+  Everything on the bar is this button: smaller than a `.linkish` because it is
+  chrome rather than an answer, and pill-shaped like `.collapse` beside it. Still a
+  real target — 38px with the bar's own padding around it clears a thumb.
+*/
+.top-btn {
+  min-height: 38px;
+  padding: 0 14px;
+  border: 1px solid var(--line); border-radius: 999px;
+  background: transparent; color: var(--muted);
+  font: inherit; font-size: 13px; font-weight: 550;
+  cursor: pointer;
+  white-space: nowrap;
+}
+/* The one that files beads reads as the affirmative of the pair; the decline stays
+   quiet, because "create nothing" is the safe half and does not need arguing for. */
+.top-btn.approve { color: var(--text); border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
+/* Armed, both of them: the same amber every other second tap in this app wears. */
+.top-btn.confirm { background: var(--warn); color: var(--accent-ink); border-color: var(--warn); }
+.top-btn[disabled] { opacity: 0.45; cursor: default; }
 
 .kebab {
   flex: none;
@@ -1920,14 +1960,18 @@ button.work-row {
 
 /* ------------------------------------------------------- the pull request board */
 
-/* One card per repo, one row per pull request, and three lamps on every row. It
+/* One card per repo, one row per pull request, and four lamps on every row. It
    borrows the whole work-view shell — `.work`, `.work-card`, `.work-row` — because it
    is the same kind of screen doing the same thing to a different list, and a second
    set of card styles would drift from the first within a month. What is here is only
    the part that is genuinely new: the lamps, and the buttons under an open row.
 
-   The lamps are why the page exists. Merged, Pushed, Deployed — three facts that go
-   true at three different times, drawn on every row rather than behind the fold,
+   Everything under `.lamp`, `.board-num`, `.board-facts` and `.board-lamps` is shared
+   with the **inbox**, which draws a card per pull request from the same renderer
+   (public/prcard.js) — so these rules are not scoped to `#prs` and must not become so.
+
+   The lamps are why the page exists. Merged, Pushed, Deployed, Live — four facts that go
+   true at four different times, drawn on every row rather than behind the fold,
    because "which of these has not shipped" is a question you answer by scanning. */
 
 .board-lamps { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 5px; }
@@ -1951,6 +1995,29 @@ button.work-row {
 
 .board-row { align-items: flex-start; }
 .board-row .work-sub { display: flex; align-items: center; gap: 8px; }
+
+/* The rung of the ladder, as a word. Six of them (lib/prstage.js), and only the two that
+   are a *state of the work* rather than of the world get a colour: `review` is a decision
+   waiting on you, `live` is done. The three in between are ordinary, because a pull
+   request on its way is not an alert. */
+.pr-stage { font-variant-numeric: tabular-nums; }
+.pr-stage.st-review { border-color: var(--accent); color: var(--accent); }
+.pr-stage.st-live { border-color: var(--bead-made); color: var(--bead-made); }
+.pr-stage.st-closed { opacity: 0.7; }
+
+/* ------------------------------------------------- a pull request in the inbox */
+
+/* The same row, in a card, in the one list that holds everything else waiting on you —
+   which is what took PRs off the tab bar (bc-l8jp.6). The row inside is `.work-row` and
+   the lamps and facts are the board's own, so what is here is only the seam: the card's
+   padding around a row that was built to sit in a list, and the title becoming a link
+   because this card does not fold open. */
+.pr-card { padding: 12px 14px 8px; }
+.pr-card .pr-row { align-items: flex-start; border-top: 0; padding: 0; }
+.pr-card .work-sub { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.pr-card .pr-title-link { color: inherit; text-decoration: none; }
+.pr-card .pr-title-link:hover { text-decoration: underline; }
+.pr-card .board-note { margin: 8px 0 2px; }
 .board-num { color: var(--muted); font-variant-numeric: tabular-nums; }
 .board-nobead { font-style: italic; opacity: 0.8; }
 .board-facts { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }

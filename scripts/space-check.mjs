@@ -7,7 +7,7 @@
 // test/spacedetails.mjs proves the contract: `null` means inherit, a patch touches
 // only what it names, the write reaches the running daemon *and* the file. None of
 // that says the card draws, and none of it says a press reaches the endpoint — which
-// is the whole feature, because these seven settings were a config hand-edit until
+// is the whole feature, because these eight settings were a config hand-edit until
 // there was a button.
 //
 // So this one drives the real `public/monitor.js` in a headless Chrome the size of a
@@ -23,7 +23,7 @@
 // `--keep` leaves the temp config directory behind, which is where to look when a
 // press appears to work and the file says otherwise. `--shot <file.png>` writes a
 // phone-sized picture of the card with every panel open — the one thing a list of
-// ticks cannot tell you is whether seven settings on a 393px screen read as a card or
+// ticks cannot tell you is whether eight settings on a 393px screen read as a card or
 // as a wall.
 import fs from 'node:fs';
 import net from 'node:net';
@@ -267,7 +267,7 @@ try {
   await sleep(300);
 
   const opened = await card();
-  check('carrying a row for every setting', opened?.rows.length === 7, (opened?.rows || []).join(', ') || 'none');
+  check('carrying a row for every setting', opened?.rows.length === 8, (opened?.rows || []).join(', ') || 'none');
 
   const press = async (selector) => {
     const hit = await evalJs(
