@@ -73,10 +73,11 @@
   const refresh = document.getElementById('refresh');
   const said = document.getElementById('said');
 
-  /* Nothing here streams and nothing here is expensive — /api/admin reads two
-     in-memory structures. Slow enough not to fight your thumb, fast enough that the
-     counts on the buttons are the counts you are pressing. */
-  const REFRESH_MS = 10000;
+  /* This page used to re-ask every ten seconds, all day, for as long as it was open —
+     and one of the two things it asked for, `/api/work`, is a `bd` sweep across every
+     workspace. So the most expensive refresh in the app was on the screen you leave
+     open while you decide whether to stop everything. It follows the daemon's event log
+     now (see `follow` below) and asks for nothing at all while nothing moves. */
 
   const esc = (s) =>
     String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -265,7 +266,18 @@
     // The armed button is about to be replaced by a fresh one, so drop the arm
     // rather than leaving `armed` pointing at a node that is no longer on the page.
     disarm();
-    out.innerHTML = state.scopes.map(card).join('');
+    // Keyed by scope, and touching only the cards whose HTML actually differs. This
+    // mattered less when the page repainted on a ten-second timer and matters now: an
+    // advocate launching a session in one repo must not rebuild the other six cards,
+    // because a rebuild is what would take a card out from under a thumb on its way to
+    // a button. See public/warm.js.
+    const chunks = state.scopes.map((s) => ({ key: s.id, html: card(s) }));
+    const paint = window.beadcause?.warm?.paint;
+    if (paint) paint(out, chunks);
+    else out.innerHTML = chunks.map((c) => c.html).join('');
+    // Re-applied after every paint rather than once: a fresh card arrives with its
+    // buttons enabled, and an observer may look at this page and may not act on it.
+    if (isObserving) for (const b of out.querySelectorAll('button[data-do]')) b.disabled = true;
   }
 
   /* ------------------------------------------------------------------ acting */
@@ -361,14 +373,33 @@
     const warm = window.beadcause?.warm;
     const hit = warm?.read?.('/api/admin');
     if (!hit?.data) return false;
+    // Held rather than fetched, and only to grey the buttons out. Absent is not
+    // "not an observer" — it is "we do not know yet", and the poll behind this settles
+    // it either way a moment later. Before the paint, because `render` is what disables
+    // the buttons and it would otherwise draw one live frame of a page you may not act
+    // on. Off `/api/work` still: this page no longer fetches it, but a sibling view
+    // warms it and reading what is already there costs nothing.
+    const work = warm.read('/api/work');
+    if (work?.data && typeof work.data.observing === 'boolean') setObserving(work.data.observing);
     state = hit.data;
     render();
-    // Held rather than fetched, and only to grey the buttons out. Absent is not
-    // "not an observer" — it is "we do not know yet", and the fetch behind this
-    // settles it either way a moment later.
-    const work = warm.read('/api/work');
-    if (work?.data && observing) observing.hidden = !work.data.observing;
     return true;
+  }
+
+  /**
+   * Which daemon you are looking at.
+   *
+   * Off the poll rather than off `/api/work`, which is what this page used to ask for —
+   * and `/api/work` is a `bd` sweep across every workspace, asked for one boolean, every
+   * ten seconds. The event log carries `observing` on every wake, including the first
+   * one, and carries it for free. That single field is the whole reason this page ever
+   * touched the most expensive endpoint in the app.
+   */
+  let isObserving = false;
+  function setObserving(on) {
+    isObserving = Boolean(on);
+    if (observing) observing.hidden = !isObserving;
+    if (isObserving) for (const b of out.querySelectorAll('button[data-do]')) b.disabled = true;
   }
 
   async function load() {
@@ -378,25 +409,71 @@
       warm?.write?.('/api/admin', state);
       pulse?.classList.remove('bad');
       render();
+      // The request came back, so the credential is good: the moment it is safe to go
+      // and warm the other four tabs. Once per document — see public/warm.js.
+      warm?.prewarm?.({ here: 'admin', api });
     } catch (err) {
       pulse?.classList.add('bad');
       if (!state) out.innerHTML = `<div class="empty">Cannot reach the daemon — ${esc(err.message)}</div>`;
+    } finally {
+      // Whether or not that worked, and deliberately: a page opened while the daemon is
+      // restarting used to be brought back by the ten-second timer, and with the timer
+      // gone the stream is the only thing that can. Its own backoff is what stops that
+      // being a request every five seconds at a daemon that is not coming back soon.
+      follow();
     }
-    // An observer may look at this page and may not act on it. The badge is the
-    // same one /monitor shows, for the same reason: which daemon this is.
-    try {
-      const work = await api('/api/work');
-      warm?.write?.('/api/work', work);
-      if (observing) observing.hidden = !work.observing;
-      if (work.observing) {
-        for (const b of out.querySelectorAll('button[data-do]')) b.disabled = true;
-      }
-      // Both requests came back, so the credential is good: the moment it is safe to
-      // go and warm the other four tabs. Once per document — see public/warm.js.
-      warm?.prewarm?.({ here: 'admin', api });
-    } catch {
-      /* The page is still useful without it. */
-    }
+  }
+
+  /* ------------------------------------------------------------------- the stream */
+
+  /**
+   * Follow the event log instead of re-asking on a clock.
+   *
+   * `want: 'presence'` is what makes the park free: the daemon sweeps `bd` for a poll
+   * that asked for the inbox questions, and this page draws none of them. It wants to be
+   * *woken* — and then it asks `/api/admin`, which is two in-memory reads and no `bd` at
+   * all. `cold: true` because nothing this page fetches carries a sequence, and with
+   * `want: 'presence'` the `since`-less first request that learns one costs nothing.
+   *
+   * **Why it re-asks for the whole status rather than patching a row.** Every number on
+   * this page is a promise about what a press will do — "Pause 3 advocates · close 2
+   * terminals" — and the two halves of it come from different places on the daemon: the
+   * advocate roster is on the poll, the open terminals and this page's own record of
+   * what it paused are not. Patching the half that arrives and leaving the other half
+   * from a minute ago would produce a button whose label was true of nothing. So the
+   * status is asked for again, and the reason that is an acceptable answer here and
+   * nowhere else on this screen is that it is not a sweep.
+   */
+  let stream = null;
+  function follow() {
+    if (!window.beadcause?.stream) return;
+    // Mounted once and started every time `load` runs — the boot and the ⟳ — so a stream
+    // that gave up after a run of failures can be picked back up by hand. `start` on one
+    // that is already parked is a no-op.
+    if (stream) return stream.start();
+    stream = window.beadcause.stream.follow({
+      api,
+      want: 'presence',
+      cold: true,
+      onWake({ data, events, resync }) {
+        // On every wake, including the quiet ones, and free.
+        if (typeof data.observing === 'boolean') setObserving(data.observing);
+        // Presence is a thumb moving on somebody's phone. It wakes this poll on purpose
+        // — that is how the mirror works — but it has changed no advocate and no
+        // terminal, and asking again for it would be a timer built out of somebody
+        // else's scrolling.
+        if (!resync && !window.beadcause.stream.moved(events)) return;
+        // Not while a press is in flight, and not while a destructive button is armed:
+        // either would redraw the button out from under the thumb already moving to it.
+        // The next event repaints; so does the ⟳.
+        if (busy || armed) return;
+        load();
+        // Only when we have lost our place in the log, because the certificate card is
+        // the one thing here that nothing but this page ever changes.
+        if (resync) loadTls();
+      },
+    });
+    stream.start();
   }
 
   /* ---------------------------------------------------------------------- TLS */
@@ -704,12 +781,6 @@
 
   refresh?.addEventListener('click', loadTls);
   refresh?.addEventListener('click', load);
-  // Not while a press is in flight, and not while a destructive button is armed:
-  // either would redraw the button out from under the thumb already moving to it.
-  setInterval(() => {
-    if (!busy && !armed) load();
-    if (!busy && !armed) loadTls();
-  }, REFRESH_MS);
   warmBoot();
   load();
   loadTls();

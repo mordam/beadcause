@@ -59,9 +59,19 @@
   const pulse = document.getElementById('pulse');
   const observing = document.getElementById('observing');
 
-  /* A `gh` call per repo behind this, so slower than the inbox on purpose. The board
-     is cached for 25s on the daemon anyway; anything faster would only re-render. */
-  const REFRESH_MS = 60000;
+  /* There was a minute-long `setInterval` here that re-asked for the whole board, a `gh`
+     call per repo, for as long as the page was open. It is gone: the board follows the
+     daemon's event log now (see `follow` below) and asks again only when the log says a
+     pull request actually moved.
+
+     **The one thing that costs.** GitHub is outside the daemon's event log, so a pull
+     request opened by something other than this app — an agent's `deliver.js`, a push
+     from another machine — is not an event and does not wake the board. What brings it
+     in is the ⟳, the next daemon-side event, or arriving at the page. That is the trade
+     the timer was paying a `gh` sweep a minute, all day, on every open board to avoid. */
+
+  /** The events that can have changed a lamp or a button on this board. */
+  const BOARD_EVENTS = ['merged', 'changes', 'pr-declined', 'deploy', 'advocate'];
 
   /* The deploy strip's own clock. Fast enough that a step change is news rather than
      history, and only while something is actually running — /api/deploys is a directory
@@ -850,6 +860,11 @@
       render();
     } finally {
       pulse.classList.remove('busy');
+      // Whether or not that worked, and deliberately: a board opened during a deploy —
+      // which is exactly when this page is opened — is looking at a daemon that is
+      // restarting, and with the minute timer gone the stream is the only thing that
+      // brings it back on its own. See `follow`, and its backoff.
+      follow();
     }
   }
 
@@ -919,6 +934,14 @@
    * has to slow it down again — an interval decided once could only ever be wrong in
    * one of those two directions. The previous timeout is always cleared, so a ⟳ in the
    * middle of a wait moves the next tick rather than adding a second clock.
+   *
+   * This one survived the move onto the delta stream, and the reason is worth stating
+   * because it is the exception: a deploy's steps are a file being written on the Mac,
+   * and `bus.emit({type: 'deploy'})` fires when a deploy *settles* rather than when it
+   * starts — so nothing in the log says "something began shipping thirty seconds ago",
+   * and the idle tick below is the only thing that would notice. The stream shortens the
+   * other end of it: the settling event brings the final status in at once rather than
+   * up to thirty seconds later. Emitting on the start too would let this stop entirely.
    */
   let deployTimer = null;
   function scheduleDeploys() {
@@ -947,21 +970,76 @@
     loadDeploys();
     load({ refresh: true });
   });
-  setInterval(() => {
-    // Not while you are mid-sentence or holding an armed merge: a repaint would throw
-    // the first away and disarm the second under your thumb.
-    if (!state.busy && !state.armed && !state.draft) load();
-  }, REFRESH_MS);
+
+  /* ------------------------------------------------------------------- the stream */
 
   /**
-   * A plain GET, for the background warm and nothing else.
+   * Follow the event log instead of re-asking on a clock.
+   *
+   * `want: 'presence'` is what makes the park free: the daemon sweeps `bd` for a poll
+   * that asked for the inbox questions, and this page draws none of them — it wants to
+   * be woken, and then it decides for itself whether the news was about a pull request.
+   * `cold: true` because `/api/prs` carries no sequence, and with `want: 'presence'` the
+   * `since`-less first request that learns one costs nothing.
+   *
+   * **Why it re-asks for the board rather than patching the row the event names.** The
+   * three lamps are not fields on the event: `merged`, `pushed` and `deployed` are the
+   * daemon's own reading of GitHub, of `origin/main` and of the deploy journal, decided
+   * in lib/prboard.js. A client that set them from `{number, bead}` would be a second,
+   * worse copy of that ladder — and the lamps' whole claim is that they are true. What
+   * makes the re-ask cheap instead is on the daemon: the three events that move a row
+   * drop the board cache as they fire, so the first board through does one `gh` sweep
+   * and every other open board shares it.
+   */
+  let stream = null;
+  function follow() {
+    if (!window.beadcause?.stream) return;
+    // Mounted once and started every time `load` runs — the boot and the ⟳ — so a stream
+    // that gave up after a run of failures can be picked back up by hand. `start` on one
+    // that is already parked is a no-op.
+    if (stream) return stream.start();
+    stream = window.beadcause.stream.follow({
+      api: warmApi,
+      want: 'presence',
+      cold: true,
+      onWake({ events, resync }) {
+        // Not while you are mid-sentence or holding an armed merge: a repaint would
+        // throw the first away and disarm the second under your thumb. The ⟳ is still
+        // there, and so is the next event.
+        if (state.busy || state.armed || state.draft) return;
+        // We have lost our place in the log, so nothing on screen is provably current —
+        // this is one of the three cases that earns a forced sweep.
+        if (resync) {
+          loadDeploys();
+          load({ refresh: true });
+          return;
+        }
+        if (!window.beadcause.stream.touched(events, BOARD_EVENTS)) return;
+        load();
+        // A deploy has settled. The strip reads the journal directly — a step being
+        // written to a file is nothing the log can carry — so its own clock stays; what
+        // this saves is the up-to-thirty-second wait for the ending, which is the half
+        // of a deploy anybody is actually watching for.
+        if (window.beadcause.stream.touched(events, 'deploy')) loadDeploys();
+      },
+    });
+    stream.start();
+  }
+
+  /**
+   * A plain GET, for the background warm and for the delta stream.
    *
    * This page fetches with bare `fetch` in four places rather than through one
    * wrapper, so there is nothing here for `prewarm` to borrow. One small one, kept
    * next to the boot it is used from.
+   *
+   * `opts` is spread through for exactly one caller and one field: the stream hands it
+   * an `AbortController` signal, and a wrapper that dropped it would leave a parked
+   * socket held for its full twenty-five seconds every time this page went into a
+   * pocket.
    */
-  async function warmApi(path) {
-    const res = await fetch(path, { headers: { 'x-beadcause-token': token } });
+  async function warmApi(path, opts = {}) {
+    const res = await fetch(path, { ...opts, headers: { 'x-beadcause-token': token, ...(opts.headers || {}) } });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return res.json();
   }
