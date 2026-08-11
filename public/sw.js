@@ -107,14 +107,19 @@
    were not there, pushing the log off the bottom of the phone. Both look like a working
    page, which is the failure a cache version exists to prevent. */
 /* v33: a page of what has landed — every closed bead, newest first (bc-qsj6.1). Three new
-   paths (`/history`, `/history.html`, `/history.js`) *and* two files that already exist
-   move with them, which is the whole reason the version has to: index.html grows the 🗂
-   that is the only way to the page, and style.css grows the rules that make a row a row.
-   A phone holding v32's index.html beside a v33 daemon has a page it cannot reach at all
-   — silently, because a missing icon looks exactly like a bar that never had one — and
-   one holding v33's index.html against v32's stylesheet reaches it and finds forty
-   unstyled paragraphs of close reason with no rows around them. Both look like a working
-   app, which is the failure a cache version exists to prevent. */
+   paths (`/history`, `/closed`, `/history.js`) *and* two files that already exist move
+   with them, which is the whole reason the version has to move rather than the new paths
+   simply being added. `monitor.js` grows the `N closed` pill that is the only door to the
+   page, and `style.css` grows the rules that make a row a row. A phone holding v32's
+   monitor.js beside a v33 daemon has a page it cannot reach at all — silently, because a
+   missing pill looks exactly like a console row that never had one — and one holding
+   v33's history.js against v32's stylesheet reaches it and finds forty unstyled
+   paragraphs of close reason with no rows around them. Both look like a working app,
+   which is the failure a cache version exists to prevent.
+
+   Note `public/report.js` (v32's own addition, from bc-p38c.2) is deliberately not in the
+   shell here — that was its author's call and this page loads it exactly as every other
+   page does. */
 const CACHE = 'beadcause-v33';
 const SHELL = [
   '/',

@@ -203,9 +203,14 @@
     }
 
     if (m && state.rows.length) {
+      /* Never below one: the button is only drawn when `more` is true, so a count of
+         nought or less would be arithmetic over two numbers that disagree — a payload
+         assembled before the last append — and "Show -3 more" on a button that works is
+         worse than a plain one. */
+      const left = Math.max(1, Math.min(PAGE, m.counts.matched - state.rows.length));
       const more = m.more
         ? `<button class="secondary hx-more" id="hx-more"${state.loading ? ' disabled' : ''}>${
-            state.loading ? 'Loading…' : `Show ${Math.min(PAGE, m.counts.matched - state.rows.length)} more`
+            state.loading ? 'Loading…' : `Show ${left} more`
           }</button>`
         : '';
       const shown = `${state.rows.length} of ${plural(m.counts.matched, 'closed bead')}`;

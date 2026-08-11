@@ -34,6 +34,11 @@
     <div class="empty">Reading what has closed…</div>
   </main>
 
+  <!-- Every error this page hits, sent back to the daemon as a P0 bead. Ahead of every
+       other script, because it can only catch what loads after it — and `test/reporter.mjs`
+       asserts exactly that of every page in public/, which is how a new document that
+       forgot it is caught on the day it is written rather than the day it throws. -->
+  <script src="/report.js"></script>
   <script src="/presence.js"></script>
   <script src="/tabbar.js"></script>
   <!-- Which repo's history this is. Before history.js, which registers its refetch on it
