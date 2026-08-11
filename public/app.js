@@ -110,6 +110,27 @@
     // button, because a decline can carry direction for the next attempt and typing
     // a paragraph would outlive any arm timer — see declineHtml.
     prDecline: new Set(),
+    // The full view's half of a pull request: `pr:<ws>#<n>` → { loading, row, pr, agent,
+    // unavailable }. The board row is already in hand from the sweep — what this adds is
+    // the description, the datetimes, the authoring agent and a mergeability read at the
+    // moment you are about to act on it. Fetched when a card is opened, never on the poll.
+    prDetail: new Map(),
+    // Which pull requests you have started closing. A mode rather than an armed button,
+    // for the same reason a decline is one: closing carries a reason, and typing a
+    // sentence outlives any arm timer. See prCloseHtml.
+    prClose: new Set(),
+    // What the last act on a pull request said back: key → { kind: 'ok'|'bad', text }.
+    // On the card rather than in a toast, because a refusal from GitHub is a sentence
+    // you read and then act on, and a toast is gone by the time you have read it.
+    prSaid: new Map(),
+    // Which pull request has an act in flight, so a second tap cannot send it twice.
+    // One at a time is enough: only one card is ever open (see openOnly).
+    prBusy: null,
+    // What is typed into a full view's two boxes — the comment and the close reason — as
+    // `key` and `key|reason`. Out here rather than read off the textarea for the reason
+    // every other draft in this file is: the card is repainted on every arm and every
+    // answer from GitHub, and a half-typed sentence must not go with it.
+    prDraft: new Map(),
     // Comments you have opened or shut by hand, as `${key}|${comment id}` → true
     // when shut. Only the exceptions live here; the default — the last thing each
     // side said, open, everything above it collapsed — is derived at render time by
@@ -316,8 +337,13 @@
    * in the DOM, so a repaint would not *lose* anything — but it would drop focus and
    * put the caret back at the end, which mid-word is the same insult.
    */
-  const isTyping = () =>
-    !!document.activeElement?.matches?.('[data-role="answer"], [data-role="edit-field"]');
+  // The full view's two boxes count, and they had to be named here rather than left to
+  // the card's own repaints: a poll rebuilds the list every 25 seconds, and a comment or
+  // a close reason half-typed into an open pull request is exactly as worth keeping as a
+  // half-typed answer. See prActionsHtml.
+  const TYPING_IN = '[data-role="answer"], [data-role="edit-field"], [data-role="pr-comment"], [data-role="pr-reason"]';
+
+  const isTyping = () => !!document.activeElement?.matches?.(TYPING_IN);
 
   /**
    * Answering means focused OR holding text. The second half matters: you tap a
@@ -331,7 +357,13 @@
   const isAnswering = () =>
     isTyping() ||
     Boolean(window.beadcause?.dictation?.listening()) ||
-    [...listEl.querySelectorAll('[data-role="answer"]')].some((t) => t.value.trim());
+    // Deliberately not every field in TYPING_IN: an `edit-field` is a `<select>` as well
+    // as a box, and a select always holds a value — counting those would make this true
+    // for as long as a proposal row was unfolded, which would stop the poll repainting
+    // the list at all.
+    [...listEl.querySelectorAll('[data-role="answer"], [data-role="pr-comment"], [data-role="pr-reason"]')].some((t) =>
+      t.value.trim()
+    );
 
   /* -------------------------------------------------------------- mermaid */
 
@@ -1342,9 +1374,11 @@
       way anywhere, and a rung the sub-filter deliberately does not offer must not be able
       to reach this list — see the `sub` block in the filter's KINDS table.
 
-    What a card does *not* have yet is merge, close and comment. Those are bc-l8jp.7, which
-    opens one full screen; until then the card links to the pull request on GitHub and to
-    the board, which is where every button already lives.
+    And tapping one **opens it full screen** (bc-l8jp.7), which is where the merge decision
+    is actually made. That is the same `.card.open` sheet every other card in this list
+    uses, for the reason the comment on `cardHtml` gives: expanding inline puts the
+    description, the facts and the buttons in competition with the list around them, and a
+    merge is not a thing to press with half a screen of context.
   */
 
   /** How often the board is re-swept while pull requests are in view. */
@@ -1382,30 +1416,430 @@
   };
 
   /**
-   * One pull request as a card.
+   * One pull request as a card — a row while it is shut, the whole screen once it is not.
    *
    * The inside of it — the number, the title, the repo, the rung, the beads, the diffstat
    * and the four lamps — is `bodyHtml` in public/prcard.js, the same function the board
    * draws its rows with. That is the whole point of that file: this card and that row are
-   * the same object seen twice, and they were two renderers until this bead.
+   * the same object seen twice, and they were two renderers until bc-l8jp.6.
    *
-   * The two links are the two things you can do about a pull request from here. **GitHub**
-   * is the pull request itself; **the board** is where Merge, Ship and Comment are, and it
-   * is now the only door to a page no tab points at any more.
+   * Shut, the row is a **button** rather than a link to GitHub, which is what tapping it
+   * used to mean. Two reasons, and the first is the bead: the decision this row exists for
+   * is made here now, not on github.com. The second is mechanical — the whole row is one
+   * tap target, and an `<a>` inside it was a nested interactive element a phone could
+   * resolve either way.
    */
   function prCardHtml(row) {
     const card = window.beadcause?.prCard;
     const p = row.pr;
     if (!card || !p) return '';
+    if (state.open.has(row.key)) return prFullHtml(row, p, card);
     return `<article class="card pr-card" id="card-${cardId(row.key)}" data-key="${esc(row.key)}"
       data-stage="${esc(p.stage)}">
-      <div class="work-row pr-row">${card.bodyHtml(p, { titleHref: p.url, repo: true })}</div>
+      <button class="work-row pr-row" type="button" data-act="pr-open" data-key="${esc(row.key)}"
+        aria-expanded="false">
+        ${card.bodyHtml(p, { repo: true })}
+        <span class="chev" aria-hidden="true">›</span>
+      </button>
       ${p.note ? `<p class="board-note">${esc(p.note)}</p>` : ''}
-      <div class="actions">
-        <a class="linkish" href="${esc(p.url)}" target="_blank" rel="noopener noreferrer">GitHub ↗</a>
-        <a class="linkish" href="/prs">Merge or ship →</a>
+    </article>`;
+  }
+
+  /**
+   * The full view: everything a merge decision needs, and the four things you can do.
+   *
+   * `.card.open` is the same fixed full-screen sheet a question opens into, and the four
+   * rows are the ones its layout is built around (see style.css): a `.card-top` that
+   * stays, a `.card-head` that carries what this *is*, a `.brief` that scrolls, and a
+   * pinned `.freeform` at the bottom holding the box and the buttons. Nothing new had to
+   * be laid out for this, which is most of the argument for it being a card rather than a
+   * fifth page.
+   *
+   * What is on it, in the order the bead asks for it: the title and a link out to GitHub,
+   * the description, the beads, the authoring agent, the datetimes — then merge, close and
+   * comment, and the conflict path in place of merge when GitHub says it conflicts.
+   *
+   * The live half arrives after the sheet does, exactly as a delivery card's does: the row
+   * is already in hand from the board sweep and is worth reading with no signal at all, so
+   * the description, the agent and the fresh mergeability paint in when they land rather
+   * than holding the whole screen on a `gh` round trip.
+   */
+  function prFullHtml(row, p, card) {
+    const detail = state.prDetail.get(row.key);
+    // GitHub's word for it, when it has spoken since the sweep. The row's own is up to 25
+    // seconds old, which is the right freshness for a lamp and the wrong one for a button.
+    const live = detail?.pr || null;
+    return `<article class="card pr-card open" id="card-${cardId(row.key)}" data-key="${esc(row.key)}"
+      data-stage="${esc(p.stage)}">
+      <div class="card-top">
+        <button class="collapse" data-act="collapse" data-key="${esc(row.key)}">↑ Collapse</button>
+      </div>
+      <div class="card-head">
+        <div class="work-row pr-row">${card.bodyHtml(p, { titleHref: p.url, repo: true })}</div>
+        ${p.note ? `<p class="board-note">${esc(p.note)}</p>` : ''}
+      </div>
+      <div class="brief">
+        ${prWhoHtml(p, detail)}
+        ${prBodyHtml(detail)}
+      </div>
+      <div class="freeform pr-freeform">
+        ${prActionsHtml(row, p, live)}
       </div>
     </article>`;
+  }
+
+  /**
+   * Who and when — the facts a merge decision is made against, and the two that had to be
+   * found rather than read off the row.
+   *
+   * **The agent** is the session that produced the branch, from the archive in the repo's
+   * own refs (lib/prauthor.js). It is drawn with the mismatch stated when the archive knows
+   * the bead but not this branch, because "a session on this bead, but not this one" is a
+   * different fact from a match and reading them the same would make the attribution
+   * worthless. Where nothing is archived it says GitHub's login and calls it that.
+   *
+   * **The datetimes** come from `gh` rather than from the board, which carries only the
+   * one it sorts by. Opened, last touched, merged — the third only where there is one,
+   * since "merged: never" is a row of nothing.
+   */
+  function prWhoHtml(p, detail) {
+    const card = window.beadcause?.prCard;
+    const live = detail?.pr || null;
+    const agent = detail?.agent || null;
+    const when = (iso) => (iso ? `${clockTime(iso)} · ${card.ago(iso)}` : '');
+
+    const facts = [
+      ['branch', `${p.branch} → ${p.base}`],
+      ['bead', (p.beads || []).map((b) => b.id).join(', ') || 'none named'],
+      ['agent', agentLine(agent, detail)],
+      ['opened', when(live?.createdAt || p.createdAt) || 'not recorded'],
+      ['touched', when(live?.updatedAt || p.updatedAt) || 'not recorded'],
+    ];
+    if (p.mergedAt) facts.push(['merged', when(p.mergedAt)]);
+    if (p.mergeCommit) facts.push(['commit', p.mergeCommit.slice(0, 8)]);
+
+    return `<dl class="pr-facts">${facts
+      .map(([k, v]) => `<div><dt>${esc(k)}</dt><dd>${esc(v)}</dd></div>`)
+      .join('')}</dl>`;
+  }
+
+  /** The clock time, because "17h" doesn't say whether it spanned lunch. */
+  const clockTime = (iso) => {
+    const d = new Date(iso);
+    return Number.isNaN(d.getTime())
+      ? ''
+      : d.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  };
+
+  /**
+   * One line for the agent, and it never overstates what is known.
+   *
+   * Four answers, because there are four states and three of them are not "an agent wrote
+   * this": the archive matched this branch, the archive knows the bead but not this branch,
+   * nothing is archived at all, and the detail has not arrived yet.
+   */
+  function agentLine(agent, detail) {
+    if (!detail || detail.loading) return 'reading the session archive…';
+    if (!agent) return 'not recorded';
+    if (agent.kind !== 'session') return agent.login ? `${agent.login} (GitHub account, no session archived)` : 'not recorded';
+    const id = agent.sessionId ? agent.sessionId.slice(0, 8) : 'unknown session';
+    const what = `session ${id}${agent.outcome ? ` · ${agent.outcome}` : ''}${
+      agent.commits ? ` · ${agent.commits} commit${agent.commits === 1 ? '' : 's'}` : ''
+    }`;
+    return agent.matched ? what : `${what} — on ${agent.bead}, but on branch ${agent.branch || 'unknown'}, not this one`;
+  }
+
+  /**
+   * The description, as the pull request has it.
+   *
+   * Rendered as markdown, because that is what a PR body is — and through the same
+   * `FROM_BD` sanitiser every other body in this app goes through, since this one is the
+   * only text on the screen that came from outside the Mac.
+   */
+  function prBodyHtml(detail) {
+    if (!detail || detail.loading) return '<p class="pr-quiet">Reading the pull request…</p>';
+    if (detail.unavailable) {
+      return `<p class="pr-quiet warn">${esc(detail.unavailable)} — the row above is what the last board sweep said.</p>`;
+    }
+    const body = String(detail.pr?.body || '').trim();
+    if (!body) return '<p class="pr-quiet">This pull request has no description.</p>';
+    return `<div class="section-label">Description <span>as the pull request has it</span></div>
+      <div class="md">${renderMarkdown(body, FROM_BD)}</div>`;
+  }
+
+  /**
+   * Merge, close, comment — and the conflict path instead of merge where there is one.
+   *
+   * Three things here are deliberate and are the ones bc-l8jp.7 was careful about:
+   *
+   * - **Merge keeps its confirm.** Two taps, with the consequence written into the button
+   *   between them — the same arming `/prs` and the delivery card use, and for the reason
+   *   they use it: a `confirm()` on a phone is a system sheet you dismiss by reflex, and
+   *   this is the one control here that changes something outside this Mac irreversibly.
+   * - **Close keeps its reason box.** A mode rather than an arm, because the sentence in
+   *   the box is the only thing that will explain a closed pull request six weeks later,
+   *   and no six-second timer survives typing one.
+   * - **A conflict is a path, not a sentence.** GitHub refusing a merge for a conflict is
+   *   work rather than a decision, so it gets a button that opens a session on the branch
+   *   and a cancel beside it — where before the refusal was a sentence on a card and the
+   *   next step was yours to work out.
+   */
+  function prActionsHtml(row, p, live) {
+    if (state.prClose.has(row.key)) return prCloseHtml(row, p);
+    const said = state.prSaid.get(row.key);
+    const note = said ? `<p class="pr-said pr-${esc(said.kind)}">${esc(said.text)}</p>` : '';
+    // GitHub's word where it has one, the sweep's where it does not.
+    const phase = live?.state || p.state;
+    const mergeable = live?.mergeable ?? p.mergeable;
+    const conflicted = phase === 'OPEN' && mergeable === 'CONFLICTING';
+    const busy = state.prBusy === row.key;
+
+    if (conflicted) {
+      const armed = state.armed === `${row.key}|conflicts`;
+      return `<p class="pr-conflict">#${p.number} conflicts with <code>${esc(p.base)}</code>. Nothing merges until
+        <code>${esc(p.branch)}</code> has <code>${esc(p.base)}</code> in it — which is work, not a decision, so this
+        opens a session on that branch to do it. It pushes the branch and stops; the merge stays yours.</p>
+        <div class="pr-row-actions">
+          <button class="primary${armed ? ' confirm' : ''}" data-act="pr-conflicts" data-key="${esc(row.key)}"
+            ${busy ? 'disabled' : ''}>${armed ? 'Tap again · open the session' : 'Resolve conflicts'}</button>
+          <button class="linkish" data-act="pr-cancel" data-key="${esc(row.key)}">Cancel</button>
+        </div>
+        ${note}`;
+    }
+
+    const buttons = [];
+    if (phase === 'OPEN') {
+      const armed = state.armed === `${row.key}|merge`;
+      buttons.push(`<button class="primary${armed ? ' confirm' : ''}" data-act="pr-merge-go" data-key="${esc(row.key)}"
+        ${busy ? 'disabled' : ''}>${armed ? `Tap again · merge #${p.number}` : prMergeLabel(p, live)}</button>`);
+      buttons.push(`<button class="secondary danger" data-act="pr-close" data-key="${esc(row.key)}"
+        ${busy ? 'disabled' : ''}>Close it</button>`);
+    }
+    // The comment box is the one control that is here whatever state the pull request is
+    // in: something worth saying about a merged one is the commonest note of all.
+    return `${
+      buttons.length
+        ? `<div class="pr-row-actions">${buttons.join('')}</div>`
+        : `<p class="pr-quiet">${
+            phase === 'MERGED' ? `#${p.number} is merged.` : `#${p.number} is closed.`
+          } Ship and the deploy queue are on <a href="/prs">the board</a>.</p>`
+    }
+      <textarea data-role="pr-comment" rows="2" placeholder="Say something on #${esc(p.number)}…">${esc(
+        state.prDraft?.get(row.key) || ''
+      )}</textarea>
+      <div class="row">
+        <button class="secondary" data-act="pr-comment" data-key="${esc(row.key)}" ${busy ? 'disabled' : ''}>Comment on GitHub</button>
+        <a class="linkish" href="${esc(p.url)}" target="_blank" rel="noopener noreferrer">GitHub ↗</a>
+      </div>
+      ${note}`;
+  }
+
+  /** What the merge button promises, which must never overstate what it will do. */
+  function prMergeLabel(p, live) {
+    if (live?.draft ?? p.draft) return `Merge #${p.number} anyway (draft)`;
+    if ((live?.checks || p.checks)?.state === 'failing') return `Merge #${p.number} — checks red`;
+    return `Merge & push #${p.number}`;
+  }
+
+  /**
+   * Closing, once you have said you mean to.
+   *
+   * It replaces the buttons rather than sitting under them, which is what makes this two
+   * deliberate steps with no timer to race. The paragraph is the part worth having: this
+   * closes the pull request and **does not** put the bead back in the queue, because that
+   * is what Decline on the delivery card is for and it is the one that knows which bead the
+   * worker actually named. See `POST /api/pr/close`.
+   */
+  function prCloseHtml(row, p) {
+    const busy = state.prBusy === row.key;
+    const beads = (p.beads || []).map((b) => b.id);
+    return `<p class="pr-conflict">Closing <strong>#${p.number}</strong> without merging. The branch
+      <code>${esc(p.branch)}</code> stays — it is the only copy of the work — and ${
+        beads.length
+          ? `<strong>${esc(beads.join(', '))}</strong> ${beads.length === 1 ? 'is' : 'are'} left exactly as ${
+              beads.length === 1 ? 'it is' : 'they are'
+            }`
+          : 'no bead is touched'
+      }. Putting the work back in the queue is <em>Decline</em> on its card in this inbox, which knows
+      which bead the session named.</p>
+      <p class="pr-quiet">Say why in the box. It is optional, and it is the only thing that will explain
+      this to whoever opens the closed pull request next.</p>
+      <textarea data-role="pr-reason" rows="2" placeholder="Why this is not the one…">${esc(
+        state.prDraft?.get(`${row.key}|reason`) || ''
+      )}</textarea>
+      <div class="row">
+        <button class="primary danger" data-act="pr-close-go" data-key="${esc(row.key)}" ${busy ? 'disabled' : ''}>Close #${p.number}</button>
+        <button class="linkish" data-act="pr-close-cancel" data-key="${esc(row.key)}">Cancel</button>
+      </div>`;
+  }
+
+  /**
+   * Fetch the full view's half, once per card opened.
+   *
+   * Never on the poll, for the reason `ensurePr` is not either: it is a `gh` round trip
+   * plus a walk of the session archive, for a screen nobody may be looking at. `force` is
+   * what an act asks for afterwards — a merge that was refused has changed what GitHub
+   * says, and the buttons must be drawn from the new answer rather than the one that was
+   * refused.
+   */
+  async function ensurePrDetail(row, { force = false } = {}) {
+    if (!row?.pr) return;
+    if (!force && state.prDetail.has(row.key)) return;
+    const before = state.prDetail.get(row.key);
+    state.prDetail.set(row.key, { loading: true, pr: before?.pr || null, agent: before?.agent || null, unavailable: null });
+    paintPrCard(row.key);
+    const q = `workspace=${encodeURIComponent(row.workspace)}&number=${encodeURIComponent(row.pr.number)}${
+      force ? '&refresh=1' : ''
+    }`;
+    try {
+      const res = await api(`/api/pr/detail?${q}`);
+      state.prDetail.set(row.key, { loading: false, pr: res.pr, agent: res.agent, unavailable: res.unavailable || null });
+      // The row the daemon just re-read, back into the board this list draws from. Without
+      // it a merge would leave the lamps and the rung saying what they said before it.
+      if (res.row) adoptBoardRow(res.row);
+    } catch (err) {
+      // An unreachable daemon must not blank the sheet: the row is still on screen, still
+      // true as of the last sweep, and the link out still works.
+      state.prDetail.set(row.key, {
+        loading: false,
+        pr: before?.pr || null,
+        agent: before?.agent || null,
+        unavailable: err.message,
+      });
+    }
+    paintPrCard(row.key);
+  }
+
+  /**
+   * Put one freshly-read row back into the cached board.
+   *
+   * The board is a payload rather than a per-row store, so this reaches into it in place.
+   * Worth doing rather than waiting for the next minute's sweep: an act on this screen
+   * changes the row it acted on, and a lamp that goes on a minute late is a lamp you press
+   * the button again over.
+   */
+  function adoptBoardRow(fresh) {
+    for (const repo of state.board?.repos || []) {
+      if (repo.workspace !== fresh.workspace) continue;
+      const at = (repo.prs || []).findIndex((p) => p.number === fresh.number);
+      if (at !== -1) repo.prs[at] = fresh;
+    }
+  }
+
+  /**
+   * Repaint one PR card in place — never a render(), same as paintPr and paintPicks.
+   *
+   * The comment box on an open card is a textarea with a caret in it, and this runs on
+   * every arm, every refusal and every detail that lands. `render()` would rebuild the
+   * list and take the caret and the keyboard with it.
+   */
+  function paintPrCard(key) {
+    const el = listEl.querySelector(`.card[data-key="${CSS.escape(key)}"]`);
+    const row = prRows().find((r) => r.key === key);
+    if (!el || !row) return;
+    // What is typed lives in `state.prDraft` rather than in the element, so a repaint can
+    // put it back — the same bargain public/session.js strikes with its composer.
+    keepPrDrafts(el, key);
+    // And where the caret was, but only if it was in *this* card's box. An arm timer expiring
+    // six seconds after you armed merge is a repaint you did not ask for, and it must not
+    // take the sentence you have since started typing with it.
+    const focused = el.contains(document.activeElement)
+      ? { role: document.activeElement.dataset?.role || '', at: document.activeElement.selectionStart ?? null }
+      : null;
+    const html = prCardHtml(row);
+    if (!html) return;
+    const wrap = document.createElement('div');
+    wrap.innerHTML = html;
+    const fresh = wrap.firstElementChild;
+    if (!fresh) return;
+    el.replaceWith(fresh);
+    if (!focused?.role) return;
+    const box = fresh.querySelector(`[data-role="${focused.role}"]`);
+    if (!box) return;
+    box.focus();
+    if (focused.at !== null && box.setSelectionRange) box.setSelectionRange(focused.at, focused.at);
+  }
+
+  /** Read whatever is in this card's two boxes back into state, before it is replaced. */
+  function keepPrDrafts(el, key) {
+    state.prDraft = state.prDraft || new Map();
+    const comment = el.querySelector('[data-role="pr-comment"]');
+    if (comment) state.prDraft.set(key, comment.value);
+    const reason = el.querySelector('[data-role="pr-reason"]');
+    if (reason) state.prDraft.set(`${key}|reason`, reason.value);
+  }
+
+  /**
+   * Arm a button, or report that it was already armed.
+   *
+   * `true` means *this tap was the arming one and nothing should happen*. The window is
+   * the same six seconds the delivery card and the board use, and it disarms itself, so a
+   * card left open with a hot button cannot be finished by a knee an hour later.
+   */
+  function armFirst(key, what) {
+    const token = `${key}|${what}`;
+    if (state.armed === token) {
+      disarm();
+      return false;
+    }
+    state.armed = token;
+    clearTimeout(state.armedTimer);
+    state.armedTimer = setTimeout(() => {
+      disarm();
+      paintPrCard(key);
+    }, 6000);
+    paintPrCard(key);
+    return true;
+  }
+
+  /**
+   * One POST about one pull request, and one sentence about what happened to it.
+   *
+   * Every act on the full view goes through here so that four things cannot be got
+   * differently right in four places:
+   *
+   * - **The card says what happened, not a toast.** GitHub's refusals are the whole reason
+   *   this screen re-reads the pull request before drawing its buttons, and a refusal you
+   *   have to have been looking at is a refusal you act on twice.
+   * - **A double tap cannot send twice.** `prBusy` disables the buttons for the flight;
+   *   one at a time is enough, because only one card is ever open.
+   * - **The row is re-read afterwards, always.** A merge changes the lamps, the rung and
+   *   what GitHub will say next; a close changes what buttons there should be. Forced,
+   *   because the sweep the row came from is now wrong about the one row you are looking at.
+   * - **Nothing typed is lost.** The success sentence is built by the caller, which is also
+   *   where the draft is cleared — so a refused comment keeps its words and a delivered one
+   *   does not.
+   */
+  async function actOnPr(row, path, body, said) {
+    state.prBusy = row.key;
+    state.prSaid.set(row.key, { kind: 'ok', text: 'Asking GitHub…' });
+    paintPrCard(row.key);
+    try {
+      const res = await api(path, {
+        method: 'POST',
+        body: JSON.stringify({ workspace: row.workspace, number: row.pr.number, ...body }),
+      });
+      state.prSaid.set(row.key, { kind: 'ok', text: said(res) });
+    } catch (err) {
+      // GitHub's own sentence travels intact through lib/pr.js, so this is usually the
+      // most useful thing on the screen: a failing check, a required review, a conflict.
+      state.prSaid.set(row.key, { kind: 'bad', text: err.message });
+    } finally {
+      state.prBusy = null;
+      paintPrCard(row.key);
+      // The row and the buttons, from what is true now rather than from what was refused.
+      await ensurePrDetail(row, { force: true });
+      render(true);
+      // A closed pull request gets no card in this list at all — that is bc-l8jp.6's rule
+      // and it is right — so the one act that removes the screen it was performed on has
+      // to say so somewhere that outlives it. Only then: everything else stays on the card,
+      // where it can be read twice.
+      if (!listEl.querySelector(`.card[data-key="${CSS.escape(row.key)}"]`)) {
+        const note = state.prSaid.get(row.key);
+        state.prSaid.delete(row.key);
+        if (note) toast(note.text, note.kind === 'bad');
+      }
+    }
   }
 
   /**
@@ -3033,6 +3467,11 @@
     // has already fetched, so this costs one GitHub round trip per pull request for
     // the life of the tab, not one per render.
     for (const q of visible) if (q.delivery) ensurePr(q);
+    // And the full view's half, for the one pull request that is open. Same bargain as
+    // above and a no-op for a card already fetched — but it belongs here as well as on the
+    // tap, because a card can be open without anyone having tapped it in this render:
+    // a poll rebuilt the list under it.
+    for (const q of visible) if (q.pr && state.open.has(q.key)) ensurePrDetail(q);
     // And the board, if pull requests are wanted and the last sweep has gone stale. A
     // no-op the rest of the time — see loadBoard.
     loadBoard();
@@ -3183,8 +3622,23 @@
    * be two arrays without two of everything else. Requests first: there are at most
    * a handful, and it makes the lookup that matters the cheap one.
    */
+  /**
+   * The row behind a key, in whichever of the three channels holds it.
+   *
+   * Pull requests are the third and were added the day one could be opened full screen
+   * (bc-l8jp.7). They are synthesised from the board rather than stored, so this hands back
+   * a fresh object every call — which is fine for every caller, because everything about an
+   * open PR card that has to survive a repaint (the arm, the drafts, the fetched detail) is
+   * keyed by the string rather than hung off the row.
+   *
+   * It matters here rather than only at the call sites: `adopt()` keeps a card open only if
+   * `byKey` still finds it, so a `pr:` key this did not know would collapse the sheet you
+   * were reading on every 25-second poll.
+   */
   const byKey = (key) =>
-    (state.requests || []).find((q) => q.key === key) || state.questions.find((q) => q.key === key);
+    (state.requests || []).find((q) => q.key === key) ||
+    state.questions.find((q) => q.key === key) ||
+    (String(key).startsWith('pr:') ? prRows().find((r) => r.key === key) : null);
 
   function disarm() {
     state.armed = null;
@@ -3946,6 +4400,136 @@
 
     if (act === 'pr-decline-go') {
       await declineNow(key);
+      return;
+    }
+
+    /* ------------------------------------------------- a pull request, full screen */
+
+    /**
+     * Tapping a pull request row: open it over the list (bc-l8jp.7).
+     *
+     * `openOnly` rather than `state.open.add`, so this obeys the same accordion every
+     * other card does — `.card.open` is a fixed full-screen layer and a second one just
+     * stacks on the first. The detail is fetched after the sheet is up rather than before
+     * it: the row is already worth reading, and a screen that waits on `gh` to draw
+     * anything is a screen that shows a spinner in a tunnel.
+     */
+    if (act === 'pr-open') {
+      closeMenu();
+      closeAgentMenu();
+      disarm();
+      const row = byKey(key);
+      if (!row?.pr) return;
+      openOnly(key);
+      state.prSaid.delete(key);
+      render(true);
+      ensurePrDetail(row);
+      return;
+    }
+
+    /**
+     * Merge it, from the full view. Two taps, and the first sends nothing.
+     *
+     * The same arming as `/prs` and the delivery card, with the same 6-second window —
+     * this is the one control on this screen whose consequence is outside this Mac and
+     * cannot be taken back, and a phone in a pocket must not be able to do it on one tap.
+     *
+     * `POST /api/pr/merge` is the board's own endpoint, not the delivery card's answer
+     * path: there is no bead being answered here. It merges, brings this Mac's base up
+     * behind it, and retires any delivery card that was asking about this same pull
+     * request — which is what stops the inbox from carrying a question that has been
+     * settled by the screen next door.
+     */
+    if (act === 'pr-merge-go') {
+      const row = byKey(key);
+      if (!row?.pr) return;
+      if (armFirst(key, 'merge')) return;
+      await actOnPr(row, '/api/pr/merge', {}, (res) => {
+        const land = res.land?.note ? ` ${res.land.note}.` : '';
+        const cards = (res.cards || []).filter((c) => c.closed).map((c) => c.id);
+        return `Merged #${row.pr.number}.${land}${cards.length ? ` Closed ${cards.join(', ')}.` : ''}`;
+      });
+      return;
+    }
+
+    /** Step one of closing: say you mean to, and get somewhere to say why. */
+    if (act === 'pr-close') {
+      state.prClose.add(key);
+      disarm();
+      paintPrCard(key);
+      const box = listEl.querySelector(`.card[data-key="${CSS.escape(key)}"] [data-role="pr-reason"]`);
+      box?.focus();
+      return;
+    }
+
+    if (act === 'pr-close-cancel') {
+      state.prClose.delete(key);
+      paintPrCard(key);
+      return;
+    }
+
+    if (act === 'pr-close-go') {
+      const row = byKey(key);
+      if (!row?.pr) return;
+      const el = listEl.querySelector(`.card[data-key="${CSS.escape(key)}"]`);
+      if (el) keepPrDrafts(el, key);
+      const reason = (state.prDraft.get(`${key}|reason`) || '').trim();
+      state.prClose.delete(key);
+      await actOnPr(row, '/api/pr/close', { reason }, (res) => {
+        state.prDraft.delete(`${key}|reason`);
+        return `Closed #${row.pr.number}${res.reason ? ' with a reason' : ' — no reason given'}.${
+          (res.beads || []).length ? ` ${res.beads.join(', ')} left as ${res.beads.length === 1 ? 'it was' : 'they were'}.` : ''
+        }`;
+      });
+      return;
+    }
+
+    /**
+     * Say something on the pull request itself.
+     *
+     * `/api/pr/comment`, which goes to GitHub and stops there — not `/api/comment`, which
+     * writes on a *bead* and puts an agent onto answering it. The box is cleared only once
+     * the daemon says it delivered, the same rule public/session.js keeps.
+     */
+    if (act === 'pr-comment') {
+      const row = byKey(key);
+      if (!row?.pr) return;
+      const el = listEl.querySelector(`.card[data-key="${CSS.escape(key)}"]`);
+      if (el) keepPrDrafts(el, key);
+      const text = (state.prDraft.get(key) || '').trim();
+      if (!text) {
+        state.prSaid.set(key, { kind: 'bad', text: 'Nothing to say yet — the box is empty.' });
+        paintPrCard(key);
+        return;
+      }
+      await actOnPr(row, '/api/pr/comment', { text }, () => {
+        state.prDraft.delete(key);
+        return `Said it on #${row.pr.number}.`;
+      });
+      return;
+    }
+
+    /**
+     * A conflict: open a session on the branch whose job is the merge.
+     *
+     * Armed like merge, because it opens an unattended session on this Mac — cheaper than
+     * a merge and still not something a pocket should start. What it does is in
+     * `conflictPromptFor` (lib/session.js): merge the base into the branch, resolve, run
+     * the repo's own gate, push, stop. The merge stays a tap here.
+     */
+    if (act === 'pr-conflicts') {
+      const row = byKey(key);
+      if (!row?.pr) return;
+      if (armFirst(key, 'conflicts')) return;
+      await actOnPr(row, '/api/pr/conflicts', {}, (res) => `Session open on ${res.branch} — it pushes the branch and stops.`);
+      return;
+    }
+
+    /** Cancel out of the conflict path: back to the list, nothing sent. */
+    if (act === 'pr-cancel') {
+      disarm();
+      state.open.delete(key);
+      render(true);
       return;
     }
 

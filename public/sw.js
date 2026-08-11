@@ -62,7 +62,14 @@
    from it — a board page cached at v26 beside a v27 prs.js is a blank board. Every one of
    those is an old app that looks complete, which is the failure a version exists to
    prevent. */
-const CACHE = 'beadcause-v27';
+/* v28: tapping a pull request opens it full screen, with merge, close, comment and the
+   conflict path (bc-l8jp.7). No new path — app.js and style.css are both already here —
+   and that is exactly why the version has to move: the two have to arrive together. A
+   phone holding v27's app.js beside v28's stylesheet draws a row whose tap still goes to
+   GitHub; one holding v28's app.js against v27's stylesheet opens the sheet with no facts
+   column, no pinned action bar and a comment box the buttons sit on top of. Both look like
+   a working app, which is the failure a cache version exists to prevent. */
+const CACHE = 'beadcause-v28';
 const SHELL = [
   '/',
   '/index.html',

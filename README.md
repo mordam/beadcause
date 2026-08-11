@@ -2963,7 +2963,94 @@ and a fact added to one screen was a fact missing from the other.
 **The lamps are the evidence; the word is the conclusion.** They are on every row rather
 than behind the fold, because "which of these has not shipped" is a question you answer by
 scanning, and a fold would make it a question you answer by tapping twelve times. On the
-board, tapping a row opens what you can do about it.
+board, tapping a row opens what you can do about it. In the inbox it opens
+[full screen](#tapping-one-opens-it-full-screen).
+
+### Tapping one opens it full screen
+
+A merge decision is the one thing in this app that changes something outside this Mac and
+cannot be taken back, and until bc-l8jp.7 the inbox's card could not make it: it carried a
+link to GitHub and a link to the board, so the decision was made two screens away from the
+row you were reading. Tapping a card now opens **the whole screen** — the same `.card.open`
+sheet a question opens into, for the reason that one exists: expanded inline, the
+description, the facts and the buttons all compete with the list around them, and a merge is
+not a thing to press with half a screen of context.
+
+It carries what a merge decision needs and nothing else:
+
+- **the title, linking out to the pull request on GitHub** — the answer to "I need to see
+  the diff" is a perfectly good answer and this is meant to make it rarer, not impossible;
+- **the description**, as markdown, through the same sanitiser every other body in the app
+  goes through — it is the only text on the screen that came from outside this Mac;
+- **the branch and base, the bead, the authoring agent, and the datetimes** — opened, last
+  touched, merged where there is one, and the merge commit;
+- **Merge & push**, **Close it** and **Comment on GitHub**;
+- and, where GitHub reports a conflict, **Resolve conflicts** and **Cancel** in place of
+  merge.
+
+**The row is fetched twice, from two sources, and the view says which is which.** The lamps
+and the rung are the board's, from the 25-second sweep — recomputing them here would be the
+second implementation of the ladder that `lib/prstage.js` exists to prevent, and a view
+whose lamps disagreed with the list it was opened from would be one screen contradicting
+another about the one subject where that is the whole failure. The description, the
+datetimes and the mergeability come from `gh` **at the moment the sheet opens**, because the
+number that has to be right is the one you are looking at when you press merge. See `GET
+/api/pr/detail`.
+
+**Merge keeps its confirm and close keeps its reason box.** Two taps for the merge, with
+the consequence written into the button between them — the same arming the board and the
+delivery card use, and for the same reason: a `confirm()` on a phone is a system sheet you
+dismiss by reflex. Close is a *mode* rather than an armed button, because the sentence in
+the box is the only thing that will explain a closed pull request in six weeks and no
+six-second timer survives typing one.
+
+**Closing it moves no bead, deliberately.** `gh pr close` with your reason on the pull
+request, the branch kept, and nothing written to the tracker. The act that puts work back in
+the queue already exists and is better at it: *Decline* on a delivery card closes the PR
+**and** reopens the work bead unclaimed with the direction to take instead, and it can,
+because the bead it acts on is the one the worker named in its `beadpr` block. What this
+screen has is `row.beads`, which was *matched* — from a branch name, a title, or a claim in
+a body. Those tiers are right for drawing a link on a row and far too weak to reopen a bead
+on, because reopening one is what puts an advocate's unattended session on it: a pull
+request whose body said "fixes bc-x" would start a session in another repo at three in the
+morning. So the two paths stay distinct, and the sheet says so where the reason box is.
+
+#### A conflict is work, so it gets a session
+
+GitHub refusing a merge for a conflict is the one refusal on this screen that is not a
+decision. Nobody has to choose anything — somebody has to merge `main` into the branch and
+re-run the tests — and the old outcome was `lib/pr.js`'s sentence ("the branch needs a
+rebase before it can merge") on a card, with the next step yours to work out at the Mac.
+
+**Resolve conflicts** opens an iTerm session on that branch, which is deliberately the same
+act as *Request changes* on a delivery card: a note back to a session on the same branch,
+where the only difference is who wrote the note — Adam's sentence about the code there,
+GitHub's about the merge base here. The brief (`conflictPromptFor` in `lib/session.js`) pins
+down four things, because an unattended session with a vague scope invents one:
+
+1. **the branch is what is behind, not `main`** — read the other way round, "resolve the
+   conflict" is a session merging a branch into main by hand, which is the one act nothing
+   here may do;
+2. **work in a worktree** — `git worktree list` first, because six sessions share these
+   checkouts and the main one is the daemon's own;
+3. **run the repo's own gate afterwards** — a clean merge of two working branches is not a
+   working tree;
+4. **push the branch, then stop** — the merge stays a tap here.
+
+It is armed like merge, because it starts something unattended. It refuses unless GitHub
+reports the pull request `CONFLICTING` *right now*, asked again at the moment of the press
+rather than trusted from the row: a session opened for a conflict somebody has already
+resolved is a window you have to go and close, and a pointless window is worse than a
+sentence. Refused outright on an observer instance, for the reason `POST /api/session` is —
+an unattended agent in a checkout it is only visiting.
+
+`node test/prfull.mjs` covers the daemon's half: that the description comes from `gh` and
+the rung from the board, that the attribution finds the session for *this* branch when a
+bead was worked twice and says so plainly when it cannot, that a close writes to GitHub and
+to nothing else, that a merged pull request refuses to be closed, and that the conflict path
+refuses everything but a live conflict. It runs with `openSessions: false`, so nothing in it
+can open a window — the brief is asserted off `conflictPromptFor` directly.
+`node scripts/prfull-check.mjs` is the phone's half in headless Chrome.
 
 **A lamp has three states, not two.** On, off, and *unknown* — a hollow, dashed ring:
 
@@ -6108,6 +6195,9 @@ cookie says so), and `/auth/signout` ends the session.
 | POST | `/api/pr/ship` | `{workspace, number}` | the declared deploy where the repo has one, an iTerm session where it does not. `409` if the PR is not merged — shipping an unmerged pull request has no meaning. Refused on an observer |
 | POST | `/api/release/ship` | `{workspace}` | ships the whole release queue — one deploy for every merge sitting on `origin` and not live, which is what a deploy has always done anyway. `409` on an empty queue (a restart for nothing), on a repo that declares no deploy (there is no window that means "and the other three"), and on one already deploying. Refused on an observer |
 | POST | `/api/pr/comment` | `{workspace, number, text}` | a note on the pull request at GitHub and nothing else. Not `/api/comment`, which writes on a *bead* and puts an agent onto answering it |
+| GET | `/api/pr/detail` | `?workspace=&number=&refresh=1` | `{row, pr, agent, unavailable}` — what [the full view](#tapping-one-opens-it-full-screen) is drawn from. `row` is the board's (the lamps and the rung, from the 25-second sweep, computed once in lib/prstage.js); `pr` is `gh` **now**, for the description the board strips, the datetimes and the mergeability the buttons are drawn from; `agent` is which session wrote it, from the archive in the repo's own refs. Every failure is an answer rather than a 500, exactly as `/api/pr` has it |
+| POST | `/api/pr/close` | `{workspace, number, reason?}` | closes it at GitHub without merging, with your reason as a comment on the pull request. **No bead moves** — `row.beads` is a *match* rather than the block a worker wrote, and reopening a bead is what puts an unattended session on it; putting the work back in the queue is *Decline* on its own card. `409` on one already merged: closing it now cannot un-merge it. The branch is kept |
+| POST | `/api/pr/conflicts` | `{workspace, number}` | opens an iTerm session on the branch whose job is to merge the base into it, resolve, run the repo's own gate and push — then stop. `409` unless GitHub reports it `CONFLICTING` right now, so a resolved conflict cannot leave a window somebody has to close. Refused on an observer, and on a daemon with `openSessions` off |
 | POST | `/api/comment` | `{workspace, id, text, agent?}` | comments, sets `human-replied`, dispatches that agent to reply (default when absent or unknown) |
 | POST | `/api/dismiss` | `{workspace, id, reason?}` | takes the card off the screen and **closes nothing**. Writes your note if you typed one, writes nothing at all if you did not, and never touches the status — "I am not dealing with this now" is not "this is decided" |
 | POST | `/api/filter` | `{space, workspace}` | which slice the inbox is, remembered server-side so every client agrees and the notifications match. Each is a name or `all`, bounded at 120 characters. Widening forgets what you had declined |
