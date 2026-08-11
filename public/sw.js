@@ -40,15 +40,22 @@
    neither the door nor the page behind it, and one holding the old `/` beside a v24
    daemon would show a top-bar button that 404s out of the cache the moment the tailnet
    is slow. The page they have to arrive with is the whole point of the version. */
-/* v25: the warm layer. `/warm.js` is a new path *and* all five standing pages now
+/* v25: /monitor became the space details screen — the selected space's own settings,
+   written from the page through `POST /api/space`, plus a gear to /admin. No new path:
+   monitor.html, monitor.js and style.css are all already in the shell. The version is
+   what makes the three arrive together, and they have to: a phone holding v24's cached
+   monitor.js beside v25's monitor.html would draw a gear over a page with no settings
+   card, and one holding v25's script against v24's stylesheet would draw seven controls
+   with no layout at all — a wall of unstyled buttons over the advocate cards. */
+/* v26: the warm layer. `/warm.js` is a new path *and* all five standing pages now
    boot through it — app.js, prs.js, monitor.js, console.js and admin.js each ask it
    for the payload they had last time before asking the daemon for a fresh one, and
-   the inbox draws its list through its reconciler. A phone holding v24's cached
-   app.js beside v25's would call a file that is not there on every repaint; one
-   holding v25's app.js without the file would fall back to the whole-list rebuild
+   the inbox draws its list through its reconciler. A phone holding v25's cached
+   app.js beside v26's would call a file that is not there on every repaint; one
+   holding v26's app.js without the file would fall back to the whole-list rebuild
    and a cold fetch per tab, which is the entire thing being fixed. They have to
    arrive together, which is what a cache version is for. */
-const CACHE = 'beadcause-v25';
+const CACHE = 'beadcause-v26';
 const SHELL = [
   '/',
   '/index.html',

@@ -8,10 +8,14 @@
   <!-- "& sessions" because this page absorbed /sessions, and every path that view had
        lands here: the title is what a bookmark of /sessions, the Android shell's
        history and a desktop tab all read as, and there is room for the second word in
-       all three — which the bottom tab bar's 72px per label does not have. The <h1>
-       stays the one word — the tally beside it already says "N working", which is the
-       sessions question, and the top bar on a 360px phone has no room to say it twice. -->
-  <title>Beadcause · advocates &amp; sessions</title>
+       all three — which the bottom tab bar's 72px per label does not have.
+
+       "space" leads it now, because that is what this page is: the details of the one
+       space the picker has selected — its settings, its advocates, its sessions and
+       what it is waiting on you for. The other two words stay, and stay in that order,
+       so a bookmark made when the page was called something else still reads as the
+       page it opens. -->
+  <title>Beadcause · space — advocates &amp; sessions</title>
   <link rel="icon" href="/icon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/style.css">
 </head>
@@ -19,7 +23,12 @@
   <header class="topbar">
     <div class="brand">
       <span class="dot" id="pulse"></span>
-      <h1>Advocates</h1>
+      <!-- One word, and the space picker two elements along says which space. The page
+           was called "Advocates"; it is the details of a space now, and the advocates
+           are one of the four things it shows about it. Not "Space details" — the
+           picker sits in this same bar and already reads "Personal", so the long form
+           would spend a 360px phone's whole top row saying the noun twice. -->
+      <h1>Space</h1>
       <!-- Filled in only on an observer instance — see OBSERVING in lib/config.js.
            It sits next to the title rather than in the actions, because it is a fact
            about which daemon this is, not a control. -->
@@ -27,6 +36,12 @@
     </div>
     <div class="sheet-actions">
       <span class="mon-tally" id="tally"></span>
+      <!-- The gear: the admin screen, from the page you were looking at when you
+           decided something had to be stopped. An <a> rather than a button because it
+           is a navigation and should long-press, middle-click and open in a tab like
+           one. The Admin tab in the bottom bar stays — this is a second way in from
+           the one page whose settings sit beside it, not a replacement for it. -->
+      <a id="gear" class="icon-btn" href="/admin" aria-label="Admin — pause everything, terminals, sign out" title="Admin">⚙</a>
       <button id="refresh" class="icon-btn" aria-label="Refresh">⟳</button>
     </div>
   </header>
