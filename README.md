@@ -72,7 +72,7 @@ It still exits non-zero — it just never exits with nothing running.
 npm run monitor              # live view of what the daemon is doing
 npm run check                # the checks around the agent log — safe with the daemon up
 npm run secrets              # has a secret ever reached the config repo's history?
-npm run swap:status          # which build is actually answering the port
+npm run swap:status          # which build is answering the port, and the certificate on it
 npm run uninstall-service    # remove the service (keeps your config and token)
 tail -f ~/Library/Logs/beadcause.log
 launchctl kickstart -k gui/$(id -u)/m4m.beadcause   # only for bin/router.js itself
@@ -646,9 +646,14 @@ and `workspaces` are refused rather than dropped, that a write lands in the live
 outrank the space. `node scripts/space-check.mjs` is the other half and wants Chrome on
 the machine: the real `public/monitor.js` in a phone-sized headless browser over a real
 `bin/beadcause.js`, pressing the buttons and reading the config file back after each
-one. `--shot <file.png>` writes a picture of the card with both panels open, which is
-the one thing a list of ticks cannot tell you — whether seven settings on a 393px screen
-read as a card or as a wall.
+one. It asks for a row per setting against `SETTINGS` in `lib/spaces.js` rather than
+against a number, and reads each row's key off the control in it rather than off its
+heading: a count in a check is a number that has to be moved every time a setting is
+added, and the one there went stale the moment `autoShip` landed — greeting the next
+person who ran it with a red they had to spend time proving was not theirs (bc-qda7).
+`--shot <file.png>` writes a picture of the card with both panels open, which is the one
+thing a list of ticks cannot tell you — whether a row per setting on a 393px screen
+reads as a card or as a wall.
 
 ### And it offers to tidy up the noise it already made
 
@@ -1861,6 +1866,54 @@ this on a closed bead would lose exactly those. `test/land.mjs` asserts the posi
 the foreshadow, both stores and the question between them, the "most runs should write
 nothing" sentence, and that the three steps come out numbered in the order the marker
 needs.
+
+### Every agent needs a moment, and two of them did not have one
+
+That step turned out to be the general rule rather than the worker's own arrangement.
+Three days after the brief reached all four agents, the roster had one name on it, and
+counting who had written what is what explains it (`bc-sgu4`).
+
+**The read half fires everywhere, because the brief anchors it to a moment every run
+has.** *"Check `recall` and `notes` first"* names a point — the start — and the agents
+take it: thirteen of the thirty-four stored chat conversations open a turn with a
+`beadcause-memory recall`. **The write half names what to keep and never when**, and the
+agents that write are exactly the ones whose own brief supplies the when. A worker's
+numbers it as a closing step, and it began writing two minutes after that step landed —
+ninety-five notes and about eighty-five memories inside the first day. The comment
+answerer's run is one reply and an exit, so its end is unmissable, and its first memory
+landed an hour after the brief reached it. The chat session had no such moment, because
+a chat does not end: you stop replying and the window closes. In three days and
+twenty-eight conversations it read constantly and wrote nothing at all.
+
+So each of the chat session's two protocols now names its own moment, and the moments
+are different because the runs are. The proposal protocol hangs it on the block, which
+is the only terminal act that conversation has and is the right one on the merits — by
+the time it writes a proposal it knows what you asked for, what you cut and what shape
+you wanted, and after the block it may never be asked again. The direct-chat protocol
+hangs it on the turn where something about how that agent works gets settled. A generic
+sentence in `memoryBrief` would have been false for three of the four; this is why the
+moment lives in each agent's own brief and the *what* lives in the shared one.
+`test/memory.mjs` asserts both paragraphs, for the reason it already asserts the brief:
+a prompt paragraph is the load-bearing part of this feature and nothing else notices it
+going missing.
+
+**And the fourth agent's zero was never evidence of anything, which is worth more than
+the fix.** The advocate looked like the strongest case — it is unattended, it surveys
+the same repo again and again, and its brief carries an extra paragraph telling it to
+`recall` before proposing and `remember` what you turned down. It has written nothing
+because it has never been handed the brief: `memoryBrief` reaches it through
+`surveyPrompt` alone, a survey runs only on a tick where the queue is empty of ready
+beads *and* of running workers *and* of epics held by their children *and* of beads
+already in an open pull request, and on this Mac that has not once happened —
+`lastProposalAt` is `null` for all six advocates, and no `<workspace>_advocate.log`
+exists although `agentlog.reset` is the first line of `surveyAgent`. The advocate has a
+second path, `chatProtocol` — a chat on the agents screen runs as its real foundation,
+so `BEADCAUSE_AGENT` is `advocate` and anything written there is the advocate's — and
+the one advocate chat on disk predates the commit that put the brief in that spawn by
+three hours. **Before reading anything into a silent agent, check that the code path
+quoting the brief has ever run.** From outside, "told and declined" and "never told"
+look identical, which is the same lesson as the roster command nobody ran, one level
+further out: there the brief did not name the capability, here the brief did not arrive.
 
 ### Reading another agent, without being able to be one
 
@@ -6208,6 +6261,64 @@ minute), and **again, unconditionally, before a window opens**. `holdOpenPrs: fa
 switches it off. `node test/prqueue.mjs` covers the filter and `node test/twinqueue.mjs`
 the sibling it sits beside.
 
+### The bead somebody is already sitting in
+
+The filter above holds a bead because of something in a repository. This one holds it
+because of something on the laptop: a **window that is already open on it**.
+
+bc-vq78 is what it costs, and it is the worst of the family. Two sessions were open on
+climative/cl-xe2 at the same time — one busy since 17:18 and writing files, the other
+handed the same bead an hour later with a plain brief, which told it that claiming the bead
+"is what stops a second session being opened on top of you". It ran the claim, got no
+complaint, and worked for seventy minutes before noticing that files it had not written
+were changing mtime. cl-xe2 spanned ten separate repositories; both windows were pointed at
+the same uncommitted worktrees. Nothing but the second session's suspicion stood between
+that and two agents editing one tree.
+
+**The claim is not the guard the brief advertises**, and that is the whole of it. Things
+take it off again, all of them legitimately:
+
+- **"Request changes" reopens the bead and drops the assignee** — that is the only signal
+  an advocate reads, so asking for changes has to do it, and the session that built the
+  branch is usually still sitting in its worktree when you tap it.
+- **A worker can lose its slot without its window going anywhere.** A timeout, or a
+  check-in it never answered: the advocate stops counting it, which is right — a slot is
+  not a bead — but the window is still there.
+- **A restarted daemon forgets its workers outright**, and a restart usually follows a
+  merge, which is exactly when sessions are live.
+
+So the evidence here is the window itself: a running Claude Code process whose name carries
+this bead's id. That is not a new inference — it is the same `namesBead` rule the
+[reaper](#closing-the-window--a-session-that-has-finished-should-not-still-be-on-screen)
+already trusts to decide which window
+to close, and it is what the incident report reconstructed by hand from `ps` and
+`~/.claude/sessions/*.json`.
+
+**Two guards, and each covers the other's gap.** A worker this advocate remembers opening
+is filtered where the launch is chosen, which catches the session that is *too young* to
+have renamed itself — a window carries no bead id until its first turn runs. This filter
+catches the session the advocate has *forgotten*, which is every case above. Neither is
+sufficient alone, and the failure they prevent is not a wasted window but a corrupted tree,
+so both stay.
+
+It matches against every live session on the laptop rather than this workspace's, because
+ids are prefixed per workspace (`cl-`, `bc-`, `sp-`) and a match therefore cannot cross
+one — while a window working a climative bead from a directory that maps somewhere else is
+exactly the case a workspace filter would miss. A record whose process is gone holds
+nothing: nothing deletes those files on exit, so "a record exists" and "a session is
+running" are different questions, and every row is liveness-checked before it is believed.
+An idle window holds it too — an interactive session says its last word and goes back to
+waiting, so a delivered or handed-back worker sits there idle with a worktree full of
+uncommitted work, which is the same collision with a quieter first half.
+
+There is no interval on this one, unlike the three sweeps above it: the session records are
+files on this laptop, so the read is free and happens on every tick — and again,
+unconditionally, immediately before a window opens, which is the read that catches a
+session that renamed itself while the tick was running. The cost of a wrong hold is one
+bead that waits, named on the advocate's card with the pid of the window holding it, until
+that window closes. `holdLiveSessions: false` switches it off. `node test/livequeue.mjs`
+covers it.
+
 ### The session log, kept in the repo
 
 A session's window closes when it exits, the rendered log in `~/.config/beadcause/`
@@ -7946,7 +8057,7 @@ Every response carries `x-beadcause-build` and `x-beadcause-pid`, so `curl -sI`
 against the real port settles the question that started all this:
 
 ```bash
-npm run swap:status     # active pid, build, whether disk has moved past it
+npm run swap:status     # active pid, build, whether disk has moved past it, the certificate
 npm run swap            # swap now, even if nothing changed
 npm test                # drives a real swap under load and proves nothing drops
 curl -sI http://127.0.0.1:4318/api/health | grep beadcause
@@ -8202,6 +8313,30 @@ certificate inside the renewal loop's alarm window is
 marked rather than merely printed, using the same two thresholds the push uses, so the
 screen cannot call "fine" something your phone is being nagged about.
 
+**And when the loop last looked**, in the same words `npm run swap:status` uses:
+
+```
+Certificate for mac.tailnet.ts.net — 61 days left, checked 3h ago.
+```
+
+The days come off the disk and the check comes off the socket — `serving.checkedAt`,
+stamped on the live listener by the renewal loop on every tick — and the card is
+unreadable without both. Eighty-nine days left and a check from six weeks ago is a dead
+renewal loop sitting on a certificate that still happens to be valid, and the calendar
+keeps counting down whether or not anything is still renewing it: until this was on the
+card, that state was drawn as *healthy*. It is left as a plain "when" with no threshold
+of its own, because how old is too old is the loop's own cadence and that is not on the
+wire; the rounding is deliberately the same three tiers as the terminal's, so two
+readouts of one fact cannot disagree by a unit and turn into a question about which is
+right. Nothing is said at all when the field is absent — an older router cannot hot-swap
+itself, so its snapshot predates a deploy until a `launchctl kickstart`, and a card that
+filled that in from the fact that it had *something* to draw would be asserting the one
+thing this exists to detect. Under `npm run start:bare` the answer comes from this
+process's own listener instead, which is honest for the same reason: `bin/beadcause.js`
+runs the renewal loop over those very sockets, so the stamp is read off the same object
+as the material beside it. `test/tlsadmin.mjs` pins both halves — the field surviving
+`tlsView`, and the sentence, by running the real `public/admin.js` in a vm.
+
 **What pressing it costs, in the button, before you press it.** Turning HTTPS on moves
 the origin, and the token lives in `localStorage`, which is per origin — so *every
 paired browser is signed out, including the one you are pressing it with*. The button
@@ -8372,6 +8507,37 @@ the app going dark.
                  your Tailscale account does not support getting TLS certs
 [beadcause] tls  fix it by hand: tailscale cert mac.tailnet.ts.net
 ```
+
+**And you can go and ask, rather than waiting to be told.** A push arrives at the point
+where it is nearly too late and a log line is on a Mac nobody is sitting at, so neither
+answers "is my certificate fine?" on a day when it is. `npm run swap:status` — the command
+already run to ask what the daemon is doing — names the certificate beside the build:
+
+```
+cert     mac.tailnet.ts.net — 61.4 days left  (checked 3h ago)
+cert     mac.tailnet.ts.net — 9.1 days left  (checked 2h ago)  ⚠ EXPIRING — the renewal
+         that should have happened has not: tailscale cert mac.tailnet.ts.net
+```
+
+Three things about that line are deliberate. It is **marked**, not merely printed, once
+the number is inside the alarm window — the same `ALARM_BELOW_DAYS` the push uses, so the
+line and the notification can never disagree about what "fine" means — and it carries the
+command that fixes it, because a warning you have to go and research is one that waits
+until the weekend. It says **when the loop last looked**: a certificate with two months
+left and a check from six weeks ago is a dead renewal loop, and neither fact says that on
+its own. And the number is read off the **socket**, through the router's
+`/internal/router/state`, so a certificate swapped by `setSecureContext` an hour ago is
+what you see rather than whatever was true at boot.
+
+The three answers that are not a number are kept apart on purpose, because collapsing any
+pair of them would be reassuring and wrong: `none — serving plain HTTP` is a tailnet
+without *HTTPS Certificates* or a provisional listener still waiting, which is supported
+and not a fault; `an unreadable expiry` is an alarm, since bytes that will not parse are
+not "fine for another 89 days"; and `not reported` means the router answering predates the
+field — it cannot hot-swap itself, so `launchctl kickstart -k gui/$(id -u)/m4m.beadcause`
+is what makes it answer. `test/certstatus.mjs` pins all of them, and pins the printer by
+spawning `--status` against a stub control plane, because a fixture is the only way to
+have a certificate that is nine days old on a machine whose real one is ninety.
 
 Two details worth knowing if you ever debug this:
 
@@ -9013,7 +9179,7 @@ cookie says so), and `/auth/signout` ends the session.
 | GET | `/terminal` | `?id=` or `?ws=&seed=` | the terminal page |
 | GET | `/api/admin` | — | every scope and what pausing it would cost. Read-only and cheap — no `bd` call, no spawn — because `/admin` polls it and the counts on the buttons have to be current when you press one |
 | POST | `/api/admin` | `{action, what, scope, mode}` | pause or resume everything, one space, or one half of it. `what` is `all` · `advocates` · `terminals`; `mode` is `drain` (default — no new launches, running workers finish untouched) or `kill`. Never run at boot: a `launchctl kickstart -k` behaves exactly as it did. Refused on an observer |
-| GET | `/api/tls` | `?pairing=1` | what HTTPS is doing: the setting, the certificate on disk (name, days left), what the socket is actually serving, the URL a phone would be handed, and whether a restart is owed. Cheap enough to poll — two file reads and a memoised MagicDNS name, and it never asks `tailscale cert` for anything. `?pairing=1` adds the link and a QR |
+| GET | `/api/tls` | `?pairing=1` | what HTTPS is doing: the setting, the certificate on disk (name, days left), what the socket is actually serving (`serving`: name, days left, and `checkedAt` — when the renewal loop last looked, `null` from anything too old to say), the URL a phone would be handed, and whether a restart is owed. Cheap enough to poll — two file reads and a memoised MagicDNS name, and it never asks `tailscale cert` for anything. `?pairing=1` adds the link and a QR |
 | POST | `/api/tls` | `{enabled}` | turns HTTPS on or off: writes `tls.enabled`, fetches the certificate when it is on (asynchronously — the synchronous one would block every request for the length of a Let's Encrypt round trip), and moves `baseUrl`. Pressing it while it is already on is the retry. Binds nothing: TLS is decided when the listener is created, so the reply carries `restartNeeded`. Refused on an observer, which shares this config with the live daemon |
 | GET | `/api/deploys` | `?limit=` or `?id=` | the recent deploys, or one with its log. Four endings, not two: `ok`, `failed`, and the two that mean nobody knows — `unconfirmed` (the ordinary ending of a restart) and `lost` |
 | POST | `/api/deploy` | `{workspace, bead?, reason?}` | runs that repo's declared deploy. `409` with no declaration, or if one is already running. Means "written down and a process owns it", never "it worked". Refused on an observer |
@@ -9028,7 +9194,7 @@ the tailnet holding the token could otherwise stop the poller:
 
 | Method | Path | Returns |
 |---|---|---|
-| GET | `/internal/router/state` | `{router, disk, stale, poisoned, deferred, serving, outage, retryAt, slowness, active, retiring[]}` — what `npm run swap:status` prints. `poisoned` is a build that *died* at startup; `deferred` is one that was only slow, and when it will be tried again |
+| GET | `/internal/router/state` | `{router, disk, stale, poisoned, deferred, serving, outage, retryAt, slowness, certificate, active, retiring[]}` — what `npm run swap:status` prints. `poisoned` is a build that *died* at startup; `deferred` is one that was only slow, and when it will be tried again. `certificate` is `{name, daysLeft, checkedAt}` off the live socket, or `null` when the port is serving plain HTTP |
 | POST | `/internal/router/swap` | `{ok, active}` — or `{ok:false, error}` if the new build would not start |
 
 Every proxied response also carries `x-beadcause-build` and `x-beadcause-pid`,
@@ -9223,6 +9389,7 @@ history.
 | `advocates.inMainIntervalMinutes` | how often that looks (default 10). It runs before the survey, so a bead it flags is out of the queue in the same tick and no session is opened on it |
 | `advocates.holdOpenPrs` | [hold a bead out of the queue while an open pull request already carries its work](#the-bead-whose-work-is-already-in-an-open-pull-request) (default `true`). It closes nothing — an open PR is not a merged one — it holds, with the number on the card. Without it a worker briefed to merge is opened beside a resolver briefed that the merge is not its to make |
 | `advocates.inflightIntervalMinutes` | how often that asks GitHub (default 5, shorter than the sweeps above because a delivery that could not merge opens a pull request and hands the bead back to `bd ready` in the same minute). It also asks *unconditionally* right before opening a session |
+| `advocates.holdLiveSessions` | [hold a bead out of the queue while a live session already names it](#the-bead-somebody-is-already-sitting-in) (default `true`). The claim is not the guard the brief says it is — "request changes" drops it, a timeout drops the slot, a restart forgets the worker — and without this a second window opens into a worktree somebody is still editing. No interval: the session records are files on this laptop, so it reads on every tick and again before a launch |
 | `advocates.sessionLog` | archive each finished session to `refs/beadcause/sessions/<bead>` and note its commits (default `true`) |
 | `advocates.sessionTranscripts` | also store the raw Claude Code transcript — megabytes, and it carries paths and tool output (default `false`; set per repo in `perWorkspace`) |
 | `advocates.closeFinishedSessions` | [close a work session's window once the session has finished](#closing-the-window--a-session-that-has-finished-should-not-still-be-on-screen) — the bead closed, a pull request delivered, or the bead handed back for a decision, and never an ending the daemon merely inferred (default `true`). `false` leaves every window open, which is what it did before |
