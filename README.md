@@ -364,6 +364,15 @@ you press **All**:
 [beadcause] acme/cl-9x2 arrived quietly (Work is muted right now)
 ```
 
+**One channel is exempt: a foundation request is never quietened by the filter.** The
+filter's two levels are space and workspace, and both answer "which of my lives is this
+about" — a question an agent asking to change what it *is* has no answer to. The inbox
+draws that channel above the list and outside every filter on it, so honouring the
+filter in the push meant a request sitting visible on the screen and silent on the
+phone, with no widening left that would bring it back. A mute still quietens it: that
+one is about whether anything may reach you right now, and an amendment has been
+waiting for a session anyway.
+
 ### One space at a time — the picker in the top bar
 
 Beadcause reads every workspace under `~/beads/`, which in practice is every repo you
@@ -452,10 +461,11 @@ Every setting a space has is one you used to change by opening `~/.beadcause/con
 in an editor, on the Mac, with the daemon running. That was fine while a space was two
 lines of quiet hours written once. It stopped being fine when a space became the unit
 that decides whether an unattended agent may answer a comment (`autoDispatch`), whether a
-bead an agent filed may be worked before you have read it (`autoEndorse`), and whether a
-worker merges its own pull request without asking you (`autoMerge`, `requireApproval`) —
-because the moment you know one of those is set wrong is the moment you are looking at
-what it did, on a phone, at the weekend.
+bead an agent filed may be worked before you have read it (`autoEndorse`), whether a
+worker merges its own pull request without asking you (`autoMerge`, `requireApproval`),
+and whether that merge then deploys itself (`autoShip`) — because the moment you know one
+of those is set wrong is the moment you are looking at what it did, on a phone, at the
+weekend.
 
 So **`/monitor` is the details of the space the picker has selected**, and its settings
 are on it:
@@ -477,6 +487,7 @@ are on it:
 │      Beads agents file arrive endorsed   on  │
 │      Workers merge their own PRs         on  │
 │      An approving review first  inherited·off│
+│      Merges ship themselves              on  │
 │  ▸ WHAT EACH REPO RESOLVES TO            3   │
 ├──────────────────────────────────────────────┤
 │  beadcause      3 of 3 sessions              │
@@ -494,10 +505,11 @@ editing the config file for.
 **Three shapes of control, and the shape is the shape of the answer.** `Muted` is
 two-state, because there is no global mute behind it and a third button would be a
 lie. Quiet hours and quiet days are a pair of clocks and a row of days, each clearable,
-because "no quiet hours" is a state you have to be able to get back to. The five with a
+because "no quiet hours" is a state you have to be able to get back to. The six with a
 global default behind them — push detail, agents-may-answer, filings-arrive-endorsed,
-auto-merge, approval-first — are **three**-state: On, Off, and *Inherit*, which names what
-it currently resolves to. That third button is not a nicety: `prPolicyFor` is explicit
+auto-merge, approval-first, ships-itself — are **three**-state: On, Off, and *Inherit*,
+which names what it currently resolves to. That third button is not a nicety:
+`prPolicyFor` is explicit
 that a space may override the global in *either* direction, so "off" and "following a
 default that is currently off" are different answers, and only one of them survives the
 default changing.
@@ -1524,6 +1536,7 @@ is handed two lists rather than one list it has to filter correctly:
 | **ntfy** | `pushQuestion` — bead priority, 💭 | `pushFoundationRequest` — always priority 3, ⚖️, leads with the *scope* |
 | **Android** | channel `questions_v2`, tray card 3 | channel `foundation_v1`, tray card 4 |
 | **PWA** | the list, under the space and workspace filters | a pane above it, outside every filter, badged on ⚖️ |
+| **Filter** | outside it arrives quiet — see *Spaces* | the filter does not reach this channel at all; a mute still does |
 | **Terminal** | the `questions` pane | its own `foundation requests` pane, in the head |
 
 Three things are deliberate in there:
@@ -2374,6 +2387,51 @@ which it does not — so the stylesheet steps the type down when a sixth tab is 
 off a count written down somewhere, so adding or removing a tab needs nothing else.
 It is dormant below six and will come back on its own if a tab does.
 
+### The Mirror is a pane, not a tab
+
+`tabbar.js` and the Mirror (`public/mirror.js`, whose header is the prose on what it is)
+landed in the same window, so for two days `/monitor` carried **two rows of tabs**: the
+bottom bar, which moves between pages, and an in-page pair (Advocates | Mirror) that swaps
+a pane. Either reading was defensible on the face of it — a standing view of its own, or a
+mode of the advocates page — and bc-3xb was the bead about which one it is.
+
+**It is a pane** — ruled in `docs/ux-review.md` §3 and §5, and approved with the rest of
+that review on bc-j0zl. Two reasons, and both are about what the Mirror *is* rather than
+about how much room the bar has:
+
+- **It is a mode, not a destination.** "Show me what the phone has open instead of what
+  this Mac is running" is a lens on the advocates page — the same repos, the same
+  sessions, the same questions, seen from the other device. The rule above decides it:
+  a tab is a claim that the page is somewhere you live, and nobody lives in a lens.
+- **It is the one surface in the app that is meaningless on a phone** — which is the
+  device a bottom tab is tapped from. The Mirror follows *another* device and drops its
+  own (`notMe` in `public/mirror.js`, and `showTab` reports `view: null` while the pane is
+  up, so a mirror cannot circle back onto the page it is drawn on). A phone that tapped a
+  Mirror tab would therefore find nothing to follow and read "Looking for a device…"
+  forever. That is not a tab, it is a dead end with an icon.
+
+There was a third reason when this was decided — *the bar is full at five, and
+`style.css`'s `:has(.tab-item:nth-child(6))` rule is the stylesheet quietly admitting
+it* — and it has **since expired**: PRs left the bar in bc-l8jp.6 and there is a free
+place on it again. The decision does not move, and that is the point of writing the other
+two down: the next person to notice the empty slot should not have to re-derive why the
+Mirror is not what goes in it.
+
+So `public/mirror.js` stays a pane inside `monitor.html`, and what the other answer would
+have cost is not spent: no `/mirror` route, no `mirror.html`, and the pane-swap keeps the
+one-line `.work[hidden]` rule it runs on. `node test/mirrorpane.mjs` holds it — a static
+read asserting the Mirror is not in the bar's tab list, that neither the route nor the page
+exists, that the chip and the pane are both still on `monitor.html`, and that the
+device-filter the second reason rests on is still there.
+
+**What is still owed is the ambiguity, not the decision.** Two tab bars stacked on one
+screen with nothing visual to say that one changes the page and the other changes a pane
+is the actual complaint, and the fix is to restyle the in-page pair as the segmented
+control it already is (two mutually exclusive modes) — filed as bc-stci. The edit it was
+meant to share, scoping this bar's CSS apart from the foundations page's, has landed
+ahead of it as bc-4aw: `.mon-tabs` is now this bar's own selector, which is what a
+restyle needs to be able to move it without moving the other page.
+
 Advocates carries a **badge** when there is something behind it — how many advocates
 are waiting on an answer. The number rides the inbox's own poll (`/api/questions`
 carries it; see [the three counts on the poll](#the-three-counts-on-the-poll)), so it
@@ -3119,7 +3177,7 @@ and it closes itself when the merge goes live. One per pull request, labelled `s
 carrying a `ship: <repo>#<n>` marker that makes filing idempotent whatever else is going
 on, and labelled `unendorsed` — lib/endorse.js's hold, which is a filter in every
 advocate queue *and* a refusal in the launcher — so nothing ever opens a session on one:
-shipping is a tap, not an agent. Two things bound it,
+shipping is a tap or nothing (see auto-ship below), never an agent. Two things bound it,
 because a tracker filling with chores is worse than no tracker at all —
 
 - **The first sight of a repo files nothing.** The board carries three weeks of merged
@@ -3134,6 +3192,63 @@ because a tracker filling with chores is worse than no tracker at all —
 (300) is how often the queue is swept, which is slow on purpose — it is a `gh` call per
 repo when nobody has looked at the board recently, and "this merged and has not shipped"
 keeps for five minutes.
+
+### Auto-ship — the merge that does not wait for the tap
+
+Everything above ends at a bead that waits for you. That is the right default and it is
+not always the right answer: on a repo you are the only reader of, "merged, not live"
+is a state with no purpose, and the work sits on `origin/main` for as long as it takes
+you to notice a bead. So a space may say **`autoShip`** and the release queue runs the
+repo's own declared deploy itself — no session, no tap, and the ship bead then closes on
+exactly the evidence it always did.
+
+It is a space setting for the same reason `autoMerge` is one, with the same three values
+(on, off, and absent meaning inherit) and the same global default behind it —
+`release.autoShip`, **off**, which is what every install does today. And it is the space
+that is overridden rather than the last word: **an epic beats it, in either direction.**
+Label an epic `no-auto-ship` and its work stays parked on a space that ships everything
+else; label one `auto-ship` and it goes out on a space that does not. A merge finds its
+epic by walking up from the bead it delivered (`parent`, one `bd show` per level) and the
+*nearest* opinion wins, so an exception written on the work beats the rule written above
+it. A label rather than a config key because it is visible on the bead you are looking
+at, and because it is one word to add from anywhere.
+
+Four properties make it safe to leave running while nobody is watching:
+
+- **A settle window, not a trigger.** The first merge that may ship arms a ten-minute
+  clock on the workspace and nothing happens; merges arriving while it runs join the same
+  batch and do **not** push it back. Four merges in ten minutes are one deploy carrying
+  all four — which is what pressing Ship does anyway, and what a deploy that restarts
+  beadcause itself demands. `release.settleSeconds` moves it. It is a timestamp in
+  `releases.json` rather than a timer, because a timer does not survive the deploy it is
+  waiting to start.
+- **One attempt per merge, ever.** Firing stamps every merge in the batch as tried
+  *before* the deploy is spawned, so **a failed deploy is not retried** — its beads stay
+  open, the Ship button stays armed, and the fallback is exactly today's behaviour: your
+  tap. Nothing unattended runs a failing deploy in a loop against the thing that restarts
+  the server. A ledger that will not write cancels the fire rather than deploying and
+  hoping.
+- **Not knowing is not a yes.** A tracker mid-write — Dolt is single-writer and six
+  sessions share it — means the epic could not be read, and that falls through to doing
+  *nothing this tick*, never to the space's own answer. The next sweep asks again.
+- **A repo that declares no deploy is untouched.** beadcause cannot ship it, so it files
+  the bead and waits for a session, exactly as before.
+
+The deploy it starts is the same `startDeploy` the button calls, with the queue named in
+its reason and the oldest merge's bead on the record — so it is indistinguishable
+afterwards from one you pressed, every screen that draws deploys draws it, and its
+outcome reaches you through the space's ordinary deploy notification. One thing `false`
+does not buy, and it is a property of deploying rather than a gap: a deploy makes
+everything on `origin/main` live at once, so a parked merge still goes out if something
+*else* fires a deploy of that checkout. What `false` guarantees is that nothing in this
+space is ever the reason a deploy ran.
+
+`node test/autoship.mjs` covers it with a `ship` stub that starts nothing: that the
+window arms rather than deploys, that a second merge joins it without moving it, that one
+deploy carries both, that a merge already tried never arms again — the retry loop, proved
+absent over merges that are still owed — that a failed deploy leaves the beads open, that
+an epic saying no holds its work back on a space saying yes, and that with auto-ship off
+the bead filed is byte for byte the one filed today, tap and all.
 
 ### What it costs, and what it keeps
 
@@ -4145,6 +4260,51 @@ verdict on.
 `askSuperseded: false` switches it off; `supersededIntervalMinutes` is how often it
 looks, defaulting to 10. The worker's brief carries the two commands, which is what makes
 any of it reachable — nothing but a worker ever sets this marker.
+
+### The bead whose branch is already in main
+
+The third member of that family, and the one whose evidence is weakest — which is exactly
+why it is the one that may not close anything.
+
+bc-u5f asked for `worktree-sessions-accordion-log-5f7` to be landed. It had been: the
+branch came into `main` inside the `land-six-branches-q8v` batch, which landed six
+branches under one bead and closed only its own. No pull request named bc-u5f, so
+[the sweep above](#the-merge-that-happened-somewhere-else) could not see it; nothing had
+marked it a duplicate, so the [one before that](#the-duplicate-that-comes-ready-the-moment-its-original-lands) could not either. So bc-u5f stayed open, stayed in
+`bd ready`, kept bc-h2s blocked behind it, and was handed to an unattended session that
+spent its turn proving the work was already there.
+
+So every `inMainIntervalMinutes`, before the survey, the advocate reads its open beads for
+a `worktree-*` branch name and asks git whether that branch is already in `origin/main`. On
+a hit it does what the superseded sweep does — a line on the thread, an ask with two real
+options appended to the notes, the `human` label — and **nothing else**. It cannot close a
+bead and does not try: "the branch is in main" is a fact, and "so the bead is finished" is
+a judgement, because a bead can name a branch that landed and still want more than what
+landed. "Keep it open" is a `closes: false` option, so it hands the bead straight back to
+`bd ready` with the finding on it.
+
+The label is also the whole of the saving. `bd ready` excludes `human`, so a flagged bead
+is out of the queue built moments later in the same tick and no session is opened on it —
+which is the cost this exists to avoid, collected without anybody having answered yet.
+
+**Ancestry alone is not the test, and that is the one part worth reading.** A fresh
+worktree branches from `main`, so its tip *is* a main commit, so
+`git merge-base --is-ancestor` says yes — and a bead filed by a session mid-task would be
+told its work had landed before it had written a line. That is the one way this could do
+real harm. So a hit needs a second parent: some **merge** between the branch tip and the
+base must hold that tip as a *later* parent, which is the only trace git keeps of "main
+took this in". An unstarted branch's tip is a commit on main's own line, so every merge
+past it holds it as a *first* parent, and it is refused.
+
+Three things it will not claim. A **squash merge** — the squash commit carries the tree and
+none of the history, so ancestry is false forever and this says nothing at all; that case
+is GitHub's to answer and the sweep above already reads it. A **fast-forward**, where there
+is no merge commit to find and an unstarted branch looks identical. And anything measured
+against this laptop's own `main`: the base is `origin/main` where it exists, because a
+dozen sessions land through GitHub and pull at their own pace, so local `main` routinely
+carries what nobody else has. It asks once per bead per branch, recognising its own work by
+a marker in the notes — the `human` label cannot be the guard, because answering "keep it
+open" takes that label off. `flagInMain: false` switches it off.
 
 ### The session log, kept in the repo
 
@@ -6398,6 +6558,8 @@ the fields it always read and renders exactly as it did.
 | `advocates.landedIntervalMinutes` | how often that asks GitHub (default 10). It also asks *unconditionally* right before opening a session, whatever this says — being late there costs a whole session |
 | `advocates.askSuperseded` | [ask about a bead a worker marked `superseded-by:` another, once that other one closes](#the-duplicate-that-comes-ready-the-moment-its-original-lands) (default `true`). Without it a marked bead is held out of every queue with nothing left to let it out again |
 | `advocates.supersededIntervalMinutes` | how often that looks (default 10). Unlike the sweep above it is never forced before a launch, because a marked bead cannot reach one |
+| `advocates.flagInMain` | [ask about an open bead naming a `worktree-*` branch that is already in `origin/main`](#the-bead-whose-branch-is-already-in-main) (default `true`). It never closes anything — a merged branch is a fact, "so the bead is done" is your call |
+| `advocates.inMainIntervalMinutes` | how often that looks (default 10). It runs before the survey, so a bead it flags is out of the queue in the same tick and no session is opened on it |
 | `advocates.sessionLog` | archive each finished session to `refs/beadcause/sessions/<bead>` and note its commits (default `true`) |
 | `advocates.sessionTranscripts` | also store the raw Claude Code transcript — megabytes, and it carries paths and tool output (default `false`; set per repo in `perWorkspace`) |
 | `advocates.closeFinishedSessions` | [close a work session's window once its bead is closed](#closing-the-window--a-session-that-has-finished-should-not-still-be-on-screen) (default `true`). `false` leaves every window open, which is what it did before |
