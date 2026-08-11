@@ -42,7 +42,7 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'beadcause-tls-'));
 // Before lib/config.js is imported: CONFIG_DIR resolves once, at module load.
 process.env.BEADCAUSE_CONFIG_DIR = path.join(tmp, 'config');
 
-const { MIN_VERSION, certificate, certificateName, closeServer, isSecure, publicBaseUrl, secureServer, serverOptions } =
+const { MIN_VERSION, certificate, certificateName, closeServer, isSecure, publicBaseUrl, tailnetServer, serverOptions } =
   await import(LIB('tls.js'));
 const { reconcileBaseUrl } = await import(LIB('config.js'));
 
@@ -97,7 +97,7 @@ try {
 }
 
 const requests = [];
-const { server, front } = secureServer(material, (req, res) => {
+const { server, front } = tailnetServer(material, (req, res) => {
   requests.push(req.url);
   res.writeHead(200, { 'content-type': 'text/plain' });
   res.end('ok');
