@@ -67,7 +67,15 @@
    style.css is a floating button with no shape sitting over the last card. Every one of
    those is an old app that looks complete — a bar with both tabs still on it most of all
    — which is the failure a version exists to prevent. */
-const CACHE = 'beadcause-v27';
+/* v28: you can talk about an unendorsed bead before deciding on it. No new path — the
+   discussion panel is part of endorse.js — which is exactly why the version has to
+   move: a phone holding v27's cached style.css beside v28's endorse.js draws the thread,
+   the agent chips and the ask box with none of the rules that make them a panel rather
+   than a run of unstyled paragraphs under the verdicts, and one holding v27's endorse.js
+   against the new daemon simply has no Discuss button and no 💬 count on a row that has
+   a thread on it — which is the state this feature exists to end. Two cached files that
+   have to arrive together is the whole job of a cache version. */
+const CACHE = 'beadcause-v28';
 const SHELL = [
   '/',
   '/index.html',

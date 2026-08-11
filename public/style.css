@@ -4328,6 +4328,22 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
 .eq-two { display: flex; gap: 10px; }
 .eq-two .eq-lab { flex: 1; min-width: 0; }
 
+/* Talking about a bead instead of deciding on it. No rule of its own: `.section-label`
+   already draws one above every heading in here, and a second one under the bead's own
+   words left a stripe of empty card between two lines that meant the same thing. */
+.eq-talk .comments { margin: 8px 0 10px; }
+.eq-talk .section-label:first-child { margin-top: 14px; }
+/* Escaped text, not markdown — the same bargain the rest of this page makes (see the
+   note on `field` in public/endorse.js), so pre-wrap is what carries the line breaks. */
+.eq-bubble { margin: 0; font-size: 14px; line-height: 1.55; color: var(--prose); white-space: pre-wrap; overflow-wrap: anywhere; }
+/* The chosen agent's own brief. An agent whose foundation you cannot read is a name you
+   are guessing at — the same line the inbox draws under its chips. */
+.eq-agent-desc { margin: 6px 0 2px; font-size: 12px; line-height: 1.45; color: var(--muted); }
+/* Nobody is going to buzz you when the answer lands (see `talkHtml`), so the one thing
+   this line owes you is that something is in fact happening. */
+.eq-waiting { margin: 0 0 8px; font-size: 12.5px; color: var(--accent); }
+.pill.talk { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
+
 /* Revoke closes a bead, so it arms — outline until the first press, solid danger
    after it, which is the same promise `.admin-kill.armed` makes and the same one an
    armed Merge makes on the PR board. */
