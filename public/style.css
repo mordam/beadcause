@@ -669,19 +669,24 @@ body {
 }
 .option:active { transform: scale(0.99); }
 .option .hint { font-size: 12.5px; font-weight: 420; color: var(--muted); }
-.option.confirm { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
-.option.confirm .hint { color: color-mix(in srgb, var(--accent-ink) 72%, transparent); }
+
+/* The choice whose words are in the box below. Filled, because it is the one state
+   here that is a claim about something else on the card — everything else about an
+   option describes the option, and this describes the answer. Tapping it again
+   empties the box and puts it back to the row of unmade choices. */
+.option.picked { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+.option.picked .hint { color: color-mix(in srgb, var(--accent-ink) 72%, transparent); }
 
 /* The one the brief argued for. A tinted edge and a tag, never a filled button:
-   filled is what `confirm` means here, and a recommendation that looked like an
-   armed button would be read as "already pressed". */
+   filled is what `picked` means here, and a recommendation that looked like a
+   pressed button would be read as "already chosen". */
 .option.rec { border-color: color-mix(in srgb, var(--accent) 55%, var(--line)); }
 .rec-tag {
   align-self: flex-start;
   font-size: 11px; font-weight: 600; letter-spacing: 0.02em;
   color: var(--accent);
 }
-.option.confirm .rec-tag { color: color-mix(in srgb, var(--accent-ink) 80%, transparent); }
+.option.picked .rec-tag { color: color-mix(in srgb, var(--accent-ink) 80%, transparent); }
 
 /* An option that commissions work rather than settling it — `closes: false` in the
    decision block. Quieter than the recommendation, because it is a fact about what
@@ -691,7 +696,7 @@ body {
   font-size: 11px; font-weight: 600; letter-spacing: 0.02em;
   color: var(--muted);
 }
-.option.confirm .hand-tag { color: color-mix(in srgb, var(--accent-ink) 72%, transparent); }
+.option.picked .hand-tag { color: color-mix(in srgb, var(--accent-ink) 72%, transparent); }
 
 .actions { display: flex; gap: 8px; padding: 0 15px 14px; }
 
@@ -3482,8 +3487,9 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
 .mir-sub { font-size: 12.5px; color: var(--muted); }
 .mir-plain { white-space: pre-wrap; font: inherit; color: var(--prose); margin: 0 0 14px; }
 
-/* An option is a whole answer, so it is drawn as a target rather than a word:
-   the label is what gets recorded, and pressing one closes the question. */
+/* An option is a whole answer, so it is drawn as a target rather than a word: the
+   label is what gets recorded. Clicking one writes it into the composer below and
+   stops there — the button under the box is what closes the question. */
 .mir-options { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0 0; }
 .mir-opt {
   display: flex;
@@ -3503,6 +3509,11 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
 }
 .mir-opt:hover { border-color: var(--accent); }
 .mir-opt small { font-weight: 500; color: var(--muted); }
+/* The choice whose words are in the composer, filled for the same reason the
+   phone's is: it is the one state here that is a claim about something else on
+   the page. */
+.mir-opt.picked { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+.mir-opt.picked small { color: color-mix(in srgb, var(--accent-ink) 72%, transparent); }
 
 .mir-comment { padding: 10px 0; border-top: 1px solid var(--line); }
 .mir-comment:first-of-type { border-top: none; padding-top: 0; }
@@ -3927,3 +3938,151 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
 }
 .admin-warn { margin: 7px 0 4px; font-size: 12.5px; line-height: 1.5; color: var(--warn); }
 .admin-warn strong { font-weight: 700; }
+
+/* The HTTPS card.
+
+   A URL is the subject of half of it — the address a phone is handed, the address it
+   is about to become — so those are set in the mono face wherever they appear: a
+   hostname in body text is read as prose and mistyped, and the whole point of showing
+   it is that somebody may have to type it. */
+.admin-detail code, .admin-warn code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.94em;
+  overflow-wrap: anywhere;
+}
+
+/* A link, not a button, because it leaves the app — and the only control on this
+   screen that does. Full width under the two that act on the daemon, so the eye reads
+   "and here is the setting that is not ours" rather than a third switch. */
+.tls-link {
+  display: flex; align-items: center; justify-content: center;
+  margin-top: 8px;
+  text-decoration: none;
+}
+.tls-foot { margin: 8px 0 0; font-size: 12px; }
+
+/* The pairing code. White plate under it whatever the theme is: the SVG paints its own
+   quiet zone, and a dark card behind a code that ends at the modules would eat it. */
+.tls-pairing .tls-qr {
+  margin: 10px auto 12px;
+  max-width: 260px;
+  padding: 10px;
+  border-radius: 12px;
+  background: #fff;
+}
+.tls-pairing .tls-qr svg { display: block; width: 100%; height: auto; }
+.tls-pairing .primary {
+  display: flex; align-items: center; justify-content: center;
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+/* --------------------------------------------------- the endorsement queue (/endorse)
+
+   Rows that are whole beads rather than teasers for one, because the decision this
+   screen asks for is whether an agent should spend an hour on the thing — and that is
+   a decision you make by reading it. See the header of public/endorse.js.
+
+   Almost everything here is borrowed: the card is `.work-card`, the row is
+   `.work-row`, the buttons and the note box are the PR board's `.board-*`. What is
+   new is the two things that board has no equivalent of — a row you can *tick*, and a
+   bar that acts on every ticked row at once. */
+
+.eq-head { margin-bottom: 2px; }
+.eq-count { margin: 0 0 4px; font-size: 16px; font-weight: 650; color: var(--text); }
+.eq-head .subtitle { margin-bottom: 0; }
+
+/* Sticky, because what it acts on is the list you are scrolling: you tick the sixth
+   row eight hundred pixels below the fifth, and a bar that had scrolled away would
+   make the group tap two scrolls and a hunt. */
+.eq-bar {
+  position: sticky; top: 0; z-index: 4;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--line));
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+}
+.eq-bar-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.eq-bar-n { flex: 1 1 100%; font-size: 13px; font-weight: 650; color: var(--accent); }
+
+/* Where an outcome goes when the thing it happened to has left the screen — an
+   endorsed bead is off this queue by the time the answer lands. Sticky under the bar
+   for the same reason the bar is: this line is the only evidence the tap worked. */
+.eq-said {
+  position: sticky; top: 0; z-index: 3;
+  margin: 0; padding: 9px 12px;
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+  color: var(--accent); font-size: 13px; font-weight: 600;
+}
+.eq-said.bad { background: color-mix(in srgb, var(--danger) 12%, var(--surface)); color: var(--danger); }
+
+/* The tick and the row, side by side. The tick is a button of its own rather than a
+   checkbox inside the row, for two reasons: a `<button>` cannot legally contain
+   another one, and a 20px checkbox next to a full-width tap target is the control you
+   miss every time on a phone. */
+.eq-line { display: flex; align-items: center; gap: 8px; }
+/* The row's own divider is for a card holding several of them. Here every bead is a
+   card with one row in it, so the line only ever draws above the first thing on the
+   card — which reads as a rule somebody forgot to finish. */
+.eq-line .work-row { flex: 1; min-width: 0; border-top: 0; }
+/* Taller than it is wide on purpose: a 30px square is the control you miss on a phone,
+   and the column it makes down the left of the list is what says the rows are tickable
+   before you have ticked one. */
+.eq-pick {
+  flex: none; width: 34px; min-height: 44px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 1.5px solid var(--line); border-radius: 10px;
+  background: var(--surface-2); color: var(--accent-ink);
+  font: inherit; font-size: 16px; font-weight: 800; line-height: 1;
+  cursor: pointer; -webkit-tap-highlight-color: transparent;
+}
+.eq-pick[aria-pressed="true"] { border-color: transparent; background: var(--accent); }
+.eq-bead.unfolded { box-shadow: inset 3px 0 0 var(--accent); }
+
+/* Where the bead came from — the one sentence it cannot say about itself, and usually
+   what tells you whether this is a real discovery or a tangent. */
+.eq-from { display: inline-flex; align-items: baseline; gap: 5px; min-width: 0; font-size: 12px; color: var(--muted); }
+/* Truncated rather than wrapped: the sentence that matters is "found while working
+   <id>", and the source bead's title is the nice-to-have after it. Wrapping put it on
+   a line of its own, where it read as a second fact about this bead. */
+.eq-from-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* The agent's own words, headed so the three of them do not run together into one
+   grey wall. pre-wrap because a filed description is plain prose out of YAML and its
+   line breaks are the only formatting it has. */
+.eq-field { margin: 0 0 12px; }
+.eq-field h3 {
+  margin: 0 0 3px; font-size: 11px; font-weight: 700;
+  letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted);
+}
+.eq-field p { margin: 0; font-size: 13.5px; line-height: 1.5; color: var(--prose); white-space: pre-wrap; overflow-wrap: anywhere; }
+/* The provenance note is beadcause's paragraph, not the work — set apart so it is not
+   read as part of what the bead is asking for. */
+.eq-field.prov { padding-left: 10px; border-left: 2px solid var(--line); }
+.eq-field.prov p { color: var(--muted); font-size: 13px; }
+
+/* The ✎, retargeted at a bead that exists. Six fields and nothing else — see EDITABLE
+   in lib/verdict.js — with the two labels the daemon owns kept out of the box. */
+.eq-edit { display: flex; flex-direction: column; gap: 10px; }
+.eq-lab { display: flex; flex-direction: column; gap: 4px; font-size: 11px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); }
+.eq-lab input, .eq-lab select, .eq-lab textarea {
+  width: 100%; padding: 8px 10px;
+  border: 1px solid var(--line); border-radius: 10px;
+  background: var(--surface-2); color: var(--text);
+  font: inherit; font-size: 14px; font-weight: 400; letter-spacing: 0; text-transform: none;
+}
+.eq-lab textarea { resize: vertical; }
+.eq-two { display: flex; gap: 10px; }
+.eq-two .eq-lab { flex: 1; min-width: 0; }
+
+/* Revoke closes a bead, so it arms — outline until the first press, solid danger
+   after it, which is the same promise `.admin-kill.armed` makes and the same one an
+   armed Merge makes on the PR board. */
+.board-btn.revoke { border-color: color-mix(in srgb, var(--danger) 50%, transparent); color: var(--danger); }
+.board-btn.revoke.armed { border-color: transparent; background: var(--danger); color: var(--accent-ink); }
+
+/* A pill that is a link — the `N held for endorsement` count on the advocate console,
+   and the bead ids on every board. Nothing had said so, and a browser's own underline
+   under an uppercase 11px chip reads as a rendering fault rather than as a link. */
+a.pill { text-decoration: none; }
