@@ -32,6 +32,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { boundPort } from './helpers/net.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const LIB = (name) => path.join(HERE, '..', 'lib', name);
@@ -297,9 +298,8 @@ console.log('[]');
   { mode: 0o755 }
 );
 
-const PORT = 4389;
 const cfg = {
-  port: PORT,
+  port: 0,
   host: '127.0.0.1',
   token: 'test-token',
   bdBin: BD,
@@ -320,6 +320,7 @@ const calls = () =>
 const resetCalls = () => fs.writeFileSync(CALLS, '');
 
 const servers = listen(cfg, createApp(cfg).handler);
+const PORT = await boundPort(servers);
 
 const approve = async (id, response = 'CREATE: file the proposed bead in beadcause.') => {
   const res = await fetch(`http://127.0.0.1:${PORT}/api/respond`, {
@@ -435,8 +436,9 @@ console.log('[]');
   const rows = annotateDuplicates([proposed('Another new bead')], []);
   setIssues([proposalBead('bc-q6', 'beadcause', rows)]);
 
-  const blindCfg = { ...cfg, port: PORT + 1, bdBin: broken };
+  const blindCfg = { ...cfg, port: 0, bdBin: broken };
   const blind = listen(blindCfg, createApp(blindCfg).handler);
+  blindCfg.port = await boundPort(blind);
   try {
     const res = await fetch(`http://127.0.0.1:${blindCfg.port}/api/respond`, {
       method: 'POST',

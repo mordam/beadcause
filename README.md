@@ -4290,10 +4290,10 @@ per workspace** carrying all of its ids, and that the first press of Revoke writ
 
 Everything above is about work somebody decided to do. This is about the other kind:
 the app breaks in front of you, a red toast says so, and then the fact is gone. Four
-files have their own local `toast(msg, bad)` — `public/app.js`, `public/console.js`,
-`public/foundations.js`, `public/term.js` — and nothing on either side catches an
-uncaught exception or an unhandled rejection at all. You see it on a phone, in a room,
-once. By the time you are at the Mac you remember that *something* went wrong on the
+files had their own local `toast(msg, bad)` — `public/app.js`, `public/console.js`,
+`public/foundations.js`, `public/term.js` — and nothing on either side caught an
+uncaught exception or an unhandled rejection at all. You saw it on a phone, in a room,
+once. By the time you were at the Mac you remembered that *something* went wrong on the
 graph sheet and not what.
 
 So an error reported to `POST /api/error` becomes tracker state. A **P0 bug**, endorsed,
@@ -4339,6 +4339,81 @@ whoever picks it up, and a reopened bead cannot carry it.
 the moment the drift is noticed, so the next report hits the primary key directly and
 the bead accumulates every line the bug has lived on — which turns out to be the fastest
 way to see that a bug has been moving around a file for three weeks.
+
+### The reporter on the page, and the six beads it refuses to file
+
+`public/report.js` is the caller. One file, loaded ahead of every other script on every
+page, and it watches four things — three of which nothing was watching:
+
+| It sees | Which was previously |
+|---|---|
+| `window.onerror` | nothing at all. A render that throws halfway leaves half a screen and says nothing on either side |
+| `unhandledrejection` | nothing at all, and worse: silent even in a console, on a phone that has none |
+| a **failed fetch** | what most errors here actually are — the daemon is on a tailnet address and the phone is on a train |
+| any **`toast(msg, true)`** | a red bar for five seconds. If it was worth showing red, it is worth a bead |
+
+The toast is the one that needed the four copies to grow a line each, and they grew the
+same line: `if (bad === true) window.beadcause?.report?.toast?.(msg)`, **last** in the
+function, after the DOM writes, guarded at every `?.` so a page whose reporter did not
+load behaves exactly as it did the week before. The other three are wired in report.js
+and nowhere else, which is the whole argument for one shared file over a fifth copy.
+
+**It is additive, and that is a constraint rather than a nicety.** The toast still
+appears, unchanged, whether or not a report can be sent — so nothing is awaited on a path
+somebody is waiting on, every handler is wrapped whole in a `try`, and a report that
+cannot be delivered is **dropped**. Not retried and not queued: replaying it the moment
+the daemon is back is the same storm, delayed, and the failure being recorded is not worth
+breaking the screen that was going to mention it anyway.
+
+**Nothing from the URL goes with a report.** The pages authenticate with `?t=<token>`
+where a document request would otherwise be bounced to sign-in — `scripts/shot.mjs` does
+it on every agent screenshot — so `location.href` *is* a credential; that is bc-sqab,
+where the token reached a transcript by being printed. So a report carries
+`location.pathname` and the query and fragment are thrown away rather than filtered, and
+every free-text field is swept for a `t=`/`token=`/`key=` shaped parameter on the way out
+anyway. Two guards for one secret, because a stack frame from an inline handler carries
+the document URL and nobody will be watching the day one appears. The token still travels
+as the `x-beadcause-token` **header**, which is how the daemon knows the report is yours;
+the body is the part that becomes a bead.
+
+Then the refusals, and they are most of the file. Every one of these is a **P0 bead filed
+on a page that was working perfectly**, which is the same way a tracker gets ruined as
+filing one bug forty times:
+
+| Not reported | Because |
+|---|---|
+| a fetch abandoned by a **navigation** | a tap on the tab bar rejects every request in flight. Without this, one "Failed to fetch" per open poll, every time you changed screens. `pagehide` closes the shutter — `pagehide` and not `unload`, which makes a page ineligible for the back/forward cache merely by being listened for |
+| an **`AbortError`** | the long poll being torn down on purpose. Bookkeeping, not a failure |
+| a **4xx** | the daemon declining on purpose: a 409 close gate, a 403 for a feature switched off in the config, a 401 that means sign in again. `>= 500` is the line, because a 500 is the daemon failing rather than answering |
+| the report's **own request** | a report that reports the failure of reporting is a loop with no floor. `report.js` keeps the `fetch` the page was born with and sends on that, so its traffic cannot reach its own wrapper |
+| the **echo** of a failure already reported | a failed fetch is reported here *and* toasted by the caller a moment later. One incident, one bead — and the same rule collapses "every endpoint is unreachable" onto one bead instead of twelve |
+| a **refusal** | `toast(msg, 'refused')` is red because the app declined what you typed. "Give it a name" is not a bug, and it was a `toast(…, true)` before this existed |
+
+**It is deliberately not in the service worker's shell, and the `CACHE` version does not
+move for it.** That version exists to stop a phone holding one release's HTML beside
+another's script — a page that draws a control with nothing behind it, or styles a block
+that is not there, both of which look like a working screen. There is no such pairing
+here: old HTML without the tag is a page that reports nothing, which is the app as it was
+last week, and a new page whose reporter did not load is that same page. `report.js` is
+network-first like `presence.js` and `mirror.js` before it, cached on the first online
+visit by `fetchAndStore` in the same load that fetches the HTML asking for it. Nothing is
+gained by putting a file that cannot work offline into the shell that exists for offline —
+and the bump would have cost a merge against every other branch touching `public/`.
+
+`'refused'` is the third state of a two-state argument, and it is worth knowing about
+before you write the next red toast: `true` means *a failure*, and is filed; `'refused'`
+is red and files nothing. `node test/reporter.mjs` fails the repo on a `toast('some fixed
+message', true)`, because a fixed message is the shape of a validation notice and there
+is no other way to tell one from a caught error at runtime.
+
+**And a ceiling**: eight reports per page per minute, and the same error not twice inside
+thirty seconds. A render loop that throws on every frame files a handful and stops. That
+is the smaller half of bc-p38c.3 — the bigger half is holding reporting off across a
+deploy, when every page fails every fetch at once and only the daemon's own deploy records
+can say why — and it lives here rather than there because a cap is eight lines and belongs
+next to the reporting. Note what shipping this before that means: a deploy that restarts
+the daemon files nothing *during* the outage, because the report's own request fails with
+everything else and is dropped, but the first reconnects after it can get through.
 
 ### Why these are the one thing filed without the hold
 
@@ -4390,6 +4465,17 @@ whole tracker made `bd create` a read-modify-write race *between processes*, so 
 distinct errors came back holding the same id — which reads exactly like the
 serialisation bug the test exists to disprove. It is one file per bead now, and the id
 is claimed with an exclusive create.
+
+`node test/reporter.mjs` is the browser half, and it runs the real `public/report.js` in a
+`vm` with a hand-made `window` — the same shape as test/dictate.mjs and test/queue.mjs, so
+a rewrite of the logic as a test-only copy cannot pass it while the phone ships something
+else. It asserts the acceptance criteria directly (an exception, a rejection and a failed
+fetch each reaching the endpoint; the toast surviving a transport that throws rather than
+rejects; no token in the body), then one check per refusal in the table above, then two
+static reads the stub cannot see: that **every** `public/*.html` loads the file ahead of
+its other scripts, and that each of the four `toast` functions reports *after* it has
+drawn. Neither of those is something the app would tell you about — a page that quietly
+stopped loading the reporter looks exactly like a page with no errors.
 
 ## Advocates — an agent per repo, whose job is the queue reaching zero
 

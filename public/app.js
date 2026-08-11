@@ -3820,12 +3820,24 @@
 
   /* --------------------------------------------------------------- actions */
 
+  /**
+   * A line across the bottom of the screen. Red when something went wrong.
+   *
+   * `bad` has three states rather than two, and the third is why this comment exists.
+   * `true` is a **failure** — it is shown red *and* reported to the daemon, which files
+   * it as a P0 bead (public/report.js). `'refused'` is red and files nothing: the app
+   * declining what you typed is not a bug, and "Give it a name" would otherwise be a P0
+   * every time somebody taps Create on an empty box.
+   */
   function toast(msg, bad = false) {
     toastEl.textContent = msg;
-    toastEl.classList.toggle('bad', bad);
+    toastEl.classList.toggle('bad', Boolean(bad));
     toastEl.hidden = false;
     clearTimeout(toast._t);
     toast._t = setTimeout(() => (toastEl.hidden = true), bad ? 5000 : 2600);
+    // Last, and never in the way: the toast is on screen before the report is built, and
+    // a page whose reporter did not load takes the `?.` and behaves as it always did.
+    if (bad === true) window.beadcause?.report?.toast?.(msg);
   }
 
   /**
@@ -4367,8 +4379,8 @@
       const block = btn.closest('.agents');
       const name = block?.querySelector('[data-role="agent-name"]')?.value.trim() || '';
       const description = block?.querySelector('[data-role="agent-desc"]')?.value.trim() || '';
-      if (!name) return toast('Give it a name', true);
-      if (description.length < 20) return toast('Give it a foundation — a sentence or two', true);
+      if (!name) return toast('Give it a name', 'refused');
+      if (description.length < 20) return toast('Give it a foundation — a sentence or two', 'refused');
       btn.disabled = true;
       try {
         const data = await api('/api/agents', { method: 'POST', body: JSON.stringify({ name, description }) });
@@ -4929,7 +4941,7 @@
       const card = btn.closest('.card');
       const box = card.querySelector('[data-role="answer"]');
       const text = (box?.value || getDraft(key)).trim();
-      if (!text) return toast('Write something first', true);
+      if (!text) return toast('Write something first', 'refused');
       if (q) q.closeGate = null;
       await submit(key, text, { close: false });
       if (box) box.value = '';
@@ -4950,7 +4962,7 @@
       const card = btn.closest('.card');
       const box = card.querySelector('[data-role="answer"]');
       const text = box.value.trim();
-      if (!text) return toast('Write something first', true);
+      if (!text) return toast('Write something first', 'refused');
       /**
        * On a delivery, typed prose that closes the question *is* a change request.
        *
@@ -5585,9 +5597,11 @@
       composing = false;
       composeEl.disabled = false;
       // 403 is `beadConsole: false` in the config, which is a deliberate setting and
-      // not a fault — its own words rather than the daemon's.
+      // not a fault — its own words rather than the daemon's, and a refusal rather than
+      // a failure, so it is red on the screen and files nothing.
+      const off = err.status === 403;
       if (err.message !== 'token rejected') {
-        toast(err.status === 403 ? 'Chat sessions are turned off in the config.' : err.message, true);
+        toast(off ? 'Chat sessions are turned off in the config.' : err.message, off ? 'refused' : true);
       }
     }
   }
