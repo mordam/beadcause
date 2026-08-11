@@ -3453,6 +3453,58 @@ instead: reach refusing a pid with no terminal, the length refused on the messag
 typed rather than on a flattened one, and the AppleScript matching a tty as well as an id
 and sending its paste with `newline no` and exactly one Return after it.
 
+### …and then go and find it on the Mac
+
+The dead end after that one. You could read a session and answer it, and still not know
+*which of a dozen worktree windows on the desk it is* — finding it meant going through
+iTerm's window list by hand, comparing paths, on the machine you had just walked over to.
+So the same page has a **Bring it up** button above the box. One tap raises that
+session's iTerm window over everything else and doubles it in place, twice as wide and
+twice as tall, and closing the view puts it back at exactly the bounds and position it
+had. It is gated on the same `reach` as the composer, from the same response, so a
+session in Terminal.app or tmux says there is no window rather than offering a button
+that would do nothing.
+
+Four things about it are decisions rather than details:
+
+- **The rectangle to go back to lives in the daemon, not the page.** `lib/focus.js`
+  holds it keyed by pid, read off the window in the same `osascript` call that enlarges
+  it — split into two calls, the second would read the rectangle the first had already
+  enlarged and save *that*, so a second tap would leave a window nothing could restore.
+  It is also why a phone that reloads mid-way finds the window as it left it, and why
+  the second tap is a *restore* rather than a second enlarge.
+- **It is clamped to the screen it is on.** A window doubled about its centre near an
+  edge would put half of itself off the display, and the half that goes missing is as
+  likely as not to be the one you drag the window by. `magnify` in `lib/iterm.js` caps
+  the size at the screen and slides the result back inside it, so a window already
+  filling its display simply does not move. When nothing could be measured it grows from
+  its top left corner instead of its centre — not a lesser version of the same thing, but
+  the recoverable direction. That case is not hypothetical: the screen probe and the
+  `activate` were fired at iTerm together in the first draft, the probe lost the race and
+  came back empty, and a real window grew 368px off the left of a real display. The probe
+  now runs first, alone.
+- **Closing the view is what puts it back, and a locked phone is not a close.** The page
+  beacons a restore as it is torn down — the ✕, the back button, a closed tab. It
+  deliberately does *not* act on `visibilitychange`: you tap the button, put the phone in
+  your pocket and walk to the Mac, and a window that shrank at that moment would have
+  undone the one thing you asked for. The ways of leaving that send nothing — a lock that
+  never comes back, a discarded tab — are covered by a lease renewed by the page's own
+  two-second poll, and three minutes after nothing is watching, the daemon puts the
+  window back on its own.
+- **Nothing is persisted, and focus is not handed back.** These rectangles live as long
+  as the process does; a daemon restart forgets them and leaves the window big, which is
+  the lesser evil, because a pid is reused and a rectangle read off disk after a reboot
+  could move a window belonging to something else entirely. And the app that had the
+  keyboard does not get it back on close: you asked for that window to be in front
+  because you are about to use it.
+
+`test/focus.mjs` covers the arithmetic and the rules over a window made of numbers — the
+saved rectangle written once, a restore consuming it, a refused restore keeping the
+record so the sweep can retry rather than stranding the window, and the clamp checked
+against the same measured three-display fixture `test/cards.mjs` uses. The page half is
+in `scripts/say-check.mjs` alongside the composer, including the one thing only a real
+browser can show: that the beacon really does leave a document that is going away.
+
 Every card has a **Graph →** into the whole workspace — which is also the answer to
 "how do I see what another session just created", since the graph draws every open
 issue rather than only the questions.
@@ -4173,6 +4225,111 @@ the size of a phone, against a fixture that records every write. The two asserti
 exists for are the ones invisible from the server: that a group tap is **one request
 per workspace** carrying all of its ids, and that the first press of Revoke writes
 **nothing at all**.
+
+## An error the app hits files itself as a P0
+
+Everything above is about work somebody decided to do. This is about the other kind:
+the app breaks in front of you, a red toast says so, and then the fact is gone. Four
+files have their own local `toast(msg, bad)` — `public/app.js`, `public/console.js`,
+`public/foundations.js`, `public/term.js` — and nothing on either side catches an
+uncaught exception or an unhandled rejection at all. You see it on a phone, in a room,
+once. By the time you are at the Mac you remember that *something* went wrong on the
+graph sheet and not what.
+
+So an error reported to `POST /api/error` becomes tracker state. A **P0 bug**, endorsed,
+labelled `app-error` — and the advocate then picks it up ahead of everything else with
+no change of its own, because its queue was already sorted highest-priority-then-oldest.
+Nothing new had to be taught how to care.
+
+**Filing is the easy half. Not filing the same thing forty times is the hard half.** One
+broken selector on a view that re-renders on every poll is not forty bugs, and a tracker
+that says it is has been made useless by the feature meant to help it. So every report
+is fingerprinted twice, in a deliberate order:
+
+1. **The source `file:line`** — the primary key, because it is the most specific thing a
+   report carries. Two different bugs on one line are vanishingly rarer than two
+   different lines with the same generic message; there are a great many ways to say
+   "Failed to fetch".
+2. **The message text** — the backup, and it exists for one case: an unrelated edit
+   above the throw site moves the line. Without it, the same bug files a fresh P0 every
+   time somebody adds an import.
+
+Both go on the bead as labels, hashed — a bd label has no quoting story and a message
+can contain anything at all, and a stack-frame path is long enough to make `bd show`
+unreadable. The readable form is written into the description, where a person can see
+what a later report will be matched *on*. The lookup is one `bd list --all --label-any`
+per report: an OR over both keys in a single call, because this runs on the hot path of
+a page that may be reporting several times a second.
+
+Three outcomes, and the third is the interesting one:
+
+| The fingerprint matches | What happens |
+|---|---|
+| nothing | a new **P0 bug**, titled from the message, with everything the report carried |
+| **an open bead** | a comment on it — occurrence number, timestamp, page. No second bead |
+| **a closed bead** | a **new** bead, with a `discovered-from` edge to the closed one |
+
+That last row is a decision, not an oversight. A bug that comes back after being fixed
+is a regression, and a regression that silently reopens the old bead loses the fact that
+it was ever fixed — along with the commit that was supposed to have fixed it, and the
+close reason somebody wrote. The edge is what carries "we have been here before" to
+whoever picks it up, and a reopened bead cannot carry it.
+
+**A bead matched on the message alone learns the new `file:line`.** The label is added
+the moment the drift is noticed, so the next report hits the primary key directly and
+the bead accumulates every line the bug has lived on — which turns out to be the fastest
+way to see that a bug has been moving around a file for three weeks.
+
+### Why these are the one thing filed without the hold
+
+Everything else an agent files arrives `unendorsed` and nothing may work it until you
+say so, and everything else an agent files is clamped to P2 or worse — what an agent
+*decided* was work may not outrank what you chose. Both are switched off here, in the
+one place that says so (`ERROR_PRIORITY` in lib/errors.js).
+
+The reason is that a reported error is not a judgement. No agent thought this might be
+worth doing; a program failed, and the report is a fact about your Mac. Holding a P0
+crash behind a tap you have not read yet defeats the entire point, which is that the
+advocate is already on it by the time you look. The provenance stamps stay on — the bead
+still carries `agent-filed`, so `bd list --label agent-filed` is still the whole audit —
+and the note on the bead says in its own words why it arrived endorsed, rather than
+blaming a space setting that was never consulted.
+
+The honest cost: a broken build can file several P0s at once, and they are workable
+immediately. `bd list --label app-error` is the list, and closing one is a tap.
+
+### The race it has to survive, which is not the one you would guess
+
+A page whose render throws reports, re-renders, and reports again — three requests in
+flight before the first `bd create` has returned. bd's own single-writer retry does not
+help at all here, because those three creates do not conflict with each other. They all
+succeed, and you get three P0 beads for one bug: the exact failure this whole thing
+exists to prevent, arriving through the door built to guard it.
+
+So `intake` serialises per fingerprint, in-process. Two *different* errors still file
+concurrently, and a report whose predecessor failed is still filed rather than
+inheriting the rejection — one `bd` lock timeout must not silently swallow every later
+occurrence of that error for as long as the daemon runs.
+
+**The endpoint never answers 5xx.** It is called *by* error handling: a 500 here is
+itself an error, the page reports the failure of its own reporting, and the loop has no
+floor. A tracker that is down answers `200 {ok: false, reason}` instead, which a
+reporter can log and stop on.
+
+### Checking it
+
+`node test/apperrors.mjs` covers the three outcomes against a stub `bd` that implements
+`--label-any`, `--all` and the status filter the way bd implements them — a stub that
+returned everything whatever it was asked would pass whatever the code did. It asserts
+the acceptance criteria directly (twice → one bead and one comment; a moved line → still
+one bead, matched on the message; a closed match → a second bead carrying the edge), the
+argv the lookup is actually made with, and the three-at-once race.
+
+Its own fixture is worth a sentence, because it was wrong first: one JSON file for the
+whole tracker made `bd create` a read-modify-write race *between processes*, so two
+distinct errors came back holding the same id — which reads exactly like the
+serialisation bug the test exists to disprove. It is one file per bead now, and the id
+is claimed with an exclusive create.
 
 ## Advocates — an agent per repo, whose job is the queue reaching zero
 
@@ -7204,6 +7361,7 @@ cookie says so), and `/auth/signout` ends the session.
 | POST | `/api/space` | `{space, settings}` | change that space's settings from the app. A patch — only the keys sent are touched, and `null` clears one back to the global default. `name` and `workspaces` are not settable: moving a repo between spaces decides which questions may reach you and stays a config-file act. Writes the live `cfg` *and* `config.json`, so the running daemon and the next restart agree. Refused on an observer |
 | POST | `/api/notifications/dismiss` | `{keys[], confirm}` | clears the phone's notification rows for beads the filter excludes. `confirm: false` records the decline, which is what stops the next sweep asking again. The beads are untouched either way |
 | POST | `/api/ask` | `{workspace, title, body, priority}` | `{id, key}` — files a new `human` bead |
+| POST | `/api/error` | `{message, source?, line?, column?, stack?, url?, userAgent?, at?, kind?, workspace?}` | `{ok, action, id, key, fingerprint}` — an error the app hit, filed as a **P0 bug** or commented onto the bead that already covers it. `action` is `created` · `commented` · `regressed`. **`message` is the only required field**: a cross-origin `window.onerror` is handed `"Script error."` and nothing else, and that is still worth more than a red toast nobody saw. `workspace` defaults to the first configured one — the reporter is a page, which has no idea which repo it is looking at. **Never answers 5xx**, because it is called by error handling: a tracker that is down comes back `200 {ok: false, reason}`. See [an error the app hits files itself as a P0](#an-error-the-app-hits-files-itself-as-a-p0) |
 | POST | `/api/session` | `{workspace, id}` | `{dir}` — opens iTerm2 + `claude` on that bead |
 | POST | `/api/status` | `{workspace, id, phase, detail, actor}` | agent progress |
 | GET | `/api/agent-log` | `?workspace=&id=` | `{lines[], running, phase}` — the dispatched agent's log, as the CLI would have shown it |
@@ -7265,6 +7423,7 @@ cookie says so), and `/auth/signout` ends the session.
 | GET | `/api/presence` | — | `{devices[]}` — who is where |
 | DELETE | `/api/presence` | `{device}` | forget one device |
 | POST | `/api/session-say` | `{pid, text}` | says one line into a live session's own iTerm window. `413` with the words left in the box if it is past `SAY_MAX` — the message rides to `osascript` as an argument, and past `ARG_MAX` the failure reads as "the session is gone", which is the one thing this must not lie about |
+| POST | `/api/session-focus` | `{pid, action}` | `focus` raises that session's iTerm window and doubles it in place; `restore` puts it back at the bounds it was read at. Focusing is gated on the same `reach` as the composer and on the pid still being live; restoring is gated on neither, because it arrives by `sendBeacon` from a page being torn down and must work for a window whose session has since exited |
 
 Two more, **loopback and token only**, and never proxied to a backend — anyone on
 the tailnet holding the token could otherwise stop the poller:
