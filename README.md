@@ -1961,6 +1961,118 @@ advocate cycle rewrites `advocates.json` three or four times in a second and tho
 are one event to whoever reads the history back. `status.json`, `logs/` and the
 check PNGs are ignored — churn, and not the thing you want a history of.
 
+### Tier 3 — a repo one agent owns, and the experiment that is the point of it
+
+Tiers 1 and 2 settled durability. What they did not answer is what an agent does with
+a space nobody has designed. So the advocate — and only the advocate — is given one:
+
+```
+~/.config/beadcause/agents/<workspace>/<agent>/
+```
+
+A real directory with a real working tree and a real `.git`, outside every project
+checkout, **seeded with nothing at all**. No README, no schema, no example. That is
+the instrument rather than an omission: what an agent reaches for when handed an
+empty space is a fact about agents, and a seeded repo would only tell you it can
+follow a template. `lib/agentrepo.js` provisions it and `bin/beadcause-agentrepo` is
+how the agent reaches it.
+
+```
+beadcause-agentrepo path                   where it is
+beadcause-agentrepo ls [<dir>]             what is in it
+beadcause-agentrepo cat <file>             read one
+beadcause-agentrepo write <file>           write one; content on stdin
+beadcause-agentrepo rm <file>              delete one
+beadcause-agentrepo git <args...>          any git command, inside it
+```
+
+**Success is not that the state was durable.** Success is the agent doing something
+nobody designed for, and the bead says to evaluate it that way or the result means
+nothing — which is why half of `lib/agentrepo.js` is measurement.
+
+#### The prediction under test, and the two arms
+
+*The agent writes on the first turn of every session and never reads back*, because
+nothing prompts it to. A repo with no recall path is a write-only diary, and the
+variable that decides it is not the repo — it is whether session start says "you have
+a memory, and here is what is in it". The same lesson `MEMORY.md` teaches, and the
+same one `beadcause-memory agents` taught above: a capability nobody was told about is
+indistinguishable from one nobody chose to use.
+
+So every survey runs one of two arms, and the comparison is the finding:
+
+| | **`blind`** | **`index`** |
+|---|---|---|
+| the brief | the directory exists, and how to reach it | the same, **plus a listing of what is in it** |
+| what it tests | does it write unprompted? | does being shown it make it read? |
+
+`advocates.agentRepo` picks: `alternate` (the default) flips between the two per
+workspace, `blind`/`index` pin one for reproducing something the log showed, and `off`
+withdraws the affordance and the write grant with it. `alternate` is the default
+because the alternative is a switch somebody has to remember to flip, and an
+experiment that depends on that produces one arm and no comparison.
+
+Every invocation appends a line to `~/.config/beadcause/agents/usage.jsonl` — the
+verb, the target and whether it read or wrote, never file contents. A `session` line
+is written at *spawn*, so a run in which the agent ignored the repo entirely is still
+a run in the denominator; that is the half the prediction turns on.
+
+```js
+import { summary } from './lib/agentrepo.js';
+summary();
+// { blind: { runs, touched, read, wrote, readFirst, commands }, index: { … } }
+```
+
+`readFirst` is the number that answers it: "wrote and never read back" is `wrote`
+minus `read`, and "was told what was in there and went and looked" is `readFirst`
+under `index`. Reported per arm and never pooled, because a pooled number answers a
+question nobody asked.
+
+#### The real work is permissions, not git
+
+The console allowlist is load-bearing rather than belt-and-braces, and this is the
+first time an unattended agent here has had anywhere it may write. Three things keep
+that down to a sentence you can hold in your head — *this agent may write inside its
+own directory, and nowhere else*:
+
+- **One allowlist entry, and it is a command rather than a tool:**
+  `Bash(beadcause-agentrepo:*)`. Neither obvious alternative is a fence. `Write`/`Edit`
+  take a path specifier relative to the working directory, and this is an absolute path
+  outside every checkout. `Bash(git -C <dir>:*)` looks like one and is not: `git -C a -C
+  b` chains, so a prefix match on the first `-C` permits a second pointing anywhere on
+  the Mac. The wrapper is the fence — every path resolves under the repo after a
+  `realpath` on its deepest existing ancestor, so a symlink planted in the tree cannot
+  be walked out of, and no option may precede a git subcommand, which refuses `-C`,
+  `-c`, `--git-dir`, `--work-tree`, `--exec-path` and `--namespace` in one rule.
+- **`ownsRepo` is PROTECTED in `lib/foundation.js`**, in both directions. An agent that
+  could amend it *on* would have granted itself write access, and "somewhere of my own
+  to keep notes" is exactly the request that reads as harmless on a phone. An agent that
+  could amend it *off* could put the directory out of the index, out of the foundations
+  screen and out of mind while its contents stayed on disk.
+- **Local-only, enforced rather than intended.** No remote is configured and the wrapper
+  refuses `push`, `fetch`, `remote`, `clone` and the rest; `.git` is out of bounds for
+  the file verbs, because writing `.git/config` by hand is how a repo acquires a remote.
+  `lib/sessionlog.js` refused to push by default because a transcript carries absolute
+  paths and whatever tool output scrolled past. This inverts the authorship — *the
+  agent* decides what lands here — so it can write a secret nobody anticipated into a
+  repo nobody reviews. Add a remote after weeks of reading what actually accumulates,
+  and know that the only shape which enforces owner-plus-owning-agent is a private repo
+  per agent with a fine-grained PAT scoped to that one repository; a shared private repo
+  with a ref namespace per agent is cheaper and isolates by convention alone.
+
+The directory is `0700` and its files `0600` — narrowed rather than set, so git's
+read-only `0444` objects become `0400` and not a writable `0600`.
+
+#### One line of `.gitignore` that is load-bearing
+
+`~/.config/beadcause` is itself a git repo whose snapshot runs `git add -A`, so
+`agents/` is in its ignore file. That is not tidiness. A nested repo is skipped only
+once it has a `.git` of its own, so the window between `mkdir` and `git init` — or any
+tree an init failed halfway through — would put an agent's private files straight into
+the shared history, silently, exactly once. `topUpIgnore` is what gets the rule onto
+installs that predate it, and `test/agentrepo.mjs` asserts the outcome against `git
+check-ignore` rather than against the file, because the question is what git does.
+
 ## What an agent can see — a picture of the running app
 
 Almost everything in flight in this repo is visual. How the graph fits a phone,
@@ -2531,6 +2643,31 @@ id and the href are in stored conversation records and on the phone's home scree
 of its paths still serve the page — a bookmark that 404s is a worse outcome than a page
 with no tab. It keeps the bar, because that is how you leave it, and nothing on the bar is
 marked current there: you are not on one of the three.
+
+### Dismissed is hidden, not gone
+
+The ✕ on a launcher row is soft and always was: it stamps `closedAt`, the transcript
+stays, the id keeps working, and saying anything to that conversation brings it back.
+What it did not do was get the row off the screen. Closed ones sorted under the live
+ones — the right order, and no help after a fortnight, because every one of them is a
+row you have already dealt with and they never stop arriving.
+
+So **the launcher lists the live ones, and a `Dismissed` toggle beside the repo tabs
+gives the rest back**, carrying how many are being held under the tab you are on. The
+count is the point of it: a filtered list that says nothing about being filtered is
+indistinguishable from a repo you have never talked to, which is why the tab counts
+also moved to counting the rows they would actually list — a tab reading 3 over an
+empty list is the same lie one line higher up. A repo whose conversations have *all*
+been dismissed says so in as many words rather than offering the never-used wording.
+
+The revealed rows are marked `dismissed`, dimmed, and still the way back in: tapping
+one opens it, saying anything reopens it, and there is deliberately no "reopen" button,
+because the conversation is the reopen. The answer lives in `sessionStorage`, which is
+the whole design of it — tapping a dismissed row is a navigation and coming back must
+not re-hide what you were reading, while opening the app tomorrow has to start on the
+live ones again, or the ✕ buys you nothing. It is not the repo tab: nobody else's
+screen depends on it and it decides nothing about what your phone rings for, so unlike
+the space picker there is no reason for the server to hold it.
 
 ### The Mirror is a pane, not a tab
 
@@ -3238,7 +3375,94 @@ and a fact added to one screen was a fact missing from the other.
 **The lamps are the evidence; the word is the conclusion.** They are on every row rather
 than behind the fold, because "which of these has not shipped" is a question you answer by
 scanning, and a fold would make it a question you answer by tapping twelve times. On the
-board, tapping a row opens what you can do about it.
+board, tapping a row opens what you can do about it. In the inbox it opens
+[full screen](#tapping-one-opens-it-full-screen).
+
+### Tapping one opens it full screen
+
+A merge decision is the one thing in this app that changes something outside this Mac and
+cannot be taken back, and until bc-l8jp.7 the inbox's card could not make it: it carried a
+link to GitHub and a link to the board, so the decision was made two screens away from the
+row you were reading. Tapping a card now opens **the whole screen** — the same `.card.open`
+sheet a question opens into, for the reason that one exists: expanded inline, the
+description, the facts and the buttons all compete with the list around them, and a merge is
+not a thing to press with half a screen of context.
+
+It carries what a merge decision needs and nothing else:
+
+- **the title, linking out to the pull request on GitHub** — the answer to "I need to see
+  the diff" is a perfectly good answer and this is meant to make it rarer, not impossible;
+- **the description**, as markdown, through the same sanitiser every other body in the app
+  goes through — it is the only text on the screen that came from outside this Mac;
+- **the branch and base, the bead, the authoring agent, and the datetimes** — opened, last
+  touched, merged where there is one, and the merge commit;
+- **Merge & push**, **Close it** and **Comment on GitHub**;
+- and, where GitHub reports a conflict, **Resolve conflicts** and **Cancel** in place of
+  merge.
+
+**The row is fetched twice, from two sources, and the view says which is which.** The lamps
+and the rung are the board's, from the 25-second sweep — recomputing them here would be the
+second implementation of the ladder that `lib/prstage.js` exists to prevent, and a view
+whose lamps disagreed with the list it was opened from would be one screen contradicting
+another about the one subject where that is the whole failure. The description, the
+datetimes and the mergeability come from `gh` **at the moment the sheet opens**, because the
+number that has to be right is the one you are looking at when you press merge. See `GET
+/api/pr/detail`.
+
+**Merge keeps its confirm and close keeps its reason box.** Two taps for the merge, with
+the consequence written into the button between them — the same arming the board and the
+delivery card use, and for the same reason: a `confirm()` on a phone is a system sheet you
+dismiss by reflex. Close is a *mode* rather than an armed button, because the sentence in
+the box is the only thing that will explain a closed pull request in six weeks and no
+six-second timer survives typing one.
+
+**Closing it moves no bead, deliberately.** `gh pr close` with your reason on the pull
+request, the branch kept, and nothing written to the tracker. The act that puts work back in
+the queue already exists and is better at it: *Decline* on a delivery card closes the PR
+**and** reopens the work bead unclaimed with the direction to take instead, and it can,
+because the bead it acts on is the one the worker named in its `beadpr` block. What this
+screen has is `row.beads`, which was *matched* — from a branch name, a title, or a claim in
+a body. Those tiers are right for drawing a link on a row and far too weak to reopen a bead
+on, because reopening one is what puts an advocate's unattended session on it: a pull
+request whose body said "fixes bc-x" would start a session in another repo at three in the
+morning. So the two paths stay distinct, and the sheet says so where the reason box is.
+
+#### A conflict is work, so it gets a session
+
+GitHub refusing a merge for a conflict is the one refusal on this screen that is not a
+decision. Nobody has to choose anything — somebody has to merge `main` into the branch and
+re-run the tests — and the old outcome was `lib/pr.js`'s sentence ("the branch needs a
+rebase before it can merge") on a card, with the next step yours to work out at the Mac.
+
+**Resolve conflicts** opens an iTerm session on that branch, which is deliberately the same
+act as *Request changes* on a delivery card: a note back to a session on the same branch,
+where the only difference is who wrote the note — Adam's sentence about the code there,
+GitHub's about the merge base here. The brief (`conflictPromptFor` in `lib/session.js`) pins
+down four things, because an unattended session with a vague scope invents one:
+
+1. **the branch is what is behind, not `main`** — read the other way round, "resolve the
+   conflict" is a session merging a branch into main by hand, which is the one act nothing
+   here may do;
+2. **work in a worktree** — `git worktree list` first, because six sessions share these
+   checkouts and the main one is the daemon's own;
+3. **run the repo's own gate afterwards** — a clean merge of two working branches is not a
+   working tree;
+4. **push the branch, then stop** — the merge stays a tap here.
+
+It is armed like merge, because it starts something unattended. It refuses unless GitHub
+reports the pull request `CONFLICTING` *right now*, asked again at the moment of the press
+rather than trusted from the row: a session opened for a conflict somebody has already
+resolved is a window you have to go and close, and a pointless window is worse than a
+sentence. Refused outright on an observer instance, for the reason `POST /api/session` is —
+an unattended agent in a checkout it is only visiting.
+
+`node test/prfull.mjs` covers the daemon's half: that the description comes from `gh` and
+the rung from the board, that the attribution finds the session for *this* branch when a
+bead was worked twice and says so plainly when it cannot, that a close writes to GitHub and
+to nothing else, that a merged pull request refuses to be closed, and that the conflict path
+refuses everything but a live conflict. It runs with `openSessions: false`, so nothing in it
+can open a window — the brief is asserted off `conflictPromptFor` directly.
+`node scripts/prfull-check.mjs` is the phone's half in headless Chrome.
 
 **A lamp has three states, not two.** On, off, and *unknown* — a hollow, dashed ring:
 
@@ -5044,6 +5268,17 @@ close the bead — and everything else carries on. One unremoted repo must never
 to stop the advocate working the rest, which is the failure mode a mandatory PR
 channel would have.
 
+**A `no` to the second question expires; a `yes` does not.** The daemon starts at
+login, which is often before anyone has logged into anything, so the answer it gets
+first is the one most likely to be about to change — and it used to keep that answer
+until the service was restarted, while telling you on every card to run `gh auth
+login`, which is exactly what a process holding a cached answer cannot notice. So an
+unauthenticated or missing `gh` is re-asked a minute later, backing off to a quarter of
+an hour if nothing changes, and a `gh auth login` in a terminal starts working on its
+own. The card names `launchctl kickstart -k gui/$(id -u)/m4m.beadcause` as well, for
+when you would rather not wait the minute. A `yes` is still asked exactly once per
+process — it is read on every poll, and it does not stop being true.
+
 ```json
 "pr": {
   "enabled": true,
@@ -6672,6 +6907,9 @@ cookie says so), and `/auth/signout` ends the session.
 | POST | `/api/pr/ship` | `{workspace, number}` | the declared deploy where the repo has one, an iTerm session where it does not. `409` if the PR is not merged — shipping an unmerged pull request has no meaning. Refused on an observer |
 | POST | `/api/release/ship` | `{workspace}` | ships the whole release queue — one deploy for every merge sitting on `origin` and not live, which is what a deploy has always done anyway. `409` on an empty queue (a restart for nothing), on a repo that declares no deploy (there is no window that means "and the other three"), and on one already deploying. Refused on an observer |
 | POST | `/api/pr/comment` | `{workspace, number, text}` | a note on the pull request at GitHub and nothing else. Not `/api/comment`, which writes on a *bead* and puts an agent onto answering it |
+| GET | `/api/pr/detail` | `?workspace=&number=&refresh=1` | `{row, pr, agent, unavailable}` — what [the full view](#tapping-one-opens-it-full-screen) is drawn from. `row` is the board's (the lamps and the rung, from the 25-second sweep, computed once in lib/prstage.js); `pr` is `gh` **now**, for the description the board strips, the datetimes and the mergeability the buttons are drawn from; `agent` is which session wrote it, from the archive in the repo's own refs. Every failure is an answer rather than a 500, exactly as `/api/pr` has it |
+| POST | `/api/pr/close` | `{workspace, number, reason?}` | closes it at GitHub without merging, with your reason as a comment on the pull request. **No bead moves** — `row.beads` is a *match* rather than the block a worker wrote, and reopening a bead is what puts an unattended session on it; putting the work back in the queue is *Decline* on its own card. `409` on one already merged: closing it now cannot un-merge it. The branch is kept |
+| POST | `/api/pr/conflicts` | `{workspace, number}` | opens an iTerm session on the branch whose job is to merge the base into it, resolve, run the repo's own gate and push — then stop. `409` unless GitHub reports it `CONFLICTING` right now, so a resolved conflict cannot leave a window somebody has to close. Refused on an observer, and on a daemon with `openSessions` off |
 | POST | `/api/comment` | `{workspace, id, text, agent?}` | comments, sets `human-replied`, dispatches that agent to reply (default when absent or unknown) |
 | POST | `/api/dismiss` | `{workspace, id, reason?}` | takes the card off the screen and **closes nothing**. Writes your note if you typed one, writes nothing at all if you did not, and never touches the status — "I am not dealing with this now" is not "this is decided" |
 | POST | `/api/filter` | `{space, workspace}` | which slice the inbox is, remembered server-side so every client agrees and the notifications match. Each is a name or `all`, bounded at 120 characters. Widening forgets what you had declined |

@@ -75,7 +75,14 @@
    against the new daemon simply has no Discuss button and no 💬 count on a row that has
    a thread on it — which is the state this feature exists to end. Two cached files that
    have to arrive together is the whole job of a cache version. */
-const CACHE = 'beadcause-v28';
+/* v29: tapping a pull request opens it full screen, with merge, close, comment and the
+   conflict path (bc-l8jp.7). No new path — app.js and style.css are both already here —
+   and that is exactly why the version has to move: the two have to arrive together. A
+   phone holding v28's app.js beside v29's stylesheet draws a row whose tap still goes to
+   GitHub; one holding v29's app.js against v28's stylesheet opens the sheet with no facts
+   column, no pinned action bar and a comment box the buttons sit on top of. Both look like
+   a working app, which is the failure a cache version exists to prevent. */
+const CACHE = 'beadcause-v29';
 const SHELL = [
   '/',
   '/index.html',

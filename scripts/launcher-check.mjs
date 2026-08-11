@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 //
-// Does the launcher's repo row filter, and does ＋ still start?
+// Does the launcher's repo row filter, does ＋ still start, and are the dismissed
+// ones out of the way?
 //
 //   node scripts/launcher-check.mjs [--baseline] [--keep]
 //
@@ -10,6 +11,14 @@
 // the tab — which moves starting onto a ＋ of its own. That swap is exactly the
 // kind of change that half-lands: the filter works and ＋ starts in the wrong
 // repo, or All has no way to start anything at all.
+//
+// The second filter over the same list is the one the ✕ writes. Closing a row is
+// soft — the transcript stays and saying anything reopens it — so the list is the
+// live conversations and a toggle beside the tabs gives the dismissed ones back.
+// What that can break is a screen rather than a function, which is why it is here
+// as well as in test/dismissed.mjs: a repo whose conversations have all been
+// dismissed has to read as filtered rather than as empty, and the control that
+// unfilters it has to be findable at 393px beside four tabs and a ＋.
 //
 // Same shape as console-check.mjs: the real public/console.{js,html} and
 // public/style.css in a headless Chrome the size of a phone, against a fixture
@@ -47,9 +56,10 @@ for (const v of ['marked.js', 'purify.js']) {
 
 const at = (n) => new Date(Date.UTC(2026, 7, 1, 10, n)).toISOString();
 
-// Three repos, and deliberately one of them with nothing in it: a repo you have
-// never talked to still needs a tab, because the tab is how you reach it to start.
-const WORKSPACES = ['beadcause', 'sophab', 'deluvia'];
+// Four repos, and deliberately two of them with nothing to list: one never talked to
+// at all — a tab is how you reach it to start — and one whose only conversation has
+// been dismissed, which is the same empty list for an entirely different reason.
+const WORKSPACES = ['beadcause', 'sophab', 'deluvia', 'ehatt'];
 
 const row = (id, workspace, title, extra = {}) => ({
   id,
@@ -76,9 +86,12 @@ const CONSOLES = [
   row('bc-3', 'beadcause', 'Chat with the critic', { agent: 'critic', agentName: 'Critic', agentEmoji: '🧨' }),
   row('sp-1', 'sophab', 'Hero openings'),
   row('sp-2', 'sophab', 'Pricing tiers'),
+  row('eh-1', 'ehatt', 'The only one ehatt ever had', { closedAt: at(6) }),
 ];
 
-const COUNTS = { all: 5, beadcause: 3, sophab: 2, deluvia: 0 };
+/** What each tab lists by default — the live ones — and what it is holding back. */
+const COUNTS = { all: 4, beadcause: 2, sophab: 2, deluvia: 0, ehatt: 0 };
+const DISMISSED = { all: 2, beadcause: 1, sophab: 0, deluvia: 0, ehatt: 1 };
 
 // One thread to land in, so a ＋ that navigates arrives somewhere real.
 const THREAD = {
@@ -346,7 +359,7 @@ try {
   );
   check('All is what an unvisited launcher opens on', tabs[0]?.on === true, JSON.stringify(tabs[0]));
   check(
-    'each tab carries how many conversations it holds',
+    'each tab carries how many conversations it would list',
     tabs[0]?.text === `All ${COUNTS.all}` &&
       tabs[1]?.text === `beadcause ${COUNTS.beadcause}` &&
       tabs[2]?.text === `sophab ${COUNTS.sophab}`,
@@ -358,12 +371,129 @@ try {
     JSON.stringify(tabs[3])
   );
   check(
+    'and so does one whose conversations have all been dismissed',
+    tabs[4]?.ws === 'ehatt' && tabs[4]?.text === 'ehatt',
+    JSON.stringify(tabs[4])
+  );
+  check(
     'only the selected tab is in the tab order',
     tabs.filter((t) => t.stop).length === 1 && tabs.find((t) => t.stop)?.ws === 'all',
     tabs.filter((t) => t.stop).map((t) => t.ws).join(',')
   );
-  check('All shows every conversation', (await evalJs(s, ROWS)).length === COUNTS.all, `${(await evalJs(s, ROWS)).length}`);
+  check('All shows every live conversation', (await evalJs(s, ROWS)).length === COUNTS.all, `${(await evalJs(s, ROWS)).length}`);
   await shot('all');
+
+  /* ---- the dismissed ones are hidden, and the toggle says how many ---- */
+  const titles = `[...document.querySelectorAll('#recent .work-title')].map((t) => t.textContent.trim())`;
+  const TOGGLE = `(() => {
+    const b = document.querySelector('#ws-dismissed');
+    if (!b) return null;
+    const r = b.getBoundingClientRect();
+    const css = getComputedStyle(b);
+    return {
+      hidden: b.hidden || r.width === 0,
+      text: b.textContent.trim().replace(/\\s+/g, ' '),
+      pressed: b.getAttribute('aria-pressed'),
+      label: b.getAttribute('aria-label'),
+      right: Math.round(r.right),
+      paint: [css.backgroundColor, css.color, css.borderColor].join(' / '),
+    };
+  })()`;
+
+  const hidden = await evalJs(s, titles);
+  const off = await evalJs(s, TOGGLE);
+  check(
+    'a dismissed conversation is not on the default list',
+    !hidden.includes('A finished one') && hidden.length === COUNTS.all,
+    hidden.join(' | ')
+  );
+  check(
+    'the toggle says how many are being kept back, and fits beside the tabs',
+    off?.hidden === false && off?.text === `Dismissed ${DISMISSED.all}` && off?.right <= VP.width,
+    JSON.stringify(off)
+  );
+  check('and it reads as off until it is pressed', off?.pressed === 'false', JSON.stringify(off?.pressed));
+
+  await evalJs(s, `document.querySelector('#ws-dismissed')?.click()`);
+  await sleep(250);
+  const shownTitles = await evalJs(s, titles);
+  const on = await evalJs(s, TOGGLE);
+  const dismissedRows = await evalJs(
+    s,
+    `[...document.querySelectorAll('#recent .console-row')].filter((r) => r.classList.contains('closed'))
+       .map((r) => ({
+         title: r.querySelector('.work-title').textContent.trim(),
+         mark: [...r.querySelectorAll('.pill')].map((p) => p.textContent.trim()).join(','),
+         href: r.querySelector('a')?.getAttribute('href') || null,
+         x: !!r.querySelector('[data-close]'),
+       }))`
+  );
+  check(
+    'pressing it puts them back on the list',
+    shownTitles.includes('A finished one') && shownTitles.length === COUNTS.all + DISMISSED.all,
+    shownTitles.join(' | ')
+  );
+  check('and says so', on?.pressed === 'true' && /^Hide /.test(on?.label || ''), JSON.stringify(on));
+  // A control whose only tell is an attribute is a control nobody can see is on. The
+  // chips press the same way everywhere in the app; this is that paint, on this one.
+  check(
+    'and looks it — a pressed chip is painted, not just labelled',
+    Boolean(on?.paint) && on.paint !== off?.paint,
+    `${off?.paint} → ${on?.paint}`
+  );
+  check(
+    'each of them is marked dismissed, and is still the way back into it',
+    dismissedRows.length === DISMISSED.all &&
+      dismissedRows.every((r) => /dismissed/.test(r.mark) && /^\/console\?id=/.test(r.href || '')),
+    JSON.stringify(dismissedRows)
+  );
+  check(
+    'and carries no ✕ — there is nothing left to dismiss',
+    dismissedRows.every((r) => !r.x),
+    JSON.stringify(dismissedRows.filter((r) => r.x))
+  );
+  const withThem = await evalJs(s, TABS);
+  check(
+    'the tab counts move with what the list is showing',
+    withThem[0]?.text === `All ${COUNTS.all + DISMISSED.all}` &&
+      withThem[1]?.text === `beadcause ${COUNTS.beadcause + DISMISSED.beadcause}`,
+    withThem.map((t) => t.text).join(' | ')
+  );
+  await shot('dismissed');
+
+  /* ---- the choice survives the trip into a conversation and back ---- */
+  await openLauncher();
+  const kept = await evalJs(s, TOGGLE);
+  check(
+    'it is still showing them after a reload — the same tab, one navigation later',
+    kept?.pressed === 'true' && (await evalJs(s, titles)).includes('A finished one'),
+    JSON.stringify(kept)
+  );
+  await evalJs(s, `document.querySelector('#ws-dismissed')?.click()`);
+  await sleep(250);
+
+  /* ---- a repo whose conversations have all been dismissed ---- */
+  await tapTab('ehatt');
+  const allGone = await evalJs(
+    s,
+    `({
+      rows: document.querySelectorAll('#recent .console-row').length,
+      note: (document.querySelector('#recent .empty')?.textContent || '').replace(/\\s+/g, ' ').trim(),
+      toggle: document.querySelector('#ws-dismissed')?.textContent.trim().replace(/\\s+/g, ' ') || null,
+    })`
+  );
+  check(
+    'a repo whose conversations are all dismissed reads as filtered, not as empty',
+    allGone.rows === 0 && /dismissed/i.test(allGone.note) && !/yet/.test(allGone.note),
+    JSON.stringify(allGone)
+  );
+  check(
+    'and the control that would show them is on the screen with its count',
+    allGone.toggle === `Dismissed ${DISMISSED.ehatt}`,
+    String(allGone.toggle)
+  );
+  await shot('all-dismissed');
+  await tapTab('all');
 
   /* ---- an agent chat is not a chat session ---- */
   const marks = await evalJs(s, MARKS);

@@ -2053,14 +2053,61 @@ button.work-row {
 /* The same row, in a card, in the one list that holds everything else waiting on you —
    which is what took PRs off the tab bar (bc-l8jp.6). The row inside is `.work-row` and
    the lamps and facts are the board's own, so what is here is only the seam: the card's
-   padding around a row that was built to sit in a list, and the title becoming a link
-   because this card does not fold open. */
+   padding around a row that was built to sit in a list, and the title becoming a link in
+   the open view, where nothing else wants that tap (bc-l8jp.7). */
 .pr-card { padding: 12px 14px 8px; }
 .pr-card .pr-row { align-items: flex-start; border-top: 0; padding: 0; }
 .pr-card .work-sub { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .pr-card .pr-title-link { color: inherit; text-decoration: none; }
 .pr-card .pr-title-link:hover { text-decoration: underline; }
 .pr-card .board-note { margin: 8px 0 2px; }
+/* The shut row is the whole card's tap target. `button.work-row` above already strips the
+   UA's borders and font; what is left is that it fills the card and stays a row. */
+.pr-card button.pr-row { width: 100%; text-align: left; gap: 10px; }
+
+/*
+  A pull request, full screen (bc-l8jp.7).
+
+  It opens into `.card.open` — the same fixed sheet a question opens into, with the same
+  four rows: a `.card-top` that stays, a `.card-head` that says what this is, a `.brief`
+  that scrolls, and a pinned `.freeform` at the bottom. So there is no layout here, only
+  the two blocks that are this card's own: the facts list, and the buttons under the box.
+*/
+.card.open.pr-card { padding-left: 0; padding-right: 0; }
+.card.open.pr-card > .card-head,
+.card.open.pr-card > .brief { padding-left: 15px; padding-right: 15px; }
+
+/* The facts. A fixed label column so the values line up — short labels on purpose, since
+   on a 390px screen every character spent on one is taken off a branch name that is
+   already going to wrap. */
+.pr-facts { display: flex; flex-direction: column; gap: 4px; margin: 4px 0 14px; font-size: 13px; }
+.pr-facts > div { display: flex; gap: 10px; align-items: baseline; }
+.pr-facts dt { flex: none; width: 62px; color: var(--muted); font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.04em; }
+.pr-facts dd { margin: 0; min-width: 0; overflow-wrap: anywhere; color: var(--prose); }
+
+.pr-quiet { font-size: 13px; color: var(--muted); margin: 6px 0; }
+.pr-quiet.warn { color: var(--warn); }
+
+/* The sentence that explains a path rather than a state: what a conflict means and what
+   the button about to be pressed will do about it. Set apart from the actions under it,
+   because it is the argument for them. */
+.pr-conflict {
+  margin: 0 0 10px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--prose);
+}
+.pr-conflict code { font-size: 12px; }
+
+.pr-row-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.pr-freeform .row { align-items: center; }
+
+/* What the last act said back. On the card rather than in a toast: GitHub's refusals are
+   the reason this screen re-reads the pull request before it draws a button, and a
+   refusal you had to have been looking at is one you press the button over twice. */
+.pr-said { margin: 8px 0 0; font-size: 13px; line-height: 1.4; overflow-wrap: anywhere; }
+.pr-said.pr-ok { color: var(--bead-made); }
+.pr-said.pr-bad { color: var(--danger); }
 .board-num { color: var(--muted); font-variant-numeric: tabular-nums; }
 .board-nobead { font-style: italic; opacity: 0.8; }
 .board-facts { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
@@ -2822,6 +2869,28 @@ button.work-row {
   border-bottom: 1px solid var(--line);
 }
 .repo-tabs .chip-row { flex: 1; min-width: 0; }
+/*
+  Dismissed, and how many of them. Outside the scrolling row, beside ＋, because a
+  control that says what the list is *not* showing you must not be something you
+  scroll a row of repos to find — that is the same argument that put ＋ there.
+
+  `[hidden]` needs saying out loud: `.chip` sets `display: inline-flex`, and an author
+  rule beats the UA sheet's `[hidden] { display: none }` however specific either is.
+  The same line, for the same reason, is on `.ws-pick` below.
+*/
+.show-dismissed { flex: none; white-space: nowrap; }
+.show-dismissed[hidden] { display: none; }
+/*
+  On, and legibly so. There are two `.chip[aria-pressed]` rules in this file — one
+  quoted `"true"` up at the chips, one quoted `'true'` down at the composer's — and
+  the later one wins the background (a 16% wash) while the earlier one still hands
+  over `color: var(--accent-ink)`, which is nearly black. That lands dark ink on a
+  dark wash for every pressed chip in the app; here it would be a toggle you cannot
+  read in the one state you need to see. The accent as ink is the fix for this
+  control, and it is also quieter than a tab beside it, which is right — the tab
+  chooses what the list is of, this only says how much of it you are seeing.
+*/
+.show-dismissed[aria-pressed="true"] { color: var(--accent); }
 /* Same paint as a pressed chip. A tab is selected, not pressed, so the attribute
    differs and the rule has to say so — see `.chip[aria-pressed="true"]`. */
 .chip[aria-selected="true"] { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
