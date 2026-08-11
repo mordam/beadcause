@@ -445,10 +445,11 @@ question you were told about and cannot find.
 Every setting a space has is one you used to change by opening `~/.beadcause/config.json`
 in an editor, on the Mac, with the daemon running. That was fine while a space was two
 lines of quiet hours written once. It stopped being fine when a space became the unit
-that decides whether an unattended agent may answer a comment (`autoDispatch`) and
-whether a worker merges its own pull request without asking you (`autoMerge`,
-`requireApproval`) — because the moment you know one of those is set wrong is the moment
-you are looking at what it did, on a phone, at the weekend.
+that decides whether an unattended agent may answer a comment (`autoDispatch`), whether
+a worker merges its own pull request without asking you (`autoMerge`,
+`requireApproval`), and whether that merge then deploys itself (`autoShip`) — because the
+moment you know one of those is set wrong is the moment you are looking at what it did,
+on a phone, at the weekend.
 
 So **`/monitor` is the details of the space the picker has selected**, and its settings
 are on it:
@@ -469,6 +470,7 @@ are on it:
 │      Agents may answer unasked          off  │
 │      Workers merge their own PRs         on  │
 │      An approving review first  inherited·off│
+│      Merges ship themselves              on  │
 │  ▸ WHAT EACH REPO RESOLVES TO            3   │
 ├──────────────────────────────────────────────┤
 │  beadcause      3 of 3 sessions              │
@@ -486,9 +488,9 @@ editing the config file for.
 **Three shapes of control, and the shape is the shape of the answer.** `Muted` is
 two-state, because there is no global mute behind it and a third button would be a
 lie. Quiet hours and quiet days are a pair of clocks and a row of days, each clearable,
-because "no quiet hours" is a state you have to be able to get back to. The four with a
+because "no quiet hours" is a state you have to be able to get back to. The five with a
 global default behind them — push detail, agents-may-answer, auto-merge,
-approval-first — are **three**-state: On, Off, and *Inherit*, which names what it
+approval-first, ships-itself — are **three**-state: On, Off, and *Inherit*, which names what it
 currently resolves to. That third button is not a nicety: `prPolicyFor` is explicit
 that a space may override the global in *either* direction, so "off" and "following a
 default that is currently off" are different answers, and only one of them survives the
@@ -498,7 +500,7 @@ default changing.
 not the last word on two of these settings: `ntfy.minimalWorkspaces` and
 `autoDispatchExclude` are per-repo lists that outrank it, so a space set to `full` can
 contain one repo that pushes minimally. The panel runs every workspace in the space
-through the same four resolvers the daemon itself uses and prints the answers, because
+through the same five resolvers the daemon itself uses and prints the answers, because
 a screen showing only the space's own setting would be quietly wrong about exactly the
 repo somebody had singled out — and wrong in the direction of promising more detail on
 your phone than you are going to get.
@@ -2917,7 +2919,7 @@ and it closes itself when the merge goes live. One per pull request, labelled `s
 carrying a `ship: <repo>#<n>` marker that makes filing idempotent whatever else is going
 on, and labelled `unendorsed` — lib/endorse.js's hold, which is a filter in every
 advocate queue *and* a refusal in the launcher — so nothing ever opens a session on one:
-shipping is a tap, not an agent. Two things bound it,
+shipping is a tap or nothing (see auto-ship below), never an agent. Two things bound it,
 because a tracker filling with chores is worse than no tracker at all —
 
 - **The first sight of a repo files nothing.** The board carries three weeks of merged
@@ -2932,6 +2934,63 @@ because a tracker filling with chores is worse than no tracker at all —
 (300) is how often the queue is swept, which is slow on purpose — it is a `gh` call per
 repo when nobody has looked at the board recently, and "this merged and has not shipped"
 keeps for five minutes.
+
+### Auto-ship — the merge that does not wait for the tap
+
+Everything above ends at a bead that waits for you. That is the right default and it is
+not always the right answer: on a repo you are the only reader of, "merged, not live"
+is a state with no purpose, and the work sits on `origin/main` for as long as it takes
+you to notice a bead. So a space may say **`autoShip`** and the release queue runs the
+repo's own declared deploy itself — no session, no tap, and the ship bead then closes on
+exactly the evidence it always did.
+
+It is a space setting for the same reason `autoMerge` is one, with the same three values
+(on, off, and absent meaning inherit) and the same global default behind it —
+`release.autoShip`, **off**, which is what every install does today. And it is the space
+that is overridden rather than the last word: **an epic beats it, in either direction.**
+Label an epic `no-auto-ship` and its work stays parked on a space that ships everything
+else; label one `auto-ship` and it goes out on a space that does not. A merge finds its
+epic by walking up from the bead it delivered (`parent`, one `bd show` per level) and the
+*nearest* opinion wins, so an exception written on the work beats the rule written above
+it. A label rather than a config key because it is visible on the bead you are looking
+at, and because it is one word to add from anywhere.
+
+Four properties make it safe to leave running while nobody is watching:
+
+- **A settle window, not a trigger.** The first merge that may ship arms a ten-minute
+  clock on the workspace and nothing happens; merges arriving while it runs join the same
+  batch and do **not** push it back. Four merges in ten minutes are one deploy carrying
+  all four — which is what pressing Ship does anyway, and what a deploy that restarts
+  beadcause itself demands. `release.settleSeconds` moves it. It is a timestamp in
+  `releases.json` rather than a timer, because a timer does not survive the deploy it is
+  waiting to start.
+- **One attempt per merge, ever.** Firing stamps every merge in the batch as tried
+  *before* the deploy is spawned, so **a failed deploy is not retried** — its beads stay
+  open, the Ship button stays armed, and the fallback is exactly today's behaviour: your
+  tap. Nothing unattended runs a failing deploy in a loop against the thing that restarts
+  the server. A ledger that will not write cancels the fire rather than deploying and
+  hoping.
+- **Not knowing is not a yes.** A tracker mid-write — Dolt is single-writer and six
+  sessions share it — means the epic could not be read, and that falls through to doing
+  *nothing this tick*, never to the space's own answer. The next sweep asks again.
+- **A repo that declares no deploy is untouched.** beadcause cannot ship it, so it files
+  the bead and waits for a session, exactly as before.
+
+The deploy it starts is the same `startDeploy` the button calls, with the queue named in
+its reason and the oldest merge's bead on the record — so it is indistinguishable
+afterwards from one you pressed, every screen that draws deploys draws it, and its
+outcome reaches you through the space's ordinary deploy notification. One thing `false`
+does not buy, and it is a property of deploying rather than a gap: a deploy makes
+everything on `origin/main` live at once, so a parked merge still goes out if something
+*else* fires a deploy of that checkout. What `false` guarantees is that nothing in this
+space is ever the reason a deploy ran.
+
+`node test/autoship.mjs` covers it with a `ship` stub that starts nothing: that the
+window arms rather than deploys, that a second merge joins it without moving it, that one
+deploy carries both, that a merge already tried never arms again — the retry loop, proved
+absent over merges that are still owed — that a failed deploy leaves the beads open, that
+an epic saying no holds its work back on a space saying yes, and that with auto-ship off
+the bead filed is byte for byte the one filed today, tap and all.
 
 ### What it costs, and what it keeps
 
