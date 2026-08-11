@@ -1433,6 +1433,47 @@ than globbed. The prompt says the same thing in words — answer, never close, n
 create — but the allowlist is what makes it true. `test/lookup.mjs` asserts the list
 grant by grant, so widening it fails a test named after the thing being widened.
 
+#### The list has a file to itself, and the reason is not tidiness
+
+It lives in `lib/toolbelt.js`, which is one array, one string derived from it, and no
+imports at all. Two files need it: `lib/agents.js` exports it as part of the roster,
+because what a reply agent may run is part of what a reply agent *is*, and
+`lib/foundation.js` records the same list as the dispatch agent's `allowedTools`,
+because an [amendment](#what-an-agent-is--and-how-it-asks-to-be-different) has to have
+something to land on. Two copies of an allowlist is one copy that gets widened without
+the other noticing, so there is one array and both files read it.
+
+For a year the way they shared it was that `foundation.js` imported it from
+`agents.js` — and `agents.js` imports `baseline` and `mark` back. A cycle in itself is
+fine and there are four others here; what is not fine is a cycle where one side
+*reads* the other's binding at module scope, because until a module's own body reaches
+a `const` that `const` is in its temporal dead zone. So the graph had an entry order.
+Come in through `foundation.js` and both loaded. Come in through `agents.js` and it
+threw:
+
+```
+$ node -e "import('./lib/agents.js')"
+ReferenceError: Cannot access 'DEFAULT_TOOL_LIST' before initialization
+```
+
+**Nothing in the running daemon was ever broken by it, and that is what made it
+expensive.** Every real entry point happened to reach `foundation.js` first, so the
+trap was only ever sprung by new code: adding an `import` of the roster to any module
+`lib/server.js` reaches early moved `agents.js` ahead of `foundation.js` and killed the
+daemon at boot, and `npm test` died at whichever suite first imported `server.js`,
+naming a constant rather than a cycle. Nine test suites had quietly grown an
+otherwise-unused `await import('lib/foundation.js')` at the top to force the order, the
+reason was written down in none of them, and two sessions paid twenty minutes each to
+work it out again (bc-u4na).
+
+A leaf both sides import has no order to get wrong, so those nine imports are gone.
+`node test/loadorder.mjs` is what keeps it that way: it imports every `lib/*.js` **in a
+process of its own** — the only way to ask the question, since after the first import
+the order is already decided — and fails on any module that only works second. Eighty-
+five processes, eight at a time, about three seconds. It deliberately does *not* assert
+that `lib/` is acyclic, because the cycles that remain are safe ones; the property worth
+having is not "no cycles" but "no module that only loads second".
+
 ### Looking something up — and why it is not `Bash(curl:*)`
 
 The last four entries are the difference between a question that turns on one
@@ -5211,9 +5252,9 @@ is that nothing in the app can stop it binding — every `import` at the top of 
 leaf, which is what makes a syntax error in `lib/server.js` cost you a swap rather than the
 port. A static `import` of `lib/crash.js` would have quietly spent that: it reaches
 `lib/errors.js`, `lib/filing.js`, `lib/proposal.js` and `lib/endorse.js`, and `ownWorkspace`
-lives in `lib/deploy.js`, which reaches `lib/session.js` and so the `lib/foundation.js` ↔
-`lib/agents.js` cycle (bc-u4na) — a graph whose *evaluation order* decides whether it loads
-at all. Loading it after the socket is bound inverts the failure: the worst case is a router
+lives in `lib/deploy.js`, which reaches `lib/session.js` and through it most of the roster,
+the foundations and the tracker — a third of the app, evaluated before the port is bound.
+Loading it after the socket is bound inverts the failure: the worst case is a router
 that serves normally and says in its log that its crashes are only log lines, which is
 precisely what it did before any of this. `notifyCertificate` loads `lib/notify.js` the same
 way for the same reason. The arming says which graph it chose, in one line, because the

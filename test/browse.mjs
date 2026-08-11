@@ -38,9 +38,6 @@ import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 
-// foundation.js first, deliberately: it and agents.js import each other, and the module
-// entered first is the one whose constants initialise. Same ordering, same reason, as
-// test/lookup.mjs and test/allowlist.mjs.
 import * as foundation from '../lib/foundation.js';
 import { DEFAULT_TOOL_LIST } from '../lib/agents.js';
 import { lookupBrief, LookupError } from '../lib/lookup.js';
