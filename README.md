@@ -4562,7 +4562,13 @@ The limits, stated plainly:
   again with no tap), and an ntfy push goes to the phone — the same argument as the
   certificate warning, since every other channel this daemon has runs through the
   backend that is missing. A recovery push follows, because an alarm you are never told
-  is over is an alarm you learn to ignore.
+  is over is an alarm you learn to ignore. All three surfaces are tested against a real
+  router driven into the outage on purpose: `test/slowstart.mjs` for the log and the
+  503, and `test/outagepush.mjs` for the push, which points `ntfy.server` at a ten-line
+  http server inside the test and asserts that exactly one outage push arrives however
+  many bring-ups fail after it, that it names the build, and that the recovery push
+  arrives too. The push was the one surface with no test for a while, which is the wrong
+  way round — it is also the only one that works when nobody is at the Mac.
 - **And the degraded half of that is on the advocate console.** `/api/work` carries
   `router` beside `service`: one dim line naming the build being served on a good day,
   and an amber block when the phone is on an older build than the disk — because the
@@ -5027,7 +5033,7 @@ cookie says so), and `/auth/signout` ends the session.
 | POST | `/api/respond` | `{workspace, id, response, create?, edits?}` | comments, then closes the bead. `create` is the 1-based indices of a proposal's beads to file; without it, `CREATE:` in the text means all and `CREATE: 1,3` means those. `edits` is `{n: {title, type, priority, description, acceptance}}` keyed by the same numbers, applied before creating. A `MERGE:` / `CHANGES:` / `DECLINE:` response on a delivery question acts on its pull request first — see [Landing work](#landing-work--a-branch-a-pull-request-and-the-workers-own-merge) |
 | GET | `/api/pr` | `?workspace=&id=` | `{delivery, pr, unavailable}` — the live diffstat, check rollup and mergeability of a delivery question's PR. Every failure is an answer rather than a 500: no `gh`, no remote, GitHub unreachable all come back with `pr: null` and a sentence in `unavailable` |
 | GET | `/api/prs` | `?refresh=1` | the PR board: every pull request in every repo with its Merged · Pushed · Deployed lamps, plus `observing`. Cached 25s on the daemon; `refresh=1` forces the `gh` sweep |
-| POST | `/api/pr/merge` | `{workspace, number, method?}` | merges it at GitHub, then fast-forwards this Mac's `main`. The two halves report separately — `{pr, alreadyMerged, land}` — because a merge that landed and a fast-forward refused over open files is a *good* outcome and one flat failure over both would send you to GitHub to find out which |
+| POST | `/api/pr/merge` | `{workspace, number, method?}` | merges it at GitHub, fast-forwards this Mac's `main`, and retires the inbox's own "Merge #N?" card if a worker filed one. Three halves report separately — `{pr, alreadyMerged, land, cards}` — because a merge that landed and a fast-forward refused over open files is a *good* outcome and one flat failure over both would send you to GitHub to find out which. The card is **closed**, never answered: merging a pull request is a fact, and the card is spent because of that fact rather than because anything wrote `MERGE:` under your name |
 | POST | `/api/pr/ship` | `{workspace, number}` | the declared deploy where the repo has one, an iTerm session where it does not. `409` if the PR is not merged — shipping an unmerged pull request has no meaning. Refused on an observer |
 | POST | `/api/pr/comment` | `{workspace, number, text}` | a note on the pull request at GitHub and nothing else. Not `/api/comment`, which writes on a *bead* and puts an agent onto answering it |
 | POST | `/api/comment` | `{workspace, id, text, agent?}` | comments, sets `human-replied`, dispatches that agent to reply (default when absent or unknown) |
