@@ -4074,6 +4074,111 @@ exists for are the ones invisible from the server: that a group tap is **one req
 per workspace** carrying all of its ids, and that the first press of Revoke writes
 **nothing at all**.
 
+## An error the app hits files itself as a P0
+
+Everything above is about work somebody decided to do. This is about the other kind:
+the app breaks in front of you, a red toast says so, and then the fact is gone. Four
+files have their own local `toast(msg, bad)` — `public/app.js`, `public/console.js`,
+`public/foundations.js`, `public/term.js` — and nothing on either side catches an
+uncaught exception or an unhandled rejection at all. You see it on a phone, in a room,
+once. By the time you are at the Mac you remember that *something* went wrong on the
+graph sheet and not what.
+
+So an error reported to `POST /api/error` becomes tracker state. A **P0 bug**, endorsed,
+labelled `app-error` — and the advocate then picks it up ahead of everything else with
+no change of its own, because its queue was already sorted highest-priority-then-oldest.
+Nothing new had to be taught how to care.
+
+**Filing is the easy half. Not filing the same thing forty times is the hard half.** One
+broken selector on a view that re-renders on every poll is not forty bugs, and a tracker
+that says it is has been made useless by the feature meant to help it. So every report
+is fingerprinted twice, in a deliberate order:
+
+1. **The source `file:line`** — the primary key, because it is the most specific thing a
+   report carries. Two different bugs on one line are vanishingly rarer than two
+   different lines with the same generic message; there are a great many ways to say
+   "Failed to fetch".
+2. **The message text** — the backup, and it exists for one case: an unrelated edit
+   above the throw site moves the line. Without it, the same bug files a fresh P0 every
+   time somebody adds an import.
+
+Both go on the bead as labels, hashed — a bd label has no quoting story and a message
+can contain anything at all, and a stack-frame path is long enough to make `bd show`
+unreadable. The readable form is written into the description, where a person can see
+what a later report will be matched *on*. The lookup is one `bd list --all --label-any`
+per report: an OR over both keys in a single call, because this runs on the hot path of
+a page that may be reporting several times a second.
+
+Three outcomes, and the third is the interesting one:
+
+| The fingerprint matches | What happens |
+|---|---|
+| nothing | a new **P0 bug**, titled from the message, with everything the report carried |
+| **an open bead** | a comment on it — occurrence number, timestamp, page. No second bead |
+| **a closed bead** | a **new** bead, with a `discovered-from` edge to the closed one |
+
+That last row is a decision, not an oversight. A bug that comes back after being fixed
+is a regression, and a regression that silently reopens the old bead loses the fact that
+it was ever fixed — along with the commit that was supposed to have fixed it, and the
+close reason somebody wrote. The edge is what carries "we have been here before" to
+whoever picks it up, and a reopened bead cannot carry it.
+
+**A bead matched on the message alone learns the new `file:line`.** The label is added
+the moment the drift is noticed, so the next report hits the primary key directly and
+the bead accumulates every line the bug has lived on — which turns out to be the fastest
+way to see that a bug has been moving around a file for three weeks.
+
+### Why these are the one thing filed without the hold
+
+Everything else an agent files arrives `unendorsed` and nothing may work it until you
+say so, and everything else an agent files is clamped to P2 or worse — what an agent
+*decided* was work may not outrank what you chose. Both are switched off here, in the
+one place that says so (`ERROR_PRIORITY` in lib/errors.js).
+
+The reason is that a reported error is not a judgement. No agent thought this might be
+worth doing; a program failed, and the report is a fact about your Mac. Holding a P0
+crash behind a tap you have not read yet defeats the entire point, which is that the
+advocate is already on it by the time you look. The provenance stamps stay on — the bead
+still carries `agent-filed`, so `bd list --label agent-filed` is still the whole audit —
+and the note on the bead says in its own words why it arrived endorsed, rather than
+blaming a space setting that was never consulted.
+
+The honest cost: a broken build can file several P0s at once, and they are workable
+immediately. `bd list --label app-error` is the list, and closing one is a tap.
+
+### The race it has to survive, which is not the one you would guess
+
+A page whose render throws reports, re-renders, and reports again — three requests in
+flight before the first `bd create` has returned. bd's own single-writer retry does not
+help at all here, because those three creates do not conflict with each other. They all
+succeed, and you get three P0 beads for one bug: the exact failure this whole thing
+exists to prevent, arriving through the door built to guard it.
+
+So `intake` serialises per fingerprint, in-process. Two *different* errors still file
+concurrently, and a report whose predecessor failed is still filed rather than
+inheriting the rejection — one `bd` lock timeout must not silently swallow every later
+occurrence of that error for as long as the daemon runs.
+
+**The endpoint never answers 5xx.** It is called *by* error handling: a 500 here is
+itself an error, the page reports the failure of its own reporting, and the loop has no
+floor. A tracker that is down answers `200 {ok: false, reason}` instead, which a
+reporter can log and stop on.
+
+### Checking it
+
+`node test/apperrors.mjs` covers the three outcomes against a stub `bd` that implements
+`--label-any`, `--all` and the status filter the way bd implements them — a stub that
+returned everything whatever it was asked would pass whatever the code did. It asserts
+the acceptance criteria directly (twice → one bead and one comment; a moved line → still
+one bead, matched on the message; a closed match → a second bead carrying the edge), the
+argv the lookup is actually made with, and the three-at-once race.
+
+Its own fixture is worth a sentence, because it was wrong first: one JSON file for the
+whole tracker made `bd create` a read-modify-write race *between processes*, so two
+distinct errors came back holding the same id — which reads exactly like the
+serialisation bug the test exists to disprove. It is one file per bead now, and the id
+is claimed with an exclusive create.
+
 ## Advocates — an agent per repo, whose job is the queue reaching zero
 
 Everything above is a **channel**. A question reaches your phone, an answer reaches
@@ -6968,6 +7073,7 @@ cookie says so), and `/auth/signout` ends the session.
 | POST | `/api/space` | `{space, settings}` | change that space's settings from the app. A patch — only the keys sent are touched, and `null` clears one back to the global default. `name` and `workspaces` are not settable: moving a repo between spaces decides which questions may reach you and stays a config-file act. Writes the live `cfg` *and* `config.json`, so the running daemon and the next restart agree. Refused on an observer |
 | POST | `/api/notifications/dismiss` | `{keys[], confirm}` | clears the phone's notification rows for beads the filter excludes. `confirm: false` records the decline, which is what stops the next sweep asking again. The beads are untouched either way |
 | POST | `/api/ask` | `{workspace, title, body, priority}` | `{id, key}` — files a new `human` bead |
+| POST | `/api/error` | `{message, source?, line?, column?, stack?, url?, userAgent?, at?, kind?, workspace?}` | `{ok, action, id, key, fingerprint}` — an error the app hit, filed as a **P0 bug** or commented onto the bead that already covers it. `action` is `created` · `commented` · `regressed`. **`message` is the only required field**: a cross-origin `window.onerror` is handed `"Script error."` and nothing else, and that is still worth more than a red toast nobody saw. `workspace` defaults to the first configured one — the reporter is a page, which has no idea which repo it is looking at. **Never answers 5xx**, because it is called by error handling: a tracker that is down comes back `200 {ok: false, reason}`. See [an error the app hits files itself as a P0](#an-error-the-app-hits-files-itself-as-a-p0) |
 | POST | `/api/session` | `{workspace, id}` | `{dir}` — opens iTerm2 + `claude` on that bead |
 | POST | `/api/status` | `{workspace, id, phase, detail, actor}` | agent progress |
 | GET | `/api/agent-log` | `?workspace=&id=` | `{lines[], running, phase}` — the dispatched agent's log, as the CLI would have shown it |
