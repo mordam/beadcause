@@ -4307,10 +4307,42 @@ The limits, stated plainly:
   or `lib/config.js` and it says so once in the log; you restart it by hand with
   `launchctl kickstart -k gui/$(id -u)/m4m.beadcause`. It is small and it rarely
   moves, which is the trade.
-- **A build that will not start is tried once.** If the new backend never becomes
-  healthy — a syntax error, a bad import — the old one keeps serving and the failed
-  build is not retried until the files change again, because respawning a broken
-  process every three seconds helps nobody. `npm run swap:status` names it.
+- **A build that *dies* is condemned; a build that is merely slow is retried.** If the
+  new backend exits before it is healthy — a syntax error, a bad import — the old one
+  keeps serving and that build is not retried until the files change again, because
+  respawning a broken process every three seconds helps nobody. But a child that is
+  still alive and simply has not answered yet is a fact about the *machine*, and the
+  two used to be the same thing: on a Mac running ten agent sessions, two other routers
+  and eight headless Chromes, a backend that binds in ~2s did not answer inside the
+  twenty-second window, and a perfectly good build was condemned. Twice, in one evening.
+  So the window scales — it doubles per attempt, and the router remembers how slow this
+  machine has been proving to be — and a build that runs out of patience is *deferred*
+  rather than poisoned: tried again on the clock, with a longer window, until it comes
+  up on its own. `npm run swap:status` says which of the two it is looking at, in the
+  two words that are not interchangeable. See `lib/startup.js`, which is where the
+  policy lives, with no I/O in it so that `npm test` can assert it as arithmetic.
+- **A router with nothing behind it says so, in three places.** The failure above has a
+  worse cousin: when there is *no* old backend to keep serving, the router holds the
+  port and answers 503 to everything. Nothing is down in a way launchd would restart,
+  the port is bound, and the app is gone. Two things follow from that. The router keeps
+  trying — with no active backend, poison and deferral are both ignored, because the
+  worst outcome of retrying a broken build is the 503 you already have, and that retry
+  did not exist before: `watchDisk` returned early with no active backend, so a *first*
+  start that failed was final. And the state gets surfaces that do not depend on the
+  thing that is down: the 503 itself is a page saying which build, whether it died or
+  was only slow, and when the next attempt is (it reloads itself, so it becomes the app
+  again with no tap), and an ntfy push goes to the phone — the same argument as the
+  certificate warning, since every other channel this daemon has runs through the
+  backend that is missing. A recovery push follows, because an alarm you are never told
+  is over is an alarm you learn to ignore.
+- **And the degraded half of that is on the advocate console.** `/api/work` carries
+  `router` beside `service`: one dim line naming the build being served on a good day,
+  and an amber block when the phone is on an older build than the disk — because the
+  newer one died, or because it was too slow and is being retried. Amber rather than
+  the red above it: on all of these the app is up and answering, which is a different
+  sentence. A *total* outage is not visible there by construction — the console is
+  served by the backend that is missing — which is exactly why the 503 and the push
+  exist and why they belong to the router rather than to the app.
 - **The stamp is size and mtime**, over `lib/*.js` and `bin/*.js`. `public/` is
   deliberately absent: it is served from disk per request, so a CSS edit is live
   already and swapping for one would be churn. `touch lib/server.js` is enough to
@@ -4767,7 +4799,7 @@ cookie says so), and `/auth/signout` ends the session.
 | GET | `/api/graph` | `?workspace=&id=` | `{nodes, links}` — the whole workspace with no `id` |
 | GET | `/api/bead` | `?workspace=&id=` | one issue in full, plus `comments[]` — for the graph's detail sheet |
 | GET | `/api/bead-children` | `?workspace=&id=` | `{children[]}` — every child of that bead, closed ones included, open work first. Its own route because `bd show` does not carry children |
-| GET | `/api/work` | — | `{workspaces[], elsewhere[], advocates[], service}` — per workspace: claimed beads, live `claude` sessions, counts, errors. `service` is what launchd is running — see the router section |
+| GET | `/api/work` | — | `{workspaces[], elsewhere[], advocates[], service, router}` — per workspace: claimed beads, live `claude` sessions, counts, errors. `service` is what launchd is running; `router` is whether that program is actually serving anything, or is on an older build than the disk — see the router section. `router` is `null` under `npm run start:bare`, where there is no router |
 | GET | `/api/agents` | — | `{agents[], default}` — the roster you can address a comment to |
 | POST | `/api/agents` | `{name, description}` | creates one and returns the new roster. `tools` is never accepted here |
 | POST | `/api/agent-arm` | `{id, acknowledge?, disarm?}` | arms that agent's configured tools override for **one** reply. `428` the first time, carrying the warning to show; `409` while it is answering; `400` if it has no override |
@@ -4815,7 +4847,7 @@ the tailnet holding the token could otherwise stop the poller:
 
 | Method | Path | Returns |
 |---|---|---|
-| GET | `/internal/router/state` | `{router, disk, stale, poisoned, active, retiring[]}` — what `npm run swap:status` prints |
+| GET | `/internal/router/state` | `{router, disk, stale, poisoned, deferred, serving, outage, retryAt, slowness, active, retiring[]}` — what `npm run swap:status` prints. `poisoned` is a build that *died* at startup; `deferred` is one that was only slow, and when it will be tried again |
 | POST | `/internal/router/swap` | `{ok, active}` — or `{ok:false, error}` if the new build would not start |
 
 Every proxied response also carries `x-beadcause-build` and `x-beadcause-pid`,

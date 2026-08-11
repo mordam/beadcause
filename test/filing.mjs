@@ -1,0 +1,380 @@
+#!/usr/bin/env node
+/**
+ * A worker creates the bead itself, and it arrives held.
+ *
+ *     npm test
+ *     node test/filing.mjs
+ *
+ * The inversion at the middle of bc-3zo9: a session that finds work mid-task used to
+ * file a question and wait for a button; it now files the bead. Everything that makes
+ * that safe rather than reckless is a stamp on the bead at the moment of creation, and
+ * a stamp that goes missing fails *silently* — the bead looks entirely ordinary, so it
+ * is queued, launched, and worked before anyone has read its title. That is the failure
+ * this file exists to catch, and it is checked end to end rather than by unit: the
+ * command is run as a real subprocess against a real `Bd` and a stub `bd` binary, and
+ * the assertions are made against what actually landed in the tracker.
+ *
+ * Four things have to be true of every bead filed this way:
+ *
+ * 1. **It exists.** The command creates it and prints its id — the whole point of the
+ *    inversion, and the thing a proposal could not do.
+ * 2. **It is `unendorsed`.** Which is only worth anything because of bc-3zo9.1, so the
+ *    hold itself is re-asserted here from the far end: `Bd.ready` must not return the
+ *    bead this command just filed, and `assertEndorsed` must refuse it. Those two are
+ *    tested properly in test/endorse.mjs; what is tested here is that the bead a worker
+ *    files is genuinely one of the ones they refuse.
+ * 3. **It says where it came from.** `agent-filed` for "an agent decided this was
+ *    work", and a `discovered-from` edge back to the bead being worked when it was
+ *    found. The label is how you audit the feature after the marker comes off; the edge
+ *    is the only trail back once the session that had the reason on screen is gone.
+ * 4. **It cannot outrank the work Adam chose.** An agent filing at P0 is clamped, and
+ *    told so rather than silently overruled.
+ *
+ * Nothing here opens a window, reaches the network or touches a real tracker. `HOME` is
+ * inside the temp directory for the subprocess, so `discoverWorkspaces` finds no `~/beads`
+ * and the only workspace in play is the one this file wrote.
+ */
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const ROOT = path.join(HERE, '..');
+const LIB = (name) => path.join(ROOT, 'lib', name);
+
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'beadcause-filing-'));
+// Before anything under lib/ is imported: CONFIG_DIR resolves once, at module load.
+process.env.BEADCAUSE_CONFIG_DIR = path.join(tmp, 'config');
+fs.mkdirSync(process.env.BEADCAUSE_CONFIG_DIR, { recursive: true });
+
+const { Bd } = await import(LIB('bd.js'));
+const { UNENDORSED, QUEUE_EXCLUDED, isHeld, assertEndorsed } = await import(LIB('endorse.js'));
+const { FILED_LABEL, PRIORITY_FLOOR, DISCOVERED_FROM, clampPriority, withDiscoveredFrom, beadToIssue, fileBeads } =
+  await import(LIB('filing.js'));
+
+/* ------------------------------------------------------------------- the stub bd */
+
+const WORLD = path.join(tmp, 'world.json');
+const FAKE_BD = path.join(tmp, 'bd');
+
+/**
+ * A tracker in a JSON file, and a `bd` that reads and writes it.
+ *
+ * `create` is implemented the way bd implements it — repeated `--label` and `--deps`,
+ * a `--json` object carrying the new id — because the flags *are* what is under test.
+ * A stub that took a JSON blob would prove nothing about the argv `Bd.create` builds,
+ * and the argv is where a label goes missing.
+ *
+ * `ready` honours `--exclude-label` for the same reason: the assertion that a filed
+ * bead never reaches a queue has to survive a `bd` that is doing the filtering, since
+ * that is the one that runs in production.
+ */
+fs.writeFileSync(
+  FAKE_BD,
+  `#!/usr/bin/env node
+const fs = require('fs');
+const args = process.argv.slice(2);
+const w = JSON.parse(fs.readFileSync(${JSON.stringify(WORLD)}, 'utf8'));
+const save = () => fs.writeFileSync(${JSON.stringify(WORLD)}, JSON.stringify(w, null, 2));
+const all = () => Object.values(w.issues);
+const one = (n, d) => { const i = args.indexOf(n); return i === -1 ? d : args[i + 1]; };
+const many = (n) => { const out = []; for (let i = 0; i < args.length; i++) if (args[i] === n) out.push(...String(args[i + 1] || '').split(',')); return out.filter(Boolean); };
+const die = (m) => { process.stderr.write(m + '\\n'); process.exit(1); };
+
+if (args[0] === 'create') {
+  const title = one('--title', '');
+  // The one create this world refuses, so a partial failure can be asserted: Dolt
+  // losing a lock race looks exactly like this from here.
+  if (/^BOOM/.test(title)) die('error: database is locked');
+  const id = 'zz-n' + (Object.keys(w.issues).length + 1);
+  const deps = many('--deps');
+  for (const d of deps) {
+    const target = d.includes(':') ? d.slice(d.indexOf(':') + 1) : d;
+    if (!w.issues[target]) die('error: no issue found matching "' + target + '"');
+  }
+  w.issues[id] = {
+    id,
+    title,
+    description: one('--description', ''),
+    acceptance: one('--acceptance', ''),
+    notes: one('--notes', ''),
+    status: 'open',
+    issue_type: one('--type', 'task'),
+    priority: Number(one('--priority', '2')),
+    labels: many('--label'),
+    dependencies: deps.map((d) => ({
+      id: d.includes(':') ? d.slice(d.indexOf(':') + 1) : d,
+      dependency_type: d.includes(':') ? d.slice(0, d.indexOf(':')) : 'blocks',
+    })),
+    actor: one('--actor', ''),
+  };
+  save();
+  process.stdout.write(JSON.stringify({ id }));
+  process.exit(0);
+}
+if (args[0] === 'ready') {
+  const off = many('--exclude-label');
+  const rows = all()
+    .filter((i) => i.status === 'open' && !i.assignee)
+    .filter((i) => !(i.labels || []).some((l) => off.includes(l)));
+  process.stdout.write(JSON.stringify(rows));
+  process.exit(0);
+}
+if (args[0] === 'show') {
+  const issue = w.issues[args[1]];
+  if (!issue) die('Error fetching ' + args[1] + ': no issue found');
+  process.stdout.write(JSON.stringify([issue]));
+  process.exit(0);
+}
+if (args[0] === 'list') {
+  const off = many('--exclude-label');
+  const rows = all()
+    .filter((i) => i.status !== 'closed')
+    .filter((i) => !(i.labels || []).some((l) => off.includes(l)));
+  process.stdout.write(JSON.stringify(rows));
+  process.exit(0);
+}
+if (args[0] === 'comments') { process.stdout.write('[]'); process.exit(0); }
+process.stdout.write('[]');
+`,
+  { mode: 0o755 }
+);
+
+const issue = (id, extra = {}) => ({
+  id,
+  title: `bead ${id}`,
+  description: '',
+  status: 'open',
+  issue_type: 'task',
+  priority: 2,
+  labels: [],
+  ...extra,
+});
+
+/** The bead a worker is working when it finds something, and one already-filed bead. */
+const reset = () => {
+  fs.writeFileSync(
+    WORLD,
+    JSON.stringify(
+      {
+        issues: {
+          'zz-work': issue('zz-work', { title: 'The bead the session was opened on' }),
+          'zz-old': issue('zz-old', { title: 'The router never proxies a WebSocket upgrade' }),
+        },
+      },
+      null,
+      2
+    )
+  );
+};
+reset();
+
+const world = () => JSON.parse(fs.readFileSync(WORLD, 'utf8'));
+const filedBeads = () => Object.values(world().issues).filter((i) => (i.labels || []).includes(FILED_LABEL));
+
+const wsDir = path.join(tmp, 'ws', '.beads');
+fs.mkdirSync(wsDir, { recursive: true });
+const ws = { name: 'demo', dir: wsDir };
+const bd = new Bd({ bin: FAKE_BD, actor: 'beadcause-test' });
+
+/* ------------------------------------------------------- the command, as a worker runs it */
+
+fs.writeFileSync(
+  path.join(process.env.BEADCAUSE_CONFIG_DIR, 'config.json'),
+  JSON.stringify({ bdBin: FAKE_BD, actor: 'beadcause-test', workspaces: [ws] }, null, 2)
+);
+
+/**
+ * Run `bin/file.js` the way the brief tells a worker to: YAML on stdin, ids on stdout.
+ *
+ * `HOME` points into the temp tree so `discoverWorkspaces` finds nothing to add — a
+ * real `~/beads` would be reconciled into the config and print onto stdout, which is
+ * the stream the ids come back on.
+ */
+function fileIt(yaml, args = ['-w', 'demo', '--from', 'zz-work']) {
+  const res = spawnSync(process.execPath, [path.join(ROOT, 'bin', 'file.js'), ...args], {
+    input: yaml,
+    encoding: 'utf8',
+    env: { ...process.env, HOME: tmp, BEADCAUSE_CONFIG_DIR: process.env.BEADCAUSE_CONFIG_DIR },
+  });
+  if (res.error) throw res.error;
+  return { status: res.status, stdout: res.stdout || '', stderr: res.stderr || '' };
+}
+
+/* --------------------------------------------------------------------- harness */
+
+let failures = 0;
+let ran = 0;
+async function check(name, fn) {
+  ran += 1;
+  try {
+    await fn();
+    console.log(`  ok   ${name}`);
+  } catch (err) {
+    failures += 1;
+    console.log(`  FAIL ${name}`);
+    console.log(`       ${String(err.message).split('\n').slice(0, 8).join('\n       ')}`);
+  }
+}
+
+console.log('\na worker creates the bead itself, marked unendorsed\n');
+
+/* ------------------------------------------------------------ what goes on a bead */
+
+await check('the priority ceiling holds what an agent files below the work Adam chose', () => {
+  assert.deepEqual(clampPriority(0), { priority: PRIORITY_FLOOR, asked: 0, clamped: true });
+  assert.deepEqual(clampPriority('P1'), { priority: PRIORITY_FLOOR, asked: 1, clamped: true });
+  assert.deepEqual(clampPriority(2), { priority: 2, asked: 2, clamped: false });
+  assert.deepEqual(clampPriority(4), { priority: 4, asked: 4, clamped: false }, 'a backlog bead stays in the backlog');
+  assert.equal(clampPriority(undefined).priority, PRIORITY_FLOOR, 'and a bead that said nothing lands on the floor');
+  assert.equal(clampPriority('nonsense').asked, PRIORITY_FLOOR, 'as does one that said something unreadable');
+});
+
+await check('the discovered-from edge is added once, and never over one the agent wrote', () => {
+  assert.deepEqual(withDiscoveredFrom([], 'zz-work'), [`${DISCOVERED_FROM}:zz-work`]);
+  assert.deepEqual(withDiscoveredFrom(['blocks:zz-a'], 'zz-work'), ['blocks:zz-a', `${DISCOVERED_FROM}:zz-work`]);
+  assert.deepEqual(
+    withDiscoveredFrom([`${DISCOVERED_FROM}:zz-work`], 'zz-work'),
+    [`${DISCOVERED_FROM}:zz-work`],
+    'two edges of the same type between the same pair is noise on the graph sheet'
+  );
+  assert.deepEqual(withDiscoveredFrom(['zz-work'], 'zz-work'), ['zz-work'], 'and a bare id is already that edge');
+  assert.deepEqual(withDiscoveredFrom(['blocks:zz-a'], ''), ['blocks:zz-a'], 'no --from, no edge invented');
+});
+
+await check('the marker goes on first, and `human` never does', () => {
+  const out = beadToIssue({ title: 'x', priority: 2, labels: ['api'] }, { from: 'zz-work' });
+  assert.equal(out.labels[0], UNENDORSED, 'a reader of bd show sees why it is not being worked, first');
+  assert.ok(out.labels.includes(FILED_LABEL), 'and that an agent filed it');
+  assert.ok(out.labels.includes('api'), 'without losing what the agent asked for');
+  assert.ok(!out.labels.includes('human'), 'a filed bead is not a question and must not land in the inbox');
+  assert.equal(isHeld({ labels: out.labels }), true, 'and lib/endorse.js agrees it is held');
+});
+
+/* --------------------------------------------------- the command, end to end */
+
+await check('a worker files a bead unattended, and gets its id back', () => {
+  const res = fileIt(`- title: The drawer forgets its scroll position
+  type: bug
+  priority: 2
+  description: |
+    Reopening it jumps to the top.
+  acceptance: It reopens where you left it.
+  rationale: Found while reading public/drawer.js for zz-work.
+`);
+  assert.equal(res.status, 0, res.stderr);
+  const ids = res.stdout.trim().split('\n').filter(Boolean);
+  assert.equal(ids.length, 1, `one id on stdout, got ${JSON.stringify(res.stdout)}`);
+  const bead = world().issues[ids[0]];
+  assert.ok(bead, 'and it is really in the tracker');
+  assert.equal(bead.title, 'The drawer forgets its scroll position');
+  assert.equal(bead.issue_type, 'bug');
+  assert.equal(bead.description.trim(), 'Reopening it jumps to the top.');
+  assert.equal(bead.acceptance, 'It reopens where you left it.');
+});
+
+await check('it arrives held, provenanced, and pointing back at the work that found it', () => {
+  const [bead] = filedBeads();
+  assert.ok(bead.labels.includes(UNENDORSED), `no marker on ${bead.id} — it would be worked tonight`);
+  assert.ok(bead.labels.includes(FILED_LABEL), 'and nothing would say an agent filed it');
+  assert.deepEqual(
+    bead.dependencies,
+    [{ id: 'zz-work', dependency_type: DISCOVERED_FROM }],
+    'the trail back to the session that found it'
+  );
+  assert.match(bead.notes, /Filed by an agent while working zz-work/);
+  assert.match(bead.notes, /How it was found:.*public\/drawer\.js/s, 'the rationale survives, out of the description');
+  assert.match(bead.notes, new RegExp(UNENDORSED), 'and the notes say what that means to whoever reads the queue');
+  assert.equal(bead.description.includes('Filed by an agent'), false, 'the description stays what the agent wrote');
+});
+
+await check('and nothing will pick it up — not the queue, and not the launcher', async () => {
+  const [bead] = filedBeads();
+  const rows = await bd.ready(ws, { excludeLabels: QUEUE_EXCLUDED });
+  assert.ok(!rows.some((r) => r.id === bead.id), `${bead.id} was ready to work the moment it was filed`);
+  assert.ok(rows.some((r) => r.id === 'zz-work'), 'while ordinary work is still queued');
+  await assert.rejects(() => assertEndorsed(bd, ws, bead.id), /may not be worked/, 'handed straight to the launcher');
+});
+
+await check('the whole worker brief is honest about it: a real bead, held, and carry on', async () => {
+  const { workPromptFor } = await import(LIB('session.js'));
+  const brief = workPromptFor('demo', { id: 'zz-work', title: 'x' }, 1, null, 'Adam');
+  assert.match(brief, /bin\/file\.js -w demo --from zz-work/, 'the command a worker is told to run');
+  assert.match(brief, /creates the bead for real/);
+  assert.match(brief, new RegExp(UNENDORSED));
+  assert.match(brief, /carry straight on with zz-work/);
+});
+
+/* ----------------------------------------------------------- the awkward inputs */
+
+await check('an agent that files a P0 is clamped, and told so on the bead', () => {
+  const res = fileIt(`- title: Everything is on fire
+  priority: 0
+  description: It is not, but I think it is.
+`);
+  assert.equal(res.status, 0, res.stderr);
+  const bead = world().issues[res.stdout.trim()];
+  assert.equal(bead.priority, PRIORITY_FLOOR, 'an agent may not put its own find at the top of the queue');
+  assert.match(bead.notes, /Filed as P0, held at P2/, 'and it is recorded rather than silently overruled');
+});
+
+await check('a duplicate is flagged on the bead rather than dropped', () => {
+  const res = fileIt(`- title: The router never proxies a WebSocket upgrade
+  description: The terminal 404s.
+`);
+  assert.equal(res.status, 0, res.stderr);
+  const bead = world().issues[res.stdout.trim()];
+  assert.ok(bead, 'a near-miss title is not proof of the same bug, so it is still filed');
+  assert.match(bead.notes, /Looks like a duplicate.*zz-old/s, 'and the endorsement queue can see what it resembles');
+});
+
+await check('a --from naming a bead that is not there loses the edge, never the bead', () => {
+  const res = fileIt(`- title: Filed from nowhere\n  description: x\n`, ['-w', 'demo', '--from', 'zz-nope']);
+  assert.equal(res.status, 0, res.stderr);
+  const bead = world().issues[res.stdout.trim()];
+  assert.deepEqual(bead.dependencies, [], 'the whole create would otherwise fail at the dep');
+  assert.ok(bead.labels.includes(UNENDORSED), 'and it is still held');
+});
+
+await check('one bead failing does not eat the others, and the exit code says so', () => {
+  const before = filedBeads().length;
+  const res = fileIt(`- title: BOOM this one collides
+  description: x
+- title: This one is fine
+  description: x
+`);
+  assert.equal(res.status, 4, 'a partial failure is a failure the caller has to see');
+  assert.equal(res.stdout.trim().split('\n').filter(Boolean).length, 1, 'and the one that landed is still reported');
+  assert.equal(filedBeads().length, before + 1);
+  assert.match(res.stderr, /could not file "BOOM this one collides"/);
+});
+
+await check('YAML that names no beads is refused rather than reported as success', () => {
+  assert.equal(fileIt('# nothing here\n').status, 3);
+  assert.equal(fileIt('beads: []\n').status, 3);
+  assert.equal(fileIt(': : : not yaml\n').status, 3);
+});
+
+await check('an unknown workspace prints the usage instead of filing anywhere', () => {
+  const res = fileIt('- title: x\n', ['-w', 'nosuchworkspace']);
+  assert.equal(res.status, 1);
+  assert.match(res.stderr, /usage: beadcause-file/);
+});
+
+/* ------------------------------------------------------- the library, without a CLI */
+
+await check('fileBeads reports both halves, so a caller can say what it got', async () => {
+  const res = await fileBeads(bd, ws, [{ title: 'BOOM again' }, { title: 'A second find', priority: 3 }], {
+    from: 'zz-work',
+  });
+  assert.equal(res.filed.length, 1);
+  assert.equal(res.failed.length, 1);
+  assert.equal(res.filed[0].priority, 3, 'a low priority is left alone');
+  assert.match(res.failed[0].error, /locked/, 'and the reason survives to whoever has to report it');
+});
+
+console.log(`\n${failures ? `${failures} of ${ran} failed` : `all ${ran} checks passed`}`);
+process.exit(failures ? 1 : 0);
