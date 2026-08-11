@@ -3096,8 +3096,8 @@ The default has since moved to a merge commit (`pr.mergeMethod`), which makes th
 half true again and turns this second half into the belt beside those braces: it is
 what covers a workspace that asks for `squash` on purpose. The reason the default
 moved is that this sweep is not the only thing gating on ancestry — the `ship` skill
-and its attic sweep do too, they live outside this repo, and nothing here can teach
-them to ask GitHub.
+does too, and its own step 7 is still outside this repo. Its *attic* sweep is not:
+since bc-uytt that is `bin/attic.js` here, so it asks GitHub the same way this does.
 
 **Retired means moved, not deleted**: `git worktree move` into
 `.claude/worktrees-retired/`, the same soft delete the `ship` skill does by hand, so
@@ -3143,7 +3143,8 @@ taken out from under somebody answers "nobody is in it" every time.
 An entry with no `.note` is kept forever and says so. Directory mtime is the only other
 signal and it is the wrong one — a background process touching a file is not somebody
 resuming a session, and it is the difference between keeping a directory and deleting
-it. `prune-retired.sh --backfill` is where a stamp gets invented, under a human.
+it. `bin/attic.js --backfill` is where a stamp gets invented, under a human, with
+`--dry-run` available to see what it would say first.
 
 **Ancestry is asked of `origin/main`, not `main`.** Nothing merges locally any more, so
 the local `main` branch stays wherever the last `git pull` left it while GitHub moves
@@ -3152,20 +3153,42 @@ were being described as "not merged into main" over work that had shipped two da
 earlier. Both sweeps ask `origin/main` first and fall back to `main` for a repo with no
 remote, which is also what stops a stale local ref from quietly holding the attic shut.
 
-**A `STRAY` row in the attic sweep is worth distrusting before you act on it.** The
-sweep lives outside this repo, but what it reports about `.claude/worktrees-retired/`
-is read as a statement about this one — and for a while it was wrong. It tested each
-retired directory for a registration by piping `git worktree list` into `grep -q`
-under `set -o pipefail`: grep exits at its first match, git takes SIGPIPE while it is
-still walking the rest, the pipeline reports 141, and a directory that *is* registered
-reads as one that is not. It called most of a healthy 85-entry attic unregistered, a
-different subset each run, which is what a race looks like from the outside. bc-bcdp
-was filed against the attic on that evidence; the attic was fine, and every directory
-in it had been put there by `git worktree move` exactly as this page describes.
-Two things to check before believing the next one: `git worktree list --porcelain |
-grep worktrees-retired | wc -l` against `ls -1d .claude/worktrees-retired/*/ | wc -l`,
-and whether the row survives a second run. `test/pipefail.mjs` keeps the construct out
-of this repo's own scripts, where it sat in four places.
+#### The sweep a human runs — and why it moved in here
+
+The daemon empties the attic on its own tick. The `ship` skill sweeps it too, and until
+bc-uytt that was a **second implementation of the same gates**: 210 lines of bash in
+`~/.claude-personal/skills/ship/prune-retired.sh`, versioned by nothing, tested by
+nothing, run by every ship, drifting from the code above that fills the directory it
+reads. Both of its bugs came from that, and neither was findable from its output.
+
+**bc-bcdp is the first.** It tested each retired directory for a registration by piping
+`git worktree list` into `grep -q` under `set -o pipefail`: grep exits at its first
+match, git takes SIGPIPE while it is still walking the rest, the pipeline reports 141,
+and a directory that *is* registered reads as one that is not. It called most of a
+healthy 85-entry attic unregistered, a different subset each run, which is what a race
+looks like from the outside. A session read that, believed it, and filed a bug describing
+a hand-`mv` that never happened and a name collision that did not exist. The attic was
+fine, and every directory in it had been put there by `git worktree move` exactly as this
+page describes. `test/pipefail.mjs` keeps the construct out of this repo's own scripts,
+where it sat in four places.
+
+**The second was found by the port, which is the argument for it.** `grep -rlq -- "$n"
+"$dir" --exclude-dir=archive` puts the flag *after* the path, and `grep` on this laptop
+is ugrep, which only honours `--exclude-dir` before it — so it took the flag for a
+filename, warned to a stderr that `2>/dev/null` swallowed, and searched `archive/`
+anyway. Every *spent* handoff went on protecting its attic entry forever. GNU grep
+accepts flags anywhere, which is exactly why nobody would have seen this.
+
+So `bin/attic.js` is what the skill calls now, and `lib/attic.js` is a **layer, not a
+second sweep**: it calls `expireRetired` above for every gate and every removal, and adds
+only what a fifteen-minute tick has no reason to produce — the `STRAY` rows (an
+unregistered directory, or a `.note` whose directory is gone: reported by name, never
+deleted), the report a person reads, and `--backfill`. `test/atticcli.mjs` holds it,
+starting with the claim the bash version could not make: a healthy attic reports **zero**
+strays, and the same zero five runs running.
+
+It is still repo-agnostic — it takes any repo's main checkout, and sophab, which has no
+daemon, still depends on it as the only thing that empties its attic.
 
 Two limits worth knowing. A session's `cwd` is recorded when it starts, so a session
 that later entered a worktree does not show as being *in* it — the lock is what
