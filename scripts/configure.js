@@ -22,6 +22,8 @@ import readline from 'node:readline/promises';
 import { loadConfig, saveConfig, CONFIG_PATH } from '../lib/config.js';
 import { globalWorkerCap } from '../lib/advocate.js';
 import { ownerName } from '../lib/owner.js';
+import { repoList, repoStatusLine, forgetRepos } from '../lib/repos.js';
+import { scanTargets, scanRoot, parseApproved, resolveDefaultChoice, tildeHome } from '../lib/reposcan.js';
 
 const HOME = os.homedir();
 const tty = process.stdin.isTTY && process.stdout.isTTY;
@@ -71,6 +73,12 @@ function summary(c) {
         : 'off'
     }`,
     `  console at login  : ${c.monitor?.enabled ? 'yes' : 'no (open /monitor yourself)'}`,
+    // Only on an install that has a multi-repo workspace at all. Everywhere else the line
+    // would say "every workspace is one repo", which is not news and reads as a setting
+    // somebody forgot to fill in.
+    ...(Object.keys((c.repos && typeof c.repos === 'object' && c.repos) || {}).length
+      ? [`  repos             : ${repoStatusLine(c)}`]
+      : []),
   ].join('\n');
 }
 
@@ -351,6 +359,135 @@ if (advocated.length) {
 }
 
 cfg.advocates = { ...(cfg.advocates || {}), workspaces: advocated, maxWorkers, enabled: true };
+
+/* ------------------------------------------------------------------ many repos */
+
+/**
+ * Which checkouts of a multi-repo workspace may be worked in.
+ *
+ * Asked last, and on most installs not asked at all: a workspace is a repo — one tracker,
+ * one checkout, one deploy — and only the company-shaped workspace breaks it. Climative is
+ * forty-odd services sharing a single `cl-` graph, and a bead there is about
+ * `athena-service` rather than about "climative".
+ *
+ * The list this writes was hand-edited JSON before, which is worse than it sounds: the two
+ * facts that decide an entry are both invisible from the config file. Whether the repo is
+ * cloned, and what service token its own `config/config.yaml` declares — so writing it by
+ * hand meant opening forty YAML files, and getting one token wrong means a bead that
+ * resolves to nothing at three in the morning.
+ *
+ * **What this must not become is discovery.** `approved` exists precisely so that a
+ * directory appearing under the root — a colleague's service, a secrets repo, an
+ * experiment — is not enough to put an unattended agent inside it. So the tree is
+ * *printed* and nothing in it is approved without being named in the answer: the default
+ * offered is what is already approved, holding Enter changes nothing, and there is no
+ * "all". Showing you the tokens is help; ticking is still a decision.
+ */
+const repoTargets = scanTargets(cfg);
+if (repoTargets.length) {
+  console.log(`\n${bold('10. Which repos may be worked in?')}`);
+  console.log(
+    dim(
+      `   ${repoTargets.map((t) => t.workspace).join(', ')} ${
+        repoTargets.length === 1 ? 'holds' : 'hold'
+      } more than one checkout, so a bead there has to say which one it is\n` +
+        '   about — it does that by carrying the repo\'s own service token. Below is what is\n' +
+        '   on disk and what each one calls itself; only the ones you name become workable,\n' +
+        '   and Enter keeps exactly what is approved today.'
+    )
+  );
+
+  for (const target of repoTargets) {
+    const block = (cfg.repos || {})[target.workspace] || {};
+    const current = (block.approved || []).map((e) => String(e || '').trim()).filter(Boolean);
+
+    console.log(
+      `\n   ${bold(target.workspace)}${
+        target.source === 'guess' ? dim(' — never configured; this tree is named after it') : ''
+      }`
+    );
+    // "none" rather than blank, because `ask` substitutes the default on an empty line —
+    // an instruction to press Enter to skip would have been a promise this cannot keep.
+    const rootRaw = await ask(`   root ("none" to leave ${target.workspace} alone):`, target.root ? tildeHome(target.root) : 'none');
+    if (!rootRaw.trim() || /^(none|skip)$/i.test(rootRaw.trim())) {
+      console.log(dim(`   (leaving ${target.workspace} alone)`));
+      continue;
+    }
+
+    const scan = scanRoot(rootRaw, { tokenPath: block.tokenPath, tokenKey: block.tokenKey });
+    if (!scan.exists) {
+      console.log(dim(`   (${scan.root} does not exist — leaving ${target.workspace} alone)`));
+      continue;
+    }
+    if (!scan.found.length) {
+      console.log(dim(`   (nothing under ${scan.root} — leaving ${target.workspace} alone)`));
+      continue;
+    }
+
+    // The whole tree, numbered, because forty names is not something anybody types. A ✓ is
+    // what is approved today, and the ⚠ is the collision that makes a token unusable as an
+    // address — worth seeing *before* you tick the second repo that declares it, rather
+    // than in the startup log afterwards.
+    const width = Math.min(30, Math.max(...scan.found.map((r) => r.name.length)));
+    const wide = String(scan.found.length).length;
+    console.log(
+      dim(
+        `\n   ${scan.found.length} directories under ${tildeHome(scan.root)}${
+          current.length ? ', ✓ marking what is approved today' : ''
+        }:`
+      )
+    );
+    scan.found.forEach((r, i) => {
+      const tick = current.some((c) => c.toLowerCase() === r.name.toLowerCase()) ? '✓' : ' ';
+      const shared = scan.shared.find((s) => r.token && s.token === r.token.toLowerCase());
+      // Named while there are few enough to read. `xs` is declared by nine repos here,
+      // because microservice-base ships it as a placeholder, and spelling the other eight
+      // out on each of nine rows buried the rest of the tree.
+      const others = shared ? shared.names.filter((n) => n !== r.name) : [];
+      const note = shared
+        ? dim(others.length <= 2 ? `⚠ ${r.token} is also declared by ${others.join(', ')}` : `⚠ ${r.token} is declared by ${shared.names.length} of these`)
+        : r.problem
+          ? dim(r.problem)
+          : '';
+      console.log(
+        `   ${String(i + 1).padStart(wide)} ${tick} ${r.name.padEnd(width)} ${(r.token || '—').padEnd(14)} ${note}`
+      );
+    });
+
+    console.log(dim('   Numbers, ranges and names, comma-separated — "none" to approve nothing.'));
+    const { approved, unknown, dropped } = parseApproved(
+      await ask('   approved:', current.join(', ') || 'none'),
+      scan.found,
+      current
+    );
+    for (const u of unknown) console.log(dim(`   ("${u}" is not under that root — kept, and reported until it is)`));
+    for (const d of dropped) console.log(dim(`   (ignoring "${d}" — there is no ${d} in the list above)`));
+
+    const next = { ...block, root: tildeHome(scan.root), approved };
+    if (approved.length) {
+      console.log(
+        dim(
+          '   A bead carrying no service token belongs to one of them. Without this, every\n' +
+            '   bead that names no repo resolves to nothing. A name or a token; blank for none.'
+        )
+      );
+      const dflt = String(block.default || '').trim() || (approved.length === 1 ? approved[0] : '');
+      const { value, problem } = resolveDefaultChoice(await ask('   default repo:', dflt), approved, scan.found);
+      if (problem) console.log(dim(`   (${problem})`));
+      if (value) next.default = value;
+      else delete next.default;
+    } else {
+      console.log(dim(`   (nothing approved — every ${target.workspace} bead resolves to the workspace, as before)`));
+    }
+
+    cfg.repos = { ...(cfg.repos || {}), [target.workspace]: next };
+
+    // Said now, in the answer's own words, rather than only in the startup log tomorrow:
+    // these are exactly the sentences the resolver will produce for the list just written.
+    forgetRepos();
+    for (const w of repoList(cfg, target.workspace).warnings) console.log(dim(`   ! ${w}`));
+  }
+}
 
 /* ---------------------------------------------------------------------- write */
 
