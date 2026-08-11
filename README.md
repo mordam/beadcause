@@ -4076,20 +4076,23 @@ rebase before it can merge") on a card, with the next step yours to work out at 
 act as *Request changes* on a delivery card: a note back to a session on the same branch,
 where the only difference is who wrote the note — Adam's sentence about the code there,
 GitHub's about the merge base here. The brief (`conflictPromptFor` in `lib/session.js`) pins
-down five things, because an unattended session with a vague scope invents one:
+down six things, because an unattended session with a vague scope invents one:
 
 1. **the branch is what is behind, not `main`** — read the other way round, "resolve the
    conflict" is a session merging a branch into main by hand, which is the one act nothing
    here may do;
 2. **work in a worktree** — `git worktree list` first, because six sessions share these
    checkouts and the main one is the daemon's own;
-3. **a tree already mid-merge is somebody else's** — stand down and say so, and do *not*
+3. **take that tree's lock, and read a refusal as an answer** — an occupied worktree looks
+   exactly like an idle one otherwise, which is
+   [its own section](#an-occupied-worktree-that-reads-as-idle) below;
+4. **a tree already mid-merge is somebody else's** — stand down and say so, and do *not*
    run `git merge --abort`. That one is the second layer under the de-duplication below,
    for the two resolvers that are already up rather than the second one that must not be
    opened;
-4. **run the repo's own gate afterwards** — a clean merge of two working branches is not a
+5. **run the repo's own gate afterwards** — a clean merge of two working branches is not a
    working tree;
-5. **push the branch, then stop** — the merge stays a tap here.
+6. **push the branch, release the lock, then stop** — the merge stays a tap here.
 
 It is armed like merge, because it starts something unattended. It refuses unless GitHub
 reports the pull request `CONFLICTING` *right now*, asked again at the moment of the press
@@ -4139,6 +4142,57 @@ memory and never on disk, for the reason a phone's whereabouts is: a handle is w
 exactly as long as the iTerm holding it, and a record that survived a restart would only
 ever be a claim about a window nobody can address. `node test/resolvers.mjs` asserts all of
 it — including ten simultaneous presses producing one window and nine nudges.
+
+#### An occupied worktree that reads as idle
+
+The de-duplication above stops the *second window*, and it is worth being honest about what
+it does not stop. The record is in memory, so a daemon restart forgets every session it
+opened; and a window opened by hand — the ordinary case at this Mac — was never in the record
+at all. In both, the next resolver arrives at a worktree somebody is already merging in, and
+asks the only question available to it: *is anything happening here?*
+
+Nothing in a worktree answered that. `git worktree list` shows an occupied tree and an idle
+one identically, and so did the `SessionStart` hook that prints them
+(`~/.claude/hooks/worktree-guard.sh`). The reason is narrower than it looks: `EnterWorktree`
+locks the worktrees it **creates** — `locked claude session <name> (pid 82761 start …)` —
+and only those. Measured on 2026-08-11: entering an existing worktree by path — which is
+exactly what the brief asks of a resolver whose branch is already checked out somewhere —
+locks nothing. So the tell that a tree was busy existed for every worktree except the ones
+where two sessions could collide.
+`ps aux | grep <path>` and `ListAgents` were the only answers, and the second one sees only
+peers of the same harness.
+
+So the brief now has the session say so in the tree itself, `git worktree lock .` with a
+reason carrying this window's pid and the pull request number. Two properties do the work:
+
+- **The lock refuses.** `git worktree lock` on an already-locked tree exits 128 and prints
+  the existing reason — so the *attempt* is the occupancy check, with no gap between reading
+  and taking for a second resolver to arrive in. Four answers, and they are four rather than
+  two: it succeeds (yours, release it at the end); it names a pid `ps` still knows (somebody
+  is in there — say which, and leave); it names a pid `ps` does not know (a session crashed
+  — take it over, and say so, because standing down for a dead session is how a tree becomes
+  permanently unusable); or it names *your own* pid, which is the lock the harness took when
+  you created the tree, so carry on and leave it alone — it goes when the window does.
+- **The pid is already understood.** The `SessionStart` hook resolves the pid in a lock
+  reason against `ps` and prints a dead one as `STALE pid <n> — prunable`, which is what
+  keeps a crashed resolver's lock from reading like a live one for ever. That convention
+  predates this and is the reason the reason has that shape.
+
+Finding your own pid is the awkward part, and the brief spells it out rather than leaving an
+unattended session to work it out twice: `$$` is a shell that dies with the command that
+printed it, so a lock taken in its name reads as stale within seconds, and the walk up the
+process tree to the `claude` process has to be wrapped in `zsh -c '…'` — a worktree-isolated
+session's own Bash calls refuse `$$`, `$PPID` and every shell loop as *"too complex to verify
+that it stays inside the worktree"*. A brief that handed a session a command it will be
+refused would have told it nothing at all.
+
+What this deliberately does not fix. The daemon cannot take the lock on the session's behalf:
+it knows neither the pid nor how long the window will outlive the launch call. A session that
+dies without unlocking leaves a stale lock — which is the pid's whole job, not an oversight.
+And `git worktree lock` is being repurposed from the removable-media case it is documented
+for; the one real cost of that is `sweepWorktrees` in `lib/tidy.js`, which leaves a locked
+worktree alone (`why: 'locked'`) — correct while a resolver is in there, and the reason
+releasing the lock is a numbered step rather than a suggestion. That is bc-7uie.
 
 `node test/prfull.mjs` covers the daemon's half: that the description comes from `gh` and
 the rung from the board, that the attribution finds the session for *this* branch when a
