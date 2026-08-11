@@ -10325,6 +10325,28 @@ no block sets a flex-container property unless something gives that element a fl
 — needs the markup rather than the stylesheet, because five live rules here are modifier
 classes on a base class that supplies the display; that is bc-ah0v.
 
+And a fourth, which is the second one wearing a disguise: **written twice with different
+quoting**, so that a grep for either spelling comes back looking conclusive.
+`.chip[aria-pressed="true"]` at the top of the file set the filled accent and the
+`var(--accent-ink)` meant to go on it; four hundred lines below,
+`.chip[aria-pressed='true']` — the composer's deliberately quiet wash for a suggestion
+chip — set a 16% background and no colour at all. Same specificity, so the later rule won
+the background and the earlier one's near-black ink stayed on it, on **every** pressed chip
+in the app: the filter and scope chips, the space row, the monitor's tabs, the chips the
+console edits a bead with. Measured in a real Chrome that is 1.0:1 in the dark theme and,
+worse, white on a pale teal at 1.6:1 in the light one — invisible rather than merely dim,
+against 4.5:1 for ordinary text. It survived because each spelling greps as the only one,
+and because bc-es8 had already given `.show-dismissed` a private `color` to climb out of
+it, which fixed the one control anybody was looking at. bc-wx2e settled it the way the
+surrounding rules already argued for: the filled accent is the app-wide paint for a chip
+that has been *chosen* — the same paint `[aria-selected]` gives a tab, at 11.2:1 and
+5.5:1 — and the wash is scoped to `.suggested`, where its own comment argues for it,
+naming `var(--text)` as its ink. So the invariants are that exactly one rule paints a
+pressed chip app-wide, that any rule giving one a background names its ink in the same
+block (a background from one rule and a colour from another being precisely the pair that
+was unreadable), that the wash stays scoped, that the spelling is one spelling, and that
+`.show-dismissed` no longer needs its escape hatch.
+
 ## Notes on bd
 
 - **`bd human respond` is broken in bd 1.1.2** — it dies with `storage is nil`.
