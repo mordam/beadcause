@@ -28,11 +28,11 @@
  */
 import fs from 'node:fs';
 import os from 'node:os';
-import net from 'node:net';
 import path from 'node:path';
 import http from 'node:http';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { freePort } from './helpers/net.mjs';
 
 import {
   DEFER_CEILING_MS,
@@ -136,17 +136,6 @@ check(
 );
 
 /* --------------------------------------------------------------- a real router */
-
-function freePort() {
-  return new Promise((resolve, reject) => {
-    const probe = net.createServer();
-    probe.on('error', reject);
-    probe.listen(0, '127.0.0.1', () => {
-      const { port } = probe.address();
-      probe.close(() => resolve(port));
-    });
-  });
-}
 
 function get(port, pathname, { timeout = 10000, token = TOKEN, accept = null } = {}) {
   return new Promise((resolve, reject) => {

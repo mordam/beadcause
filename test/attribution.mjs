@@ -41,10 +41,10 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import http from 'node:http';
 import { spawnSync } from 'node:child_process';
-import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { boundPort, freePort } from './helpers/net.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const LIB = (f) => path.join(HERE, '..', 'lib', f);
@@ -255,16 +255,6 @@ const BASE = {
 const { createApp, listen } = await import(LIB('server.js'));
 const { sign } = await import(LIB('auth.js'));
 
-const freePort = () =>
-  new Promise((resolve, reject) => {
-    const probe = net.createServer();
-    probe.on('error', reject);
-    probe.listen(0, '127.0.0.1', () => {
-      const { port } = probe.address();
-      probe.close(() => resolve(port));
-    });
-  });
-
 /** Sign-in on, with an explicit http redirect URI so `tailscale cert` stays out of it. */
 const onPort = await freePort();
 const onCfg = {
@@ -283,9 +273,9 @@ const onCfg = {
 const onServers = listen(onCfg, createApp(onCfg).handler);
 
 /** The same daemon with sign-in never configured — every install, by default. */
-const offPort = await freePort();
-const offCfg = { ...BASE, port: offPort };
+const offCfg = { ...BASE, port: 0 };
 const offServers = listen(offCfg, createApp(offCfg).handler);
+const offPort = await boundPort(offServers);
 
 const post = (port, pathname, body, headers = {}) =>
   new Promise((resolve, reject) => {
@@ -321,7 +311,6 @@ const up = async (port) => {
   }
 };
 await up(onPort);
-await up(offPort);
 
 /** What a browser holds after the dance in test/auth.mjs — nothing more than this. */
 const sessionCookie = (email, { seconds = 3600 } = {}) =>

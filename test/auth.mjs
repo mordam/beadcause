@@ -41,10 +41,10 @@
  */
 import fs from 'node:fs';
 import http from 'node:http';
-import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { boundPort, freePort } from './helpers/net.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const LIB = (f) => path.join(HERE, '..', 'lib', f);
@@ -264,16 +264,6 @@ is('no token at all', Boolean(auth.claimsOf('', claimOpts).error), true);
 
 const { createApp, listen } = await import(LIB('server.js'));
 
-const freePort = () =>
-  new Promise((resolve, reject) => {
-    const probe = net.createServer();
-    probe.on('error', reject);
-    probe.listen(0, '127.0.0.1', () => {
-      const { port } = probe.address();
-      probe.close(() => resolve(port));
-    });
-  });
-
 const ws = path.join(tmp, 'ws');
 fs.mkdirSync(path.join(ws, '.beads'), { recursive: true });
 
@@ -335,11 +325,10 @@ const attrs = (setCookie, name) =>
 
 console.log('\nthe server with Google sign-in off — nothing may have changed');
 
-const offPort = await freePort();
-const offCfg = { ...BASE_CFG, port: offPort };
+const offCfg = { ...BASE_CFG, port: 0 };
 const offApp = createApp(offCfg);
 const offServers = listen(offCfg, offApp.handler);
-await up(offPort);
+const offPort = await boundPort(offServers);
 
 {
   const r = await call(offPort, '/api/agents', { headers: { 'x-beadcause-token': offCfg.token } });
