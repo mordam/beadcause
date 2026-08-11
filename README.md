@@ -2914,7 +2914,10 @@ standing page reads it at the top of its own boot: the inbox, the board, the adv
 console, the launcher and the switches all draw the list they had last time in the
 first frame and refresh underneath it. Behind that — once the view you actually asked
 for is on screen — the *other* views' payloads are fetched in the background, so the
-tab you tap next is warm before you tap it. `node scripts/warm-check.mjs` measures
+tab you tap next is warm before you tap it, and the two tabs come first in that queue
+because they are the only ones a thumb can reach in one tap ([staying
+warm](#filled-once-is-not-kept-warm) is what happens to those entries afterwards, and it
+is a separate promise from this one). `node scripts/warm-check.mjs` measures
 exactly this against a fixture whose sweep takes 900ms: a cold load takes just over a
 second, and coming back to the tab draws five cards in **under a tenth of it**, with
 the counter proving no request was answered during the paint.
@@ -2982,7 +2985,7 @@ each case because what is expensive is different in each case:
 
 | View | On a wake |
 |---|---|
-| **Inbox** | Adopts the questions the poll carries. It is the one view whose park does ask for them, and the payload arrives with the wake. |
+| **Inbox** | Adopts the questions the poll carries. It is the one view whose park does ask for them, and the payload arrives with the wake. It also keeps the *advocates* payload warm on the same wake, for the page it is not — see [staying warm](#filled-once-is-not-kept-warm). |
 | **Advocates** | Takes the advocate roster straight off the poll — `advocates.snapshot()` rides every wake — so a pause, a resume or a check-in repaints with no request at all. It goes back to `bd` only for events `bd` would answer differently, which an advocate saying it is still surveying is not. |
 | **Admin** | Reads `observing` off the poll, which is the whole reason it ever touched `/api/work`, and re-asks `/api/admin` — two in-memory reads, no `bd` — when an advocate or a terminal moved. Its numbers are promises about what a press will do, so half-patching them was never an option. |
 | **Board** | Re-asks `/api/prs` when a pull request actually moved. The three lamps are the daemon's own reading of GitHub, `origin/main` and the deploy journal; a client that set them from an event would be a second, worse copy of that ladder. The daemon drops its board cache as those events fire, so the first board through does the one `gh` sweep and every other open board shares it. |
@@ -3002,6 +3005,63 @@ being paid for with a sweep a minute on every open page, and in practice a runni
 advocate emits several events a minute, so the page it matters on is the busy one.
 
 With the app open and nothing moving, the daemon now logs no periodic sweeps at all.
+
+### Filled once is not kept warm
+
+The background fill above has a limit that took a while to show itself, because it is
+invisible for the first quarter of an hour and total after it. It runs **once per
+document**, and the warm layer's TTL is **fifteen minutes**. That bargain is right for a
+page you pass through — the entry is there when you tap on, and gone by the time it could
+have been misleading — and wrong for the one page you *sit* on. The inbox is open all
+day. So for the first fifteen minutes Advocates opened instantly, and after that it was
+a cold `bd` sweep across every workspace, every single time, with nothing able to put the
+entry back: the once-per-document flag never goes false again while the document lives.
+Which made the fix look like the bug. The tab was slow *because* it was preloaded, badly.
+
+The entry was not wrong when it was dropped. It was *old* — and the log the inbox is
+already parked on knows the difference. So the heaviest tab's payload is now
+**maintained** rather than merely stored, in two halves that are separated by exactly one
+question: does the delta stream carry it?
+
+- **The advocate roster does, on every wake, whatever woke it.** `advocates.snapshot()`
+  and `observing` ride every answer `/api/poll` gives, including the quiet one that timed
+  out with nothing to say. So on each wake the inbox folds them into the copy it is
+  holding for the advocates page, through `warm.refresh()` — which also restamps the
+  entry, and *that* is the half that matters most. A park is at most 25 seconds, so a
+  wake always beats the TTL, and a payload nothing has invalidated can no longer age out
+  from under a tab you have not tapped.
+- **Which bead each repo has claimed does not.** That is `bd`, behind no event that
+  carries it, so it is re-asked — once, when `stream.workMoved()` says something happened
+  that the roster does not already answer, and never otherwise. A `resync` counts, for the
+  reason it counts everywhere else: it is the log admitting its own events are not the
+  whole story. A `bd` sweep is floored at one a minute, so a burst of events cannot become
+  a sweep each.
+
+Read that as a bill: **an idle app still costs nothing**, which is the promise the
+section above makes and this must not quietly break, and a *busy* one costs at most one
+`/api/work` a minute for a tab nobody has tapped yet. That is the trade, deliberately
+taken. Advocates is where you go to see what the advocates are doing while they are doing
+it, and a board painted instantly from an hour-old sweep is not "already loaded", it is a
+wrong screen that arrives quickly.
+
+`stream.workMoved()` is one function rather than two on purpose. The advocates page asks
+it to decide whether to sweep; the inbox asks it about the copy it holds *for* that page.
+Two copies of that judgement drifting apart has an ugly failure — an inbox that thought a
+claimed bead was a free repaint would hand the tab a warm payload missing exactly the row
+you tapped through to look at.
+
+`/api/work` carries a `seq` for this, the same field `/api/questions` has and for the same
+reason, and it is read off the log *before* the sweep rather than after it: an event that
+lands while `bd` is being asked is one the payload does not contain, and a sequence taken
+afterwards would claim it does. Erring early means one refresh too many, which is the
+harmless direction.
+
+Claim 5 of `scripts/warm-check.mjs` is the gate, and it is stated in requests rather than
+in seconds, because no check can sit out a fifteen-minute TTL: the entry is filled without
+being asked for, 27 idle seconds leave it with a **newer stamp and no extra request**, an
+advocate pausing lands in it for nothing, a bead moving inside the floor does not become a
+second sweep, and a claimed bead is re-asked exactly once. Against `--baseline` the middle
+three of those fail, with `stamp 0ms newer` — which is the bug, printed.
 
 ### A repaint that leaves alone what did not change
 
@@ -4450,6 +4510,93 @@ itself an error, the page reports the failure of its own reporting, and the loop
 floor. A tracker that is down answers `200 {ok: false, reason}` instead, which a
 reporter can log and stop on.
 
+### And the daemon reports itself, through the same door
+
+All of the above was about the *phone*. The daemon had nothing at all: nothing in `lib/`
+or `scripts/` handled `uncaughtException` or `unhandledRejection`, so a thrown error in
+the one process that runs unattended all night went to stderr, into whatever log launchd
+happens to be keeping, and no further — and then launchd restarted it. That is the worst
+available combination, because the failure is invisible *and* it looks like it healed.
+
+So `lib/crash.js` installs those two handlers and calls `intake` directly. **In process,
+with no HTTP round trip to its own port** — which is the whole reason `lib/errors.js`
+knows nothing about requests. A crash cannot be relied on to be able to make an HTTP call
+to a server it has just broken, and a loopback POST from a process that is about to exit
+is a race with its own death.
+
+**The fingerprint is the same shape on purpose, so a daemon crash and a browser error
+that are genuinely the same bug land on the same bead.** Nothing had to be added for
+that: `normalizeSource` already reduced `/Users/…/worktrees/x-1/lib/graph.js` and
+`https://mac.tail1234.ts.net:4318/lib/graph.js?v=27` to the same `lib/graph.js`, because a
+bug is not a different bug for having been noticed from a worktree. The daemon's report is
+a `report`, exactly like the phone's, and that is the point.
+
+**It does not stop being a crash.** Installing an `uncaughtException` listener takes over
+from Node, whose default is to print the stack and exit 1 — and a daemon that swallowed
+the exception instead would keep serving from a process whose invariants are, by
+definition, unknown. That is a far larger decision than "file a bead about it", and it is
+not this one. So the sequence is: print the stack exactly as before, file, exit 1. The
+only change to the process's life is that it lives a few seconds longer than it used to
+(`FILE_TIMEOUT_MS`, ten of them) and a bead exists afterwards. `unhandledRejection` gets
+the same treatment, because since Node 15 *its* default is already an uncaught exception —
+exiting is what preserving today's behaviour means, not a new severity.
+
+Which graph it files onto is the one thing that is not obvious: **this checkout's own**,
+resolved by `ownWorkspace`, not `workspaces[0]`. A beadcause bug belongs on the beadcause
+graph, and the first configured workspace here is very often the one wired to a team's
+JIRA.
+
+#### The three edges, which are most of the work
+
+**It must not file during shutdown.** SIGTERM closes servers, kills terminals and flushes
+a git ref, and things in flight reject as they are torn down — every one of them a P0 bug
+about a daemon doing exactly as it was told. The router SIGTERMs a backend on *every hot
+swap*, which is to say on every deploy, so a handler that filed during shutdown would file
+on every deploy. `beginShutdown()` is called by `shutdown()` before anything is closed, and
+by the orphan guard, which exits by a path of its own.
+
+**A failure while filing must not recurse**, and this is the acceptance criterion that
+needed real care. Four guards, overlapping deliberately, because the failure mode is
+unbounded rather than merely wrong:
+
+| Guard | What it catches |
+|---|---|
+| the stack passes through `lib/crash.js`, `lib/errors.js` or `lib/filing.js` | the filer's own failure, which is the direct loop. Those modules are only ever on a stack when we are filing |
+| one fingerprint is never filed twice at once | the same error coming back while we are filing it. Keyed, not a global flag — two different sweeps failing in one tick is an ordinary Tuesday, and a global flag would have thrown the second one away |
+| `PER_ERROR_CAP` — five per distinct error, per process | a sweep that fails on every tick. There is no coalescing window on occurrence comments yet (bc-5f9b), and a day of that is 2,880 identical comments |
+| `PROCESS_CAP` — forty in total | a loop that manages to be a different error every time |
+
+The two caps are what make a loop *impossible* rather than merely unlikely: they only
+count up, so no arrangement of failures inside the filer can produce unbounded work. And
+`reportCrash` never rejects — a rejected promise nobody awaited is an
+`unhandledRejection`, which is the one input guaranteed to bring it straight back here.
+
+**An observer files nothing.** `BEADCAUSE_OBSERVE` means every autonomous act is off, and
+filing a P0 unbidden is an autonomous act — the same reason a second instance sends no
+ntfy push, so the live daemon's output stays unambiguous. A *reported* error still files on
+an observer, because a phone asking it to is not the observer acting on its own.
+
+#### The failures it already noticed and swallowed
+
+The poll cycle catches and logs six background failures — the poll itself, the deploy
+sweep, the owed-close sweep, the advocate tick, the release sweep, and the per-question
+reply push — and carries on. That is right, and it stays: none of them may be allowed to
+stop the others. But it also means a `TypeError` in the advocate has been logged every
+thirty seconds for a week with nobody reading it, and *that* is a bug that should be a bead.
+
+So each of those six now also calls `reportSweepFailure`, and **the bar there is higher
+than the crash path's**: only errors that are bugs by construction are filed. A sweep that
+failed did not kill anything and may well work on the next tick, so `spawn gh ENOENT` or a
+bd lock timeout stays a log line, while a `TypeError` or a `ReferenceError` — which cannot
+be anything except code that is wrong — becomes a P0 naming the sweep it came from.
+`SyntaxError` is deliberately *not* on the bug list: in a sweep it is nearly always
+somebody else's output being parsed, and a real syntax error in this repo would stop the
+module loading rather than surface in a tick.
+
+The honest limit: `bin/router.js` is a separate process and has no handlers yet, so the
+loudest crash there is — the one that takes the phone's whole service down — is still only
+a log line. That is bc-ega4.
+
 ### Checking it
 
 `node test/apperrors.mjs` covers the three outcomes against a stub `bd` that implements
@@ -4489,6 +4636,23 @@ so a rename of `quiet.until` on either side would otherwise leave both halves gr
 the phone reporting straight through the next deploy. The window it resumes after is made
 short by **aging a real record** — a deploy that settled just before the grace period runs
 out — so the resumption is the code's own arithmetic and not a number the suite invented.
+
+`node test/crash.mjs` is the daemon half, over the same fixture. It fires the real
+handlers the way Node fires them — `process.emit('uncaughtException', …)` — and takes the
+exit as an injected function, because a suite cannot assert what a process filed on its way
+out of a process that really exits. The four ways filing can fail are each a check of their
+own (the tracker refusing the create, an error thrown *out of* `lib/errors.js`, the same
+fingerprint arriving twice at once, and the same error arriving forever), and so is the
+case the whole in-process design exists for: a daemon crash in `lib/graph.js:41` and a
+browser report from the same line land on **one** bead, asserted rather than assumed.
+
+Two of its checks read source rather than behaviour, which is worth knowing before one
+fails on you. Observer mode is driven in a child process, because `OBSERVING` is read from
+the environment once at module load and cannot be flipped in-process. And the six swallowed
+failures are asserted by grepping `lib/server.js` for their `sweepFailed('…')` labels — a
+seventh added to the poll cycle without one will fail that check by name, which is the whole
+intent: the list going stale silently is how "logged for a week with nobody reading it"
+comes back.
 
 ## Advocates — an agent per repo, whose job is the queue reaching zero
 
@@ -7712,6 +7876,7 @@ cookie says so), and `/auth/signout` ends the session.
 | GET | `/api/graph` | `?workspace=&id=` | `{nodes, links}` — the whole workspace with no `id` |
 | GET | `/api/bead` | `?workspace=&id=` | one issue in full, plus `comments[]` — for the graph's detail sheet |
 | GET | `/api/bead-children` | `?workspace=&id=` | `{children[]}` — every child of that bead, closed ones included, open work first. Its own route because `bd show` does not carry children |
+| GET | `/api/history` | `?workspace=` **or** `?space=`, and `&status=&priority=&provenance=&id=&limit=&offset=&refresh=1` | `{rows[], total, limit, offset, more, workspaces[], errors[], workspace, space, query}` — [the ledger](#the-ledger-behind-the-history-tab): every bead a space has ever had, closed and deferred included, newest-**updated** first, paged. The four filters are optional and compose; each row carries `hasSession`, whether a session was archived for it. A bad `status` or `priority` is a 400 naming the word rather than an empty list, an unknown `workspace` a 400 and an unknown `space` a 404 — but a space with no beads is `{rows: [], total: 0, more: false}` and a 200. Cached ten seconds per workspace; `refresh=1` forces the sweep |
 | GET | `/api/unendorsed` | `?refresh=1` | `{beads[], counts, truncated, errors[]}` — the endorsement queue: every held bead in every workspace, newest first, each carrying the whole card (description, acceptance, the agent's provenance note) and `from`, the bead it was discovered under. No `workspace` parameter — the space picker narrows it on the client. Cached for a few seconds; a verdict drops that cache |
 | POST | `/api/bead/endorse` | `{workspace, id}` or `{workspace, ids[]}` | takes the `unendorsed` marker off, so the bead becomes ordinary work an advocate will queue and a session can be opened on. **Idempotent** — two taps are one endorsement, no error, no second write — and the one verdict that may be aimed at a bead that is not held |
 | POST | `/api/bead/revoke` | `{workspace, ids[], reason?}` | closes it with your reason under a fixed prefix, and **leaves the marker on**: what an agent filed and what you thought of it both stay on the record. A bead already closed is `already: true` rather than an error; one already endorsed is a `409` |
@@ -7819,6 +7984,83 @@ in any scope.
 The field is additive and its own object: a client that has never heard of it — the
 installed Android build, a service worker still serving last week's `app.js` — reads
 the fields it always read and renders exactly as it did.
+
+### The ledger behind the History tab
+
+`GET /api/history` is the only endpoint here about the **past**. Every other one answers
+a question about now — what is asking you something, what is running, what is waiting on
+a tap — and there was no route at all for "what happened to that bead". A closed bead was
+reachable only by remembering its id and typing it into `/graph`, while three hundred
+closed beads in this repo carried the best writing in the tracker in their close reasons
+(`Landed as #92 as 677b5a5b — still owed: DEPLOYED`). The record existed and nothing
+displayed it.
+
+**Ordered by `updated_at`, not `created_at`.** Every other list here is newest-*filed*
+first, which is right for a queue of things you have not seen yet and wrong for a record:
+the bead you want after a night of unattended sessions is the one that just closed, and
+it may have been filed in April. That also makes the ordering the answer to "what has
+been happening", which is the question the tab exists for.
+
+**One sweep serves every filter and every page.** The filters are applied in the daemon
+rather than pushed down to `bd`, which is backwards from how the rest of this app talks
+to the tracker and deliberate: the sweep is *cached*, and a cache keyed by the query
+misses on every press of a filter chip. A filter bar is a finger moving through four
+controls — narrow to closed, then to P1, then type three characters of an id — so with
+the query in the key that is four `bd list` invocations over the whole workspace, and
+one more for every page of the scroll. Swept once and filtered in process it is one
+`bd list --all` per ten seconds, whatever the finger does. What is cached is the *slim*
+row, not bd's payload: a `bd list --json` row carries description, acceptance, design and
+notes, which is 1.5MB for 503 beads and none of it drawn by a list. A page of five rows
+goes out as 3KB.
+
+**That one sweep is the slow part, and it is slower than it looks.** ~1s for 503 beads on
+an idle Mac, and **28.6s** measured under a load average of 33 — twenty agent sessions and
+a full test suite, which is an ordinary afternoon here. So `Bd.listAll` is given a timeout
+of its own rather than `run`'s 30-second default: at the default that afternoon throws, the
+workspace becomes a row in `errors[]`, and a repo with five hundred beads in it draws an
+empty ledger. A cold page can take that long to arrive and the client should say it is
+loading rather than time out; every page after it, for ten seconds, is free.
+
+The cache cannot help in the window *before* the first answer exists, which is the
+expensive window — so the in-flight sweep is shared as well. Two requests for the same
+workspace arriving before the first returns are one `bd list --all` between them, and a
+`refresh=1` **joins** a sweep already running rather than starting a second: a sweep that
+began a moment ago and has not come back is reading the tracker now, so it is exactly as
+fresh as one started alongside it would be. A sweep that *failed* is not remembered — the
+next request tries again.
+
+**Paging is in the daemon because `bd` cannot do it.** `bd list --offset` is documented
+as supported only under `--proxied-server`, which is not the mode anything here runs in;
+the embedded backend accepts the flag and ignores it, so page 2 would have been a second
+copy of page 1. And `more` is computed from a total the daemon counted rather than from
+`rows.length === limit` — that inference is wrong exactly once per list, on the page
+where the last row lands on the boundary, and the symptom is an infinite scroller that
+spins at the bottom forever.
+
+**Provenance is the `agent-filed` label, never the byline.** `created_by` is a field an
+agent writes for itself, so it is display only; the label is what filing stamps and what
+[a verdict](#the-endorsement-queue--a-group-tap-or-a-row-at-a-time) keeps on through both endorsement and revocation, precisely so
+one `bd list --label agent-filed` stays the honest history. Both are on the row and they
+will sometimes disagree — when they do, the label is the true one.
+
+**`hasSession` costs one `git` call for the whole page.** Every archived session lives at
+`refs/beadcause/sessions/<bead-id>` (see [the session log, kept in the repo](#the-session-log-kept-in-the-repo)),
+so the set of beads that have one is a single `for-each-ref` over that prefix — 174 refs
+in about ten milliseconds here — rather than a `git log` per row. An empty set is
+deliberately indistinguishable from a failure: a checkout that is not a repo, a retired
+worktree and a repo where nothing has ever been archived all mean "no row here has a
+session", which is true for the last and harmless for the others. What it must never do
+is refuse to draw the list over a marker.
+
+**`workspace` or `space`, and neither is required.** A space is a *set* of repos, so "the
+ledger for a space" has two honest readings and both are served: one repo at a time,
+which is what the tab asks for today, or a whole space merged and interleaved by date.
+`space=all` (or nothing at all) is every configured workspace, and the synthetic `Other`
+group resolves here for the same reason the picker draws it. A repo whose `bd` fell over
+is a row in `errors[]` rather than a failed request — six repos where one has a corrupt
+Dolt directory should still show you the other five, and the one that did not answer is
+named, because a ledger that silently dropped a repo would be saying that repo has no
+history.
 
 ## Config — `~/.config/beadcause/config.json`
 
