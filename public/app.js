@@ -455,6 +455,47 @@
   }
 
   /**
+   * This card got here without making a noise — and which of the two kinds of quiet
+   * it was.
+   *
+   * **Two silences that read identically until you say which.** A bead outside the
+   * inbox filter and a bead in a muted space both arrive, both file, both count, and
+   * both leave the phone dark (see `quietReasonFor` on the server). The difference is
+   * the whole of what you can do about it: a mute ends on a clock and there is nothing
+   * to press, a filter ends when you press **All**. Before this the distinction lived
+   * only in the daemon's log, which is not a thing anyone reads from a phone at 2am.
+   *
+   * **And it is what stops the pile reading as a rush.** Widen the filter and every
+   * bead it was hiding appears at once, in a list ordered by priority — indistinguish-
+   * able from four questions that landed while you were reaching for the chip. So the
+   * line leads with *when*, not with the reason: "arrived quietly 3h ago" is a card
+   * that was already there, and that sentence is the acceptance criterion.
+   *
+   * The filter is quoted as it stood at the arrival, because by now it is almost
+   * certainly not that any more — that is the point of having widened it — and the
+   * value from then is the only one that explains anything.
+   *
+   * One line, dim, in the card head under the pills and above the question — where a
+   * postmark goes. On the collapsed card as well as the open one, because the pile is
+   * read from the list and most of these are never opened at all; and above the
+   * question rather than below it, so it cannot be mistaken for something an agent
+   * said. It states a fact and does nothing: the card answers exactly as it did.
+   */
+  function arrivedQuietHtml(q) {
+    const a = q.arrivedQuiet;
+    if (!a) return '';
+    const when = relTime(a.at);
+    const why =
+      a.reason === 'muted'
+        ? `${a.space ? esc(a.space) : 'that space'} was muted`
+        : `hidden by the inbox filter${a.filter && a.filter !== 'all' ? ` — ${esc(a.filter)}` : ''}`;
+    return `<p class="quiet-note">
+      <span aria-hidden="true">${a.reason === 'muted' ? '🔕' : '🔇'}</span>
+      <span>Arrived quietly${when ? ` ${esc(when)}` : ''} · ${why}</span>
+    </p>`;
+  }
+
+  /**
    * The agent state worth showing as a pending reply at the foot of the thread.
    *
    * `done` is excluded deliberately: a finished agent has already left a real
@@ -1760,6 +1801,7 @@
           ${draft && !open ? '<span class="draft-flag">draft saved</span>' : ''}
           <time>${esc(relTime(q.createdAt))}</time>
         </div>
+        ${arrivedQuietHtml(q)}
         ${activityHtml(q)}
         <p class="q">${esc(q.question || q.title)}</p>
         ${q.question && q.title !== q.question ? `<p class="subtitle">${esc(q.title)}</p>` : ''}

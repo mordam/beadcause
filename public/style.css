@@ -649,6 +649,24 @@ body {
 .pill.id { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; text-transform: none; letter-spacing: 0; }
 .meta time { font-size: 12px; color: var(--muted); margin-left: auto; }
 
+/*
+  "Arrived quietly 3h ago · hidden by the inbox filter — Work / acme".
+
+  A postmark, so it is drawn like one: dim, small, and above the question rather than
+  beside the pills, because it is a sentence and the pills are labels. Deliberately
+  *not* coloured — nothing here is a warning or a problem to fix, and a card that has
+  been sitting quietly since six is exactly as answerable as one that just buzzed.
+
+  `align-items: baseline` rather than centre: the glyph is an emoji, so it sets a
+  taller line box than the text, and centring it drags the sentence down off the
+  baseline it shares with .q underneath.
+*/
+.quiet-note {
+  display: flex; align-items: baseline; gap: 6px;
+  font-size: 12.5px; line-height: 1.45; color: var(--muted);
+  margin: -2px 0 8px;
+}
+
 .q { font-size: 19px; font-weight: 630; line-height: 1.4; margin: 0 0 5px; letter-spacing: -0.012em; }
 .subtitle { font-size: 13px; color: var(--muted); margin: 0 0 12px; }
 .subtitle.bad { color: var(--danger); }

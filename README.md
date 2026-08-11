@@ -364,6 +364,50 @@ you press **All**:
 [beadcause] acme/cl-9x2 arrived quietly (Work is muted right now)
 ```
 
+### And the card says it too
+
+A log line on the Mac is the wrong surface for a fact you need on a phone. So the two
+kinds of quiet are written down at the arrival and drawn on the card itself, under the
+pills and above the question:
+
+```
+┌──────────────────────────────────────────────┐
+│  SOPHAB   sp-4kd   P2                 3h ago │
+│  🔇 Arrived quietly 3h ago · hidden by the   │
+│     inbox filter — Work / acme               │
+│  Which way should the picker fall back?      │
+└──────────────────────────────────────────────┘
+```
+
+Three properties, and each of them is the reason for a design decision in
+`lib/quiet.js`:
+
+- **It is recorded, not recomputed.** Asking `quietReasonFor` again at render time
+  answers a different question — *would this bead be quiet now* — and for the filtered
+  half the answer is always no, because you can only be looking at the card if the
+  filter is wide enough to show it. For the muted half it would change its mind at
+  09:00 having changed nothing. So the poller writes `{ reason, at, space, filter }`
+  under `quiet` in `state.json`, keyed `workspace/id`, and that is what the card reads.
+- **It leads with *when*.** Widen the filter and everything it was hiding appears at
+  once, ordered by priority, indistinguishable from four questions that landed while
+  you were reaching for the chip. "Arrived quietly 3h ago" is what says otherwise.
+- **The filter is quoted as it stood.** By the time you read the line the filter has
+  moved — that is the point of having widened it — so a live read would name the filter
+  that is showing you the card rather than the one that hid it.
+
+A bead that rang carries nothing at all: `arrivedQuiet` is null, the card is exactly
+what it always was, and a record whose `reason` this version cannot name reads as no
+record rather than as an unexplained "this was quiet". The record is pruned when the
+bead leaves the inbox, like `ringing` and unlike `answered` — it exists only to draw a
+card that is on screen. Replies are deliberately not recorded: a reply is quiet on the
+same terms as the bead it is on, but this line says *how this card got here*, and a
+quiet reply onto a card you were already shown loudly is not that.
+
+`node test/quietcard.mjs` (part of `npm test`) covers it, and the check that earns the
+suite is the last one: it narrows the filter, lets a bead arrive quietly under it,
+widens the filter, and asserts the card still says it was hidden by `Work` — which is
+the assertion that fails the moment somebody replaces the record with a live read.
+
 ### One space at a time — the picker in the top bar
 
 Beadcause reads every workspace under `~/beads/`, which in practice is every repo you
