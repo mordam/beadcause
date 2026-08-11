@@ -129,14 +129,20 @@ const css = fs.readFileSync(path.join(ROOT, 'public', 'style.css'), 'utf8');
 
 check('the console draws the global row from the payload, not from a card', () => {
   assert.match(page, /globalHtml\(data\.globals/, 'the row is fed the field the daemon sends');
-  assert.match(page, /data-adv="globalLimit"/, 'and its buttons post the action the server reads');
+  // The buttons carry no action of their own since bc-0jnq — the number is dialled in
+  // the page and Apply is the write — so what has to be pinned is that the *request*
+  // still names the action the server reads. `stepAction` is the one place it is decided.
+  assert.match(page, /GLOBAL_STEP \? 'globalLimit'/, 'the request still posts the action the server reads');
+  assert.match(page, /key: GLOBAL_STEP/, 'and the global row is the control that sends it');
 });
 
 check('and it is disabled while observing, like every other setting on that page', () => {
   // An observer loads the live daemon's config file, so a press here would change how
-  // many windows the *other* process opens after its next restart.
+  // many windows the *other* process opens after its next restart. Both halves of the
+  // control, because either one left live is a press an observer must not be able to make.
   const guard = page.slice(page.indexOf('if (data.observing) {'));
-  assert.match(guard.slice(0, 400), /\[data-adv="globalLimit"\]/);
+  assert.match(guard.slice(0, 400), /\[data-step="global"\]/);
+  assert.match(guard.slice(0, 400), /\[data-apply="global"\]/);
 });
 
 check('the row is actually styled, rather than inheriting a health line', () => {
