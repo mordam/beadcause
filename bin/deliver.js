@@ -60,7 +60,7 @@ import { execFileSync } from 'node:child_process';
 import { parseJson } from '../lib/bd.js';
 import { loadConfig } from '../lib/config.js';
 import { ownerName } from '../lib/owner.js';
-import { cardsForRequest, deliveryBody, deliveryTitle, DELIVERY_LABEL } from '../lib/delivery.js';
+import { cardsForDelivery, deliveryBody, deliveryTitle, DELIVERY_LABEL } from '../lib/delivery.js';
 import { deployFor, deployHint } from '../lib/deploy.js';
 import { landedReason } from '../lib/landed.js';
 import { pushLanded } from '../lib/notify.js';
@@ -354,6 +354,13 @@ repoSlug = await pr.slugFor(dir);
  * endings, because both make the old card meaningless — a re-delivery replaces it,
  * and a merge answers it outright.
  *
+ * The cards it looks for are the ones for this pull request **or for this bead** —
+ * see `cardsForDelivery`. The bead half catches the pile the number cannot see: a
+ * session that abandoned its branch and delivered the same work on a new one, whose
+ * first card is still in the inbox pointing at a pull request nobody will merge. Its
+ * close reason names that older request, because "superseded" about a different
+ * number reads as a mistake unless it says which.
+ *
  * Everything in here is best-effort and none of it throws. The branch is pushed and
  * the pull request is open by the time this runs; a workspace that will not answer
  * `bd list` is a reason to leave a stale card behind, not to fail a delivery.
@@ -363,16 +370,22 @@ function clearOpenCards(why) {
   try {
     rows = parseJson(bd(['list', '--label', DELIVERY_LABEL, '--status=open,in_progress,blocked', '--limit', '0', '--json'])) || [];
   } catch (err) {
-    console.error(`beadcause-deliver: could not look for cards already open on #${request.number} — ${bdSaid(err)}`);
+    console.error(`beadcause-deliver: could not look for cards already open on ${beadId} — ${bdSaid(err)}`);
     return [];
   }
 
   const cleared = [];
-  for (const card of cardsForRequest(rows, { repo: repoSlug, number: request.number })) {
+  for (const card of cardsForDelivery(rows, { repo: repoSlug, number: request.number, bead: beadId })) {
+    // A card matched on the bead rather than on the number is about an older pull
+    // request, and the reason has to say so or it reads as the wrong card being closed.
+    const reason =
+      card.number && card.number !== request.number
+        ? `${why} That card asked about #${card.number}, which ${beadId} is no longer being delivered on.`
+        : why;
     try {
-      bd(['close', card.id, '--reason', why]);
+      bd(['close', card.id, '--reason', reason]);
     } catch (err) {
-      console.error(`beadcause-deliver: ${card.id} is still open on #${request.number} — ${bdSaid(err)}`);
+      console.error(`beadcause-deliver: ${card.id} is still open on ${beadId} — ${bdSaid(err)}`);
       continue;
     }
     cleared.push(card.id);
@@ -388,7 +401,7 @@ function clearOpenCards(why) {
       /* No such edge, or bd would not take it. The card is closed either way. */
     }
   }
-  if (cleared.length) console.error(`beadcause-deliver: closed ${cleared.join(', ')} — already open on #${request.number}`);
+  if (cleared.length) console.error(`beadcause-deliver: closed ${cleared.join(', ')} — already open on ${beadId} / #${request.number}`);
   return cleared;
 }
 

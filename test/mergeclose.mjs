@@ -66,7 +66,7 @@ const bad = (name, detail) => {
 const check = (name, cond, detail = '') => (cond ? ok(name) : bad(name, detail));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-const { cardsForRequest, deliveryBody } = await import(LIB('delivery.js'));
+const { cardsForDelivery, deliveryBody } = await import(LIB('delivery.js'));
 const { Bd } = await import(LIB('bd.js'));
 const { readOwed, oweClose, sweepOwed, OWED_PATH } = await import(LIB('owed.js'));
 
@@ -100,21 +100,21 @@ const card = (id, over = {}) => ({
     { ...card('zz-4'), status: 'closed' },
     { id: 'zz-5', status: 'open', title: 'An ordinary question', description: 'Which of these two?' },
   ];
-  const found = cardsForRequest(rows, { repo: 'acme/widgets', number: 7 }).map((c) => c.id);
+  const found = cardsForDelivery(rows, { repo: 'acme/widgets', number: 7 }).map((c) => c.id);
   check('the card for this pull request is found', found.includes('zz-1'), found.join(','));
   check('another number is not this one', !found.includes('zz-2'), found.join(','));
   check('the same number in another repo is not this one', !found.includes('zz-3'), found.join(','));
   check('a card already closed is not open', !found.includes('zz-4'), found.join(','));
   check('a question that is not a delivery at all is left out', !found.includes('zz-5'), found.join(','));
-  check('and it carries the work bead the card names', cardsForRequest(rows, { repo: 'acme/widgets', number: 7 })[0]?.bead === 'zz-work');
+  check('and it carries the work bead the card names', cardsForDelivery(rows, { repo: 'acme/widgets', number: 7 })[0]?.bead === 'zz-work');
 }
 
 {
   // A repo this delivery could not name — `pr.slugFor` answers null in a checkout with
   // no GitHub remote — falls back to the number, which is the older behaviour.
-  const found = cardsForRequest([card('zz-1')], { repo: '', number: 7 }).map((c) => c.id);
+  const found = cardsForDelivery([card('zz-1')], { repo: '', number: 7 }).map((c) => c.id);
   check('an unknown repo still matches on the number', found.join(',') === 'zz-1', found.join(','));
-  check('and a number that is not a number matches nothing', cardsForRequest([card('zz-1')], { number: 0 }).length === 0);
+  check('and a number that is not a number matches nothing', cardsForDelivery([card('zz-1')], { number: 0 }).length === 0);
 }
 
 /* ---------------------------------------------------------------- the fake bd */
