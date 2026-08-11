@@ -10015,8 +10015,39 @@ bar (bc-0fi2), found within minutes of the downmerge rather than in a month. Two
 in that same range of `main` had already been fixed by hand for the same kind of drift;
 this one was missed, which is the argument for the command.
 
-They are left red on purpose. A green wall bought by deleting the assertions would be
+They were left red on purpose. A green wall bought by deleting the assertions would be
 the same silence in a better disguise.
+
+**All three are green now, and what they turned out to be is the argument for having
+left them red.** Two were real, and neither was small. `shot.mjs` now prints its URL
+with `t=redacted` while still navigating with the token, so the credential that guards
+the daemon over the tailnet stops being written into the transcript of every agent
+screenshot — the navigation is untouched, because the token on the URL is load-bearing
+and documented where it is set. And the disarm came back to the option handler: bc-l8jp.9
+turned that handler from *arm, then answer on the second tap* into *fill the box*, and
+the unconditional `disarm()` went out with the answering path it was attached to, leaving
+only the one guarding `expand()`. That one runs on a card that was **shut** — so on the
+common case, a card open far enough to read the options you are tapping, the dismiss
+underneath went on saying "Tap again — hides dm-1" while you picked, and the next tap
+meant two things that write to different endpoints.
+
+**The third was the check, and it had drifted for a reason worth writing down.** It
+measured the gap from the last comment to the textarea, which was the right measurement
+for seventy-four minutes: the fold landed at 14:32 and *Pin the answer box to the bottom
+while the bead details scroll* landed at 15:46 the same afternoon, from another branch.
+Before the pin, the brief and the box were consecutive blocks in one scroller and the
+last comment really did sit a strip above the box. After it, the brief is its own
+scroller with the composer pinned under it — so that distance stopped describing the
+layout and started describing **where the brief happens to be scrolled to**, which the
+fixture's own content decides. 134px against a 110px bar, with nothing wrong. It is now
+two measurements that no scroll position can move: the composer's chrome above the
+textarea is 60px against the same 110px bar, and the brief meets the composer at 0px
+with nothing in between. Forcing the panel open again puts the first at 268px, so the
+bar still has the teeth it was given.
+
+Which is the honest scoreboard for the stance above: two of the three were bugs a green
+wall would have hidden, and the third was a check that a downmerge had quietly made
+meaningless — a state that only ends when somebody is made to look at it.
 
 **But running them is not the problem this was written for.** These checks do not rot by
 failing. They rot by pressing something that is no longer there, and then not being run.

@@ -16,11 +16,15 @@
 //   - THE PHONE IS THE DEFAULT. beadcause is a phone app. A 1280px shot is a shot of
 //     the one layout nobody uses, and it hides the exact failures worth catching.
 //     `--desktop` when the bug is specifically a wide-window one.
-//   - THE TOKEN IS NEVER ON THE COMMAND LINE. It comes from loadConfig() and goes
-//     into localStorage before the page's own scripts run. Agent shell commands get
-//     echoed into transcripts, quoted into beads and read on a phone; a secret that
-//     reaches the screen once needs rotating. `?t=` would additionally put it in the
-//     URL bar, which is to say in the screenshot.
+//   - THE TOKEN IS NEVER ON THE COMMAND LINE, AND NEVER IN THE OUTPUT. It comes from
+//     loadConfig(), goes into localStorage before the page's own scripts run, and —
+//     because localStorage rides on no navigation, so a *document* request carrying
+//     no credential is bounced to sign-in — onto the URL as `?t=` as well. Agent shell
+//     commands and agent stdout both get echoed into transcripts, quoted into beads
+//     and read on a phone; a secret that reaches the screen once needs rotating. So
+//     the URL this navigates with and the URL it prints are two different strings:
+//     see URL_TO_SHOOT and URL_SHOWN. They were one string for a while, which put the
+//     live token in the log of every screenshot ever taken (bc-sqab).
 //   - IT WAITS FOR load, NEVER FOR AN IDLE NETWORK. The app holds a WebSocket open
 //     for live updates, so the network is never idle and an idle-wait would time out
 //     on every page that rendered perfectly.
@@ -114,6 +118,23 @@ const URL_TO_SHOOT = (() => {
     return u.toString();
   } catch {
     return raw;
+  }
+})();
+
+// What the report prints. The token above is a credential — it is what guards the
+// daemon over the tailnet — and this script's whole output goes into an agent's
+// transcript, so printing the URL verbatim writes it into every session log of every
+// screenshot ever taken. The value is masked rather than dropped so the line still
+// says a token was presented, which is the difference between "the page needed no
+// credential" and "the page got one" when you are reading back why a shot came out
+// as the login screen.
+const URL_SHOWN = (() => {
+  try {
+    const u = new URL(URL_TO_SHOOT);
+    if (u.searchParams.has('t')) u.searchParams.set('t', 'redacted');
+    return u.toString();
+  } catch {
+    return URL_TO_SHOOT;
   }
 })();
 
@@ -400,7 +421,7 @@ if (fs.existsSync(OUT)) {
   const kb = Math.round(fs.statSync(OUT).size / 1024);
   console.log(rel.startsWith('..') ? OUT : rel);
   console.log(
-    `  ${URL_TO_SHOOT} - ${VP.width}x${VP.height} @${VP.dpr}x${VP.mobile ? ' mobile' : ''}${FULL ? ' full-page' : ''} - ${kb} KB`
+    `  ${URL_SHOWN} - ${VP.width}x${VP.height} @${VP.dpr}x${VP.mobile ? ' mobile' : ''}${FULL ? ' full-page' : ''} - ${kb} KB`
   );
 } else {
   console.log('(no screenshot was produced)');
