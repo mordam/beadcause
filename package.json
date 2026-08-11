@@ -9,6 +9,7 @@
     "beadcause": "bin/beadcause.js",
     "beadcause-monitor": "bin/monitor.js",
     "beadcause-memory": "bin/beadcause-memory",
+    "beadcause-agentrepo": "bin/beadcause-agentrepo",
     "beadcause-get": "bin/beadcause-get",
     "beadcause-file": "bin/file.js",
     "beadcause-propose": "bin/propose.js",

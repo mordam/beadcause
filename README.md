@@ -1865,6 +1865,118 @@ advocate cycle rewrites `advocates.json` three or four times in a second and tho
 are one event to whoever reads the history back. `status.json`, `logs/` and the
 check PNGs are ignored — churn, and not the thing you want a history of.
 
+### Tier 3 — a repo one agent owns, and the experiment that is the point of it
+
+Tiers 1 and 2 settled durability. What they did not answer is what an agent does with
+a space nobody has designed. So the advocate — and only the advocate — is given one:
+
+```
+~/.config/beadcause/agents/<workspace>/<agent>/
+```
+
+A real directory with a real working tree and a real `.git`, outside every project
+checkout, **seeded with nothing at all**. No README, no schema, no example. That is
+the instrument rather than an omission: what an agent reaches for when handed an
+empty space is a fact about agents, and a seeded repo would only tell you it can
+follow a template. `lib/agentrepo.js` provisions it and `bin/beadcause-agentrepo` is
+how the agent reaches it.
+
+```
+beadcause-agentrepo path                   where it is
+beadcause-agentrepo ls [<dir>]             what is in it
+beadcause-agentrepo cat <file>             read one
+beadcause-agentrepo write <file>           write one; content on stdin
+beadcause-agentrepo rm <file>              delete one
+beadcause-agentrepo git <args...>          any git command, inside it
+```
+
+**Success is not that the state was durable.** Success is the agent doing something
+nobody designed for, and the bead says to evaluate it that way or the result means
+nothing — which is why half of `lib/agentrepo.js` is measurement.
+
+#### The prediction under test, and the two arms
+
+*The agent writes on the first turn of every session and never reads back*, because
+nothing prompts it to. A repo with no recall path is a write-only diary, and the
+variable that decides it is not the repo — it is whether session start says "you have
+a memory, and here is what is in it". The same lesson `MEMORY.md` teaches, and the
+same one `beadcause-memory agents` taught above: a capability nobody was told about is
+indistinguishable from one nobody chose to use.
+
+So every survey runs one of two arms, and the comparison is the finding:
+
+| | **`blind`** | **`index`** |
+|---|---|---|
+| the brief | the directory exists, and how to reach it | the same, **plus a listing of what is in it** |
+| what it tests | does it write unprompted? | does being shown it make it read? |
+
+`advocates.agentRepo` picks: `alternate` (the default) flips between the two per
+workspace, `blind`/`index` pin one for reproducing something the log showed, and `off`
+withdraws the affordance and the write grant with it. `alternate` is the default
+because the alternative is a switch somebody has to remember to flip, and an
+experiment that depends on that produces one arm and no comparison.
+
+Every invocation appends a line to `~/.config/beadcause/agents/usage.jsonl` — the
+verb, the target and whether it read or wrote, never file contents. A `session` line
+is written at *spawn*, so a run in which the agent ignored the repo entirely is still
+a run in the denominator; that is the half the prediction turns on.
+
+```js
+import { summary } from './lib/agentrepo.js';
+summary();
+// { blind: { runs, touched, read, wrote, readFirst, commands }, index: { … } }
+```
+
+`readFirst` is the number that answers it: "wrote and never read back" is `wrote`
+minus `read`, and "was told what was in there and went and looked" is `readFirst`
+under `index`. Reported per arm and never pooled, because a pooled number answers a
+question nobody asked.
+
+#### The real work is permissions, not git
+
+The console allowlist is load-bearing rather than belt-and-braces, and this is the
+first time an unattended agent here has had anywhere it may write. Three things keep
+that down to a sentence you can hold in your head — *this agent may write inside its
+own directory, and nowhere else*:
+
+- **One allowlist entry, and it is a command rather than a tool:**
+  `Bash(beadcause-agentrepo:*)`. Neither obvious alternative is a fence. `Write`/`Edit`
+  take a path specifier relative to the working directory, and this is an absolute path
+  outside every checkout. `Bash(git -C <dir>:*)` looks like one and is not: `git -C a -C
+  b` chains, so a prefix match on the first `-C` permits a second pointing anywhere on
+  the Mac. The wrapper is the fence — every path resolves under the repo after a
+  `realpath` on its deepest existing ancestor, so a symlink planted in the tree cannot
+  be walked out of, and no option may precede a git subcommand, which refuses `-C`,
+  `-c`, `--git-dir`, `--work-tree`, `--exec-path` and `--namespace` in one rule.
+- **`ownsRepo` is PROTECTED in `lib/foundation.js`**, in both directions. An agent that
+  could amend it *on* would have granted itself write access, and "somewhere of my own
+  to keep notes" is exactly the request that reads as harmless on a phone. An agent that
+  could amend it *off* could put the directory out of the index, out of the foundations
+  screen and out of mind while its contents stayed on disk.
+- **Local-only, enforced rather than intended.** No remote is configured and the wrapper
+  refuses `push`, `fetch`, `remote`, `clone` and the rest; `.git` is out of bounds for
+  the file verbs, because writing `.git/config` by hand is how a repo acquires a remote.
+  `lib/sessionlog.js` refused to push by default because a transcript carries absolute
+  paths and whatever tool output scrolled past. This inverts the authorship — *the
+  agent* decides what lands here — so it can write a secret nobody anticipated into a
+  repo nobody reviews. Add a remote after weeks of reading what actually accumulates,
+  and know that the only shape which enforces owner-plus-owning-agent is a private repo
+  per agent with a fine-grained PAT scoped to that one repository; a shared private repo
+  with a ref namespace per agent is cheaper and isolates by convention alone.
+
+The directory is `0700` and its files `0600` — narrowed rather than set, so git's
+read-only `0444` objects become `0400` and not a writable `0600`.
+
+#### One line of `.gitignore` that is load-bearing
+
+`~/.config/beadcause` is itself a git repo whose snapshot runs `git add -A`, so
+`agents/` is in its ignore file. That is not tidiness. A nested repo is skipped only
+once it has a `.git` of its own, so the window between `mkdir` and `git init` — or any
+tree an init failed halfway through — would put an agent's private files straight into
+the shared history, silently, exactly once. `topUpIgnore` is what gets the rule onto
+installs that predate it, and `test/agentrepo.mjs` asserts the outcome against `git
+check-ignore` rather than against the file, because the question is what git does.
+
 ## What an agent can see — a picture of the running app
 
 Almost everything in flight in this repo is visual. How the graph fits a phone,
