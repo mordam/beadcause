@@ -54,15 +54,19 @@ import { buildStamp, routerStamp } from '../lib/build.js';
 import { hotSwapProblem, LOADED_ENV } from '../lib/service.js';
 import { certificate, closeServer, daysLeftOf, isSecure, startRenewal, tailnetServer, tlsEnabled, MIN_VERSION } from '../lib/tls.js';
 import {
-  EXITED,
   HEALTH_ATTEMPTS,
   HEALTH_BASE_MS,
+  PORTLOST,
+  PORT_ATTEMPTS,
+  PORT_TAKEN_EXIT,
   TIMEOUT,
   deferralMs,
+  exitKind,
   explain,
   healthDeadline,
   nextSlowness,
   outageRetryMs,
+  poisonable,
   startupError,
 } from '../lib/startup.js';
 
@@ -194,10 +198,12 @@ let crashBackoffMs = 0;
  * path, and it is the only ordering in which a poller cannot start inside a process
  * that then fails to bind.
  *
- * Fails in one of two ways and the difference is the whole of bc-excc: a child that
- * *exited* is a broken build (`EXITED`), and a child that is alive and has not answered
- * inside `deadlineMs` is a busy machine (`TIMEOUT`). The caller treats them nothing
- * alike — see `attemptStart`.
+ * Fails in one of three ways and the differences are the whole of bc-excc and bc-dw47: a
+ * child that *exited* is a broken build (`EXITED`), a child that is alive and has not
+ * answered inside `deadlineMs` is a busy machine (`TIMEOUT`), and a child that exited
+ * with `PORT_TAKEN_EXIT` lost the port between `freePort` choosing it and the bind
+ * (`PORTLOST`) — which is the one failure a plain retry cures, because the retry gets a
+ * different port. The caller treats them nothing alike — see `attemptStart`.
  */
 async function spawnBackend(deadlineMs) {
   const port = await freePort();
@@ -240,7 +246,18 @@ async function spawnBackend(deadlineMs) {
   const deadline = Date.now() + deadlineMs;
   for (;;) {
     if (child.exitCode !== null || child.signalCode) {
-      throw startupError(EXITED, `backend on :${port} exited before it was healthy`);
+      // The exit code is read here and nowhere else: a signalled child has no code at
+      // all, and `exitKind(null)` is `EXITED`, which is the right answer for one — a
+      // backend nobody in here killed and that died on a signal is not a port problem.
+      const kind = exitKind(child.exitCode);
+      const why = kind === PORTLOST ? 'could not bind it — something else took it first' : 'exited before it was healthy';
+      // The code, always, and it is not decoration: `exited before it was healthy` is the
+      // sentence that condemns a build, and which exit produced it is the whole of what
+      // anybody reading the log afterwards needs to know. A signalled child says so
+      // instead — `signal SIGKILL` is a very different diagnosis from `code 1`, and both
+      // of them arrived here as the same six words until bc-dw47.
+      const how = child.signalCode ? `signal ${child.signalCode}` : `code ${child.exitCode}`;
+      throw startupError(kind, `backend on :${port} ${why} (${how})`);
     }
     try {
       const state = await localJson(port, '/internal/state', { timeout: 2000 });
@@ -269,10 +286,18 @@ async function spawnBackend(deadlineMs) {
  * the window, because a *wedged* child is the only other thing a timeout can mean and a
  * fresh process is the only cure for that one. Beyond that the answer is not "again,
  * harder" but "later, wider", which is what `slowness` carries out of here.
+ *
+ * The exception, and bc-dw47's whole point, is a child that exited because its port had
+ * been taken. "The next spawn would break identically" is exactly what is false about
+ * that one — the next spawn asks the kernel for another port — so it is retried at once,
+ * up to `PORT_ATTEMPTS` times, and it costs neither a health attempt nor a mark on
+ * `slowness`: the machine was not slow and the build was never in question.
  */
 async function attemptStart(build) {
   let last = null;
-  for (let attempt = 0; attempt < HEALTH_ATTEMPTS; attempt++) {
+  let lost = 0;
+  let attempt = 0;
+  while (attempt < HEALTH_ATTEMPTS) {
     const ms = healthDeadline(attempt, slowness, HEALTH_BASE);
     try {
       const be = await spawnBackend(ms);
@@ -284,11 +309,22 @@ async function attemptStart(build) {
       return be;
     } catch (err) {
       last = err;
+      if (err.kind === PORTLOST) {
+        // Not `attempt++`: this says nothing about the build or the window, and spending
+        // the second health attempt on it would leave a genuinely slow start with none.
+        if (++lost >= PORT_ATTEMPTS) throw err;
+        warn(
+          `build ${build} lost its internal port (${lost}/${PORT_ATTEMPTS}) — ` +
+            'another process on this Mac took it first. Trying again now, on another one.'
+        );
+        continue;
+      }
       if (err.kind !== TIMEOUT) throw err;
       warn(
         `build ${build} was still starting after ${Math.round(ms / 1000)}s ` +
           `(attempt ${attempt + 1}/${HEALTH_ATTEMPTS}) — a slow machine says nothing about the build`
       );
+      attempt++;
     }
   }
   slowness = nextSlowness(slowness, { timedOut: true });
@@ -432,21 +468,40 @@ async function bringUp(reason) {
   } catch (err) {
     // Remember the build we tried, not the one on disk now: if the files moved
     // again while we were failing, that newer build deserves its own attempt.
-    if (err.kind === TIMEOUT) {
-      // Not poison. The child was alive and unhurried, which is a sentence about this
-      // Mac, and condemning a build for it is how a good build stopped being served
-      // for as long as it took somebody to read a log file. Deferred instead: tried
-      // again on its own, with a window that has already been widened by `slowness`.
-      // Counted per build: a newer build has earned a fresh, short pause rather than
-      // inheriting the one the previous build's failures had grown to.
+    if (!poisonable(err.kind)) {
+      // Not poison. The child was alive and unhurried, or it never got the port it was
+      // given — either way that is a sentence about this Mac, and condemning a build for
+      // it is how a good build stopped being served for as long as it took somebody to
+      // read a log file. Deferred instead: tried again on its own, with a window that
+      // has already been widened by `slowness`. Counted per build: a newer build has
+      // earned a fresh, short pause rather than inheriting the one the previous build's
+      // failures had grown to.
       deferrals = deferred?.build === attempted ? deferrals + 1 : 1;
       const wait = deferralMs(deferrals);
-      deferred = { build: attempted, attempts: HEALTH_ATTEMPTS, until: Date.now() + wait, deferrals };
-      warn(
-        `build ${attempted} would not start in time — retrying in ${Math.round(wait / 1000)}s ` +
-          `with a longer window. The build is not condemned: ${HEALTH_ATTEMPTS} slow starts are ` +
-          'evidence about the machine, not about the code.'
-      );
+      const lostPort = err.kind === PORTLOST;
+      // Carried on the snapshot rather than left to be inferred from `attempts`: every
+      // surface that reads a deferral says "too slow to answer", and a deferral for a
+      // taken port would be four screens of a diagnosis that is simply not this one.
+      const why = lostPort
+        ? `build ${attempted} lost the race for an internal port ${PORT_ATTEMPTS} times — ` +
+          'something else on this Mac keeps taking it. Nothing is wrong with the build.'
+        : null;
+      deferred = {
+        build: attempted,
+        attempts: lostPort ? PORT_ATTEMPTS : HEALTH_ATTEMPTS,
+        until: Date.now() + wait,
+        deferrals,
+        why,
+      };
+      if (lostPort) {
+        warn(`${why} Retrying in ${Math.round(wait / 1000)}s.`);
+      } else {
+        warn(
+          `build ${attempted} would not start in time — retrying in ${Math.round(wait / 1000)}s ` +
+            `with a longer window. The build is not condemned: ${HEALTH_ATTEMPTS} slow starts are ` +
+            'evidence about the machine, not about the code.'
+        );
+      }
     } else {
       poisoned = attempted;
       deferred = null;
@@ -1040,9 +1095,13 @@ function listen() {
     const listener = front || server;
     listener.on('error', (err) => {
       warn(`listen ${host}:${cfg.port} — ${err.message}`);
+      // The same code lib/server.js uses, and for the same reason it uses it: a router
+      // that could not have the port is a different event from a router that is broken,
+      // and a parent — a suite, in practice, since launchd reads no code at all — can
+      // only tell them apart if the number says so.
       if (++failed === hosts.length && bound === 0) {
         warn('no address could be bound — exiting');
-        process.exit(1);
+        process.exit(PORT_TAKEN_EXIT);
       }
     });
     listener.listen(cfg.port, host, () => {
