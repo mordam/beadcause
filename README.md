@@ -3514,6 +3514,48 @@ were being described as "not merged into main" over work that had shipped two da
 earlier. Both sweeps ask `origin/main` first and fall back to `main` for a repo with no
 remote, which is also what stops a stale local ref from quietly holding the attic shut.
 
+#### Bounded by age is not bounded by size
+
+Expiry bounds how *full* the attic gets. It does nothing about how heavy it is, and on
+this repo those were different numbers: of the 1.2 GB, **650 MB was four entries out of
+122**. `merge-sessions-advocates-4d2`, `tab-bar-4nq`, `proposal-record-91k` and
+`in-app-terminal-49g` were 160–167 MB each, against ~6 MB for a normal entry, and the
+whole difference was `node_modules` — a real installed tree where the other 37 entries
+carrying anything had a symlink to the main checkout's. None of them was old enough to
+expire, and a repeat would put 650 MB back however fast the sweep runs. bc-mf9s.
+
+**Where they come from.** Each of the four had `node_modules/.package-lock.json` inside
+it, which is `npm install`'s own fingerprint: somebody ran a real install in the worktree
+instead of `ln -s ../../../node_modules node_modules`. The likeliest reason was in this
+repo. `scripts/vendor.js` is the first thing run in a fresh worktree — nothing else can
+run until `public/vendor/` exists — it finds nothing to copy, and it used to answer
+*"missing marked/lib/marked.umd.js — run npm install"*, seven times, which is correct
+advice in the main checkout and 160 MB in a worktree. It now says the other thing: a
+worktree with no tree is told to link, and a worktree that already has its own is told so
+with the command to replace it, printed last so it survives a `postinstall`.
+
+**And `slimAttic` drops the ones that still happen.** Third on the same tick, after
+retiring and expiring, it removes a retired worktree's *build output*: a real
+`node_modules`, and `android/app/build`, `android/build`, `android/.gradle` with it —
+83 MB more across the handful of entries that had built an APK, and the only reason any
+of them was still over ~10 MB once the dependency trees had gone. It is deliberately not
+the same kind of act as removing an entry, so it does not wait for the two-day line and
+does not ask GitHub anything: nothing it removes is work, `npm install` puts the tree
+back byte for byte from a committed lock file, `npm run android` rebuilds the rest, and
+git cannot see any of it either way. The gates are only the ones about interrupting
+somebody — a lock, a session's `cwd` inside it, or a directory touched in the last ten
+minutes — and a **symlinked** `node_modules` is left exactly alone, since following it
+would empty the main checkout's tree through the link.
+
+`public/vendor/` is the line the list stops at, and the rule is what makes it a line:
+heavy *and* rebuilt by a command the resumer was going to run anyway. Vendor is 4 MB, no
+browser check in this repo starts without it, and rebuilding it needs the dependency tree
+that has just gone — so it stays, and a retired worktree's floor is about 6 MB.
+
+The `.note` gains a second line saying what went and how to get it back; line one, the
+stamp the whole expiry rests on, is never rewritten. `bin/attic.js` reports what it
+dropped and what it freed, and `test/nodemodules.mjs` holds both halves.
+
 #### The sweep a human runs — and why it moved in here
 
 The daemon empties the attic on its own tick. The `ship` skill sweeps it too, and until
