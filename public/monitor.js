@@ -72,10 +72,32 @@
   const tally = document.getElementById('tally');
   const observing = document.getElementById('observing');
 
-  /* Three `bd` calls per workspace behind /api/work, so this refreshes on a timer
-     rather than streaming. The transcript poll below is the fast one — a file read. */
-  const REFRESH_MS = 20000;
+  /* There were three `bd` calls per workspace behind /api/work and a whole inbox sweep
+     beside them, every twenty seconds, for as long as this page was open. It follows the
+     daemon's event log now (see `follow` below), which changes the bargain in two ways:
+
+     - **The roster arrives free.** `/api/poll` carries `advocates.snapshot()` on every
+       wake, whatever woke it. So a pause, a resume, a check-in, a slot freeing — most of
+       what this page is *about* — lands here without a request of any kind.
+     - **The `bd` half is asked for only when something happened that `bd` would answer
+       differently.** A claimed bead, a session opening, a proposal filed. An advocate
+       merely saying it is still surveying is a repaint and nothing more.
+
+     What has no event and cannot have one is a session claiming a bead in a terminal
+     nobody told the daemon about. That used to be caught within twenty seconds by the
+     timer and is now caught by the next event, the ⟳, or coming back to the page. In
+     practice a running advocate emits several events a minute, so the page it matters on
+     is the busy one. */
   const LOG_MS = 2500;
+
+  /**
+   * Advocate actions that change the roster and nothing `bd` would answer differently.
+   *
+   * The roster is on the poll, so these repaint for free. Everything else an advocate
+   * does — launching a session, closing one, landing a delivery — moves a row that comes
+   * out of `bd` or off the filesystem, and those are worth going back for.
+   */
+  const ROSTER_ONLY = new Set(['checked-in', 'surveying', 'idle', 'paused', 'resumed', 'forgot', 'limit']);
 
   const esc = (s) =>
     String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -289,10 +311,17 @@
    * nothing on screen accounts for the difference. Its `why` goes in the tooltip —
    * the pill is the number, "bc-3zo9.1 is ready under it" is the answer to the
    * question the number provokes.
+   *
+   * `heldByTwin` is the fourth, and the only one of them that can move on its own: a
+   * bead held because another one is the same job comes back the moment that other one
+   * closes. Which is exactly why it needs the pill — "1 ready" that never becomes a
+   * session, with nothing on screen naming the bead it is waiting behind, is
+   * indistinguishable from an advocate that has stopped working.
    */
   function domainHtml(w, a) {
     const c = w?.counts || {};
     const waiting = (a && a.heldByChildren) || [];
+    const twins = (a && a.heldByTwin) || [];
     const pills = [
       c.open != null ? `<span class="pill">${c.open} open</span>` : '',
       c.ready ? `<span class="pill">${c.ready} ready</span>` : '',
@@ -314,6 +343,9 @@
         : '',
       waiting.length
         ? `<span class="pill muted" title="${esc(waiting.map((h) => `${h.id} — ${h.why}`).join('\n'))}">${waiting.length} waiting on ${waiting.length === 1 ? 'its children' : 'their children'}</span>`
+        : '',
+      twins.length
+        ? `<span class="pill muted" title="${esc(twins.map((h) => `${h.id} — ${h.why}`).join('\n'))}">${twins.length} the same job under another id</span>`
         : '',
     ].filter(Boolean);
     return `<div class="mon-domain">${pills.join('')}</div>`;
@@ -1246,6 +1278,10 @@
       .filter(Boolean)
       .join(' · ');
     tally.className = `mon-tally${waiting ? ' warn' : ''}`;
+    // Opening a log card is a repaint, and it is also the moment the transcript tail has
+    // to start — there is no other signal for it, and this is the one place every way of
+    // opening one goes through. `scheduleLogs` is a no-op when nothing is unfolded.
+    scheduleLogs();
   }
 
   /** Is this repo in the selected space? See public/spacebar.js. */
@@ -1333,7 +1369,7 @@
       // of `cfg`, no `bd` and no disk.
       await loadSpace();
       render({ polled });
-      pumpLogs();
+      pumpLogs().finally(scheduleLogs);
       // Only from a request that came back: warming behind a refused credential would
       // be four more refusals. See public/warm.js.
       warm?.prewarm?.({ here: 'advocates', api });
@@ -1345,6 +1381,11 @@
       if (!state.work) out.innerHTML = `<div class="empty"><strong>Can't reach the server</strong>${esc(err.message)}</div>`;
     } finally {
       pulse.classList.remove('busy');
+      // Whether or not that worked, and deliberately: a page opened while the daemon is
+      // restarting used to be brought back by the twenty-second timer, and with the
+      // timer gone the stream is the only thing that can. Its own backoff is what stops
+      // that being a request every five seconds at a daemon that is not coming back yet.
+      follow();
     }
   }
 
@@ -1682,11 +1723,82 @@
     render();
     loadSpace().then(render);
   });
-  // Two `bd` calls per workspace every twenty seconds is worth paying for the pane
-  // you are looking at and nothing else — the mirror tab sits over this one, and a
-  // hidden page must not keep sweeping every tracker on the Mac.
-  setInterval(() => !out.hidden && load({ polled: true }), REFRESH_MS);
-  setInterval(() => !out.hidden && pumpLogs(), LOG_MS);
+  /* ------------------------------------------------------------------- the stream */
+
+  /**
+   * Follow the event log instead of re-asking on a clock.
+   *
+   * `want: 'presence'` is what makes the park free — this page draws none of the inbox
+   * questions, so it asks the daemon not to sweep `bd` on its behalf and goes and gets
+   * what it needs itself, for the events that need it. `cold: true` because `/api/work`
+   * carries no sequence, and the `since`-less first request that learns one costs
+   * nothing under `want: 'presence'`.
+   *
+   * The pane is only followed while it is the one you are looking at: the mirror tab
+   * sits over this one, and a hidden page must not keep asking about every tracker on
+   * the Mac. That was true of the timer this replaces and it is truer here, because the
+   * park is a held socket rather than a tick.
+   */
+  let stream = null;
+  function follow() {
+    if (!window.beadcause?.stream) return;
+    // Mounted once and started every time. `load` is what calls this — the boot, the ⟳,
+    // and the mirror tab handing the pane back (`window.beadcause.monitor.refresh`) —
+    // and the middle one is why: `ready` goes false while the mirror is up, which ends
+    // the loop, and coming back has to be able to pick it up again. `start` on a stream
+    // that is already parked is a no-op.
+    if (stream) return stream.start();
+    stream = window.beadcause.stream.follow({
+      api,
+      want: 'presence',
+      cold: true,
+      ready: () => !out.hidden,
+      onWake({ data, events, resync }) {
+        // The half that costs nothing. The snapshot is on every wake whatever woke it,
+        // so an advocate pausing, checking in or freeing a slot repaints from the poll
+        // that was already parked — no request, no `bd`.
+        if (state.work && Array.isArray(data.advocates)) {
+          state.work = { ...state.work, advocates: data.advocates, observing: data.observing ?? state.work.observing };
+          // `render` restarts the transcript tail, which matters here as much as on a
+          // fold: an advocate that has just started surveying is one this page begins
+          // tailing, and the snapshot above is how it finds out.
+          render({ polled: true });
+        }
+        if (resync) {
+          // We have lost our place in the log, so nothing on screen is provably current.
+          load({ polled: true });
+          return;
+        }
+        // Presence is a thumb moving on somebody's phone, and an advocate saying it is
+        // still surveying is the roster above. Neither is a reason to sweep `bd`.
+        const worth = events.some(
+          (e) => e.type !== 'presence' && !(e.type === 'advocate' && ROSTER_ONLY.has(e.action))
+        );
+        if (worth) load({ polled: true });
+      },
+    });
+    stream.start();
+  }
+
+  /**
+   * The transcript tail, on its own clock — and only while there is a transcript to tail.
+   *
+   * A self-rescheduling timeout rather than a `setInterval`, which is not a style
+   * preference: an advocate's log is a file on the Mac and a file changing emits no
+   * event, so this is the one thing on the page that genuinely has to ask on a clock.
+   * Making it stop when no log card is open and no advocate is surveying is what keeps
+   * that from being a request every two and a half seconds all day for a fold nobody
+   * has opened. `render` restarts it, so opening a card is what starts the tail.
+   */
+  let logTimer = null;
+  function scheduleLogs() {
+    clearTimeout(logTimer);
+    logTimer = null;
+    if (out.hidden) return;
+    const advocates = state.work?.advocates || [];
+    if (!advocates.some((a) => isOpen(`${a.workspace}:log`) || a.surveying)) return;
+    logTimer = setTimeout(() => pumpLogs().finally(scheduleLogs), LOG_MS);
+  }
 
   // How the tab bar brings this pane back up to date when you return to it.
   window.beadcause = window.beadcause || {};

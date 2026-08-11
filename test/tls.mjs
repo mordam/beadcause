@@ -16,7 +16,9 @@
  *   name, path and query kept, because every URL already in a notification, a QR and
  *   an installed PWA is `http://100.x.y.z:4318/...` and none of them may break;
  * - the terminal WebSocket over `wss`, still authenticated by the token subprotocol
- *   and still refusing a bad one before the socket exists.
+ *   and still refusing a bad one before the socket exists — and named in the boot log
+ *   by the scheme the phone will actually dial, which under the router is not the one
+ *   the process doing the printing can see on its own sockets.
  *
  * Nothing here touches the tailnet. The certificate is self-signed by `openssl` into a
  * temp directory, which is enough for every question above: whether a phone *trusts*
@@ -248,6 +250,63 @@ if (!ws) {
   });
 
   wss.close();
+
+  /* ------------------------------------------- and the URL the boot log names it by */
+
+  /**
+   * What `[beadcause] terminal` says, for a given config and set of listeners.
+   *
+   * Servers stood in for rather than bound: all `attachTerminalSocket` asks of one is
+   * `on('upgrade')`, and whether it terminates TLS — which is `setSecureContext`
+   * being there, exactly as `isSecure` decides it. A real pair of ports would prove
+   * nothing more and would have to be closed.
+   */
+  const announced = async (c, srv) => {
+    const said = [];
+    const was = console.log;
+    console.log = (...a) => said.push(a.join(' '));
+    let attached = null;
+    try {
+      attached = await attachTerminalSocket(c, srv);
+    } finally {
+      console.log = was;
+    }
+    attached?.close();
+    return said.find((line) => line.includes('] terminal')) || '';
+  };
+  const loopbackOnly = [{ on() {} }];
+  const terminatesTls = [{ on() {}, setSecureContext() {} }];
+
+  await check('the boot log names the terminal with the scheme the phone will dial', async () => {
+    // The configuration launchd actually runs, and the one that was wrong: TLS is
+    // terminated in bin/router.js, which owns the tailnet port, and the backend that
+    // prints this line binds loopback only. So `isSecure` is false in the process
+    // doing the printing while `baseUrl` is the https name — and the scheme has to
+    // come off the origin, or the line names a `ws://` that cannot connect.
+    const line = await announced(
+      { terminal: true, token: 'x', host: '127.0.0.1', port: 4318, baseUrl: 'https://m4.tail0.ts.net:4318' },
+      loopbackOnly,
+    );
+    assert.match(line, /wss:\/\/m4\.tail0\.ts\.net:4318\/ws\/terminal$/, `got: ${line}`);
+  });
+
+  await check('and still says ws:// for a loopback server on an http baseUrl', async () => {
+    const line = await announced(
+      { terminal: true, token: 'x', host: '127.0.0.1', port: 4318, baseUrl: 'http://100.96.105.106:4318' },
+      loopbackOnly,
+    );
+    assert.match(line, /ws:\/\/100\.96\.105\.106:4318\/ws\/terminal$/, `got: ${line}`);
+    assert.doesNotMatch(line, /wss:/, `got: ${line}`);
+  });
+
+  await check('with no baseUrl at all the bound listener is the only evidence there is', async () => {
+    // Every test that attaches a socket to a bare server, including the two above this
+    // section — there is no origin to go off, so the listener answers for itself, and
+    // the address it prints has to carry the same scheme.
+    const cfgless = { terminal: true, token: 'x', host: '127.0.0.1', port: 4318 };
+    assert.match(await announced(cfgless, loopbackOnly), /ws:\/\/127\.0\.0\.1:4318\/ws\/terminal$/);
+    assert.match(await announced(cfgless, terminatesTls), /wss:\/\/127\.0\.0\.1:4318\/ws\/terminal$/);
+  });
 }
 
 /* --------------------------------------------------- the rules around the switch */
