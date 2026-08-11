@@ -4534,6 +4534,22 @@ TLS certs", and beadcause says so in the log and **serves plain http exactly as
 before** — a daemon that refused to boot over a certificate would take the inbox down
 for a feature nobody had asked for yet.
 
+**Switching it on is two steps, and the second one is the one people miss.** The click
+changes the tailnet; it does not reach into a daemon that is already running. The
+certificate is fetched by whichever process owns port 4318 — the router — and it is
+fetched *once, at boot*, so a daemon that came up before the switch was flipped keeps
+serving plain http indefinitely and every URL it prints stays honest about that.
+Restart the service (`launchctl kickstart -k gui/$(id -u)/m4m.beadcause`); the boot
+after that logs `certificate for <name> — 90 days left` and rewrites `baseUrl` to the
+`https://` name. Two things about the first fetch specifically: it can fail with
+`CreateOrder: 404 … Certificate not found` when the tailnet's new certificate
+permission has not finished propagating to Let's Encrypt — **run `tailscale cert
+<name>` again and it succeeds**, usually within a minute of the click — and because the
+fetch only happens at boot, a restart that lands inside that window gets plain http and
+will not try again on its own until the next restart. If the log says plain http and
+`tailscale cert` works by hand, that is the order things happened in, not a
+misconfiguration.
+
 **Terminated in the daemon, not by `tailscale serve`.** Fronting it with Tailscale's
 own proxy would be less code and the same certificate, but then the protocol floor
 would be Tailscale's to choose and ours to discover. An explicit `minVersion` is only
