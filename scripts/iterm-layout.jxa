@@ -1,0 +1,77 @@
+// Where the cards may be dealt, and where cards already lie.
+//
+// Two facts have to be gathered before a session window can be placed, and neither is
+// reachable from AppleScript: the *displays* (AppleScript has no vocabulary for a
+// screen at all) and the bounds of every window iTerm is already showing. JavaScript
+// for Automation has both — AppKit through the ObjC bridge for the first, the same
+// scripting bridge AppleScript uses for the second — so this is one `osascript -l
+// JavaScript` instead of a screen probe plus a window probe.
+//
+// It answers in JSON. The alternative, newline-delimited fields, is what
+// scripts/iterm-ttys.applescript has to do because AppleScript cannot serialise; here
+// there is a real `JSON.stringify`, and the caller gets numbers rather than text it
+// has to re-parse into numbers.
+//
+// Two properties it must hold, both for the same reason as the ttys probe:
+//
+//   - **It never launches iTerm.** Constructing an Application object does not start
+//     the app and `.running()` is a question rather than a use, so a Mac with iTerm
+//     closed answers `windows: []` — which reads correctly: no windows, so no card is
+//     on the table, so the first one may go anywhere.
+//   - **It fails soft.** Every window is read inside its own try. A window that
+//     vanishes between the enumeration and the read (a session that just exited, and
+//     an advocate's sessions exit on their own) must cost that one window, not the
+//     whole layout — the caller's fallback for a failed probe is to let iTerm cascade,
+//     which is the behaviour this exists to replace.
+//
+// Coordinates are left exactly as AppKit gives them: NSScreen's origin is the bottom
+// left of the primary display with y growing upwards, and iTerm's `bounds` is the top
+// left with y growing down. Converting between the two is arithmetic with an off-by-one
+// screen-height in it, and arithmetic belongs in lib/iterm.js where it is tested, not
+// in a script that can only be exercised by running it on a Mac with three monitors.
+ObjC.import('AppKit');
+
+function run() {
+  const list = $.NSScreen.screens;
+  const screens = [];
+  for (let i = 0; i < list.count; i++) {
+    const screen = list.objectAtIndex(i);
+    // `visibleFrame`, not `frame`: it excludes the menu bar and the Dock, which is the
+    // difference between a card laid on the table and one sliding under the Dock.
+    const v = screen.visibleFrame;
+    screens.push({
+      index: i,
+      x: v.origin.x,
+      y: v.origin.y,
+      width: v.size.width,
+      height: v.size.height,
+    });
+  }
+
+  // The primary display's *full* height — the one thing the coordinate conversion needs,
+  // and deliberately `frame` rather than `visibleFrame`: the flip is about the screen
+  // AppKit measures from, and that screen includes its menu bar.
+  const primaryHeight = list.count ? list.objectAtIndex(0).frame.size.height : 0;
+
+  const windows = [];
+  try {
+    const iterm = Application('com.googlecode.iterm2');
+    if (iterm.running()) {
+      const open = iterm.windows();
+      for (let i = 0; i < open.length; i++) {
+        try {
+          const b = open[i].bounds();
+          windows.push([b.x, b.y, b.x + b.width, b.y + b.height]);
+        } catch (e) {
+          // One window that would not answer. Skip it; a card may end up dealt on top
+          // of it, which is a cosmetic loss and not a failure.
+        }
+      }
+    }
+  } catch (e) {
+    // iTerm refused to be scripted at all. The screens are still worth returning: a
+    // first card placed on the right display beats no placement.
+  }
+
+  return JSON.stringify({ primaryHeight, screens, windows });
+}
