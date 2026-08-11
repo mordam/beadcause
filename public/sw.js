@@ -98,16 +98,24 @@
    an accent-coloured button in the middle of it. app.js moves too, because the link that
    opens a document from a card now carries the bead — and that is the only reason the
    published URL can end up on the bead instead of only in the daemon's state. */
-/* v32: the History tab (bc-nib3.2). `/history`, `/history.html` and `/history.js` are
+/* v32: the session view grew a button that brings that session's iTerm window to the
+   front of the Mac and doubles it, and puts it back when you close the view (bc-fwsw).
+   No new path — session.js and style.css are both already here — and that is why the
+   version has to move: a phone holding v31's session.js beside v32's stylesheet draws
+   no button at all, and one holding v32's session.js against v31's stylesheet drops an
+   unstyled button into the middle of a label row and sizes the transcript as though it
+   were not there, pushing the log off the bottom of the phone. Both look like a working
+   page, which is the failure a cache version exists to prevent. */
+/* v33: the History tab (bc-nib3.2). `/history`, `/history.html` and `/history.js` are
    new paths *and* `/tabbar.js` moves in the same change, which is the pairing that makes
-   this a version bump rather than three additions to the list. A phone holding v31's
-   cached tabbar.js has a four-tab bar with no History on it, so the page behind the new
-   paths is unreachable from every screen in the app; one holding v32's tabbar.js without
+   this a version bump rather than three additions to the list. A phone holding v32's
+   cached tabbar.js has a three-tab bar with no History on it, so the page behind the new
+   paths is unreachable from every screen in the app; one holding v33's tabbar.js without
    the three new entries has a tab that 404s out of the cache the moment the tailnet is
    slow — a bar whose whole job is that you can always leave a page, with an entry that
    goes nowhere. The bar and the page it points at have to arrive together, which is what
    a cache version is for. */
-const CACHE = 'beadcause-v32';
+const CACHE = 'beadcause-v33';
 const SHELL = [
   '/',
   '/index.html',

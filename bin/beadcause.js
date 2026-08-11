@@ -8,6 +8,7 @@ import { hotSwapProblem, problemBanner } from '../lib/service.js';
 import { attachTerminalSocket, releaseSockets } from '../lib/termsocket.js';
 import { closeServer, startRenewal } from '../lib/tls.js';
 import { pushCertificate } from '../lib/notify.js';
+import { startSlack, slackStatusLine, slackTokenWarnings } from '../lib/slack.js';
 import { flush } from '../lib/commonrepo.js';
 import { restoreTerminals, shutdownTerminals, startTerminalReaper, terminalsEnabled } from '../lib/terminal.js';
 
@@ -92,6 +93,17 @@ const startedAt = new Date().toISOString();
 const build = buildStamp();
 let role = startStandby ? 'standby' : 'active';
 let poller = startStandby ? null : startPoller(cfg, app);
+/**
+ * The Slack socket, and why it is tied to exactly the same switch as the poller.
+ *
+ * Slack's interactivity cannot reach a tailnet name, so the buttons on a posted question
+ * arrive over an outbound WebSocket this process opens (lib/slack.js). Slack hands an
+ * interaction to one connection, so two backends holding one would not double-answer —
+ * but a standby holding a connection is a standby doing work, and every guarantee the
+ * swap makes rests on it doing none. So it starts when the poller starts, stops when the
+ * poller stops, and null is the ordinary state: Slack off, or no app token.
+ */
+let slack = startStandby ? null : startSlack(cfg);
 // What draining waits on. A long poll parks for up to 55 seconds, and killing the
 // process out from under one is the difference between a seamless swap and the
 // phone deciding it is offline.
@@ -144,6 +156,7 @@ const control = (req, res) => {
       // that needs reconciliation rather than a second restore.
       if (terminalsEnabled(cfg)) restoreTerminals(cfg);
       if (!reaper && terminalsEnabled(cfg)) reaper = startTerminalReaper(cfg);
+      if (!slack) slack = startSlack(cfg);
       if (role !== 'active') console.log('[beadcause] promoted to active — polling');
       role = 'active';
       return reply({ ok: true, role, reaping: reaper !== null });
@@ -152,6 +165,8 @@ const control = (req, res) => {
       poller = null;
       if (reaper) clearInterval(reaper);
       reaper = null;
+      slack?.stop();
+      slack = null;
       if (role !== 'standby') console.log('[beadcause] stood down — poller stopped');
       role = 'standby';
       return reply({ ok: true, role, reaping: reaper !== null });
@@ -286,6 +301,14 @@ console.log(
   }`
 );
 console.log(`[beadcause] ntfy topic  ${cfg.ntfy.enabled ? cfg.ntfy.topic : '(disabled)'}`);
+// The other delivery surface, said in the same block and for the same reason: a
+// half-configured one — enabled with a bot token and no app token — posts questions
+// whose buttons do nothing, and there is no way to find that out by looking at Slack.
+console.log(`[beadcause] slack       ${slackStatusLine(cfg)}`);
+// And the one thing about those tokens the `.key` naming cannot promise: that the file
+// is not readable by every account on this Mac. `console.warn` so it is not read as part
+// of the tidy startup block above it.
+for (const w of slackTokenWarnings(cfg)) console.warn(`[slack] ${w}`);
 console.log(`[beadcause] phone URL   ${cfg.baseUrl}/?t=${cfg.token}`);
 console.log(`[beadcause] build       ${build} (${role}${internalPort ? `, internal :${internalPort}` : ', standalone'})`);
 
@@ -328,6 +351,9 @@ const shutdown = () => {
   if (poller) clearInterval(poller);
   if (reaper) clearInterval(reaper);
   if (certRenewal) clearInterval(certRenewal);
+  // Otherwise the reconnect timer keeps the loop alive past the exit we are asking for,
+  // and a socket left open is one Slack goes on handing interactions to.
+  slack?.stop();
   // A pty that outlived the daemon has nothing left to relay it anywhere, and it
   // holds a Claude session open against the tracker. Outliving a *socket* is the
   // point; outliving the process that owns the registry is just a leak.
