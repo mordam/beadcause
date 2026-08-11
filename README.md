@@ -8229,11 +8229,12 @@ goes out as 3KB.
 
 **That one sweep is the slow part, and it is slower than it looks.** ~1s for 503 beads on
 an idle Mac, and **28.6s** measured under a load average of 33 — twenty agent sessions and
-a full test suite, which is an ordinary afternoon here. So `Bd.listAll` is given a timeout
-of its own rather than `run`'s 30-second default: at the default that afternoon throws, the
-workspace becomes a row in `errors[]`, and a repo with five hundred beads in it draws an
-empty ledger. A cold page can take that long to arrive and the client should say it is
-loading rather than time out; every page after it, for ten seconds, is free.
+a full test suite, which is an ordinary afternoon here. That measurement is where
+[the two-minute ceiling on every `bd` call](#notes-on-bd) comes from: under the 30 seconds
+it used to get, that afternoon throws, the workspace becomes a row in `errors[]`, and a
+repo with five hundred beads in it draws an empty ledger. A cold page can take that long to
+arrive and the client should say it is loading rather than time out; every page after it,
+for ten seconds, is free.
 
 The cache cannot help in the window *before* the first answer exists, which is the
 expensive window — so the in-flight sweep is shared as well. Two requests for the same
@@ -8912,6 +8913,29 @@ a guard that cannot fail is not mistaken for a file that is fine.
   `_bd_set_workspace`, which rewrites `BEADS_DIR` from the shell's cwd — so
   `BEADS_DIR=… zsh -c 'bd …'` silently hits the wrong workspace. `execFile` does
   no shell startup, which is how one daemon serves five workspaces.
+- **Every `bd` invocation gets two minutes, and the number is measured.** `BD_TIMEOUT`
+  in lib/bd.js. It was thirty seconds, which this laptop clears on an ordinary
+  afternoon: the largest read here — `bd list --all` over 503 beads — answers in about a
+  second idle and took **28.6s** under a load average of 33, which is twenty agent
+  sessions and a full `npm test` rather than anything pathological. A timeout is not a
+  slow answer downstream, it is a dead workspace — `execFile` kills the child, the sweep
+  files the repo under `trouble`, and the History tab draws an empty ledger — so the
+  failure mode of a busy machine was every repo reporting as broken while `bd` was merely
+  slow, once per thirty-second poll, for as long as the load lasted. It is a **default**
+  and not a ceiling per call because a ceiling per call is what was tried first: `listAll`
+  got one, six other reads did not, and the six that did not are the small ones that run
+  on a timer across every workspace. Writes inherit it too — a write SIGTERMed mid-`bd` is
+  worse than a slow one, and since a timeout is never retried this is one ceiling per
+  call, not four.
+- **A timeout says so, everywhere it is displayed.** It is the one error that arrives with
+  nothing to explain itself: `bd` is SIGTERMed mid-answer, so stderr is empty and Node's
+  own message is "Command failed". So `run` rewrites it as `bd … timed out in <workspace>:
+  still running after 120s, killed rather than broken` and sets `err.timedOut`. The shape
+  is deliberate — lib/sweep.js strips `<verb> in <ws>: ` and shows the sentence after the
+  colon, so what reaches a four-inch screen is *still running after 120s* rather than a
+  wall of flags, and a slow repo stops reading as a broken one. Blowing the 32MB
+  `maxBuffer` kills the child as well and is deliberately *not* dressed up that way —
+  that one really is bad output.
 - **Don't set `sharedServer: true`** unless you've run `bd dolt start`. The
   workspaces pin `dolt_mode="embedded"`; forcing shared mode makes every command
   fail against a Dolt server that isn't listening. Writes retry through the

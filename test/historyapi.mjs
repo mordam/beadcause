@@ -82,7 +82,7 @@ const acheck = async (name, fn) => {
 };
 
 const history = await import(LIB('history.js'));
-const { Bd } = await import(LIB('bd.js'));
+const { Bd, BD_TIMEOUT } = await import(LIB('bd.js'));
 const { archivedBeads } = await import(LIB('sessionlog.js'));
 const { ledger, matches, newestUpdatedFirst, parseQuery, toRow, forget, PAGE_DEFAULT, PAGE_MAX } = history;
 
@@ -211,12 +211,16 @@ await (async () => {
     assert.ok(!/--status|--priority|--label|--exclude-label/.test(argv), argv);
   });
 
-  check('it gets a timeout of its own, well past `run`\'s 30s default', () => {
+  check('it runs under a ceiling well past thirty seconds, and does not cut its own', () => {
     // Measured at 28.6s on this Mac under a load average of 33 — twenty sessions and a
-    // full suite, which is an ordinary afternoon here. At the default the call throws,
-    // the workspace becomes a row in `errors`, and a repo with five hundred beads draws
-    // an empty ledger.
-    assert.ok(bd.opts[0].timeout >= 60000, `timeout is ${bd.opts[0].timeout}`);
+    // full suite, which is an ordinary afternoon here. Under 30s the call throws, the
+    // workspace becomes a row in `errors`, and a repo with five hundred beads draws an
+    // empty ledger. This asked for a timeout of its own when it was the only call that
+    // had been measured; bc-f9dl made that the default for every `bd` invocation, so what
+    // is left to check is that the default is generous and this caller does not narrow it.
+    assert.ok(BD_TIMEOUT >= 60000, `BD_TIMEOUT is ${BD_TIMEOUT}`);
+    const asked = bd.opts[0].timeout;
+    assert.ok(asked === undefined || asked >= 60000, `timeout is ${asked}`);
   });
 
   check('and the lock retries, because it shares the workspace with every other session', () => {
