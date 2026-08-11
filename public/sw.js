@@ -82,7 +82,15 @@
    GitHub; one holding v29's app.js against v28's stylesheet opens the sheet with no facts
    column, no pinned action bar and a comment box the buttons sit on top of. Both look like
    a working app, which is the failure a cache version exists to prevent. */
-const CACHE = 'beadcause-v29';
+/* v30: the session view grew a button that brings that session's iTerm window to the
+   front of the Mac and doubles it, and puts it back when you close the view (bc-fwsw).
+   No new path — session.js and style.css are both already here — and that is why the
+   version has to move: a phone holding v29's session.js beside v30's stylesheet draws
+   no button at all, and one holding v30's session.js against v29's stylesheet drops an
+   unstyled button into the middle of a label row and sizes the transcript as though it
+   were not there, pushing the log off the bottom of the phone. Both look like a working
+   page, which is the failure a cache version exists to prevent. */
+const CACHE = 'beadcause-v30';
 const SHELL = [
   '/',
   '/index.html',
