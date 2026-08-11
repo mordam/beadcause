@@ -141,6 +141,7 @@ function load({ token = 'tok', workspaces = ['demo'], respond } = {}) {
       workspace: q.get('workspace'),
       offset: Number(q.get('offset')),
       limit: Number(q.get('limit')),
+      refresh: q.get('refresh') === '1',
       token: opts && opts.headers && opts.headers['x-beadcause-token'],
     };
     calls.push(call);
@@ -439,6 +440,88 @@ await check('a daemon with no ledger endpoint is an empty state, not a broken pa
   const h = load({ respond: async () => ({ status: 404 }) });
   await settle();
   assert.match(h.out.innerHTML, /Could not read demo \(no ledger here\)/);
+});
+
+/**
+ * The one that is not visible in the status code.
+ *
+ * A repo whose `bd` fell over comes back **200** with an empty `rows` and a row in
+ * `errors[]` — not a failed request. A page that reads only `res.ok` draws that as a
+ * repo with nothing in it, which under a space of several repos means one of them
+ * silently vanishing from a merged list with nothing on screen to say so. That is the
+ * worst failure this page has, because it is indistinguishable from the truth.
+ */
+await check('a 200 carrying an errors[] row is a failure, not an empty repo', async () => {
+  const h = load({
+    respond: async (call) => ({ workspace: call.workspace, rows: [], total: 0, more: false, errors: [{ workspace: 'demo', error: 'bd exited 1' }] }),
+  });
+  await settle();
+  assert.match(h.out.innerHTML, /Could not read demo \(bd exited 1\)/);
+  assert.doesNotMatch(h.out.innerHTML, /Nothing in/, 'a repo that could not be read was drawn as a repo with nothing in it');
+});
+
+await check('and the other repos in the space still draw around it', async () => {
+  const h = load({
+    workspaces: ['demo', 'other'],
+    respond: async (call) =>
+      call.workspace === 'demo'
+        ? { workspace: 'demo', rows: [], total: 0, more: false, errors: [{ workspace: 'demo', error: 'bd exited 1' }] }
+        : { workspace: 'other', rows: [{ id: 'ot-1', workspace: 'other', title: 'still here', type: 'task', status: 'open', priority: 2, updated: iso(2), closeReason: null, hasSession: false }], total: 1, more: false },
+  });
+  await settle();
+  assert.match(h.out.innerHTML, /Could not read demo/);
+  assert.match(h.out.innerHTML, /still here/);
+});
+
+/* ------------------------------------------------------------ the slow first read */
+
+await check('a first read that has not landed says so, rather than "nothing here"', async () => {
+  let release = null;
+  const held = new Promise((r) => {
+    release = r;
+  });
+  const h = load({
+    respond: async (call) => {
+      await held;
+      return { workspace: call.workspace, rows: [], total: 0, more: false };
+    },
+  });
+  await settle();
+  // The sweep is measured in tens of seconds on a loaded Mac, and this is the whole of
+  // that window: an empty ledger and one that has not arrived are the same blank card.
+  assert.match(h.out.innerHTML, /Reading the ledger/);
+  assert.doesNotMatch(h.out.innerHTML, /Nothing in/);
+  release();
+  await settle();
+  assert.match(h.out.innerHTML, /Nothing in/, 'and once it lands, it says the other thing');
+});
+
+await check('nothing arms a timeout that could cut the first sweep off', () => {
+  // `Bd.listAll` is allowed 120s for exactly this, so a client-side abort under it
+  // would make the tab look broken on precisely the busy afternoons it is opened.
+  assert.doesNotMatch(read('public/history.js'), /AbortController|AbortSignal|signal:/);
+});
+
+await check('⟳ asks the daemon to sweep again rather than re-reading its cache', async () => {
+  const h = load({ respond: ONE({}) });
+  await settle();
+  assert.ok(!h.calls.some((c) => c.refresh), 'a plain visit forced a re-sweep');
+  h.refresh.events.click();
+  await settle();
+  assert.ok(h.calls.some((c) => c.refresh), '⟳ was answered out of the cache it is doubting');
+});
+
+await check('but a long scroll does not — one re-sweep per press, not per page', async () => {
+  const h = load({ workspaces: ['demo', 'other'], respond: INTERLEAVED });
+  await settle();
+  h.refresh.events.click();
+  await settle();
+  for (let i = 0; i < 4 && h.out.querySelector('#hist-more'); i += 1) {
+    h.button.events.click();
+    await settle();
+  }
+  const forced = h.calls.filter((c) => c.refresh).length;
+  assert.equal(forced, 2, `${forced} full sweeps for one press — the scroll is meant to be free`);
 });
 
 await check('a count is only drawn when it is the whole truth', async () => {

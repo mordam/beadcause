@@ -155,15 +155,27 @@
    * bug here would be an infinite fetch loop rather than a missing row, so it is worth
    * the two lines to refuse it.
    */
-  async function fetchPage(src) {
+  async function fetchPage(src, refresh) {
     const q = new URLSearchParams({
       workspace: src.workspace,
       limit: String(FETCH),
       offset: String(src.offset),
     });
+    // Only on ⟳, and only for the first page of it: the daemon caches the unfiltered
+    // sweep for ten seconds, so asking every page of a long scroll to re-sweep would
+    // turn a free scroll into one full `bd list` per screenful.
+    if (refresh) q.set('refresh', '1');
     const res = await fetch(`/api/history?${q}`, { headers: { 'x-beadcause-token': token } });
     if (!res.ok) throw new Error(res.status === 404 ? 'no ledger here' : `HTTP ${res.status}`);
     const data = await res.json();
+    // A repo whose `bd` fell over is a **200** with a row in `errors[]` and no rows —
+    // not a failed request. So the status code is not the whole of "did this work", and
+    // trusting it alone is how a repo silently disappears out of a merged space view
+    // looking exactly like a repo with nothing in it.
+    const oops = (Array.isArray(data.errors) ? data.errors : []).find(
+      (e) => !e || typeof e === 'string' || !e.workspace || e.workspace === src.workspace
+    );
+    if (oops) throw new Error(String((oops && (oops.error || oops.message)) || oops || 'bd would not answer'));
     const rows = Array.isArray(data.rows) ? data.rows : [];
     src.offset += rows.length;
     src.buf.push(...rows);
@@ -172,12 +184,12 @@
   }
 
   /** Every live repo with an empty buffer, re-filled — see the header's third section. */
-  async function pump(gen) {
+  async function pump(gen, refresh) {
     const hungry = state.sources.filter((s) => !s.buf.length && s.more && !s.error);
     if (!hungry.length) return;
     await Promise.all(
       hungry.map((s) =>
-        fetchPage(s).catch((err) => {
+        fetchPage(s, refresh).catch((err) => {
           // A repo that will not answer drops out of the merge and says so under the
           // list. The other repos' rows are still worth showing — a space where one of
           // four is unreadable is not a space with no history.
@@ -208,15 +220,17 @@
    * Guarded by `gen` at every await, because the picker can move mid-flight and rows
    * from the space you just left must not land in the list for the one you are on.
    */
-  async function loadMore(n = PAGE) {
+  async function loadMore(n = PAGE, refresh = false) {
     if (state.loading || !hasMore()) return;
     const gen = state.gen;
     state.loading = true;
     paint();
     try {
       const target = state.rows.length + n;
+      let first = refresh;
       while (state.rows.length < target) {
-        await pump(gen);
+        await pump(gen, first);
+        first = false;
         if (gen !== state.gen) return;
         const row = shiftNewest();
         if (!row) break;
@@ -238,7 +252,7 @@
    * a merge over per-repo offsets, and an offset means nothing once the set of repos
    * has changed underneath it.
    */
-  function rebuild(workspaces) {
+  function rebuild(workspaces, refresh = false) {
     state.gen += 1;
     state.sources = workspaces.map((workspace) => ({
       workspace,
@@ -255,7 +269,7 @@
     // read "no repos" until /api/spaces landed.
     state.ready = !workspaces.length && state.heard;
     paint();
-    if (workspaces.length) loadMore();
+    if (workspaces.length) loadMore(PAGE, refresh);
   }
 
   /* ----------------------------------------------------------------- the drawing */
@@ -361,7 +375,24 @@
       return;
     }
 
-    if (!state.rows.length && !state.loading && state.ready) {
+    if (!state.rows.length) {
+      // "Still coming" and "there is nothing" are the same blank screen, and here they
+      // are not the same wait: a cold daemon sweeping five hundred beads on a loaded
+      // Mac has been measured at 28s, and `{rows: [], total: 0}` is a perfectly good
+      // answer for a repo nobody has filed anything in. So the first is said out loud
+      // and the second is only said once the answer is actually in.
+      if (state.loading || !state.ready) {
+        out.innerHTML = `${troubleHtml()}<div class="empty"><strong>Reading the ledger…</strong>The first read of a repo can take a while — every bead in it, once, and then it is held for a few seconds.</div>`;
+        return;
+      }
+      // "Nothing in beadcause yet" is a claim about the tracker, and a selection where
+      // every repo failed to answer gives no grounds for making it — saying both, as
+      // this did until the test below caught it, is a warning immediately contradicted
+      // by a confident sentence underneath it.
+      if (state.sources.every((s) => s.error)) {
+        out.innerHTML = `${troubleHtml()}<div class="empty"><strong>Nothing could be read.</strong>Whether there is any history in ${esc(label)} is not something this page can say. ⟳ to try again.</div>`;
+        return;
+      }
       out.innerHTML = `${troubleHtml()}<div class="empty"><strong>Nothing in ${esc(label)} yet.</strong>Every bead this selection has ever had would be here.</div>`;
       return;
     }
@@ -448,9 +479,11 @@
     refreshBtn.addEventListener('click', () => {
       // Deliberately not `follow()`: the selection has not moved, so `follow` would
       // decide there was nothing to do. ⟳ means "read it again" whatever the picker
-      // says.
+      // says — and `refresh=1` with it, because the daemon holds the sweep for ten
+      // seconds and the one press that means "I do not believe this" must not be
+      // answered out of the cache it is doubting.
       const space = window.beadcause && window.beadcause.space;
-      rebuild(space ? space.inside() : []);
+      rebuild(space ? space.inside() : [], true);
     });
   }
 

@@ -2766,7 +2766,28 @@ might reach a Mac you are not looking at, and there is no such button on a ledge
 A repo that will not answer drops out of the merge and says so above the list rather than
 taking the other repos down with it, and a total is drawn only when every repo in view has
 answered — a sum over the repos that replied, presented as the whole, is the same class of
-lie the picker's ⚠ exists to prevent.
+lie the picker's ⚠ exists to prevent. When *every* repo failed the page says only that: it
+does not also say the space is empty, because a selection nobody could read gives no
+grounds for a claim about what is in it.
+
+Two things about failure and waiting here are not visible in the obvious place, and both
+would look like a bug in the page:
+
+- **A repo whose `bd` fell over is a `200`.** It comes back with no rows and a row in
+  `errors[]`, not a failed request — so reading the status code alone draws it as a repo
+  with nothing in it, and under a space of several repos that is one of them silently
+  vanishing out of a merged list with nothing on screen to say so. The page reads
+  `errors[]` and treats it exactly as it treats a refusal.
+- **The first read of a repo is slow, and legitimately so.** The daemon holds the
+  unfiltered sweep for ten seconds, which makes the whole scroll free — but the sweep
+  behind it has been measured at about a second for 500 beads on an idle Mac and **28
+  seconds** on one under the load an ordinary afternoon here produces. So the page arms no
+  client-side timeout at all (the daemon's own is 120s, and anything shorter here would
+  make the tab look broken on exactly the busy afternoons somebody opens it to catch up),
+  and it draws *Reading the ledger…* rather than an empty one, because `{rows: [], total:
+  0}` is a perfectly good answer for a repo nobody has filed anything in and the two are
+  otherwise the same blank card. ⟳ sends `refresh=1` and forces a fresh sweep — once per
+  press, not once per page of the scroll that follows it.
 
 ### Why Chat is not a tab, and ＋ is not a tab either
 
