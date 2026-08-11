@@ -216,14 +216,22 @@ is('junk does not', auth.verify('nonsense', KEY, now), null);
 is('nothing does not', auth.verify('', KEY, now), null);
 
 console.log('\nlib/auth.js — the cookie');
-const httpsCookie = auth.sessionCookie(A, { sub: '1', email: 'adam@example.com' }, KEY, now);
+const httpsSession = auth.sessionCookie(A, { sub: '1', email: 'adam@example.com', sid: 'sid-1' }, KEY, now);
+const httpsCookie = httpsSession.cookie;
 is('httpOnly', /HttpOnly/.test(httpsCookie), true);
 is('SameSite=Lax', /SameSite=Lax/.test(httpsCookie), true);
 // Off the configured redirect URI, never off `req.socket.encrypted` — TLS terminates in
 // bin/router.js, which proxies to the backend over plain loopback.
 is('Secure, because the redirect URI is https', /; Secure/.test(httpsCookie), true);
+// The id that makes one device revocable without ending the rest. It is in the signed
+// payload, so it cannot be swapped for somebody else's; the row it names is in
+// state.json, which is what a revoke deletes. See lib/devices.js.
+is('the session carries its own id', auth.verify(httpsCookie.split('=')[1].split(';')[0], KEY, now)?.sid, 'sid-1');
+// The row and the cookie have to die at the same instant, so the expiry is computed
+// once and handed back rather than worked out twice.
+is('and says when it expires, for the row beside it', httpsSession.exp, Math.floor(now / 1000) + A.sessionDays * 86400);
 const loopbackAuth = auth.googleAuth({ ...FULL, auth: { google: { ...FULL.auth.google, redirectUri: 'http://127.0.0.1:4318/auth/google/callback' } } });
-is('not Secure when what is served is plain http', /; Secure/.test(auth.sessionCookie(loopbackAuth, { sub: '1', email: 'a@b.c' }, KEY, now)), false);
+is('not Secure when what is served is plain http', /; Secure/.test(auth.sessionCookie(loopbackAuth, { sub: '1', email: 'a@b.c' }, KEY, now).cookie), false);
 is('a cleared cookie expires immediately', /Max-Age=0/.test(auth.clearCookie(auth.SESSION_COOKIE, { secure: true })), true);
 
 console.log('\nlib/auth.js — where a signed-in browser may be sent');
@@ -295,15 +303,28 @@ const BASE_CFG = {
 };
 
 /** One request, with the headers you name and nothing implied. */
-const call = (port, pathname, { method = 'GET', headers = {} } = {}) =>
+const call = (port, pathname, { method = 'GET', headers = {}, body = null } = {}) =>
   new Promise((resolve, reject) => {
-    const req = http.request({ host: '127.0.0.1', port, path: pathname, method, headers }, (res) => {
-      let body = '';
-      res.setEncoding('utf8');
-      res.on('data', (c) => (body += c));
-      res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, body }));
-    });
+    const payload = body === null ? null : Buffer.from(typeof body === 'string' ? body : JSON.stringify(body));
+    const req = http.request(
+      {
+        host: '127.0.0.1',
+        port,
+        path: pathname,
+        method,
+        headers: payload
+          ? { 'content-type': 'application/json', 'content-length': payload.length, ...headers }
+          : headers,
+      },
+      (res) => {
+        let out = '';
+        res.setEncoding('utf8');
+        res.on('data', (c) => (out += c));
+        res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, body: out }));
+      }
+    );
     req.on('error', reject);
+    if (payload) req.write(payload);
     req.end();
   });
 
@@ -546,12 +567,113 @@ console.log('\nsigning in with Google — the refusals');
   is('cancelling at Google comes back as cancelled', r.headers.location, '/login?error=cancelled');
 }
 
+/* ------------------------------------------------------- one device at a time */
+
+/**
+ * The list, and the button that ends one row of it — bc-nim4.
+ *
+ * The session is a signed cookie with no store, so until now the only revocations
+ * were "this browser" (which merely cleared the cookie, leaving the value good for
+ * thirty days) and "delete session.key", which ends every device everywhere. What is
+ * asserted here is the thing in between, and the assertion that matters is the second
+ * one: revoking a device ends **that** session and leaves the other alone. See
+ * lib/devices.js.
+ */
+console.log('\nthe signed-in devices, one at a time');
+
+/** The whole dance, in one call, as a browser calling itself `ua`. */
+async function signIn(ua) {
+  const b = await begin('/');
+  googleWill = { ok: true, claims: { ...CLAIMS, nonce: b.state, exp: Math.floor(Date.now() / 1000) + 300 } };
+  const r = await call(onPort, `/auth/google/callback?code=the-code&state=${encodeURIComponent(b.state)}`, {
+    headers: { cookie: `beadcause_signin=${b.flight}`, ...(ua ? { 'user-agent': ua } : {}) },
+  });
+  return cookieValue(r.headers['set-cookie'], 'beadcause_session');
+}
+
+/** The list, as whoever holds `cookie` — or as the shared token when there is none. */
+const listDevices = async (cookie) =>
+  JSON.parse(
+    (
+      await call(onPort, '/api/devices', {
+        headers: cookie ? { cookie: `beadcause_session=${cookie}` } : { 'x-beadcause-token': onCfg.token },
+      })
+    ).body
+  );
+
+/** Revoke one row, as whoever holds `cookie`. */
+const revokeDevice = async (cookie, id) =>
+  JSON.parse(
+    (
+      await call(onPort, '/api/devices', {
+        method: 'POST',
+        headers: { cookie: `beadcause_session=${cookie}` },
+        body: { action: 'revoke', id },
+      })
+    ).body
+  );
+
+const phone = await signIn('Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Version/17.0 Mobile/15E148 Safari/604.1');
+
+{
+  const seen = await listDevices(session);
+  is('both signed-in browsers are listed', seen.devices.length, 2);
+  is('and the one asking knows which row it is', seen.devices.filter((d) => d.current).length, 1);
+  // The label is three words off the user-agent, so the row you are about to revoke is
+  // the one you meant. Safari is tested after Chrome in lib/devices.js precisely
+  // because Chrome claims to be Safari too.
+  is('with a name you could pick it out by', seen.devices.find((d) => !d.current)?.label, 'iPhone · Safari');
+  is('and when it was last seen', Boolean(seen.devices[0].last), true);
+}
+
+{
+  // The whole point. The Mac revokes the phone; the phone is out and the Mac is not.
+  const before = await listDevices(session);
+  const mine = before.devices.find((d) => d.current);
+  const r = await revokeDevice(session, before.devices.find((d) => !d.current).id);
+  is('the revoke is reported as done', r.revoked, true);
+  is('and not as signing yourself out', r.self, false);
+  is('the revoked device is refused', (await call(onPort, '/api/agents', { headers: { cookie: `beadcause_session=${phone}` } })).status, 401);
+  is('and its pages are too', (await call(onPort, '/', { headers: { cookie: `beadcause_session=${phone}` } })).status, 302);
+  is('the browser that pressed it is still signed in', (await call(onPort, '/api/agents', { headers: { cookie: `beadcause_session=${session}` } })).status, 200);
+  const after = await listDevices(session);
+  is('and is the only row left', after.devices.length, 1);
+  is('still the same row it was', after.devices[0].id, mine.id);
+}
+
+is('revoking something already gone is not an error, and says so', (await revokeDevice(session, 'never-existed')).revoked, false);
+
+{
+  // A token caller may read the list — it already holds the credential that could
+  // rotate the key underneath every row — but it is not one of the rows itself.
+  const seen = JSON.parse((await call(onPort, '/api/devices', { headers: { 'x-beadcause-token': onCfg.token } })).body);
+  is('the token can read the list', seen.devices.length, 1);
+  is('and is not a device in it', seen.current, null);
+}
+
+{
+  // A cookie minted before the device list existed. It verifies — this is the real
+  // signing key — and it is refused anyway, because a live session the list cannot
+  // show is the exact thing the list exists to rule out.
+  const legacy = auth.sign(
+    { sub: 'sub-1', email: 'adam@example.com', iat: Math.floor(Date.now() / 1000), exp: Math.floor(Date.now() / 1000) + 3600 },
+    process.env.BEADCAUSE_SESSION_KEY
+  );
+  is('a session from before this feature verifies', Boolean(auth.verify(legacy, process.env.BEADCAUSE_SESSION_KEY)), true);
+  is('and is refused anyway', (await call(onPort, '/api/agents', { headers: { cookie: `beadcause_session=${legacy}` } })).status, 401);
+}
+
 console.log('\nsigning out');
 {
   const r = await call(onPort, '/auth/signout', { method: 'POST', headers: { cookie: `beadcause_session=${session}` } });
   is('the session cookie is cleared', /Max-Age=0/.test(attrs(r.headers['set-cookie'], 'beadcause_session')), true);
   // The browser then holds nothing, which is what a cleared cookie means on the wire.
   is('and a browser holding nothing is refused', (await call(onPort, '/api/agents', { headers: { cookie: 'beadcause_session=' } })).status, 401);
+  // The half that used to be missing: clearing a cookie is a *request* to a browser,
+  // and anything that had copied the value kept it working for thirty days. Signing
+  // out now revokes the row, so replaying the cookie is replaying a name for nothing.
+  is('and the cookie it cleared is dead if replayed', (await call(onPort, '/api/agents', { headers: { cookie: `beadcause_session=${session}` } })).status, 401);
+  is('so the list is empty', (await listDevices(null)).devices.length, 0);
   is('the token is untouched by any of this', (await call(onPort, '/api/agents', { headers: { 'x-beadcause-token': onCfg.token } })).status, 200);
 }
 
