@@ -4391,6 +4391,93 @@ itself an error, the page reports the failure of its own reporting, and the loop
 floor. A tracker that is down answers `200 {ok: false, reason}` instead, which a
 reporter can log and stop on.
 
+### And the daemon reports itself, through the same door
+
+All of the above was about the *phone*. The daemon had nothing at all: nothing in `lib/`
+or `scripts/` handled `uncaughtException` or `unhandledRejection`, so a thrown error in
+the one process that runs unattended all night went to stderr, into whatever log launchd
+happens to be keeping, and no further — and then launchd restarted it. That is the worst
+available combination, because the failure is invisible *and* it looks like it healed.
+
+So `lib/crash.js` installs those two handlers and calls `intake` directly. **In process,
+with no HTTP round trip to its own port** — which is the whole reason `lib/errors.js`
+knows nothing about requests. A crash cannot be relied on to be able to make an HTTP call
+to a server it has just broken, and a loopback POST from a process that is about to exit
+is a race with its own death.
+
+**The fingerprint is the same shape on purpose, so a daemon crash and a browser error
+that are genuinely the same bug land on the same bead.** Nothing had to be added for
+that: `normalizeSource` already reduced `/Users/…/worktrees/x-1/lib/graph.js` and
+`https://mac.tail1234.ts.net:4318/lib/graph.js?v=27` to the same `lib/graph.js`, because a
+bug is not a different bug for having been noticed from a worktree. The daemon's report is
+a `report`, exactly like the phone's, and that is the point.
+
+**It does not stop being a crash.** Installing an `uncaughtException` listener takes over
+from Node, whose default is to print the stack and exit 1 — and a daemon that swallowed
+the exception instead would keep serving from a process whose invariants are, by
+definition, unknown. That is a far larger decision than "file a bead about it", and it is
+not this one. So the sequence is: print the stack exactly as before, file, exit 1. The
+only change to the process's life is that it lives a few seconds longer than it used to
+(`FILE_TIMEOUT_MS`, ten of them) and a bead exists afterwards. `unhandledRejection` gets
+the same treatment, because since Node 15 *its* default is already an uncaught exception —
+exiting is what preserving today's behaviour means, not a new severity.
+
+Which graph it files onto is the one thing that is not obvious: **this checkout's own**,
+resolved by `ownWorkspace`, not `workspaces[0]`. A beadcause bug belongs on the beadcause
+graph, and the first configured workspace here is very often the one wired to a team's
+JIRA.
+
+#### The three edges, which are most of the work
+
+**It must not file during shutdown.** SIGTERM closes servers, kills terminals and flushes
+a git ref, and things in flight reject as they are torn down — every one of them a P0 bug
+about a daemon doing exactly as it was told. The router SIGTERMs a backend on *every hot
+swap*, which is to say on every deploy, so a handler that filed during shutdown would file
+on every deploy. `beginShutdown()` is called by `shutdown()` before anything is closed, and
+by the orphan guard, which exits by a path of its own.
+
+**A failure while filing must not recurse**, and this is the acceptance criterion that
+needed real care. Four guards, overlapping deliberately, because the failure mode is
+unbounded rather than merely wrong:
+
+| Guard | What it catches |
+|---|---|
+| the stack passes through `lib/crash.js`, `lib/errors.js` or `lib/filing.js` | the filer's own failure, which is the direct loop. Those modules are only ever on a stack when we are filing |
+| one fingerprint is never filed twice at once | the same error coming back while we are filing it. Keyed, not a global flag — two different sweeps failing in one tick is an ordinary Tuesday, and a global flag would have thrown the second one away |
+| `PER_ERROR_CAP` — five per distinct error, per process | a sweep that fails on every tick. There is no coalescing window on occurrence comments yet (bc-5f9b), and a day of that is 2,880 identical comments |
+| `PROCESS_CAP` — forty in total | a loop that manages to be a different error every time |
+
+The two caps are what make a loop *impossible* rather than merely unlikely: they only
+count up, so no arrangement of failures inside the filer can produce unbounded work. And
+`reportCrash` never rejects — a rejected promise nobody awaited is an
+`unhandledRejection`, which is the one input guaranteed to bring it straight back here.
+
+**An observer files nothing.** `BEADCAUSE_OBSERVE` means every autonomous act is off, and
+filing a P0 unbidden is an autonomous act — the same reason a second instance sends no
+ntfy push, so the live daemon's output stays unambiguous. A *reported* error still files on
+an observer, because a phone asking it to is not the observer acting on its own.
+
+#### The failures it already noticed and swallowed
+
+The poll cycle catches and logs six background failures — the poll itself, the deploy
+sweep, the owed-close sweep, the advocate tick, the release sweep, and the per-question
+reply push — and carries on. That is right, and it stays: none of them may be allowed to
+stop the others. But it also means a `TypeError` in the advocate has been logged every
+thirty seconds for a week with nobody reading it, and *that* is a bug that should be a bead.
+
+So each of those six now also calls `reportSweepFailure`, and **the bar there is higher
+than the crash path's**: only errors that are bugs by construction are filed. A sweep that
+failed did not kill anything and may well work on the next tick, so `spawn gh ENOENT` or a
+bd lock timeout stays a log line, while a `TypeError` or a `ReferenceError` — which cannot
+be anything except code that is wrong — becomes a P0 naming the sweep it came from.
+`SyntaxError` is deliberately *not* on the bug list: in a sweep it is nearly always
+somebody else's output being parsed, and a real syntax error in this repo would stop the
+module loading rather than surface in a tick.
+
+The honest limit: `bin/router.js` is a separate process and has no handlers yet, so the
+loudest crash there is — the one that takes the phone's whole service down — is still only
+a log line. That is bc-ega4.
+
 ### Checking it
 
 `node test/apperrors.mjs` covers the three outcomes against a stub `bd` that implements
@@ -4416,6 +4503,23 @@ static reads the stub cannot see: that **every** `public/*.html` loads the file 
 its other scripts, and that each of the four `toast` functions reports *after* it has
 drawn. Neither of those is something the app would tell you about — a page that quietly
 stopped loading the reporter looks exactly like a page with no errors.
+
+`node test/crash.mjs` is the daemon half, over the same fixture. It fires the real
+handlers the way Node fires them — `process.emit('uncaughtException', …)` — and takes the
+exit as an injected function, because a suite cannot assert what a process filed on its way
+out of a process that really exits. The four ways filing can fail are each a check of their
+own (the tracker refusing the create, an error thrown *out of* `lib/errors.js`, the same
+fingerprint arriving twice at once, and the same error arriving forever), and so is the
+case the whole in-process design exists for: a daemon crash in `lib/graph.js:41` and a
+browser report from the same line land on **one** bead, asserted rather than assumed.
+
+Two of its checks read source rather than behaviour, which is worth knowing before one
+fails on you. Observer mode is driven in a child process, because `OBSERVING` is read from
+the environment once at module load and cannot be flipped in-process. And the six swallowed
+failures are asserted by grepping `lib/server.js` for their `sweepFailed('…')` labels — a
+seventh added to the poll cycle without one will fail that check by name, which is the whole
+intent: the list going stale silently is how "logged for a week with nobody reading it"
+comes back.
 
 ## Advocates — an agent per repo, whose job is the queue reaching zero
 
