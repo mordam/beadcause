@@ -287,8 +287,17 @@ check(
 );
 check(
   'and stdout is only the value — the provenance note is on stderr, so a $( ) capture is unchanged',
-  theirs.stdout === 'evidence first, and name the file\n' && /notes to itself/.test(theirs.stderr),
+  theirs.stdout === 'evidence first, and name the file\n' && /never a reason on its own/.test(theirs.stderr),
   JSON.stringify({ out: theirs.stdout, err: theirs.stderr })
+);
+// bc-pud4: the note says what the memory is *worth*, not that it was private. The
+// rejected design was a curated readable subset, and "they never chose to publish
+// this" was the sentence that pointed at it — so a regression to a privacy framing
+// is a regression to a decision that was made and closed.
+check(
+  'and the note is about scrutiny, not about privacy',
+  /must face scrutiny/.test(theirs.stderr) && !/not published to you|never chose to publish/.test(theirs.stderr),
+  theirs.stderr
 );
 
 const listed = await zsh('beadcause-memory recall --of=advocate');
@@ -301,7 +310,7 @@ check(
 const ownRecall = await zsh('beadcause-memory recall shape');
 check(
   'reading your own carries no such note — it is nobody else\'s to warn about',
-  !/notes to itself/.test(ownRecall.stderr),
+  !/never a reason on its own/.test(ownRecall.stderr),
   ownRecall.stderr
 );
 
@@ -371,6 +380,22 @@ const brief = memory.memoryBrief('Adam');
 check('the brief names the roster', brief.includes('beadcause-memory agents'), brief);
 check('and tells them the read exists', brief.includes('--of=<agent>'), brief);
 check('and that it is read-only', /only read theirs, never write it/.test(brief), brief);
+
+// bc-pud4, the decision that closed the curated-subset question. Neither half of it
+// is enforceable in code — one is what an agent expects of its readers, the other is
+// what it does with what it reads — so the brief saying them *is* the mechanism, and
+// these two checks are the only thing standing between the ruling and a silent
+// revert. Both directions matter: the write half is why no second store was built.
+check(
+  'and the write half: expect to be read, because there is no private half',
+  /Expect every other agent to read what you write/.test(brief) && /no private half/.test(brief),
+  brief
+);
+check(
+  'and the read half: never a reason on its own, and it faces scrutiny',
+  /can never\s+be your reason/.test(brief) && /scrutiny/.test(brief),
+  brief
+);
 
 /* ------------------------------------------------- six writers, one topic */
 
