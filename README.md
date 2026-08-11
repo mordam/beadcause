@@ -140,7 +140,7 @@ otherwise its poller would keep firing notifications with no listener behind the
   says so rather than pretending to cover the rest. It runs against a throwaway config
   directory on an ephemeral port and never touches `bd`, so it is safe to run with the
   daemon up. The suite proper is `npm test`, and the browser checks it deliberately
-  leaves out — they want a Chrome — are `npm run checks`, all twenty-seven of them, four
+  leaves out — they want a Chrome — are `npm run checks`, all twenty-eight of them, four
   at a time, with a list of which failed. See
   [`npm run checks`](#npm-run-checks--the-browser-half-and-why-npm-test-can-still-see-it-rot),
   including the static selector audit that runs inside `npm test` and is the reason a
@@ -2185,6 +2185,40 @@ The wider scopes poll at 60s rather than the inbox's 25s: they are a full `bd li
 sweep, about 2.5s of `bd` across seven workspaces, and that does not want to run four
 times a minute for a list you are glancing at.
 
+### A repo that could not be read says so, instead of looking empty
+
+A sweep is one `bd` per workspace and those calls fail independently. Embedded Dolt is
+single-writer, twenty-odd agent sessions share these workspaces, and a read losing a
+lock race is an ordinary Tuesday rather than an outage.
+
+The handling used to be a `catch` that logged a line to the daemon's stdout and
+returned `[]` for that repo. Every count on the screen is arithmetic over the rows that
+came back, so a workspace whose `bd human list` threw did not show up as broken — it
+showed up as **quiet**. "Nothing live", a count beside it, and the questions back on
+their own a poll later, with the only record on a console nobody is watching. That is
+this app's one unforgivable failure mode wearing the empty state as a costume.
+
+Three things now stand between a lock collision and a lie:
+
+- **The read is retried.** Two attempts, 400ms apart, and only ever for an error that
+  looks like a lock — the same treatment every *write* has had since the beginning.
+  Anything else still fails at once. Most collisions never get past this, which is the
+  right way for the incident to be invisible.
+- **The last good answer stands in.** A sweep that still fails returns whatever that
+  workspace last said rather than nothing. Stale rows are a smaller lie than none: the
+  bead really is open and really is waiting, and only its age is wrong. Answering a
+  card drops it from what is held, so a write of your own can never be argued with by a
+  sweep that could not read the repo you just wrote to.
+- **It is named on screen.** A pane above the list, outside every filter, saying which
+  repos could not be read, what `bd` said, and how many of their rows are standing in.
+  Above the list rather than inside the empty state, because the usual case is six
+  repos answering and one not — a screen that is six-sevenths of itself and looks
+  exactly like an inbox.
+
+And the picker stops reporting a confident zero: a space holding an unreadable repo
+draws `⚠` beside whatever count it does have. The number is still the best answer
+available. It just stops being presented as a fact.
+
 ### One list, five kinds — and the sub-filter for pull requests
 
 The inbox is not one list. An advocate asking to create beads, a worker asking you to
@@ -2497,6 +2531,31 @@ id and the href are in stored conversation records and on the phone's home scree
 of its paths still serve the page — a bookmark that 404s is a worse outcome than a page
 with no tab. It keeps the bar, because that is how you leave it, and nothing on the bar is
 marked current there: you are not on one of the three.
+
+### Dismissed is hidden, not gone
+
+The ✕ on a launcher row is soft and always was: it stamps `closedAt`, the transcript
+stays, the id keeps working, and saying anything to that conversation brings it back.
+What it did not do was get the row off the screen. Closed ones sorted under the live
+ones — the right order, and no help after a fortnight, because every one of them is a
+row you have already dealt with and they never stop arriving.
+
+So **the launcher lists the live ones, and a `Dismissed` toggle beside the repo tabs
+gives the rest back**, carrying how many are being held under the tab you are on. The
+count is the point of it: a filtered list that says nothing about being filtered is
+indistinguishable from a repo you have never talked to, which is why the tab counts
+also moved to counting the rows they would actually list — a tab reading 3 over an
+empty list is the same lie one line higher up. A repo whose conversations have *all*
+been dismissed says so in as many words rather than offering the never-used wording.
+
+The revealed rows are marked `dismissed`, dimmed, and still the way back in: tapping
+one opens it, saying anything reopens it, and there is deliberately no "reopen" button,
+because the conversation is the reopen. The answer lives in `sessionStorage`, which is
+the whole design of it — tapping a dismissed row is a navigation and coming back must
+not re-hide what you were reading, while opening the app tomorrow has to start on the
+live ones again, or the ✕ buys you nothing. It is not the repo tab: nobody else's
+screen depends on it and it decides nothing about what your phone rings for, so unlike
+the space picker there is no reason for the server to hold it.
 
 ### The Mirror is a pane, not a tab
 
@@ -3176,7 +3235,94 @@ and a fact added to one screen was a fact missing from the other.
 **The lamps are the evidence; the word is the conclusion.** They are on every row rather
 than behind the fold, because "which of these has not shipped" is a question you answer by
 scanning, and a fold would make it a question you answer by tapping twelve times. On the
-board, tapping a row opens what you can do about it.
+board, tapping a row opens what you can do about it. In the inbox it opens
+[full screen](#tapping-one-opens-it-full-screen).
+
+### Tapping one opens it full screen
+
+A merge decision is the one thing in this app that changes something outside this Mac and
+cannot be taken back, and until bc-l8jp.7 the inbox's card could not make it: it carried a
+link to GitHub and a link to the board, so the decision was made two screens away from the
+row you were reading. Tapping a card now opens **the whole screen** — the same `.card.open`
+sheet a question opens into, for the reason that one exists: expanded inline, the
+description, the facts and the buttons all compete with the list around them, and a merge is
+not a thing to press with half a screen of context.
+
+It carries what a merge decision needs and nothing else:
+
+- **the title, linking out to the pull request on GitHub** — the answer to "I need to see
+  the diff" is a perfectly good answer and this is meant to make it rarer, not impossible;
+- **the description**, as markdown, through the same sanitiser every other body in the app
+  goes through — it is the only text on the screen that came from outside this Mac;
+- **the branch and base, the bead, the authoring agent, and the datetimes** — opened, last
+  touched, merged where there is one, and the merge commit;
+- **Merge & push**, **Close it** and **Comment on GitHub**;
+- and, where GitHub reports a conflict, **Resolve conflicts** and **Cancel** in place of
+  merge.
+
+**The row is fetched twice, from two sources, and the view says which is which.** The lamps
+and the rung are the board's, from the 25-second sweep — recomputing them here would be the
+second implementation of the ladder that `lib/prstage.js` exists to prevent, and a view
+whose lamps disagreed with the list it was opened from would be one screen contradicting
+another about the one subject where that is the whole failure. The description, the
+datetimes and the mergeability come from `gh` **at the moment the sheet opens**, because the
+number that has to be right is the one you are looking at when you press merge. See `GET
+/api/pr/detail`.
+
+**Merge keeps its confirm and close keeps its reason box.** Two taps for the merge, with
+the consequence written into the button between them — the same arming the board and the
+delivery card use, and for the same reason: a `confirm()` on a phone is a system sheet you
+dismiss by reflex. Close is a *mode* rather than an armed button, because the sentence in
+the box is the only thing that will explain a closed pull request in six weeks and no
+six-second timer survives typing one.
+
+**Closing it moves no bead, deliberately.** `gh pr close` with your reason on the pull
+request, the branch kept, and nothing written to the tracker. The act that puts work back in
+the queue already exists and is better at it: *Decline* on a delivery card closes the PR
+**and** reopens the work bead unclaimed with the direction to take instead, and it can,
+because the bead it acts on is the one the worker named in its `beadpr` block. What this
+screen has is `row.beads`, which was *matched* — from a branch name, a title, or a claim in
+a body. Those tiers are right for drawing a link on a row and far too weak to reopen a bead
+on, because reopening one is what puts an advocate's unattended session on it: a pull
+request whose body said "fixes bc-x" would start a session in another repo at three in the
+morning. So the two paths stay distinct, and the sheet says so where the reason box is.
+
+#### A conflict is work, so it gets a session
+
+GitHub refusing a merge for a conflict is the one refusal on this screen that is not a
+decision. Nobody has to choose anything — somebody has to merge `main` into the branch and
+re-run the tests — and the old outcome was `lib/pr.js`'s sentence ("the branch needs a
+rebase before it can merge") on a card, with the next step yours to work out at the Mac.
+
+**Resolve conflicts** opens an iTerm session on that branch, which is deliberately the same
+act as *Request changes* on a delivery card: a note back to a session on the same branch,
+where the only difference is who wrote the note — Adam's sentence about the code there,
+GitHub's about the merge base here. The brief (`conflictPromptFor` in `lib/session.js`) pins
+down four things, because an unattended session with a vague scope invents one:
+
+1. **the branch is what is behind, not `main`** — read the other way round, "resolve the
+   conflict" is a session merging a branch into main by hand, which is the one act nothing
+   here may do;
+2. **work in a worktree** — `git worktree list` first, because six sessions share these
+   checkouts and the main one is the daemon's own;
+3. **run the repo's own gate afterwards** — a clean merge of two working branches is not a
+   working tree;
+4. **push the branch, then stop** — the merge stays a tap here.
+
+It is armed like merge, because it starts something unattended. It refuses unless GitHub
+reports the pull request `CONFLICTING` *right now*, asked again at the moment of the press
+rather than trusted from the row: a session opened for a conflict somebody has already
+resolved is a window you have to go and close, and a pointless window is worse than a
+sentence. Refused outright on an observer instance, for the reason `POST /api/session` is —
+an unattended agent in a checkout it is only visiting.
+
+`node test/prfull.mjs` covers the daemon's half: that the description comes from `gh` and
+the rung from the board, that the attribution finds the session for *this* branch when a
+bead was worked twice and says so plainly when it cannot, that a close writes to GitHub and
+to nothing else, that a merged pull request refuses to be closed, and that the conflict path
+refuses everything but a live conflict. It runs with `openSessions: false`, so nothing in it
+can open a window — the brief is asserted off `conflictPromptFor` directly.
+`node scripts/prfull-check.mjs` is the phone's half in headless Chrome.
 
 **A lamp has three states, not two.** On, off, and *unknown* — a hollow, dashed ring:
 
@@ -3603,7 +3749,8 @@ a teaser for a sheet. Here the sheet is the point, so it is in the list: you are
 asked whether an hour of unattended agent should go on this, and a decision made off a
 title is a rubber stamp with extra steps.
 
-Folded, the row carries the id, the workspace, the type, the priority — and **the bead
+Folded, the row carries the id, the workspace, the type, the priority, a **💬 count if
+anything has been said about it** — and **the bead
 it was found under**, which is the one sentence a bead cannot say about itself and
 usually the thing that tells you whether this is a real discovery or a tangent. That
 line costs a `bd show` per row, because `bd list --json` carries every text field but
@@ -3654,6 +3801,49 @@ you answer by opening a laptop. Each verdict says what it actually did, includin
 that is nothing: *already endorsed*, *nothing to change — it already reads that way*,
 *endorsed 5 of 6* with the reason the sixth did not.
 
+### Talking about one before you decide
+
+**Discuss 💬** is the fifth control on a row and the only one that is not a verdict. The
+four above all end with the bead somewhere else; this one deliberately leaves it exactly
+where it was, because half of what a decision needs at 07:00 is not endorse-or-revoke but
+a question — *is this not already filed, which file would it even touch, what breaks if
+we leave it.* Without somewhere to ask, the queue is a choice between approving work you
+have not understood and turning down work that might have been right.
+
+Almost none of it is new, which is the point. Commenting on a bead has always dispatched
+an agent to answer it ([who you are talking to](#who-you-are-talking-to)), and the roster
+is already the four shapes a question about a proposal takes: answer it, go and find the
+evidence, argue the other side, or say what is left to decide. What was missing was a
+conversation that **does not resolve the bead**.
+
+So: pick who answers from the same chips the inbox uses, type the question, and the
+comment goes on the bead as *you*. The bead keeps its `unendorsed` marker however long
+the thread runs — nothing here writes a label — and the agent could not take it off if
+it tried: its allowlist names the read-only `bd` verbs one at a time, so `bd label`,
+`bd update`, `bd close` and `bd create` are all off it (lib/agents.js). The prompt says
+so as well, and says which of the two is the guard.
+
+Two consequences worth knowing:
+
+- **The answer is pulled, not pushed.** Nothing will buzz your phone when the agent
+  replies, because the reply poller watches `bd human` questions and an unendorsed bead
+  is not one. The panel polls the thread every few seconds while the daemon says an agent
+  is running, and names the one that is thinking while you wait. Close the panel and the
+  poll stops; the thread is on the bead either way.
+- **A bead endorsed on the laptop while the page was open refuses the question**, with
+  the same 409 revoke and ask-for-changes give. A question typed at work that has already
+  been approved reads as if it had not been.
+
+The folded row then carries a **💬 count**, and that is not decoration: a bead you asked
+three questions about last night must never read as one nobody has opened, which is the
+state this whole queue exists to empty. It costs nothing — `bd list` carries
+`comment_count` already — and the verdict cache is dropped on the way out so the count is
+there on the next poll rather than fifteen seconds later.
+
+*Discuss* and *Ask for changes* are different acts and both are worth having: an
+objection is a verdict you have reached and want the next session to read; a discussion
+is the one you have not reached yet.
+
 ### Where it lives, and the tab it is not
 
 Two doors, and neither of them is a sixth tab. The bottom bar is full at five and what
@@ -3678,6 +3868,15 @@ two fields bd names differently arrive renamed, that the list is one list across
 workspaces, that a broken workspace is named and the rest still answer, that the cap is
 reported, and that a verdict drops the cache — so the laptop on its own poll stops
 drawing a bead the phone has just endorsed.
+
+`node test/discuss.mjs` covers the conversation, and every assertion in it is a way the
+thread could quietly decide something: that the comment is the *only* write and the
+marker is still on afterwards, that a bead endorsed on the laptop is refused before
+anything is written, that one question cannot be typed at two beads, that no `bd` verb a
+reply agent may run (`label`, `update`, `close`, `create`, `delete`) is on its allowlist,
+that an agent you have since deleted keeps its own name in the thread rather than being
+relabelled the default — and that a bead you have just asked about comes back from
+`/api/unendorsed` carrying its 💬 rather than reading as untouched.
 
 `node scripts/endorse-check.mjs [--out=DIR]` drives the real page in a headless Chrome
 the size of a phone, against a fixture that records every write. The two assertions it
@@ -4928,6 +5127,17 @@ A session in a workspace without a remote is told the older brief — work the b
 close the bead — and everything else carries on. One unremoted repo must never be able
 to stop the advocate working the rest, which is the failure mode a mandatory PR
 channel would have.
+
+**A `no` to the second question expires; a `yes` does not.** The daemon starts at
+login, which is often before anyone has logged into anything, so the answer it gets
+first is the one most likely to be about to change — and it used to keep that answer
+until the service was restarted, while telling you on every card to run `gh auth
+login`, which is exactly what a process holding a cached answer cannot notice. So an
+unauthenticated or missing `gh` is re-asked a minute later, backing off to a quarter of
+an hour if nothing changes, and a `gh auth login` in a terminal starts working on its
+own. The card names `launchctl kickstart -k gui/$(id -u)/m4m.beadcause` as well, for
+when you would rather not wait the minute. A `yes` is still asked exactly once per
+process — it is read on every poll, and it does not stop being true.
 
 ```json
 "pr": {
@@ -6628,6 +6838,9 @@ cookie says so), and `/auth/signout` ends the session.
 | POST | `/api/pr/ship` | `{workspace, number}` | the declared deploy where the repo has one, an iTerm session where it does not. `409` if the PR is not merged — shipping an unmerged pull request has no meaning. Refused on an observer |
 | POST | `/api/release/ship` | `{workspace}` | ships the whole release queue — one deploy for every merge sitting on `origin` and not live, which is what a deploy has always done anyway. `409` on an empty queue (a restart for nothing), on a repo that declares no deploy (there is no window that means "and the other three"), and on one already deploying. Refused on an observer |
 | POST | `/api/pr/comment` | `{workspace, number, text}` | a note on the pull request at GitHub and nothing else. Not `/api/comment`, which writes on a *bead* and puts an agent onto answering it |
+| GET | `/api/pr/detail` | `?workspace=&number=&refresh=1` | `{row, pr, agent, unavailable}` — what [the full view](#tapping-one-opens-it-full-screen) is drawn from. `row` is the board's (the lamps and the rung, from the 25-second sweep, computed once in lib/prstage.js); `pr` is `gh` **now**, for the description the board strips, the datetimes and the mergeability the buttons are drawn from; `agent` is which session wrote it, from the archive in the repo's own refs. Every failure is an answer rather than a 500, exactly as `/api/pr` has it |
+| POST | `/api/pr/close` | `{workspace, number, reason?}` | closes it at GitHub without merging, with your reason as a comment on the pull request. **No bead moves** — `row.beads` is a *match* rather than the block a worker wrote, and reopening a bead is what puts an unattended session on it; putting the work back in the queue is *Decline* on its own card. `409` on one already merged: closing it now cannot un-merge it. The branch is kept |
+| POST | `/api/pr/conflicts` | `{workspace, number}` | opens an iTerm session on the branch whose job is to merge the base into it, resolve, run the repo's own gate and push — then stop. `409` unless GitHub reports it `CONFLICTING` right now, so a resolved conflict cannot leave a window somebody has to close. Refused on an observer, and on a daemon with `openSessions` off |
 | POST | `/api/comment` | `{workspace, id, text, agent?}` | comments, sets `human-replied`, dispatches that agent to reply (default when absent or unknown) |
 | POST | `/api/dismiss` | `{workspace, id, reason?}` | takes the card off the screen and **closes nothing**. Writes your note if you typed one, writes nothing at all if you did not, and never touches the status — "I am not dealing with this now" is not "this is decided" |
 | POST | `/api/filter` | `{space, workspace}` | which slice the inbox is, remembered server-side so every client agrees and the notifications match. Each is a name or `all`, bounded at 120 characters. Widening forgets what you had declined |
@@ -6649,6 +6862,8 @@ cookie says so), and `/auth/signout` ends the session.
 | POST | `/api/bead/revoke` | `{workspace, ids[], reason?}` | closes it with your reason under a fixed prefix, and **leaves the marker on**: what an agent filed and what you thought of it both stay on the record. A bead already closed is `already: true` rather than an error; one already endorsed is a `409` |
 | POST | `/api/bead/adjust` | `{workspace, ids[], edits, endorse?}` | the ✎ of the proposal card, aimed at a bead that exists. `edits` may name `title, type, priority, description, acceptance, labels`, through the same clamps a proposed bead goes through; the two labels the daemon owns (`unendorsed`, `agent-filed`) are not yours to set. **Keeps the marker** unless `endorse: true`. A title may not be given to a group |
 | POST | `/api/bead/changes` | `{workspace, ids[], note}` | your objection on the thread and nothing else — the bead stays held, so the next session that touches it reads what is wrong instead of re-filing it next week. The note is required, because a changes-requested with nothing said is indistinguishable from having done nothing |
+| POST | `/api/bead/discuss` | `{workspace, id, text, agent?}` | your question on the thread, and a reply agent sent to answer it — the one thing you can do to a held bead that is **not** a verdict. The comment is the only write: no label moves, the `unendorsed` marker stays, and a bead endorsed since the queue was drawn is a `409`. One id only, never a list. Answers `{thread[], dispatched, agent, reason}`, and `reason` is why nobody was sent when nobody was |
+| GET | `/api/bead/thread` | `?workspace=&id=` | `{thread[], running, activity}` — the comments on one bead with each author resolved against the roster, plus whether an agent is still writing. What the discussion panel polls, because nothing pushes a reply on a bead that is not a `human` question |
 | GET | `/api/work` | — | `{workspaces[], elsewhere[], advocates[], service, router}` — per workspace: claimed beads, live `claude` sessions, counts, errors. `service` is what launchd is running; `router` is whether that program is actually serving anything, or is on an older build than the disk — see the router section. `router` is `null` under `npm run start:bare`, where there is no router |
 | GET | `/api/agents` | — | `{agents[], default}` — the roster you can address a comment to |
 | POST | `/api/agents` | `{name, description}` | creates one and returns the new roster. `tools` is never accepted here |
@@ -7022,7 +7237,7 @@ stops the run, propagates its exit code, and does not run what comes after it.
 
 ### `npm run checks` — the browser half, and why `npm test` can still see it rot
 
-The twenty-seven `scripts/*-check.mjs` are the only cover this repo has for layout, taps
+The twenty-eight `scripts/*-check.mjs` are the only cover this repo has for layout, taps
 and anything that happens in a thumb, and none of them are in `npm test`: each wants a
 Chrome, a phone-sized viewport and ten to forty seconds, and that suite stays pure Node
 on purpose. Until `npm run checks` there was no way to run them but one at a time by
@@ -7043,7 +7258,7 @@ conflicts with nobody.
 **Every check is on a four-minute leash**, `--timeout N` to change it and `--timeout 0`
 to take it off. This is not a tidiness rule. A check that hangs is the one failure a
 runner like this newly introduces, and it is silent in the worst available way: the run
-never ends, so nothing is reported about the other twenty-six either — strictly worse
+never ends, so nothing is reported about the other twenty-seven either — strictly worse
 than the by-hand state it replaced, where at least a person gives up. On the first real
 run of all twenty-six, `agent-chooser-check.mjs` went quiet thirteen assertions in and
 was still sitting there five minutes later. SIGTERM first so a check with a cleanup
@@ -7064,7 +7279,7 @@ parallel pass. A check that fails both times is reported with `on its own — no
 scheduling accident` beside it, so a red line cannot be waved away as the scheduler's
 fault.
 
-**Three of the twenty-seven are red, and that is the bead in one paragraph.** Two were
+**Three of the twenty-eight are red, and that is the bead in one paragraph.** Two were
 already failing the day this was written, with no mark against them anywhere:
 `shot-check.mjs` has always asserted that the daemon token never reaches `shot.mjs`'s
 output, and the token is now appended to the URL that `shot.mjs` prints, so it does
@@ -7094,7 +7309,7 @@ every literal selector every check presses — 313 of them — takes each class,
 `data-` attribute apart, and asserts it still appears somewhere in `public/`. That is a
 text search, it costs milliseconds, and it fires on precisely the thing that used to be
 invisible. `npm run checks` prints it before a single Chrome starts, and does not stop on
-it: a stale selector in one check is no reason not to run the other twenty-six.
+it: a stale selector in one check is no reason not to run the other twenty-seven.
 
 It is tuned to have no false alarms, so that a finding is always real, and two things
 follow. An interpolated selector — `` `[data-key="${k}"]` `` — has no text to look for and
@@ -7120,7 +7335,7 @@ arrival before Chrome is even reached. And the runner's own endings are held aga
 temp tree of three checks that pass, fail and hang on purpose: exit 1, the failures
 counted and named, their own output replayed rather than just a code, the hang killed at
 the timeout, a passing check not listed among the failures, and an empty tree failing
-rather than passing vacuously. A tree of its own rather than the real twenty-seven, because
+rather than passing vacuously. A tree of its own rather than the real twenty-eight, because
 those are the thing under observation, not the instrument.
 
 `test/observe.mjs` is about observer mode only, and it is the oldest of them —

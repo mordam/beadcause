@@ -231,7 +231,7 @@ else bad('--audit on this repo exits 0', auditRun.stdout.trim());
 /* -------------------------------------------------------- how the runner ends a run */
 
 /**
- * A tree of checks that pass, fail and hang on purpose. Running the real twenty-seven to
+ * A tree of checks that pass, fail and hang on purpose. Running the real twenty-eight to
  * find out what the runner does with a failure would take four minutes and a Chrome,
  * and would depend on this repo's own checks — which are the thing under observation,
  * not the instrument.

@@ -41,6 +41,12 @@
       you have read the proposal and pressed the button.</p>
     <div class="repo-tabs">
       <div id="ws-row" class="chip-row" role="tablist" aria-label="Filter by repo"></div>
+      <!-- Closing a row hides it; this is what says so and gives it back. Outside the
+           tablist because it is not a tab — it does not select what the list is of, it
+           says how much of that list you are being shown. Hidden entirely when the
+           selected tab holds none, so it is a control that appears with something to
+           control rather than a permanent zero. -->
+      <button id="ws-dismissed" class="chip show-dismissed" aria-pressed="false" hidden></button>
       <button id="ws-new" class="icon-btn new-console" aria-label="Start a chat session">＋</button>
     </div>
     <!-- On All there is no repo to start in, so ＋ asks rather than going dead.

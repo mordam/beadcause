@@ -76,7 +76,7 @@ exit 1
 );
 process.env.PATH = `${BIN}${path.delimiter}${process.env.PATH}`;
 
-const { reconcileLanded, landedReason, describeLanded } = await import(LIB('landed.js'));
+const { reconcileLanded, landedReason, describeLanded, describeTruncation } = await import(LIB('landed.js'));
 const { forgetPrefixes } = await import(LIB('beadref.js'));
 
 /* ------------------------------------------------------------------ harness */
@@ -141,9 +141,14 @@ const asListed = (row) => ({
 function fakeBd(beads, { gate = () => null, comments = () => [], questions = [] } = {}) {
   const rows = new Map(beads.map((b) => [b.id, { status: 'open', title: '', ...b }]));
   const writes = [];
+  // Counted, because "how many times did it ask" is itself an assertion below: the card
+  // list is the same list every sweep and asking per merged pull request made the cost
+  // of a sweep a function of how busy the fortnight had been.
+  const calls = { listLabel: 0 };
   return {
     writes,
     rows,
+    calls,
     async json(_ws, args) {
       // Only `prefixFor` asks, and only for one row: the id's prefix is the answer.
       if (args[0] === 'list') return [{ id: 'wg-1' }];
@@ -156,6 +161,7 @@ function fakeBd(beads, { gate = () => null, comments = () => [], questions = [] 
       return comments(id);
     },
     async listLabel() {
+      calls.listLabel += 1;
       return questions;
     },
     async closeGate(_ws, id) {
@@ -349,6 +355,52 @@ const deliveryCard = (over = {}) => ({
   const bd = fakeBd([{ id: 'wg-aaa' }], { questions: [deliveryCard()] });
   await reconcileLanded(bd, ws('thirteen'), REPO, { rows: [asListed(mergedRow({ state: 'OPEN', mergedAt: null }))] });
   check('but an open PR still closes no card', bd.writes.length === 0, JSON.stringify(bd.writes));
+}
+
+{
+  forgetPrefixes();
+  // The card list is asked once for the sweep, not once for every merged pull request.
+  // `bd` here is a subprocess and a Dolt read, so the old shape charged a query per row
+  // — and the rows are the busiest thing about a busy week.
+  const bd = fakeBd([{ id: 'wg-aaa' }], { questions: [deliveryCard()] });
+  const rows = [1, 2, 3].map((n) => asListed(mergedRow({ number: 40 + n, title: `wg-b${n}: something` })));
+  await reconcileLanded(bd, ws('fourteen'), REPO, { rows });
+  check('the delivery cards are listed once per sweep, not once per pull request', bd.calls.listLabel === 1, `listLabel called ${bd.calls.listLabel}×`);
+}
+
+{
+  forgetPrefixes();
+  // bc-8ug and bc-jin: forty merged pull requests is under a day on this repo, so the
+  // fourteen-day window is a ceiling the query cap never lets it reach — and a bead that
+  // falls out the far end falls out for good, because the next sweep asks the same
+  // question of a window that has moved further forward. Saying so is the whole fix here.
+  const bd = fakeBd([{ id: 'wg-aaa', status: 'closed' }]);
+  const rows = [1, 2, 3].map((n) => asListed(mergedRow({ number: 40 + n, title: `wg-b${n}: something` })));
+  const result = await reconcileLanded(bd, ws('fifteen'), REPO, { rows, limit: 3 });
+  check('a full query that never reached the cutoff reports the cap that stopped it', !!result.truncated, JSON.stringify(result.truncated));
+  check('and says how far back it did reach', result.truncated?.limit === 3 && /nothing merged earlier than/.test(describeTruncation(result.truncated)), describeTruncation(result.truncated));
+}
+
+{
+  forgetPrefixes();
+  // The control. One row past the cutoff proves the *window* decided where to stop, so
+  // there is nothing beyond it this failed to look at, and nothing to warn about.
+  const bd = fakeBd([{ id: 'wg-aaa', status: 'closed' }]);
+  const old = new Date(Date.now() - 60 * 86400000).toISOString();
+  const rows = [asListed(mergedRow({ number: 41 })), asListed(mergedRow({ number: 40, mergedAt: old }))];
+  const result = await reconcileLanded(bd, ws('sixteen'), REPO, { rows, limit: 2 });
+  check('but a query that aged a row out is not truncated — the window decided, not the cap', result.truncated === null, JSON.stringify(result.truncated));
+}
+
+{
+  forgetPrefixes();
+  // The summary is written when a tick *did* something; the reach is true every ten
+  // minutes until the repo quietens, so it rides along rather than speaking on its own.
+  const bd = fakeBd([{ id: 'wg-aaa' }]);
+  const rows = [1, 2].map((n) => asListed(mergedRow({ number: 40 + n, title: n === 1 ? 'wg-aaa: fix the thing' : 'wg-zzz: other' })));
+  const result = await reconcileLanded(bd, ws('seventeen'), REPO, { rows, limit: 2 });
+  check('a sweep that closed something mentions the cap in its summary', /query cap/.test(describeLanded(result)), describeLanded(result));
+  check('and a sweep that closed nothing stays quiet in the summary', describeLanded({ ok: true, closed: [], cards: [], truncated: result.truncated }) === '', 'expected an empty summary');
 }
 
 check(
