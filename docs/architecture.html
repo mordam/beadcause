@@ -671,6 +671,7 @@ curl -sI http://127.0.0.1:4318/api/health | grep beadcause</code></pre>
         <tr><td>Push</td><td>bead priority, 💭</td><td>always priority 3, ⚖️, leads with the <em>scope</em></td></tr>
         <tr><td>Android channel</td><td class="mono">questions_v2</td><td class="mono">foundation_v1</td> </tr>
         <tr><td>PWA</td><td>the list, under space and workspace filters</td><td>a pane above it, outside every filter</td></tr>
+        <tr><td>Inbox filter</td><td>outside it arrives quiet</td><td>never quietened by it — a mute still is</td></tr>
       </tbody>
     </table>
   </div>
@@ -951,8 +952,9 @@ Bash(bd memories:*) Bash(bd dep tree:*) Read Grep Glob</code></pre>
         </tr>
         <tr>
           <td class="mono">beadcause-memory</td>
-          <td class="mono">remember · recall · post · read · topics · agents</td>
-          <td>Own knowledge (<code>remember</code>/<code>recall</code>) and a blackboard
+          <td class="mono">remember · recall · note · notes · post · read · topics · agents</td>
+          <td>Own knowledge that travels (<code>remember</code>/<code>recall</code>), knowledge about
+          the repo it is standing in (<code>note</code>/<code>notes</code>), and a blackboard
           (<code>post</code>/<code>read</code>). See below.</td>
           <td>—</td>
         </tr>
@@ -1042,21 +1044,35 @@ beadcause-memory remember brief-style "he wants the counterexample above the ask
   <h2 class="sec">Memory and the blackboard</h2>
 
   <p>A foundation is what an agent <em>is</em>. This is what it has <em>learned</em> — the half that
-  used to evaporate at the end of every run. Four calls, reachable as a command:</p>
+  used to evaporate at the end of every run. Six calls, reachable as a command:</p>
 
   <pre><code>beadcause-memory remember tone "evidence first, then the ask"
 beadcause-memory recall tone
+beadcause-memory note tests "npm test discovers test/*.mjs; scripts/test.mjs is the runner"
+beadcause-memory notes tests
 beadcause-memory post proposals "the graph work is blocked on a decision"
 beadcause-memory read proposals --since=4
 beadcause-memory agents
 beadcause-memory recall --of=advocate tone</code></pre>
 
-  <p><code>remember</code>/<code>recall</code> are one agent's own knowledge.
-  <code>post</code>/<code>read</code> are a blackboard: an agent publishes what it believes and the
-  others read it whenever they next look. Deliberately <strong>not a mailbox and not a
-  conversation</strong> — no addressee, no delivery, because git has no notification to give. The
-  nudge, where one is needed, is the in-memory event bus, which is the exact complement: payload and
-  durability here, wake-up there.</p>
+  <p><code>remember</code>/<code>recall</code> are one agent's own knowledge, and it follows the
+  agent into any repo. <code>note</code>/<code>notes</code> are the same two verbs against
+  <strong>the repo the command was run in</strong> — knowledge about one codebase, which is worth
+  nothing in another. <code>post</code>/<code>read</code> are a blackboard: an agent publishes what
+  it believes and the others read it whenever they next look. Deliberately <strong>not a mailbox and
+  not a conversation</strong> — no addressee, no delivery, because git has no notification to give.
+  The nudge, where one is needed, is the in-memory event bus, which is the exact complement: payload
+  and durability here, wake-up there.</p>
+
+  <p><strong>Which of the two an agent writes to is one question: would this still be true in a
+  different repo?</strong> Yes — how Adam likes a thing shaped, an approach that worked anywhere, a
+  dead end not worth walking twice — is <code>remember</code>. No — how this codebase is put
+  together, where its tests live, the trap in one of its files — is <code>note</code>. Neither is an
+  optimisation of the other, and the version with only the cross-repo store is not that minus a
+  feature: its brief said, correctly for it, to write down only what is <em>“still true next week and
+  in a different repo”</em>, which read literally rules out every fact about the code in front of the
+  agent. So knowledge of a codebase either followed the agent somewhere it was false, or was never
+  written at all — and the second is silent.</p>
 
   <figure>
     <div class="figbox">
@@ -1125,10 +1141,24 @@ beadcause-memory recall --of=advocate tone</code></pre>
     1..6 is there exactly once.</figcaption>
   </figure>
 
-  <p><strong>No call names a repo, a path or a ref, and none of them will take one.</strong> That is
-  the point of the indirection — the day this should be SQLite or a table in beads, the change is
-  <code>lib/memory.js</code> and nothing else. An agent handed a path would have put that path into
-  its own memory, its habits and its prompts.</p>
+  <p><strong>No call names a repo, a path or a ref, and none of them will take one</strong> — not even
+  the pair whose whole subject is a repo. That is the point of the indirection: the day this should be
+  SQLite or a table in beads, the change is <code>lib/memory.js</code> and nothing else. An agent
+  handed a path would have put that path into its own memory, its habits and its prompts. So
+  <code>note</code> writes to wherever the process is standing, and a run from the wrong directory is
+  fixed by <code>cd</code>, which is checkable, rather than by an argument, which is not.</p>
+
+  <p><strong>A note rides a ref in the repo it is about</strong> —
+  <code>refs/beadcause/agents/&lt;agent&gt;</code>, tree <code>notes.json</code>, beside that repo's
+  foundations and session logs. Two properties come free from that and neither has to be arranged:
+  the same key in two repos is two different notes, and a note written from a worktree under
+  <code>.claude/worktrees/</code> is there from the main checkout and from every sibling, because a
+  ref outside the per-worktree namespaces lives once in the common <code>.git</code>. The second is
+  what makes the tier usable here at all — nearly all work in this repo happens in a worktree that is
+  retired days later. A <em>ref per agent</em> rather than one ref with a file each, which is the
+  opposite of the cross-repo store: there the writers are four agent kinds on one Mac, here they are a
+  dozen <code>worker</code> sessions in a dozen worktrees of one repo, so splitting by agent means two
+  kinds never contend at all.</p>
 
   <p><strong>An agent can read another agent's memory, and cannot write one.</strong> The roster is
   the memory ref's own tree filtered to <code>*.json</code>, so a kind appears the moment it
@@ -1136,7 +1166,9 @@ beadcause-memory recall --of=advocate tone</code></pre>
   on purpose: <code>--agent</code> <em>is</em> you for the whole invocation, so
   <code>--agent=advocate remember …</code> writes into the advocate's file rather than reading it —
   tolerable for a human at a terminal, wrong as the thing an agent is told about. <code>--of</code>
-  names a <em>subject and never an author</em>: only <code>recall</code> accepts it, everything that
+  names a <em>subject and never an author</em>: only the two reads, <code>recall</code> and
+  <code>notes</code>, accept it — as a list of the reads rather than a check per command, so
+  <code>note</code> arriving later was refused by default — everything that
   writes refuses it outright, and a read attributes to nobody so it needs no
   <code>BEADCAUSE_AGENT</code> — which leaves it no author to borrow. The read also says whose notes
   it handed you, on stderr so stdout is unchanged: <em>these are advocate's notes to itself, not
@@ -1627,8 +1659,9 @@ add:
     <table>
       <thead><tr><th>Ref</th><th>Holds</th><th>Why a ref and not a file</th></tr></thead>
       <tbody>
-        <tr><td class="mono">refs/beadcause/memory</td><td>one commit per write; tree is <code>&lt;agent&gt;.json</code></td><td rowspan="4">A ref outside <code>refs/heads/*</code> and <code>refs/tags/*</code> has no working tree, so the daemon can commit one while something else is rewriting <code>config.json</code> beside it — and <code>git status</code> in that directory stays clean</td></tr>
+        <tr><td class="mono">refs/beadcause/memory</td><td>one commit per write; tree is <code>&lt;agent&gt;.json</code></td><td rowspan="5">A ref outside <code>refs/heads/*</code> and <code>refs/tags/*</code> has no working tree, so the daemon can commit one while something else is rewriting <code>config.json</code> beside it — or while you are mid-edit in the repo a note is about — and <code>git status</code> stays clean</td></tr>
         <tr><td class="mono">refs/beadcause/bus/&lt;topic&gt;</td><td>one commit per blackboard message</td></tr>
+        <tr><td class="mono">refs/beadcause/agents/&lt;agent&gt;</td><td>one commit per note; tree is <code>notes.json</code>. <strong>In the repo the notes are about</strong>, not here — and shared by every worktree of it</td></tr>
         <tr><td class="mono">refs/beadcause/foundations</td><td>a commit per amendment or decline</td></tr>
         <tr><td class="mono">refs/beadcause/sessions/&lt;bead&gt;</td><td>an archived <code>session.log</code>, <code>meta.json</code>, optionally the raw transcript</td></tr>
       </tbody>
@@ -1637,7 +1670,10 @@ add:
   <p>Two caveats worth stating: <code>git log --all</code> <em>does</em> walk <code>refs/*</code>, so
   these commits appear there and in some GUIs. And nothing is pushed unless you ask —
   <code>git push origin 'refs/beadcause/*:refs/beadcause/*'</code> is an explicit act, and on a
-  shared repo it should stay one.</p>
+  shared repo it should stay one. The second caveat is the one that matters for
+  <code>refs/beadcause/agents/*</code> and <code>refs/beadcause/sessions/*</code>, which live in a repo
+  that <em>has</em> a remote: agent-written text carries absolute paths and whatever tool output
+  scrolled past it.</p>
 </section>
 
 <!-- ================================================================ -->

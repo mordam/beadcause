@@ -455,7 +455,9 @@ try {
 
   /* -------------------------------------------------- it survives a collapse */
 
-  await evalJs(s, `document.querySelector('${card(KEY)} [data-act="toggle"]').click()`);
+  // Closing is ↑ Collapse in the card's top bar; the details toggle is what opens
+  // it again from the list, and an open card no longer carries one.
+  await evalJs(s, `document.querySelector('${card(KEY)} [data-act="collapse"]').click()`);
   await sleep(200);
   await evalJs(s, `document.querySelector('${card(KEY)} [data-act="toggle"]').click()`);
   if (!(await waitFor(s, `!!document.querySelector('${card(KEY)} [data-role="answer"]')`)))

@@ -842,8 +842,11 @@
 
      Every one of these already existed and every one of them was a config hand-edit:
      `quietHours`, `quietDays`, `ntfyDetail` and `autoDispatch` have been read out of
-     lib/spaces.js since spaces were invented, and `autoMerge`/`requireApproval` joined
-     them with the per-space PR policy. Editing them meant opening
+     lib/spaces.js since spaces were invented, `autoMerge`/`requireApproval` joined them
+     with the per-space PR policy, `autoEndorse` — whether a bead an agent filed here
+     may be worked before you have read it — joined them after that, and `autoShip` joined
+     them with the release queue that deploys a merge without being tapped. Editing them
+     meant opening
      `~/.beadcause/config.json` on the Mac — which is exactly the wrong place, because
      the moment you know a setting is wrong is the moment you are looking at what it
      did, on a phone, at the weekend.
@@ -853,11 +856,13 @@
 
      - **Muted** is two-state. There is no global "mute everything" behind it, so
        "not set" and "off" are the same thing and a third button would be a lie.
-     - **The four with a global behind them** are three-state — On, Off, *Inherit* —
+     - **The six with a global behind them** are three-state — On, Off, *Inherit* —
        because `prPolicyFor` is explicit that a space may override the global in either
        direction, so "off" and "following the default, which is off" are different
        answers that must survive the default changing under them. The Inherit button
-       says what it currently resolves to rather than the word alone.
+       says what it currently resolves to rather than the word alone. `autoEndorse` is
+       one of them and its global default is `off` rather than on, which is the whole
+       reason Inherit names what it resolves to instead of saying "Inherit".
      - **Quiet hours and quiet days** are a pair of times and a row of days, each
        clearable, because "no quiet hours" is a state you have to be able to get back
        to and deleting the key is the only way there.
@@ -923,7 +928,7 @@
     if (!name) {
       // Not an error and not worth a card: nothing is narrowed, so there is no one
       // space whose settings these would be. The picker in the bar above is the fix,
-      // and saying so once is cheaper than drawing seven controls that write nowhere.
+      // and saying so once is cheaper than drawing a card of controls that write nowhere.
       return `<p class="subtitle space-none">Pick a space in the bar above to see and change its settings.</p>`;
     }
     if (state.spaceError) {
@@ -1024,6 +1029,13 @@
         g.autoDispatch
       ),
       tri(
+        'autoEndorse',
+        'Beads agents file arrive endorsed',
+        'On means a discovery an agent files here is ready work the moment it exists, and an advocate may open a session on it before you have read it. Off is the hold: nothing runs until you tap Endorse.',
+        s.autoEndorse,
+        g.autoEndorse
+      ),
+      tri(
         'autoMerge',
         'Workers merge their own pull requests',
         'Off means every delivery hands you the pull request instead of landing it — which is what you want anywhere other people read the diff.',
@@ -1036,6 +1048,13 @@
         'Only bites while auto-merge is on: with it off every delivery is already a question, and answering it is the approval.',
         s.requireApproval,
         g.requireApproval
+      ),
+      tri(
+        'autoShip',
+        'Merges ship themselves',
+        'On means a merge runs the repo’s own deploy without waiting for Ship — batched behind a ten-minute settle window, so four merges are one deploy. An epic labelled auto-ship or no-auto-ship overrides this for its own work.',
+        s.autoShip,
+        g.autoShip
       ),
     ].join('');
 
@@ -1050,8 +1069,10 @@
               <span class="pill id">${esc(r.name)}</span>
               <span class="tag${r.ntfyDetail === 'minimal' ? ' warn' : ' dim'}">${esc(r.ntfyDetail)} push</span>
               <span class="tag ${r.autoDispatch ? 'ok' : 'dim'}">${r.autoDispatch ? 'agents may answer' : 'no agent replies'}</span>
+              <span class="tag ${r.autoEndorse ? 'warn' : 'dim'}">${r.autoEndorse ? 'files endorsed' : 'files held'}</span>
               <span class="tag ${r.autoMerge ? 'ok' : 'warn'}">${r.autoMerge ? 'auto-merge' : 'hands you the PR'}</span>
               ${r.autoMerge && r.requireApproval ? '<span class="tag warn">approval first</span>' : ''}
+              <span class="tag ${r.autoShip ? 'ok' : 'dim'}">${r.autoShip ? 'ships itself' : 'waits for Ship'}</span>
             </div>`
           )
           .join('')}</div>`

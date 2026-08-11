@@ -22,7 +22,17 @@
     // filters, the counts, the empty state, the order — is about work, and a
     // constitutional decision is not work. See `requestsHtml`.
     requests: [],
+    // The conversations you have open, and for the same reason as `requests`: a chat
+    // session is not a bead. It has no id in any tracker, nothing about it can be
+    // answered, and every count in the chrome is about beads — so it rides its own
+    // array and is turned into rows at render time (see `chatRows`). What it *is*
+    // part of is the list you look at, which is the whole point of bc-l8jp.5.
+    consoles: [],
     spaces: [],
+    // Every configured workspace, which the inbox needs for one thing only: ＋ has to
+    // know where to start a conversation, and "the repos in the selected space" is a
+    // question about the config rather than about the beads on screen.
+    workspaces: [],
     // The counts the chrome draws — beads asking you something, agents running,
     // advocates waiting. Server-held rather than counted out of the rows above,
     // because two of the three are about things that are not in this list at all
@@ -94,6 +104,12 @@
     // comes back next week phrased exactly the same way.
     propEdit: new Set(),
     edits: new Map(),
+    // The pull request board, whole, from `/api/prs` — the rows this list draws its PR
+    // cards from (see prRows). Its own fetch on its own clock, never merged into
+    // `questions`: a pull request is not a bead and every consumer of that array is.
+    board: null,
+    /** Why the last board sweep said nothing, if it failed or `gh` is missing. */
+    boardError: null,
     // The live half of a delivery card: key → { loading, pr, unavailable }. The
     // diffstat and the check rollup come from GitHub rather than from the bead,
     // because a diffstat frozen when the session ended is wrong the moment anyone
@@ -449,6 +465,47 @@
   }
 
   /**
+   * This card got here without making a noise — and which of the two kinds of quiet
+   * it was.
+   *
+   * **Two silences that read identically until you say which.** A bead outside the
+   * inbox filter and a bead in a muted space both arrive, both file, both count, and
+   * both leave the phone dark (see `quietReasonFor` on the server). The difference is
+   * the whole of what you can do about it: a mute ends on a clock and there is nothing
+   * to press, a filter ends when you press **All**. Before this the distinction lived
+   * only in the daemon's log, which is not a thing anyone reads from a phone at 2am.
+   *
+   * **And it is what stops the pile reading as a rush.** Widen the filter and every
+   * bead it was hiding appears at once, in a list ordered by priority — indistinguish-
+   * able from four questions that landed while you were reaching for the chip. So the
+   * line leads with *when*, not with the reason: "arrived quietly 3h ago" is a card
+   * that was already there, and that sentence is the acceptance criterion.
+   *
+   * The filter is quoted as it stood at the arrival, because by now it is almost
+   * certainly not that any more — that is the point of having widened it — and the
+   * value from then is the only one that explains anything.
+   *
+   * One line, dim, in the card head under the pills and above the question — where a
+   * postmark goes. On the collapsed card as well as the open one, because the pile is
+   * read from the list and most of these are never opened at all; and above the
+   * question rather than below it, so it cannot be mistaken for something an agent
+   * said. It states a fact and does nothing: the card answers exactly as it did.
+   */
+  function arrivedQuietHtml(q) {
+    const a = q.arrivedQuiet;
+    if (!a) return '';
+    const when = relTime(a.at);
+    const why =
+      a.reason === 'muted'
+        ? `${a.space ? esc(a.space) : 'that space'} was muted`
+        : `hidden by the inbox filter${a.filter && a.filter !== 'all' ? ` — ${esc(a.filter)}` : ''}`;
+    return `<p class="quiet-note">
+      <span aria-hidden="true">${a.reason === 'muted' ? '🔕' : '🔇'}</span>
+      <span>Arrived quietly${when ? ` ${esc(when)}` : ''} · ${why}</span>
+    </p>`;
+  }
+
+  /**
    * The agent state worth showing as a pending reply at the foot of the thread.
    *
    * `done` is excluded deliberately: a finished agent has already left a real
@@ -567,26 +624,43 @@
   }
 
   /**
-   * The corner controls an open card carries: the kebab, and collapse — hard right.
+   * The card's own top bar: everything that is *about* the card rather than an
+   * answer to it.
    *
-   * A card only grows these once it is open, because closed it is a row in a list
-   * and has nothing to collapse. Both corners get a way out: the top one is where
-   * your thumb already is when the card opens, the bottom one is where you land
-   * after reading a brief with a diagram and a thread in it.
+   * It used to be the two corner controls an open card grew — the kebab and
+   * collapse — and everything else queued up at the foot instead: the details
+   * toggle, then a bulk approve/decline row, then a full-width primary. Three
+   * full-width buttons under the question, none of which answered it, and the one
+   * that did the work looked exactly like the two that did not.
    *
-   * Everything that is neither reading nor answering lives behind the kebab — the
-   * card is a question, and a third full-width button under the answer box read as
-   * a third way to answer it.
+   * So they come up here. Reading (the details toggle) is hard left; acting on the
+   * whole card (a proposal's bulk approve/decline) is hard right, next to the way
+   * out. The foot keeps only what is genuinely a second body of content — the
+   * session log — and an answer box, when there is one, is then the only full-width
+   * control on the card.
+   *
+   * Two things stay conditional on `open`, because closed the card is a row in a
+   * list: the kebab, and collapse. And an open card does *not* also get a "Hide
+   * details" — collapse is that button, one row to the right of where it would go.
    */
-  function cardTopHtml(q) {
+  function cardTopHtml(q, opts = {}) {
     const on = state.menu === q.key;
+    const open = state.open.has(q.key);
     return `<div class="card-top">
-      <div class="menu-wrap">
+      ${open ? '' : `<button class="top-btn detail" data-act="toggle" data-key="${esc(q.key)}">${esc(
+        opts.detailLabel || 'Show details'
+      )}</button>`}
+      ${propBulkHtml(q)}
+      ${
+        open
+          ? `<div class="menu-wrap">
         <button class="kebab${on ? ' on' : ''}" data-act="menu" data-key="${esc(q.key)}"
           aria-haspopup="true" aria-expanded="${on}" aria-label="More actions">⋮</button>
         ${on ? menuHtml(q.key) : ''}
       </div>
-      <button class="collapse" data-act="collapse" data-key="${esc(q.key)}">↑ Collapse</button>
+      <button class="collapse" data-act="collapse" data-key="${esc(q.key)}">↑ Collapse</button>`
+          : ''
+      }
     </div>`;
   }
 
@@ -657,9 +731,6 @@
     if (!state.picks.has(key)) state.picks.set(key, new Map());
     return state.picks.get(key);
   };
-
-  const approvedIndices = (key, beads) =>
-    beads.map((_, i) => i + 1).filter((n) => picksFor(key).get(n) === 'yes');
 
   /* ------------------------------------------------------------- adjusting */
 
@@ -829,17 +900,15 @@
    * ordinary outcome, and having to decline all three to avoid the two bad ones
    * teaches you to decline everything.
    *
-   * So: approve and decline per row, two bulk controls for when they all point the
-   * same way, and one primary action that says exactly how many it will file. It
-   * paints in place — see paintPicks — because a re-render would rebuild the card
-   * under a decision you are halfway through making.
+   * So: approve and decline per row, and — in the card's top bar rather than under
+   * the rows, see propBulkHtml — the two bulk controls that say exactly how many
+   * each of them will file. It paints in place, see paintPicks, because a re-render
+   * would rebuild the card under a decision you are halfway through making.
    */
   function proposalHtml(q) {
     const beads = q.proposal?.beads || [];
     if (!beads.length) return '';
     const picks = picksFor(q.key);
-    const approved = approvedIndices(q.key, beads);
-    const armed = state.armed === `${q.key}|proposal`;
 
     const rows = beads
       .map((raw, i) => {
@@ -902,40 +971,90 @@
       })
       .join('');
 
-    // Undecided rows are counted, not silently treated as a no: "3 undecided" is the
-    // difference between a considered decline and a half-read card.
-    const undecided = beads.length - [...picks.values()].filter((v) => v === 'yes' || v === 'no').length;
-
     return `<div class="proposal" data-key="${esc(q.key)}">
       <div class="section-label">${beads.length} bead${beads.length === 1 ? '' : 's'} proposed <span>nothing is created until you say so</span></div>
       ${rows}
-      <div class="prop-bulk">
-        <button class="linkish" data-act="pick-all" data-key="${esc(q.key)}" data-pick="yes">Approve all</button>
-        <button class="linkish" data-act="pick-all" data-key="${esc(q.key)}" data-pick="no">Decline all</button>
-        <span class="prop-count">${undecided ? `${undecided} undecided` : ''}</span>
-      </div>
-      <button class="primary prop-go${armed ? ' confirm' : ''}" data-act="pick-submit" data-key="${esc(q.key)}" ${
-        approved.length || undecided === 0 ? '' : 'disabled'
-      }>${propGoLabel(approved.length, beads.length, armed)}</button>
     </div>`;
   }
 
-  /** The primary button says what it will do, including when that is "create nothing". */
-  function propGoLabel(approved, total, armed) {
-    const what = approved === 0 ? 'Decline all — create nothing' : approved === total ? `Create all ${total}` : `Create ${approved} of ${total}`;
-    return armed ? `Tap again to confirm · ${what}` : what;
+  /**
+   * The two bulk controls, in the card's top bar — see cardTopHtml.
+   *
+   * There used to be three buttons at the foot of a proposal: Approve all and
+   * Decline all, which only *marked* every row, and a primary underneath that did
+   * the filing. Two of the three were a way of setting up the third, which is a lot
+   * of screen for one decision. Now the two are the decision: each arms on the first
+   * tap and files on the second, and `state.armed` is the same mechanism every other
+   * two-tap answer in this app uses.
+   *
+   * What each one does, and why they are not symmetrical:
+   *
+   * - **Approve** files everything you have not explicitly declined. That is what
+   *   keeps "2 of 3" reachable with the third button gone — pick ✕ on the one you
+   *   don't want, then approve — and it is why undecided rows are counted rather
+   *   than folded into the declines.
+   * - **Decline** files nothing at all, whatever the rows say. It is the full stop,
+   *   and a full stop that quietly created two beads would be the worst button in
+   *   the app.
+   *
+   * Both name their count before the second tap: the exact number this tap will
+   * create is the one fact the old primary carried that had to survive the move.
+   */
+  function propBulkHtml(q) {
+    const beads = q.proposal?.beads || [];
+    if (!beads.length) return '';
+    const undecided = undecidedCount(q.key, beads);
+    const canApprove = keepIndices(q.key, beads).length > 0;
+    return `<div class="prop-bulk">
+      <span class="prop-count">${undecided ? `${undecided} undecided` : ''}</span>
+      <button class="top-btn bulk approve${state.armed === `${q.key}|prop-yes` ? ' confirm' : ''}"
+        data-act="prop-bulk" data-key="${esc(q.key)}" data-pick="yes" ${canApprove ? '' : 'disabled'}
+        >${propBulkLabel(q.key, beads, 'yes')}</button>
+      <button class="top-btn bulk decline${state.armed === `${q.key}|prop-no` ? ' confirm' : ''}"
+        data-act="prop-bulk" data-key="${esc(q.key)}" data-pick="no"
+        >${propBulkLabel(q.key, beads, 'no')}</button>
+    </div>`;
+  }
+
+  /** Rows an approve would file: everything not explicitly declined. */
+  const keepIndices = (key, beads) =>
+    beads.map((_, i) => i + 1).filter((n) => picksFor(key).get(n) !== 'no');
+
+  /**
+   * Rows you have not answered either way. Counted, not silently treated as a no:
+   * "3 undecided" is the difference between a considered decline and a half-read card.
+   */
+  const undecidedCount = (key, beads) =>
+    beads.length - [...picksFor(key).values()].filter((v) => v === 'yes' || v === 'no').length;
+
+  /** What a bulk button will do, said as a count, armed or not. */
+  function propBulkLabel(key, beads, side) {
+    const total = beads.length;
+    const n = side === 'yes' ? keepIndices(key, beads).length : 0;
+    const armed = state.armed === `${key}|prop-${side}`;
+    const what = n === 0 ? 'create nothing' : n === total ? `create all ${total}` : `create ${n} of ${total}`;
+    if (armed) return `Tap again · ${what}`;
+    if (side === 'no') return total === 1 ? 'Decline it' : `Decline all ${total}`;
+    if (n === total) return total === 1 ? 'Approve it' : `Approve all ${total}`;
+    return `Approve ${n} of ${total}`;
   }
 
   /**
-   * Repaint one proposal in place: row states, the undecided count and the primary
-   * button. Deliberately not a render() — that rebuilds every card in the list, and
+   * Repaint one proposal in place: row states, the undecided count and the two bulk
+   * buttons. Deliberately not a render() — that rebuilds every card in the list, and
    * this runs on every tap.
+   *
+   * Framed on the *card* rather than on `.proposal`, because the bulk controls live
+   * in the card's top bar now and the rows live in the block below it. One query for
+   * the card is what keeps the count and the buttons in step with the ✓/✕ that moved
+   * them.
    */
   function paintPicks(key) {
     const q = byKey(key);
     const beads = q?.proposal?.beads || [];
-    const block = listEl.querySelector(`.proposal[data-key="${CSS.escape(key)}"]`);
-    if (!block || !beads.length) return;
+    const card = listEl.querySelector(`.card[data-key="${CSS.escape(key)}"]`);
+    const block = card?.querySelector('.proposal');
+    if (!card || !block || !beads.length) return;
     const picks = picksFor(key);
 
     for (const row of block.querySelectorAll('.prop-row')) {
@@ -948,17 +1067,16 @@
       }
     }
 
-    const decided = [...picks.values()].filter((v) => v === 'yes' || v === 'no').length;
-    const undecided = beads.length - decided;
-    const approved = approvedIndices(key, beads).length;
-    const count = block.querySelector('.prop-count');
+    const undecided = undecidedCount(key, beads);
+    const count = card.querySelector('.prop-count');
     if (count) count.textContent = undecided ? `${undecided} undecided` : '';
-    const go = block.querySelector('.prop-go');
-    if (go) {
-      const armed = state.armed === `${key}|proposal`;
-      go.textContent = propGoLabel(approved, beads.length, armed);
-      go.classList.toggle('confirm', armed);
-      go.disabled = !(approved || undecided === 0);
+    for (const btn of card.querySelectorAll('.prop-bulk .bulk')) {
+      const side = btn.dataset.pick;
+      btn.textContent = propBulkLabel(key, beads, side);
+      btn.classList.toggle('confirm', state.armed === `${key}|prop-${side}`);
+      // Only the approve side can run out of things to do: decline is always
+      // available, because "create nothing" is always an answer.
+      if (side === 'yes') btn.disabled = keepIndices(key, beads).length === 0;
     }
   }
 
@@ -1245,6 +1363,176 @@
     }
   }
 
+  /* ------------------------------------------------------- pull requests */
+
+  /*
+    Pull requests, as cards in this list — which is what took **PRs** off the bottom bar
+    (bc-l8jp.6).
+
+    A tab is a claim that a screen is somewhere you *live*. The board was not: it is a
+    thing you glance at ("did that ship?") and act on twice a day, and it cost a fifth of
+    the bar to say so. The rows themselves are incoming work like everything else here, so
+    they belong in the one list that already sorts incoming work — which is also the list
+    that can put a pull request next to the bead it is for.
+
+    Four decisions, in the order they matter:
+
+    - **The board is fetched on its own clock, not on the inbox's poll.** `/api/prs` is a
+      `gh` call per repo behind a 25-second server cache; the inbox polls every 25 seconds
+      and would keep that sweep hot all day for six repos. So: a minute, and **only while a
+      pull request could be in the list at all** — the kind filter answers that, and
+      reading `Questions` for an hour costs nothing.
+    - **They are rows, not `state.questions`.** Nearly everything reading that array is
+      about beads: the waiting count, the picker's per-repo numbers, the answer path, the
+      write. A pull request is none of those, and it is synthesised at render time from the
+      board — the same shape the chat rows use.
+    - **Unmerged, unless you ask.** The status sub-filter's default (public/inboxfilter.js).
+      Thirty pull requests merged in the last three weeks and five are open; a list that
+      showed all thirty-five would bury this morning under this month.
+    - **A closed pull request gets no card at all.** Closed without merging is not on the
+      way anywhere, and a rung the sub-filter deliberately does not offer must not be able
+      to reach this list — see the `sub` block in the filter's KINDS table.
+
+    What a card does *not* have yet is merge, close and comment. Those are bc-l8jp.7, which
+    opens one full screen; until then the card links to the pull request on GitHub and to
+    the board, which is where every button already lives.
+  */
+
+  /** How often the board is re-swept while pull requests are in view. */
+  const BOARD_MS = 60000;
+
+  /** Which space a repo is in, the way the server groups them. See lib/spaces.js. */
+  const spaceForWorkspace = (ws) =>
+    state.spaces.find((s) => (s.workspaces || []).includes(ws))?.name || 'Other';
+
+  /**
+   * The board, as rows this list can carry.
+   *
+   * `key` is prefixed rather than bare so it can never collide with a bead's
+   * `workspace/id` — the drawer, the scroll anchor and `byKey` all key off it. `space` is
+   * stamped on here because the inbox filters on `q.space` before anything else and a row
+   * without one would vanish the moment a space was picked.
+   */
+  const prRows = () =>
+    (state.board?.repos || []).flatMap((repo) =>
+      (repo.prs || [])
+        .filter((p) => p.stage !== 'closed')
+        .map((p) => ({
+          key: `pr:${p.key}`,
+          pr: p,
+          workspace: p.workspace,
+          space: spaceForWorkspace(p.workspace),
+        }))
+    );
+
+  /** The ladder's order, for sorting. The words themselves are public/prcard.js's. */
+  const prRank = (row) => {
+    const ids = window.beadcause?.prCard?.stageIds?.() || [];
+    const at = ids.indexOf(row.pr?.stage);
+    return at === -1 ? ids.length : at;
+  };
+
+  /**
+   * One pull request as a card.
+   *
+   * The inside of it — the number, the title, the repo, the rung, the beads, the diffstat
+   * and the four lamps — is `bodyHtml` in public/prcard.js, the same function the board
+   * draws its rows with. That is the whole point of that file: this card and that row are
+   * the same object seen twice, and they were two renderers until this bead.
+   *
+   * The two links are the two things you can do about a pull request from here. **GitHub**
+   * is the pull request itself; **the board** is where Merge, Ship and Comment are, and it
+   * is now the only door to a page no tab points at any more.
+   */
+  function prCardHtml(row) {
+    const card = window.beadcause?.prCard;
+    const p = row.pr;
+    if (!card || !p) return '';
+    return `<article class="card pr-card" id="card-${cardId(row.key)}" data-key="${esc(row.key)}"
+      data-stage="${esc(p.stage)}">
+      <div class="work-row pr-row">${card.bodyHtml(p, { titleHref: p.url, repo: true })}</div>
+      ${p.note ? `<p class="board-note">${esc(p.note)}</p>` : ''}
+      <div class="actions">
+        <a class="linkish" href="${esc(p.url)}" target="_blank" rel="noopener noreferrer">GitHub ↗</a>
+        <a class="linkish" href="/prs">Merge or ship →</a>
+      </div>
+    </article>`;
+  }
+
+  /**
+   * Is a pull request even wanted right now?
+   *
+   * The kind filter decides, and it is the one thing that makes the extra sweep honest:
+   * with `Questions` or `Merges` selected there is nothing a board could put on screen, so
+   * nothing is asked for. Without the filter file at all the answer is *no* — a page whose
+   * control never loaded has no way to show a status sub-filter either, and the whole
+   * board's history dumped unfiltered into the inbox is a worse fallback than no PR rows.
+   */
+  const prsWanted = () => {
+    const on = window.beadcause?.inboxFilter?.selected?.();
+    return Array.isArray(on) && (!on.length || on.includes('pr'));
+  };
+
+  /** When the board was last *asked for* — not when it last answered. See loadBoard. */
+  let boardAt = 0;
+  let boardBusy = false;
+
+  /**
+   * Sweep the board, at most about once a minute.
+   *
+   * Failure is deliberately quiet *in the list* and loud in one place: the rows are simply
+   * not there, and `boardTrouble()` says why under an empty list — which is where somebody
+   * who selected `PRs` and got nothing is actually looking. The last good board stays on
+   * screen rather than being thrown away, the same call the board page itself makes.
+   *
+   * The throttle is stamped *before* the request, so it counts asking rather than
+   * answering. Both halves of that matter: a filter tap seconds after a sweep reuses what
+   * is in hand, and a failing sweep waits for the next tick instead of being asked again
+   * by the very `render()` it just triggered.
+   */
+  async function loadBoard({ force = false } = {}) {
+    if (!state.token || boardBusy || !prsWanted()) return;
+    if (!force && Date.now() - boardAt < 20000) return;
+    boardBusy = true;
+    boardAt = Date.now();
+    try {
+      const data = await api('/api/prs');
+      state.board = data;
+      state.boardError = data.unavailable || null;
+      // Into the same warm entry the board page reads and writes (public/warm.js): one
+      // sweep now warms both screens, and the background prewarm's floor sees it and
+      // leaves the path alone. Without this the two pages would each fetch it.
+      window.beadcause?.warm?.write?.('/api/prs', data);
+    } catch (err) {
+      if (err.message !== 'token rejected') state.boardError = err.message;
+    } finally {
+      boardBusy = false;
+      render();
+    }
+  }
+
+  /**
+   * The board this device already had, drawn in the first frame.
+   *
+   * The same entry the board page keeps, because it is the same payload — and the whole
+   * point of the warm layer is that a tab switch does not go blank while a `gh` sweep per
+   * repo runs. The fetch behind it still happens; what this removes is the second or two
+   * of an inbox with no pull requests in it that had them a moment ago.
+   */
+  function warmBoard() {
+    const hit = window.beadcause?.warm?.read?.('/api/prs');
+    if (!Array.isArray(hit?.data?.repos)) return false;
+    state.board = hit.data;
+    state.boardError = hit.data.unavailable || null;
+    return true;
+  }
+
+  /** The one line that explains a list with no pull requests in it. */
+  const boardTrouble = () => {
+    if (!prsWanted() || !state.boardError) return '';
+    return ` Pull requests could not be read: ${esc(state.boardError)}`;
+  };
+
   /** The selected agent, falling back to the first one the server offered. */
   const currentAgent = () => state.agents.find((a) => a.id === state.agent) || state.agents[0] || null;
 
@@ -1511,7 +1799,9 @@
     return `<article class="card${open ? ' open' : ''}${draft ? ' has-draft' : ''}${
       q.awaitingAgent ? ' replied' : ''
     }" id="card-${cardId(q.key)}" data-key="${esc(q.key)}">
-      ${open ? cardTopHtml(q) : ''}
+      ${cardTopHtml(q, {
+        detailLabel: draft ? 'Resume your answer' : hasBrief ? 'Show details' : 'Write an answer',
+      })}
       <div class="card-head">
         <div class="meta">
           <span class="pill">${esc(q.workspace)}</span>
@@ -1521,6 +1811,7 @@
           ${draft && !open ? '<span class="draft-flag">draft saved</span>' : ''}
           <time>${esc(relTime(q.createdAt))}</time>
         </div>
+        ${arrivedQuietHtml(q)}
         ${activityHtml(q)}
         <p class="q">${esc(q.question || q.title)}</p>
         ${q.question && q.title !== q.question ? `<p class="subtitle">${esc(q.title)}</p>` : ''}
@@ -1530,21 +1821,21 @@
       ${proposalHtml(q)}
       ${deliveryHtml(q)}
       ${options ? `<div class="options">${options}</div>` : ''}
-      <div class="actions">
-        <button class="linkish" data-act="toggle" data-key="${esc(q.key)}">
-          ${open ? 'Hide details' : draft ? 'Resume your answer' : hasBrief ? 'Show details' : 'Write an answer'}
-        </button>
-        ${
-          // While an agent has it, or for as long as its pane is open: the reply can
-          // land while you are still reading the log, and a pane whose button has
-          // gone with the flag that drew it is one you can no longer close.
-          q.awaitingAgent || state.logs.has(q.key)
-            ? `<button class="linkish log-btn" data-act="log" data-key="${esc(q.key)}">${
-                state.logs.has(q.key) ? 'Hide session log' : 'Session log'
-              }</button>`
-            : ''
-        }
-      </div>
+      ${
+        // The foot is down to one thing, and it is a body of content rather than a
+        // control: the details toggle is in the top bar and the log is the only
+        // button left that opens a second pane on the card. Drawn only while an
+        // agent has it, or for as long as its pane is open — the reply can land
+        // while you are still reading the log, and a pane whose button has gone
+        // with the flag that drew it is one you can no longer close.
+        q.awaitingAgent || state.logs.has(q.key)
+          ? `<div class="actions">
+        <button class="linkish log-btn" data-act="log" data-key="${esc(q.key)}">${
+          state.logs.has(q.key) ? 'Hide session log' : 'Session log'
+        }</button>
+      </div>`
+          : ''
+      }
       ${
         state.logs.has(q.key)
           ? `<pre class="agent-log" data-log="${esc(q.key)}">${esc(state.logText.get(q.key) || 'opening the log…')}</pre>`
@@ -1825,7 +2116,7 @@
   function agentCardHtml(q) {
     const open = state.open.has(q.key);
     return `<article class="card agent-card" id="card-${cardId(q.key)}" data-key="${esc(q.key)}">
-      ${open ? cardTopHtml(q) : ''}
+      ${cardTopHtml(q)}
       <div class="card-head">
         <div class="meta">
           <span class="pill">${esc(q.workspace)}</span>
@@ -1844,7 +2135,6 @@
         }
       </div>
       <div class="actions">
-        <button class="linkish" data-act="toggle" data-key="${esc(q.key)}">${open ? 'Hide details' : 'Show details'}</button>
         <a class="linkish" href="${esc(graphUrl(q))}" target="_blank" rel="noopener noreferrer">Graph →</a>
       </div>
       <div class="brief"${open ? '' : ' hidden'}>${open ? agentBriefHtml(q) : ''}</div>
@@ -1990,15 +2280,18 @@
     // questions feed, so when the other channel has something in it, say which
     // emptiness this is.
     if ((state.requests || []).length) {
-      return `<div class="empty">Nothing about work is waiting.${widenNudge()}</div>`;
+      return `<div class="empty">Nothing about work is waiting.${widenNudge()}${boardTrouble()}</div>`;
     }
     if (state.scope === 'agent') {
-      return `<div class="empty"><strong>Nothing live</strong>No open, claimed or blocked beads in any workspace.</div>`;
+      return `<div class="empty"><strong>Nothing live</strong>No open, claimed or blocked beads in any workspace.${boardTrouble()}</div>`;
     }
     if (state.scope === 'both') {
-      return `<div class="empty"><strong>Nothing live</strong>No questions, and no bead open anywhere.</div>`;
+      return `<div class="empty"><strong>Nothing live</strong>No questions, and no bead open anywhere.${boardTrouble()}</div>`;
     }
-    return `<div class="empty"><strong>Nothing to decide</strong>No open questions labelled <code>human</code>.${widenNudge()}</div>`;
+    // The one empty state that is also the app at rest, so it is the one that says
+    // what the button in the corner is for. ＋ is the only control on this screen with
+    // nothing else naming it, and an empty inbox is exactly when you would want it.
+    return `<div class="empty"><strong>Nothing to decide</strong>No open questions labelled <code>human</code>.${widenNudge()}${boardTrouble()} ＋ starts a conversation about what to file next.</div>`;
   }
 
   /**
@@ -2009,7 +2302,11 @@
    *
    * - **It is not filtered by space or workspace.** Those answer "which of my lives
    *   is this about", and an agent's definition is not in one of them — it is the
-   *   same chat session whichever repo it was working in when it hit the wall.
+   *   same chat session whichever repo it was working in when it hit the wall. The
+   *   push agrees, as of bc-8on: `quietReasonFor` in lib/spaces.js exempts this
+   *   channel from the filter, so a request cannot be visible here and silent on the
+   *   phone at the same time. A mute still quietens it — that one is about your
+   *   evening rather than about which life the bead is in.
    * - **It is not sorted with the questions, or counted with them.** A P0 question
    *   is urgent; a request to change what an agent is is *pending*, indefinitely, and
    *   letting the two compete for the top of the screen would mean either the urgent
@@ -2208,6 +2505,15 @@
       btn.classList.toggle('confirm', armed);
       btn.textContent = dismissLabel(btn.dataset.key, btn.dataset.id, armed);
     }
+    // A proposal's two bulk buttons are armable the same way, and they are the only
+    // armed control in the app that also *creates* something — a stale "Tap again"
+    // on one of them is the one worth least leaving on screen.
+    for (const btn of listEl.querySelectorAll('.prop-bulk .bulk')) {
+      const beads = byKey(btn.dataset.key)?.proposal?.beads || [];
+      if (!beads.length) continue;
+      btn.textContent = propBulkLabel(btn.dataset.key, beads, btn.dataset.pick);
+      btn.classList.toggle('confirm', state.armed === `${btn.dataset.key}|prop-${btn.dataset.pick}`);
+    }
   }
 
   /**
@@ -2242,6 +2548,76 @@
 
   /** Which space a question belongs to. Unassigned workspaces collect under "Other". */
   const spaceOf = (q) => q.space || 'Other';
+
+  /* ------------------------------------------------------ the chat sessions */
+
+  /**
+   * The conversations you have open, as rows this list can hold.
+   *
+   * They arrive on the same payload as everything else (`/api/questions` →
+   * `consoles`) and are turned into rows here rather than merged into
+   * `state.questions`, because nearly everything that reads that array is about beads:
+   * the waiting count, the space picker's per-repo numbers, `byKey`, the answer path,
+   * the flight the answer takes into the mark. A chat session would be counted by all
+   * of them and could be answered by none.
+   *
+   * What a row does carry is exactly what the two filters above it read — `workspace`
+   * and `space` for the picker, and `session` for the kind table, which is the field
+   * `kindOf` tests. `key` is namespaced with a `chat/` prefix that no workspace can
+   * produce, so a row here can never collide with a bead's `workspace/id`.
+   */
+  const chatRows = () =>
+    (state.consoles || []).map((c) => ({
+      session: c,
+      key: `chat/${c.id}`,
+      workspace: c.workspace,
+      space: c.space || null,
+    }));
+
+  /**
+   * What a chat row says while you are scrolling past it.
+   *
+   * The requirement is "which session, in what state, **without opening it**", so the
+   * state is a word rather than a colour: the agent is composing a reply, or a
+   * proposal is sitting there waiting to be read, or it is your turn. Those are the
+   * only three things a conversation can be doing, and which one it is decides
+   * whether you tap it now or later.
+   *
+   * It borrows `.console-row` and `.work-row` from the launcher on purpose. A
+   * conversation is the same object on both screens and a second shape for it would
+   * be a second thing to recognise; what differs is the `.card` around it, because
+   * here it is one item in a stack of cards rather than a line in a list.
+   */
+  function chatRowHtml(row) {
+    const c = row.session;
+    const agent = (c.agent || 'console') === 'console' ? null : { name: c.agentName || c.agent, emoji: c.agentEmoji || '🤖' };
+    const thinking = c.status === 'thinking';
+    // The same two marks the launcher draws: the phase slot takes the spark while a
+    // turn is running, so what the conversation *is* has to be readable somewhere
+    // else — the pill beside the repo.
+    const phase = thinking ? '<span class="spark"></span>' : agent ? esc(agent.emoji) : '💬';
+    const bits = [];
+    if (thinking) bits.push('thinking…');
+    else if (c.beadCount) bits.push(`${c.beadCount} proposed · your turn`);
+    else if (!c.messageCount) bits.push('not started');
+    else bits.push('your turn');
+    if (c.created?.length) bits.push(`${c.created.length} created`);
+    if (c.seed) bits.push(`from ${c.seed.id}`);
+    // `data-key` because that is what capturePlace() anchors the scroll position to,
+    // and a row that carried none would be a hole in the list you cannot be restored
+    // to — the poll would put you back at the nearest card instead.
+    return `<a class="card chat-card work-row" href="/console?id=${encodeURIComponent(c.id)}"
+      data-key="${esc(row.key)}">
+      <span class="work-phase">${phase}</span>
+      <span class="work-main">
+        <span class="work-title">${esc(c.title || 'Untitled')}</span>
+        <span class="work-sub"><span class="pill">${esc(c.workspace)}</span>${
+          agent ? `<span class="pill agent">${esc(agent.emoji)} ${esc(agent.name)}</span>` : ''
+        }${esc(bits.join(' · '))}</span>
+      </span>
+      <time>${esc(relTime(c.updatedAt))}</time>
+    </a>`;
+  }
 
   /**
    * The scope chips. The third column is what the settings panel used to spell out
@@ -2286,10 +2662,19 @@
    * about, `both` does both — so a chip for the other side would be a control that
    * cannot change anything. The filter drops any selection this leaves unreachable;
    * see `survey` in public/inboxfilter.js.
+   *
+   * `any` is the exception and it is not a special case so much as the absence of
+   * one: a pull request comes off `gh` and a chat session off no sweep at all, so for
+   * neither is there a scope that could have failed to fetch it, and neither has a
+   * scope in which its chip would be dead.
    */
   const kindsForScope = () =>
     (window.beadcause?.inboxFilter?.KINDS || [])
-      .filter((k) => (state.scope === 'both' ? true : k.side === (state.scope === 'human' ? 'question' : 'agent')))
+      .filter(
+        (k) =>
+          k.side === 'any' ||
+          (state.scope === 'both' ? true : k.side === (state.scope === 'human' ? 'question' : 'agent'))
+      )
       .map((k) => k.id);
 
   /** Does this row survive the kind filter? True when the control never loaded. */
@@ -2304,11 +2689,17 @@
     const f = window.beadcause?.inboxFilter;
     if (!f) return;
     const counts = {};
+    /** The level below: how many pull requests are on each rung of the ladder. */
+    const status = {};
     for (const q of rows) {
       const kind = f.kindOf(q);
-      if (kind) counts[kind] = (counts[kind] || 0) + 1;
+      if (!kind) continue;
+      if (q.pr?.stage) status[q.pr.stage] = (status[q.pr.stage] || 0) + 1;
+      // Counted *through* the row's own sub-filter, so `PRs 2` means the two you would
+      // get and not the thirty-five that exist. Every kind without one answers true.
+      if (f.inSub?.(q) ?? true) counts[kind] = (counts[kind] || 0) + 1;
     }
-    f.survey({ kinds: kindsForScope(), counts });
+    f.survey({ kinds: kindsForScope(), counts, sub: { status } });
   }
 
   /** Chips and the one line above them, repainted in place. Never rebuilds the panel. */
@@ -2687,10 +3078,12 @@
     // Two levels of filter: space (work vs personal), then workspace within it.
     // With no spaces configured the first level is skipped entirely and this
     // behaves exactly as it did before.
-    const inSpace =
-      state.space === 'all'
-        ? state.questions
-        : state.questions.filter((q) => spaceOf(q) === state.space);
+    // The pull requests and the chat sessions go through both filters too — they are
+    // rows in this list, and a filter that some of the list ignored would be worse than
+    // no filter. Concatenated before the space test rather than after it, so all three
+    // kinds of row are narrowed by the same predicate rather than by a copy of it.
+    const rows = [...state.questions, ...prRows(), ...chatRows()];
+    const inSpace = state.space === 'all' ? rows : rows.filter((q) => spaceOf(q) === state.space);
     const inRepo =
       state.workspace === 'all' ? inSpace : inSpace.filter((q) => q.workspace === state.workspace);
     // Then the third, which is this page's own and lives in the collapsed control
@@ -2721,7 +3114,10 @@
     const reqs = requestsHtml();
     if (reqs) chunks.push({ key: '@requests', html: reqs });
 
-    if (!state.questions.length) {
+    // `rows`, not `state.questions`: with no beads at all but a pull request open or a
+    // conversation on the go, the list is not empty — and the first-run copy `emptyHtml`
+    // writes would be sitting above a chat you are in the middle of.
+    if (!rows.length) {
       chunks.push({ key: '@empty', html: emptyHtml() });
     } else if (!visible.length) {
       const where = state.workspace !== 'all' ? state.workspace : state.space !== 'all' ? state.space : '';
@@ -2733,16 +3129,44 @@
         key: '@empty',
         html: `<div class="empty">Nothing waiting${where ? ` in ${esc(where)}` : ''}.${
           kinded ? kindNudge() : widenNudge()
-        }</div>`,
+        }${boardTrouble()}</div>`,
       });
     } else {
       // Anything you've already replied to sinks to the bottom. It is not waiting on
       // you any more — an agent has it — so it must not sit between you and the
       // questions that are. Order within each group is left exactly as the server
       // sent it (priority, then age).
-      const waiting = visible.filter((q) => !q.awaitingAgent);
-      const replied = visible.filter((q) => q.awaitingAgent);
-      for (const q of [...waiting, ...replied]) chunks.push({ key: q.key, html: cardHtml(q) });
+      //
+      // The pull requests and the conversations sit between the two, on the same rule: a
+      // bead asking you a question outranks either, and either outranks a bead an agent
+      // already has back. Among themselves the pull requests are in ladder order — what
+      // is in review before what is waiting on a deploy — and then newest first, which is
+      // the board's own order (lib/prstage.js); the chats are newest first alone, because
+      // a conversation is a thing you were just doing rather than a thing with a rung.
+      // Pull requests before chats: one of them is a decision somebody is waiting on, the
+      // other is yours to pick up whenever.
+      //
+      // Their keys are `pr:<workspace>#<number>` and `chat/<id>`, two more namespaces
+      // beside the `@` panes and the beads' `workspace/id`: no bead key can begin with
+      // either and no pane key can, so a reconcile cannot mistake one for another. Which
+      // is what lets a row be left alone on every poll where its own HTML did not change
+      // — the spark starting or a count moving is the whole of what rebuilds a chat row.
+      const beads = visible.filter((q) => !q.pr && !q.session);
+      const prs = visible
+        .filter((q) => q.pr)
+        .sort(
+          (a, b) =>
+            prRank(a) - prRank(b) || String(b.pr.updatedAt || '').localeCompare(String(a.pr.updatedAt || ''))
+        );
+      const chats = visible
+        .filter((q) => q.session)
+        .sort((a, b) => String(b.session.updatedAt).localeCompare(String(a.session.updatedAt)));
+      const waiting = beads.filter((q) => !q.awaitingAgent);
+      const replied = beads.filter((q) => q.awaitingAgent);
+      for (const q of waiting) chunks.push({ key: q.key, html: cardHtml(q) });
+      for (const q of prs) chunks.push({ key: q.key, html: prCardHtml(q) });
+      for (const q of chats) chunks.push({ key: q.key, html: chatRowHtml(q) });
+      for (const q of replied) chunks.push({ key: q.key, html: cardHtml(q) });
     }
     paintList(chunks);
 
@@ -2753,6 +3177,9 @@
     // has already fetched, so this costs one GitHub round trip per pull request for
     // the life of the tab, not one per render.
     for (const q of visible) if (q.delivery) ensurePr(q);
+    // And the board, if pull requests are wanted and the last sweep has gone stale. A
+    // no-op the rest of the time — see loadBoard.
+    loadBoard();
 
     openLinksInNewTab(listEl);
     const drawn = drawDiagrams(listEl);
@@ -2770,7 +3197,10 @@
     // The list it describes has just been replaced, so its counts are stale — but a
     // 25s poll must not make it flash on screen at someone who isn't scrolling.
     paintScrollPos(false);
-    publishView(visible);
+    // Beads only. The monitor draws this as "N waiting", which is a claim about work
+    // asking you something — and neither a pull request sitting on origin nor a
+    // conversation you left open is one of those.
+    publishView(visible.filter((q) => !q.pr && !q.session));
   }
 
   /**
@@ -3482,20 +3912,21 @@
       return;
     }
 
-    if (act === 'pick-all') {
-      const q = byKey(key);
-      const picks = picksFor(key);
-      (q?.proposal?.beads || []).forEach((_, i) => picks.set(i + 1, btn.dataset.pick));
-      disarm();
-      paintPicks(key);
-      return;
-    }
-
-    if (act === 'pick-submit') {
+    /**
+     * The bulk answer: approve what you have not declined, or decline the lot.
+     *
+     * Both sides come through here because both *are* the same answer with a
+     * different set — which is what let the third button go. See propBulkHtml for
+     * why they are not symmetrical: `yes` files everything not explicitly declined,
+     * `no` files nothing whatever the rows say.
+     */
+    if (act === 'prop-bulk') {
       const q = byKey(key);
       const beads = q?.proposal?.beads || [];
-      const approved = approvedIndices(key, beads);
-      const token = `${key}|proposal`;
+      if (!beads.length) return;
+      const side = btn.dataset.pick;
+      const approved = side === 'yes' ? keepIndices(key, beads) : [];
+      const token = `${key}|prop-${side}`;
       if (state.armed !== token) {
         // The same two taps every other answer needs. This one creates beads.
         state.armed = token;
@@ -3506,6 +3937,7 @@
           paintArmed();
         }, 6000);
         paintPicks(key);
+        paintArmed();
         return;
       }
       disarm();
@@ -4142,6 +4574,14 @@
     // whatever is on screen instead of silently emptying the pane.
     state.requests = Array.isArray(data.requests) ? data.requests.map(merge).filter(live) : state.requests;
     state.questions = data.questions.map(merge).filter(live);
+    // Taken whole rather than merged: a conversation has no local state on this page
+    // — no draft, no open card, nothing half-answered — so the server's copy is
+    // always the better one. Absent means a server that predates the field, and
+    // keeping the last list is the same call `requests` makes above.
+    if (Array.isArray(data.consoles)) state.consoles = data.consoles;
+    // What the ＋ offers when the space holds more than one repo. Kept here rather
+    // than read off `data` at the tap, because the tap can happen between polls.
+    if (Array.isArray(data.workspaces)) state.workspaces = data.workspaces;
     state.spaces = data.spaces || [];
     // Absent means a server that predates the counts — keep the last ones rather
     // than blanking the chrome, exactly as the requests pane does above.
@@ -4274,6 +4714,10 @@
    * with a warm list up there is no hurry, and without one there is nothing at all.
    */
   function warmBoot() {
+    // The pull requests first, and unconditionally: they are a second payload with a
+    // warm entry of its own, and whether the questions were kept says nothing about
+    // whether the board was. `adopt` renders, so this only has to be in `state` before it.
+    warmBoard();
     const hit = window.beadcause?.warm?.read?.(questionsPath(state.scope));
     if (!Array.isArray(hit?.data?.questions)) return false;
     seq = hit.seq;
@@ -4329,6 +4773,112 @@
   }
 
   $('#refresh').addEventListener('click', load);
+
+  /* ------------------------------------------------------------------- ＋ */
+
+  /*
+    Start a conversation about what to file next — the create the Chat tab used to be.
+
+    It lands exactly where the launcher's own ＋ lands, by doing exactly what it does:
+    POST /api/console, then `/console?id=<id>`. Deliberately the same two lines rather
+    than a new endpoint or a redirect through `/console`, because the thing being
+    reused is the *destination* — a bookmark, a stored conversation record and a
+    home-screen shortcut all name that URL, and it is the one thing here that has to
+    keep meaning what it meant.
+
+    Where it starts is the space picker's answer, not a fourth copy of "which repo am
+    I working in": `space.inside()` is the configured workspaces the selection allows,
+    which is one repo when a repo is picked, and every repo in the space otherwise.
+    One candidate starts there without asking. More than one asks, because ＋ cannot
+    know, and offering to start work in a repo the app is not currently showing you is
+    the one thing the filter exists to stop.
+  */
+  const composeEl = $('#compose');
+  const composePickEl = $('#compose-pick');
+  let composing = false;
+
+  const startableRepos = () => {
+    const inside = window.beadcause?.space?.inside?.();
+    if (Array.isArray(inside)) return inside;
+    // No picker on the page — every configured workspace is a candidate, which is what
+    // the picker would have said with nothing selected.
+    return state.workspaces;
+  };
+
+  function hideComposePick() {
+    composePickEl.hidden = true;
+    composeEl.setAttribute('aria-expanded', 'false');
+  }
+
+  function showComposePick(repos) {
+    const row = $('#compose-pick-row');
+    row.innerHTML = repos.length
+      ? repos.map((w) => `<button class="chip" data-ws="${esc(w)}">${esc(w)}</button>`).join('')
+      : `<span class="hint">${
+          state.workspaces.length ? 'No workspaces in this space.' : 'No workspaces configured.'
+        }</span>`;
+    composePickEl.hidden = false;
+    composeEl.setAttribute('aria-expanded', 'true');
+    row.querySelector('.chip')?.focus();
+  }
+
+  async function startChat(workspace) {
+    if (composing) return;
+    composing = true;
+    composeEl.disabled = true;
+    hideComposePick();
+    try {
+      const made = await api('/api/console', { method: 'POST', body: JSON.stringify({ workspace }) });
+      location.href = `/console?id=${encodeURIComponent(made.id)}`;
+    } catch (err) {
+      composing = false;
+      composeEl.disabled = false;
+      // 403 is `beadConsole: false` in the config, which is a deliberate setting and
+      // not a fault — its own words rather than the daemon's.
+      if (err.message !== 'token rejected') {
+        toast(err.status === 403 ? 'Chat sessions are turned off in the config.' : err.message, true);
+      }
+    }
+  }
+
+  /* Guarded, and not out of habit: the service worker caches the document and this
+     script separately, so a phone can legitimately be running today's app.js against
+     last week's index.html for one load. An unguarded listener there throws before
+     the poll is scheduled — which turns a missing button into a blank inbox. */
+  if (composeEl && composePickEl) {
+    composeEl.addEventListener('click', () => {
+      if (!composePickEl.hidden) {
+        hideComposePick();
+        return;
+      }
+      const repos = startableRepos();
+      if (repos.length === 1) startChat(repos[0]);
+      else showComposePick(repos);
+    });
+
+    $('#compose-pick-row').addEventListener('click', (ev) => {
+      const chip = ev.target.closest('[data-ws]');
+      if (chip) startChat(chip.dataset.ws);
+    });
+
+    // Tapping past it closes it, which is the same bargain the kind filter's panel
+    // makes: a panel over the list must not still be there when you reach for a card.
+    document.addEventListener('pointerdown', (ev) => {
+      if (!composePickEl.hidden && !ev.target.closest('.compose-wrap')) hideComposePick();
+    });
+    document.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Escape' && !composePickEl.hidden) {
+        hideComposePick();
+        composeEl.focus();
+      }
+    });
+    // What tells the stylesheet to keep the foot of the list clear of the button, the
+    // same way `has-tabbar` keeps it clear of the bar. Set from here rather than
+    // written into the markup because it is a fact about this script having wired ＋
+    // up: on the stale-document load above there is no button, and reserving space
+    // under one would be a gap at the end of the list with nothing in it.
+    document.body.classList.add('has-compose');
+  }
 
   /*
     Open this page in Chrome — shown only where there is somewhere to go.
@@ -4463,6 +5013,18 @@
     }, POLL_MS[state.scope] || 25000);
   }
 
+  /**
+   * The board's own clock — a minute, and only while a pull request could be in view.
+   *
+   * Separate from the poll above and deliberately slower: `/api/prs` is a `gh` call per
+   * repo behind a 25-second cache on the daemon, and asking it every 25 seconds because
+   * the inbox does would keep that sweep running all day for a screen nobody is reading.
+   * The board page itself uses the same minute, for the same reason.
+   */
+  setInterval(() => {
+    if (!document.hidden) loadBoard();
+  }, BOARD_MS);
+
   // These keep fetching; render() decides whether it's safe to repaint.
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) {
@@ -4474,6 +5036,9 @@
     }
     if (canFollow()) schedulePoll();
     else load();
+    // The board is not on the delta stream — it is a `gh` sweep behind its own minute
+    // — so coming back asks it directly. A no-op unless the last sweep has aged out.
+    loadBoard();
   });
   schedulePoll();
 
@@ -4515,10 +5080,14 @@
     if (!f) return;
     f.mount(filtersEl, {
       groups: [scopeGroup],
-      // Nothing is refetched — the kinds are a view over rows already in hand — so a
-      // plain repaint is the whole of it. Forced, because a filter tap is a decision
-      // and must not be deferred behind a half-written answer.
-      onChange: () => render(true),
+      // Forced, because a filter tap is a decision and must not be deferred behind a
+      // half-written answer. Nothing is refetched for the kinds themselves — they are a
+      // view over rows already in hand — but selecting `PRs` may be the first time this
+      // tab has wanted a board at all, and `loadBoard` is what goes and gets one.
+      onChange: () => {
+        render(true);
+        loadBoard();
+      },
     });
     f.survey({ kinds: kindsForScope() });
   }
@@ -4531,6 +5100,11 @@
   // either, this is the cold start it always was.
   if (warmBoot() && canFollow()) schedulePoll();
   else load();
+  // The pull requests, beside the questions rather than after them: the two feeds are
+  // independent and the board is the slower of the two, so starting it second and
+  // waiting for neither is what puts the questions on screen first. It is not on the
+  // delta stream either — a `gh` sweep is nothing an event log can carry.
+  loadBoard();
   // After the list, and never blocking it: the chooser only appears inside an open
   // card, so there is nothing on screen waiting for this.
   loadAgents();

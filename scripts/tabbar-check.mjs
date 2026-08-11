@@ -17,6 +17,12 @@
 // composer, the last advocate card — clears it. Both colour schemes, and the
 // inbox's full-screen open card too, which is meant to win over the bar.
 //
+// One page is in the list with `tab: null` and it is not an omission: the pull request
+// board stopped being a tab in bc-l8jp.6 — its rows are cards in the inbox now — and it
+// still carries the bar, because the bar is the only way off it. There, *no* tab may be
+// current, which is the assertion that catches a stale `paths` entry lighting a tab this
+// page is not.
+//
 // The badge too, on the inbox: Advocates carries the proposal count the poll hands
 // it, it stays inside its tab rather than spilling into the next one, and a tab with
 // nothing behind it draws nothing.
@@ -65,6 +71,42 @@ const issue = (n) => ({
   description: `Short brief ${n}.\n\nA paragraph that has to wrap on a phone. `.repeat(3),
 });
 const QUESTIONS = Array.from({ length: 8 }, (_, i) => ({ ...toQuestion('demo', issue(i + 1)), comments: [] }));
+
+/* Two open conversations — one waiting on you, one mid-turn — because since
+   bc-l8jp.5 these are rows in the inbox and the last row of that list is what this
+   file measures against the bar. */
+const CONSOLES = [
+  {
+    id: 'c0ffee01',
+    agent: 'console',
+    workspace: 'demo',
+    space: null,
+    title: 'What the next bead should be',
+    seed: null,
+    status: 'idle',
+    closedAt: null,
+    messageCount: 4,
+    beadCount: 2,
+    created: [],
+    createdAt: '2026-08-09T08:00:00Z',
+    updatedAt: '2026-08-09T08:40:00Z',
+  },
+  {
+    id: 'c0ffee02',
+    agent: 'console',
+    workspace: 'demo',
+    space: null,
+    title: 'Something being thought about',
+    seed: { id: 'd-1', title: 'A question waiting (1)' },
+    status: 'thinking',
+    closedAt: null,
+    messageCount: 2,
+    beadCount: 0,
+    created: [],
+    createdAt: '2026-08-09T09:00:00Z',
+    updatedAt: '2026-08-09T09:10:00Z',
+  },
+];
 
 const WORK = {
   workspaces: [
@@ -116,7 +158,7 @@ const ADMIN = {
 const PRS = {
   unavailable: null,
   build: { dir: '/Users/x/repos/demo', commit: 'a'.repeat(40), short: 'aaaaaaa', at: '2026-08-09T09:00:00Z' },
-  counts: { open: 1, merged: 1, pushed: 1, deployed: 1, closed: 0, owed: 2 },
+  counts: { review: 1, merged: 1, pushed: 1, deployed: 0, live: 1, closed: 0, owed: 2 },
   repos: [
     {
       workspace: 'demo',
@@ -149,8 +191,9 @@ const PRS = {
           pushed: false,
           local: false,
           deployed: false,
+          shipped: null,
           deployTracked: true,
-          stage: 'open',
+          stage: 'review',
           note: '',
         },
         {
@@ -177,6 +220,7 @@ const PRS = {
           pushed: true,
           local: true,
           deployed: false,
+          shipped: false,
           deployTracked: true,
           stage: 'pushed',
           note: 'Merged and pushed — but not in the build that is running. Ship it.',
@@ -208,13 +252,19 @@ function serve() {
     if (p === '/api/questions')
       return json({
         questions: QUESTIONS,
-        workspaces: ['demo'],
+        // The conversations, which are rows in this list since Chat stopped being a
+        // tab. One of them is mid-turn, so the row with the spark in it is drawn and
+        // measured like any other card.
+        consoles: CONSOLES,
+        // Two, so ＋ has to ask which repo to start in rather than starting in the
+        // only one there is — the branch of it that has a panel to draw.
+        workspaces: ['demo', 'other'],
         spaces: [],
         scope: 'human',
         summary: { sessions: 2, proposals: 1, questions: QUESTIONS.length },
       });
     if (p === '/api/work') return json(WORK);
-    if (p === '/api/consoles') return json({ consoles: [], workspaces: ['demo', 'other'] });
+    if (p === '/api/consoles') return json({ consoles: CONSOLES, workspaces: ['demo', 'other'] });
     if (p === '/api/admin') return json(ADMIN);
     if (p === '/api/prs') return json(PRS);
     // The advocate console carries the mirror pane, which parks a long-poll here and
@@ -228,6 +278,11 @@ function serve() {
       res.on('close', () => clearTimeout(timer));
       return;
     }
+    // What ＋ calls, answering the way lib/server.js does: the id of the conversation
+    // it just made. The page's next move is the one being checked — it has to land on
+    // that conversation and not on the launcher.
+    if (p === '/api/console' && req.method === 'POST') return json({ ok: true, id: 'newone01' });
+    if (p === '/api/console' && req.method === 'GET') return json({ ...CONSOLES[0], id: 'newone01', messages: [] });
     if (p.startsWith('/api/')) return json({});
     // The same aliases the real server maps onto one page. `/sessions` and `/work` are
     // the advocate console now — see serveStatic in lib/server.js — and they are here
@@ -380,7 +435,12 @@ const CLEAR = {
     document.scrollingElement.scrollTop = document.scrollingElement.scrollHeight;
     const r = last.getBoundingClientRect();
     const bar = document.querySelector('.tabbar').getBoundingClientRect();
-    return { what: 'last card', bottom: Math.round(r.bottom), barTop: Math.round(bar.top), n: cards.length };
+    // ＋ floats over this list, above the bar, and is the lower edge that matters here:
+    // it is the thing the last card can end up underneath. Whichever is higher is what
+    // the card has to clear, so the same assertion covers both.
+    const plus = document.querySelector('#compose');
+    const top = plus ? Math.min(bar.top, plus.getBoundingClientRect().top) : bar.top;
+    return { what: 'last card', bottom: Math.round(r.bottom), barTop: Math.round(top), n: cards.length };
   })()`,
   '/console': `(() => {
     const c = document.querySelector('#composer');
@@ -424,17 +484,29 @@ const CLEAR = {
 
 /* Every standing view, in bar order. The count is asserted from this list rather
    than written out as a number, so adding or dropping a tab is one line here and not
-   a test that fails with "five tabs: <four of them>". */
-const TABS = ['inbox', 'console', 'prs', 'advocates', 'admin'];
+   a test that fails with "five tabs: <four of them>".
+
+   Two of the five went in one afternoon and neither page went with it. Chat was the
+   second tab (bc-l8jp.5) — the conversations are rows in the inbox now and ＋ starts a
+   new one — and PRs was the fourth (bc-l8jp.6), whose pull requests are cards in the
+   same list. Both are still here under `PAGES` with `tab: null`, because a subordinate
+   view keeps the bar: the bar is how you leave it, and nothing on it is current since
+   you are not on one of these three. */
+const TABS = ['inbox', 'advocates', 'admin'];
 
 const PAGES = [
   { url: '/', tab: 'inbox', name: 'inbox' },
-  { url: '/console', tab: 'console', name: 'console' },
-  // "PRs" rather than "Pull requests" because five labels share 393px here and 360px
-  // on the common Android width. The stylesheet has a `:has(:nth-child(6))` step-down
-  // for when a sixth tab arrives; at five it does not apply, and this page is in the
-  // list to keep the shortest-label tab measured rather than trusted.
-  { url: '/prs', tab: 'prs', name: 'prs' },
+  // No tab of its own any more, and that is the thing being checked here: the bar is
+  // still on it (this is how you get back), every tab is a link, and none of them claims
+  // to be where you are. A tab lighting up on a page it does not lead to would be the bar
+  // lying about where you are — worse than no mark at all.
+  { url: '/console', tab: null, name: 'console' },
+  // `tab: null` for the same reason (bc-l8jp.6): the board's pull requests are cards in
+  // the inbox, and every one of them links back here for the buttons. It keeps the bar,
+  // because the bar is the only way off it, and it is in this list precisely because a
+  // page with no tab pointing at it is the kind that quietly rots: the bar still has to
+  // be there, still has to clear the last row of buttons, and must light nothing.
+  { url: '/prs', tab: null, name: 'prs' },
   { url: '/monitor', tab: 'advocates', name: 'advocates' },
   // The same page under the path the sessions view left behind. The tab it lights has
   // to be Advocates: a shortcut that lands somewhere the bar calls nothing is a page
@@ -487,7 +559,10 @@ try {
           .has-tabbar { padding-bottom: calc(${BOTTOM_INSET}px + var(--tabbar-h) + 16px); }
           .console-body.has-tabbar { padding-bottom: 0; }
           .has-tabbar .toast { bottom: calc(${BOTTOM_INSET}px + var(--tabbar-h) + 18px); }
-          .console-body.has-tabbar .toast { bottom: calc(${BOTTOM_INSET}px + var(--tabbar-h) + 84px); }\`;
+          .console-body.has-tabbar .toast { bottom: calc(${BOTTOM_INSET}px + var(--tabbar-h) + 84px); }
+          .compose-wrap { bottom: calc(${BOTTOM_INSET}px + var(--tabbar-h) + 14px); }
+          .has-compose.has-tabbar { padding-bottom: calc(${BOTTOM_INSET}px + var(--tabbar-h) + 76px); }
+          .has-compose.has-tabbar .toast { bottom: calc(${BOTTOM_INSET}px + var(--tabbar-h) + 78px); }\`;
         document.head.append(st);
       });`,
     });
@@ -518,10 +593,19 @@ try {
       ok(p.bottom === p.vh, `pinned to the bottom — bar bottom ${p.bottom}, viewport ${p.vh}`);
       if (insets) ok(p.inner === BOTTOM_INSET, `clears the home indicator — ${p.inner}px of safe-area padding`);
       const cur = p.items.filter((i) => i.current);
-      ok(cur.length === 1, `exactly one tab is current (${cur.length})`);
-      ok(cur[0]?.tab === page.tab, `the current tab is ${page.tab} (got ${cur[0]?.tab})`);
-      ok(cur[0]?.tag === 'span' && !cur[0]?.href, 'the current tab is not a link — tapping it does nothing');
-      ok(!!cur[0]?.rule, 'the current tab is marked by more than colour');
+      if (page.tab === null) {
+        // A page the bar deliberately marks nothing on — the chat session (bc-l8jp.5) and
+        // the pull request board (bc-l8jp.6), both of them still the only place their own
+        // work can be done from. The bar has to be *there*, because it is the way off the
+        // page, and it must not light a tab this is not, which is what a stale `paths`
+        // entry would do.
+        ok(cur.length === 0, `no tab is current, and that is right here (${cur.map((i) => i.tab).join(',') || 'none'})`);
+      } else {
+        ok(cur.length === 1, `exactly one tab is current (${cur.length})`);
+        ok(cur[0]?.tab === page.tab, `the current tab is ${page.tab} (got ${cur[0]?.tab})`);
+        ok(cur[0]?.tag === 'span' && !cur[0]?.href, 'the current tab is not a link — tapping it does nothing');
+        ok(!!cur[0]?.rule, 'the current tab is marked by more than colour');
+      }
       const others = p.items.filter((i) => !i.current);
       ok(others.every((i) => i.tag === 'a' && i.href), 'every other tab is a link');
       ok(p.items.every((i) => i.h >= 44), `every tab is a real tap target — ${p.items.map((i) => i.h).join('/')}px`);
@@ -548,7 +632,7 @@ try {
               return { text: el.hidden ? null : el.textContent, label: item.getAttribute('aria-label'),
                        inside: r.left >= box.left && r.right <= box.right };
             };
-            return { sessions: of('sessions'), advocates: of('advocates'), inbox: of('inbox'), console: of('console') };
+            return { sessions: of('sessions'), advocates: of('advocates'), inbox: of('inbox'), prs: of('prs'), console: of('console') };
           })()`
         );
         ok(b.advocates.text === '1', `the count is on its tab — ${b.advocates.text}`);
@@ -558,7 +642,35 @@ try {
         );
         ok(b.advocates.inside, 'a badge stays inside its own tab');
         ok(b.sessions === null, 'there is no Sessions tab left to badge');
-        ok(b.inbox.text === null && b.console.text === null, 'a tab with nothing behind it has no badge');
+        ok(b.console === null, 'there is no Chat tab left either — ＋ replaced it');
+        ok(b.prs === null, 'nor a PRs tab — its pull requests are cards in this list');
+        ok(b.inbox.text === null, 'a tab with nothing behind it has no badge');
+      }
+
+      // ＋ — what the Chat tab became. It is the primary action of the app and it
+      // floats, so the two ways it can be wrong are being missing and being under
+      // something: both are asked here rather than assumed from the CSS.
+      if (page.url === '/') {
+        const plus = await evalJs(
+          s,
+          `(() => {
+            const el = document.querySelector('#compose');
+            if (!el) return { there: false };
+            const r = el.getBoundingClientRect();
+            const bar = document.querySelector('.tabbar').getBoundingClientRect();
+            const at = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+            return { there: true, w: Math.round(r.width), h: Math.round(r.height),
+                     aboveBar: r.bottom <= bar.top + 1, takesTaps: !!at && !!at.closest('#compose'),
+                     label: el.getAttribute('aria-label') || '' };
+          })()`
+        );
+        ok(plus.there, '＋ is on the inbox');
+        if (plus.there) {
+          ok(plus.w >= 44 && plus.h >= 44, `＋ is a real tap target — ${plus.w}x${plus.h}`);
+          ok(plus.aboveBar, '＋ sits above the tab bar rather than over it');
+          ok(plus.takesTaps, '＋ takes its own taps');
+          ok(/chat|bead/i.test(plus.label), `＋ says what it does: "${plus.label}"`);
+        }
       }
 
       const c = await evalJs(s, CLEAR[page.url]);
@@ -589,7 +701,12 @@ try {
         ok(card.open, `a card opens${card.why ? ` — ${card.why}` : ''}`);
         if (card.open) {
           ok(card.over && card.covers, 'an open card takes the whole screen, tab bar included');
-          await evalJs(s, `document.querySelector('.card.open [data-act="toggle"]')?.click()`);
+          // Collapse first: an open card's way out is `↑ Collapse` in its top bar,
+          // and the details toggle it used to also carry at the foot is gone.
+          await evalJs(
+            s,
+            `document.querySelector('.card.open [data-act="collapse"], .card.open [data-act="toggle"]')?.click()`
+          );
           await sleep(200);
           ok(
             await evalJs(s, `!!document.elementFromPoint(innerWidth / 2, innerHeight - 20)?.closest('.tabbar')`),
@@ -603,6 +720,32 @@ try {
         const shot = await s.send('Page.captureScreenshot', { format: 'png' });
         fs.writeFileSync(path.join(outDir, `${page.name}-${scheme}.png`), Buffer.from(shot.data, 'base64'));
       }
+
+      // What ＋ *does*, driven rather than read: the Chat tab's whole job was getting
+      // you into a conversation, and a button that looks right and goes nowhere would
+      // pass every check above. Last on this page because it navigates away, and the
+      // next page navigates anyway.
+      if (page.url === '/') {
+        await evalJs(s, `document.querySelector('#compose').click()`);
+        await sleep(250);
+        const asked = await evalJs(
+          s,
+          `(() => {
+            const el = document.querySelector('#compose-pick');
+            const r = el.getBoundingClientRect();
+            return { open: !el.hidden, chips: [...el.querySelectorAll('[data-ws]')].map((c) => c.dataset.ws),
+                     onScreen: r.left >= 0 && r.right <= innerWidth && r.top >= 0 };
+          })()`
+        );
+        ok(asked.open, 'more than one repo in scope, so ＋ asks which rather than guessing');
+        ok(asked.chips.join(',') === 'demo,other', `a chip per repo in the space — ${asked.chips.join(', ')}`);
+        ok(asked.onScreen, 'the panel it opens is fully on screen');
+        await evalJs(s, `document.querySelector('#compose-pick [data-ws="other"]').click()`);
+        await sleep(1200);
+        const landed = await evalJs(s, `location.pathname + location.search`);
+        ok(landed === '/console?id=newone01', `and picking one lands on the conversation — ${landed}`);
+      }
+
       console.log('');
     }
   }

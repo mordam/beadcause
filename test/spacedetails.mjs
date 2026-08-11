@@ -5,12 +5,17 @@
  *     npm test
  *     node test/spacedetails.mjs
  *
- * Seven settings moved from "open config.json in an editor on the Mac" to a card on a
+ * Eight settings moved from "open config.json in an editor on the Mac" to a card on a
  * phone. What makes that worth a suite is not the controls, it is what sits behind
  * them: every one of these fields is read by something that decides whether your phone
- * rings, whether an agent answers a comment unasked, or whether a worker merges its own
- * pull request into main. The failure modes are all silent, and all of the same shape —
- * the screen says one thing and the daemon does another.
+ * rings, whether an agent answers a comment unasked, whether a bead an agent filed may be
+ * worked before you have read it, or whether a worker merges its own pull request into
+ * main. The failure modes are all silent, and all of the same shape — the screen says one
+ * thing and the daemon does another.
+ *
+ * The `autoEndorse` half of that is its own suite (test/autoendorse.mjs), because what it
+ * switches off is a safety property rather than a preference; what belongs here is that
+ * it is a setting like the others, three-state and writable from the card.
  *
  * Five claims, and each is one nobody can make by reading the diff:
  *
@@ -90,8 +95,10 @@ check('a space that says nothing says null everywhere, not false', () => {
     quietDays: null,
     ntfyDetail: null,
     autoDispatch: null,
+    autoEndorse: null,
     autoMerge: null,
     requireApproval: null,
+    autoShip: null,
   });
 });
 

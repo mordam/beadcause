@@ -504,7 +504,11 @@
     const state3 = serving?.tls
       ? { text: `serving ${serving.name || 'https'}`, tone: 'live' }
       : t.restartNeeded
-        ? { text: ready ? 'ready — restart to serve it' : 'restart to stop serving it', tone: 'held' }
+        ? // A certificate is ready and the socket is still plain: the process holding the
+          // port looks for one every minute and adopts it without being restarted, so this
+          // is a wait rather than a chore. Turning HTTPS *off* is the direction that still
+          // needs a restart — a listener already terminating TLS cannot stop without one.
+          { text: ready ? 'ready — picked up within a minute' : 'restart to stop serving it', tone: 'held' }
         : ready
           ? { text: 'on', tone: 'live' }
           : t.enabled
@@ -548,11 +552,17 @@
       }
       ${askFailure(tlsDid?.asked)}
       ${
-        t.restartNeeded
-          ? `<p class="admin-warn"><strong>The daemon is still serving the old socket.</strong> TLS is decided when the
-             listener is created, so this takes effect on the next restart — the Deploy button for beadcause on the PRs
-             screen does one, or on the Mac:<br><code>${esc(t.restartCommand)}</code></p>`
-          : ''
+        t.restartNeeded && ready
+          ? `<p class="admin-detail"><strong>The socket is still plain http, and does not need a restart.</strong> The
+             process holding the port looks for a certificate every minute and puts this one on the socket it is already
+             holding — nothing rebound, nothing dropped. Give it a minute and this card says <em>serving</em>.</p>`
+          : t.restartNeeded
+            ? `<p class="admin-warn"><strong>The daemon is still serving the old socket.</strong> A listener that is
+               already terminating TLS cannot stop without being rebound, so this takes effect on the next restart — the
+               Deploy button for beadcause on the PRs screen does one, or on the Mac:<br><code>${esc(
+                 t.restartCommand
+               )}</code></p>`
+            : ''
       }
       <div class="admin-btns">${buttons.join('')}</div>
       <a class="secondary tls-link" href="${esc(tailscaleHref(t.tailnetHttpsUrl))}" target="_blank" rel="noreferrer noopener">
@@ -646,7 +656,9 @@
       if (r.did.asked?.ok) bits.push(r.view.have ? `certificate for ${r.view.name}` : 'certificate ok');
       else if (r.did.asked) bits.push('no certificate — see below');
       if (r.did.originMoved) bits.push(`address is now ${hostOf(r.did.to)}`);
-      if (r.view.restartNeeded) bits.push('restart to serve it');
+      // Which way the switch went decides whether a restart is owed: on is adopted by the
+      // process holding the port within a minute, off has to rebind the listener.
+      if (r.view.restartNeeded) bits.push(r.did.now ? 'on the socket within a minute' : 'restart to stop serving it');
       said.textContent = bits.join(' · ');
       said.hidden = false;
     } catch (err) {

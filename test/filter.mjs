@@ -276,6 +276,9 @@ check(() => {
 /* ------------------------------------------- the filter as an input to the push */
 
 const { matchesFilter, quietReasonFor, describeFilter } = await import(LIB('spaces.js'));
+// The filter-change prompt's own view of what the filter excludes, asserted at the end
+// of the poller run: the push and the prompt have to agree about this channel.
+const { excludedRinging } = await import(LIB('ringing.js'));
 
 // One space muted, one not, and a workspace in neither — the three states a bead can
 // be pushed from.
@@ -311,6 +314,47 @@ check(() => {
   // the screen and undo in a tap.
   assert.equal(quietReasonFor(pushCfg, { space: 'Work', workspace: 'alpha' }, bead('beta', 'Personal')), 'filtered');
 }, 'the two reasons stay distinguishable, and the filter is the one reported');
+
+/* ------------------------------------ except the channel the filter does not reach */
+//
+// bc-8on. The inbox draws the foundation channel above the list and outside every
+// filter on it, and the filter-change prompt leaves its notifications alone — so a
+// push that honoured the filter here produced the one state the contract exists to
+// prevent: a request visible on the screen and silent on the phone, with no widening
+// left that would bring it back. The filter's two levels answer "which of my lives is
+// this about", and an agent's definition is not in one of them.
+
+const request = (workspace, space) => ({
+  key: `${workspace}/x-2`,
+  workspace,
+  space,
+  foundation: true,
+  amendment: { agent: 'critic', scope: 'may run git log' },
+});
+
+check(() => {
+  // The same bead in the same excluded workspace: a question is filtered, a request
+  // is not. Nothing else about the two differs.
+  assert.equal(quietReasonFor(pushCfg, { space: 'Work', workspace: 'all' }, bead('alpha2', null)), 'filtered');
+  assert.equal(quietReasonFor(pushCfg, { space: 'Work', workspace: 'all' }, request('alpha2', null)), null);
+  assert.equal(quietReasonFor(pushCfg, { space: 'Work', workspace: 'alpha' }, request('alpha2', null)), null);
+}, 'a foundation request outside the filter still rings — the filter does not reach that channel');
+
+check(() => {
+  // The asymmetry is the decision, not an oversight: a mute is about whether anything
+  // may reach you right now, which is true of a constitutional request too.
+  assert.equal(quietReasonFor(pushCfg, { space: 'all', workspace: 'all' }, request('beta', 'Personal')), 'muted');
+  // And a muted space wins even when the filter would also have excluded it, because
+  // the filter no longer has an opinion about this channel at all.
+  assert.equal(quietReasonFor(pushCfg, { space: 'Work', workspace: 'alpha' }, request('beta', 'Personal')), 'muted');
+}, 'but a mute still quietens one — that half is about your evening, not about which life');
+
+check(() => {
+  // matchesFilter stays the plain two-level test. The exemption belongs to "may this
+  // interrupt me", not to "is this bead in the filtered list" — and `excludedRinging`
+  // in lib/ringing.js calls the plain one after dropping foundation rows itself.
+  assert.equal(matchesFilter({ space: 'Work', workspace: 'all' }, request('beta', 'Personal')), false);
+}, 'and matchesFilter is left alone — the exemption is about interruption, not membership');
 
 check(() => {
   assert.equal(describeFilter({ space: 'Work', workspace: 'alpha' }), 'Work / alpha');
@@ -370,6 +414,14 @@ const q = (workspace, space, id, extra = {}) => ({
 const replied = [
   q('alpha', 'Work', 'a-reply', { awaitingAgent: true }),
   q('beta', 'Personal', 'b-reply', { awaitingAgent: true }),
+  // In the excluded workspace and in the other channel, so its reply proves the
+  // exemption travels down the reply path off the same `q.foundation` — checkReplies
+  // has no filter branch of its own, and must not grow one.
+  q('beta', 'Personal', 'b-freply', {
+    awaitingAgent: true,
+    foundation: true,
+    amendment: { agent: 'critic', scope: 'b-freply may run git log' },
+  }),
 ];
 let comments = 1;
 let inbox = [...replied];
@@ -412,12 +464,20 @@ const settled = async (fn, ms = 20000) => {
   }
   return false;
 };
-await settled(() => bus.seq > 0 || sent.length > 0 || loadState().notified.length === 2);
+await settled(() => bus.seq > 0 || sent.length > 0 || loadState().notified.length === replied.length);
 
 // Now the thing to be notified about, or not: one fresh question in each workspace,
-// and a reply on each of the two watched threads.
+// a fresh foundation request in the excluded one, and a reply on each watched thread.
 comments = 2;
-inbox = [...replied, q('alpha', 'Work', 'a-new'), q('beta', 'Personal', 'b-new')];
+inbox = [
+  ...replied,
+  q('alpha', 'Work', 'a-new'),
+  q('beta', 'Personal', 'b-new'),
+  q('beta', 'Personal', 'b-found', {
+    foundation: true,
+    amendment: { agent: 'critic', scope: 'b-found may run git log' },
+  }),
+];
 
 const events = () => bus.since(0) || [];
 const found = (type, key) => events().find((e) => e.type === type && e.key === key);
@@ -425,8 +485,10 @@ const gotAll = await settled(
   () =>
     found('question', 'alpha/a-new') &&
     found('question', 'beta/b-new') &&
+    found('foundation-request', 'beta/b-found') &&
     found('reply', 'alpha/a-reply') &&
-    found('reply', 'beta/b-reply')
+    found('reply', 'beta/b-reply') &&
+    found('foundation-reply', 'beta/b-freply')
 );
 // A little slack after the last event, so a push that was going to happen has had its
 // chance to. Asserting "nothing was sent" the instant the event lands would pass on a
@@ -436,7 +498,7 @@ clearInterval(timer);
 ntfy.close();
 
 check(() => {
-  assert.ok(gotAll, `all four events arrived (saw ${events().map((e) => `${e.type}:${e.key}`).join(', ')})`);
+  assert.ok(gotAll, `all six events arrived (saw ${events().map((e) => `${e.type}:${e.key}`).join(', ')})`);
 }, 'every bead still emits its event — filtering quietens, it never drops');
 
 check(() => {
@@ -471,6 +533,44 @@ check(() => {
   assert.equal(e.quiet, false, 'quiet');
   assert.ok(sent.some((p) => String(p.title).includes('a-reply')), 'the in-filter reply was pushed');
 }, 'and a reply inside the filter still gets through');
+
+check(() => {
+  // bc-8on, end to end: the same workspace as `b-new`, under the same filter, and
+  // this one rings. The push is `pushFoundationRequest`, so what lands is the ⚖️
+  // title and the scope rather than the bead's own question.
+  const e = found('foundation-request', 'beta/b-found');
+  assert.equal(e.quiet, false, 'quiet');
+  assert.equal(e.quietReason, null, 'quietReason');
+  assert.ok(
+    sent.some((p) => String(p.message).includes('b-found')),
+    `it was pushed (sent: ${JSON.stringify(sent)})`
+  );
+}, 'a foundation request in a filtered-out workspace rings anyway');
+
+check(() => {
+  const e = found('foundation-reply', 'beta/b-freply');
+  assert.equal(e.quiet, false, 'quiet');
+  assert.equal(e.quietReason, null, 'quietReason');
+  assert.ok(
+    sent.some((p) => JSON.stringify(p).includes('b-freply')),
+    `the reply was pushed too (sent: ${JSON.stringify(sent)})`
+  );
+}, 'and a reply on one is as loud as the request it is on');
+
+check(() => {
+  // The other half of the contract this change leans on: a request that rang is not
+  // something narrowing the filter can offer to clear, because narrowing never hid
+  // it. `rangFor` carries `foundation` for exactly this, and `excludedRinging` drops
+  // it — so the record being written is the same record that gets skipped.
+  const ringing = loadState().ringing || {};
+  assert.equal(ringing['beta/b-found']?.foundation, true, 'the request is recorded as ringing, and as foundation');
+  assert.ok(!ringing['beta/b-new'], 'the filtered-out question never rang, so it has no record');
+  assert.deepEqual(
+    excludedRinging(pollCfg, ringing, { space: 'Work', workspace: 'all' }).map((e) => e.key),
+    [],
+    'and the filter-change prompt has nothing to offer about it'
+  );
+}, 'the notification it made is not one the filter can later offer to clear');
 
 /* ----------------------------------------------------- hygiene, cheap and blunt */
 

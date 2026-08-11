@@ -42,14 +42,40 @@
   arrive at the same address. `KINDS` is the table that names them, and it is
   deliberately the only place that knows: bc-l8jp.5 (chat sessions in the inbox) and
   bc-l8jp.6 (pull requests as cards) each add one row to it and get a filter, a chip,
-  a count and a place in the summary line for free.
+  a count and a place in the summary line for free. Both of them have landed — `pr` and
+  `session` below — and between them they cost two rows plus two words, `!q.pr` and
+  `!q.session`, in the predicate they would otherwise have fallen into. That is the
+  table paying for itself: two features that each removed a tab, and neither of them
+  had to touch the chips, the counts or the summary line to get a category of its own.
 
   Each kind carries a `side`, because a scope that never fetched a row cannot show a
   chip for it: `human` sweeps questions, `agent` sweeps live beads, `both` does both,
   and a chip for something the current scope cannot contain is a control that does
   nothing. `usable()` is what applies that, and `set()` drops selections the new scope
   cannot produce — otherwise switching to `Agent` with `Merges` selected is an empty
-  screen with nothing on it to say why.
+  screen with nothing on it to say why. `any` is the third value and it means what it
+  says: a pull request comes off `gh` and a chat session off no sweep at all, so for
+  neither of them is there a scope that could have failed to fetch it, and neither has
+  a scope in which its chip would be dead.
+
+  ## The one sub-filter
+
+  A kind may carry a `sub`: a second group of chips that appears in the panel *only when
+  that kind is selected*, and narrows within it. Pull requests have the only one, and it
+  is the reason the mechanism exists — five of them are open right now and thirty have
+  merged in the last three weeks, so a PR chip with no second axis would be a list of
+  history with this morning's decisions somewhere inside it.
+
+  Two rules make it safe:
+
+  - **Its default is not "everything".** With no status chosen the inbox shows only what
+    has *not merged* — `review`. A merged pull request is history, and history should be
+    asked for. Which is a filter you did not set, so the summary line says `unmerged`
+    where the other groups say `All`, and there is no state in which the control claims
+    to be showing you everything while showing you one rung.
+  - **It applies whether or not its parent chip is pressed.** The default above is about
+    what the inbox *is*, not about what you last tapped, so it holds under `All kinds`
+    too. The panel only stops offering you the choice.
 
   ## What this does *not* touch
 
@@ -64,6 +90,8 @@
   'use strict';
 
   const KEY = 'beadcause.kinds';
+  /** The PR status sub-filter, kept apart so widening the kinds does not reset it. */
+  const SUB_KEY = 'beadcause.prstatus';
 
   /**
    * The kinds of thing the inbox carries, in the order their chips are drawn.
@@ -79,7 +107,12 @@
       side: 'question',
       label: 'Questions',
       note: 'Beads asking you something in words — the app’s original inbox.',
-      test: (q) => !q.agent && !q.proposal && !q.delivery,
+      // `!q.pr` and `!q.session` for the same reason `!q.proposal` is spelled out under
+      // Merges: neither a pull request nor a chat session is a bead, and neither answers
+      // any of the other tests, so without these two they would land here — the one kind
+      // whose predicate is "none of the above" and therefore the one that silently
+      // absorbs anything new.
+      test: (q) => !q.agent && !q.proposal && !q.delivery && !q.pr && !q.session,
     },
     {
       id: 'proposal',
@@ -99,6 +132,50 @@
       // table is asserted on (test/inboxkinds.mjs), so it is stated here rather than
       // left to the order of the rows.
       test: (q) => !q.agent && !q.proposal && Boolean(q.delivery),
+    },
+    {
+      id: 'pr',
+      // On neither side: a pull request comes off `gh`, not off a `bd` sweep, so no
+      // scope fetches it and no scope can fail to. It is here under `Human` because a
+      // pull request in review is a thing waiting on you, and under `Agent` because it
+      // is not a bead the sweep could have missed.
+      side: 'any',
+      label: 'PRs',
+      note: 'Pull requests, and how far each one got. Unmerged unless you ask for more.',
+      test: (q) => Boolean(q.pr),
+      // The status sub-filter. `options` are read through public/prcard.js, which mirrors
+      // the ladder in lib/prstage.js, so the chips cannot name a rung the daemon does not
+      // put on a row. `closed` is deliberately not among them: a pull request closed
+      // without merging is not on the way anywhere, so app.js does not make a card for
+      // one at all, and a chip that could only ever show nothing is worse than no chip.
+      sub: {
+        id: 'status',
+        legend: 'PR status',
+        multi: true,
+        /** What no selection means, in the summary line. Not "All" — see the header. */
+        all: 'unmerged',
+        /** And what it means to `matches()`: the first rung, the only unmerged one. */
+        fallback: ['review'],
+        options: () =>
+          (window.beadcause?.prCard?.STAGES || [])
+            .filter((s) => s.id !== 'closed')
+            .map((s) => ({ id: s.id, label: s.label, note: s.note })),
+        of: (q) => q?.pr?.stage || '',
+      },
+    },
+    {
+      id: 'session',
+      // The second kind on neither side, and between them the reason `side` has a third
+      // value at all: a chat session is not in the tracker, so no scope fetches it and
+      // no scope can fail to. It is here under `Human` because it is a thing waiting on
+      // you, and under `Agent` because it is not a bead the sweep could have missed —
+      // it is simply always true, which is what `any` says. Next to `pr` because the two
+      // are the same shape of row: something outside `bd` that the inbox nonetheless
+      // holds, and the pair of them are what emptied two tabs off the bar.
+      side: 'any',
+      label: 'Chats',
+      note: 'Conversations you have open about what to file next. Tap one to pick it up.',
+      test: (q) => Boolean(q.session),
     },
     {
       id: 'claimed',
@@ -132,11 +209,47 @@
     /** Selected kind ids. **Empty means all** — never "none", which would be a list
      *  that is empty for a reason nothing on screen explains. */
     on: new Set(),
+    /**
+     * Sub-filter selections: kind id → Set of option ids.
+     *
+     * Empty means *that kind's own default*, which is not the same thing as "all" — the
+     * PR status group's default is `unmerged`. See the header.
+     */
+    sub: new Map(),
     /** Which kinds the current scope can actually contain, newest survey wins. */
     usable: KINDS.map((k) => k.id),
     /** kind id → how many rows of it are in view, before this filter is applied. */
     counts: {},
+    /** sub group id → option id → the same, one level down. */
+    subCounts: {},
   };
+
+  /* ------------------------------------------------------------- the sub-filters */
+
+  const subOf = (kindId) => BY_ID.get(kindId)?.sub || null;
+  const chosenSub = (kindId) => state.sub.get(kindId) || new Set();
+  const subOptionIds = (sub) => sub.options().map((o) => o.id);
+
+  /** Is any sub-filter away from its default? Part of "this list is narrowed". */
+  const subNarrowed = () => KINDS.some((k) => k.sub && chosenSub(k.id).size > 0);
+
+  /**
+   * Does this row survive its own kind's sub-filter? True for a kind that has none.
+   *
+   * The fallback is the point: with nothing chosen a pull request has to be on the
+   * `review` rung to be in the list, because a merged one is history. Every other kind
+   * has no `sub` and answers true here without a decision being made about it.
+   */
+  function inSub(q) {
+    const sub = subOf(kindOf(q));
+    if (!sub) return true;
+    const chosen = chosenSub(subKindOf(sub));
+    const value = sub.of(q);
+    return chosen.size ? chosen.has(value) : (sub.fallback || []).includes(value);
+  }
+
+  /** Which kind owns this sub descriptor. One each, and the table is small. */
+  const subKindOf = (sub) => KINDS.find((k) => k.sub === sub)?.id || '';
 
   const listeners = [];
 
@@ -168,12 +281,50 @@
   };
 
   /**
+   * The sub-filters off disk, as `{ <kind id>: [option ids] }`.
+   *
+   * An id the table does not offer is dropped, exactly as a kind is — and the options
+   * come from public/prcard.js, so a phone that has that file cached and this one fresh
+   * reads as "nothing chosen", which is the default rather than an empty screen.
+   */
+  const loadSub = () => {
+    const out = new Map();
+    let raw = {};
+    try {
+      const parsed = JSON.parse(localStorage.getItem(SUB_KEY) || '{}');
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) raw = parsed;
+    } catch {
+      /* unreadable is "nothing chosen", never "hide everything" */
+    }
+    for (const k of KINDS) {
+      if (!k.sub) continue;
+      const offered = subOptionIds(k.sub);
+      const ids = Array.isArray(raw[k.id]) ? raw[k.id].filter((id) => offered.includes(id)) : [];
+      out.set(k.id, new Set(ids));
+    }
+    return out;
+  };
+
+  const saveSub = () => {
+    try {
+      const out = {};
+      for (const [kind, set] of state.sub) out[kind] = [...set];
+      localStorage.setItem(SUB_KEY, JSON.stringify(out));
+    } catch {
+      /* as above */
+    }
+  };
+
+  /**
    * Is this row in view?
    *
-   * True while nothing is selected, which is the common case and the default — a page
-   * that asks before the control has mounted shows everything rather than nothing.
+   * The kind filter is true while nothing is selected, which is the common case and the
+   * default — a page that asks before the control has mounted shows everything rather
+   * than nothing. The sub-filter is *not* the same: it applies whichever kinds are
+   * selected, because "only unmerged pull requests" is what the inbox is rather than
+   * something you last tapped.
    */
-  const matches = (q) => state.on.size === 0 || state.on.has(kindOf(q));
+  const matches = (q) => (state.on.size === 0 || state.on.has(kindOf(q))) && inSub(q);
 
   /**
    * Narrow to these kinds. Unknown ids are dropped, and so are kinds the current scope
@@ -196,13 +347,46 @@
   const toggle = (id) => set(state.on.has(id) ? [...state.on].filter((x) => x !== id) : [...state.on, id]);
 
   /**
+   * Narrow one kind's sub-filter. Empty is the kind's own default, not "everything".
+   *
+   * Notifies like `set` does — a status change moves the list, and the page has to hear
+   * about it from the same channel or the chips and the cards drift apart for 25 seconds.
+   */
+  function setSub(kindId, ids, { quiet = false } = {}) {
+    const sub = subOf(kindId);
+    if (!sub) return true;
+    const offered = subOptionIds(sub);
+    const next = new Set((ids || []).filter((id) => offered.includes(id)));
+    const before = chosenSub(kindId);
+    const same = next.size === before.size && [...next].every((id) => before.has(id));
+    state.sub.set(kindId, next);
+    saveSub();
+    paint();
+    if (!same && !quiet) notify();
+    return same;
+  }
+
+  const toggleSub = (kindId, id) => {
+    const on = chosenSub(kindId);
+    setSub(kindId, on.has(id) ? [...on].filter((x) => x !== id) : [...on, id]);
+  };
+
+  /**
    * What the page has just drawn: which kinds are reachable, and how many of each.
    *
    * Counted *before* this filter and *after* the space picker's, so a chip's number is
    * what picking it would leave you with — which is the only number a filter chip can
-   * carry without lying about what it does.
+   * carry without lying about what it does. Which is also why `counts` for a kind with a
+   * sub-filter is counted *through* it (see `inSub` and app.js's `surveyKinds`): picking
+   * `PRs` leaves you with the unmerged ones, so `PRs 2` over thirty merged pull requests
+   * would be the chip promising a screen it does not open.
+   *
+   * `sub` is the level below — `{ status: { review: 2, merged: 30, … } }` — and those are
+   * counted the other way round, over every PR row the space picker allowed, because
+   * *that* is what picking one of those chips would leave you with.
    */
-  function survey({ kinds, counts } = {}) {
+  function survey({ kinds, counts, sub } = {}) {
+    if (sub && typeof sub === 'object') state.subCounts = sub;
     if (Array.isArray(kinds)) {
       state.usable = KINDS.filter((k) => kinds.includes(k.id)).map((k) => k.id);
       // A selection the new scope cannot produce is dropped rather than kept and
@@ -265,7 +449,48 @@
     pick: (id) => toggle(id),
   });
 
-  const allGroups = () => [...groups, kindGroup()];
+  /**
+   * The sub-filter groups, as the same shape as every other group.
+   *
+   * `parent` is what makes them different and it is read in exactly two places: the box
+   * is hidden unless the parent kind is selected (`paintGroup`), and the summary line
+   * mentions it under the rule in `subSaid`.
+   */
+  const subGroups = () =>
+    KINDS.filter((k) => k.sub && state.usable.includes(k.id)).map((k) => ({
+      id: k.sub.id,
+      parent: k.id,
+      legend: k.sub.legend,
+      multi: k.sub.multi !== false,
+      all: k.sub.all,
+      options: () =>
+        k.sub.options().map((o) => ({
+          ...o,
+          // Always a number, never absent: a chip built without one could never grow one
+          // in place, and the counts arrive on the render *after* the control mounts.
+          count: state.subCounts?.[k.sub.id]?.[o.id] || 0,
+          on: chosenSub(k.id).has(o.id),
+        })),
+      pick: (id) => toggleSub(k.id, id),
+    }));
+
+  const allGroups = () => [...groups, kindGroup(), ...subGroups()];
+
+  /** Are this sub group's chips on screen? Only while its kind is selected. */
+  const subOpen = (g) => state.on.has(g.parent);
+
+  /**
+   * Does the summary line mention this sub group?
+   *
+   * Wider than "are its chips showing", deliberately. A status chosen while `PRs` was
+   * selected goes on narrowing the list after you widen back to `All kinds`, and a
+   * narrowing nothing on screen admits to is the one thing this control must never do.
+   * It is also mentioned while its kind is merely *visible* and has rows — that is the
+   * standing `unmerged` default, which is equally a narrowing you did not set. And on a
+   * screen with no pull requests in it at all, it says nothing, because there is nothing
+   * for it to be about.
+   */
+  const subSaid = (g) => subOpen(g) || chosenSub(g.parent).size > 0 || (state.counts[g.parent] || 0) > 0;
 
   /**
    * What the one line says.
@@ -277,6 +502,7 @@
    */
   function summaryText() {
     return allGroups()
+      .filter((g) => !g.parent || subSaid(g))
       .map((g) => {
         const on = g.options().filter((o) => o.on);
         if (!on.length) return g.all || 'All';
@@ -318,6 +544,10 @@
   function paintGroup(g) {
     const row = ui.rows.get(g.id);
     if (!row) return;
+    // A sub-filter's chips are only offered while their kind is selected. The box is
+    // hidden rather than removed, so the panel does not rebuild — and so the chips are
+    // still there, still painted, for the summary line to read.
+    if (row.box) row.box.hidden = g.parent ? !subOpen(g) : false;
     const options = g.options();
     const ids = options.map((o) => o.id).join(',');
     if (row.ids !== ids) {
@@ -342,9 +572,15 @@
   /** Chips and summary, never structure. Safe to call from a render loop. */
   function paint() {
     if (!ui.root) return;
-    for (const g of allGroups()) paintGroup(g);
+    const live = allGroups();
+    const ids = new Set(live.map((g) => g.id));
+    // A group the panel no longer has — a sub-filter whose kind this scope cannot hold —
+    // is hidden rather than left on screen with the chips it was mounted with. Its box was
+    // built at mount, when every kind was still usable.
+    for (const [id, row] of ui.rows) if (row.box && !ids.has(id)) row.box.hidden = true;
+    for (const g of live) paintGroup(g);
     ui.sel.textContent = summaryText();
-    ui.root.classList.toggle('narrowed', state.on.size > 0);
+    ui.root.classList.toggle('narrowed', state.on.size > 0 || subNarrowed());
   }
 
   function pick(g, id) {
@@ -422,7 +658,9 @@
       row.setAttribute('aria-label', g.legend);
       box.append(legend, row);
       panel.append(box);
-      ui.rows.set(g.id, { el: row, ids: '', chips: new Map() });
+      // The box as well as the chip row: a sub-filter's whole group — legend included —
+      // is hidden while its kind is not selected, and paint() needs the node to hide.
+      ui.rows.set(g.id, { el: row, box, ids: '', chips: new Map() });
     }
 
     root.append(summary, panel);
@@ -486,6 +724,7 @@
      that only applies once the chrome exists is a list that shows everything for a
      frame and then takes half of it away. Last in the file, because `set` paints, and
      the nodes it paints are declared above. */
+  state.sub = loadSub();
   set(load(), { quiet: true });
 
   window.beadcause = window.beadcause || {};
@@ -499,13 +738,27 @@
     mount,
     /** Selected kind ids — empty for "all of them". */
     selected: () => [...state.on],
+    /** One kind's sub-filter selection — empty for that kind's own default. */
+    selectedSub: (kindId) => [...chosenSub(kindId)],
+    setSub,
+    /** Does this row survive its kind's sub-filter alone? What `surveyKinds` counts through. */
+    inSub,
     /** Every kind the current scope can contain, in display order. */
     usable: () => [...state.usable],
     /** The kinds' half of the summary line, for an empty state that has to explain itself. */
-    label: () =>
-      state.on.size === 0
-        ? 'all kinds'
-        : [...state.on].map((id) => BY_ID.get(id).label.toLowerCase()).join(', '),
+    label: () => {
+      const kinds =
+        state.on.size === 0 ? 'all kinds' : [...state.on].map((id) => BY_ID.get(id).label.toLowerCase()).join(', ');
+      // The status rides in brackets, and only while its chips are offered: an empty
+      // state saying "prs" over a list narrowed to `live` would name the wrong culprit.
+      const said = subGroups()
+        .filter(subOpen)
+        .map((g) => {
+          const on = g.options().filter((o) => o.on);
+          return on.length ? on.map((o) => o.label.toLowerCase()).join(', ') : String(g.all || '');
+        });
+      return said.length ? `${kinds} (${said.join(', ')})` : kinds;
+    },
     onChange(fn) {
       if (typeof fn === 'function') listeners.push(fn);
     },

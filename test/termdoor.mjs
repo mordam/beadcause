@@ -115,8 +115,8 @@ for (const asset of ['/terminal', '/term.html', '/term.js']) {
 // have to arrive together: a phone holding the old `/` beside the new `/admin` shows
 // the ⌨️ twice, and the old `/admin` beside the new `/` leaves no standing door at all.
 check(
-  'the cache version was bumped past v26, so the pair arrives together',
-  /const CACHE = 'beadcause-v(2[7-9]|[3-9]\d)'/.test(sw),
+  'the cache version was bumped past v27, so the pair arrives together',
+  /const CACHE = 'beadcause-v(2[8-9]|[3-9]\d)'/.test(sw),
   `it is ${sw.match(/const CACHE = '([^']+)'/)?.[1]}`
 );
 

@@ -55,17 +55,29 @@
    holding v26's app.js without the file would fall back to the whole-list rebuild
    and a cold fetch per tab, which is the entire thing being fixed. They have to
    arrive together, which is what a cache version is for. */
-/* v27: the terminal's door moved off the inbox header and onto /admin (bc-l8jp.2). No
+/* v27: two tabs left the bar in the same breath, and each put its rows in the inbox.
+   Pull requests became cards: `/prcard.js` is a new path *and* four cached files
+   disagree without it — tabbar.js no longer draws the PRs tab, app.js draws cards it
+   cannot render without prcard.js, inboxfilter.js builds its status sub-filter off the
+   ladder in it, and prs.js takes its own row renderer from it, so a board page cached at
+   v26 beside a v27 prs.js is a blank board. Chat went the same way with no new path at
+   all, which is the more dangerous half: index.html without app.js is a ＋ that does
+   nothing when tapped, app.js without index.html is an inbox whose rows say
+   `data.consoles` and whose create button is not on the page, and either without
+   style.css is a floating button with no shape sitting over the last card. Every one of
+   those is an old app that looks complete — a bar with both tabs still on it most of all
+   — which is the failure a version exists to prevent. */
+/* v28: the terminal's door moved off the inbox header and onto /admin (bc-l8jp.2). No
    new path — every file involved is already in this list — but the move is a *pair* of
    documents, and both of them are precached: index.html without the ⌨️ and admin.html
-   with the card that replaces it. A phone holding v26's cached `/` beside v27's
-   `/admin` would show the button in both places; one holding v26's `/admin` beside
-   v27's `/` would have no standing way into the terminal at all, which is worse — the
+   with the card that replaces it. A phone holding v27's cached `/` beside v28's
+   `/admin` would show the button in both places; one holding v27's `/admin` beside
+   v28's `/` would have no standing way into the terminal at all, which is worse — the
    header button it used to reach it by is exactly what this version takes away. The
    stylesheet is the third: `.admin-door` is what makes the new anchor a button rather
    than a line of blue text. They have to arrive together, which is what a cache
    version is for. */
-const CACHE = 'beadcause-v27';
+const CACHE = 'beadcause-v28';
 const SHELL = [
   '/',
   '/index.html',
@@ -91,6 +103,10 @@ const SHELL = [
   // line. In the shell for the same reason the picker is: without it the inbox has no
   // control on it at all to say which slice of the tracker you are looking at.
   '/inboxfilter.js',
+  // One pull request, drawn once, for the inbox's cards and the board's rows. In the
+  // shell because the inbox is: a cached inbox without it draws no PR cards at all, and
+  // the filter reads the status ladder off it to build its sub-filter.
+  '/prcard.js',
   // What each of the five standing pages boots from. In the shell rather than left to
   // network-first because the whole point of it is the first frame after a tab tap:
   // a page that has to fetch its cache before it can read it has already lost the

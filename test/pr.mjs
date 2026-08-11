@@ -32,6 +32,12 @@
  *    something a merge can proceed on. The wait is driven by an injected `sleep` that
  *    changes the fake's world, so the pending-then-green case is exercised in
  *    milliseconds rather than in CI's own time.
+ * 5. **`UNKNOWN` mergeability read as a conflict.** GitHub works out whether a pull
+ *    request can merge asynchronously, and for a few seconds after a push the answer
+ *    is `UNKNOWN` — then it refuses a merge it has not assessed with the same words it
+ *    uses for a real conflict. Untested, that is a session ending in a card telling
+ *    Adam his branch conflicts with main when it does not, and the way it goes wrong
+ *    again is silently, because the code path looks identical either way.
  *
  * Nothing here touches the network, spawns an agent, runs the real `gh`, or writes
  * outside a temp directory.
@@ -640,6 +646,79 @@ resetLog();
 settled = await pr.settle(REPO, 42, { timeoutMs: 40, intervalMs: 1, sleep: (ms) => new Promise((r) => setTimeout(r, 25)) });
 check('a wait that never settles ends — bounded, not forever', settled.timedOut === true && viewCalls() < 6, `${viewCalls()} views`);
 
+/* ------------------------------------------- waiting for mergeability itself */
+
+/**
+ * The second wait, and the one nothing used to do at all.
+ *
+ * GitHub computes `mergeable` asynchronously: for a few seconds after a push it is
+ * `UNKNOWN`, which is not a verdict but the absence of one. Observed in life at twelve
+ * seconds — `UNKNOWN UNKNOWN` on the poll straight after the push, `MERGEABLE CLEAN` on
+ * the same pull request a moment later — and a worker in a repo with no CI reaches the
+ * merge inside that window every time, because `settle()` above has nothing to wait for.
+ *
+ * What makes it worth a test rather than a comment is that the failure is a *lie*, not
+ * an error: GitHub refuses a merge it has not assessed with the same sentence it uses
+ * for a real conflict, so the session ends telling Adam his branch conflicts with main
+ * over a branch that merges fine.
+ */
+console.log('\nwaiting for GitHub to work out whether it can merge');
+
+world({ prs: { 42: rawPR() } });
+resetLog();
+slept = 0;
+let assessed = await pr.mergeability(REPO, 42, { sleep: async () => (slept += 1) });
+check('a mergeability GitHub already has is not waited on', slept === 0 && viewCalls() === 1, `slept ${slept}, ${viewCalls()} views`);
+check('and it is not called unresolved', assessed.unresolved === false && assessed.pr.mergeable === 'MERGEABLE');
+
+// The ordinary case and the whole point: UNKNOWN the instant the branch is pushed,
+// MERGEABLE a moment later. As with `settle`, the world changes *in the sleep*.
+world({ prs: { 42: rawPR({ mergeable: 'UNKNOWN', mergeStateStatus: 'UNKNOWN' }) } });
+resetLog();
+slept = 0;
+assessed = await pr.mergeability(REPO, 42, {
+  sleep: async () => {
+    slept += 1;
+    world({ prs: { 42: rawPR() } });
+  },
+});
+check('an UNKNOWN mergeability is waited for, then read again', slept === 1 && viewCalls() === 2, `slept ${slept}, ${viewCalls()} views`);
+check('and the answer is the one GitHub eventually gave', assessed.pr.mergeable === 'MERGEABLE' && !assessed.unresolved);
+
+// A conflict is a verdict. Nothing waits on one, because waiting for GitHub to change
+// its mind is not what this is for.
+world({ prs: { 42: rawPR({ mergeable: 'CONFLICTING' }) } });
+resetLog();
+slept = 0;
+assessed = await pr.mergeability(REPO, 42, { sleep: async () => (slept += 1) });
+check('CONFLICTING is an answer and is not waited on', slept === 0 && assessed.unresolved === false, `slept ${slept}`);
+
+// The guard that keeps an already-merged answer cheap. GitHub reports `mergeable:
+// UNKNOWN` on a merged or closed pull request permanently, so without the open check
+// every re-delivery of landed work would sit out the whole timeout to learn nothing.
+for (const state of ['MERGED', 'CLOSED']) {
+  world({ prs: { 42: rawPR({ state, mergeable: 'UNKNOWN' }) } });
+  resetLog();
+  slept = 0;
+  assessed = await pr.mergeability(REPO, 42, { sleep: async () => (slept += 1) });
+  check(
+    `a ${state} pull request reports UNKNOWN for good, so it is read once and not waited on`,
+    slept === 0 && viewCalls() === 1 && assessed.unresolved === false,
+    `slept ${slept}, ${viewCalls()} views, unresolved ${assessed.unresolved}`
+  );
+}
+
+// And when the answer never comes, it says so — bounded, and *not* as a conflict.
+world({ prs: { 42: rawPR({ mergeable: 'UNKNOWN', mergeStateStatus: 'UNKNOWN' }) } });
+resetLog();
+assessed = await pr.mergeability(REPO, 42, { timeoutMs: 0, sleep: async () => (slept += 1) });
+check('a zero timeout looks once and gives up', assessed.unresolved === true && viewCalls() === 1, `${viewCalls()} views`);
+check('handing back UNKNOWN rather than inventing a verdict', assessed.pr.mergeable === 'UNKNOWN', assessed.pr.mergeable);
+
+resetLog();
+assessed = await pr.mergeability(REPO, 42, { timeoutMs: 40, intervalMs: 1, sleep: () => new Promise((r) => setTimeout(r, 25)) });
+check('a mergeability that never resolves ends — bounded, not forever', assessed.unresolved === true && viewCalls() < 6, `${viewCalls()} views`);
+
 /* -------------------------------------------------------------------- merge */
 
 console.log('\nmerging — the act the whole channel exists to gate');
@@ -747,6 +826,70 @@ check(
   'carrying GitHub’s own reason, because "it did not merge" with nothing attached is the worst thing this could say',
   refused && /base branch policy/.test(refused.message),
   refused && refused.message
+);
+check(
+  'and saying nothing about mergeability, which GitHub had perfectly well worked out',
+  refused && !/UNKNOWN|had still not/i.test(refused.message),
+  refused && refused.message
+);
+
+/* ------------------------------- merging inside GitHub's mergeability window */
+
+// The sequence this whole thing is about, driven through `merge()` rather than through
+// `mergeability()` alone: what has to be right is the *decision*, and the decision is
+// here. UNKNOWN on the first read, MERGEABLE by the time it is asked again, merged.
+world({ prs: { 42: rawPR({ mergeable: 'UNKNOWN', mergeStateStatus: 'UNKNOWN' }) } });
+resetLog();
+slept = 0;
+const raced = await pr.merge(REPO, 42, {
+  sleep: async () => {
+    slept += 1;
+    world({ prs: { 42: rawPR() } });
+  },
+});
+check(
+  'a pull request GitHub has not assessed yet is waited on, not refused',
+  slept === 1 && raced.state === 'MERGED' && mergeCalls().length === 1,
+  `slept ${slept}, ${raced.state}, ${mergeCalls().length} merges`
+);
+
+// Still UNKNOWN when the wait runs out, and GitHub refuses. It goes out anyway — the
+// merge endpoint is the only thing that can settle this and it settles it atomically —
+// but the sentence must not be read as a conflict, because nothing established one.
+world({
+  prs: { 42: rawPR({ mergeable: 'UNKNOWN', mergeStateStatus: 'UNKNOWN' }) },
+  mergeRefusal: 'Pull request is not mergeable',
+});
+resetLog();
+const unknownErr = await threw(() => pr.merge(REPO, 42, { timeoutMs: 0 }));
+check('an unresolved mergeability still asks GitHub, which is the only thing that knows', mergeCalls().length === 1);
+check('a refusal there is a 409 like any other', unknownErr && unknownErr.status === 409, unknownErr && String(unknownErr.status));
+check(
+  'carrying GitHub’s own sentence',
+  unknownErr && /not mergeable/.test(unknownErr.message),
+  unknownErr && unknownErr.message
+);
+check(
+  'and saying that GitHub had not worked mergeability out, so it may be the race',
+  unknownErr && /had still not worked out/.test(unknownErr.message),
+  unknownErr && unknownErr.message
+);
+check(
+  'without ever calling it a conflict or asking for a rebase — nothing established either',
+  unknownErr && !/conflict/i.test(unknownErr.message) && !/rebase/i.test(unknownErr.message),
+  unknownErr && unknownErr.message
+);
+
+// The other half of the same guarantee: a mergeability GitHub *did* work out is still
+// refused on the spot, with no wait and no merge call.
+world({ prs: { 42: rawPR({ mergeable: 'CONFLICTING' }) } });
+resetLog();
+slept = 0;
+const stillConflict = await threw(() => pr.merge(REPO, 42, { sleep: async () => (slept += 1) }));
+check(
+  'a real conflict is refused without waiting for a second opinion',
+  stillConflict && stillConflict.status === 409 && slept === 0 && mergeCalls().length === 0,
+  `slept ${slept}, ${mergeCalls().length} merges`
 );
 
 /* -------------------------------------------------------- close and comment */
