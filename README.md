@@ -120,10 +120,11 @@ otherwise its poller would keep firing notifications with no listener behind the
   Tailscale IP, never `0.0.0.0`; the backends behind it bind loopback only.
 - **The tailnet address is HTTPS**, with a real certificate for your MagicDNS name and
   a TLS 1.2 floor — once *HTTPS Certificates* is enabled for the tailnet. Until then it
-  logs why and serves plain http. Loopback is plain http on purpose. The daemon
-  [renews the certificate under itself](#renewing-it-before-it-expires) and pushes to
-  your phone if it ever cannot, and the **Admin screen** turns it on, says what it will
-  cost and hands you the new pairing code — see
+  logs why, serves plain http, and keeps asking: a certificate that turns up later goes
+  onto the socket it is already holding, with no restart. Loopback is plain http on
+  purpose. The daemon [renews the certificate under itself](#renewing-it-before-it-expires)
+  and pushes to your phone if it ever cannot, and the **Admin screen** turns it on, says
+  what it will cost and hands you the new pairing code — see
   [the switch on the Admin screen](#the-switch-on-the-admin-screen) and
   [HTTPS on the tailnet name](#https-on-the-tailnet-name).
 - **Two credentials, and the token is not going anywhere.** Everything that is not a
@@ -5446,23 +5447,43 @@ TLS certs", and beadcause says so in the log and **serves plain http exactly as
 before** — a daemon that refused to boot over a certificate would take the inbox down
 for a feature nobody had asked for yet.
 
-**Switching it on is two steps, and the second one is the one people miss.** The click
-changes the tailnet; it does not reach into a daemon that is already running. Both steps
-are on [the switch on the Admin screen](#the-switch-on-the-admin-screen) if you are
-holding a phone rather than sitting at the Mac. The
-certificate is fetched by whichever process owns port 4318 — the router — and it is
-fetched *once, at boot*, so a daemon that came up before the switch was flipped keeps
-serving plain http indefinitely and every URL it prints stays honest about that.
-Restart the service (`launchctl kickstart -k gui/$(id -u)/m4m.beadcause`); the boot
-after that logs `certificate for <name> — 90 days left` and rewrites `baseUrl` to the
-`https://` name. Two things about the first fetch specifically: it can fail with
-`CreateOrder: 404 … Certificate not found` when the tailnet's new certificate
-permission has not finished propagating to Let's Encrypt — **run `tailscale cert
-<name>` again and it succeeds**, usually within a minute of the click — and because the
-fetch only happens at boot, a restart that lands inside that window gets plain http and
-will not try again on its own until the next restart. If the log says plain http and
-`tailscale cert` works by hand, that is the order things happened in, not a
-misconfiguration.
+**Switching it on is one step, and you can watch it land.** The click changes the
+tailnet, which cannot reach into a daemon that is already running — so the daemon goes
+looking. The certificate belongs to whichever process owns port 4318 — the router — and
+that process comes up with a socket that can be *given* one later: plain http behind the
+same one-byte sniffing front TLS sits behind, and a check **every minute** for a
+certificate to put on it. So within about a minute of the click the log says
+
+```
+[beadcause] tls  adopted a certificate for mac.tailnet.ts.net without a restart — 89.9
+                 days left; https from the next connection
+```
+
+`baseUrl` moves to the `https://` name in the same breath, port 4318 is never let go of,
+and nothing open is dropped. [The switch on the Admin
+screen](#the-switch-on-the-admin-screen) is the same thing from a phone.
+
+**It used to be two steps, and this is what went wrong with the first fetch.** A
+`tailscale cert` run seconds after the click can fail with `CreateOrder: 404 …
+Certificate not found`, because the tailnet's new certificate permission has not finished
+propagating to Let's Encrypt — and the identical command a moment later writes the pair.
+The fetch used to happen *once, at boot*, so a restart landing inside that window bought
+plain http until somebody restarted the service again, with a perfectly good certificate
+available the whole time. That is what the retry above exists for (bc-ij1e), and it is
+also why the ask **backs off** — a minute, two, four, doubling to six hours — rather than
+knocking on Let's Encrypt once a minute for a year on a tailnet that is never going to
+issue one. Between asks the check is two file reads, which is what catches a certificate
+some *other* process wrote: the Admin switch fetches into
+`~/.config/beadcause/tls/` from a backend, and the router picks it up on the next tick.
+
+If it truly cannot get one it says so on your phone — once, not daily, because plain http
+is a supported configuration and not an outage:
+
+```
+[beadcause] tls  STILL NO CERTIFICATE — serving plain http on the tailnet address:
+                 your Tailscale account does not support getting TLS certs
+[beadcause] tls  fix it by hand: tailscale cert mac.tailnet.ts.net
+```
 
 **Terminated in the daemon, not by `tailscale serve`.** Fronting it with Tailscale's
 own proxy would be less code and the same certificate, but then the protocol floor
@@ -5512,9 +5533,10 @@ failing somewhere you would have to be at the Mac to read.* The **HTTPS** card a
 bottom of `/admin` is that switch, and it says the three things the log cannot.
 
 **What is true now.** The setting, the certificate's name and how many days are left on
-it, and — separately — what is on the socket. Those last two are apart exactly between
-pressing the switch and restarting the daemon, which is the window in which somebody is
-actually reading this screen. A certificate inside the renewal loop's alarm window is
+it, and — separately — what is on the socket. Those last two are apart for about a minute
+after pressing the switch, until the process that owns the port adopts what this one
+fetched, which is the window in which somebody is actually reading this screen. A
+certificate inside the renewal loop's alarm window is
 marked rather than merely printed, using the same two thresholds the push uses, so the
 screen cannot call "fine" something your phone is being nagged about.
 
@@ -5540,11 +5562,14 @@ switch again once the tailnet is fixed and it asks for the certificate again —
 says whether it worked without restarting anything to find out.
 
 **It writes the setting before it fetches.** A fetch that fails leaves `tls.enabled:
-true` on disk on purpose: the intent is recorded, and the next restart after the tailnet
-is fixed picks a certificate up without anybody coming back to this screen. And it binds
-nothing — TLS is decided when the listener is created, so the card says plainly that the
-restart is what makes it true, and gives the command. Turning it off keeps the
-certificate where it is; only the setting moves.
+true` on disk on purpose: the intent is recorded, and the daemon picks a certificate up
+once the tailnet is fixed without anybody coming back to this screen. And it binds
+nothing — this is a *backend*, and the port belongs to the router — but it no longer has
+to: a pair written into `~/.config/beadcause/tls/` here is on the router's socket about a
+minute later, so the card's `restart needed` turns itself off rather than being a chore
+it hands you. It is still shown for the case it is still true of — turning HTTPS *off*,
+which a listener already terminating TLS cannot do without being rebound. Turning it off
+keeps the certificate where it is; only the setting moves.
 
 `GET /api/tls` is the same picture for anything else that wants it, and is cheap enough
 to poll: two file reads, a certificate parse and a memoised MagicDNS name, and it never
@@ -5572,12 +5597,15 @@ to a port serving plain HTTP is a TLS parse error with nothing on screen, and it
 be generated precisely on the machines that cannot fix it. So the address is not a
 fallback so much as the honest answer to what the daemon is actually serving.
 
-The move happens on its own, in two places. Every `loadConfig()` — so every `npm run
+The move happens on its own, in three places. Every `loadConfig()` — so every `npm run
 qr`, every `--url`, every `beadcause-ask` — reads the cached certificate off disk and
-builds the URL from it; that costs nothing and never fetches. And the daemon asks again
-straight after `listen()`, because that is the one moment a certificate can *appear*:
-the first boot after you switch HTTPS on obtains one, and the config is rewritten then
-so the next `npm run qr` in a different process agrees. A saved `baseUrl` only moves if
+builds the URL from it; that costs nothing and never fetches. The daemon asks again
+straight after `listen()`, because that is one moment a certificate can *appear*: the
+first boot after you switch HTTPS on obtains one, and the config is rewritten then so the
+next `npm run qr` in a different process agrees. And it asks a third time at the other
+such moment — when a listener that came up on plain http
+[adopts a certificate under itself](#renewing-it-before-it-expires), minutes or hours
+later, with no restart in between. A saved `baseUrl` only moves if
 this repo generated it — a Tailscale address, loopback, or a `.ts.net` name. A real
 domain, a LAN address or a proxy is yours and is never rewritten.
 
@@ -5642,6 +5670,25 @@ Two details worth knowing if you ever debug this:
   yours). It is what lets `test/certrenew.mjs` drive the whole renewal against
   certificates it mints itself instead of asking Let's Encrypt for a real one every time
   somebody runs the suite.
+
+**And the same machinery gets the *first* certificate, which is the half that used to be
+missing.** A listener that could not fetch one at boot is not a plain-http listener with
+nothing watching it: it is a **provisional** one — plain http behind the same
+`net.Server` that TLS sits behind — and the loop above runs on a one-minute clock instead
+of a six-hour one until there is something to serve. When there is, it goes on through
+the same `setSecureContext`, so adopting a first certificate costs exactly what renewing
+one costs: nothing rebound, nothing dropped, and `baseUrl` moved onto the name in the same
+breath. `test/certrenew.mjs` drives it as the sequence that produced the bug — a first
+`tailscale cert` that refuses, then a second that works — and checks that the port it
+answers https on is the same port it was answering plain http on a moment before.
+
+Two ways it does *not* behave like the renewal loop, both deliberate. The asks **back
+off** (a minute, two, four, doubling to six hours) because a machine whose tailnet will
+never issue a certificate must not ask Let's Encrypt about it once a minute forever, and
+failed-validation limits there are per hour. And "there is still no certificate" is pushed
+**once** rather than daily: a tailnet without *HTTPS Certificates* is a configuration this
+repo supports, so the first notification is news and the ninetieth is not — unlike a
+renewal that is failing, which is an outage with a date on it.
 
 ## Signing in with Google
 
@@ -6357,7 +6404,7 @@ script that answers `status --json` and mints certificates with `openssl`, so wh
 is the real `obtain()` — the same `spawnSync`, the same "the files decide whether this
 worked" rule — against a certificate authority the test made up. Its `refuse` mode is the
 actual failure, reproduced faithfully: stderr gets a 500, and the exit code is **0**.
-Four things are held. A certificate with months left costs nothing (asserted as *no
+Five things are held. A certificate with months left costs nothing (asserted as *no
 calls to tailscale at all*, not as a fast return). A renewal that fails keeps the working
 certificate on the socket, says `CERTIFICATE NOT RENEWING` in the log with the fixing
 command beside it, and pushes **once** across six checks rather than once per check. A
@@ -6367,6 +6414,16 @@ refusing 1.1, and **a WebSocket opened before the swap still echoing a message a
 it**, which is the acceptance criterion no amount of reading the code proves. And behind
 the router, where the listener is loopback-only plain http, the whole thing is a no-op
 that starts no timer.
+
+The fifth is the one that has to hold a *sequence* rather than a state, and it is bc-ij1e:
+a listener built with no certificate at all serves plain http on a real port (not a
+redirect, and not a dead socket — a client that guesses `https` there is destroyed rather
+than shown something untrue), keeps asking while the tailnet refuses, pushes `absent`
+once with Tailscale's own sentence on it, and then — `refuse` flipped to `days=90`, the
+one command that failed a moment ago now working — adopts it. What is asserted after that
+is the whole point of the design: the front is still listening **on the same port
+number**, https answers there, and the plain http that was being served a moment before is
+now a 307 to the certificate's name.
 
 `test/service.mjs` covers whether anything notices that launchd is running the wrong
 program — the [three-day bug](#the-router--why-you-never-restart-it) — in two halves.
