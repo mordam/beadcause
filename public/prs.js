@@ -623,11 +623,21 @@
         // Both halves, always. A merge that landed and a fast-forward that was refused
         // because there is uncommitted work in the checkout is a good outcome, and one
         // word over the pair would send you to the Mac to find out which happened.
+        //
+        // And the third half where there was one: merging here spends the inbox's own
+        // "Merge #N?" card, and a card that vanishes from another screen with nothing
+        // said about it is indistinguishable from a card that was never there. What is
+        // reported is the *bead* rather than the card id, because the bead is what you
+        // were waiting on — the card was only how it was asked.
+        const closed = (data.cards || []).filter((c) => c.closed);
+        const beads = closed.map((c) => c.work?.closed && c.bead).filter(Boolean);
         state.said = {
           key,
-          text: `${data.alreadyMerged ? `#${p.number} was already merged` : `Merged #${p.number}`} — ${
-            data.land?.note || 'nothing else to do here'
-          }.`,
+          text:
+            `${data.alreadyMerged ? `#${p.number} was already merged` : `Merged #${p.number}`} — ${
+              data.land?.note || 'nothing else to do here'
+            }.` +
+            (closed.length ? ` Closed its inbox card${beads.length ? ` and ${beads.join(', ')}` : ''}.` : ''),
           bad: false,
         };
       } else if (action === 'ship') {
