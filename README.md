@@ -2500,6 +2500,51 @@ merging happens at GitHub. It refuses to **ship**, for the same reason it refuse
 `POST /api/session`: a button whose consequence is an unattended agent deploying a
 checkout it is only visiting.
 
+### The release queue — the number over Ship
+
+A deploy has never shipped one pull request. It fast-forwards the checkout to
+`origin/<base>` and restarts, so it makes **every** merge sitting there live at once —
+pressing Ship on one row has always carried the four behind it. What the button could
+not say was how many, and with six sessions a day merging here that is the difference
+between a routine press and the day's work going out.
+
+So the top of each repo's card carries **the queue**: the merges that are on `origin`
+and are not running, with the count drawn over a Ship that deploys the lot in one press
+(`POST /api/release/ship`). It is the same `startDeploy` the row's Ship calls, with the
+pull requests named in the record's reason so the deploy log afterwards says what it
+carried, and it arms the same way. It refuses an **empty** queue rather than restarting
+the daemon for nothing, refuses a repo that has **declared no deploy** (there is no
+window that means "and the other three"), and refuses one already deploying.
+
+A merge only joins the queue once its commit is on `origin/<base>` **as this Mac has
+seen it** — a merge nobody has fetched could not be picked up by the pull, so it stays
+off the queue and keeps the row note it already had. And it leaves the queue when it is
+demonstrably live: in the build this daemon is running, or covered by a deploy that
+exited 0 and started *after* GitHub timestamped the merge. `unconfirmed` and `lost` — the
+two words lib/deploy.js has for "nobody knows" — settle nothing, ever.
+
+**And each merge gets a bead.** The notification a delivery sends says *still owed:
+deploy* and is gone by morning; a bead is still in the tracker the next time you look,
+and it closes itself when the merge goes live. One per pull request, labelled `ship`,
+carrying a `ship: <repo>#<n>` marker that makes filing idempotent whatever else is going
+on, and labelled `unendorsed` — lib/endorse.js's hold, which is a filter in every
+advocate queue *and* a refusal in the launcher — so nothing ever opens a session on one:
+shipping is a tap, not an agent. Two things bound it,
+because a tracker filling with chores is worse than no tracker at all —
+
+- **The first sight of a repo files nothing.** The board carries three weeks of merged
+  pull requests; a new install, a new workspace, or this feature's own first run writes a
+  watermark (`~/.config/beadcause/releases.json`) and only merges after it are its
+  business. An unreadable watermark file stops the sweep outright rather than starting
+  again from nothing, because starting again from nothing is exactly the flood.
+- **Only where a ship is visible.** A repo with no declared deploy and no build this
+  daemon can see has no event that would ever close one of these, so none is filed there.
+
+`release.beads: false` turns the filing off and leaves the number; `release.seconds`
+(300) is how often the queue is swept, which is slow on purpose — it is a `gh` call per
+repo when nobody has looked at the board recently, and "this merged and has not shipped"
+keeps for five minutes.
+
 ### What it costs, and what it keeps
 
 One `gh pr list` per repo plus a handful of `bd` lookups, cached for 25 seconds on the
@@ -2521,7 +2566,12 @@ and the window-opening one does not, and that a refusal lands under the row as G
 own sentence. `node test/prship.mjs` covers the fork itself end to end through the
 daemon — a declared deploy started with no window, a repo with none falling through to
 the session, two taps not becoming two deploys, and an unmerged pull request deploying
-nothing.
+nothing. `node test/release.mjs` covers the queue: what counts as shipped and the three
+answers it can give, that the first sight of a repo files nothing, that two ticks over
+one merge file one bead — with the ledger entry torn out from under the second, because
+the ledger is a watermark and the marker on the bead is what stops the duplicate — that
+`unconfirmed` closes nothing, and, over real HTTP against `createApp`, that one press
+runs one deploy for the whole queue and the next one is refused.
 
 ### Deploying a repo, when it says how
 
@@ -5059,6 +5109,7 @@ cookie says so), and `/auth/signout` ends the session.
 | GET | `/api/prs` | `?refresh=1` | the PR board: every pull request in every repo with its Merged · Pushed · Deployed lamps, plus `observing`. Cached 25s on the daemon; `refresh=1` forces the `gh` sweep |
 | POST | `/api/pr/merge` | `{workspace, number, method?}` | merges it at GitHub, fast-forwards this Mac's `main`, and retires the inbox's own "Merge #N?" card if a worker filed one. Three halves report separately — `{pr, alreadyMerged, land, cards}` — because a merge that landed and a fast-forward refused over open files is a *good* outcome and one flat failure over both would send you to GitHub to find out which. The card is **closed**, never answered: merging a pull request is a fact, and the card is spent because of that fact rather than because anything wrote `MERGE:` under your name |
 | POST | `/api/pr/ship` | `{workspace, number}` | the declared deploy where the repo has one, an iTerm session where it does not. `409` if the PR is not merged — shipping an unmerged pull request has no meaning. Refused on an observer |
+| POST | `/api/release/ship` | `{workspace}` | ships the whole release queue — one deploy for every merge sitting on `origin` and not live, which is what a deploy has always done anyway. `409` on an empty queue (a restart for nothing), on a repo that declares no deploy (there is no window that means "and the other three"), and on one already deploying. Refused on an observer |
 | POST | `/api/pr/comment` | `{workspace, number, text}` | a note on the pull request at GitHub and nothing else. Not `/api/comment`, which writes on a *bead* and puts an agent onto answering it |
 | POST | `/api/comment` | `{workspace, id, text, agent?}` | comments, sets `human-replied`, dispatches that agent to reply (default when absent or unknown) |
 | POST | `/api/dismiss` | `{workspace, id, reason?}` | takes the card off the screen and **closes nothing**. Writes your note if you typed one, writes nothing at all if you did not, and never touches the status — "I am not dealing with this now" is not "this is decided" |
