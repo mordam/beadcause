@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { loadConfig, reconcileBaseUrl, CONFIG_PATH, OBSERVING } from '../lib/config.js';
 import { createApp, startPoller, listen } from '../lib/server.js';
-import { advocatedWorkspaces, workerLimit } from '../lib/advocate.js';
+import { advocatedWorkspaces, workerLimit, globalWorkerCap } from '../lib/advocate.js';
 import { buildStamp } from '../lib/build.js';
 import { declareOwnDeploy } from '../lib/deploy.js';
 import { hotSwapProblem, problemBanner } from '../lib/service.js';
@@ -271,7 +271,7 @@ const advocated = advocatedWorkspaces(cfg).map((w) => `${w.name}\u00d7${workerLi
 console.log(
   `[beadcause] advocates   ${
     advocated.length
-      ? `${advocated.join(', ')} ${OBSERVING ? '(observing — they survey, they open nothing)' : `(max ${cfg.advocates?.globalMaxWorkers ?? 10} sessions in total)`}`
+      ? `${advocated.join(', ')} ${OBSERVING ? '(observing — they survey, they open nothing)' : `(max ${globalWorkerCap(cfg)} sessions in total)`}`
       : '(none — advocates.workspaces is empty)'
   }`
 );

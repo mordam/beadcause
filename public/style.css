@@ -3157,6 +3157,16 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
   padding: 0 4px; color: var(--muted);
 }
 .svc.ok .svc-dot { color: var(--accent); }
+/* The one line in that block you can press: the cap across every advocate, as the same
+   stepper the advocate cards carry. Centred rather than baseline-aligned because a pill
+   of buttons has no baseline worth sharing with the text beside it, and pushed to the
+   right end so the three lines still read as a column of statements with the single
+   control at the edge of one of them. Wraps on a phone rather than squeezing the
+   sentence, which is the half that says what the number means. */
+.svc-set { align-items: center; flex-wrap: wrap; gap: 8px; padding-block: 2px; }
+.svc-set .adv-limit { margin-left: auto; }
+.svc-num { font-weight: 700; font-variant-numeric: tabular-nums; color: var(--text); }
+.svc-num.warn { color: var(--warn); }
 
 .svc.bad {
   padding: 10px 12px; color: var(--text);

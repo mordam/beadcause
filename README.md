@@ -3272,7 +3272,7 @@ that opens Claude sessions on your Mac unprompted should never be a surprise:
   "workspaces": ["sophab", "beadcause"],
   "maxWorkers": 1,
   "maxWorkersLimit": 3,
-  "globalMaxWorkers": 10,
+  "globalMaxWorkers": 20,
   "perWorkspace": { "sophab": { "maxWorkers": 2 } }
 }
 ```
@@ -3304,11 +3304,21 @@ When that set is empty the advocate says **clear** and stops. That is the whole 
 `maxWorkers` is how many sessions one advocate may have open at once; it is clamped
 to `maxWorkersLimit` (default 3, and a config asking for six gets three *and a log
 line*, rather than failing to start). `globalMaxWorkers` caps every advocate
-together (default 10), so six repos each allowed 3 cannot open eighteen windows.
+together (default 20, hard ceiling 36), so six repos each allowed 3 cannot open
+eighteen windows.
 
 Whenever a cap is what stopped a launch, it says so — on the card and in the log —
 because a slot limit that quietly drops a launch reads exactly like an advocate that
 has decided there is nothing to do.
+
+Neither number needs an editor. The per-repo one is a stepper on that repo's advocate
+card, and the global one is a stepper in the block at the top of the console, beside
+the two health lines — both change the running daemon on the next tick *and* write
+themselves to the config, so a `launchctl kickstart` does not put the old number back.
+The global row also says how much of the cap is in use (`3 of 20`), which is the
+question you actually came to that number with. A config written before the default
+moved is bumped from 10 to 20 exactly once, with a line in the log saying so; a 10 set
+deliberately afterwards stays 10.
 
 Each session opens the same way the **Discuss** button does: a real iTerm2 window
 running `claude --permission-mode auto` in the repo, which means you can watch it,
@@ -6034,7 +6044,7 @@ the fields it always read and renders exactly as it did.
 | `advocates.workspaces` | which repos get an [advocate](#advocates--an-agent-per-repo-whose-job-is-the-queue-reaching-zero). **Empty by default**; `["*"]` for every one |
 | `advocates.maxWorkers` | sessions one advocate may have open at once (default 1), clamped to `maxWorkersLimit` |
 | `advocates.maxWorkersLimit` | the ceiling that clamps it (default 3). A larger `maxWorkers` is clamped **and logged**, never silently applied |
-| `advocates.globalMaxWorkers` | across every advocate (default 10), so six repos can't open eighteen windows |
+| `advocates.globalMaxWorkers` | across every advocate (default 20, hard ceiling 36), so six repos can't open eighteen windows. A stepper at the top of the advocates console, so this one needs no restart; a stored 10 from an older install is moved to 20 once |
 | `advocates.perWorkspace` | per-repo overrides, e.g. `{"sophab": {"maxWorkers": 2}}` |
 | `advocates.minPriority` | beads above this priority aren't work (default 3 — P4 is a backlog) |
 | `advocates.propose` | ask to create beads when the queue empties (default `true`; **nothing is ever created without your approval**) |

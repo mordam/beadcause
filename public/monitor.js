@@ -835,6 +835,55 @@
     </div>`;
   }
 
+  /**
+   * How many sessions may be open on this whole Mac — the third line in the block, and
+   * the only one of the three you can press.
+   *
+   * This is `advocates.globalMaxWorkers`, and it is the cap that most often actually
+   * binds: every advocate card already quotes it, in its stepper's tooltip and in the
+   * amber "Held by globalMaxWorkers" note the tick writes when it is what stopped a
+   * launch. Until now it was also the one number on this page you could not change
+   * without editing ~/.beadcause/config.json and restarting the daemon — so the page
+   * could tell you exactly which number was holding your work up and offer you nothing
+   * to do about it.
+   *
+   * Deliberately the same control as the per-repo one — `.adv-limit`, two square
+   * buttons and the number between them — because it is the same kind of decision one
+   * level up, and a second shape for it would read as a different kind of setting.
+   * What differs is the range (`GLOBAL_WORKERS_CEILING`, which travels in the payload
+   * rather than being written here) and that it is stated as a fraction: `3 of 20` is
+   * the headroom question, and it is the reason you came to look at this number.
+   *
+   * Above the space card and under the two health lines, because it is global and the
+   * card below it is one space's — settings sorted widest-first, which is also the
+   * order you scroll past them in.
+   */
+  function globalHtml(g, observing) {
+    if (!g) return ''; // An older daemon behind a newer page: say nothing, invent nothing.
+    const ceiling = g.ceiling || 36;
+    const held = g.live >= g.maxWorkers;
+    const step = (delta, label, title, off) =>
+      `<button class="adv-btn adv-step" data-adv="globalLimit" data-value="${g.maxWorkers + delta}" title="${esc(
+        title
+      )}"${off ? ' disabled' : ''}>${label}</button>`;
+    return `<div class="svc ok svc-set">
+      <span class="svc-dot">⚙</span>
+      <span><b class="svc-num${held ? ' warn' : ''}">${g.live}</b> of ${plural(
+        g.maxWorkers,
+        'session'
+      )} open across every advocate${held ? ' — every slot is in use' : ''}</span>
+      <span class="adv-limit${held ? ' held' : ''}" title="${esc(
+        observing
+          ? 'This instance only watches — the cap belongs to the daemon that acts.'
+          : 'advocates.globalMaxWorkers — the total across every advocate on this Mac, whatever any one repo’s own limit says'
+      )}">
+        ${step(-1, '−', 'One fewer session on this Mac, across every advocate', g.maxWorkers <= 1)}
+        <b>${g.maxWorkers}</b>
+        ${step(1, '+', `One more session on this Mac (up to ${ceiling})`, g.maxWorkers >= ceiling)}
+      </span>
+    </div>`;
+  }
+
   /* ------------------------------------------------------- the space's own settings
 
      What makes this page the details of a *space* rather than a list of advocates that
@@ -1139,7 +1188,12 @@
     // The space's own settings sit under the two health lines and above the repos: it
     // is what this page is the details *of*, and a setting you scroll six advocate
     // cards to reach is a setting you go back to editing the config file for.
-    out.innerHTML = serviceHtml(data.service) + routerHtml(data.router) + spaceHtml() + (cards || nothing);
+    out.innerHTML =
+      serviceHtml(data.service) +
+      routerHtml(data.router) +
+      globalHtml(data.globals, data.observing) +
+      spaceHtml() +
+      (cards || nothing);
 
     // An observer may read this space's settings and may not write them: its `cfg` is
     // the real daemon's config file, so a press here would change what the *other*
@@ -1148,8 +1202,14 @@
     // not something you find out by pressing. Same treatment the admin page gives its
     // own buttons, and drawn rather than hidden — a control that vanished would read as
     // a feature this build does not have.
+    // The global session cap is in the same sentence for the same reason — an
+    // observer's config file *is* the live daemon's, so stepping it here would change
+    // how many windows the other process opens after its next restart, which is the
+    // one kind of press an instance that "never acts" must not make.
     if (data.observing) {
-      for (const el of out.querySelectorAll('[data-space-set],[data-space-day],[data-space-hours],#qh-from,#qh-to')) {
+      for (const el of out.querySelectorAll(
+        '[data-space-set],[data-space-day],[data-space-hours],#qh-from,#qh-to,[data-adv="globalLimit"]'
+      )) {
         el.disabled = true;
         el.title = 'This instance only watches — the settings belong to the daemon that acts.';
       }
@@ -1332,7 +1392,13 @@
 
   /* ------------------------------------------------------------------ actions */
 
-  /** Pause, resume, free the slots, forget the attempt counters, or set the limit. */
+  /**
+   * Pause, resume, free the slots, forget the attempt counters, or set either limit.
+   *
+   * `ws` is undefined for exactly one action: `globalLimit` is a total across every
+   * advocate, so it belongs to no repo and `JSON.stringify` drops the key rather than
+   * naming one. The server reads the action before it looks for a workspace.
+   */
   async function control(ws, action, btn, value) {
     const was = btn.textContent;
     btn.disabled = true;
@@ -1349,7 +1415,13 @@
     } catch (err) {
       btn.textContent = was;
       btn.disabled = false;
-      btn.closest('.mon-card')?.insertAdjacentHTML('beforeend', `<div class="adv-note bad">${esc(err.message)}</div>`);
+      // The card for a repo's button, and the global row itself for the one button
+      // that has no card — a refusal appended nowhere is a press that looks like it
+      // worked, which is the whole failure this line exists to prevent.
+      (btn.closest('.mon-card') || btn.closest('.svc'))?.insertAdjacentHTML(
+        'beforeend',
+        `<div class="adv-note bad">${esc(err.message)}</div>`
+      );
     }
   }
 
