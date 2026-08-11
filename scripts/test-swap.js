@@ -27,12 +27,12 @@
  */
 import fs from 'node:fs';
 import os from 'node:os';
-import net from 'node:net';
 import path from 'node:path';
 import http from 'node:http';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { WebSocket } from 'ws';
+import { freePort } from '../test/helpers/net.mjs';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const TOKEN = 'test-token-not-a-secret';
@@ -61,17 +61,6 @@ const bad = (name, detail) => {
 };
 const check = (cond, name, detail) => (cond ? ok(name) : bad(name, detail));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
-function freePort() {
-  return new Promise((resolve, reject) => {
-    const probe = net.createServer();
-    probe.on('error', reject);
-    probe.listen(0, '127.0.0.1', () => {
-      const { port } = probe.address();
-      probe.close(() => resolve(port));
-    });
-  });
-}
 
 /** One request through the router, resolving with status, headers and body. */
 function get(port, pathname, { timeout = 70000, token = TOKEN } = {}) {
