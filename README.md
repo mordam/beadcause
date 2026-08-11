@@ -1961,6 +1961,118 @@ advocate cycle rewrites `advocates.json` three or four times in a second and tho
 are one event to whoever reads the history back. `status.json`, `logs/` and the
 check PNGs are ignored — churn, and not the thing you want a history of.
 
+### Tier 3 — a repo one agent owns, and the experiment that is the point of it
+
+Tiers 1 and 2 settled durability. What they did not answer is what an agent does with
+a space nobody has designed. So the advocate — and only the advocate — is given one:
+
+```
+~/.config/beadcause/agents/<workspace>/<agent>/
+```
+
+A real directory with a real working tree and a real `.git`, outside every project
+checkout, **seeded with nothing at all**. No README, no schema, no example. That is
+the instrument rather than an omission: what an agent reaches for when handed an
+empty space is a fact about agents, and a seeded repo would only tell you it can
+follow a template. `lib/agentrepo.js` provisions it and `bin/beadcause-agentrepo` is
+how the agent reaches it.
+
+```
+beadcause-agentrepo path                   where it is
+beadcause-agentrepo ls [<dir>]             what is in it
+beadcause-agentrepo cat <file>             read one
+beadcause-agentrepo write <file>           write one; content on stdin
+beadcause-agentrepo rm <file>              delete one
+beadcause-agentrepo git <args...>          any git command, inside it
+```
+
+**Success is not that the state was durable.** Success is the agent doing something
+nobody designed for, and the bead says to evaluate it that way or the result means
+nothing — which is why half of `lib/agentrepo.js` is measurement.
+
+#### The prediction under test, and the two arms
+
+*The agent writes on the first turn of every session and never reads back*, because
+nothing prompts it to. A repo with no recall path is a write-only diary, and the
+variable that decides it is not the repo — it is whether session start says "you have
+a memory, and here is what is in it". The same lesson `MEMORY.md` teaches, and the
+same one `beadcause-memory agents` taught above: a capability nobody was told about is
+indistinguishable from one nobody chose to use.
+
+So every survey runs one of two arms, and the comparison is the finding:
+
+| | **`blind`** | **`index`** |
+|---|---|---|
+| the brief | the directory exists, and how to reach it | the same, **plus a listing of what is in it** |
+| what it tests | does it write unprompted? | does being shown it make it read? |
+
+`advocates.agentRepo` picks: `alternate` (the default) flips between the two per
+workspace, `blind`/`index` pin one for reproducing something the log showed, and `off`
+withdraws the affordance and the write grant with it. `alternate` is the default
+because the alternative is a switch somebody has to remember to flip, and an
+experiment that depends on that produces one arm and no comparison.
+
+Every invocation appends a line to `~/.config/beadcause/agents/usage.jsonl` — the
+verb, the target and whether it read or wrote, never file contents. A `session` line
+is written at *spawn*, so a run in which the agent ignored the repo entirely is still
+a run in the denominator; that is the half the prediction turns on.
+
+```js
+import { summary } from './lib/agentrepo.js';
+summary();
+// { blind: { runs, touched, read, wrote, readFirst, commands }, index: { … } }
+```
+
+`readFirst` is the number that answers it: "wrote and never read back" is `wrote`
+minus `read`, and "was told what was in there and went and looked" is `readFirst`
+under `index`. Reported per arm and never pooled, because a pooled number answers a
+question nobody asked.
+
+#### The real work is permissions, not git
+
+The console allowlist is load-bearing rather than belt-and-braces, and this is the
+first time an unattended agent here has had anywhere it may write. Three things keep
+that down to a sentence you can hold in your head — *this agent may write inside its
+own directory, and nowhere else*:
+
+- **One allowlist entry, and it is a command rather than a tool:**
+  `Bash(beadcause-agentrepo:*)`. Neither obvious alternative is a fence. `Write`/`Edit`
+  take a path specifier relative to the working directory, and this is an absolute path
+  outside every checkout. `Bash(git -C <dir>:*)` looks like one and is not: `git -C a -C
+  b` chains, so a prefix match on the first `-C` permits a second pointing anywhere on
+  the Mac. The wrapper is the fence — every path resolves under the repo after a
+  `realpath` on its deepest existing ancestor, so a symlink planted in the tree cannot
+  be walked out of, and no option may precede a git subcommand, which refuses `-C`,
+  `-c`, `--git-dir`, `--work-tree`, `--exec-path` and `--namespace` in one rule.
+- **`ownsRepo` is PROTECTED in `lib/foundation.js`**, in both directions. An agent that
+  could amend it *on* would have granted itself write access, and "somewhere of my own
+  to keep notes" is exactly the request that reads as harmless on a phone. An agent that
+  could amend it *off* could put the directory out of the index, out of the foundations
+  screen and out of mind while its contents stayed on disk.
+- **Local-only, enforced rather than intended.** No remote is configured and the wrapper
+  refuses `push`, `fetch`, `remote`, `clone` and the rest; `.git` is out of bounds for
+  the file verbs, because writing `.git/config` by hand is how a repo acquires a remote.
+  `lib/sessionlog.js` refused to push by default because a transcript carries absolute
+  paths and whatever tool output scrolled past. This inverts the authorship — *the
+  agent* decides what lands here — so it can write a secret nobody anticipated into a
+  repo nobody reviews. Add a remote after weeks of reading what actually accumulates,
+  and know that the only shape which enforces owner-plus-owning-agent is a private repo
+  per agent with a fine-grained PAT scoped to that one repository; a shared private repo
+  with a ref namespace per agent is cheaper and isolates by convention alone.
+
+The directory is `0700` and its files `0600` — narrowed rather than set, so git's
+read-only `0444` objects become `0400` and not a writable `0600`.
+
+#### One line of `.gitignore` that is load-bearing
+
+`~/.config/beadcause` is itself a git repo whose snapshot runs `git add -A`, so
+`agents/` is in its ignore file. That is not tidiness. A nested repo is skipped only
+once it has a `.git` of its own, so the window between `mkdir` and `git init` — or any
+tree an init failed halfway through — would put an agent's private files straight into
+the shared history, silently, exactly once. `topUpIgnore` is what gets the rule onto
+installs that predate it, and `test/agentrepo.mjs` asserts the outcome against `git
+check-ignore` rather than against the file, because the question is what git does.
+
 ## What an agent can see — a picture of the running app
 
 Almost everything in flight in this repo is visual. How the graph fits a phone,
@@ -2602,6 +2714,34 @@ meant to share, scoping this bar's CSS apart from the foundations page's, has la
 ahead of it as bc-4aw: `.mon-tabs` is now this bar's own selector, which is what a
 restyle needs to be able to move it without moving the other page.
 
+### The Mirror pane waits, it does not poll
+
+The **Mirror** pane beside the advocate console follows whatever the phone has open and draws the
+version that would not fit in a hand — the whole brief, every comment, the options as
+buttons. It follows rather than chooses: the view comes off `/api/presence`, which every
+page publishes as it moves, and the presence event wakes the parked `/api/poll`, so a card
+opening in a hand is on the big screen as fast as the network allows and **nothing is
+polled in between**. Each view behind it costs a `bd` call, and they are paid for on a
+move rather than on a clock.
+
+A chat session is the exception, because it changes while nothing moves at all — the agent
+is mid-sentence. That used to be a 1.5s `setInterval` re-reading the whole session, which
+made a turn arrive up to a second and a half after it was written and cost forty requests a
+minute for a session nobody was talking to. It has a parked request of its own now, on the
+same `/api/console/poll` [the console's own page lives on](#the-chat-session--deciding-what-to-file):
+it waits on that session's sequence and hands back the whole session the moment it moves,
+so an idle one is one held request and a streamed turn lands as it is written. Repaints are
+coalesced to a tenth of a second on the way in — a delta moves the sequence per token, and
+this pane's composer is *inside* what a repaint rebuilds, unlike the console page's.
+
+`node scripts/mirror-check.mjs` holds it to that, in headless Chrome against fixtures
+served from the script: that an idle session is read **once** and then parked on, that
+streamed words arrive through the park rather than through a second read, and — the case a
+timer never had to think about — that the request still in flight when the phone leaves the
+session neither repaints the pane nor starts another one, because the phone can come back
+to a session while the old poll is still out. `--baseline` fails all three, since HEAD's
+mirror never asks `/api/console/poll` anything at all.
+
 Advocates carries a **badge** when there is something behind it — how many advocates
 are waiting on an answer. The number rides the inbox's own poll (`/api/questions`
 carries it; see [the three counts on the poll](#the-three-counts-on-the-poll)), so it
@@ -2714,6 +2854,54 @@ runs only with a sequence to start from, so a daemon that predates the field nev
 starts one. And every failure — a refused poll, a dropped tailnet, a restart — falls
 back to the 25-second timer that was there before. The one thing that must never happen
 is an inbox that has quietly stopped refreshing.
+
+### The delta stream — every view on the event log
+
+For a while the inbox was the only view on the log, and the other four still refreshed
+by throwing their whole payload away on a wall-clock timer: ten seconds on `/admin`,
+twenty on `/monitor`, sixty on `/prs`, and never at all on the chat launcher, which
+simply went stale until you navigated away and came back. Two of those pulled a `bd`
+sweep across every workspace behind them — `/admin` asked for `/api/work` every ten
+seconds, all day, to read a single boolean off it — and every one of them was paid
+whether or not anything had moved.
+
+`public/stream.js` is that loop, lifted out of `app.js` and mounted by all five. It owns
+the socket, the sequence, the abort and the visibility rule; what an event *means* stays
+with the view, because only the view knows whether `type: 'merged'` is a lamp, a count or
+nothing at all. Five hand-rolled long-polls with five subtly different resync behaviours
+was the shape worth not growing into.
+
+The thing that makes four more parked clients free is `want=presence`. The daemon sweeps
+`bd` for a poll that asked for the inbox questions, and the other four views draw none of
+them — so they ask to be *woken* rather than told, and then go and get their own payload,
+which for three of them is an in-memory read. Without it, four parked views would have
+meant four sweeps per event: the timer's bill arriving by another route.
+
+What each of them then does with a wake is the interesting part, and it is different in
+each case because what is expensive is different in each case:
+
+| View | On a wake |
+|---|---|
+| **Inbox** | Adopts the questions the poll carries. It is the one view whose park does ask for them, and the payload arrives with the wake. |
+| **Advocates** | Takes the advocate roster straight off the poll — `advocates.snapshot()` rides every wake — so a pause, a resume or a check-in repaints with no request at all. It goes back to `bd` only for events `bd` would answer differently, which an advocate saying it is still surveying is not. |
+| **Admin** | Reads `observing` off the poll, which is the whole reason it ever touched `/api/work`, and re-asks `/api/admin` — two in-memory reads, no `bd` — when an advocate or a terminal moved. Its numbers are promises about what a press will do, so half-patching them was never an option. |
+| **Board** | Re-asks `/api/prs` when a pull request actually moved. The three lamps are the daemon's own reading of GitHub, `origin/main` and the deploy journal; a client that set them from an event would be a second, worse copy of that ladder. The daemon drops its board cache as those events fire, so the first board through does the one `gh` sweep and every other open board shares it. |
+| **Chat launcher** | Was the odd one out — no timer to delete, just no refresh — and now re-asks `/api/consoles` when something moved. |
+
+Two events were added for it, both on the daemon: opening and closing an in-app terminal
+now say so, because `/admin` draws a count of open terminals into the label of the button
+that closes them and the ten-second timer was the only thing keeping that number true.
+
+**What this deliberately gives up.** GitHub is outside the daemon's log, so a pull
+request opened by something other than this app — an agent's `deliver.js`, a push from
+another machine — is not an event and does not wake the board; the ⟳, the next
+daemon-side event or arriving at the page is what brings it in. And a session claiming a
+bead in a terminal nobody told the daemon about is invisible to `/monitor` for the same
+reason, where the twenty-second timer used to catch it inside twenty seconds. Both were
+being paid for with a sweep a minute on every open page, and in practice a running
+advocate emits several events a minute, so the page it matters on is the busy one.
+
+With the app open and nothing moving, the daemon now logs no periodic sweeps at all.
 
 ### A repaint that leaves alone what did not change
 
@@ -3173,10 +3361,12 @@ Two `bd` calls per workspace (`status --json` for the counts, `list
 --status=in_progress --limit 0 --json` for the beads — `--limit 0` because bd's own
 default is 50, and a silently truncated list here would read as the whole truth),
 run in parallel across all of them:
-about two seconds for six. It refreshes every 20s and on ⟳, deliberately not on the
-inbox's 30s cycle — the inbox is polled by every client all day, and this is opened
-when you want it. It also stops while the Mirror pane is the one showing, because a
-hidden page must not keep sweeping every tracker on the Mac. A workspace that fails
+about two seconds for six. It used to run every 20s for as long as the page was open;
+it now follows [the delta stream](#the-delta-stream--every-view-on-the-event-log)
+instead, so the advocate roster repaints off the poll for free and those `bd` calls run
+only when something happened that they would answer differently — plus the ⟳ and a cold
+boot. It also stops while the Mirror pane is the one showing, because a hidden page must
+not keep sweeping every tracker on the Mac. A workspace that fails
 reports its error in place rather than vanishing from the list; a missing row would
 read as "nothing happening there", which is the one thing it doesn't mean.
 
