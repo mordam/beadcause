@@ -3937,6 +3937,15 @@ bead can move. On top of that, two exclusions of our own:
 - **P4 is a backlog** — a list of things deliberately not being done. Without this
   the queue can never reach zero and "clear" stops meaning anything. Move the line
   with `minPriority`.
+- **The same job twice is one session.** Two beads can carry near-identical titles
+  without anyone proposing anything — filed by hand, pulled in from JIRA, or created
+  by an approval that *was* flagged as a duplicate and that you tapped anyway. Both
+  are ready, and the second window's first act would be to find the work already
+  committed on the first one's branch. So a bead whose title matches one that is
+  already in progress — or that a session is already open on — waits for it, at the
+  same near-verbatim threshold that refuses a duplicate approval. Waits, not
+  disappears: it is a pill on the repo's advocate card naming the bead it is behind,
+  and it goes back in the queue by itself when that one closes.
 
 When that set is empty the advocate says **clear** and stops. That is the whole of
 "done".
