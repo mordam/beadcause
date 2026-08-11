@@ -53,8 +53,24 @@
     <div id="admin">
       <div class="empty">Asking the daemon…</div>
     </div>
+
+    <!-- HTTPS. Below the pause controls because that is what this screen is opened
+         for, and on this screen at all because the alternative is a hand-edit of
+         ~/.config/beadcause/config.json and a setting on Tailscale's website that
+         only announces itself in a launchd log. See lib/tlsswitch.js. -->
+    <div id="tls"></div>
+
+    <!-- The way back in after the origin moves, kept outside #tls so the ten-second
+         repaint cannot take the pairing code away while you are pointing a camera at
+         it. Nothing is in it until a switch has actually been pressed. -->
+    <div id="pairing" hidden></div>
   </main>
 
+  <!-- What this page already has, from the last time you were on it: the payload it
+       boots from, and the reconciler that keeps a repaint from throwing away the DOM
+       it did not need to touch. First of the shared files, because every page script
+       below asks it for a warm list before it asks the daemon for a cold one. -->
+  <script src="/warm.js"></script>
   <script src="/tabbar.js"></script>
   <script src="/admin.js"></script>
 </body>
