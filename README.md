@@ -2827,6 +2827,54 @@ starts one. And every failure — a refused poll, a dropped tailnet, a restart �
 back to the 25-second timer that was there before. The one thing that must never happen
 is an inbox that has quietly stopped refreshing.
 
+### The delta stream — every view on the event log
+
+For a while the inbox was the only view on the log, and the other four still refreshed
+by throwing their whole payload away on a wall-clock timer: ten seconds on `/admin`,
+twenty on `/monitor`, sixty on `/prs`, and never at all on the chat launcher, which
+simply went stale until you navigated away and came back. Two of those pulled a `bd`
+sweep across every workspace behind them — `/admin` asked for `/api/work` every ten
+seconds, all day, to read a single boolean off it — and every one of them was paid
+whether or not anything had moved.
+
+`public/stream.js` is that loop, lifted out of `app.js` and mounted by all five. It owns
+the socket, the sequence, the abort and the visibility rule; what an event *means* stays
+with the view, because only the view knows whether `type: 'merged'` is a lamp, a count or
+nothing at all. Five hand-rolled long-polls with five subtly different resync behaviours
+was the shape worth not growing into.
+
+The thing that makes four more parked clients free is `want=presence`. The daemon sweeps
+`bd` for a poll that asked for the inbox questions, and the other four views draw none of
+them — so they ask to be *woken* rather than told, and then go and get their own payload,
+which for three of them is an in-memory read. Without it, four parked views would have
+meant four sweeps per event: the timer's bill arriving by another route.
+
+What each of them then does with a wake is the interesting part, and it is different in
+each case because what is expensive is different in each case:
+
+| View | On a wake |
+|---|---|
+| **Inbox** | Adopts the questions the poll carries. It is the one view whose park does ask for them, and the payload arrives with the wake. |
+| **Advocates** | Takes the advocate roster straight off the poll — `advocates.snapshot()` rides every wake — so a pause, a resume or a check-in repaints with no request at all. It goes back to `bd` only for events `bd` would answer differently, which an advocate saying it is still surveying is not. |
+| **Admin** | Reads `observing` off the poll, which is the whole reason it ever touched `/api/work`, and re-asks `/api/admin` — two in-memory reads, no `bd` — when an advocate or a terminal moved. Its numbers are promises about what a press will do, so half-patching them was never an option. |
+| **Board** | Re-asks `/api/prs` when a pull request actually moved. The three lamps are the daemon's own reading of GitHub, `origin/main` and the deploy journal; a client that set them from an event would be a second, worse copy of that ladder. The daemon drops its board cache as those events fire, so the first board through does the one `gh` sweep and every other open board shares it. |
+| **Chat launcher** | Was the odd one out — no timer to delete, just no refresh — and now re-asks `/api/consoles` when something moved. |
+
+Two events were added for it, both on the daemon: opening and closing an in-app terminal
+now say so, because `/admin` draws a count of open terminals into the label of the button
+that closes them and the ten-second timer was the only thing keeping that number true.
+
+**What this deliberately gives up.** GitHub is outside the daemon's log, so a pull
+request opened by something other than this app — an agent's `deliver.js`, a push from
+another machine — is not an event and does not wake the board; the ⟳, the next
+daemon-side event or arriving at the page is what brings it in. And a session claiming a
+bead in a terminal nobody told the daemon about is invisible to `/monitor` for the same
+reason, where the twenty-second timer used to catch it inside twenty seconds. Both were
+being paid for with a sweep a minute on every open page, and in practice a running
+advocate emits several events a minute, so the page it matters on is the busy one.
+
+With the app open and nothing moving, the daemon now logs no periodic sweeps at all.
+
 ### A repaint that leaves alone what did not change
 
 The other half is inside one document. The inbox rebuilt its whole list with
@@ -3285,10 +3333,12 @@ Two `bd` calls per workspace (`status --json` for the counts, `list
 --status=in_progress --limit 0 --json` for the beads — `--limit 0` because bd's own
 default is 50, and a silently truncated list here would read as the whole truth),
 run in parallel across all of them:
-about two seconds for six. It refreshes every 20s and on ⟳, deliberately not on the
-inbox's 30s cycle — the inbox is polled by every client all day, and this is opened
-when you want it. It also stops while the Mirror pane is the one showing, because a
-hidden page must not keep sweeping every tracker on the Mac. A workspace that fails
+about two seconds for six. It used to run every 20s for as long as the page was open;
+it now follows [the delta stream](#the-delta-stream--every-view-on-the-event-log)
+instead, so the advocate roster repaints off the poll for free and those `bd` calls run
+only when something happened that they would answer differently — plus the ⟳ and a cold
+boot. It also stops while the Mirror pane is the one showing, because a hidden page must
+not keep sweeping every tracker on the Mac. A workspace that fails
 reports its error in place rather than vanishing from the list; a missing row would
 read as "nothing happening there", which is the one thing it doesn't mean.
 
