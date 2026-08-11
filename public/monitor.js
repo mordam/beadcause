@@ -843,8 +843,10 @@
      Every one of these already existed and every one of them was a config hand-edit:
      `quietHours`, `quietDays`, `ntfyDetail` and `autoDispatch` have been read out of
      lib/spaces.js since spaces were invented, `autoMerge`/`requireApproval` joined them
-     with the per-space PR policy, and `autoEndorse` — whether a bead an agent filed here
-     may be worked before you have read it — joined them after that. Editing them meant opening
+     with the per-space PR policy, `autoEndorse` — whether a bead an agent filed here
+     may be worked before you have read it — joined them after that, and `autoShip` joined
+     them with the release queue that deploys a merge without being tapped. Editing them
+     meant opening
      `~/.beadcause/config.json` on the Mac — which is exactly the wrong place, because
      the moment you know a setting is wrong is the moment you are looking at what it
      did, on a phone, at the weekend.
@@ -854,7 +856,7 @@
 
      - **Muted** is two-state. There is no global "mute everything" behind it, so
        "not set" and "off" are the same thing and a third button would be a lie.
-     - **The five with a global behind them** are three-state — On, Off, *Inherit* —
+     - **The six with a global behind them** are three-state — On, Off, *Inherit* —
        because `prPolicyFor` is explicit that a space may override the global in either
        direction, so "off" and "following the default, which is off" are different
        answers that must survive the default changing under them. The Inherit button
@@ -1047,6 +1049,13 @@
         s.requireApproval,
         g.requireApproval
       ),
+      tri(
+        'autoShip',
+        'Merges ship themselves',
+        'On means a merge runs the repo’s own deploy without waiting for Ship — batched behind a ten-minute settle window, so four merges are one deploy. An epic labelled auto-ship or no-auto-ship overrides this for its own work.',
+        s.autoShip,
+        g.autoShip
+      ),
     ].join('');
 
     // What each repo actually resolves to, which is not always what the space says:
@@ -1063,6 +1072,7 @@
               <span class="tag ${r.autoEndorse ? 'warn' : 'dim'}">${r.autoEndorse ? 'files endorsed' : 'files held'}</span>
               <span class="tag ${r.autoMerge ? 'ok' : 'warn'}">${r.autoMerge ? 'auto-merge' : 'hands you the PR'}</span>
               ${r.autoMerge && r.requireApproval ? '<span class="tag warn">approval first</span>' : ''}
+              <span class="tag ${r.autoShip ? 'ok' : 'dim'}">${r.autoShip ? 'ships itself' : 'waits for Ship'}</span>
             </div>`
           )
           .join('')}</div>`
