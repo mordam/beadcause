@@ -380,7 +380,7 @@ pills and above the question:
 ```
 
 Three properties, and each of them is the reason for a design decision in
-`lib/quiet.js`:
+`lib/hushed.js`:
 
 - **It is recorded, not recomputed.** Asking `quietReasonFor` again at render time
   answers a different question — *would this bead be quiet now* — and for the filtered

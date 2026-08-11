@@ -69,7 +69,7 @@ const check = (name, fn) => {
 };
 
 const { loadState, saveState } = await import(LIB('config.js'));
-const { arrivedQuiet, quietArrival, retainQuiet } = await import(LIB('quiet.js'));
+const { arrivedQuiet, quietArrival, retainQuiet } = await import(LIB('hushed.js'));
 
 console.log('arrived quietly — which kind of quiet it was');
 
