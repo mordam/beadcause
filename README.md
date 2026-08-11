@@ -1868,6 +1868,59 @@ differently depending on which repo the process is standing in, and its test wou
 assert whatever this Mac happens to have noted. `git for-each-ref
 refs/beadcause/agents/` is the answer for a human who needs the list.
 
+### How a note reaches a session that never thought to ask
+
+Writing is the easy half. The brief in the system prompt says to check `notes` before
+you start, and that is a *pull* — it costs nothing and it works only on a session that
+remembers to run a command before it has read anything, which most do not. So the work
+brief also **pushes**: `openWorkSession` reads this repo's notes and `workPromptFor`
+puts the likely ones in front of the session, above the paragraph about running the
+tests, which is what a good half of them turn out to be about.
+
+Both halves stay. The pull is the only thing that works for whatever the selection did
+not pick, and the section says so in its own last line.
+
+**Which notes.** Two signals, ranked in that order, in `relevantNotes`:
+
+- **A note that names the bead**, or its parent — matched as a substring, so a note
+  saying `run it for bc-rk2o.2-.5 too` is found by every child in that range. The
+  precision is as good as this gets, because an agent writing `Bead: bc-u4na` at the
+  end of a note is saying *this is what that bead was about* in the one vocabulary both
+  sides share, and it is a real convention rather than a hoped-for one: nineteen of the
+  first twenty notes in this repo's store name at least one bead. It rescues exactly
+  what the second signal misses — a note about a bead's subject in words the bead
+  itself never uses scores 0.9, i.e. noise.
+- **A note that reads like the bead** — ten times the cosine between the two bags of
+  distinctive words, above a floor of `1.6`. The tokeniser keeps `.`, `/` and `-`
+  *inside* a token, because `lib/session.js` and `test/browse.mjs` are where the whole
+  signal is. The floor is a gap between two populations rather than a percentile of
+  one: measured across forty real beads, the noise floor sits at about 1.0 and the
+  correct note scores 2.0 to 4.7. A bead about filling in timesheets tops out at 1.03
+  and is handed nothing, which is the case that has to keep working — a section that is
+  noise once is a section nobody reads again.
+
+**What it costs when the pile is large, which is the part worth being honest about.**
+Bodies are capped at four notes and 4500 characters and always will be; a note is taken
+whole or not at all, since a trap clipped mid-sentence is a trap you cannot act on. What
+is *not* capped is the line of keys underneath, so nothing in the store is ever
+invisible from the brief — the session can see that `sw-cache-version-conflicts` exists
+and go and read it. That line is what makes the cap honest: without it a capped section
+reads as the whole store, and pushing would be strictly worse than pulling for
+everything it left out. At a few hundred notes the key line is itself worth capping;
+until then the ceiling that binds is the bodies.
+
+**A repo whose store is empty gets no section**, not a heading over nothing — an agent
+shown an empty section twice learns the section is furniture and stops reading it on the
+day it has something in it. And a worker is handed **its own kind's notes only**;
+reading another kind's is `notes --of=<agent>`, which the brief names, and whether one
+should be *handed* another's unasked is `bc-pud4`.
+
+`notesIn(dir, agent)` is the one tier-1 read that names a directory, and the daemon is
+the caller it exists for: it opens sessions in four repos from one process and is
+standing in none of them. Every read an *agent* can reach still resolves from
+`process.cwd()`, which is the whole point of the indirection — `lib/foundation.js` draws
+the same line in the same place with `effective(dir, agent)`.
+
 ### Where the rest lives: `~/.config/beadcause` is a git repo
 
 The memory that follows an agent, and the blackboard, have no repo they belong to —
