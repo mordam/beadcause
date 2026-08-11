@@ -377,7 +377,29 @@ if (chrome) {
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   const base = `http://127.0.0.1:${server.address().port}`;
 
-  const before = fs.readdirSync(TMP).filter((d) => d.startsWith(PROFILE_PREFIX));
+  // Every profile the live runs below make lands in a directory of this suite's own,
+  // rather than straight into the shared system temp — bc-ivb1. The check further down is
+  // "the run left nothing behind", and it used to be a `deepEqual` over the
+  // `beadcause-browse-*` entries of `os.tmpdir()` itself. That is a directory every other
+  // session on this machine is also browsing into, so any *other* agent that started a
+  // browse inside this window failed a suite it had nothing to do with — this one is
+  // suite ~17 of ~100 and the runner stops at the first failure, so one stranger's
+  // profile cost a whole 15-minute run — and the profile was usually gone from disk by
+  // the time anyone read the diff. It was filed four times over (bc-60rr, bc-wcw3,
+  // bc-eldx, bc-ivb1) before it was fixed, which is what a flake that blames the reader
+  // looks like from the outside.
+  //
+  // `os.tmpdir()` reads `TMPDIR` on every call and `makeProfile()` asks it every time, so
+  // pointing that at a directory made a line ago is the whole fix. Nothing is faked: the
+  // profiles are still made by the real `makeProfile()`, and they are still under the
+  // system temp directory as far as `assertThrowawayProfile` is concerned, because the
+  // sandbox is inside it. It cuts both ways, which is the point — this run is no longer
+  // disturbed by other sessions, and no longer disturbs them, since a sandbox named like
+  // this is not a `beadcause-browse-*` entry to anyone listing the directory above it.
+  const TMPDIR_WAS = process.env.TMPDIR;
+  const SANDBOX = fs.mkdtempSync(path.join(TMP, 'bc-browse-suite-'));
+  process.env.TMPDIR = SANDBOX;
+  const leftBehind = () => fs.readdirSync(SANDBOX).filter((d) => d.startsWith(PROFILE_PREFIX));
   let result = null;
 
   await test('a page that only renders under JavaScript is read', async () => {
@@ -400,8 +422,11 @@ if (chrome) {
     assert.ok(!result.profile.startsWith(os.homedir() + path.sep) || result.profile.startsWith(TMP + path.sep));
     assert.equal(result.profileRemoved, true, 'browse() reported it could not delete the profile');
     assert.equal(fs.existsSync(result.profile), false, `${result.profile} is still on disk`);
-    const after = fs.readdirSync(TMP).filter((d) => d.startsWith(PROFILE_PREFIX));
-    assert.deepEqual(after, before, `the run left ${after.length - before.length} profile(s) behind`);
+    assert.ok(result.profile.startsWith(SANDBOX + path.sep), `${result.profile} is not under ${SANDBOX}`);
+    // Not just "the one it named is gone" — nothing at all is left, which is the assertion
+    // that would catch a second profile made and never reported. It means what it says now
+    // that this directory holds only what this suite put there.
+    assert.deepEqual(leftBehind(), [], `the run left ${leftBehind().length} profile(s) behind`);
   });
 
   await test('the page’s own reach into this machine was refused', () => {
@@ -440,6 +465,18 @@ if (chrome) {
     );
   });
 
+  await test('and none of the other runs left a profile behind either', () => {
+    // The check above covers the first run only, and the four that follow it include the
+    // two cases most likely to leak: `--html`, which takes a different path out, and the
+    // 404, which never returns a result at all — so its profile has no name anyone here
+    // could assert on, and its deletion happens in a `finally` nothing was watching. A
+    // listing of a directory only this suite writes to answers for all of them at once.
+    assert.deepEqual(leftBehind(), [], `${leftBehind().length} profile(s) still in ${SANDBOX}`);
+  });
+
+  if (TMPDIR_WAS === undefined) delete process.env.TMPDIR;
+  else process.env.TMPDIR = TMPDIR_WAS;
+  fs.rmSync(SANDBOX, { recursive: true, force: true });
   server.close();
 } else {
   // Not a silent skip. The end-to-end case is the only thing here that proves a page is
