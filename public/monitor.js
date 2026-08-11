@@ -521,6 +521,11 @@
     if (a.tidy?.summary) {
       parts.push(`<div class="adv-note">🧹 ${esc(a.tidy.summary)} <span class="dim">· ${esc(age(a.tidy.at))} ago</span></div>`);
     }
+    // Beads closed because their pull request merged on github.com — the daemon writing
+    // to the tracker on its own, which otherwise shows up nowhere but a log file.
+    if (a.landed?.summary) {
+      parts.push(`<div class="adv-note">🔀 ${esc(a.landed.summary)} <span class="dim">· ${esc(age(a.landed.at))} ago</span></div>`);
+    }
     if (arc?.error) parts.push(`<div class="adv-note bad">${esc(arc.error)}</div>`);
     if (arc?.sessions?.length) {
       parts.push(
