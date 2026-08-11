@@ -8689,6 +8689,7 @@ history.
 | `auth.google.sessionDays` | how long a signed-in browser stays signed in (default `30`) |
 | `auth.google.enabled` | `false` turns sign-in off while leaving the rest of the block configured (default `true`) |
 | `workspaces` | auto-discovered from `~/beads/*/.beads`, and **reconciled on every start** — entries whose directory has gone are dropped and new ones picked up, both logged. Renaming a workspace directory used to leave a stale entry that failed on every poll tick, silently hiding that whole workspace from the phone |
+| `repos` | the checkouts **one workspace** may be worked in, keyed by workspace name — `{"climative": {"root": "~/climative.dev", "default": "architecture", "approved": ["architecture", "athena-service"]}}`. Empty by default, and a workspace not named here costs nothing: it is one repo, as every workspace was before this existed. `approved` is a list you write and nothing discovers — a directory under `root` that is not in it resolves to nothing. Each repo's identity is the **service token** it declares in its own `config/config.yaml`, read from the checkout rather than restated here; `default` is the repo a bead carrying no token belongs to, and `tokenPath` / `tokenKey` override where the token is read from. See [Many repos, one workspace](#many-repos-one-workspace--the-approved-list-and-the-token-that-names-each) |
 | `openSessions` | allow `POST /api/session` to open a Claude session on the Mac (default `true`) |
 | `sessionDirs` | override where a workspace's session opens. Normally unnecessary — see Discussing a question on the Mac |
 | `sessionPermissionMode` | `--permission-mode` for an opened session (default `auto`; `null` to omit the flag) |
@@ -8841,6 +8842,92 @@ A first configuration goes wrong in four ways — no site, a site that is not a 
 address, no credential — and each one is reported as the fix rather than as the
 symptom, because a 401 and a 404 are the same stack trace and completely different
 mornings.
+
+### Many repos, one workspace — the approved list, and the token that names each
+
+Every other part of beadcause assumes a workspace **is** a repo: one tracker, one
+checkout, one deploy, one advocate. That holds for `sophab`, for `beadcause`, for
+anything you cloned and pointed a `~/beads/<name>` at.
+
+It does not hold for a company. Climative is a GitHub org of forty-odd services sharing
+a single `cl-` workspace, because only `architecture` has beads installed — it holds the
+workspace's Dolt remote — and every other repo files into that same graph. So a bead
+there is not about "climative". It is about `athena-service`, and until this block
+existed there was nowhere to write that down: the bead resolved to a workspace, the
+workspace resolved to one directory, and nothing that followed — the session, the
+worktree, the pull request, the deploy — could be about the repo the bead was actually
+about.
+
+Each Climative repo already names itself, in its own `config/config.yaml`:
+
+```yaml
+serviceName: athena-service
+serviceToken: as
+```
+
+That token is the repo's identity to every other service in the org, and it is what a
+bead carries to say which checkout it belongs in. So the setting is a list of repos and
+one default:
+
+```json
+"repos": {
+  "climative": {
+    "root": "~/climative.dev",
+    "default": "architecture",
+    "approved": ["architecture", "athena-service", "building-service"]
+  }
+}
+```
+
+Keyed by workspace name, like `sessionDirs`, `advocates.perWorkspace` and
+[`jira`](#jira-per-workspace--read-only-and-one-setting) — and deliberately **not** a
+field on a `workspaces` entry, because that array is discovered from `~/beads/*/.beads`
+and reconciled on every start, so anything written onto it by hand disappears at the
+next restart.
+
+**An approved list, and never discovery.** `discoverWorkspaces()` in `lib/config.js`
+reads a directory and takes what is in it. That is right for `~/beads`, which is a
+tracker's own private tree, and it is exactly the pattern *not* to follow here. An org
+has repos nobody wants an unattended agent inside — somebody else's service, a secrets
+repo, an experiment — and a directory appearing under `~/climative.dev` because a
+colleague told you to clone it must not be enough to make it workable. `approved` is a
+list you write. Everything else in that tree is invisible, by construction rather than
+by filtering: nothing in `lib/repos.js` reads the root directory at all, only the
+entries you named. `node test/repos.mjs` asserts that against the module's own source,
+because a `readdir` added later "just to be helpful" would quietly undo the whole
+decision.
+
+**The token is read from the checkout, not restated here.** One source of truth: a repo
+that renames its service says so itself, in the commit that renames it, and a copy in a
+JSON file on one Mac cannot go stale behind it. What that costs is that the token is a
+fact about a checkout rather than a fact about the config — so it can be missing,
+unreadable, or shared with another repo. All three are reported at load, in the startup
+log, beside the line that says how many repos each workspace has:
+
+```
+[beadcause] repos       climative: 5 repos, 2 unresolved, architecture by default
+[repos] climative repo "climative-apps" declares no serviceToken in config/config.yaml — beadcause cannot tell which service it is, so no bead can name it
+[repos] climative repo "nope-service" is approved but /Users/you/climative.dev/nope-service does not exist — clone it, or take it out of repos.climative.approved
+[repos] service token "as" is declared by 2 approved climative repos (athena-service, audit-service) — a bead naming it resolves to nothing, because guessing between them would open a session in the wrong checkout
+```
+
+**That last one is not hypothetical, and it is why nothing falls back.** On this Mac
+today three Climative repos declare `as`, two declare `ps`, and eight declare `xs` —
+because `microservice-base` ships `xs` as a placeholder and a service that never changed
+it keeps it. A resolver that took the first match would send a session into whichever
+repo sorted first, in a checkout it was never meant to touch, hours before anybody
+looked at it.
+
+And an unresolvable token must not become the default repo either. "A bead with no
+service token belongs to `architecture`" is true and useful — that is what `default` is
+for. "A bead whose token I could not resolve belongs to `architecture`" is how work
+aimed at one service quietly lands in the repo that holds the workspace's Dolt remote.
+So the two are different answers: no token resolves to the default, and an unknown,
+ambiguous or broken token resolves to **nothing**, with a sentence saying which of the
+three it was.
+
+One repo and no `default` is that repo — there is nothing to be wrong about. Several and
+no `default` is no repo, and says so.
 
 ### Environment
 

@@ -10,6 +10,7 @@ import { attachTerminalSocket, releaseSockets } from '../lib/termsocket.js';
 import { closeServer, startRenewal } from '../lib/tls.js';
 import { pushCertificate } from '../lib/notify.js';
 import { startSlack, slackStatusLine, slackTokenWarnings } from '../lib/slack.js';
+import { repoStatusLine, repoWarnings } from '../lib/repos.js';
 import { flush } from '../lib/commonrepo.js';
 import { restoreTerminals, shutdownTerminals, startTerminalReaper, terminalsEnabled } from '../lib/terminal.js';
 
@@ -314,6 +315,15 @@ if (internalPort) {
 
 console.log(`[beadcause] config      ${CONFIG_PATH}`);
 console.log(`[beadcause] workspaces  ${cfg.workspaces.map((w) => w.name).join(', ')}`);
+// And, for a workspace that is more than one repo, which checkouts it may be worked in
+// — printed even when nothing is configured, because the line that says "every
+// workspace is one repo" is the one that tells you the block exists at all.
+console.log(`[beadcause] repos       ${repoStatusLine(cfg)}`);
+// The three ways an approved list goes wrong on disk — a repo that is not cloned, one
+// that declares no service token, and two that declare the same one. All of them are
+// silent otherwise: they present as a bead resolving to nothing, at whatever hour the
+// advocate got to it. `console.warn` so they are not read as part of the tidy block.
+for (const w of repoWarnings(cfg)) console.warn(`[repos] ${w}`);
 // First thing in the log, and unmissable, because the mistake it guards against is
 // believing you are in it when you are not — and the evidence of *that* arrives
 // thirty seconds later as two Claude windows you did not ask for.
