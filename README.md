@@ -43,7 +43,11 @@ other people** (those get a contentless push and no unattended agents), where yo
 **code lives** (so a question can show you files from it), whether your shell
 **derives `BEADS_DIR` from the working directory**, whether to use **ntfy**,
 whether commenting should **spawn an agent** to answer you, and whether to open the
-**[activity monitor](#the-monitor--what-it-is-doing-right-now)** at login. Re-run them any time
+**[activity monitor](#the-monitor--what-it-is-doing-right-now)** at login. A workspace
+holding **more than one repo** is asked one more: which of the checkouts under it are
+[approved](#many-repos-one-workspace--the-approved-list-and-the-token-that-names-each),
+printed with the service token each one declares — an install where every workspace is one
+repo is asked nothing about it. Re-run them any time
 with `npm run configure`; nothing is written until the last answer, so Ctrl+C is
 always safe.
 
@@ -9128,7 +9132,7 @@ history.
 | `auth.google.sessionDays` | how long a signed-in browser stays signed in (default `30`) |
 | `auth.google.enabled` | `false` turns sign-in off while leaving the rest of the block configured (default `true`) |
 | `workspaces` | auto-discovered from `~/beads/*/.beads`, and **reconciled on every start** — entries whose directory has gone are dropped and new ones picked up, both logged. Renaming a workspace directory used to leave a stale entry that failed on every poll tick, silently hiding that whole workspace from the phone |
-| `repos` | the checkouts **one workspace** may be worked in, keyed by workspace name — `{"climative": {"root": "~/climative.dev", "default": "architecture", "approved": ["architecture", "athena-service"]}}`. Empty by default, and a workspace not named here costs nothing: it is one repo, as every workspace was before this existed. `approved` is a list you write and nothing discovers — a directory under `root` that is not in it resolves to nothing. Each repo's identity is the **service token** it declares in its own `config/config.yaml`, read from the checkout rather than restated here; `default` is the repo a bead carrying no token belongs to, and `tokenPath` / `tokenKey` override where the token is read from. A bead says which repo it is about by carrying that token as a `repo:<token>` label. See [Many repos, one workspace](#many-repos-one-workspace--the-approved-list-and-the-token-that-names-each) and [how a bead names one](#how-a-bead-says-which-repo-it-is-about--repotoken) |
+| `repos` | the checkouts **one workspace** may be worked in, keyed by workspace name — `{"climative": {"root": "~/climative.dev", "default": "architecture", "approved": ["architecture", "athena-service"]}}`. Empty by default, and a workspace not named here costs nothing: it is one repo, as every workspace was before this existed. `approved` is a list you write and nothing discovers — a directory under `root` that is not in it resolves to nothing; `npm run configure` prints the tree with each repo's token for you to tick, which is not the same thing as approving one. Each repo's identity is the **service token** it declares in its own `config/config.yaml`, read from the checkout rather than restated here; `default` is the repo a bead carrying no token belongs to, and `tokenPath` / `tokenKey` override where the token is read from. A bead says which repo it is about by carrying that token as a `repo:<token>` label. See [Many repos, one workspace](#many-repos-one-workspace--the-approved-list-and-the-token-that-names-each) and [how a bead names one](#how-a-bead-says-which-repo-it-is-about--repotoken) |
 | `openSessions` | allow `POST /api/session` to open a Claude session on the Mac (default `true`) |
 | `sessionDirs` | override where a workspace's session opens. Normally unnecessary — see Discussing a question on the Mac |
 | `sessionPermissionMode` | `--permission-mode` for an opened session (default `auto`; `null` to omit the flag) |
@@ -9367,6 +9371,59 @@ three it was.
 
 One repo and no `default` is that repo — there is nothing to be wrong about. Several and
 no `default` is no repo, and says so.
+
+**`npm run configure` prints the tree and you tick it.** The list above was hand-edited
+JSON, which is worse than it sounds, because both facts that decide an entry are invisible
+from the file you are editing: whether the repo is cloned at all, and what token its own
+`config/config.yaml` declares. Forty-odd directories means opening forty YAML files and
+hoping — and a token typed from memory is a bead that resolves to nothing at three in the
+morning. So the tenth question of the wizard reads the root and shows you what is there:
+
+```
+   48 directories under ~/climative.dev, ✓ marking what is approved today:
+    2 ✓ architecture                architecture
+    4 ✓ athena-service              as             ⚠ as is also declared by audit-service, rules-engine-service
+   11   climative-apps              —              declares no serviceToken in config/config.yaml
+   29   microservice-base           xs             ⚠ xs is declared by 9 of these
+   45   tmp                         —              is not a git checkout
+   Numbers, ranges and names, comma-separated — "none" to approve nothing.
+   approved: [architecture, athena-service]
+```
+
+Every directory is listed, including the ones that cannot be approved usefully, because
+"declares no token" and "is not a checkout at all" are more use on screen with the reason
+beside them than missing from a list you are about to tick. The ⚠ is the collision — seen
+*before* you approve the second repo that declares `as`, rather than in the startup log
+afterwards — and once you have answered, the same sentences `repoList` would print are
+echoed straight back at you, for the list you just wrote.
+
+**Presented for approval is not applied, and the difference is the whole point.** The
+answer *is* the list: nothing you do not name survives it, there is no `all`, and the
+default offered is what is approved today — so holding Enter through the question cannot
+approve a repo or unapprove one. Numbers and ranges (`1,4,7-9`) exist because forty names
+is not something anybody types; a name that is not under the root is kept and reported,
+since it is usually a repo approved but not cloned yet, and silently dropping it would
+unapprove a repo by refusing to echo the default back. A *number* that is not in the list
+is the one thing dropped rather than kept — it cannot be a repo name, so it is a slip, and
+`"99"` in the approved list is a startup warning forever.
+
+**It is asked only where there is something to ask.** Either `repos.<workspace>` already
+exists — asked again whatever is on disk, so a tree that has moved or a repo that was
+never cloned can be *fixed* rather than warned about at every start — or there is a
+directory named after the workspace (`climative` → `climative.dev`, `climative-repos`)
+holding **two or more git checkouts**, which is offered as the root to confirm. `~/beads`
+is excluded outright: `~/beads/<workspace>` is named after the workspace by construction
+and is the tracker's own tree, not somewhere to open a session. An install where every
+workspace is one repo — which is almost every install — is asked nothing at all, and its
+config keeps no `repos` block.
+
+The reading lives in [`lib/reposcan.js`](lib/reposcan.js) rather than in `lib/repos.js`,
+and that is deliberate: the resolver's "no `readdir` in this module" assertion stays
+literal, which is the cheapest possible check on the most expensive possible mistake.
+`node test/reposcan.mjs` covers the other side of it — that an install with one repo per
+workspace is asked nothing, that `~/beads` is never guessed, that a trailing YAML comment
+never reaches a token the resolver will disagree with, that nothing unticked survives an
+answer, and that the module writes nothing at all.
 
 ### How a bead says which repo it is about — `repo:<token>`
 
