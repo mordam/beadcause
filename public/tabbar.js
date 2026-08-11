@@ -50,7 +50,14 @@
     // right one on a bar this tight.
     // The id and the href stay `console`: they live in stored conversation records
     // and on the phone's home screen.
-    { id: 'console', href: '/console', icon: '🧾', label: 'Chat', paths: ['/console', '/console.html'] },
+    // 💬 rather than the 🧾 this used to be (bc-6np). The receipt was right when the
+    // entry meant the proposal it produces, and it still is on the three places that
+    // do mean that — the proposal button on the page itself, the "proposed N beads —
+    // review" link, and the inbox's "work out the next beads from this". The tab means
+    // the conversation, and the session rows already draw an open one with 💬, so this
+    // agrees with them rather than colliding. No U+FE0F: unlike the ⌨ trap recorded in
+    // index.html, U+1F4AC is emoji-presentation by default and needs no coaxing.
+    { id: 'console', href: '/console', icon: '💬', label: 'Chat', paths: ['/console', '/console.html'] },
     // There was a **PRs** tab here, next to Advocates. It is gone (bc-l8jp.6) and the
     // reason is the same as the gap above it: a tab is a claim that a screen is somewhere
     // you *live*, and the pull request board is somewhere you glance — "did that ship?" —
