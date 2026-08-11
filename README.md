@@ -2460,6 +2460,27 @@ daemon that guessed would guess at three in the morning in a repo nobody was wat
 workspace with no entry keeps the answer the board already gives it: **no deploy
 beadcause can see.**
 
+**Except its own, which it writes for you — once.** The rule above is about *other*
+repos; a daemon cannot read a deploy off a checkout it has never run, and it does not
+have to be told about the one it *is*. The label is a constant in this repo, the tree
+that label starts is a plist on disk it can open, and whether restarting it kills the
+caller is a fact about `launchctl kickstart -k`. So the beadcause entry above is written
+into your config at startup — exactly as printed, `{uid}` and all — and the daemon says
+so on stdout when it does.
+
+It refuses in every case where it would not be true. The LaunchAgent has to be installed
+already and its plist has to name **this** checkout's `bin/router.js` (the same test
+[the refusal below](#restarting-a-label-is-not-the-same-as-deploying-a-tree) applies), so
+a clone that is not the one being served declares nothing. A workspace has to actually
+map to this checkout, since that is the key the entry hangs on. Anything already written
+there is left alone rather than merged into. And the whole thing happens **once, ever** —
+the receipt is in `state.json`, so an entry you delete on purpose stays deleted.
+
+The APK rebuild is declared only where `public/beadcause.apk` exists, which is the one
+honest signal that this Mac builds the app: `npm run android` needs the Android SDK and
+exits non-zero without it, and where the file *does* exist a deploy that moved `android/`
+without rebuilding leaves a stale APK being served to a phone.
+
 **It is argv, and never a shell line.** `["launchctl", "kickstart", …]`, not
 `"launchctl kickstart …"`. That file is hand-edited, rewritten by `saveConfig` and
 [synced as a git repo](#where-it-lives-configbeadcause-is-a-git-repo); a string would

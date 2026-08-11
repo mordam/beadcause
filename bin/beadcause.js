@@ -3,6 +3,7 @@ import { loadConfig, reconcileBaseUrl, CONFIG_PATH, OBSERVING } from '../lib/con
 import { createApp, startPoller, listen } from '../lib/server.js';
 import { advocatedWorkspaces, workerLimit } from '../lib/advocate.js';
 import { buildStamp } from '../lib/build.js';
+import { declareOwnDeploy } from '../lib/deploy.js';
 import { hotSwapProblem, problemBanner } from '../lib/service.js';
 import { attachTerminalSocket, releaseSockets } from '../lib/termsocket.js';
 import { closeServer, startRenewal } from '../lib/tls.js';
@@ -293,6 +294,23 @@ console.log(`[beadcause] build       ${build} (${role}${internalPort ? `, intern
 if (!internalPort && process.ppid === 1) {
   const problem = hotSwapProblem({ loadedProgram: process.argv[1] });
   if (problem) for (const line of problemBanner(problem)) console.error(line);
+}
+
+/**
+ * And, once ever, fill in the one deploy this daemon does not have to be told: its own.
+ *
+ * Here rather than in `loadConfig()`, where the other one-time config move lives, for
+ * two reasons. It is the daemon that has a deploy — `beadcause-ask`, `--url` and the
+ * rest are short-lived CLIs with no business rewriting the config, and the two that
+ * print something have already exited above. And it depends on lib/service.js reading
+ * a plist off disk, which is a startup question, not a per-process one.
+ *
+ * Every guard that matters is in `declareOwnDeploy`, including the one that makes this
+ * silent forever after the first write. See lib/deploy.js.
+ */
+if (!OBSERVING) {
+  const declared = declareOwnDeploy(cfg);
+  if (declared) console.log(`[beadcause] ${declared}`);
 }
 
 const shutdown = () => {
