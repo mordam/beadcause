@@ -1971,6 +1971,23 @@ button.work-row {
    ellipsing, since half of "the halifax space has advocate: false" is worse than none
    of it, and it is the last thing in the row so a wrap costs nothing beside it. */
 .adv-why { font-size: 11.5px; color: var(--muted); align-self: center; text-align: right; max-width: 22em; }
+/* Dialled up but not sent. The accent border and the accented number are the whole
+   signal that this number is *yours* and not the daemon's yet — the Apply segment
+   beside it is the other half, and it only exists in this state. `held` keeps its
+   amber where the two collide: a limit the global cap will not honour is worth more
+   than a reminder that you have not pressed Apply. */
+.adv-limit.pending { border-color: color-mix(in srgb, var(--accent) 60%, transparent); }
+.adv-limit.pending:not(.held) > b { color: var(--accent); }
+/* Inside the pill rather than beside it, because the number and the press that commits
+   it are one control — a separate button in the row would read as another action like
+   Pause. Square-ended on the left so it reads as a segment of the pill it sits in. */
+.adv-limit .adv-apply {
+  margin-left: 2px;
+  min-height: 26px;
+  padding: 3px 10px;
+  border: 0; border-radius: 999px;
+  font-size: 11.5px; font-weight: 650;
+}
 /* A window we opened, not a process we can see — dotted while it is only that, solid
    once the session claimed the bead and the tracker can confirm it. */
 .adv-worker .work-phase { display: flex; align-items: center; justify-content: center; color: var(--accent); }
