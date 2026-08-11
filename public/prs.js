@@ -70,8 +70,15 @@
      in is the ⟳, the next daemon-side event, or arriving at the page. That is the trade
      the timer was paying a `gh` sweep a minute, all day, on every open board to avoid. */
 
-  /** The events that can have changed a lamp or a button on this board. */
-  const BOARD_EVENTS = ['merged', 'changes', 'pr-declined', 'deploy', 'advocate'];
+  /** The events that can have changed a lamp or a button on this board.
+
+     Public/stream.js owns the list now, because the inbox holds this page's payload warm
+     and has to answer the same question about it — see `boardMoved` there. The literal
+     here is the older-sibling case and nothing else: a service worker holding this file
+     beside a stream.js from before that export existed. Falling back to it rather than to
+     "everything moved" matters, because on this page the difference is a `gh` sweep per
+     repo per event. */
+  const BOARD_EVENTS = window.beadcause?.stream?.BOARD_EVENTS || ['merged', 'changes', 'pr-declined', 'deploy', 'advocate'];
 
   /* The deploy strip's own clock. Fast enough that a step change is news rather than
      history, and only while something is actually running — /api/deploys is a directory

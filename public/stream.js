@@ -99,6 +99,22 @@
     (events || []).some((e) => !QUIET_TYPES.has(e?.type) && !(e?.type === 'advocate' && ROSTER_ONLY.has(e?.action)));
 
   /**
+   * The events that can have changed a lamp or a button on the PR board.
+   *
+   * It lived in public/prs.js, which was the only page that had an opinion about it —
+   * and then the inbox grew one too, because it holds `/api/prs` warm for that page and
+   * has to know whether what it is holding is still true. Two lists would be one list
+   * that drifts, and the drift is invisible: an inbox that thought a merge was nothing
+   * would keep restamping a board with the wrong lamps on it, and the lamps' whole claim
+   * is that they are true. So this is the one copy, for the same reason `workMoved` is
+   * one function and not two.
+   */
+  const BOARD_EVENTS = ['merged', 'changes', 'pr-declined', 'deploy', 'advocate'];
+
+  /** Did anything here change something behind `/api/prs`? */
+  const boardMoved = (events) => touched(events, BOARD_EVENTS);
+
+  /**
    * Park on the log and keep parking.
    *
    * @param {object} o
@@ -295,5 +311,5 @@
   }
 
   window.beadcause = window.beadcause || {};
-  window.beadcause.stream = { follow, moved, touched, workMoved, QUIET_TYPES, ROSTER_ONLY, WAIT_S };
+  window.beadcause.stream = { follow, moved, touched, workMoved, boardMoved, QUIET_TYPES, ROSTER_ONLY, BOARD_EVENTS, WAIT_S };
 })();

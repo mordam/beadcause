@@ -3117,7 +3117,7 @@ each case because what is expensive is different in each case:
 
 | View | On a wake |
 |---|---|
-| **Inbox** | Adopts the questions the poll carries. It is the one view whose park does ask for them, and the payload arrives with the wake. It also keeps the *advocates* payload warm on the same wake, for the page it is not — see [staying warm](#filled-once-is-not-kept-warm). |
+| **Inbox** | Adopts the questions the poll carries. It is the one view whose park does ask for them, and the payload arrives with the wake. It also keeps every *other* view's payload warm on the same wake, for the pages it is not — see [staying warm](#filled-once-is-not-kept-warm) and [the per-path table](#and-every-other-warmed-path-decided-one-at-a-time). |
 | **Advocates** | Takes the advocate roster straight off the poll — `advocates.snapshot()` rides every wake — so a pause, a resume or a check-in repaints with no request at all. It goes back to `bd` only for events `bd` would answer differently, which an advocate saying it is still surveying is not. |
 | **Admin** | Reads `observing` off the poll, which is the whole reason it ever touched `/api/work`, and re-asks `/api/admin` — two in-memory reads, no `bd` — when an advocate or a terminal moved. Its numbers are promises about what a press will do, so half-patching them was never an option. |
 | **Board** | Re-asks `/api/prs` when a pull request actually moved. The three lamps are the daemon's own reading of GitHub, `origin/main` and the deploy journal; a client that set them from an event would be a second, worse copy of that ladder. The daemon drops its board cache as those events fire, so the first board through does the one `gh` sweep and every other open board shares it. |
@@ -3194,6 +3194,69 @@ being asked for, 27 idle seconds leave it with a **newer stamp and no extra requ
 advocate pausing lands in it for nothing, a bead moving inside the floor does not become a
 second sweep, and a claimed bead is re-asked exactly once. Against `--baseline` the middle
 three of those fail, with `stamp 0ms newer` — which is the bug, printed.
+
+### And every other warmed path, decided one at a time
+
+The section above closed that hole for `/api/work` and stopped there, deliberately. The
+hole itself was never about the advocates tab: once-per-document fill against a
+fifteen-minute TTL is a property of `warm.js`, so **every** warmed path had it, and the
+three that were left are the ones you reach without a tab — `/admin` is a tab, and the
+board and the chat launcher are both one tap from a row on the inbox. All three were cold
+every time they were reached more than a quarter of an hour after the inbox loaded, which
+on the page you leave open all day means almost always.
+
+What made it one decision per path rather than one rule is that the paths do not cost the
+same. So the table is in `MAINTAINED` in `public/app.js`, and it separates two halves that
+were previously tangled together:
+
+**The free half is available to all four, and it is most of the fix.** The inbox is parked
+on `/api/poll`. An entry the log has *not* contradicted is exactly as true as it was when
+it was fetched, however long ago that was — so `warm.refresh()` puts its clock forward for
+no request at all. That alone is the difference between a warm layer that survives fifteen
+minutes and one that survives an afternoon, and it is why the fix is not "poll more
+often": nothing is being asked for here.
+
+**The paid half — going and re-asking once the log says something did move — is priced per
+path.**
+
+- **`/api/admin` and `/api/consoles` are re-asked, floored at one a minute each.** Both
+  are in-memory reads on the daemon: no `bd`, no process spawn, which `lib/server.js` says
+  of each of them where they are answered. That is cheap enough to be worth spending on a
+  screen that is otherwise blank on arrival.
+- **Neither of them is *patched* from the wake, even though `/api/admin` looks patchable.**
+  Most of what it draws is advocate counts, and the roster rides every wake for free — but
+  the other half of the same numbers is open terminals and this device's own record of what
+  it paused, and neither of those is on the poll. `public/admin.js` already refuses to
+  patch one half for the reason that a button labelled from two different moments is true
+  of neither, and the copy held for that page has to follow the same rule or it would come
+  to disagree with the page's own fetch. The whole payload, or nothing.
+- **`/api/prs` is never re-asked here at all, and that is the decision rather than the
+  gap.** It is a `gh` call per repo. A floored re-ask would keep that sweep running once a
+  minute, all day, on behalf of a board that may never be opened — which is precisely the
+  bill the board page stopped paying when it came off its own timer. What it gets instead
+  is the free half: the board stays warm for as long as the log says no pull request has
+  moved, and the moment one has, the entry keeps its own age and the TTL takes it, exactly
+  as it does today. The inbox does still sweep the board on its own minute — but only when
+  the kind filter wants pull requests, which is when it is drawing them itself.
+
+So "did the board move" is now asked by two pages, and it is `stream.boardMoved()`, one
+function, for the same reason `stream.workMoved()` is: an inbox that thought a merge was
+nothing would go on restamping a board with the wrong lamps on it, and the lamps' entire
+claim is that they are true. The list that used to live in `public/prs.js` moved into
+`public/stream.js`; the literal left behind in `prs.js` is the older-sibling fallback for a
+service worker holding it beside a `stream.js` from before that export existed, and nothing
+else.
+
+Claim 6 of `scripts/warm-check.mjs` is the gate, in requests rather than seconds for the
+same reason claim 5 is: three stamps move across a 27-second idle window for **no request
+at all**, an event that moved one of them stops that entry's restamp instead of papering
+over it, and then, outside the floor, `/api/admin` and `/api/consoles` are re-asked exactly
+once each while `/api/prs` is not re-asked on any wake in the whole run. To measure that
+last one the check sets the inbox's kind filter to `Questions` partway through, because an
+inbox drawing PR cards sweeps the board on its own minute and every count would otherwise
+be unattributable. Against `--baseline` three of those five lines fail — the two that pass
+are the ones asserting a moved entry is left alone, which a baseline that maintains nothing
+satisfies by doing nothing at all.
 
 ### A repaint that leaves alone what did not change
 
