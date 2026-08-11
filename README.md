@@ -2460,6 +2460,27 @@ daemon that guessed would guess at three in the morning in a repo nobody was wat
 workspace with no entry keeps the answer the board already gives it: **no deploy
 beadcause can see.**
 
+**Except its own, which it writes for you — once.** The rule above is about *other*
+repos; a daemon cannot read a deploy off a checkout it has never run, and it does not
+have to be told about the one it *is*. The label is a constant in this repo, the tree
+that label starts is a plist on disk it can open, and whether restarting it kills the
+caller is a fact about `launchctl kickstart -k`. So the beadcause entry above is written
+into your config at startup — exactly as printed, `{uid}` and all — and the daemon says
+so on stdout when it does.
+
+It refuses in every case where it would not be true. The LaunchAgent has to be installed
+already and its plist has to name **this** checkout's `bin/router.js` (the same test
+[the refusal below](#restarting-a-label-is-not-the-same-as-deploying-a-tree) applies), so
+a clone that is not the one being served declares nothing. A workspace has to actually
+map to this checkout, since that is the key the entry hangs on. Anything already written
+there is left alone rather than merged into. And the whole thing happens **once, ever** —
+the receipt is in `state.json`, so an entry you delete on purpose stays deleted.
+
+The APK rebuild is declared only where `public/beadcause.apk` exists, which is the one
+honest signal that this Mac builds the app: `npm run android` needs the Android SDK and
+exits non-zero without it, and where the file *does* exist a deploy that moved `android/`
+without rebuilding leaves a stale APK being served to a phone.
+
 **It is argv, and never a shell line.** `["launchctl", "kickstart", …]`, not
 `"launchctl kickstart …"`. That file is hand-edited, rewritten by `saveConfig` and
 [synced as a git repo](#where-it-lives-configbeadcause-is-a-git-repo); a string would
@@ -4465,6 +4486,22 @@ Without it `tailscale cert` answers "your Tailscale account does not support get
 TLS certs", and beadcause says so in the log and **serves plain http exactly as
 before** — a daemon that refused to boot over a certificate would take the inbox down
 for a feature nobody had asked for yet.
+
+**Switching it on is two steps, and the second one is the one people miss.** The click
+changes the tailnet; it does not reach into a daemon that is already running. The
+certificate is fetched by whichever process owns port 4318 — the router — and it is
+fetched *once, at boot*, so a daemon that came up before the switch was flipped keeps
+serving plain http indefinitely and every URL it prints stays honest about that.
+Restart the service (`launchctl kickstart -k gui/$(id -u)/m4m.beadcause`); the boot
+after that logs `certificate for <name> — 90 days left` and rewrites `baseUrl` to the
+`https://` name. Two things about the first fetch specifically: it can fail with
+`CreateOrder: 404 … Certificate not found` when the tailnet's new certificate
+permission has not finished propagating to Let's Encrypt — **run `tailscale cert
+<name>` again and it succeeds**, usually within a minute of the click — and because the
+fetch only happens at boot, a restart that lands inside that window gets plain http and
+will not try again on its own until the next restart. If the log says plain http and
+`tailscale cert` works by hand, that is the order things happened in, not a
+misconfiguration.
 
 **Terminated in the daemon, not by `tailscale serve`.** Fronting it with Tailscale's
 own proxy would be less code and the same certificate, but then the protocol floor
