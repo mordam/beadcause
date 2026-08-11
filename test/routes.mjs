@@ -193,7 +193,7 @@ const cfg = {
 // foundation.js first: it and agents.js import each other, and agents.js is not the
 // end of that cycle that can be pulled in cold.
 await import(LIB('foundation.js'));
-const { createApp, listen } = await import(LIB('server.js'));
+const { createApp, listen, routeTable, assertRoutes } = await import(LIB('server.js'));
 
 const port = await new Promise((resolve, reject) => {
   const probe = net.createServer();
@@ -262,6 +262,65 @@ check(() => assert.equal(one.json.workspace, 'demo'), 'and the workspace it reso
 
 const nonsense = await get('/api/foundation/agent?id=../etc/passwd&workspace=demo');
 check(() => assert.equal(nonsense.status, 404), 'an id that is not an agent kind is a 404, not a file read');
+
+/* ------------------------------------------------------- and the same check at boot */
+
+/**
+ * The duplicate scan again, this time inside `createApp`.
+ *
+ * The static scan at the top of this file catches a duplicate the day someone runs the
+ * suite. `assertRoutes` catches one the moment a process starts, which is not the same
+ * day: this repo hot-swaps a fresh backend under the port a few seconds after `lib/`
+ * settles, and code arrives there by merge and by cherry-pick as well as by the branch
+ * that ran `npm test`. A duplicate that gets past the suite would otherwise reach a
+ * running daemon and do exactly what bc-dwqh did — answer 200 with the wrong body,
+ * which reads as healthy from every direction.
+ *
+ * Three claims, and the middle one is the one that rots. `routeTable` reads the
+ * handler's own source; this file reads `lib/server.js` off disk. They are two regexes
+ * over the same text, so they should see the same routes — and if the one at boot ever
+ * stops matching, it degrades into a silent no-op that passes forever. Nothing at
+ * runtime can tell the difference. This can.
+ */
+console.log('\nand the same check at boot\n');
+
+const booted = routeTable(app.handler).sort();
+const scanned = [...new Set(pairs.map((r) => `${r.method} ${r.path}`))].sort();
+
+check(
+  () => assert.ok(booted.length >= 50, `routeTable saw only ${booted.length} routes — has the dispatch style changed?`),
+  `createApp's own scan reads the chain — ${booted.length} routes found`
+);
+check(
+  () => assert.deepEqual(booted, scanned, 'the boot scan and the file scan disagree about what is registered'),
+  'and sees exactly what a read of lib/server.js sees'
+);
+
+// The handler is a string to `routeTable`, so a function whose body says it twice is a
+// faithful duplicate — no second copy of server.js, and no way for this to pass by
+// accident on a chain that happens to be clean.
+const twice = (req, res, p) => {
+  if (p === '/api/twice' && req.method === 'GET') return res;
+  if (p === '/api/twice' && req.method === 'GET') return res;
+  return null;
+};
+check(() => {
+  assert.throws(() => assertRoutes(twice), /registered twice/);
+  const err = (() => {
+    try {
+      assertRoutes(twice);
+      return null;
+    } catch (e) {
+      return e;
+    }
+  })();
+  assert.match(err.message, /GET \/api\/twice/, `the error does not name the route: ${err.message}`);
+}, 'a duplicated pair refuses to start, and the error names the route');
+
+check(
+  () => assert.deepEqual(assertRoutes(app.handler).sort(), scanned),
+  'while the real chain starts, which is what createApp just did'
+);
 
 /* ---------------------------------------------------------------------- done */
 
