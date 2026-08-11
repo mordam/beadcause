@@ -1778,6 +1778,21 @@ body {
 .doc { padding: 16px 16px 40px; max-width: 780px; margin: 0 auto; }
 .doc pre { white-space: pre-wrap; }
 .doc .pdf { width: 100%; height: calc(100vh - 140px); border: 1px solid var(--line); border-radius: 10px; }
+/* Publishing this document to Confluence. A footer rather than anything in the top
+   bar: it is the last thing on the page on purpose, so it is read after the document
+   and never pressed instead of scrolling. Drawn at all only when there is a Confluence
+   to publish to — see doc.js. */
+.publish {
+  max-width: 780px;
+  margin: 0 auto 40px;
+  padding: 12px 16px calc(env(safe-area-inset-bottom) + 12px);
+  border-top: 1px solid var(--line);
+  display: flex; flex-direction: column; gap: 10px;
+}
+.publish-target { font-size: 14px; line-height: 1.45; }
+.publish-what { display: block; color: var(--muted); font-size: 13px; margin-top: 2px; }
+.publish-note { color: var(--muted); font-size: 13px; line-height: 1.45; }
+.publish-err { color: var(--danger); }
 /* The work view: one card per workspace, its claimed beads, a way into its graph. */
 .work { padding: 12px 16px 40px; max-width: 780px; margin: 0 auto; display: flex; flex-direction: column; gap: 12px; }
 .work-card { padding: 12px 14px; }

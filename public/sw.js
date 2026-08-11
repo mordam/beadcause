@@ -90,7 +90,15 @@
    the poll, and nothing else brings a row up to date. That is the strictest version of
    what a cache version is for — the failure is not a broken page, it is a page that looks
    right and is quietly hours out of date. */
-const CACHE = 'beadcause-v30';
+/* v31: the reader tab can publish a document to Confluence (bc-c6qp). No new path —
+   doc.html, doc.js and style.css are all already here — and the three have to arrive
+   together: a phone holding v30's doc.html beside v31's doc.js has nowhere to draw the
+   footer into, so the button silently never appears; one holding v31's doc.html against
+   v30's stylesheet draws an unstyled block of text under every document it opens, with
+   an accent-coloured button in the middle of it. app.js moves too, because the link that
+   opens a document from a card now carries the bead — and that is the only reason the
+   published URL can end up on the bead instead of only in the daemon's state. */
+const CACHE = 'beadcause-v31';
 const SHELL = [
   '/',
   '/index.html',
