@@ -8132,6 +8132,24 @@ The limits, stated plainly:
   up on its own. `npm run swap:status` says which of the two it is looking at, in the
   two words that are not interchangeable. See `lib/startup.js`, which is where the
   policy lives, with no I/O in it so that `npm test` can assert it as arithmetic.
+- **And a build that could not get a *port* is neither of those.** The router picks each
+  backend's internal port from the kernel and then spawns the process that binds it, and
+  the gap between those is a node startup wide — long enough that on a laptop running
+  twenty agent sessions something else can take the number first. The backend then exits,
+  and "exited" meant *broken build*: the comment in `attemptStart` said the next spawn
+  would break identically, which is true of a syntax error and is the exact opposite of
+  true here, because the next spawn asks for a different port. So a build that was never
+  broken was condemned, the phone went on being served by the previous one, and the
+  evidence was one line in a log file. A bind that fails now exits with its own code —
+  `PORT_TAKEN_EXIT`, which is the only channel a backend has to its router, since both
+  inherit the same launchd log and neither reads it — and the router retries it *at once*
+  on another port, up to `PORT_ATTEMPTS` times, spending neither a health attempt nor a
+  mark on `slowness` on it. It can never poison a build: `poisonable()` is the one place
+  that is decided, and only a plain `exited` may. If all three tries lose, it is deferred
+  like a slow start but says so in its own words — every surface that reads a deferral
+  otherwise reports "too slow to answer", which sends whoever is reading it after load
+  and then after the build, and it is neither. `test/ports.mjs` covers it, end to end for
+  the exit code and as arithmetic for the policy.
 - **A router with nothing behind it says so, in three places.** The failure above has a
   worse cousin: when there is *no* old backend to keep serving, the router holds the
   port and answers 503 to everything. Nothing is down in a way launchd would restart,
@@ -10028,6 +10046,42 @@ profile path never comes back to be named, and its deletion happens in a `finall
 nothing was watching. Both are still `deepEqual`s against an empty listing rather than
 "the one path it told us about is gone", so a future change that quietly makes a second
 profile and reports one still fails.
+
+### A port is not a number two runs may both pick — `test/helpers/net.mjs`
+
+About twenty sessions run against this repo at once and every one of them runs `npm test`
+before it delivers, so a port a suite *typed* is a port two runs bind at the same moment.
+That failure does not read as a collision. `listen()` in lib/server.js exits when nothing
+binds — correctly: a listener-less daemon whose poller still fires pushes is worse than a
+dead one — so the run dies with an `EADDRINUSE` in the middle of whatever suite got there
+first, at the exact moment a session is deciding whether its own work is safe to deliver.
+It cost a full re-run and a filed bug (bc-szkq) before anybody recognised the message.
+
+Nothing types a port any more. Two helpers, and the first is the one to reach for:
+
+| | |
+|---|---|
+| `boundPort(servers)` | No window at all. The suite passes `port: 0`, the kernel picks, and the number is read back off the listener that is *already holding it*. `createApp` and `listen` hold the config object by reference, so a `baseUrl` that has to name the port is filled in on the line after — which is why a `baseUrl` is not a reason to reach for the other one. |
+| `freePort()` | A probe on port 0, read, closed. For the two shapes where the number must exist before the server does: a `config.json` a *child* will read (`test/slowstart.mjs`, `test/outagepush.mjs`, `test/routercrash.mjs`, `scripts/test-swap.js`, `scripts/space-check.mjs`), and an OAuth `redirectUri`, which lib/auth.js reads back and compares (`test/auth.mjs`, `test/attribution.mjs` — both of which use `boundPort` for their sign-in-*off* daemon in the same file). |
+
+`freePort` leaves a window between the close and the bind, and when what binds it is a
+child process that window is tens of milliseconds, not one: node has to start and read a
+config first. So the number it hands back is **claimed** — a file named after the port in
+`os.tmpdir()/beadcause-ports/`, created with an exclusive `wx` write so that two runs
+asking at the same instant produce one winner and one `EEXIST`, and containing the pid, so
+a claim left behind by a run that was `SIGKILL`ed can be told from one in use and taken
+over. The kernel still chooses the number, because it is the only thing that knows what
+is really free; the claim only stops beadcause colliding with beadcause, which is the
+collision this laptop has. It is not a reservation and it promises nothing about a
+stranger binding the port, and a run that cannot find an unclaimed number in twenty tries
+hands back a free one anyway — an improvement on this helper must not become a new way
+for it to fail.
+
+`node test/ports.mjs` covers both halves, and the check that earns the rest spawns four
+separate processes that each take twenty-five ports and hold them while the others are
+still asking: one process can be made to agree with itself in memory, and the collision
+that costs a session an hour is between two `npm test` runs. Filed as bc-dw47, which is
+also where the router half above came from — the same race, one layer down.
 
 ### `npm run checks` — the browser half, and why `npm test` can still see it rot
 
