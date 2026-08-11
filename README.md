@@ -307,7 +307,9 @@ interrupt you*:
     "quietHours": { "from": "18:00", "to": "09:00" },
     "quietDays": ["sat", "sun"],
     "ntfyDetail": "minimal",
-    "autoDispatch": false }
+    "autoDispatch": false,
+    "autoMerge": false,
+    "requireApproval": true }
 ]
 ```
 
@@ -479,6 +481,24 @@ because "after six" means your evening. A malformed time disables the rule rathe
 than muting the space forever. `ntfyDetail` and `autoDispatch` set at space level
 keep applying as you add workspaces to that space — which is exactly the drift that
 otherwise leaks a work question onto a public relay.
+
+**A space also decides who merges.** `autoMerge` and `requireApproval` are the same
+kind of answer as the two above — one you give once for a group of repos rather than
+per repo — and they are the two halves of
+[landing work](#landing-work--a-branch-a-pull-request-and-the-workers-own-merge):
+
+| on a space | what it does |
+|---|---|
+| `"autoMerge": false` | workers there stop after opening the pull request, and the merge is your tap |
+| `"autoMerge": true` | they land their own work, even where the global `pr.autoMerge` says off |
+| `"requireApproval": true` | they land their own work *unless* the pull request has no approving review — a green, unapproved one becomes a card that says so |
+
+The global `pr.*` is the **default** here, not a veto, and that is a deliberate
+difference from `autoDispatch` — where `false` is a safety switch no space may argue
+its way out of. Both of these are ordinary policy, and only a default a space can
+override in either direction expresses the two setups that motivated it: on everywhere
+except the shared repo, and off everywhere except the side project. A space that says
+nothing inherits, and a config with no spaces at all behaves exactly as it always did.
 
 `npm run configure` walks you through it. Run it **in a terminal** — it needs one to
 ask questions. Anywhere else (a pipe, CI, an agent shell) it prints the current
@@ -2089,6 +2109,47 @@ load and opening `DocActivity` on top of a drawer that stayed empty behind it. I
 leaves anything that is not the main frame alone; a `/doc` link that *is* a main-frame
 navigation — a notification, a deep link — still opens the native reader.
 
+### Closing a subordinate view — one rule, in one place
+
+The ✕ on a subordinate view obeys one sentence, and `public/drawer.js` is where it is
+written down — the header for the prose, `beadcause.closeView()` for the code:
+
+> **A subordinate view closes to the view it opened over, and to the inbox when there
+> is not one.**
+
+Three cases and no more. **In a drawer**, the view underneath is the tab the panel is
+over, so closing is a dismissal rather than a navigation — and `history.back()`, so the
+one entry the drawer spent is given back and the phone's own back button needs one
+press afterwards rather than two. **In a tab this app opened** — long-press → open in
+new tab, or a `target=_blank` out of a brief — the view underneath is the tab that
+opened it, and `window.close()` hands it back. **Anything else** — a pasted URL, a
+notification, a home-screen shortcut — has nothing underneath, and the inbox is the
+main page.
+
+That last case is deliberately *not* "wherever you came from". The standalone page is
+the fallback for an address that arrived from outside the app, where the history behind
+it is whatever you were doing before the app was open, and `back()` there is a promise
+the ✕ cannot keep.
+
+It reads like an obvious rule and the app had three of them, which is the bug this
+replaced. `/session`'s ✕ went to `/sessions` — correct on the day it was written, and a
+✕ that closed one view by *opening a different tab* from the day Advocates
+[absorbed the sessions view](#getting-around--the-tab-bar), since that path has served
+the advocate console ever since. `/doc` and `/graph` went to `/`, each carrying its own
+copy of the `window.close()`-then-navigate dance. And the drawer dismissed to whatever
+was underneath, which is right, and is the only exit in the app that can leave you on
+the pull request board — which is what the symptom was reported as.
+
+None of the three was wrong enough on its own to notice. What was wrong was that there
+were three: changing what closing means was three edits, and the third was always the
+one forgotten, which is exactly how `/sessions` outlived the sessions view. So the
+three pages now ask for the rule rather than each answering it, and `node
+test/closeview.mjs` — in `npm test`, a static read of `public/*.js` — asserts that none
+of them decides its own way out, that `closeView()` is defined once, that nothing
+closes to `/sessions` any more, and that every page carrying such a ✕ loads
+`drawer.js` (and that the service worker precaches it, since a notification on a bad
+link is exactly when these pages are opened).
+
 ### Checking that it gives the tab back
 
 `node scripts/drawer-check.mjs` drives the real `public/*.js` in headless Chrome at
@@ -2118,6 +2179,12 @@ detail sheet opening inside the panel and closing back to the graph rather than
 closing the drawer; the page's own ✕ dismissing the drawer rather than the app if
 anything ever reaches it; and both pages standing on their own — header, ✕ and no
 drawer mode — when they are loaded as pages.
+
+Standing on their own, it then taps each of those three ✕s and asserts **where it
+actually lands**: the inbox, all three, which is the rule above. A path rather than a
+"not `/sessions`", because the next wrong answer will be a different path — and it is
+the half `test/closeview.mjs` cannot make, since a source read can only say that the
+three pages call one function, not what that function does to the address bar.
 
 `--baseline` serves the committed copies instead of the working ones, which is how
 you check a failure here is a real one: whatever a change brings has to fail without
@@ -2502,6 +2569,51 @@ merging happens at GitHub. It refuses to **ship**, for the same reason it refuse
 `POST /api/session`: a button whose consequence is an unattended agent deploying a
 checkout it is only visiting.
 
+### The release queue — the number over Ship
+
+A deploy has never shipped one pull request. It fast-forwards the checkout to
+`origin/<base>` and restarts, so it makes **every** merge sitting there live at once —
+pressing Ship on one row has always carried the four behind it. What the button could
+not say was how many, and with six sessions a day merging here that is the difference
+between a routine press and the day's work going out.
+
+So the top of each repo's card carries **the queue**: the merges that are on `origin`
+and are not running, with the count drawn over a Ship that deploys the lot in one press
+(`POST /api/release/ship`). It is the same `startDeploy` the row's Ship calls, with the
+pull requests named in the record's reason so the deploy log afterwards says what it
+carried, and it arms the same way. It refuses an **empty** queue rather than restarting
+the daemon for nothing, refuses a repo that has **declared no deploy** (there is no
+window that means "and the other three"), and refuses one already deploying.
+
+A merge only joins the queue once its commit is on `origin/<base>` **as this Mac has
+seen it** — a merge nobody has fetched could not be picked up by the pull, so it stays
+off the queue and keeps the row note it already had. And it leaves the queue when it is
+demonstrably live: in the build this daemon is running, or covered by a deploy that
+exited 0 and started *after* GitHub timestamped the merge. `unconfirmed` and `lost` — the
+two words lib/deploy.js has for "nobody knows" — settle nothing, ever.
+
+**And each merge gets a bead.** The notification a delivery sends says *still owed:
+deploy* and is gone by morning; a bead is still in the tracker the next time you look,
+and it closes itself when the merge goes live. One per pull request, labelled `ship`,
+carrying a `ship: <repo>#<n>` marker that makes filing idempotent whatever else is going
+on, and labelled `unendorsed` — lib/endorse.js's hold, which is a filter in every
+advocate queue *and* a refusal in the launcher — so nothing ever opens a session on one:
+shipping is a tap, not an agent. Two things bound it,
+because a tracker filling with chores is worse than no tracker at all —
+
+- **The first sight of a repo files nothing.** The board carries three weeks of merged
+  pull requests; a new install, a new workspace, or this feature's own first run writes a
+  watermark (`~/.config/beadcause/releases.json`) and only merges after it are its
+  business. An unreadable watermark file stops the sweep outright rather than starting
+  again from nothing, because starting again from nothing is exactly the flood.
+- **Only where a ship is visible.** A repo with no declared deploy and no build this
+  daemon can see has no event that would ever close one of these, so none is filed there.
+
+`release.beads: false` turns the filing off and leaves the number; `release.seconds`
+(300) is how often the queue is swept, which is slow on purpose — it is a `gh` call per
+repo when nobody has looked at the board recently, and "this merged and has not shipped"
+keeps for five minutes.
+
 ### What it costs, and what it keeps
 
 One `gh pr list` per repo plus a handful of `bd` lookups, cached for 25 seconds on the
@@ -2523,7 +2635,12 @@ and the window-opening one does not, and that a refusal lands under the row as G
 own sentence. `node test/prship.mjs` covers the fork itself end to end through the
 daemon — a declared deploy started with no window, a repo with none falling through to
 the session, two taps not becoming two deploys, and an unmerged pull request deploying
-nothing.
+nothing. `node test/release.mjs` covers the queue: what counts as shipped and the three
+answers it can give, that the first sight of a repo files nothing, that two ticks over
+one merge file one bead — with the ledger entry torn out from under the second, because
+the ledger is a watermark and the marker on the bead is what stops the duplicate — that
+`unconfirmed` closes nothing, and, over real HTTP against `createApp`, that one press
+runs one deploy for the whole queue and the next one is refused.
 
 ### Deploying a repo, when it says how
 
@@ -3054,7 +3171,7 @@ was given, because the whole value of the line is that it is honest:
 | the session | may owe | because |
 |---|---|---|
 | landed its own work | `DEPLOYED`, `REBUILT` — or `REVIEWED` if the merge was refused | the delivery merged and pushed it, so claiming either would describe work already on `origin` |
-| handed the PR over (`pr.autoMerge` off) | `REVIEWED`, and nothing else | it never merges, pushes or deploys; it can owe nothing but your answer |
+| handed the PR over (auto-merge off for its space) | `REVIEWED`, and nothing else | it never merges, pushes or deploys; it can owe nothing but your answer |
 | has no remote to push to | `MERGED`, `PUSHED`, `DEPLOYED`, `REBUILT` | all four are still yours, and the session names them without doing them |
 
 Whatever it writes, it passes the same thing to the delivery as `--owed`, which puts it on
@@ -3098,8 +3215,8 @@ The default has since moved to a merge commit (`pr.mergeMethod`), which makes th
 half true again and turns this second half into the belt beside those braces: it is
 what covers a workspace that asks for `squash` on purpose. The reason the default
 moved is that this sweep is not the only thing gating on ancestry — the `ship` skill
-and its attic sweep do too, they live outside this repo, and nothing here can teach
-them to ask GitHub.
+does too, and its own step 7 is still outside this repo. Its *attic* sweep is not:
+since bc-uytt that is `bin/attic.js` here, so it asks GitHub the same way this does.
 
 **Retired means moved, not deleted**: `git worktree move` into
 `.claude/worktrees-retired/`, the same soft delete the `ship` skill does by hand, so
@@ -3145,7 +3262,8 @@ taken out from under somebody answers "nobody is in it" every time.
 An entry with no `.note` is kept forever and says so. Directory mtime is the only other
 signal and it is the wrong one — a background process touching a file is not somebody
 resuming a session, and it is the difference between keeping a directory and deleting
-it. `prune-retired.sh --backfill` is where a stamp gets invented, under a human.
+it. `bin/attic.js --backfill` is where a stamp gets invented, under a human, with
+`--dry-run` available to see what it would say first.
 
 **Ancestry is asked of `origin/main`, not `main`.** Nothing merges locally any more, so
 the local `main` branch stays wherever the last `git pull` left it while GitHub moves
@@ -3154,20 +3272,42 @@ were being described as "not merged into main" over work that had shipped two da
 earlier. Both sweeps ask `origin/main` first and fall back to `main` for a repo with no
 remote, which is also what stops a stale local ref from quietly holding the attic shut.
 
-**A `STRAY` row in the attic sweep is worth distrusting before you act on it.** The
-sweep lives outside this repo, but what it reports about `.claude/worktrees-retired/`
-is read as a statement about this one — and for a while it was wrong. It tested each
-retired directory for a registration by piping `git worktree list` into `grep -q`
-under `set -o pipefail`: grep exits at its first match, git takes SIGPIPE while it is
-still walking the rest, the pipeline reports 141, and a directory that *is* registered
-reads as one that is not. It called most of a healthy 85-entry attic unregistered, a
-different subset each run, which is what a race looks like from the outside. bc-bcdp
-was filed against the attic on that evidence; the attic was fine, and every directory
-in it had been put there by `git worktree move` exactly as this page describes.
-Two things to check before believing the next one: `git worktree list --porcelain |
-grep worktrees-retired | wc -l` against `ls -1d .claude/worktrees-retired/*/ | wc -l`,
-and whether the row survives a second run. `test/pipefail.mjs` keeps the construct out
-of this repo's own scripts, where it sat in four places.
+#### The sweep a human runs — and why it moved in here
+
+The daemon empties the attic on its own tick. The `ship` skill sweeps it too, and until
+bc-uytt that was a **second implementation of the same gates**: 210 lines of bash in
+`~/.claude-personal/skills/ship/prune-retired.sh`, versioned by nothing, tested by
+nothing, run by every ship, drifting from the code above that fills the directory it
+reads. Both of its bugs came from that, and neither was findable from its output.
+
+**bc-bcdp is the first.** It tested each retired directory for a registration by piping
+`git worktree list` into `grep -q` under `set -o pipefail`: grep exits at its first
+match, git takes SIGPIPE while it is still walking the rest, the pipeline reports 141,
+and a directory that *is* registered reads as one that is not. It called most of a
+healthy 85-entry attic unregistered, a different subset each run, which is what a race
+looks like from the outside. A session read that, believed it, and filed a bug describing
+a hand-`mv` that never happened and a name collision that did not exist. The attic was
+fine, and every directory in it had been put there by `git worktree move` exactly as this
+page describes. `test/pipefail.mjs` keeps the construct out of this repo's own scripts,
+where it sat in four places.
+
+**The second was found by the port, which is the argument for it.** `grep -rlq -- "$n"
+"$dir" --exclude-dir=archive` puts the flag *after* the path, and `grep` on this laptop
+is ugrep, which only honours `--exclude-dir` before it — so it took the flag for a
+filename, warned to a stderr that `2>/dev/null` swallowed, and searched `archive/`
+anyway. Every *spent* handoff went on protecting its attic entry forever. GNU grep
+accepts flags anywhere, which is exactly why nobody would have seen this.
+
+So `bin/attic.js` is what the skill calls now, and `lib/attic.js` is a **layer, not a
+second sweep**: it calls `expireRetired` above for every gate and every removal, and adds
+only what a fifteen-minute tick has no reason to produce — the `STRAY` rows (an
+unregistered directory, or a `.note` whose directory is gone: reported by name, never
+deleted), the report a person reads, and `--backfill`. `test/atticcli.mjs` holds it,
+starting with the claim the bash version could not make: a healthy attic reports **zero**
+strays, and the same zero five runs running.
+
+It is still repo-agnostic — it takes any repo's main checkout, and sophab, which has no
+daemon, still depends on it as the only thing that empties its attic.
 
 Two limits worth knowing. A session's `cwd` is recorded when it starts, so a session
 that later entered a worktree does not show as being *in* it — the lock is what
@@ -3350,8 +3490,10 @@ Five things follow, and they are the whole of the change:
 
 **The old ending is intact, and it is the fallback.** Everything below about the card,
 the three answers and the markers is still exactly what happens when the merge does not
-— GitHub refused it, a check went red, the checks never reported, `pr.autoMerge` is off,
-or the session passed `--review` because it wanted a human on this one. It went from
+— GitHub refused it, a check went red, the checks never reported, the space
+[asks for an approving review](#spaces--keeping-work-out-of-your-evening) and there is
+none, auto-merge is off, or the session passed `--review` because it wanted a human on
+this one. It went from
 being every delivery to being the interesting ones.
 
 ### The notification with nothing to answer
@@ -3385,8 +3527,14 @@ sentences, never folded into one polite one:
 | the card says | what happened |
 |---|---|
 | *tried to merge it. **It could not:** …* | GitHub refused, or a check went red, or nothing reported. The reason is quoted from whatever refused |
+| *its checks are green. **It is waiting on an approving review*** | the space asks for one (`requireApproval`) and the pull request has not got it. Nothing refused and nothing is wrong — your **Merge** *is* the review |
 | *could have merged this itself and **deliberately did not*** | the session passed `--review`. Its reason is in the summary |
-| *Nothing is merged until you say so* | `pr.autoMerge` is off, so every delivery is a question and this one is not special |
+| *Nothing is merged until you say so* | auto-merge is off for this space, so every delivery is a question and this one is not special |
+
+The second and the fourth are the pair worth keeping apart. Both are a green pull
+request sitting unmerged, and only one of them is about a switch: a card that said
+*auto-merge is off* over a repo where it is emphatically on would send you looking for
+a setting that is already the way you want it.
 
 A refusal is prose on the card and never a field in the `beadpr` block — the block
 carries identity and intent, and "why it didn't merge this time" is neither. The same
@@ -3657,6 +3805,7 @@ channel would have.
   "base": "main",
   "mergeMethod": "merge",
   "autoMerge": true,
+  "requireApproval": false,
   "mergeWaitMs": 300000,
   "tidyMerged": true
 }
@@ -3703,6 +3852,22 @@ is your tap. Nothing else changes — same branch, same PR, same card, same thre
 so it is a safe thing to flip for an afternoon, and flipping it back needs no cleanup. A
 worker can reach the same ending on its own for one delivery with `--review`, and the
 card says which of you decided.
+
+`requireApproval: true` is the half-measure between the two, and it is the one to reach
+for when other people work in a repo: the worker still opens the pull request and still
+waits for the checks, but a green one with no **approving review** on it becomes a merge
+card rather than a merge. `reviewDecision` is read off the pull request the worker just
+opened — `APPROVED` and nothing else counts, so *changes requested* and *review required*
+both stop it — and the card says outright that a review is what is missing. Your **Merge**
+is that review. This is beadcause's own gate, not GitHub's: branch protection is free to
+require its own on top, and will refuse the merge in its own words if it does.
+
+**Both are per space, and the global here is only the default.** `autoMerge` was one
+global answer for every repo in every space, which is wrong at both edges: a side project
+wants its work landed without being asked at three in the morning, and a shared repo wants
+eyes on the diff. Put the answer on
+[the space](#spaces--keeping-work-out-of-your-evening) instead, in either direction, and
+what is below stays the fallback for everything that has not said.
 
 `mergeWaitMs` is how long a worker waits for its checks before giving up and asking. Too
 short and a repo with CI hands you every delivery as a question — a pull request is at
@@ -3762,7 +3927,12 @@ rule as the sweep — asked only after the local test says no.
 assertion rather than a hope — including the wait for the checks, whose `sleep` is
 injected and is where the fake's world changes, so pending-then-green runs in
 milliseconds. `test/delivery.mjs` covers the block, the markers, the split, and that the
-three openings of a card are three different sentences. `test/land.mjs` covers the thing
+four openings of a card are four different sentences. `test/approval.mjs` covers the
+per-space half end to end — `prPolicyFor` resolving both answers in both directions, and
+the real `bin/deliver.js` against the same fakes, where the assertion that matters is
+again a negative one: a green, unapproved pull request in a require-approval space must
+leave no `gh pr merge` in the call log at all, and must produce a card that says it is
+waiting on a review rather than that auto-merge is off. `test/land.mjs` covers the thing
 with no other interface: the **brief**, which is all beadcause can make a worker do. It
 asserts that the landing ending never tells a session to merge `main` by hand, that its
 marker line cannot claim `CAN BE MERGED` over work already in `main`, that the ask-first
@@ -4954,11 +5124,11 @@ What that costs is per-session revocation, so be clear about what each act does:
 
 ### Whose answer it is
 
-A session is an identity, so it is used as one: **an answer, a comment or a dismissal
-note written by a signed-in browser goes onto the bead under that address**, not under
-`beadcause`. That is `bd`'s `--actor` (and `BEADS_ACTOR`, which it has to agree with —
-see `lib/bd.js`), so it is on the comment, on the close, and in `bd show` six months
-later, which is the only place the question "who decided this" ever actually gets asked.
+A session is an identity, so it is used as one: **what you say or decide from a
+signed-in browser goes onto the bead under that address**, not under `beadcause`. That
+is `bd`'s `--actor` (and `BEADS_ACTOR`, which it has to agree with — see `lib/bd.js`),
+so it is on the comment, on the close, and in `bd show` six months later, which is the
+only place the question "who decided this" ever actually gets asked.
 
 Two rules keep it honest:
 
@@ -4968,12 +5138,36 @@ Two rules keep it honest:
   `config.json`. A request carrying **both** a token and a session is a signed-in
   browser (the phone sends its pairing token on every fetch), and the session wins;
   otherwise the attribution would never once apply to the device it was built for.
-- **Only what you *said* gets your name.** The `human-replied` label, the status
-  changes behind a hand-back, the beads a "yes" creates and the note a merge leaves on
-  a work bead are all the daemon's record of its own actions, and they stay
-  `beadcause`. A byline on those would read as you having done them by hand.
+- **Only what you *said or decided* gets your name.** The answer, the comment, the
+  dismissal note; the beads a "yes" files — through the share target, the chat session,
+  or an approved advocate proposal; and a pull request's verdict — the "changes
+  requested" and "declined" notes on the work bead, and the close reason on a merge.
+  What stays `beadcause` is everything that is bookkeeping rather than a sentence: the
+  `human-replied` label, the reopen-and-unclaim that puts a bead back in the queue, the
+  `bd dep add` behind a console create, and the daemon's own note about a create it
+  refused. A byline on those would read as you having done them by hand.
 
-`test/attribution.mjs` holds both halves.
+**A create was the case that looked dangerous and is not.** It was held back at first
+on the belief that `--actor` set a new bead's `owner` — which *is* read as whose queue
+a bead belongs to, by `bd ready` and by the agents screen — so filing under your address
+might have quietly moved work out of the advocate's reach. It does not: `--actor` writes
+`created_by`, a byline, and `owner` comes from the git identity of the directory `bd`
+runs in, untouched by the flag and by `BEADS_ACTOR`. `test/attribution.mjs` asks the
+**real** `bd` binary that question — one bead filed each way, asserting the two owners
+are identical and both come back from `bd ready` — because it is the fact the whole
+decision rests on and a fake `bd` cannot keep it honest. That section skips itself,
+loudly, where `bd` is not installed.
+
+One thing a name cannot reach: the GitHub half of a verdict. `gh pr comment` posts as
+whoever `gh` is authenticated as on this Mac, and no flag here changes that.
+
+A merge close that `bd` refuses — a work bead still gated by a blocker — is written down
+in `lib/owed.js` and retried on a later poll, minutes afterwards, with no request behind
+it. So the address is stored in the owed record and the retry closes under it. Otherwise
+the same tap would say your name or `beadcause` depending on nothing you did: whether the
+blocker happened to have cleared by the time you tapped.
+
+`test/attribution.mjs` holds all of it.
 
 ### Where the two secrets live, and how to rotate them
 
@@ -5067,6 +5261,7 @@ cookie says so), and `/auth/signout` ends the session.
 | GET | `/api/prs` | `?refresh=1` | the PR board: every pull request in every repo with its Merged · Pushed · Deployed lamps, plus `observing`. Cached 25s on the daemon; `refresh=1` forces the `gh` sweep |
 | POST | `/api/pr/merge` | `{workspace, number, method?}` | merges it at GitHub, fast-forwards this Mac's `main`, and retires the inbox's own "Merge #N?" card if a worker filed one. Three halves report separately — `{pr, alreadyMerged, land, cards}` — because a merge that landed and a fast-forward refused over open files is a *good* outcome and one flat failure over both would send you to GitHub to find out which. The card is **closed**, never answered: merging a pull request is a fact, and the card is spent because of that fact rather than because anything wrote `MERGE:` under your name |
 | POST | `/api/pr/ship` | `{workspace, number}` | the declared deploy where the repo has one, an iTerm session where it does not. `409` if the PR is not merged — shipping an unmerged pull request has no meaning. Refused on an observer |
+| POST | `/api/release/ship` | `{workspace}` | ships the whole release queue — one deploy for every merge sitting on `origin` and not live, which is what a deploy has always done anyway. `409` on an empty queue (a restart for nothing), on a repo that declares no deploy (there is no window that means "and the other three"), and on one already deploying. Refused on an observer |
 | POST | `/api/pr/comment` | `{workspace, number, text}` | a note on the pull request at GitHub and nothing else. Not `/api/comment`, which writes on a *bead* and puts an agent onto answering it |
 | POST | `/api/comment` | `{workspace, id, text, agent?}` | comments, sets `human-replied`, dispatches that agent to reply (default when absent or unknown) |
 | POST | `/api/dismiss` | `{workspace, id, reason?}` | takes the card off the screen and **closes nothing**. Writes your note if you typed one, writes nothing at all if you did not, and never touches the status — "I am not dealing with this now" is not "this is decided" |
@@ -5220,7 +5415,8 @@ the fields it always read and renders exactly as it did.
 | `pr.enabled` | land finished work as [a pull request the worker merges](#landing-work--a-branch-a-pull-request-and-the-workers-own-merge) (default `true`). `false` puts every workspace back on the oldest ending — work the bead, close the bead. A workspace with no `gh` or no GitHub remote gets that ending anyway, without needing to be named |
 | `pr.base` | what a PR is opened against and merged into (default `main`) |
 | `pr.mergeMethod` | `merge` (default), `squash` or `rebase`. A merge commit because a squash-merged branch is never an ancestor of `main`, and the worktree cleanup will not remove a worktree that fails that test |
-| `pr.autoMerge` | the worker merges its own pull request once the checks report (default `true`). `false` stops it after opening the PR and makes the merge your tap, which is what every delivery used to do. A worker can choose the same for one delivery with `--review` |
+| `pr.autoMerge` | the worker merges its own pull request once the checks report (default `true`). `false` stops it after opening the PR and makes the merge your tap, which is what every delivery used to do. A worker can choose the same for one delivery with `--review`. **A [space](#spaces--keeping-work-out-of-your-evening) overrides this either way**, so this is the default rather than the answer |
+| `pr.requireApproval` | a pull request needs an `APPROVED` review before a worker may merge it (default `false`). Green but unapproved becomes a merge card saying so, rather than a merge — the setting for a repo other people work in. Per space, like `autoMerge` |
 | `pr.mergeWaitMs` | how long a worker waits for its checks before handing the PR over instead (default 5 min). A PR is at its most pending the second after it is opened, so without this a repo with CI would ask you about every delivery |
 | `pr.tidyMerged` | let the worktree sweep ask GitHub whether a branch's PR merged, since a squash-merge never makes it an ancestor of main (default `true`; belt beside `mergeMethod`'s braces) |
 | `advocates.workspaces` | which repos get an [advocate](#advocates--an-agent-per-repo-whose-job-is-the-queue-reaching-zero). **Empty by default**; `["*"]` for every one |

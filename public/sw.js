@@ -28,7 +28,14 @@
    the inbox with neither the picker nor the two chip rows it replaced: no way at all to
    change which repo you are looking at. They have to arrive together, which is what a
    cache version is for. */
-const CACHE = 'beadcause-v22';
+/* v23: the inbox filter collapsed into one hover-open line, and grew a chip per kind
+   of incoming thing. `/inboxfilter.js` is a new path *and* app.js now hands it the
+   scope group and asks it whether each row is in view — so a phone holding v22's cached
+   app.js beside v23's file would draw a panel nothing read, and a phone holding v23's
+   app.js without the file would draw an inbox with no scope switch at all: the chips
+   that used to be a permanent row are inside the new control, and nothing else draws
+   them. They have to arrive together, which is what a cache version is for. */
+const CACHE = 'beadcause-v23';
 const SHELL = [
   '/',
   '/index.html',
@@ -50,6 +57,10 @@ const SHELL = [
   // page cached without it is a page with no way to change which repo the app is about,
   // and on the inbox it is what the space and workspace chip rows became.
   '/spacebar.js',
+  // The inbox's own filter — the scope switch and the kind chips, in one collapsed
+  // line. In the shell for the same reason the picker is: without it the inbox has no
+  // control on it at all to say which slice of the tracker you are looking at.
+  '/inboxfilter.js',
   // On every page that can open a detail drawer, and on both pages that can be one.
   '/drawer.js',
   '/doc.html',
