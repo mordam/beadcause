@@ -95,11 +95,36 @@ const row = (over) => ({
   ...over,
 });
 
+/**
+ * The release queue on the card — what one deploy would make live.
+ *
+ * Mutable, because the strip's most important state is the one where it is *absent*:
+ * a repo with nothing waiting draws no box at all, and an empty box explaining that
+ * would be the ordinary state of the page dressed up as a control you declined to
+ * press. See `releaseHtml` in public/prs.js.
+ */
+let RELEASE = {
+  // Two, not three, and #2 is the one left out on purpose: it is merged with a Pushed
+  // lamp nobody can read, and a deploy fast-forwards to `origin` — so a merge this Mac
+  // has not seen there could not be picked up by pressing this. A fixture that queued
+  // it anyway would be a screen agreeing with a daemon that never says that.
+  count: 2,
+  can: 'deploy',
+  hint: 'runs `launchctl` · rebuilds APK · restarts beadcause',
+  prs: [
+    { number: 5, title: 'Merged in a repo that wrote its deploy down', url: 'https://x/5', mergedAt: '2026-08-09T08:00:00Z', sha: 'ddddddd', bead: 'de-c3d' },
+    { number: 3, title: 'Merged and pushed, not shipped', url: 'https://x/3', mergedAt: '2026-08-09T07:00:00Z', sha: 'eeeeeee', bead: null },
+  ],
+};
+
 const BOARD = () => ({
   unavailable: null,
   observing: false,
   build: { dir: '/Users/x/repos/demo', commit: 'a'.repeat(40), short: 'aaaaaaa', at: '2026-08-09T09:00:00Z' },
-  counts: { open: 1, merged: 1, pushed: 1, deployed: 1, closed: 0, owed: 2 },
+  // `ship` is absent, not zero, when there is no queue to report — a daemon predating
+  // the queue sends no such key, and the tab badge has to fall back to `owed` rather
+  // than read an invented nought. See `render` in public/prs.js.
+  counts: { open: 1, merged: 1, pushed: 1, deployed: 1, closed: 0, owed: 2, ...(RELEASE ? { ship: RELEASE.count } : {}) },
   repos: [
     {
       workspace: 'demo',
@@ -108,6 +133,9 @@ const BOARD = () => ({
       error: null,
       note: null,
       deployTracked: true,
+      deployDeclared: true,
+      deployHint: 'runs `launchctl` · rebuilds APK · restarts beadcause',
+      release: RELEASE,
       prs: [
         row({
           key: 'demo#4',
@@ -795,7 +823,88 @@ try {
     `with what that step printed, and nothing from the ones that worked — ${JSON.stringify(body?.out)}`
   );
 
+  /* ------------------------------------------------------------ the release queue */
+
+  /**
+   * The strip above the rows: how many merges one deploy would make live.
+   *
+   * The number is the whole point of it, so it is read as its own element rather than
+   * out of the button's text — a count folded into the label would vanish the moment
+   * the button arms and rewrites itself, which is exactly when you most want to know
+   * what you are about to ship. Four claims, and the last one is the quiet one: a repo
+   * with nothing waiting draws no strip at all.
+   */
+  console.log('\nthe release queue');
+
+  DEPLOYS = { deploys: [], deployable: ['demo'] };
+  const QUEUE = RELEASE;
+  await s.send('Page.navigate', { url: `${BASE}/prs` });
+  await sleep(1500);
+  posted.length = 0;
+
+  ok(
+    (await evalJs(s, `document.querySelector('#prs .release-count')?.textContent.trim() || ''`)) === '2',
+    'the count is drawn over the button, as its own element'
+  );
+  ok(
+    /one deploy ships them all/i.test(await evalJs(s, `document.querySelector('#prs .release-say')?.textContent || ''`)),
+    'and the sentence says a deploy ships the lot, which is what a deploy has always done'
+  );
+  ok(
+    (await evalJs(s, `document.querySelectorAll('#prs .release-list li').length`)) === 2,
+    'it lists what is going out, so the number is checkable'
+  );
+  ok(
+    !/#2/.test(await evalJs(s, `document.querySelector('#prs .release-list')?.textContent || ''`)),
+    'and leaves out the merge this Mac has not seen on origin — no deploy could pick it up'
+  );
+  ok(
+    (await evalJs(s, `!!document.querySelector('#prs .release-list .pill.id')`)),
+    'and links the ship bead filed for a merge that has one'
+  );
+
+  await evalJs(s, clickAct('release'));
+  await sleep(300);
+  ok(posted.length === 0, `the first tap sends nothing — ${posted.length} request(s)`);
+  const armed = await evalJs(s, `document.querySelector('#prs [data-act="release"]')?.textContent.trim() || ''`);
+  ok(/all 2/i.test(armed), `and the armed button says how many it is about to ship — "${armed}"`);
+
+  reply = { status: 200, body: { ok: true, deploy: { id: 'd-rel99', workspace: 'demo' }, release: { count: 2 } } };
+  await evalJs(s, clickAct('release'));
+  await sleep(600);
+  ok(
+    posted.length === 1 && posted[0].path === '/api/release/ship',
+    `the second tap ships the queue — ${posted[0]?.path}`
+  );
+  ok(
+    posted[0]?.body.workspace === 'demo' && posted[0]?.body.number === undefined,
+    'naming the repo and no pull request — it is the whole queue, not a row'
+  );
+  const said = await evalJs(s, SAID);
+  ok(/d-rel99/.test(said?.text || ''), `and says which record to watch — "${said?.text}"`);
+
+  RELEASE = { count: 0, can: 'deploy', hint: '', prs: [] };
+  await s.send('Page.navigate', { url: `${BASE}/prs` });
+  await sleep(1500);
+  ok(
+    (await evalJs(s, `!document.querySelector('#prs .release')`)),
+    'and a repo with nothing waiting draws no strip at all — everything being live is the ordinary state'
+  );
+  RELEASE = null;
+  await s.send('Page.navigate', { url: `${BASE}/prs` });
+  await sleep(1500);
+  ok(
+    (await evalJs(s, `!document.querySelector('#prs .release') && !!document.querySelector('#prs .board-pr')`)),
+    'a board from a daemon that has no queue to send still draws its rows'
+  );
+  // Put the queue back *and reload*, because the screenshots below are of whatever is
+  // on screen right now: the strip is the new thing on this page, and a picture without
+  // it would leave out the one part worth looking at.
+  RELEASE = QUEUE;
+
   if (outDir) {
+    await s.send('Page.navigate', { url: `${BASE}/prs` });
+    await sleep(1500);
     fs.mkdirSync(outDir, { recursive: true });
     for (const scheme of ['dark', 'light']) {
       await s.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: scheme }] });
