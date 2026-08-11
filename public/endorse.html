@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <!--
+    interactive-widget=resizes-content, the same bargain the inbox makes: the adjust
+    form and the note box are the two places on this page you type into, and both sit
+    below the fold of an unfolded row. Without this the keyboard slides over the field
+    you are in rather than pushing the page up out from under it.
+  -->
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+  <meta name="theme-color" content="#0b0f14" media="(prefers-color-scheme: dark)">
+  <meta name="theme-color" content="#f6f7f9" media="(prefers-color-scheme: light)">
+  <title>Beadcause · endorsement queue</title>
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body class="doc-body">
+  <header class="topbar">
+    <div class="brand">
+      <span class="dot" id="pulse"></span>
+      <h1>Endorse</h1>
+    </div>
+    <div class="sheet-actions">
+      <button id="eq-refresh" class="icon-btn" aria-label="Refresh">⟳</button>
+    </div>
+  </header>
+
+  <main id="eq" class="work">
+    <div class="empty">Asking every workspace…</div>
+  </main>
+
+  <script src="/presence.js"></script>
+  <script src="/tabbar.js"></script>
+  <!-- Which space the queue is about. Before endorse.js, which registers its repaint
+       on it at the top of its own IIFE. -->
+  <script src="/spacebar.js"></script>
+  <!-- Speaking the objection instead of thumbing it. Before the page's own script,
+       which asks it at render time whether a microphone can work here at all. -->
+  <script src="/dictate.js"></script>
+  <script src="/endorse.js"></script>
+  <!-- Every bead pill here is a link into the graph; the drawer keeps them over this
+       list rather than navigating the queue away under your thumb. -->
+  <script src="/drawer.js"></script>
+</body>
+</html>

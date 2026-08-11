@@ -588,9 +588,13 @@ try {
   });
   write.delay = 900;
   await boot();
+  // A choice no longer answers on its own — it opens the card and writes itself into
+  // the box, and the button under it is what sends. Two gestures either way; what
+  // this section needs is only that an answer completes with the motion turned off.
   await tap(s, `#list .card[data-key=${JSON.stringify(PLAIN_KEY)}] [data-act="option"][data-opt="net"]`);
+  await waitFor(s, `!!document.querySelector('#list .card[data-key=${JSON.stringify(PLAIN_KEY)}] [data-act="answer"]')`);
   await sleep(120);
-  await tap(s, `#list .card[data-key=${JSON.stringify(PLAIN_KEY)}] [data-act="option"][data-opt="net"]`);
+  await tap(s, `#list .card[data-key=${JSON.stringify(PLAIN_KEY)}] [data-act="answer"]`);
 
   let anyBead = 0;
   for (let i = 0; i < 16; i++) {

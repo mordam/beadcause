@@ -234,7 +234,7 @@ check('the page carries the settings card and the gear to admin', () => {
 check('and the service worker version moved, or a cached phone gets the gear without the card', () => {
   // monitor.html, monitor.js and style.css are all already in the shell, so the version
   // is the only thing that makes the three arrive together.
-  assert.ok(/const CACHE = 'beadcause-v(2[3-9]|[3-9]\d)'/.test(read('public/sw.js')), 'CACHE was not bumped past v22');
+  assert.ok(/const CACHE = 'beadcause-v(2[5-9]|[3-9]\d)'/.test(read('public/sw.js')), 'CACHE was not bumped past v24');
 });
 
 /* ============================================================== the server half */
