@@ -33,6 +33,16 @@
  *    merged #25 is a question with no answer left in it — and it is a blocker on the
  *    work bead, so leaving it open is what stops the delivery closing the bead it just
  *    landed.
+ * 4. **A delivery of a branch somebody already merged on github.com.** The same shape
+ *    from the other end: there is nothing to push and nothing to open, because the work
+ *    is in `main` already. This used to die at the `no commits` guard with `exit 2`, so
+ *    the one command a worker is given to land work with could not close the bead over
+ *    work that had landed — and the bead stayed open for the advocate to hand out again.
+ *
+ * The last one has a second claim under it that matters more than it looks: the branch
+ * must **not** be pushed on that path. A card merge deletes the remote branch, and a
+ * `git push --set-upstream` afterwards would recreate, from this laptop, a branch GitHub
+ * deleted on purpose.
  *
  * Real git, real branches, a real `origin`. `gh` and `bd` are fakes, because what is
  * being asserted is which calls this makes and what the tracker looks like afterwards —
@@ -463,6 +473,74 @@ console.log('\nre-delivering the same branch\n');
     /#26/.test(owed['demo/zz-work']?.reason || ''),
     owed['demo/zz-work']?.reason
   );
+}
+
+/* --------------------------- a branch somebody already merged on github.com */
+
+{
+  // The trap from the other end. The pull request merged on GitHub rather than from a
+  // card, so nothing here closed the bead; the advocate handed it out again; and the
+  // session it handed it to is told to end with this command. There is nothing to push
+  // and nothing to open — and until this was fixed, that was `exit 2` and a bead left
+  // open for attempt 3.
+  writeConfig({ pr: { autoMerge: true, base: 'main', mergeMethod: 'merge' } });
+  reset();
+  fs.rmSync(path.join(CONFIG_DIR, 'owed-closes.json'), { force: true });
+
+  git(repo, 'checkout', '--quiet', '-b', 'work-landed');
+  commit('six');
+  git(repo, 'push', '--quiet', '-u', 'origin', 'work-landed');
+
+  // Merged on GitHub: `origin/main` carries the work, and the pull request says MERGED.
+  // Nothing in beadcause was involved, which is the whole point of the case.
+  git(repo, 'checkout', '--quiet', 'main');
+  git(repo, 'merge', '--quiet', '--no-ff', '-m', 'Merge pull request #77', 'work-landed');
+  git(repo, 'push', '--quiet', 'origin', 'main');
+  git(repo, 'checkout', '--quiet', 'work-landed');
+  const landedSha = git(repo, 'rev-parse', 'HEAD');
+
+  const s = ghState();
+  s.prs['work-landed'] = {
+    number: 77,
+    title: 'zz-work: the work',
+    url: 'https://github.com/acme/widgets/pull/77',
+    state: 'MERGED',
+    isDraft: false,
+    mergeable: 'MERGEABLE',
+    mergeStateStatus: 'CLEAN',
+    headRefName: 'work-landed',
+    baseRefName: 'main',
+    additions: 1,
+    deletions: 0,
+    changedFiles: 1,
+    statusCheckRollup: [],
+    reviewDecision: null,
+    mergedAt: '2026-08-10T12:00:00Z',
+    mergeCommit: { oid: landedSha },
+  };
+  fs.writeFileSync(GH_STATE, JSON.stringify(s, null, 2));
+
+  const before = git(repo, 'rev-parse', 'origin/work-landed');
+  const out = deliver();
+  const bead = world().issues['zz-work'];
+
+  check('a branch already merged on GitHub reports a landing, not a failure', out.startsWith('landed #77'), out);
+  check('the work bead is closed', bead.status === 'closed', bead.status);
+  check('and its close reason says where the merge happened', /on GitHub/.test(bead.close_reason || ''), bead.close_reason);
+  check(
+    'the bead is told the merge was not a beadcause session’s',
+    (bead.comments || []).some((c) => /merged into `main` on GitHub rather than from a delivery card/.test(c)),
+    JSON.stringify(bead.comments)
+  );
+  check('no new card is filed over merged work', openCards().map((c) => c.id).join(',') === 'zz-other', openCards().map((c) => c.id).join(','));
+  check(
+    'and nothing was pushed to the branch on the way past',
+    git(repo, 'rev-parse', 'origin/work-landed') === before,
+    `${before} → ${git(repo, 'rev-parse', 'origin/work-landed')}`
+  );
+  const calls = fs.readFileSync(GH_LOG, 'utf8');
+  check('no pull request was opened', !/"create"/.test(calls), calls.split('\n').filter(Boolean).join(' | '));
+  check('and nothing was asked to merge', !/"merge"/.test(calls), calls.split('\n').filter(Boolean).join(' | '));
 }
 
 fs.rmSync(tmp, { recursive: true, force: true });
