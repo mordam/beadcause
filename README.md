@@ -1438,6 +1438,47 @@ than globbed. The prompt says the same thing in words — answer, never close, n
 create — but the allowlist is what makes it true. `test/lookup.mjs` asserts the list
 grant by grant, so widening it fails a test named after the thing being widened.
 
+#### The list has a file to itself, and the reason is not tidiness
+
+It lives in `lib/toolbelt.js`, which is one array, one string derived from it, and no
+imports at all. Two files need it: `lib/agents.js` exports it as part of the roster,
+because what a reply agent may run is part of what a reply agent *is*, and
+`lib/foundation.js` records the same list as the dispatch agent's `allowedTools`,
+because an [amendment](#what-an-agent-is--and-how-it-asks-to-be-different) has to have
+something to land on. Two copies of an allowlist is one copy that gets widened without
+the other noticing, so there is one array and both files read it.
+
+For a year the way they shared it was that `foundation.js` imported it from
+`agents.js` — and `agents.js` imports `baseline` and `mark` back. A cycle in itself is
+fine and there are four others here; what is not fine is a cycle where one side
+*reads* the other's binding at module scope, because until a module's own body reaches
+a `const` that `const` is in its temporal dead zone. So the graph had an entry order.
+Come in through `foundation.js` and both loaded. Come in through `agents.js` and it
+threw:
+
+```
+$ node -e "import('./lib/agents.js')"
+ReferenceError: Cannot access 'DEFAULT_TOOL_LIST' before initialization
+```
+
+**Nothing in the running daemon was ever broken by it, and that is what made it
+expensive.** Every real entry point happened to reach `foundation.js` first, so the
+trap was only ever sprung by new code: adding an `import` of the roster to any module
+`lib/server.js` reaches early moved `agents.js` ahead of `foundation.js` and killed the
+daemon at boot, and `npm test` died at whichever suite first imported `server.js`,
+naming a constant rather than a cycle. Nine test suites had quietly grown an
+otherwise-unused `await import('lib/foundation.js')` at the top to force the order, the
+reason was written down in none of them, and two sessions paid twenty minutes each to
+work it out again (bc-u4na).
+
+A leaf both sides import has no order to get wrong, so those nine imports are gone.
+`node test/loadorder.mjs` is what keeps it that way: it imports every `lib/*.js` **in a
+process of its own** — the only way to ask the question, since after the first import
+the order is already decided — and fails on any module that only works second. Eighty-
+five processes, eight at a time, about three seconds. It deliberately does *not* assert
+that `lib/` is acyclic, because the cycles that remain are safe ones; the property worth
+having is not "no cycles" but "no module that only loads second".
+
 ### Looking something up — and why it is not `Bash(curl:*)`
 
 The last four entries are the difference between a question that turns on one
@@ -1825,6 +1866,54 @@ this on a closed bead would lose exactly those. `test/land.mjs` asserts the posi
 the foreshadow, both stores and the question between them, the "most runs should write
 nothing" sentence, and that the three steps come out numbered in the order the marker
 needs.
+
+### Every agent needs a moment, and two of them did not have one
+
+That step turned out to be the general rule rather than the worker's own arrangement.
+Three days after the brief reached all four agents, the roster had one name on it, and
+counting who had written what is what explains it (`bc-sgu4`).
+
+**The read half fires everywhere, because the brief anchors it to a moment every run
+has.** *"Check `recall` and `notes` first"* names a point — the start — and the agents
+take it: thirteen of the thirty-four stored chat conversations open a turn with a
+`beadcause-memory recall`. **The write half names what to keep and never when**, and the
+agents that write are exactly the ones whose own brief supplies the when. A worker's
+numbers it as a closing step, and it began writing two minutes after that step landed —
+ninety-five notes and about eighty-five memories inside the first day. The comment
+answerer's run is one reply and an exit, so its end is unmissable, and its first memory
+landed an hour after the brief reached it. The chat session had no such moment, because
+a chat does not end: you stop replying and the window closes. In three days and
+twenty-eight conversations it read constantly and wrote nothing at all.
+
+So each of the chat session's two protocols now names its own moment, and the moments
+are different because the runs are. The proposal protocol hangs it on the block, which
+is the only terminal act that conversation has and is the right one on the merits — by
+the time it writes a proposal it knows what you asked for, what you cut and what shape
+you wanted, and after the block it may never be asked again. The direct-chat protocol
+hangs it on the turn where something about how that agent works gets settled. A generic
+sentence in `memoryBrief` would have been false for three of the four; this is why the
+moment lives in each agent's own brief and the *what* lives in the shared one.
+`test/memory.mjs` asserts both paragraphs, for the reason it already asserts the brief:
+a prompt paragraph is the load-bearing part of this feature and nothing else notices it
+going missing.
+
+**And the fourth agent's zero was never evidence of anything, which is worth more than
+the fix.** The advocate looked like the strongest case — it is unattended, it surveys
+the same repo again and again, and its brief carries an extra paragraph telling it to
+`recall` before proposing and `remember` what you turned down. It has written nothing
+because it has never been handed the brief: `memoryBrief` reaches it through
+`surveyPrompt` alone, a survey runs only on a tick where the queue is empty of ready
+beads *and* of running workers *and* of epics held by their children *and* of beads
+already in an open pull request, and on this Mac that has not once happened —
+`lastProposalAt` is `null` for all six advocates, and no `<workspace>_advocate.log`
+exists although `agentlog.reset` is the first line of `surveyAgent`. The advocate has a
+second path, `chatProtocol` — a chat on the agents screen runs as its real foundation,
+so `BEADCAUSE_AGENT` is `advocate` and anything written there is the advocate's — and
+the one advocate chat on disk predates the commit that put the brief in that spawn by
+three hours. **Before reading anything into a silent agent, check that the code path
+quoting the brief has ever run.** From outside, "told and declined" and "never told"
+look identical, which is the same lesson as the roster command nobody ran, one level
+further out: there the brief did not name the capability, here the brief did not arrive.
 
 ### Reading another agent, without being able to be one
 
@@ -2915,7 +3004,7 @@ synthetic `Other` group, which is what makes one request enough; the client merg
 
 Three things it does **not** do. It does not filter — status, priority, provenance and an
 id substring are the server's already and the controls for them are their own work. It does
-not stream: every other standing view mounts `stream.js`, and a fifth long poll parked
+not stream: every other standing view mounts `stream.js`, and one more long poll parked
 against a page about what already happened would be paying for liveness nobody asked for,
 so ⟳ is the refresh and a record that reordered itself while your thumb was travelling
 would be worse than one that did not. And **nothing on it writes** — which is also why it
@@ -3183,6 +3272,18 @@ with the view, because only the view knows whether `type: 'merged'` is a lamp, a
 nothing at all. Five hand-rolled long-polls with five subtly different resync behaviours
 was the shape worth not growing into.
 
+**There were six, and the sixth was missed because it is not the only script on its
+page.** The [mirror pane](#the-mirror--whatever-the-phone-has-open-with-room-to-read-it)
+rides `monitor.html` beside the advocates page it is a mode of, and it follows the log for
+a reason of its own — a thumb moving on a phone — on a sequence of its own. A survey by
+page finds five; a survey by `/api/poll?since=` finds six. It is a mount now too, and the
+argument that had kept it hand-rolled is [in its own
+section](#the-mirror--whatever-the-phone-has-open-with-room-to-read-it): the three rules
+it looked to invert turned out to be the browser tab rather than the pane, the retry
+rather than a fallback, and an optional handler. `test/stream.mjs`'s `VIEWS` list is what
+keeps the count honest, and it is keyed on the script rather than the page for exactly
+this reason.
+
 The thing that makes four more parked clients free is `want=presence`. The daemon sweeps
 `bd` for a poll that asked for the inbox questions, and the other four views draw none of
 them — so they ask to be *woken* rather than told, and then go and get their own payload,
@@ -3199,6 +3300,7 @@ each case because what is expensive is different in each case:
 | **Admin** | Reads `observing` off the poll, which is the whole reason it ever touched `/api/work`, and re-asks `/api/admin` — two in-memory reads, no `bd` — when an advocate or a terminal moved. Its numbers are promises about what a press will do, so half-patching them was never an option. |
 | **Board** | Re-asks `/api/prs` when a pull request actually moved. The three lamps are the daemon's own reading of GitHub, `origin/main` and the deploy journal; a client that set them from an event would be a second, worse copy of that ladder. The daemon drops its board cache as those events fire, so the first board through does the one `gh` sweep and every other open board shares it. |
 | **Chat launcher** | Was the odd one out — no timer to delete, just no refresh — and now re-asks `/api/consoles` when something moved. |
+| **Mirror** | The one view for which presence *is* news: it reads `presence` off the wake and re-reads the phone's card only when the phone moved to a different one, or when a non-presence event landed on the key it is already showing. |
 
 Two events were added for it, both on the daemon: opening and closing an in-app terminal
 now say so, because `/admin` draws a count of open terminals into the label of the button
@@ -3961,6 +4063,22 @@ started listening when you looked at it would be a poll with extra steps. The co
 held socket. While the pane is hidden a move only lights the dot on the chip — nothing
 repaints behind a hidden pane, so a parked read would be a held request nobody looks at —
 and coming back forces one fresh read.
+
+**That feed is [the shared one](#the-delta-stream--every-view-on-the-event-log), and was
+hand-rolled for longer than it should have been.** It was left out when the other five
+views were converted, on the reading that three of `stream.js`'s rules are inverted here:
+the loop runs whether or not its pane is showing, it never stops, and it has no fallback
+to stand down to. None of the three survived being checked against the file. The pane
+above is the mirror/advocates toggle *inside* one document and `stream.js` has no opinion
+about it — its rule is `document.hidden`, the browser tab, and a mirror window merely
+unfocused on a second screen is `visible`, which is the entire use case. "Never stops" is
+the retry, which is the default and which walks a dead daemon out to a minute rather than
+re-asking it every three seconds for as long as the page is open, as this loop did. And
+"no fallback" is `onSettle` being optional. So the conversion needed no new options at
+all, and what it bought was that backoff, an abort when the tab hides instead of a socket
+held in the dark, and a `resync` the hand-rolled loop had no concept of — the log rolling
+past leaves `events` empty, which read as *nothing moved* on the one occasion the pane
+could least afford it.
 
 A chat session is the exception, because it changes while nothing moves at all — the agent
 is mid-sentence. That used to be a 1.5s `setInterval` re-reading the whole session, which
@@ -5216,9 +5334,9 @@ is that nothing in the app can stop it binding — every `import` at the top of 
 leaf, which is what makes a syntax error in `lib/server.js` cost you a swap rather than the
 port. A static `import` of `lib/crash.js` would have quietly spent that: it reaches
 `lib/errors.js`, `lib/filing.js`, `lib/proposal.js` and `lib/endorse.js`, and `ownWorkspace`
-lives in `lib/deploy.js`, which reaches `lib/session.js` and so the `lib/foundation.js` ↔
-`lib/agents.js` cycle (bc-u4na) — a graph whose *evaluation order* decides whether it loads
-at all. Loading it after the socket is bound inverts the failure: the worst case is a router
+lives in `lib/deploy.js`, which reaches `lib/session.js` and through it most of the roster,
+the foundations and the tracker — a third of the app, evaluated before the port is bound.
+Loading it after the socket is bound inverts the failure: the worst case is a router
 that serves normally and says in its log that its crashes are only log lines, which is
 precisely what it did before any of this. `notifyCertificate` loads `lib/notify.js` the same
 way for the same reason. The arming says which graph it chose, in one line, because the
@@ -5817,6 +5935,25 @@ since bc-uytt that is `bin/attic.js` here, so it asks GitHub the same way this d
 it is resumable. The branch is kept deliberately — `git branch -d` refuses a branch
 checked out in another worktree, and the branch is what makes the retirement
 reversible.
+
+**What holds those gates is `test/retire.mjs`,** and for a long time nothing did. The
+attic below had two suites while this half — the one that acts on a directory somebody
+may still be *sitting in* — was named in no test file in the repo, running unattended
+every fifteen minutes with `prMerges` on. Each gate is now asserted on its own with its
+own reason, in a real repo with a real `origin` and real worktrees, because every claim
+here is a question about refs and registrations and a fake git would only prove the fake
+works. The one thing faked is `gh`, and it is on `PATH` for the sweeps run *without*
+`prMerges` too: with GitHub present and answering MERGED, a worktree left as "not merged"
+can only mean the flag gated the call. Then every gate was deleted from `lib/tidy.js` one
+at a time to watch the suite go red — seventeen of eighteen, including the four that are
+not `if` statements and are therefore the easy ones to lose in a refactor: the
+symlink-aware `realPath`, `origin/main` asked before `main`, the `.note` stamp, and `git
+worktree move` swapped for a plain rename. The eighteenth survives deletion and no test
+can catch it, because there is nothing to catch: the main checkout is never *under*
+`.claude/worktrees/`, so the location gate has already refused it, and the line excluding
+it by path is a second lock on a door that was not there. It is kept for the same reason
+its comment gives — excluded by location is a thing to say out loud — but it is worth
+knowing that it is the one line here whose removal changes nothing.
 
 #### Emptying the attic
 
@@ -9905,6 +10042,41 @@ would pass against a `quiesce()` that did nothing. Filed as bc-5uy8; bc-3qsw, bc
 bc-t69u and bc-94c6 are the same failure in `reap.mjs`, `superseded.mjs`, `slowstart.mjs`
 and `outagepush.mjs`, and each is a two-line change now that the helper exists.
 
+### A suite must not assert about a directory it does not own — `test/browse.mjs`
+
+The same shape as the teardown above, from the other side: not a suite whose cleanup
+races something, but a suite whose *assertion* was about a directory other people write
+to. `test/browse.mjs` proves that a browse deletes its throwaway profile, and it used to
+prove it by listing every `beadcause-browse-*` entry in `os.tmpdir()` before the run and
+asserting the listing came back identical. That reads as airtight and is not: `/tmp` is
+shared by every session on this laptop, a dozen of which run at once, so **any other
+agent that started a browse inside that window failed this suite** — over a directory
+that was gone again by the time the diff was read, on a branch that touched neither
+`lib/browse.js` nor `bin/beadcause-browse`.
+
+It is suite ~17 of ~100 and the runner stops at the first failure, so it cost a
+fifteen-minute gate each time, and the tell was buried in the diff: `actual` and
+`expected` name a *different* profile id, meaning the run deleted its own and counted a
+stranger's. It was filed four separate times — bc-60rr, bc-wcw3, bc-eldx, bc-ivb1 —
+which is what a flake that blames whoever is reading it looks like from the outside.
+
+The fix is that the live block makes a sandbox directory of its own and points `TMPDIR`
+at it for the duration. Nothing is stubbed: `os.tmpdir()` is read on every call and
+`makeProfile()` asks it every time, so the profiles are still made by the real
+`makeProfile()`, and they are still under the system temp directory as far as
+`assertThrowawayProfile` is concerned, because the sandbox is inside it. It cuts both
+ways, which is the point — this run is no longer disturbed by other sessions, and no
+longer disturbs them, since a sandbox not named `beadcause-browse-*` is invisible to
+anyone listing the directory above it.
+
+Owning the directory is also what lets the assertion get *stronger* rather than weaker.
+The old check ran after the first browse only; there is now a second one at the end of
+the block covering the four runs after it, including the 404 case, which throws — so its
+profile path never comes back to be named, and its deletion happens in a `finally`
+nothing was watching. Both are still `deepEqual`s against an empty listing rather than
+"the one path it told us about is gone", so a future change that quietly makes a second
+profile and reports one still fails.
+
 ### `npm run checks` — the browser half, and why `npm test` can still see it rot
 
 The twenty-eight `scripts/*-check.mjs` are the only cover this repo has for layout, taps
@@ -10200,6 +10372,28 @@ padding, which the space card was the one card on the page without. The general 
 no block sets a flex-container property unless something gives that element a flex display
 — needs the markup rather than the stylesheet, because five live rules here are modifier
 classes on a base class that supplies the display; that is bc-ah0v.
+
+And a fourth, which is the second one wearing a disguise: **written twice with different
+quoting**, so that a grep for either spelling comes back looking conclusive.
+`.chip[aria-pressed="true"]` at the top of the file set the filled accent and the
+`var(--accent-ink)` meant to go on it; four hundred lines below,
+`.chip[aria-pressed='true']` — the composer's deliberately quiet wash for a suggestion
+chip — set a 16% background and no colour at all. Same specificity, so the later rule won
+the background and the earlier one's near-black ink stayed on it, on **every** pressed chip
+in the app: the filter and scope chips, the space row, the monitor's tabs, the chips the
+console edits a bead with. Measured in a real Chrome that is 1.0:1 in the dark theme and,
+worse, white on a pale teal at 1.6:1 in the light one — invisible rather than merely dim,
+against 4.5:1 for ordinary text. It survived because each spelling greps as the only one,
+and because bc-es8 had already given `.show-dismissed` a private `color` to climb out of
+it, which fixed the one control anybody was looking at. bc-wx2e settled it the way the
+surrounding rules already argued for: the filled accent is the app-wide paint for a chip
+that has been *chosen* — the same paint `[aria-selected]` gives a tab, at 11.2:1 and
+5.5:1 — and the wash is scoped to `.suggested`, where its own comment argues for it,
+naming `var(--text)` as its ink. So the invariants are that exactly one rule paints a
+pressed chip app-wide, that any rule giving one a background names its ink in the same
+block (a background from one rule and a colour from another being precisely the pair that
+was unreadable), that the wash stays scoped, that the spelling is one spelling, and that
+`.show-dismissed` no longer needs its escape hatch.
 
 ## Notes on bd
 

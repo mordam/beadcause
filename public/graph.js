@@ -698,10 +698,12 @@
     // waiting. `blocks 3` on something nobody has touched in a month is the case this
     // is here to make visible.
     //
-    // `waits` is counted off the graph's own edges by `enrichGraph` (lib/graph.js), not
-    // taken from bd's `dependency_count` — that number counts the edge to a bead's
-    // parent, so every subtask here used to say "waits on 1" while waiting on nothing.
-    // Nought is therefore a real answer and prints nothing at all.
+    // Both `blocks` and `waits` are counted off the graph's own typed edges by
+    // `enrichGraph` (lib/graph.js), not taken from bd's `dependent_count` and
+    // `dependency_count`. Those two count neighbours that have since closed — and, when
+    // it is `bd show` filling them rather than `bd list`, the parent-child edge as well,
+    // which is how an epic came to announce that it blocked its own children. Nought is
+    // therefore a real answer here, and prints nothing at all.
     const meta = [];
     if (d.type) meta.push(d.type.replace('_', ' ').replace(/^./, (c) => c.toUpperCase()));
     if (d.blocks) meta.push(`blocks ${d.blocks}`);
