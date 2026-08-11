@@ -3116,8 +3116,8 @@ The default has since moved to a merge commit (`pr.mergeMethod`), which makes th
 half true again and turns this second half into the belt beside those braces: it is
 what covers a workspace that asks for `squash` on purpose. The reason the default
 moved is that this sweep is not the only thing gating on ancestry — the `ship` skill
-and its attic sweep do too, they live outside this repo, and nothing here can teach
-them to ask GitHub.
+does too, and its own step 7 is still outside this repo. Its *attic* sweep is not:
+since bc-uytt that is `bin/attic.js` here, so it asks GitHub the same way this does.
 
 **Retired means moved, not deleted**: `git worktree move` into
 `.claude/worktrees-retired/`, the same soft delete the `ship` skill does by hand, so
@@ -3163,7 +3163,8 @@ taken out from under somebody answers "nobody is in it" every time.
 An entry with no `.note` is kept forever and says so. Directory mtime is the only other
 signal and it is the wrong one — a background process touching a file is not somebody
 resuming a session, and it is the difference between keeping a directory and deleting
-it. `prune-retired.sh --backfill` is where a stamp gets invented, under a human.
+it. `bin/attic.js --backfill` is where a stamp gets invented, under a human, with
+`--dry-run` available to see what it would say first.
 
 **Ancestry is asked of `origin/main`, not `main`.** Nothing merges locally any more, so
 the local `main` branch stays wherever the last `git pull` left it while GitHub moves
@@ -3172,20 +3173,42 @@ were being described as "not merged into main" over work that had shipped two da
 earlier. Both sweeps ask `origin/main` first and fall back to `main` for a repo with no
 remote, which is also what stops a stale local ref from quietly holding the attic shut.
 
-**A `STRAY` row in the attic sweep is worth distrusting before you act on it.** The
-sweep lives outside this repo, but what it reports about `.claude/worktrees-retired/`
-is read as a statement about this one — and for a while it was wrong. It tested each
-retired directory for a registration by piping `git worktree list` into `grep -q`
-under `set -o pipefail`: grep exits at its first match, git takes SIGPIPE while it is
-still walking the rest, the pipeline reports 141, and a directory that *is* registered
-reads as one that is not. It called most of a healthy 85-entry attic unregistered, a
-different subset each run, which is what a race looks like from the outside. bc-bcdp
-was filed against the attic on that evidence; the attic was fine, and every directory
-in it had been put there by `git worktree move` exactly as this page describes.
-Two things to check before believing the next one: `git worktree list --porcelain |
-grep worktrees-retired | wc -l` against `ls -1d .claude/worktrees-retired/*/ | wc -l`,
-and whether the row survives a second run. `test/pipefail.mjs` keeps the construct out
-of this repo's own scripts, where it sat in four places.
+#### The sweep a human runs — and why it moved in here
+
+The daemon empties the attic on its own tick. The `ship` skill sweeps it too, and until
+bc-uytt that was a **second implementation of the same gates**: 210 lines of bash in
+`~/.claude-personal/skills/ship/prune-retired.sh`, versioned by nothing, tested by
+nothing, run by every ship, drifting from the code above that fills the directory it
+reads. Both of its bugs came from that, and neither was findable from its output.
+
+**bc-bcdp is the first.** It tested each retired directory for a registration by piping
+`git worktree list` into `grep -q` under `set -o pipefail`: grep exits at its first
+match, git takes SIGPIPE while it is still walking the rest, the pipeline reports 141,
+and a directory that *is* registered reads as one that is not. It called most of a
+healthy 85-entry attic unregistered, a different subset each run, which is what a race
+looks like from the outside. A session read that, believed it, and filed a bug describing
+a hand-`mv` that never happened and a name collision that did not exist. The attic was
+fine, and every directory in it had been put there by `git worktree move` exactly as this
+page describes. `test/pipefail.mjs` keeps the construct out of this repo's own scripts,
+where it sat in four places.
+
+**The second was found by the port, which is the argument for it.** `grep -rlq -- "$n"
+"$dir" --exclude-dir=archive` puts the flag *after* the path, and `grep` on this laptop
+is ugrep, which only honours `--exclude-dir` before it — so it took the flag for a
+filename, warned to a stderr that `2>/dev/null` swallowed, and searched `archive/`
+anyway. Every *spent* handoff went on protecting its attic entry forever. GNU grep
+accepts flags anywhere, which is exactly why nobody would have seen this.
+
+So `bin/attic.js` is what the skill calls now, and `lib/attic.js` is a **layer, not a
+second sweep**: it calls `expireRetired` above for every gate and every removal, and adds
+only what a fifteen-minute tick has no reason to produce — the `STRAY` rows (an
+unregistered directory, or a `.note` whose directory is gone: reported by name, never
+deleted), the report a person reads, and `--backfill`. `test/atticcli.mjs` holds it,
+starting with the claim the bash version could not make: a healthy attic reports **zero**
+strays, and the same zero five runs running.
+
+It is still repo-agnostic — it takes any repo's main checkout, and sophab, which has no
+daemon, still depends on it as the only thing that empties its attic.
 
 Two limits worth knowing. A session's `cwd` is recorded when it starts, so a session
 that later entered a worktree does not show as being *in* it — the lock is what
@@ -4589,7 +4612,13 @@ The limits, stated plainly:
   again with no tap), and an ntfy push goes to the phone — the same argument as the
   certificate warning, since every other channel this daemon has runs through the
   backend that is missing. A recovery push follows, because an alarm you are never told
-  is over is an alarm you learn to ignore.
+  is over is an alarm you learn to ignore. All three surfaces are tested against a real
+  router driven into the outage on purpose: `test/slowstart.mjs` for the log and the
+  503, and `test/outagepush.mjs` for the push, which points `ntfy.server` at a ten-line
+  http server inside the test and asserts that exactly one outage push arrives however
+  many bring-ups fail after it, that it names the build, and that the recovery push
+  arrives too. The push was the one surface with no test for a while, which is the wrong
+  way round — it is also the only one that works when nobody is at the Mac.
 - **And the degraded half of that is on the advocate console.** `/api/work` carries
   `router` beside `service`: one dim line naming the build being served on a good day,
   and an amber block when the phone is on an older build than the disk — because the
@@ -4943,11 +4972,11 @@ What that costs is per-session revocation, so be clear about what each act does:
 
 ### Whose answer it is
 
-A session is an identity, so it is used as one: **an answer, a comment or a dismissal
-note written by a signed-in browser goes onto the bead under that address**, not under
-`beadcause`. That is `bd`'s `--actor` (and `BEADS_ACTOR`, which it has to agree with —
-see `lib/bd.js`), so it is on the comment, on the close, and in `bd show` six months
-later, which is the only place the question "who decided this" ever actually gets asked.
+A session is an identity, so it is used as one: **what you say or decide from a
+signed-in browser goes onto the bead under that address**, not under `beadcause`. That
+is `bd`'s `--actor` (and `BEADS_ACTOR`, which it has to agree with — see `lib/bd.js`),
+so it is on the comment, on the close, and in `bd show` six months later, which is the
+only place the question "who decided this" ever actually gets asked.
 
 Two rules keep it honest:
 
@@ -4957,12 +4986,36 @@ Two rules keep it honest:
   `config.json`. A request carrying **both** a token and a session is a signed-in
   browser (the phone sends its pairing token on every fetch), and the session wins;
   otherwise the attribution would never once apply to the device it was built for.
-- **Only what you *said* gets your name.** The `human-replied` label, the status
-  changes behind a hand-back, the beads a "yes" creates and the note a merge leaves on
-  a work bead are all the daemon's record of its own actions, and they stay
-  `beadcause`. A byline on those would read as you having done them by hand.
+- **Only what you *said or decided* gets your name.** The answer, the comment, the
+  dismissal note; the beads a "yes" files — through the share target, the chat session,
+  or an approved advocate proposal; and a pull request's verdict — the "changes
+  requested" and "declined" notes on the work bead, and the close reason on a merge.
+  What stays `beadcause` is everything that is bookkeeping rather than a sentence: the
+  `human-replied` label, the reopen-and-unclaim that puts a bead back in the queue, the
+  `bd dep add` behind a console create, and the daemon's own note about a create it
+  refused. A byline on those would read as you having done them by hand.
 
-`test/attribution.mjs` holds both halves.
+**A create was the case that looked dangerous and is not.** It was held back at first
+on the belief that `--actor` set a new bead's `owner` — which *is* read as whose queue
+a bead belongs to, by `bd ready` and by the agents screen — so filing under your address
+might have quietly moved work out of the advocate's reach. It does not: `--actor` writes
+`created_by`, a byline, and `owner` comes from the git identity of the directory `bd`
+runs in, untouched by the flag and by `BEADS_ACTOR`. `test/attribution.mjs` asks the
+**real** `bd` binary that question — one bead filed each way, asserting the two owners
+are identical and both come back from `bd ready` — because it is the fact the whole
+decision rests on and a fake `bd` cannot keep it honest. That section skips itself,
+loudly, where `bd` is not installed.
+
+One thing a name cannot reach: the GitHub half of a verdict. `gh pr comment` posts as
+whoever `gh` is authenticated as on this Mac, and no flag here changes that.
+
+A merge close that `bd` refuses — a work bead still gated by a blocker — is written down
+in `lib/owed.js` and retried on a later poll, minutes afterwards, with no request behind
+it. So the address is stored in the owed record and the retry closes under it. Otherwise
+the same tap would say your name or `beadcause` depending on nothing you did: whether the
+blocker happened to have cleared by the time you tapped.
+
+`test/attribution.mjs` holds all of it.
 
 ### Where the two secrets live, and how to rotate them
 

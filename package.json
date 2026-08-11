@@ -14,7 +14,8 @@
     "beadcause-propose": "bin/propose.js",
     "beadcause-ask": "bin/ask.js",
     "beadcause-deliver": "bin/deliver.js",
-    "beadcause-checkin": "bin/checkin.js"
+    "beadcause-checkin": "bin/checkin.js",
+    "beadcause-attic": "bin/attic.js"
   },
   "scripts": {
     "start": "node bin/router.js",
