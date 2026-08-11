@@ -1435,7 +1435,7 @@
       // and /admin, which boots from /api/work too.
       const warm = window.beadcause?.warm;
       // With its sequence, so the inbox can tell whether the copy it is holding for this
-      // page has been invalidated by anything since — see `warmWork` in public/app.js.
+      // page has been invalidated by anything since — see `MAINTAINED` in public/app.js.
       warm?.write?.('/api/work', work, Number(work?.seq) || 0);
       if (questions.questions) warm?.write?.('/api/questions?scope=human', questions, questions.seq);
       adoptQuestions(questions);

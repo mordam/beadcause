@@ -15,12 +15,14 @@
 
   **Filled once is not the same as kept warm.** That background fill happens once per
   document and the TTL below then ages what it fetched out — which is fine for a page
-  you pass through and wrong for the inbox, which is a page you sit on for hours. So the
-  heaviest tab's payload is *maintained* rather than merely stored: the inbox is parked
-  on the delta stream anyway, every wake carries the advocate roster whatever woke it,
-  and `refresh()` folds that in and resets the entry's clock for no request at all. An
-  entry only goes cold now when something has actually changed that the log cannot
-  carry, and then it is re-asked once. See `warmWork` in public/app.js.
+  you pass through and wrong for the inbox, which is a page you sit on for hours. So a
+  warmed payload is *maintained* rather than merely stored: the inbox is parked on the
+  delta stream anyway, and an entry the log has not contradicted is as true as it was
+  when it was fetched, however old it is — `refresh()` says so and resets its clock for
+  no request at all. What an entry that *has* been contradicted costs is then decided
+  per path, on what the request costs the daemon, and `/api/prs` is deliberately never
+  re-asked here because it is a `gh` call per repo. See `MAINTAINED` in public/app.js
+  for the table and the argument behind each row.
 
   **Within a document.** A list that is rebuilt with `innerHTML` on every refresh
   throws away every card, including the twenty that did not change — and with them
@@ -92,7 +94,7 @@
     // The heaviest of the three tabs and the one this order is for: `/api/work` is two
     // `bd` calls per workspace, so it is the tab that most needs to be warm — and the
     // one whose entry the inbox goes on to *maintain* off the stream rather than merely
-    // fill once. See `refresh` below and `warmWork` in public/app.js.
+    // fill once. See `refresh` below and `MAINTAINED` in public/app.js.
     { id: 'advocates', paths: ['/api/work', '/api/questions?scope=human'] },
     // `/api/work` was under /admin too, because /admin fetched it — for the single
     // `observing` boolean, which the delta stream now carries on every wake (bc-rk2o).
