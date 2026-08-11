@@ -8,7 +8,7 @@ import { hotSwapProblem, problemBanner } from '../lib/service.js';
 import { attachTerminalSocket, releaseSockets } from '../lib/termsocket.js';
 import { closeServer, startRenewal } from '../lib/tls.js';
 import { pushCertificate } from '../lib/notify.js';
-import { startSlack, slackStatusLine } from '../lib/slack.js';
+import { startSlack, slackStatusLine, slackTokenWarnings } from '../lib/slack.js';
 import { flush } from '../lib/commonrepo.js';
 import { restoreTerminals, shutdownTerminals, startTerminalReaper, terminalsEnabled } from '../lib/terminal.js';
 
@@ -305,6 +305,10 @@ console.log(`[beadcause] ntfy topic  ${cfg.ntfy.enabled ? cfg.ntfy.topic : '(dis
 // half-configured one — enabled with a bot token and no app token — posts questions
 // whose buttons do nothing, and there is no way to find that out by looking at Slack.
 console.log(`[beadcause] slack       ${slackStatusLine(cfg)}`);
+// And the one thing about those tokens the `.key` naming cannot promise: that the file
+// is not readable by every account on this Mac. `console.warn` so it is not read as part
+// of the tidy startup block above it.
+for (const w of slackTokenWarnings(cfg)) console.warn(`[slack] ${w}`);
 console.log(`[beadcause] phone URL   ${cfg.baseUrl}/?t=${cfg.token}`);
 console.log(`[beadcause] build       ${build} (${role}${internalPort ? `, internal :${internalPort}` : ', standalone'})`);
 

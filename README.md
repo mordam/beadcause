@@ -6982,6 +6982,10 @@ following a Slack tutorial aborts the next snapshot and says which secret it fou
 `BEADCAUSE_SLACK_BOT_TOKEN` and `BEADCAUSE_SLACK_APP_TOKEN` are the other place, and
 they leave no copy at all.
 
+That construction protects the *history* and knows nothing about the filesystem, so the
+one thing it cannot promise is checked at startup instead: a token file other accounts on
+this Mac can read gets a line saying so, with the `chmod` that fixes it.
+
 ### Which repos reach which channel
 
 The unit is the [space](#spaces--keeping-work-out-of-your-evening), not the repo,

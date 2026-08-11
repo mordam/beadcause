@@ -499,6 +499,20 @@ await check('neither token is a field in the config, and the default files are r
   assert.equal(protectedPath('slack-app.key'), true);
 });
 
+await check('a token file other accounts can read is said out loud, and 0600 is silent', () => {
+  // The half of "the token is in a 0600 file" that the `.key` naming cannot promise: it
+  // protects the git history and knows nothing about the filesystem.
+  assert.deepEqual(slack.slackTokenWarnings(base()), [], 'the 0600 file this suite wrote must say nothing');
+  const loose = path.join(DIR, 'loose-bot.key');
+  fs.writeFileSync(loose, 'xoxb-not-a-real-token\n', { mode: 0o644 });
+  const warn = slack.slackTokenWarnings(base({ botTokenFile: loose }));
+  assert.equal(warn.length, 1);
+  assert.match(warn[0], /mode 644/);
+  assert.match(warn[0], /chmod 600/, 'a warning you have to go and research is one that waits until the weekend');
+  // And off means silent, like everything else here — including the stat.
+  assert.deepEqual(slack.slackTokenWarnings(base({ enabled: false, botTokenFile: loose })), []);
+});
+
 await check('the file is read as the token, trimmed, and the env var wins', () => {
   assert.equal(slack.botToken(base()), 'xoxb-not-a-real-token');
   process.env.BEADCAUSE_SLACK_BOT_TOKEN = 'xoxb-from-the-env';
