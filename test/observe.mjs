@@ -178,6 +178,18 @@ test('observing:says-so-on-the-wire', async () => {
     });
     assert.equal(wrote.status, 403, 'an observer must not write another daemon`s config');
     assert.ok(!cfg.spaces[0].muted, 'and must not have changed the object in memory either');
+
+    // Publishing to Confluence is further out than either of those: a page on a wiki
+    // other people read, which no restart takes back. Refused before the config is
+    // even consulted, which is what this asserts — there is no `confluence` block in
+    // the cfg above, so a 403 here can only be the observer guard.
+    const published = await fetch(`http://127.0.0.1:${port}/api/confluence`, {
+      method: 'POST',
+      headers: { 'x-beadcause-token': cfg.token, 'content-type': 'application/json' },
+      body: JSON.stringify({ p: '/tmp/anything.md', spaceKey: 'ENG', title: 'x' }),
+    });
+    assert.equal(published.status, 403, 'an observer must not publish to a wiki');
+    assert.match((await published.json()).error, /observing/, 'and it must say why');
   } finally {
     for (const s of servers) s.close();
   }

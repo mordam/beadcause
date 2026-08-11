@@ -7003,6 +7003,133 @@ nonce is the one we sent, and that Google says the address is verified — which
 hole the allowlist would otherwise have, since anybody can put any address on an account
 they have not proved they own.
 
+## Publishing a document to Confluence
+
+Work that reaches beadcause produces durable prose. A UX review, a foundation, the
+summary a worker leaves on a bead — all of it ends up either in a repo or on an issue,
+and both of those are places the rest of a team does not look. Confluence is where they
+look. So **any document the [reader tab](#a-repo-that-could-not-be-read-says-so-instead-of-looking-empty)
+can open can be published to a Confluence page, and published again later to the same
+page**, from the same screen you were reading it on.
+
+It is off until you configure it, and an install that has not configured it never draws
+a button, never opens a credential file, and never mentions Confluence at all:
+
+```json
+"confluence": {
+  "site": "https://yourteam.atlassian.net",
+  "email": "you@yourteam.com",
+  "space": "ENG"
+}
+```
+
+```sh
+# the API token goes in a file, never in config.json — same rule as the Google client
+# secret, and for the same reason: that file is committed after every write
+printf '%s' 'ATATT3x…' > ~/.config/beadcause/confluence.key
+chmod 600 ~/.config/beadcause/confluence.key
+```
+
+An [Atlassian API token](https://id.atlassian.com/manage-profile/security/api-tokens) is
+what `email` and that file are: together they are HTTP basic auth against the Cloud REST
+API, which is Atlassian's own answer for a script. `.key` is not a naming preference —
+`~/.config/beadcause` [is a git repo](#where-the-rest-lives-configbeadcause-is-a-git-repo)
+that snapshots itself after every write, and `*.key` is both ignored there *and* on that
+file's `FORBIDDEN` list, so the token is protected by construction rather than by
+somebody choosing a good name. `BEADCAUSE_CONFLUENCE_TOKEN` works too and leaves no copy
+at all; `apiTokenFile` points somewhere else, and beadcause says so in the log if where
+you pointed it is a file that directory would commit.
+
+### Which spaces may publish, and to where
+
+`confluence.space` is the default target. A [space](#spaces--keeping-work-out-of-your-evening)
+may say otherwise, and it is the space rather than the workspace because "where does
+this side of my life get published" is the same kind of answer as "when may it interrupt
+me":
+
+```json
+"spaces": [
+  { "name": "Work", "workspaces": ["acme"], "confluenceSpace": "TEAM" },
+  { "name": "Evening", "workspaces": ["sideproject"], "confluenceSpace": false }
+]
+```
+
+`false` is a refusal and not "inherit" — a space that has said no does not start
+publishing the day a global default appears. Leave `confluence.space` unset entirely and
+**nothing** publishes except the spaces that name their own, which is the way round to
+configure it if most of what you read is not the team's business.
+
+This is deliberately **not** on the [space details screen](#space-details--the-page-the-advocate-console-became)
+with the other nine settings. It is the same line `name` and `workspaces` sit on the far
+side of: choosing which wiki an evening's work is published to is a config-file act, not
+a thing to do with a thumb, and an integration whose whole point is being deliberate
+loses that the moment its target is as easy to change as the act.
+
+### It is a button, pressed twice, under a target named in full
+
+Open a document and the footer says exactly what would happen:
+
+```
+┌────────────────────────────────────────────────────┐
+│  Confluence · ENG / The inbox, reviewed            │
+│  replaces the page that is there · last published  │
+│  3h ago                                            │
+│                                                    │
+│  [            Publish…            ]                │
+└────────────────────────────────────────────────────┘
+```
+
+The first press re-reads it back as the act — **Replace ENG / The inbox, reviewed** —
+and the second one does it. Nothing publishes on a poll, on a merge, or as a side effect
+of anything else: there is no automatic path in the code at all, because a page on a
+wiki other people read is not something a restart takes back.
+
+**The naming is enforced, not promised.** The second press sends the space key and the
+page title *as the screen drew them*, and the daemon re-derives what it would do now and
+refuses with a 409 if either has moved. Edit the document's `# heading` between reading
+the footer and pressing it, and you get "this would now publish … which is not what you
+were shown" instead of a second page under the new name. That is the difference between
+a property of the daemon and a promise the client makes.
+
+**A re-publish updates the page, and overwrites its body.** The page id is remembered in
+`state.json` under `published`, keyed by the document's own path — and unlike every
+other record in that file it has no expiry, because an expired record is not a stale
+fact, it is a duplicate page. If it is lost anyway (a state file restored from an older
+copy, a document published from another machine) the space is still searched for a page
+with that title before anything is created, so the worst case is an update to a page
+beadcause did not know it owned. Overwrite rather than append because the document on
+the Mac is the source of truth and the page is a copy of it; nothing is lost, since
+Confluence keeps its own version history and every update carries a message saying
+beadcause published it and from which file.
+
+**The URL comes back to the bead.** Open a document from a card's document list and the
+link carries the bead with it, so publishing comments the page URL onto that bead —
+which is where somebody looks for "where did this end up", and beadcause's own state
+file is not somewhere they can look at all. That half is best-effort on purpose: the
+page exists by the time the comment is attempted, and failing the request over it would
+tell your phone the publish did not happen when it did. The log says so instead.
+
+### The edges, said out loud
+
+- **Publish-out only.** Reading a Confluence page back in as context for an agent is a
+  different credential, a different surface and a different decision about what an
+  unattended agent may reach. It is scoped separately.
+- **Markdown and text only.** A `.pdf` or a `.csv` opens perfectly well in the reader
+  and there is nothing sensible to make a page out of, so the footer does not appear.
+- **A fenced code block arrives as preformatted text**, not the Confluence code macro,
+  and a mermaid block arrives as its source — Confluence has no mermaid without an app
+  installed, so the honest rendering of a diagram is the text that describes it.
+- **An observer instance may not press it.** Its line is acts on this Mac, and this is
+  further out than that.
+- **The title is the document's first `# heading`**, or its filename if it has none. It
+  is also the key a lost record is recovered by, so two documents that call themselves
+  the same thing are one page.
+
+`node test/confluence.mjs` (part of `npm test`) drives all of it against a fake
+Confluence on loopback that counts the pages it is asked to create — because the
+assertion that matters is not "the second call was an update", it is that **nothing was
+ever created twice**, including with the record deliberately thrown away.
+
 ## HTTP API
 
 Auth on everything under `/api/` except `/api/health`: header
@@ -7045,6 +7172,8 @@ cookie says so), and `/auth/signout` ends the session.
 | GET | `/api/agent-log` | `?workspace=&id=` | `{lines[], running, phase}` — the dispatched agent's log, as the CLI would have shown it |
 | GET | `/api/asset` | `?p=<abs path>` | image/doc bytes, restricted to `assetRoots` |
 | GET | `/doc` | `?p=<abs path>` | the HTML reader page |
+| GET | `/api/confluence` | `?p=<abs path>&workspace=` | what [publishing](#publishing-a-document-to-confluence) this document would do, before it happens: `{configured, publishable, site, spaceKey, title, action, existing, lastPublished}`. `{configured: false}` for an install with no `confluence` block, and it reads no credential to say so — the reader tab draws no button at that answer. Costs two GETs to Atlassian when it is on, because `action` is the thing the screen has to be able to say |
+| POST | `/api/confluence` | `{p, workspace, spaceKey, title, bead?}` | publish it. `spaceKey` and `title` are the confirmation — the target as the screen drew it — and a `409` is what you get if either has moved since, rather than a second page under the new name. Updates the page it made last time and overwrites its body; Confluence keeps the version history. Records the URL in `state.json` and, with `bead`, as a comment on that bead. Refused on an observer |
 | GET | `/api/graph` | `?workspace=&id=` | `{nodes, links}` — the whole workspace with no `id` |
 | GET | `/api/bead` | `?workspace=&id=` | one issue in full, plus `comments[]` — for the graph's detail sheet |
 | GET | `/api/bead-children` | `?workspace=&id=` | `{children[]}` — every child of that bead, closed ones included, open work first. Its own route because `bd show` does not carry children |
@@ -7235,6 +7364,10 @@ the fields it always read and renders exactly as it did.
 | `claudeSessionsDir` | where those per-process records live, if not `$CLAUDE_CONFIG_DIR/sessions` or `~/.claude/sessions` |
 | `claudeProjectsDir` | where session transcripts live, if not the `projects` folder of every `~/.claude…` directory. Takes a list. Governed by `claudeSessions` — off there means no transcripts either |
 | `assetRoots` | the only directories `/api/asset` will read images from |
+| `confluence.site` | your Atlassian Cloud site, e.g. `https://yourteam.atlassian.net`. Absent, [publishing](#publishing-a-document-to-confluence) is off and no credential is read |
+| `confluence.email` | the Atlassian account the API token belongs to — the two together are basic auth |
+| `confluence.space` | the Confluence space a document lands in by default. A beadcause space may name another with `confluenceSpace`, or refuse with `confluenceSpace: false` |
+| `confluence.apiTokenFile` | where the API token is read from, if not `~/.config/beadcause/confluence.key`. **The token itself is never a config field** — this file is committed after every write |
 | `jira` | JIRA per workspace, keyed by workspace name — `{"climative": {"enabled": true, "email": "you@company.com"}}`. Empty by default, and a workspace not named here costs nothing: no call is made about it at all. The site URL and the project keys come from that workspace's own `bd config get jira.url` / `jira.projects`, so `enabled` and `email` are usually the whole setting; `url` / `projects` here override for a workspace whose `bd` was never pointed at JIRA. **There is deliberately no token field** — see [JIRA, per workspace](#jira-per-workspace--read-only-and-one-setting) |
 | `pollSeconds` | how often new `human` beads are looked for (default 30) |
 | `monitor.enabled` | generate the LaunchAgent that opens the [activity monitor](#the-monitor--what-it-is-doing-right-now) at login (default `false`; `npm run monitor` works either way) |
