@@ -734,6 +734,57 @@ await (async () => {
     await ledger(two, [OTHER], {}, { now: c.now });
     assert.equal(two.calls.length, 2, two.calls.join(' | '));
   });
+
+  /**
+   * The window before the first answer exists is the expensive one: a cold sweep is ~1s
+   * idle and 28.6s under load here, which is plenty of time for the phone and the laptop
+   * to both open the tab. The cache cannot help there — there is nothing in it yet — so
+   * the in-flight sweep is shared instead.
+   */
+  await acheck('two requests arriving before the first sweep returns are ONE `bd` call', async () => {
+    forget();
+    const slow = fakeBd();
+    const inner = slow.run;
+    slow.run = (workspace, args, opts) => new Promise((resolve) => setTimeout(() => resolve(inner(workspace, args, opts)), 40));
+
+    const [a, b] = await Promise.all([
+      ledger(slow, [WS], { limit: 2 }, { now: c.now }),
+      ledger(slow, [WS], { limit: 2, offset: 2 }, { now: c.now }),
+    ]);
+    assert.equal(slow.calls.length, 1, slow.calls.join(' | '));
+    // And both got a real answer rather than one of them getting an empty list.
+    assert.equal(a.total, 6);
+    assert.equal(b.total, 6);
+    assert.deepEqual(b.rows.map((r) => r.id), ['bc-tie1', 'bc-tie2']);
+  });
+
+  await acheck('a `refresh` joins one already in flight rather than starting a second', async () => {
+    forget();
+    const slow = fakeBd();
+    const inner = slow.run;
+    slow.run = (workspace, args, opts) => new Promise((resolve) => setTimeout(() => resolve(inner(workspace, args, opts)), 40));
+    await Promise.all([
+      ledger(slow, [WS], {}, { now: c.now }),
+      ledger(slow, [WS], {}, { now: c.now, refresh: true }),
+    ]);
+    assert.equal(slow.calls.length, 1, slow.calls.join(' | '));
+  });
+
+  await acheck('and a sweep that failed is retried rather than remembered', async () => {
+    forget();
+    let attempt = 0;
+    const flaky = new Bd({ bin: '/nonexistent/bd', actor: 'beadcause-test' });
+    flaky.run = async () => {
+      attempt += 1;
+      if (attempt === 1) throw new Error('dolt: database is locked');
+      return JSON.stringify(ROWS);
+    };
+    const first = await ledger(flaky, [WS], {}, { now: c.now });
+    assert.equal(first.errors.length, 1, 'the first attempt has to fail for this to prove anything');
+    const second = await ledger(flaky, [WS], {}, { now: c.now });
+    assert.equal(second.errors.length, 0, 'a failed sweep must not be cached as the answer');
+    assert.equal(second.total, 6);
+  });
 })();
 
 /* ================================================================== the real server */

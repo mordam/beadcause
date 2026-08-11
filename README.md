@@ -7784,6 +7784,14 @@ workspace becomes a row in `errors[]`, and a repo with five hundred beads in it 
 empty ledger. A cold page can take that long to arrive and the client should say it is
 loading rather than time out; every page after it, for ten seconds, is free.
 
+The cache cannot help in the window *before* the first answer exists, which is the
+expensive window — so the in-flight sweep is shared as well. Two requests for the same
+workspace arriving before the first returns are one `bd list --all` between them, and a
+`refresh=1` **joins** a sweep already running rather than starting a second: a sweep that
+began a moment ago and has not come back is reading the tracker now, so it is exactly as
+fresh as one started alongside it would be. A sweep that *failed* is not remembered — the
+next request tries again.
+
 **Paging is in the daemon because `bd` cannot do it.** `bd list --offset` is documented
 as supported only under `--proxied-server`, which is not the mode anything here runs in;
 the embedded backend accepts the flag and ignores it, so page 2 would have been a second
