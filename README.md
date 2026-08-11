@@ -140,7 +140,11 @@ otherwise its poller would keep firing notifications with no listener behind the
   says so rather than pretending to cover the rest. It runs against a throwaway config
   directory on an ephemeral port and never touches `bd`, so it is safe to run with the
   daemon up. The suite proper is `npm test`, and the browser checks it deliberately
-  leaves out are listed with the pages they cover.
+  leaves out — they want a Chrome — are `npm run checks`, all twenty-six of them, four
+  at a time, with a list of which failed. See
+  [`npm run checks`](#npm-run-checks--the-browser-half-and-why-npm-test-can-still-see-it-rot),
+  including the static selector audit that runs inside `npm test` and is the reason a
+  removed chip no longer breaks a check in silence.
 
 ## Asking a question
 
@@ -6310,6 +6314,103 @@ get wrong in silence: that every `test/*.mjs` on disk is in the list (the chain 
 *be* the inventory; the directory is now), that the two `scripts/` entries which are not
 `test/*.mjs` survive, that the three pinned positions hold, and that a failure still
 stops the run, propagates its exit code, and does not run what comes after it.
+
+### `npm run checks` — the browser half, and why `npm test` can still see it rot
+
+The twenty-six `scripts/*-check.mjs` are the only cover this repo has for layout, taps
+and anything that happens in a thumb, and none of them are in `npm test`: each wants a
+Chrome, a phone-sized viewport and ten to forty seconds, and that suite stays pure Node
+on purpose. Until `npm run checks` there was no way to run them but one at a time by
+name — which in practice meant run by whoever remembered that the page they touched had
+one.
+
+`npm run checks` runs all of them, four Chromes at a time, and ends with a list of which
+failed. Every check binds `127.0.0.1:0` and drives its own temp profile, so there is
+nothing shared to collide over; four minutes serially becomes about one. Their output
+interleaves badly, so each child's is captured whole, only failures are replayed — the
+last 25 lines, which is where the three that matter are — and the full logs are left in a
+temp directory named in the summary. `--list` prints what would run, `--only tabbar,shade`
+narrows it, `--jobs N` changes the width, `--dir <root>` points it at another tree (which
+is how the runner itself is tested). Like the runner for `npm test`, it names no
+individual check: the directory is the inventory, so adding one is adding a file and
+conflicts with nobody.
+
+**Every check is on a four-minute leash**, `--timeout N` to change it and `--timeout 0`
+to take it off. This is not a tidiness rule. A check that hangs is the one failure a
+runner like this newly introduces, and it is silent in the worst available way: the run
+never ends, so nothing is reported about the other twenty-five either — strictly worse
+than the by-hand state it replaced, where at least a person gives up. On the first real
+run of all twenty-six, `agent-chooser-check.mjs` went quiet thirteen assertions in and
+was still sitting there five minutes later. SIGTERM first so a check with a cleanup
+handler gets to run it, SIGKILL five seconds after that, and `timed out after Ns` in the
+summary beside it.
+
+**And the parallel pass is a filter, not the verdict.** Some of these measure time —
+how long a tab takes to warm, whether a bead is still in the air at 400ms — and four
+Chromes on one laptop moves those numbers. On that same first run, `absorb-check.mjs`
+failed a timing assertion and `agent-chooser-check.mjs` was the hang above; both passed
+in seconds when re-run on their own. A runner that reports those as failures teaches
+people to disbelieve it, which is the state this was written to get out of. So every
+failure is run again, serially, with nothing else in flight — the condition each was
+written under — and the second result is what is reported. What it must not do is hide
+it: a check that needed the retry is named at the end as one that *only passes alone*,
+because that is a fact about the check worth knowing, and `--no-retry` shows the raw
+parallel pass. A check that fails both times is reported with `on its own — not a
+scheduling accident` beside it, so a red line cannot be waved away as the scheduler's
+fault.
+
+**Two of the twenty-six were already failing the day this was written**, which is the
+bead in one sentence. `scripts/shot-check.mjs` has always asserted that the daemon token
+never reaches `shot.mjs`'s output; the token is now appended to the URL that `shot.mjs`
+prints, so it does (bc-sqab). And `dismiss-check.mjs` finds that arming an option no
+longer disarms the dismiss button, so two controls can be armed at once and the next tap
+is ambiguous (bc-giuc). Neither had a mark against it anywhere. They are left red on
+purpose: a green wall bought by deleting the assertions would be the same silence in a
+better disguise.
+
+**But running them is not the problem this was written for.** These checks do not rot by
+failing. They rot by pressing something that is no longer there, and then not being run.
+Working bc-xqnj the inbox's `[data-space]` chips were removed; `shade-check.mjs` pressed
+those chips to narrow the filter, so it broke outright, and two assertions in
+`launcher-check.mjs` went with it. `npm test` was green through all of it. Both were
+found by *reading the scripts*, which is not a mechanism — nothing bounds how long that
+gap can be, and a check that has silently not passed for a month is worse than no check,
+because the next person to run it reads its failures as their own change breaking
+something.
+
+So the load-bearing part is static, and it *is* in `npm test`. `lib/checkaudit.js` reads
+every literal selector every check presses — 313 of them — takes each class, id and
+`data-` attribute apart, and asserts it still appears somewhere in `public/`. That is a
+text search, it costs milliseconds, and it fires on precisely the thing that used to be
+invisible. `npm run checks` prints it before a single Chrome starts, and does not stop on
+it: a stale selector in one check is no reason not to run the other twenty-five.
+
+It is tuned to have no false alarms, so that a finding is always real, and two things
+follow. An interpolated selector — `` `[data-key="${k}"]` `` — has no text to look for and
+is skipped rather than guessed at; `data-key` itself is picked up from the dozen places
+it is written plainly. And a check that serves its own fixture markup owns those classes,
+so the check's own source counts as a home for a token — with its *comments stripped
+first*, because a header paragraph naming `.shade-ask` must not be what keeps the audit
+quiet about `.shade-ask` having left `public/`. What it deliberately cannot see is
+anything about whether the check still *passes*: an element can move, change meaning or
+stop being reachable with its name intact. This is the smoke alarm, not the inspection.
+
+`test/checks.mjs` is where that runs, and half of it is controls, for the reason
+`test/testrunner.mjs` has controls: "the audit found nothing" is the same output whether
+the tree is clean or the audit is broken, and a broken audit is the more likely of the
+two to survive unnoticed, because it is green. So it is measured in both directions
+against synthetic sources — a token removed from `public/` must be found, one still there
+must not be reported, one living only in a check's own fixture must not be, one named
+only in a comment must not vouch for itself — plus an assertion that the count is in the
+hundreds rather than zero, which is the shape a regex that stopped matching would take.
+The rest is inventory: every check on disk is in the list, every check still parses, and
+every relative import in one still resolves — the three ways a check can be dead on
+arrival before Chrome is even reached. And the runner's own endings are held against a
+temp tree of three checks that pass, fail and hang on purpose: exit 1, the failures
+counted and named, their own output replayed rather than just a code, the hang killed at
+the timeout, a passing check not listed among the failures, and an empty tree failing
+rather than passing vacuously. A tree of its own rather than the real twenty-six, because
+those are the thing under observation, not the instrument.
 
 `test/observe.mjs` is about observer mode only, and it is the oldest of them —
 because this is the switch here that fails most quietly. Turn off the terminal
