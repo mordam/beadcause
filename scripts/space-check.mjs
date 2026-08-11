@@ -1,0 +1,396 @@
+#!/usr/bin/env node
+//
+// The space details card, in a phone-sized browser, against a real daemon.
+//
+//   node scripts/space-check.mjs [--keep] [--shot <file.png>]
+//
+// test/spacedetails.mjs proves the contract: `null` means inherit, a patch touches
+// only what it names, the write reaches the running daemon *and* the file. None of
+// that says the card draws, and none of it says a press reaches the endpoint — which
+// is the whole feature, because these seven settings were a config hand-edit until
+// there was a button.
+//
+// So this one drives the real `public/monitor.js` in a headless Chrome the size of a
+// phone, over a real `bin/beadcause.js` started on a temp config directory. Nothing is
+// faked: the fake server is exactly how the shadowed `GET /api/foundation` handler
+// survived a green suite for weeks (test/routes.mjs), and a settings screen is the
+// last place to repeat that — a fixture would be free to answer `POST /api/space` the
+// way the client wishes it did.
+//
+// Not part of `npm test`: it wants Chrome on the machine. Run it when you have touched
+// the card, the picker it reads from, or the endpoint under it.
+//
+// `--keep` leaves the temp config directory behind, which is where to look when a
+// press appears to work and the file says otherwise. `--shot <file.png>` writes a
+// phone-sized picture of the card with every panel open — the one thing a list of
+// ticks cannot tell you is whether seven settings on a 393px screen read as a card or
+// as a wall.
+import fs from 'node:fs';
+import net from 'node:net';
+import os from 'node:os';
+import path from 'node:path';
+import { spawn } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+const VP = { width: 393, height: 852, dpr: 3 };
+const TOKEN = 'space-check-token';
+const KEEP = process.argv.includes('--keep');
+const SHOT = (() => {
+  const i = process.argv.indexOf('--shot');
+  return i === -1 ? null : path.resolve(process.argv[i + 1] || 'space-details.png');
+})();
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+if (!fs.existsSync(CHROME)) {
+  console.error(`Google Chrome not found at ${CHROME}`);
+  process.exit(1);
+}
+
+/* ---------------------------------------------------------------- the daemon */
+
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'beadcause-space-check-'));
+const CONFIG_DIR = path.join(tmp, 'config');
+fs.mkdirSync(CONFIG_DIR, { recursive: true });
+
+/** A workspace with a `.beads` directory and no tracker behind it — see `bdBin`. */
+const wsDir = (name) => {
+  const dir = path.join(tmp, 'beads', name, '.beads');
+  fs.mkdirSync(dir, { recursive: true });
+  return dir;
+};
+
+const port = await new Promise((resolve, reject) => {
+  const probe = net.createServer();
+  probe.on('error', reject);
+  probe.listen(0, '127.0.0.1', () => {
+    const { port: p } = probe.address();
+    probe.close(() => resolve(p));
+  });
+});
+
+/* `bd` answers everything with an empty list, so the page has real advocates-and-
+   sessions machinery running over nothing rather than a tracker sweep in the way. The
+   settings card does not read `bd` at all, which is the point of it being cheap. */
+const FAKE_BD = path.join(tmp, 'bd');
+fs.writeFileSync(FAKE_BD, "#!/usr/bin/env node\nprocess.stdout.write('[]');\n", { mode: 0o755 });
+
+const CONFIG = {
+  port,
+  host: '127.0.0.1',
+  baseUrl: `http://127.0.0.1:${port}`,
+  token: TOKEN,
+  actor: 'beadcause-space-check',
+  bdBin: FAKE_BD,
+  // Named here so `reconcileWorkspaces` has something to keep rather than going out and
+  // discovering the real `~/beads` on the machine this runs on.
+  workspaces: [
+    { name: 'alpha', dir: wsDir('alpha') },
+    { name: 'beta', dir: wsDir('beta') },
+  ],
+  spaces: [
+    { name: 'Work', workspaces: ['alpha', 'beta'], quietHours: { from: '18:00', to: '09:00' } },
+    { name: 'Side', workspaces: [], muted: true },
+  ],
+  pr: { autoMerge: true },
+  ntfy: { enabled: false, detail: 'full', minimalWorkspaces: ['beta'] },
+  autoDispatch: true,
+  autoDispatchExclude: ['alpha'],
+  openSessions: false,
+  claudeSessions: false,
+  terminal: false,
+  tls: { enabled: false },
+  monitor: { enabled: false },
+  advocates: { enabled: false, workspaces: [] },
+  release: { beads: false },
+  pollSeconds: 3600,
+};
+fs.writeFileSync(path.join(CONFIG_DIR, 'config.json'), JSON.stringify(CONFIG, null, 2));
+
+const daemon = spawn(process.execPath, [path.join(ROOT, 'bin', 'beadcause.js')], {
+  env: { ...process.env, BEADCAUSE_CONFIG_DIR: CONFIG_DIR },
+  stdio: 'ignore',
+});
+
+const BASE = `http://127.0.0.1:${port}`;
+for (let i = 0; i < 80; i += 1) {
+  try {
+    const r = await fetch(`${BASE}/api/health`, { headers: { 'x-beadcause-token': TOKEN } });
+    if (r.ok) break;
+  } catch {
+    /* not up yet */
+  }
+  await sleep(150);
+}
+
+/** What is actually on disk now — the half of a press a screenshot cannot show. */
+const onDisk = () => JSON.parse(fs.readFileSync(path.join(CONFIG_DIR, 'config.json'), 'utf8'));
+const spaceOnDisk = (name) => onDisk().spaces.find((s) => s.name === name) || {};
+
+/* ------------------------------------------------------------------ chrome */
+
+function connect(url) {
+  return new Promise((resolve, reject) => {
+    const ws = new WebSocket(url);
+    let id = 0;
+    const pending = new Map();
+    ws.onmessage = (m) => {
+      const msg = JSON.parse(m.data);
+      const q = msg.id != null && pending.get(msg.id);
+      if (!q) return;
+      pending.delete(msg.id);
+      msg.error ? q.reject(new Error(msg.error.message)) : q.resolve(msg.result);
+    };
+    ws.onerror = () => reject(new Error('could not attach to Chrome'));
+    ws.onopen = () =>
+      resolve({
+        send: (method, params = {}) =>
+          new Promise((res, rej) => {
+            const i = ++id;
+            pending.set(i, { resolve: res, reject: rej });
+            ws.send(JSON.stringify({ id: i, method, params }));
+          }),
+        close: () => ws.close(),
+      });
+  });
+}
+
+async function launch() {
+  const dbg = 9800 + Math.floor(process.pid % 100);
+  const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'beadcause-space-chrome-'));
+  const proc = spawn(
+    CHROME,
+    [
+      '--headless=new',
+      `--remote-debugging-port=${dbg}`,
+      `--user-data-dir=${profile}`,
+      '--no-first-run',
+      '--no-default-browser-check',
+      '--disable-background-timer-throttling',
+      '--hide-scrollbars',
+      'about:blank',
+    ],
+    { stdio: 'ignore' }
+  );
+  let target = null;
+  for (let i = 0; i < 60 && !target; i += 1) {
+    await sleep(250);
+    try {
+      target = (await (await fetch(`http://127.0.0.1:${dbg}/json/list`)).json()).find((t) => t.type === 'page');
+    } catch {
+      /* not up yet */
+    }
+  }
+  if (!target) throw new Error('Chrome never exposed a page target');
+  const s = await connect(target.webSocketDebuggerUrl);
+  return {
+    s,
+    close: () => {
+      s.close();
+      proc.kill();
+      try {
+        fs.rmSync(profile, { recursive: true, force: true, maxRetries: 3 });
+      } catch {
+        /* Chrome is still letting go of a temp dir */
+      }
+    },
+  };
+}
+
+const evalJs = async (s, expr) => {
+  const r = await s.send('Runtime.evaluate', { expression: expr, returnByValue: true, awaitPromise: true });
+  if (r.exceptionDetails)
+    throw new Error(`${r.exceptionDetails.exception?.description || 'eval failed'}\n  in: ${expr.slice(0, 140)}`);
+  return r.result.value;
+};
+
+/* -------------------------------------------------------------------- run */
+
+const results = [];
+const check = (name, ok, detail) => {
+  results.push({ name, ok, detail });
+  console.log(`  ${ok ? '\x1b[32m✓\x1b[0m' : '\x1b[31m✗\x1b[0m'} ${name}${detail ? ` — ${detail}` : ''}`);
+};
+
+console.log(`\nspace details — daemon on :${port}, config in ${CONFIG_DIR}\n`);
+
+const { s, close } = await launch();
+try {
+  await s.send('Emulation.setDeviceMetricsOverride', { ...VP, mobile: true, deviceScaleFactor: VP.dpr });
+
+  // `?t=` is how a browser that has never scanned the QR gets paired — the same pickup
+  // the page does for the login window opened on the Mac at boot.
+  await s.send('Page.navigate', { url: `${BASE}/monitor?t=${TOKEN}` });
+  await sleep(1200);
+
+  // Narrow to a space, through the picker rather than by writing state.json: the card
+  // is drawn from `beadcause.space.filter`, so a filter set behind its back would test
+  // the card and not the thing that feeds it.
+  await evalJs(s, `window.beadcause.space.set({ space: 'Work', workspace: 'all' })`);
+  await sleep(900);
+
+  const card = () =>
+    evalJs(
+      s,
+      `(() => {
+        const el = document.querySelector('.space-card');
+        if (!el) return null;
+        return {
+          title: el.querySelector('h2')?.textContent,
+          state: el.querySelector('.mon-state')?.textContent,
+          text: el.textContent.replace(/\\s+/g, ' '),
+          rows: [...el.querySelectorAll('.space-what')].map((x) => x.textContent),
+        };
+      })()`
+    );
+
+  const first = await card();
+  check('the card is drawn for the space the picker is on', first?.title === 'Work', first?.title || 'no card');
+
+  // The panels are shut by default, like every other section on this page — and the
+  // open set is in localStorage, so this profile may arrive with either. Open the one
+  // under test the way a thumb does. Matched case-insensitively because the heading is
+  // uppercased by the stylesheet and not by the markup.
+  const open = async (title) =>
+    evalJs(
+      s,
+      `(() => {
+        const want = ${JSON.stringify(title)}.toLowerCase();
+        const sum = [...document.querySelectorAll('.space-card .mon-sum')]
+          .find((b) => b.textContent.toLowerCase().includes(want));
+        if (sum && sum.getAttribute('aria-expanded') !== 'true') sum.click();
+        return Boolean(sum);
+      })()`
+    );
+  check('with a settings panel on it', await open('Settings'));
+  await sleep(300);
+
+  const opened = await card();
+  check('carrying a row for every setting', opened?.rows.length === 7, (opened?.rows || []).join(', ') || 'none');
+
+  const press = async (selector) => {
+    const hit = await evalJs(
+      s,
+      `(() => { const b = document.querySelector(${JSON.stringify(selector)}); if (!b) return false; b.click(); return true; })()`
+    );
+    await sleep(700);
+    return hit;
+  };
+
+  /* ------------------------------------------------------ a press that writes */
+
+  const pressed = await press('[data-space-set="autoMerge"][data-value="false"]');
+  const afterOff = await card();
+  check('pressing Off on a three-state setting reaches the daemon', pressed && spaceOnDisk('Work').autoMerge === false, JSON.stringify(spaceOnDisk('Work')));
+  check('and the card says so without a reload', /autoMerge changed/.test(afterOff?.text || ''), afterOff?.state);
+
+  await press('[data-space-set="autoMerge"][data-value="null"]');
+  check(
+    'Inherit clears the key rather than storing a false',
+    !('autoMerge' in spaceOnDisk('Work')),
+    JSON.stringify(spaceOnDisk('Work'))
+  );
+
+  /* ------------------------------------------------------------- quiet days */
+
+  await press('[data-space-day="sat"]');
+  await press('[data-space-day="sun"]');
+  check('a day toggles on and the list accumulates', JSON.stringify(spaceOnDisk('Work').quietDays) === '["sun","sat"]', JSON.stringify(spaceOnDisk('Work').quietDays));
+  await press('[data-space-day="sat"]');
+  check('and toggles back off', JSON.stringify(spaceOnDisk('Work').quietDays) === '["sun"]', JSON.stringify(spaceOnDisk('Work').quietDays));
+
+  /* ------------------------------------------------------------ quiet hours */
+
+  await evalJs(
+    s,
+    `(() => {
+      const from = document.querySelector('#qh-from');
+      const to = document.querySelector('#qh-to');
+      from.value = '21:30';
+      to.value = '07:15';
+    })()`
+  );
+  await press('[data-space-hours="set"]');
+  check(
+    'the clocks write the window they are showing',
+    JSON.stringify(spaceOnDisk('Work').quietHours) === '{"from":"21:30","to":"07:15"}',
+    JSON.stringify(spaceOnDisk('Work').quietHours)
+  );
+  await press('[data-space-hours="clear"]');
+  check('and Clear removes them outright', !('quietHours' in spaceOnDisk('Work')), JSON.stringify(spaceOnDisk('Work')));
+
+  /* --------------------------------------------------------------- muting */
+
+  await press('[data-space-set="muted"][data-value="true"]');
+  const muted = await card();
+  check('muting says so on the card, in the words the push path uses', /questions still arrive/.test(muted?.text || ''), muted?.state);
+  check(
+    'and the picker in the bar above has the 🔕 without waiting for a poll',
+    await evalJs(s, `document.querySelector('#space-pick').innerHTML.includes('Work 🔕')`)
+  );
+  await press('[data-space-set="muted"][data-value="null"]');
+
+  /* -------------------------------------------------- what each repo resolves to */
+
+  await open('What each repo resolves to');
+  await sleep(300);
+  const repos = await evalJs(
+    s,
+    `[...document.querySelectorAll('.space-repo')].map((r) => r.textContent.replace(/\\s+/g, ' ').trim())`
+  );
+  check(
+    'the per-repo panel shows the list that outranks the space, not the space',
+    repos.some((r) => r.startsWith('beta') && r.includes('minimal push')) &&
+      repos.some((r) => r.startsWith('alpha') && r.includes('no agent replies')),
+    repos.join(' | ')
+  );
+
+  /* ------------------------------------------------------------ the rest of it */
+
+  check(
+    'the gear points at admin',
+    await evalJs(s, `document.querySelector('#gear')?.getAttribute('href') === '/admin'`)
+  );
+  check(
+    'and nothing the page already did has gone',
+    await evalJs(
+      s,
+      `Boolean(document.querySelector('#mon-tabs') && document.querySelector('.tabbar') && document.getElementById('tally'))`
+    )
+  );
+
+  if (SHOT) {
+    // Back to the space, with both panels open — the picture is of the card, and a
+    // shut card is a picture of a heading.
+    await evalJs(s, `window.beadcause.space.set({ space: 'Work', workspace: 'all' })`);
+    await sleep(900);
+    await open('Settings');
+    await open('What each repo resolves to');
+    await sleep(400);
+    const { data } = await s.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true });
+    fs.writeFileSync(SHOT, Buffer.from(data, 'base64'));
+    console.log(`  ⤷ ${SHOT}`);
+  }
+
+  // On `All spaces` there is no one space these would belong to, and the card has to
+  // say so rather than keep the last one it drew.
+  await evalJs(s, `window.beadcause.space.set({ space: 'all', workspace: 'all' })`);
+  await sleep(700);
+  check(
+    'widening to everything takes the card down and says why',
+    await evalJs(
+      s,
+      `!document.querySelector('.space-card') && /Pick a space/.test(document.querySelector('.space-none')?.textContent || '')`
+    )
+  );
+} finally {
+  close();
+  daemon.kill();
+  if (!KEEP) fs.rmSync(tmp, { recursive: true, force: true, maxRetries: 3 });
+  else console.log(`\nkept ${CONFIG_DIR}`);
+}
+
+const failed = results.filter((r) => !r.ok);
+console.log(failed.length ? `\n\x1b[31m${failed.length} of ${results.length} failed\x1b[0m\n` : `\n${results.length} passed\n`);
+process.exit(failed.length ? 1 : 0);
