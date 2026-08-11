@@ -2584,31 +2584,44 @@
   }
 
   /**
-   * Hand the picker the numbers this page has just fetched.
+   * Hand the picker the shape of what this page has just fetched.
    *
-   * The inbox is the one page that sweeps the tracker, so its counts are fresher than
-   * /api/spaces can be — and they are counted over the *scope* on screen, which is what
-   * makes the picker agree with the list under it when you are looking at `Both`. The
-   * filter is handed over too, because this payload is also how a change made on the
-   * laptop reaches the phone.
+   * The spaces, the configured repos and the stored filter — the last of them because
+   * this payload is also how a change made on the laptop reaches the phone.
+   *
+   * **The counts are not here**, and used to be: they were counted off the payload, and
+   * the payload is not what is on screen. A kind-filter tap changes the list without
+   * fetching anything, pull requests arrive on a clock of their own, and a render can be
+   * deferred behind a half-written answer — so counting here put a number on the bar that
+   * the list under it had not agreed with since the last poll. `publishCounts` counts
+   * what render() actually drew, which is the only figure that cannot drift from it.
    */
   function publishSpaces(data) {
-    const counts = {};
-    // Over the kind filter as well as the scope, for the same reason: a picker saying
-    // 5 above a list showing 1 is the two halves of one screen disagreeing about the
-    // same beads.
-    for (const q of state.questions) {
-      if (!inKind(q)) continue;
-      counts[q.workspace] = (counts[q.workspace] || 0) + 1;
-    }
     window.beadcause?.space?.adopt({
       spaces: state.spaces,
       // Configured workspaces, not the ones with something in them: the picker is how
       // you reach a quiet repo.
       workspaces: Array.isArray(data.workspaces) ? data.workspaces : undefined,
-      counts,
       filter: data.filter,
     });
+  }
+
+  /**
+   * Tell the picker what the list is showing, per repo.
+   *
+   * Called from render() with the rows that survived everything except the picker itself
+   * — the scope, the kind filter, the pull requests as rows in the list — because the
+   * picker's own narrowing is what these numbers exist to let you undo: `beadcause · 3`
+   * is a promise that picking it leaves you three things, so it has to be counted before
+   * that pick is applied and after everything else is.
+   *
+   * Which makes the invariant structural rather than remembered: the bar cannot count a
+   * bead the list will not show you, in any scope, under any filter, warm boot included.
+   */
+  function publishCounts(rows) {
+    const counts = {};
+    for (const q of rows) counts[q.workspace] = (counts[q.workspace] || 0) + 1;
+    window.beadcause?.space?.adopt({ counts });
   }
 
   let pendingRender = false;
@@ -3060,6 +3073,10 @@
     // Beads only. The monitor draws this as "N waiting", which is a claim about work
     // asking you something — and a pull request sitting on origin is not one of those.
     publishView(visible.filter((q) => !q.pr));
+    // Last, and deliberately: the picker's numbers are a statement about the list that
+    // has just been drawn, and adopting them can announce a filter to this same listener
+    // on the very first paint of a cold page. Nothing below it to leave half-done.
+    publishCounts(rows.filter(inKind));
   }
 
   /**

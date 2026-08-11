@@ -63,6 +63,25 @@
   than either half being wrong on its own. A row with no workspace at all — a session
   outside every repo — is out while anything is selected and back the moment nothing is.
 
+  ## The numbers, and why there is only one set of them
+
+  Every count this file draws — the badge on the bar, the total on `All spaces`, a
+  space's own row, a repo's — is arithmetic over `state.counts`, the per-workspace map,
+  and nothing else. A space's total is its repos summed here rather than the `count`
+  the server puts on `spaces[]`, because those are two numbers for the same thing
+  computed from two different sweeps: the server's is the human-questions channel as
+  of the last poll, and a page that sweeps the tracker itself publishes what it is
+  actually drawing — a scope, a kind filter, pull requests. Reading one for the space
+  rows and the other for the repos under them is how the dropdown came to disagree
+  with itself, and the badge with the list below it.
+
+  Which leaves *whose* numbers win. A page that draws a list owns them: its counts are
+  the list's own, so the bar and the list under it cannot say different things about
+  the same beads. Our `/api/spaces` fetch is for the pages that sweep nothing — and it
+  is in flight before any page has published, so its reply lands *after* a warm-booted
+  inbox has already said what it is showing. It is adopted weakly for exactly that
+  reason: whatever a page has published for itself, the fetch does not touch.
+
   Missing on purpose: **the admin page has no picker.** It is the one page that
   deliberately acts on every repo at once (see the header of public/admin.js), and a
   control that page ignored would be a lie about what the buttons under it do.
@@ -105,11 +124,13 @@
       .replace(/"/g, '&quot;');
 
   const state = {
-    /** `summarise()` rows: { name, workspaces, count, quiet, muted }. */
+    /** `summarise()` rows: { name, workspaces, count, quiet, muted }. The shape and the
+     *  flags are read; `count` is not — see "the numbers" above. */
     spaces: [],
     /** Every configured workspace, whether or not anything is waiting in it. */
     workspaces: [],
-    /** workspace → how many beads are asking you something. */
+    /** workspace → how many rows the page that published this is showing there. The one
+     *  source for every number on the bar. */
     counts: {},
     filter: { space: ALL, workspace: ALL },
     /** Has anything real arrived yet? Until it has, the bar is not drawn. */
@@ -122,6 +143,12 @@
      second exposed to the next poll. */
   let writes = 0;
   const listeners = [];
+
+  /* Which fields a page has published for itself, and so owns. Our own `/api/spaces`
+     fetch adopts weakly and skips these: it was sent before the page's script ran, and
+     a reply that overwrote the counts a page had already published would put a number
+     on the bar that the list under it does not agree with. */
+  const owned = new Set();
 
   /* ------------------------------------------------------------------ the model */
 
@@ -154,12 +181,23 @@
     return true;
   };
 
-  /** How many beads are asking you something, inside the current selection. */
+  /** Everything counted, in one place, so `waiting()` and the rows in the dropdown can
+   *  never be two different sums. `null` is every workspace — the `All spaces` total. */
+  const total = (space = null) =>
+    Object.entries(state.counts).reduce(
+      (n, [w, c]) => (space === null || spaceOf(w) === space ? n + (Number(c) || 0) : n),
+      0
+    );
+
+  /** How many rows are waiting inside the current selection. */
   const waiting = () => {
     const { space, workspace } = state.filter;
     if (workspace !== ALL) return state.counts[workspace] || 0;
-    if (space !== ALL) return state.spaces.find((s) => s.name === space)?.count || 0;
-    return Object.values(state.counts).reduce((a, b) => a + b, 0);
+    // A space's own total is its repos summed, not the server's `spaces[].count`: the
+    // page that published these counts knows what it is drawing, and that figure does
+    // not. Reading both was the picker disagreeing with the list under it.
+    if (space !== ALL) return total(space);
+    return total();
   };
 
   /** What is selected, in words: "beadcause", "Personal", "everything". */
@@ -184,6 +222,9 @@
 
   const sel = el.querySelector('#space-pick');
   const count = el.querySelector('#space-count');
+
+  /** The rows as they were last written, so an unchanged paint touches no DOM. */
+  let drawn = null;
 
   /** The value that means this selection, and the selection that value means. */
   const valueOf = (filter) =>
@@ -216,16 +257,15 @@
    * look like a repo with nothing in it.
    */
   function paint() {
-    const total = Object.values(state.counts).reduce((a, b) => a + b, 0);
     const now = valueOf(state.filter);
-    const rows = [option(ALL, `All spaces${tail(total)}`, now === ALL)];
+    const rows = [option(ALL, `All spaces${tail(total())}`, now === ALL)];
 
     for (const s of state.spaces) {
       const inside = (s.workspaces || []).filter((w) => state.workspaces.includes(w));
       // A space whose every workspace has left the config is config drift, not a place
       // to go. Its own row stays — it is still what the filter may be pinned to.
       rows.push(`<optgroup label="${esc(s.name)}${s.quiet ? ' 🔕' : ''}">`);
-      rows.push(option(`space:${s.name}`, `${s.name} — all${tail(s.count)}`, now === `space:${s.name}`));
+      rows.push(option(`space:${s.name}`, `${s.name} — all${tail(total(s.name))}`, now === `space:${s.name}`));
       for (const w of inside) {
         rows.push(option(`ws:${w}`, `${w}${tail(state.counts[w] || 0)}`, now === `ws:${w}`));
       }
@@ -243,7 +283,17 @@
       rows.push('</optgroup>');
     }
 
-    sel.innerHTML = rows.join('');
+    // Assigned only when it has actually changed. The inbox publishes its counts from
+    // the render that drew the list, which is every filter tap and every card opened —
+    // and rebuilding a `<select>` under an open native dropdown, on a phone, is a wheel
+    // that shuts itself. Compared against what we last wrote rather than against
+    // `sel.innerHTML`, because a real DOM hands that back normalised and would never
+    // match.
+    const html = rows.join('');
+    if (html !== drawn) {
+      drawn = html;
+      sel.innerHTML = html;
+    }
 
     const n = waiting();
     count.hidden = !n;
@@ -330,14 +380,24 @@
    *
    * The filter is skipped while a write of ours is in flight, because that payload was
    * assembled before the tap that changed it.
+   *
+   * A page calling this owns every field it sends, from then on: `weak` is ours alone,
+   * for the `/api/spaces` reply, and it yields field by field to whatever a page has
+   * already published rather than replacing the lot. Field by field because the two
+   * payloads are not the same picture — the fetch is the only source of the spaces on a
+   * page that publishes nothing but its counts, and vice versa.
    */
-  function adopt(data = {}) {
-    if (Array.isArray(data.spaces)) state.spaces = data.spaces;
-    if (Array.isArray(data.workspaces)) state.workspaces = data.workspaces;
-    if (data.counts && typeof data.counts === 'object') state.counts = data.counts;
+  function adopt(data = {}, { weak = false } = {}) {
+    const FIELDS = ['spaces', 'workspaces', 'counts', 'filter'];
+    if (!weak) for (const f of FIELDS) if (data[f] !== undefined) owned.add(f);
+    const take = (f) => data[f] !== undefined && !(weak && owned.has(f));
+
+    if (take('spaces') && Array.isArray(data.spaces)) state.spaces = data.spaces;
+    if (take('workspaces') && Array.isArray(data.workspaces)) state.workspaces = data.workspaces;
+    if (take('counts') && data.counts && typeof data.counts === 'object') state.counts = data.counts;
     const first = !state.known;
     state.known = true;
-    if (data.filter && !writes) {
+    if (take('filter') && data.filter && !writes) {
       set(data.filter, { post: false });
     } else {
       paint();
@@ -347,13 +407,22 @@
     if (first) notify({ filter: state.filter, source: 'load' });
   }
 
-  /** The four pages with no sweep of their own. Cheap — see /api/spaces. */
+  /**
+   * The pages with no sweep of their own. Cheap — see /api/spaces.
+   *
+   * Weak, because this request is sent from the top of this file, before the page's own
+   * script has run: on the inbox, which warm-boots a list out of cache in the same tick,
+   * the reply lands *after* the page has published the counts of what it is showing. The
+   * server's are the human-questions channel as of the last poll, whatever scope and
+   * kind filter is on screen — right for a page with no list, and a number nobody can
+   * find the beads for on one that has.
+   */
   async function load() {
     if (!token) return;
     try {
       const res = await fetch('/api/spaces', { headers: { 'x-beadcause-token': token } });
       if (!res.ok) return;
-      adopt(await res.json());
+      adopt(await res.json(), { weak: true });
     } catch {
       /* No bar rather than a wrong one. The page's own error handling has the network. */
     }
