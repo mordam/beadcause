@@ -23,9 +23,13 @@
  *    than `passing` — otherwise the card claims green on a repo that has no checks.
  *    Both of gh's check shapes are covered, because only one of them is the one you
  *    happen to have in front of you when you write the code.
- * 3. **`available()` turning a cached answer into traffic.** It is asked on every
- *    poll and must ask `gh` once per process. The test asserts the *absence* of a
- *    second call, which is the only way that regression is ever visible.
+ * 3. **`available()` getting the asymmetry wrong in either direction.** It is asked on
+ *    every poll, so a *yes* must cost one `gh` per process — the test asserts the
+ *    absence of a second call, which is the only way that regression is ever visible.
+ *    A *no* must not be permanent, because the daemon boots before anyone has logged
+ *    in and used to hold "not authenticated" until it was restarted, while telling you
+ *    to run the command that could not reach it. The clock is injected, so the interval
+ *    is asserted rather than waited out.
  * 4. **`settle()` calling a timeout a verdict.** A worker merges its own pull request
  *    once the checks report, so this is what stands between "CI said yes" and "CI has
  *    not said anything for five minutes" — and those must not both come back as
@@ -261,6 +265,48 @@ pr.forgetAvailability();
 const unauthed = await pr.available();
 check('an unauthenticated gh is not ok', unauthed.ok === false);
 check('and the reason names the command that fixes it', /gh auth login/.test(unauthed.reason), unauthed.reason);
+check(
+  'and the restart, because a login alone does not reach a daemon holding the old answer',
+  /launchctl kickstart -k gui\/\d+\/m4m\.beadcause/.test(unauthed.reason),
+  unauthed.reason
+);
+
+/*
+ * The no has to expire, and this is the whole bug: the daemon boots before anyone has
+ * logged in, caches "not authenticated", and then tells you to run `gh auth login` —
+ * the one thing that cannot change its mind. Time is injected rather than waited out,
+ * so the minute is asserted rather than slept.
+ */
+const T0 = 1_760_000_000_000;
+pr.forgetAvailability();
+resetLog();
+const auths = () => calls().filter((c) => c.args[0] === 'auth').length;
+
+await pr.available({ now: T0 });
+await pr.available({ now: T0 + 59_000 });
+check('a no is held for a bounded interval, not re-asked on every poll', auths() === 1, `${auths()} calls`);
+
+const later = await pr.available({ now: T0 + 61_000 });
+check('and is re-asked once that interval is up', auths() === 2, `${auths()} calls`);
+check('still a no while nothing has changed', later.ok === false);
+
+await pr.available({ now: T0 + 121_000 });
+check(
+  'the interval backs off — a second no is held longer than the first',
+  auths() === 2,
+  `${auths()} calls at +121s`
+);
+
+world({ auth: { ok: true } });
+const fixed = await pr.available({ now: T0 + 181_000 });
+check('a `gh auth login` starts working without restarting the daemon', fixed.ok === true, JSON.stringify(fixed));
+check('and says nothing once it is yes', fixed.reason === '');
+
+resetLog();
+await pr.available({ now: T0 + 10 * 60 * 60 * 1000 });
+check('and that yes is cached for good — no re-ask, however long it has been', auths() === 0, `${auths()} calls`);
+
+world({ auth: { ok: false, stderr: 'You are not logged into any GitHub hosts. Run gh auth login to authenticate.' } });
 
 process.env.PATH = EMPTY;
 pr.forgetAvailability();
