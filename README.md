@@ -43,7 +43,11 @@ other people** (those get a contentless push and no unattended agents), where yo
 **code lives** (so a question can show you files from it), whether your shell
 **derives `BEADS_DIR` from the working directory**, whether to use **ntfy**,
 whether commenting should **spawn an agent** to answer you, and whether to open the
-**[activity monitor](#the-monitor--what-it-is-doing-right-now)** at login. Re-run them any time
+**[activity monitor](#the-monitor--what-it-is-doing-right-now)** at login. A workspace
+holding **more than one repo** is asked one more: which of the checkouts under it are
+[approved](#many-repos-one-workspace--the-approved-list-and-the-token-that-names-each),
+printed with the service token each one declares — an install where every workspace is one
+repo is asked nothing about it. Re-run them any time
 with `npm run configure`; nothing is written until the last answer, so Ctrl+C is
 always safe.
 
@@ -96,6 +100,9 @@ otherwise its poller would keep firing notifications with no listener behind the
    and a path into a phone. The link is `https://<host>.<tailnet>.ts.net:4318` once
    the tailnet can issue certificates, and the Tailscale address over plain http until
    then — see [the URL you are given](#the-url-you-are-given-and-what-happens-to-a-phone-that-already-has-one).
+   The http one pairs a browser and not the Android app, and `npm run qr`
+   [says so on the spot](#npm-run-qr-says-when-the-link-is-a-browser-only-one) rather
+   than leaving you to find out with the phone in your hand.
    Every device needs this once — a
    notification opened on an unpaired phone lands on the token prompt, or on the
    [sign-in screen](#signing-in-with-google) if you have configured Google, which either
@@ -2548,7 +2555,8 @@ issue descriptions we would throw away.
 
 Tapping a node raises a **card** with the whole title, its status, priority and type,
 and two buttons. **Details** opens the bead itself in a sheet — who owns it, what it
-blocks and what it waits on, **how it ended** if it has, then the whole body:
+blocks and what it waits on, **how it ended** if it has, **what its session did** where
+one ran, then the whole body:
 description, **acceptance**, **design**, **notes** and the thread, each rendered as
 markdown under its own label, in the order `bd` itself prints them. Served by `/api/bead`, which is `bd show` plus
 comments rather than `/api/question`'s decision shape (every node is an ordinary
@@ -2596,6 +2604,57 @@ bead with neither draws nothing at all, and looks precisely as it did before.
 `test/graphsheet.mjs` covers it, in the same node:vm slice of the real `sheetHtml` the
 relations block is checked in — including that the stylesheet has rules for the block
 and that none of them clamp.
+
+#### The way through — what its session did
+
+The close reason says a bead landed. It does not say what the session that landed it
+*did*, and that is archived in full: a log, its metrics, the memories it left, where its
+worktree went. So under the outcome block the sheet carries one more row, and it is the
+only row on the sheet that leaves the tracker — everything else here goes to another bead.
+Tapping it opens
+[`/bead-session?workspace=…&id=…`](#reading-it-back-on-the-phone--bead-session) in the same
+drawer panel the sheet itself opens in, so one back gesture returns you to whatever list
+you came from.
+
+That completes the trail the [History tab](#the-ledger--the-history-tab) starts. A row
+there carries `🗄` when a session was archived for that bead, tapping the row opens this
+sheet, and until now the mark you followed was the end of the road: the page behind it
+existed and nothing in the app pointed at it. The row wears the same glyph deliberately —
+the mark you chased is the mark you land on.
+
+**Three states, and the interesting part is which way each is allowed to be wrong.** The
+row is drawn on every bead at first paint, before the answer is in, because finding out
+costs a request and the sheet may not wait on one — the same trade the children block
+makes. So it starts as *looking*, and resolves to either a link or a plain sentence:
+
+- *Looking* is deliberately **not tappable**. A row that is a link and then stops being one
+  loses the tap of somebody who reached for it as it resolved; quiet-then-tappable cannot
+  lose anything. The flicker only goes one way.
+- **An archive** is a link, with how many sessions ran on the bead and when the newest one
+  did. Three sessions on a bead is a fact about the bead, and the page opens on the newest.
+- **Nothing archived** is the same box, muted, and a `<div>` — nothing to tap, nothing to
+  focus. That matters more than it sounds: most beads in this tracker were never worked by
+  a session at all, and a link that opened *"not available"* three times in a row would
+  teach you to stop following it.
+
+And a **check that fails offers the link anyway**, which looks like the wrong branch and is
+not. The two mistakes are not symmetrical. Saying *no session* over a bead that has one
+hides the page for good, because nothing on the sheet would ever suggest looking again;
+offering a link over a bead that has none costs one tap onto a page whose entire design is
+[saying plainly what is not there](#reading-it-back-on-the-phone--bead-session). The
+degraded path goes the way you can recover from.
+
+**It asks `/api/session-archive`, not the endpoint the page itself uses.** Not a field on
+`/api/bead`, for the reason `/api/bead-children` is a route of its own: anything folded in
+there is a `git` call every sheet open waits for. Not `/api/bead-session` either, though
+that is what `/bead-session` loads — it reads the archived tree, `meta.json` and the state
+of the worktree, which is several `git` invocations spent answering what is really
+`sessions.length > 0`. `?workspace=&id=` on `/api/session-archive` is one `git log` over
+one ref, it already existed, and presence plus a date is the whole of what the row draws.
+
+`test/graphsheet.mjs` covers all three states out of the same slice, plus the four lines
+that do the resolving — asserted on the source, because every render check above them
+passes just as happily over a row stuck saying *looking…* forever.
 
 #### What is under it — the children, and the ones already done
 
@@ -2821,7 +2880,9 @@ throws away — and the rest of it is one tap down, on
 [the sheet's own outcome block](#how-it-ended--the-close-reason-and-when). Tapping one
 opens the bead detail sheet that already exists — `/graph?ws=…&id=…&open=1`, the deep
 link `&open=1` was built for — so this page needed no detail view of its own and does
-not have one. The rows are real `<a href>`s, which is what
+not have one. The `🗄` marker leads somewhere too, one hop further on: the sheet carries
+[a row through to what that session did](#the-way-through--what-its-session-did), which is
+what makes the mark on the row worth following rather than a fact about it. The rows are real `<a href>`s, which is what
 lets [the drawer](#detail-opens-over-the-tab-not-instead-of-it) hold that sheet *over* the list: this
 is the one list you legitimately scroll four hundred rows down, and a full-page navigation
 would spend that scroll on every bead you looked at.
@@ -6164,6 +6225,68 @@ in some GUIs — everything else ignores them. And nothing is pushed unless you 
 `git push origin 'refs/beadcause/*:refs/beadcause/*'` and `refs/notes/beadcause` are
 explicit acts, and on a shared repo they should stay that way.
 
+### Reading it back on the phone — `/bead-session`
+
+Storing all of that and then needing `git cat-file` to see it is half a feature. There
+was already a page for one session — `/session?pid=…`, its facts and its transcript,
+[described above](#tap-a-session-to-see-what-it-is-actually-doing) — and it cannot be the
+page for this, for a reason that is structural rather than fixable: **it is addressed by
+pid.** It resolves a running process, tails the file that process is writing, and 404s
+the moment the pid has gone. That is exactly right for a session that exited between the
+refresh and the tap, and it is no answer at all for a bead that closed in June. A process
+id stops identifying anything the instant the process ends; a bead is the thing that
+lasts.
+
+So `/bead-session?workspace=…&id=…` — `/archive` is the same page — is the archived
+counterpart, addressed by the two facts that outlive every process that ever worked it.
+Three things, in this order:
+
+1. **The memories the session left.** The point of the page: a log says what happened, a
+   memory is the session saying what it *learned*, which is the one thing that would
+   otherwise have died with the window. `memory.md` in the archived tree.
+2. **The log**, with the metrics `meta.json` carries — outcome and exit code, when it ran
+   and for how long, its branch, the commits it made, and `commitsFrom`, so an exact
+   commit list is never confused with the since-session-start heuristic.
+3. **Where its worktree went.** `live` and somebody may be sitting in it, `retired` into
+   `.claude/worktrees-retired/` where [the sweep](#emptying-the-attic) removes it two days
+   later, or `gone`, which is where a worktree whose work has landed
+   is supposed to end up. There is no file browser in this app, so "viewing" it means the
+   pull request for its branch where there is one — this page does not promise to render a
+   tree. The nuance that bites: **the main checkout is a registered worktree too**, so a
+   session that never entered one comes back as `live` under the repo's own name, which is
+   true and reads as though a directory had been kept for it. That is carried as `isMain`
+   rather than as a fourth state, and the page says which it was.
+
+**Absence is most of the design, not an edge case.** Each of the three is missing
+independently and for ordinary reasons: a bead closed by hand from the phone had no
+session at all, a session that crashed may have a log and no memory, a session that never
+entered a worktree has no worktree to have gone anywhere. Each says the words *"not
+available"* with the reason, and offers nothing to tap. That last part is the whole
+requirement — a link that opens an empty pane is worse than a sentence, because you spend
+the tap before you learn anything.
+
+Which is why the page is **told** what exists rather than finding out by trying.
+`/api/bead-session` returns `session.files[]` — the archived tree, listed — and the text
+of the log and the memory is fetched from `/api/session-archive` only for names that
+listing contained. A section saying nothing is there is stating a fact it was given, not
+describing the shape of a request that failed. One local read decides all three, and the
+one fact that leaves the machine — the pull request — arrives on a second request *after*
+the page has drawn, so nothing on screen waits on GitHub to say that a directory has been
+tidied away.
+
+It reads and does nothing else: every request is a `GET`, there is no composer because a
+finished session cannot be answered, no button to raise its window because there is no
+window left, and **no polling** — an archive commit is a git object, and a second session
+on the same bead writes a new one rather than changing this one. A bead worked more than
+once gets a row of pills, one per session; the archive is a chain, so going back through
+them is `?commit=`.
+
+`test/beadsession.mjs` covers it, and two of its assertions are the ones worth knowing
+about: that each section says "not available" for its own missing piece with the other two
+still rendering, and that `public/beadsession.js` contains no non-`GET` request at all —
+"read-only" being the kind of property that stays true right up until somebody adds a
+convenience button.
+
 ### Stopping it
 
 Pause from the phone, per repo. `advocates.enabled: false` stops all of them.
@@ -8152,6 +8275,47 @@ saved pairing is kept rather than cleared until you do, so nothing is lost if yo
 scan it a week later. The watcher stays stopped in the meantime — a foreground
 notification that can never hear anything would be worse than its absence.
 
+### `npm run qr` says when the link is a browser-only one
+
+Both halves of that are now true at once: the http address is the right answer for a
+browser, and it is a link the Android app cannot pair with at all. The app explains
+itself when it happens — but the person reading that explanation is holding the phone,
+and the fix is on the Mac they have just walked away from. So the Mac says it first, at
+the one moment it is standing in front of you:
+
+```
+  http://100.96.105.106:4318/?t=…
+
+[beadcause] the Android app will refuse this link — it is plain http, and the app only
+            sends its token to https://<host>.<tailnet>.ts.net. A browser on the tailnet
+            is fine with it.
+[beadcause] turn HTTPS Certificates on for the tailnet
+            (https://login.tailscale.com/admin/dns), then run this again — the daemon
+            picks a certificate up within a minute of it being available.
+```
+
+**On stderr, and only when there is something to say.** `node bin/beadcause.js --url` is
+piped into shell scripts, so its stdout is a value rather than a display and a sentence
+mixed into it would be an address nothing can dial; `npm run qr` prints it after both
+codes, where it is the last thing on the screen you walk away from. An https link — a
+certificate, or a `baseUrl` you set yourself — prints nothing at all, because a line that
+appears on every run is a line nobody reads on the run that matters.
+
+**It is judged on the URL, not on the certificate**, and those are different questions. A
+`baseUrl` pointing at a reverse proxy or a real domain is pairable with no `tailscale
+cert` anywhere in sight. Loopback is exempt for the opposite reason: it is
+[plain http forever](#https-on-the-tailnet-name), and it is the one address the APK still
+permits cleartext to — `10.0.2.2` is how an emulator reaches the Mac it runs on, and
+warning about that would be a warning on every development session. The exception list
+lives in `lib/tls.js` beside the warning, and `test/pairhost.mjs` fails the build if it
+and `Address.LOOPBACK` in the APK ever stop naming the same three hosts.
+
+The pairing panel on the **Admin screen** says the same thing in the same case — it is
+the other place a code is offered to "another device", and on an http origin that device
+cannot be the app. It is told so by the server rather than working it out from the URL,
+for the same reason: a second copy of that rule inside a browser is a copy that goes
+stale unwatched.
+
 ### Renewing it before it expires
 
 A `tailscale cert` certificate lasts 90 days, and the copy in
@@ -8839,10 +9003,12 @@ cookie says so), and `/auth/signout` ends the session.
 | POST | `/api/advocate` | `{workspace, action}` | `pause` · `resume` · `release` (free the slots) · `forget` (clear attempt counters) |
 | GET | `/api/advocate-log` | `?workspace=` | the survey agent's transcript, as the CLI would have shown it |
 | GET | `/api/session-archive` | `?workspace=&id=` | the archived sessions for a bead |
-| GET | `/api/session-archive` | `?workspace=&commit=&file=` | one archived `session.log`, `meta.json` or `transcript.jsonl` |
+| GET | `/api/session-archive` | `?workspace=&commit=&file=` | one archived `session.log`, `meta.json`, `memory.md` or `transcript.jsonl` |
+| GET | `/api/bead-session` | `?workspace=&id=&commit=&pr=1` | one **finished** session, addressed by bead: `{ref, sessions[], session: {commit, at, subject, files[], meta}, worktree}`. `files[]` is the archived tree, so the page knows which of the memories, the log and the worktree exist before it asks for any of them. `sessions[]` is the newest 20 on that ref and `commit` picks one of them (newest by default); `pr=1` adds the pull request for its branch, and is the one thing here that costs a `gh` call. `{session: null}` for a bead nothing ever ran on — not a 404 |
 | GET | `/api/session-log` | `?pid=` | the whole session record — `{pid, sessionId, name, cwd, where, workspace, status, kind, at, startedAt}` — plus `{file, lines[]}`, the tail of its own transcript. 404 for a pid that is not running |
 | GET | `/monitor`, `/advocates`, `/sessions`, `/work`, `/work.html` | — | the advocate console — and the sessions view it absorbed (one page, five paths) |
 | GET | `/session` | `?pid=` | the HTML page for one live session: its facts and its transcript |
+| GET | `/bead-session`, `/archive` | `?workspace=&id=&commit=` | the HTML page for one **finished** session: what it left behind, addressed by bead |
 | GET | `/graph` | `?ws=&id=` | the HTML graph page |
 | GET | `/api/consoles` | — | `{consoles[], workspaces[]}` — every chat session, newest first; `closedAt` set on the finished ones |
 | POST | `/api/console/close` | `{id}` | soft-closes it and returns the new list. `409` mid-turn; saying anything to it reopens it |
@@ -9021,7 +9187,7 @@ history.
 | `auth.google.sessionDays` | how long a signed-in browser stays signed in (default `30`) |
 | `auth.google.enabled` | `false` turns sign-in off while leaving the rest of the block configured (default `true`) |
 | `workspaces` | auto-discovered from `~/beads/*/.beads`, and **reconciled on every start** — entries whose directory has gone are dropped and new ones picked up, both logged. Renaming a workspace directory used to leave a stale entry that failed on every poll tick, silently hiding that whole workspace from the phone |
-| `repos` | the checkouts **one workspace** may be worked in, keyed by workspace name — `{"climative": {"root": "~/climative.dev", "default": "architecture", "approved": ["architecture", "athena-service"]}}`. Empty by default, and a workspace not named here costs nothing: it is one repo, as every workspace was before this existed. `approved` is a list you write and nothing discovers — a directory under `root` that is not in it resolves to nothing. Each repo's identity is the **service token** it declares in its own `config/config.yaml`, read from the checkout rather than restated here; `default` is the repo a bead carrying no token belongs to, and `tokenPath` / `tokenKey` override where the token is read from. A bead says which repo it is about by carrying that token as a `repo:<token>` label. See [Many repos, one workspace](#many-repos-one-workspace--the-approved-list-and-the-token-that-names-each) and [how a bead names one](#how-a-bead-says-which-repo-it-is-about--repotoken) |
+| `repos` | the checkouts **one workspace** may be worked in, keyed by workspace name — `{"climative": {"root": "~/climative.dev", "default": "architecture", "approved": ["architecture", "athena-service"]}}`. Empty by default, and a workspace not named here costs nothing: it is one repo, as every workspace was before this existed. `approved` is a list you write and nothing discovers — a directory under `root` that is not in it resolves to nothing; `npm run configure` prints the tree with each repo's token for you to tick, which is not the same thing as approving one. Each repo's identity is the **service token** it declares in its own `config/config.yaml`, read from the checkout rather than restated here; `default` is the repo a bead carrying no token belongs to, and `tokenPath` / `tokenKey` override where the token is read from. A bead says which repo it is about by carrying that token as a `repo:<token>` label. See [Many repos, one workspace](#many-repos-one-workspace--the-approved-list-and-the-token-that-names-each) and [how a bead names one](#how-a-bead-says-which-repo-it-is-about--repotoken) |
 | `openSessions` | allow `POST /api/session` to open a Claude session on the Mac (default `true`) |
 | `sessionDirs` | override where a workspace's session opens. Normally unnecessary — see Discussing a question on the Mac |
 | `sessionPermissionMode` | `--permission-mode` for an opened session (default `auto`; `null` to omit the flag) |
@@ -9260,6 +9426,59 @@ three it was.
 
 One repo and no `default` is that repo — there is nothing to be wrong about. Several and
 no `default` is no repo, and says so.
+
+**`npm run configure` prints the tree and you tick it.** The list above was hand-edited
+JSON, which is worse than it sounds, because both facts that decide an entry are invisible
+from the file you are editing: whether the repo is cloned at all, and what token its own
+`config/config.yaml` declares. Forty-odd directories means opening forty YAML files and
+hoping — and a token typed from memory is a bead that resolves to nothing at three in the
+morning. So the tenth question of the wizard reads the root and shows you what is there:
+
+```
+   48 directories under ~/climative.dev, ✓ marking what is approved today:
+    2 ✓ architecture                architecture
+    4 ✓ athena-service              as             ⚠ as is also declared by audit-service, rules-engine-service
+   11   climative-apps              —              declares no serviceToken in config/config.yaml
+   29   microservice-base           xs             ⚠ xs is declared by 9 of these
+   45   tmp                         —              is not a git checkout
+   Numbers, ranges and names, comma-separated — "none" to approve nothing.
+   approved: [architecture, athena-service]
+```
+
+Every directory is listed, including the ones that cannot be approved usefully, because
+"declares no token" and "is not a checkout at all" are more use on screen with the reason
+beside them than missing from a list you are about to tick. The ⚠ is the collision — seen
+*before* you approve the second repo that declares `as`, rather than in the startup log
+afterwards — and once you have answered, the same sentences `repoList` would print are
+echoed straight back at you, for the list you just wrote.
+
+**Presented for approval is not applied, and the difference is the whole point.** The
+answer *is* the list: nothing you do not name survives it, there is no `all`, and the
+default offered is what is approved today — so holding Enter through the question cannot
+approve a repo or unapprove one. Numbers and ranges (`1,4,7-9`) exist because forty names
+is not something anybody types; a name that is not under the root is kept and reported,
+since it is usually a repo approved but not cloned yet, and silently dropping it would
+unapprove a repo by refusing to echo the default back. A *number* that is not in the list
+is the one thing dropped rather than kept — it cannot be a repo name, so it is a slip, and
+`"99"` in the approved list is a startup warning forever.
+
+**It is asked only where there is something to ask.** Either `repos.<workspace>` already
+exists — asked again whatever is on disk, so a tree that has moved or a repo that was
+never cloned can be *fixed* rather than warned about at every start — or there is a
+directory named after the workspace (`climative` → `climative.dev`, `climative-repos`)
+holding **two or more git checkouts**, which is offered as the root to confirm. `~/beads`
+is excluded outright: `~/beads/<workspace>` is named after the workspace by construction
+and is the tracker's own tree, not somewhere to open a session. An install where every
+workspace is one repo — which is almost every install — is asked nothing at all, and its
+config keeps no `repos` block.
+
+The reading lives in [`lib/reposcan.js`](lib/reposcan.js) rather than in `lib/repos.js`,
+and that is deliberate: the resolver's "no `readdir` in this module" assertion stays
+literal, which is the cheapest possible check on the most expensive possible mistake.
+`node test/reposcan.mjs` covers the other side of it — that an install with one repo per
+workspace is asked nothing, that `~/beads` is never guessed, that a trailing YAML comment
+never reaches a token the resolver will disagree with, that nothing unticked survives an
+answer, and that the module writes nothing at all.
 
 ### How a bead says which repo it is about — `repo:<token>`
 

@@ -578,4 +578,19 @@ await check('pairing() and wouldServe() agree about the origin', () => {
   assert.equal(pairing(cfg, url).origin, `https://${NAME}:4318`);
 });
 
+// bc-affn. The panel this feeds is the one place a code is offered to "another device",
+// and on an http origin that device cannot be the Android app. The screen must not work
+// the rule out for itself — see `pairing()`.
+await check('and the pairing code says when it is a browser-only one', () => {
+  plant({ have: false });
+  const cfg = config({ enabled: true, baseUrl: 'http://100.96.105.106:4318' });
+  assert.equal(pairing(cfg, wouldServe(cfg, certificateState(cfg))).appRefuses, true);
+});
+
+await check('and does not, once there is a certificate to serve', () => {
+  plant({ have: true });
+  const cfg = config({ enabled: true, baseUrl: `https://${NAME}:4318` });
+  assert.equal(pairing(cfg, wouldServe(cfg, certificateState(cfg))).appRefuses, false);
+});
+
 done();
