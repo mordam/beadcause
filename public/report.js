@@ -53,13 +53,20 @@
   - **A refusal.** `toast(msg, 'refused')` is red on purpose and files nothing — see
     `refused` below.
 
-  **And a ceiling, which is the smaller half of bc-p38c.3.** That bead holds the
-  reporting off across a deploy, when every page fails every fetch at once and the
-  quiet window is the only thing that can know why; it also asks for a cap on reports per
-  page per minute, and the cap is eight lines and belongs next to the reporting rather
-  than next to the deploy records, so it is here. A render loop that throws on every
-  frame files a handful of reports and then stops, instead of several hundred while the
-  daemon's own dedupe catches up.
+  **And a ceiling**: eight reports per page per minute, and the same error not twice
+  inside thirty seconds. A render loop that throws on every frame files a handful and
+  then stops, instead of several hundred while the daemon's own dedupe catches up.
+
+  **A deploy hushes this page, and the daemon is the one that says so.** A restart makes
+  every open page fail every fetch at once, and the reconnect would file one P0 per
+  screen per endpoint for the single fact that you pressed Ship. Only the deploy journal
+  knows that is what happened, so the *authority* is `reportingQuiet` in lib/deploy.js
+  and `POST /api/error` refuses on its own — which is what makes it hold for a phone
+  still running last week's cached copy of this file. What is here is the other half of
+  that conversation: a refusal carries an `until`, and this page then stops asking. Not
+  queueing — dropping. Replaying them the moment the daemon is back is the same storm,
+  a minute later. The toast still appears throughout; the user should see the failure,
+  and the tracker should not.
 */
 (() => {
   'use strict';
@@ -88,6 +95,17 @@
 
   /** A message longer than this is not a message, it is a payload somebody stringified. */
   const MESSAGE_LIMIT = 2000;
+
+  /**
+   * The furthest ahead a daemon may push this page's quiet window, whatever it says.
+   *
+   * The `until` in a refusal is a wall clock from another machine, arriving over a wire,
+   * and the failure it could cause is the worst one available here: a page that has
+   * quietly stopped reporting anything and looks exactly like a page with no errors. A
+   * deploy of this app is seconds and its grace period is thirty of them, so ten minutes
+   * is far past any honest answer while still being a ceiling.
+   */
+  const MAX_QUIET_MS = 10 * 60 * 1000;
 
   /**
    * The `fetch` this page was born with, kept before the wrapper below replaces it.
@@ -134,6 +152,17 @@
   } catch {
     /* an environment without that event is an environment that cannot navigate */
   }
+
+  /**
+   * When this page may report again, after the daemon said a deploy was in flight.
+   *
+   * Only ever set from an answer to a report, never guessed: this page cannot tell a
+   * deploy from a train tunnel, and a page that hushed itself on its own reading of a
+   * failed fetch would be a page that stops reporting exactly when the app is broken.
+   * The daemon holds the deploy journal and refuses on its own account (lib/deploy.js);
+   * this is only how a page stops re-asking a question already answered.
+   */
+  let quietUntil = 0;
 
   /* --------------------------------------------------------------- redaction */
 
@@ -232,12 +261,36 @@
         headers,
         body: JSON.stringify(report),
         keepalive: true,
-      }).then(
-        () => {},
-        () => {}
-      );
+      }).then(hush, () => {});
     } catch {
       /* a report that cannot even be built is a report that is dropped */
+    }
+  }
+
+  /**
+   * The one thing an answer to a report is read for: "a deploy is happening, stop".
+   *
+   * Everything else in the answer is ignored, including whether it filed anything —
+   * there is nothing a page could usefully do with the id of a bead about itself, and
+   * `{ok: false}` for a tracker that is down is already handled by dropping.
+   *
+   * Guarded to the point of paranoia because it runs on the error path: a response
+   * without `json` is the shape a test stub and a `keepalive` beacon both have, a body
+   * that is not JSON is an interposing proxy, and both of those are "no answer" rather
+   * than something to raise an error about from inside the error reporter.
+   */
+  function hush(res) {
+    try {
+      if (!res || typeof res.json !== 'function') return;
+      res.json().then((body) => {
+        const until = Date.parse(body?.quiet?.until || '');
+        if (!Number.isFinite(until)) return;
+        const now = Date.now();
+        // Never shortened by a later answer, and never trusted past the ceiling.
+        quietUntil = Math.max(quietUntil, Math.min(until, now + MAX_QUIET_MS));
+      }, () => {});
+    } catch {
+      /* a body that cannot be read is an answer this page did not get */
     }
   }
 
@@ -251,9 +304,13 @@
   function report(kind, fields = {}) {
     try {
       if (leaving) return false;
+      const now = Date.now();
+      // Ahead of the cap and the cooldown, both of which spend something: a report
+      // refused for the duration of a deploy must not also cost this page one of its
+      // eight, or the first real error after the window would find no room left.
+      if (now < quietUntil) return false;
       const message = oneLine(fields.message);
       if (!message) return false;
-      const now = Date.now();
       if (isEcho(message, now)) return false;
       const source = oneLine(fields.source);
       const line = Number(fields.line);
@@ -482,5 +539,13 @@
      * almost always the cap or the cooldown.
      */
     capacity: () => Math.max(0, MAX_PER_WINDOW - recent.filter((t) => Date.now() - t < WINDOW_MS).length),
+    /**
+     * When this page will report again, as ms since the epoch, or 0 for "now".
+     *
+     * The second thing to check when a report has silently not arrived, after
+     * `capacity()`: a deploy in the last minute is the other reason, and it is the one
+     * that looks like nothing at all from the page's side.
+     */
+    quietUntil: () => quietUntil,
   };
 })();
