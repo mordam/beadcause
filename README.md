@@ -140,7 +140,7 @@ otherwise its poller would keep firing notifications with no listener behind the
   says so rather than pretending to cover the rest. It runs against a throwaway config
   directory on an ephemeral port and never touches `bd`, so it is safe to run with the
   daemon up. The suite proper is `npm test`, and the browser checks it deliberately
-  leaves out — they want a Chrome — are `npm run checks`, all twenty-six of them, four
+  leaves out — they want a Chrome — are `npm run checks`, all twenty-eight of them, four
   at a time, with a list of which failed. See
   [`npm run checks`](#npm-run-checks--the-browser-half-and-why-npm-test-can-still-see-it-rot),
   including the static selector audit that runs inside `npm test` and is the reason a
@@ -6350,6 +6350,69 @@ on every sweep for good. GitHub knows the answer exactly: `mergeCommit` **is** t
 squash commit, which is a better anchor than the ancestry walk could produce. Same
 rule as the sweep — asked only after the local test says no.
 
+### It will not push an unresolved merge
+
+**git commits conflict markers without a murmur.** `git add -A && git commit` in the
+middle of a merge stages a file still full of `<<<<<<<` / `=======` / `>>>>>>>` and
+produces a merge commit that is indistinguishable from a resolved one: right parents,
+right message, nothing on stderr, nothing in `git status` afterwards. From git's point of
+view those are seven characters like any other seven.
+
+On 2026-08-11 that reached one `git push` from `origin`. Two conflict-resolver sessions
+raced in `.claude/worktrees/chat-tabs-dmt` (bc-d2y6); one ran `git merge --abort` in the
+window between the other's `node --check` and its `git commit`, so the commit captured
+the **re-conflicted** `public/console.js`. Nothing said so. The tell, fifteen minutes
+later, was `npm test` failing fourteen checks of sixteen in `test/dismissed.mjs` with
+`Unexpected token '<<'`, thirty-eight suites into a hundred-and-five-suite run — which
+reads as a regression in dismissal, not as *the file you are testing does not parse*. And
+`public/console.js` is served to a phone.
+
+So `bin/deliver.js` asks two questions before it pushes anything, and refuses on either:
+
+1. **Does any changed text file carry a conflict marker?**
+2. **Does every changed `.js` still parse?** — `node --check`, one file at a time, so the
+   error names a file instead of a test.
+
+Both are sub-second, and both are asked *first*: ahead of the push, ahead of `gh`, ahead
+of the bead. Everything after that line writes to `origin` or to a phone, and a refusal
+is only cheap while nothing has been written anywhere. `node scripts/land-check.mjs`
+pins that as negative assertions — the branch must not reach the bare origin, `gh` must
+not be called at all, and no delivery question must be filed, because a refusal that has
+already opened a pull request has put an unmergeable one in the inbox.
+
+**It reads the committed blob, not the working tree.** That is the whole of bc-d2y6: the
+tree can be spotless while `HEAD` is broken, which is exactly what happens when the file
+is repaired *after* the commit rather than before it. Every working-tree check passes over
+that branch. `git show <ref>:<path>` does not.
+
+**`=======` is deliberately not one of the markers.** It is the one of the three that
+occurs in real text — a setext `<h1>` underline in Markdown, and this README is 600KB of
+Markdown. `<<<<<<<`, `>>>>>>>` and diff3's `|||||||` never occur by accident, and a real
+conflict has all of them, so dropping the ambiguous one costs no detection and buys a
+check that cannot cry wolf. Exactly seven, at the start of a line, followed by a space or
+the end of it, which is what git writes. Binary files are skipped on git's own
+`--numstat` verdict rather than on their extension, and deleted files are skipped because
+they have no blob to read.
+
+The same check, by hand or a commit earlier:
+
+```bash
+npm run conflicts                                # this branch, against origin/main
+node scripts/conflict-check.mjs --staged         # what `git commit` would write now
+node scripts/conflict-check.mjs --commit HEAD~1  # one commit, against its parent
+node scripts/conflict-check.mjs --install-hook   # and stop having to remember
+```
+
+`--install-hook` writes a `pre-commit` hook, and **one install covers every worktree of
+this repo** — git resolves hooks through the *common* git directory, so a hook written
+once in the main checkout is already running in all twenty-five, including ones created
+after the install. It refuses to overwrite a `pre-commit` it did not write, and prints
+the line to add instead. `git commit --no-verify` still skips it, as it skips every hook;
+that is the right answer for a repo whose subject is unattended agents, because the guard
+that cannot be bypassed on purpose is the one somebody disables permanently at three in
+the morning. `bin/deliver.js` has no `--no-verify` to reach for, and it is the one that
+actually stands between a broken file and `origin`.
+
 ### Checking it
 
 `npm test` covers three libraries. `test/pr.mjs` drives `lib/pr.js` against a fake `gh` on
@@ -6372,8 +6435,9 @@ decides. None of the three touches the network, a bead, or a repo.
 `node scripts/land-check.mjs` is the end-to-end half, and it is the only place the merge
 itself is exercised: a real `git` against a real bare remote, a real `bd` against a
 scratch workspace under `/tmp`, the real `bin/deliver.js`, and a fake `gh` that logs every
-call. Seven scenarios — green checks, a refusal from GitHub, a red check, `--review`,
-`--owed`, where the merge method comes from, and the local fast-forward. That last one is
+call. Eight scenarios — green checks, a refusal from GitHub, a red check, `--review`,
+`--owed`, where the merge method comes from, the local fast-forward, and a commit
+carrying an unresolved merge. The fast-forward is
 the only scenario that delivers from a real `git worktree`, because that is where a worker
 delivers from and the whole behaviour turns on it: the fake `gh` moves the bare origin's
 `main` on merge, and the checks are that the main checkout ends up at `origin/main` — and
@@ -6384,6 +6448,20 @@ every scenario that did not merge, because a bead closed over work sitting in an
 pull request is invisible from every screen in the app. `BEADCAUSE_CONFIG_DIR` points it
 at a scratch config whose ntfy is off, so a harness run cannot reach anyone's phone;
 `--keep` leaves the temp world for inspection.
+
+The unresolved-merge scenario is negative all the way through, for the reason above: it
+commits the markers the way one really gets committed (`git add -A`, `--no-verify`, no
+complaint from git) and then asserts that the branch never reached the bare origin, that
+`gh` was not called *once*, that the bead is still open and that no question was filed —
+a refusal that has already pushed has published the broken file, and one that has already
+asked has put an unmergeable pull request on the phone. It ends by delivering the same
+branch resolved, so the refusal is provably about the markers and not about anything else
+the scenario did. `test/conflicted.mjs` covers the detection underneath it against a real
+scratch repo, and most of its checks are about what must *not* be found: `=======` under a
+Markdown heading, six or twenty `<` rather than seven, a marker in the middle of a line, a
+binary blob, a deleted file, and a `.txt` that would not parse as JavaScript and is not
+asked to. A guard that refuses a delivery it should not is worse than no guard, because
+the answer to it is to take it out.
 
 `node scripts/delivery-check.mjs` is the other half: the real `public/app.js` in a
 headless Chrome the size of a phone, against a fixture built by `lib/delivery.js` and
@@ -6588,6 +6666,68 @@ the committed `console.js`/`console.html`/`style.css`, where there is no All tab
 screens, because a row of passing assertions says nothing about whether the tabs and
 the ＋ fit beside each other at 393px.
 
+### Several chats are open at once, and switching is a repaint
+
+The page used to be about exactly one conversation. `state.console`, `state.seq`, the
+draft, which proposal cards were expanded and the poll loop all described the id in
+`?id=`, and opening another chat was a full page navigation — which threw away the
+transcript you had just read, the place you had scrolled to in it, and anything typed
+into the composer and not yet said. Coming back meant fetching the whole thing again
+and starting from the bottom.
+
+So the singular became a map: `state.chats`, one entry per conversation, and `state.id`
+naming which of them is in front. Everything that used to be a field on `state` is a
+field on a chat, and a tap on a row in the launcher is answered from what is already
+here. Nothing is evicted — a transcript is a few kilobytes and the whole promise of
+holding several open is that going back to one is *free*, not free sometimes.
+
+Three things had to follow, and each of them is a way the feature would otherwise
+half-land:
+
+- **The URL is written on every switch**, with `pushState`. It is the only durable name
+  for where you are: a reload, a bookmark and the link on a bead card all land on the
+  chat it names, and the system back gesture walks back out through the ones you came
+  through. The `?ws=&seed=` way in *replaces* instead, because that address creates a
+  conversation every time it is visited and a back gesture must never point at it.
+- **One transcript poll, for whatever is in front.** A switch aborts the old one rather
+  than letting it expire — it is parked on the server for up to twenty-five seconds, and
+  a chat brought forward inside that window would sit unwatched for the rest of it. The
+  chats in the background are followed by `/api/consoles` instead, every fifteen seconds
+  and all of them in one request: their status is all that is needed, and a parked long
+  poll per open tab is how a phone's connection budget goes. Their transcripts go stale,
+  which is the trade — bringing one forward starts its poll, and one response carries
+  everything said since its sequence number.
+- **One send queue per conversation, not one per page.** This is the one that would have
+  been silent: a single queue holds words said mid-turn until the turn lands, so with
+  two chats open it would deliver what you said to one into whichever happened to be in
+  front when that turn ended. Each chat has its own now. The strip above the composer is
+  still drawn by `public/sendqueue.js` rather than by hand — every queue attaches to the
+  same `#queued` through a selector carrying its own id, which matches only while that
+  chat is in front, so a background queue moving repaints nothing and bringing a chat
+  forward is `repaint()` on its queue.
+
+The launcher rows are still real links to real addresses — copy one, open it in a new
+tab, and it works — and a modified click is still the browser's. Only a plain tap is
+caught and answered with a repaint.
+
+`node scripts/switch-check.mjs` holds it, in headless Chrome at phone size against a
+fixture served by the script: it stamps a word on `window` and asks after every switch
+whether it is still there, which is the one difference a unit test cannot see — both a
+repaint and a page load end with the right transcript on screen. Seventeen assertions:
+the tap opens the chat and names it in the address without leaving the document, the
+second visit costs no `GET /api/console`, the scroll position and the unsent composer
+text come back, the top bar stops belonging to the chat you left, exactly one long poll
+is parked and it names the chat in front, the background is asked about in one request
+and gets no poll of its own, and a reload still lands where the address says.
+`--baseline` serves the committed copies, which navigate for every switch and so fail
+eight of them — the reload is the one that must still pass, because it is the behaviour
+this kept rather than the behaviour it added.
+
+The one thing it routes the long way round is the back gesture through *chats*: the list
+is still the only surface you can switch from, so the history a phone builds today is
+chat, list, chat. Two chats stacked on each other is a tap on a handle, and the handles
+are the next bead.
+
 ### A chat with an agent says so
 
 Two screens start conversations, and they write the same record. `/console` starts a
@@ -6763,6 +6903,15 @@ hand-written copies of the same strip would drift. Each caller keeps its own
 optimistic bubble, though, and that is deliberate too: the round trip is a process
 spawn, and words that vanish for a second read as having been eaten, so the message
 is drawn in the thread the moment it goes and taken back out again if the send fails.
+
+**A queue belongs to a conversation, not to a page.** The bead console holds several
+chats open at once now, so it makes one of these per chat and attaches each to the same
+`#queued` through a selector carrying its own id — the strip is still drawn here, and
+only the queue of the chat in front matches. That is what `repaint()` is for: every
+other paint follows the queue moving, and bringing a chat forward is the one that does
+not. See [several chats at
+once](#several-chats-are-open-at-once-and-switching-is-a-repaint) for why a shared queue
+was the failure that would have been silent.
 
 `test/queue.mjs` (in `npm test`) covers the queue: queued mid-turn, delivered on the
 turn ending, two arriving as one, a refusal that keeps the words and does not spin,
@@ -8313,11 +8462,12 @@ goes out as 3KB.
 
 **That one sweep is the slow part, and it is slower than it looks.** ~1s for 503 beads on
 an idle Mac, and **28.6s** measured under a load average of 33 — twenty agent sessions and
-a full test suite, which is an ordinary afternoon here. So `Bd.listAll` is given a timeout
-of its own rather than `run`'s 30-second default: at the default that afternoon throws, the
-workspace becomes a row in `errors[]`, and a repo with five hundred beads in it draws an
-empty ledger. A cold page can take that long to arrive and the client should say it is
-loading rather than time out; every page after it, for ten seconds, is free.
+a full test suite, which is an ordinary afternoon here. That measurement is where
+[the two-minute ceiling on every `bd` call](#notes-on-bd) comes from: under the 30 seconds
+it used to get, that afternoon throws, the workspace becomes a row in `errors[]`, and a
+repo with five hundred beads in it draws an empty ledger. A cold page can take that long to
+arrive and the client should say it is loading rather than time out; every page after it,
+for ten seconds, is free.
 
 The cache cannot help in the window *before* the first answer exists, which is the
 expensive window — so the in-flight sweep is shared as well. Two requests for the same
@@ -8776,7 +8926,7 @@ and `outagepush.mjs`, and each is a two-line change now that the helper exists.
 
 ### `npm run checks` — the browser half, and why `npm test` can still see it rot
 
-The twenty-six `scripts/*-check.mjs` are the only cover this repo has for layout, taps
+The twenty-eight `scripts/*-check.mjs` are the only cover this repo has for layout, taps
 and anything that happens in a thumb, and none of them are in `npm test`: each wants a
 Chrome, a phone-sized viewport and ten to forty seconds, and that suite stays pure Node
 on purpose. Until `npm run checks` there was no way to run them but one at a time by
@@ -8797,7 +8947,7 @@ conflicts with nobody.
 **Every check is on a four-minute leash**, `--timeout N` to change it and `--timeout 0`
 to take it off. This is not a tidiness rule. A check that hangs is the one failure a
 runner like this newly introduces, and it is silent in the worst available way: the run
-never ends, so nothing is reported about the other twenty-five either — strictly worse
+never ends, so nothing is reported about the other twenty-seven either — strictly worse
 than the by-hand state it replaced, where at least a person gives up. On the first real
 run of all twenty-six, `agent-chooser-check.mjs` went quiet thirteen assertions in and
 was still sitting there five minutes later. SIGTERM first so a check with a cleanup
@@ -8818,7 +8968,7 @@ parallel pass. A check that fails both times is reported with `on its own — no
 scheduling accident` beside it, so a red line cannot be waved away as the scheduler's
 fault.
 
-**Three of the twenty-six are red, and that is the bead in one paragraph.** Two were
+**Three of the twenty-eight are red, and that is the bead in one paragraph.** Two were
 already failing the day this was written, with no mark against them anywhere:
 `shot-check.mjs` has always asserted that the daemon token never reaches `shot.mjs`'s
 output, and the token is now appended to the URL that `shot.mjs` prints, so it does
@@ -8848,7 +8998,7 @@ every literal selector every check presses — 313 of them — takes each class,
 `data-` attribute apart, and asserts it still appears somewhere in `public/`. That is a
 text search, it costs milliseconds, and it fires on precisely the thing that used to be
 invisible. `npm run checks` prints it before a single Chrome starts, and does not stop on
-it: a stale selector in one check is no reason not to run the other twenty-five.
+it: a stale selector in one check is no reason not to run the other twenty-seven.
 
 It is tuned to have no false alarms, so that a finding is always real, and two things
 follow. An interpolated selector — `` `[data-key="${k}"]` `` — has no text to look for and
@@ -8874,7 +9024,7 @@ arrival before Chrome is even reached. And the runner's own endings are held aga
 temp tree of three checks that pass, fail and hang on purpose: exit 1, the failures
 counted and named, their own output replayed rather than just a code, the hang killed at
 the timeout, a passing check not listed among the failures, and an empty tree failing
-rather than passing vacuously. A tree of its own rather than the real twenty-six, because
+rather than passing vacuously. A tree of its own rather than the real twenty-eight, because
 those are the thing under observation, not the instrument.
 
 `test/observe.mjs` is about observer mode only, and it is the oldest of them —
@@ -9059,6 +9209,29 @@ a guard that cannot fail is not mistaken for a file that is fine.
   `_bd_set_workspace`, which rewrites `BEADS_DIR` from the shell's cwd — so
   `BEADS_DIR=… zsh -c 'bd …'` silently hits the wrong workspace. `execFile` does
   no shell startup, which is how one daemon serves five workspaces.
+- **Every `bd` invocation gets two minutes, and the number is measured.** `BD_TIMEOUT`
+  in lib/bd.js. It was thirty seconds, which this laptop clears on an ordinary
+  afternoon: the largest read here — `bd list --all` over 503 beads — answers in about a
+  second idle and took **28.6s** under a load average of 33, which is twenty agent
+  sessions and a full `npm test` rather than anything pathological. A timeout is not a
+  slow answer downstream, it is a dead workspace — `execFile` kills the child, the sweep
+  files the repo under `trouble`, and the History tab draws an empty ledger — so the
+  failure mode of a busy machine was every repo reporting as broken while `bd` was merely
+  slow, once per thirty-second poll, for as long as the load lasted. It is a **default**
+  and not a ceiling per call because a ceiling per call is what was tried first: `listAll`
+  got one, six other reads did not, and the six that did not are the small ones that run
+  on a timer across every workspace. Writes inherit it too — a write SIGTERMed mid-`bd` is
+  worse than a slow one, and since a timeout is never retried this is one ceiling per
+  call, not four.
+- **A timeout says so, everywhere it is displayed.** It is the one error that arrives with
+  nothing to explain itself: `bd` is SIGTERMed mid-answer, so stderr is empty and Node's
+  own message is "Command failed". So `run` rewrites it as `bd … timed out in <workspace>:
+  still running after 120s, killed rather than broken` and sets `err.timedOut`. The shape
+  is deliberate — lib/sweep.js strips `<verb> in <ws>: ` and shows the sentence after the
+  colon, so what reaches a four-inch screen is *still running after 120s* rather than a
+  wall of flags, and a slow repo stops reading as a broken one. Blowing the 32MB
+  `maxBuffer` kills the child as well and is deliberately *not* dressed up that way —
+  that one really is bad output.
 - **Don't set `sharedServer: true`** unless you've run `bd dolt start`. The
   workspaces pin `dolt_mode="embedded"`; forcing shared mode makes every command
   fail against a Dolt server that isn't listening. Writes retry through the
