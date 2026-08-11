@@ -2087,6 +2087,47 @@ load and opening `DocActivity` on top of a drawer that stayed empty behind it. I
 leaves anything that is not the main frame alone; a `/doc` link that *is* a main-frame
 navigation — a notification, a deep link — still opens the native reader.
 
+### Closing a subordinate view — one rule, in one place
+
+The ✕ on a subordinate view obeys one sentence, and `public/drawer.js` is where it is
+written down — the header for the prose, `beadcause.closeView()` for the code:
+
+> **A subordinate view closes to the view it opened over, and to the inbox when there
+> is not one.**
+
+Three cases and no more. **In a drawer**, the view underneath is the tab the panel is
+over, so closing is a dismissal rather than a navigation — and `history.back()`, so the
+one entry the drawer spent is given back and the phone's own back button needs one
+press afterwards rather than two. **In a tab this app opened** — long-press → open in
+new tab, or a `target=_blank` out of a brief — the view underneath is the tab that
+opened it, and `window.close()` hands it back. **Anything else** — a pasted URL, a
+notification, a home-screen shortcut — has nothing underneath, and the inbox is the
+main page.
+
+That last case is deliberately *not* "wherever you came from". The standalone page is
+the fallback for an address that arrived from outside the app, where the history behind
+it is whatever you were doing before the app was open, and `back()` there is a promise
+the ✕ cannot keep.
+
+It reads like an obvious rule and the app had three of them, which is the bug this
+replaced. `/session`'s ✕ went to `/sessions` — correct on the day it was written, and a
+✕ that closed one view by *opening a different tab* from the day Advocates
+[absorbed the sessions view](#getting-around--the-tab-bar), since that path has served
+the advocate console ever since. `/doc` and `/graph` went to `/`, each carrying its own
+copy of the `window.close()`-then-navigate dance. And the drawer dismissed to whatever
+was underneath, which is right, and is the only exit in the app that can leave you on
+the pull request board — which is what the symptom was reported as.
+
+None of the three was wrong enough on its own to notice. What was wrong was that there
+were three: changing what closing means was three edits, and the third was always the
+one forgotten, which is exactly how `/sessions` outlived the sessions view. So the
+three pages now ask for the rule rather than each answering it, and `node
+test/closeview.mjs` — in `npm test`, a static read of `public/*.js` — asserts that none
+of them decides its own way out, that `closeView()` is defined once, that nothing
+closes to `/sessions` any more, and that every page carrying such a ✕ loads
+`drawer.js` (and that the service worker precaches it, since a notification on a bad
+link is exactly when these pages are opened).
+
 ### Checking that it gives the tab back
 
 `node scripts/drawer-check.mjs` drives the real `public/*.js` in headless Chrome at
@@ -2116,6 +2157,12 @@ detail sheet opening inside the panel and closing back to the graph rather than
 closing the drawer; the page's own ✕ dismissing the drawer rather than the app if
 anything ever reaches it; and both pages standing on their own — header, ✕ and no
 drawer mode — when they are loaded as pages.
+
+Standing on their own, it then taps each of those three ✕s and asserts **where it
+actually lands**: the inbox, all three, which is the rule above. A path rather than a
+"not `/sessions`", because the next wrong answer will be a different path — and it is
+the half `test/closeview.mjs` cannot make, since a source read can only say that the
+three pages call one function, not what that function does to the address bar.
 
 `--baseline` serves the committed copies instead of the working ones, which is how
 you check a failure here is a real one: whatever a change brings has to fail without

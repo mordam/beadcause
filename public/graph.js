@@ -1054,10 +1054,9 @@
 
   /* ----------------------------------------------------------- lifecycle */
 
-  $('graph-close').addEventListener('click', () => {
-    window.close();
-    setTimeout(() => (location.href = '/'), 120);
-  });
+  // The same one rule every subordinate view's ✕ obeys — drawer.js, and its header
+  // is where it is written down.
+  $('graph-close').addEventListener('click', () => window.beadcause.closeView());
 
   async function draw() {
     stop();
