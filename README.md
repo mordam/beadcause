@@ -1320,8 +1320,8 @@ question it was answering. It is now named subcommand by subcommand:
 ```
 Bash(bd show:*) Bash(bd comments:*) Bash(bd comment:*) Bash(bd list:*)
 Bash(bd ready:*) Bash(bd blocked:*) Bash(bd search:*) Bash(bd stats:*)
-Bash(bd memories:*) Bash(bd dep:*) Bash(beadcause-memory:*) Read Grep Glob
-WebSearch WebFetch Bash(beadcause-get:*)
+Bash(bd memories:*) Bash(bd dep tree:*) Bash(beadcause-memory:*) Read Grep Glob
+WebSearch WebFetch Bash(beadcause-get:*) Bash(beadcause-browse:*)
 ```
 
 Adding a verb there should feel like a decision, which is why they are listed rather
@@ -1331,14 +1331,19 @@ grant by grant, so widening it fails a test named after the thing being widened.
 
 ### Looking something up — and why it is not `Bash(curl:*)`
 
-The last three entries are new, and they are the difference between a question that
-turns on one external fact getting answered and getting a comment saying it cannot
-be. Smallest first:
+The last four entries are the difference between a question that turns on one
+external fact getting answered and getting a comment saying it cannot be. Smallest
+first:
 
 - **`WebSearch` / `WebFetch`** — read-only by construction. An agent can pull a page
   and cite it and cannot POST anywhere. This is the grant to reach for.
 - **`beadcause-get <url>`** — the bytes as served, for the content types WebFetch
   mangles on its way to prose: JSON, CSV, XML, a raw table.
+- **`beadcause-browse <url>`** — a page that only exists once its JavaScript has run.
+  The last resort, and rare: it costs a browser start-up, and the three above answer
+  most questions. It earns its place because to *all* of them a page that assembles
+  itself in the browser looks empty, and an agent cannot tell that from a page that
+  genuinely says nothing.
 
 `Bash(curl:*)` was considered and refused, because the pattern does not mean what it
 looks like it means: it matches `-X POST`, `-d`, `--upload-file`, and `-o` writing
@@ -1357,10 +1362,36 @@ what you found is a *different* source from the one the question named. A fetche
 value is not automatically a usable one. The same brief tells agents what they may
 put in a URL, because a GET carries its query string to whoever is on the other end.
 
-The **live logged-in browser is not on the table**: driving Adam's Chrome means
-acting as him on every site he is signed into, and its per-site permission prompt has
-nobody present to answer it. Browsing, when it lands, is a headless Chrome with a
-throwaway profile.
+### Browsing — and why it is nobody's browser
+
+The **live logged-in browser is not on the table**, and never was: driving Adam's
+Chrome means acting as him on every site he is signed into, and the extension's
+per-site permission prompt has nobody present to answer it at the hour these agents
+run. So `beadcause-browse` launches its own Chrome, `--headless=new`, with a
+`--user-data-dir` made by `mkdtemp` a moment earlier and deleted on the way out. No
+cookies, no saved passwords, no extensions, no history, no identity — the same
+capability with none of the authority.
+
+That is one string on one line, which is exactly the problem: "reuse a warm profile,
+pages load faster" is a reasonable-sounding optimisation that hands an unattended
+agent every session on this machine, and it is invisible in a diff. So
+`assertThrowawayProfile` in `lib/browse.js` sits between the argument and the
+`spawn` and refuses anything that is not a fresh directory under the system temp
+directory, and `test/browse.mjs` names the real profile paths it must refuse.
+
+The rest is the same shape as the GET wrapper. There is no flag that runs
+JavaScript, clicks, types, submits, logs in, sets a cookie or a header, or names an
+output file — the agent names a URL and may say what to *wait for*, and cannot say
+what to *do*. Every request **the page itself** makes is vetted too, not just the one
+that was typed, because a page picks its own subresources and this laptop answers on
+loopback with things it would not answer a stranger with. `--shot` takes no path: the
+PNG lands in `.claude/shots/` under a generated name, because a flag that accepted
+one would be an arbitrary file write with a picture in it.
+
+Bounded in four places, since nobody is watching: a whole-operation deadline, a
+character cap applied *inside the page* so a 50 MB document is never serialised
+across the wire, a launch timeout, and a `finally` that kills Chrome and deletes the
+profile on every path out — including the ones that throw.
 
 The agent's reply is authored as `--actor <agent-id>`, so the thread says which one
 answered, the phase chip says which one is thinking, and the reply poller still
