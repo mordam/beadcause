@@ -66,6 +66,7 @@ const {
   parseDelivery,
   deliveryBody,
   deliveryTitle,
+  cardsForDelivery,
   DELIVERY_LABEL,
   MERGE_MARKER,
   SHIP_MARKER,
@@ -466,6 +467,77 @@ check(
   !/tests:/.test(deliveryBody(D({ tests: '', risk: '', left: '' }))),
   deliveryBody(D({ tests: '', risk: '', left: '' }))
 );
+
+/* ------------------------------------------------- one open ask at a time */
+
+// bc-ec6 was delivered three times against #25 and produced three cards, each asking
+// the same thing about the same pull request and each carrying an older version of the
+// story. Two of them were then wrong — they described a conflict that had since been
+// resolved — and answering the wrong one asks for a merge of a state that no longer
+// exists. One card is a decision; three are a triage job.
+//
+// So a delivery finds what it is about to ask again and supersedes it, and `cardsForDelivery`
+// is that half: given `bd list --label pr-delivery`, which of these open cards is this
+// same question? The two ways to be the same question are tested separately, because
+// only one of them was here before and the missing one is a pile the other cannot see.
+console.log('\nwhat a re-delivery supersedes rather than filing beside');
+
+const CARD = (id, over = {}, row = {}) => ({
+  id,
+  status: 'open',
+  title: `Merge #${over.number ?? 42}?`,
+  description: deliveryBody(D(over)),
+  ...row,
+});
+
+{
+  // The common one: the same branch, so the same pull request, delivered again before
+  // anybody answered.
+  const rows = [CARD('q-1'), CARD('q-2', { number: 43, url: 'https://github.com/mordam/beadcause/pull/43', bead: 'bc-other' })];
+  const found = cardsForDelivery(rows, { repo: 'mordam/beadcause', number: 42, bead: 'bc-7qo' }).map((c) => c.id);
+  check('the open card for this pull request is the one this delivery replaces', found.join(',') === 'q-1', found.join(','));
+}
+
+{
+  // The one matching on the number alone cannot see: the branch was abandoned and the
+  // same work delivered on a new pull request, so the first card is still in the inbox
+  // pointing at a merge nobody is going to make.
+  const rows = [CARD('q-old', { number: 25, url: 'https://github.com/mordam/beadcause/pull/25' })];
+  const found = cardsForDelivery(rows, { repo: 'mordam/beadcause', number: 99, bead: 'bc-7qo' });
+  check('a card for the same bead on an older pull request is superseded too', found.map((c) => c.id).join(',') === 'q-old', JSON.stringify(found));
+  check(
+    'and it hands back the number it asked about, so the close reason can name it rather than look like the wrong card',
+    found[0]?.number === 25,
+    JSON.stringify(found[0])
+  );
+  check('a bead this delivery is not for is left alone', cardsForDelivery(rows, { repo: 'mordam/beadcause', number: 99, bead: 'bc-else' }).length === 0);
+}
+
+{
+  const rows = [
+    CARD('q-1'),
+    CARD('q-2'),
+    CARD('q-closed', {}, { status: 'closed' }),
+    { id: 'q-plain', status: 'open', title: 'An ordinary question', description: 'Which of these two?' },
+  ];
+  const found = cardsForDelivery(rows, { repo: 'mordam/beadcause', number: 42, bead: 'bc-7qo' }).map((c) => c.id);
+  // The pile that is already in the inbox: every one of them comes back, because the
+  // caller closes all of them and files one. Leaving the second is the bug.
+  check('every open card for this delivery comes back, not just the first', found.join(',') === 'q-1,q-2', found.join(','));
+  check('an answered card is not asked again', !found.includes('q-closed'), found.join(','));
+  check('and an ordinary question in the inbox is not a delivery card', !found.includes('q-plain'), found.join(','));
+}
+
+{
+  const rows = [CARD('q-1')];
+  check('the same number in another repo is a coincidence, not a duplicate', cardsForDelivery(rows, { repo: 'someone/else', number: 42 }).length === 0);
+  check('ids are matched whatever their case', cardsForDelivery(rows, { bead: 'BC-7QO' }).length === 1);
+  // A caller with nothing to compare must match nothing. Matching everything here
+  // would close every card in the inbox on the way to filing one.
+  check('no number and no bead matches nothing at all', cardsForDelivery(rows, {}).length === 0);
+  check('and neither does a number that is not one', cardsForDelivery(rows, { number: 0 }).length === 0 && cardsForDelivery(rows, { number: -1 }).length === 0);
+  check('no rows at all is an empty answer rather than a throw', cardsForDelivery(null, { bead: 'bc-7qo' }).length === 0);
+}
 
 const src = fs.readFileSync(LIB, 'utf8');
 check(
