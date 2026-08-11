@@ -6535,6 +6535,53 @@ failed-validation limits there are per hour. And "there is still no certificate"
 repo supports, so the first notification is news and the ninetieth is not — unlike a
 renewal that is failing, which is an outage with a date on it.
 
+### And once it has actually expired: it stays HTTPS, broken and loud
+
+Ninety days of a renewal that never worked, through a fortnight of daily priority-5
+pushes, and the date goes past. **Nothing downgrades.** The expired certificate stays on
+the socket, plain http on 4318 is still 307'd to the name, the URL a phone is handed is
+still `https://<name>:4318`, and every page now arrives behind a certificate warning
+until somebody fixes it. That is a decision (bc-jv86) rather than what happened to fall
+out of the code, and it went the other way for half of one release: `certificate()`
+counted a past date as *no certificate*, so a daemon that **rebooted** after expiry bound
+plain http with no redirect — silently, and only if the Mac happened to restart. Same
+machine, same config, two behaviours.
+
+Falling back to plain http is the tempting answer and it buys less than it looks:
+
+- **It does not bring the installed app back.** The PWA on the phone was installed from
+  `https://<name>:4318`, and `http://100.x.y.z:4318` is a *different origin* — a fresh
+  install, a fresh pairing (localStorage does not follow a cross-origin redirect), and
+  still not a secure context, so still no service worker and no microphone. All it buys
+  is that a QR scanned *after* the outage answers.
+- **Google sign-in is gone either way** — it will not accept a non-HTTPS redirect URI,
+  and the check for one is the same expired certificate.
+- **It spends the one property worth keeping**: that this origin never quietly gets
+  worse without being asked. A version that works at a lower standard from then on is
+  exactly the one that never gets fixed — and reaching this state at all means a
+  fortnight of pushes already went unread.
+
+So the two halves of the daemon are made to agree instead. `certificateName()` asks
+whether there is a pair on disk for this name, not whether the calendar still likes it —
+which is what stops `publicBaseUrl` drifting to `http://100.x.y.z:4318` behind the
+socket's back, and what stops the first `loadConfig()` after expiry *persisting* that
+into `config.json`, where the priority-5 "certificate has EXPIRED" push would click
+through to a URL the running daemon bounces straight back to https. The admin card says
+**expired — every phone is warned** rather than counting down into negative numbers, and
+offers the retry. The inbox itself is not unreachable while you fix it: loopback on the
+Mac is plain http and always was.
+
+```
+[beadcause] tls  the certificate for mac.tailnet.ts.net EXPIRED 3.1 days ago and could
+                 not be replaced — serving it anyway, so every phone gets a certificate
+                 warning until this is fixed
+[beadcause] tls  fix it by hand: tailscale cert mac.tailnet.ts.net
+```
+
+`test/certrenew.mjs` drives a certificate that is genuinely past its date — `openssl
+-not_before/-not_after`, because `-days` will not go backwards — and pins that a boot
+after expiry puts TLS on the port, redirects plain http, and still pushes the alarm.
+
 ## Signing in with Google
 
 There are **two** credentials, and which one a caller uses is decided by whether it can
