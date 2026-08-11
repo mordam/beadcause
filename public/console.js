@@ -1548,7 +1548,9 @@
       if (chat.console) draw(chat);
       else if (!(await load(chat))) return stopPolling();
     } else {
-      $('#queued').removeAttribute('data-chat');
+      // Through `dataset` both ways, which is the same attribute the queues match on
+      // and one fewer DOM method for anything standing in for this element.
+      delete $('#queued').dataset.chat;
       $('#queued').hidden = true;
       showLauncher();
     }

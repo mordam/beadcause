@@ -190,7 +190,10 @@ function load({ session = new Map(), storage = 'ok' } = {}) {
     beadcause: {
       space,
       // Created at module scope, before anything is drawn, so it has to be here.
-      sendQueue: { create: () => ({ attach() {}, say() {}, sync() {} }) },
+      // `repaint` is the console asking a queue to draw itself again when its chat
+      // comes to the front — unreachable from the launcher, and cheaper to answer here
+      // than to leave as a TypeError for whoever first writes a test that opens one.
+      sendQueue: { create: () => ({ attach() {}, say() {}, sync() {}, repaint() {} }) },
     },
   };
 
@@ -207,7 +210,9 @@ function load({ session = new Map(), storage = 'ok' } = {}) {
     },
     addEventListener() {},
     location: { search: '', pathname: '/console', href: '/console' },
-    history: { replaceState() {} },
+    // Both, because the page writes the address on every switch between conversations
+    // now and only the boot one replaces. Nothing here reads it back.
+    history: { replaceState() {}, pushState() {} },
     localStorage: map(local),
     sessionStorage: map(session, storage === 'denied'),
     URLSearchParams,
