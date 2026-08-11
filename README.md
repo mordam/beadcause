@@ -2957,6 +2957,42 @@ actually protects it, which is why `EnterWorktree` taking one matters. And the s
 runs whether or not the advocate is paused: pausing means "open no more sessions",
 not "leave the mess". `tidyWorktrees: false` is the setting that means that.
 
+### The merge that happened somewhere else
+
+beadcause closes a bead on the two paths where **it** performs the merge: the tap on a
+delivery card, and a worker merging its own pull request. The merge button on github.com
+is neither. A pull request merged there is merged as far as `main` is concerned and
+invisible as far as the tracker is concerned, so the bead stays open, stays in
+`bd ready`, and the advocate opens a fresh session on work that is already in `main`.
+
+bc-4irq cost two sessions that way. #29 was merged at 19:43:54 by the GitHub web
+identity; the log carries no `[pr] … merged #29` line, because nothing here did it. Two
+hours later the advocate released the slot ("still open after 2h") and opened attempt 2,
+which spent its whole life proving there was nothing to do.
+
+So the advocate asks. Every `landedIntervalMinutes`, and **again, unconditionally, in the
+moment before it opens a window** — being ten minutes late on a timer is one session
+spent discovering that landed work has landed, and one `gh pr list` against twenty
+seconds of iTerm is not a cost worth economising on. Whichever beads a merged pull
+request was for (`lib/beadref.js`, the same tiering the [PR board](#pull-requests--merged-pushed-deployed) uses to link a row to a bead) are commented on and
+closed, and the stale "Merge #42?" card in front of them is closed first — bd refuses to
+close a bead with an open blocker, and that card is the blocker.
+
+Two things it will not do. **A bead that already says it landed is left alone**: `bd`
+clears `closed_at` on reopen, so an open bead carrying `Landed as [#42](…)` is the trace
+of *you* reopening something this closed, and closing it again would be a fight rather
+than a sweep. And **a close bd would refuse writes nothing at all** — the comment is what
+that guard reads, so a comment left over a close that failed would blind this to that
+bead permanently. `reconcileLanded: false` switches the whole thing off.
+
+The same hole had a second side. `beadcause-deliver` on a branch whose pull request has
+already merged has nothing to push and nothing to open, and it used to die there with
+`exit 2` — so the one command a worker is given to land work with could not close the
+bead over work that had landed, and the worker was left choosing between disobeying its
+brief and leaving the bead open for attempt 3. It now recognises that state, closes the
+bead exactly as its own merge would, and prints `landed #42` — having pushed nothing,
+because a card merge deletes the remote branch and pushing would recreate it.
+
 ### The session log, kept in the repo
 
 A session's window closes when it exits, the rendered log in `~/.config/beadcause/`
@@ -4867,6 +4903,8 @@ the fields it always read and renders exactly as it did.
 | `advocates.respectQuietHours` | a quiet space's advocate watches without launching (default `true`) |
 | `advocates.tidyWorktrees` | retire merged, clean, unlocked worktrees after a session ends (default `true`) — moved to `.claude/worktrees-retired/`, never deleted |
 | `advocates.tidyIntervalMinutes` | how often it sweeps when nothing has just finished (default 15) |
+| `advocates.reconcileLanded` | close beads whose pull request was merged **on github.com** rather than from a card (default `true`). Without it such a bead stays open, stays in `bd ready`, and the advocate opens fresh sessions on work already in `main` |
+| `advocates.landedIntervalMinutes` | how often that asks GitHub (default 10). It also asks *unconditionally* right before opening a session, whatever this says — being late there costs a whole session |
 | `advocates.sessionLog` | archive each finished session to `refs/beadcause/sessions/<bead>` and note its commits (default `true`) |
 | `advocates.sessionTranscripts` | also store the raw Claude Code transcript — megabytes, and it carries paths and tool output (default `false`; set per repo in `perWorkspace`) |
 | `advocates.closeFinishedSessions` | [close a work session's window once its bead is closed](#closing-the-window--a-session-that-has-finished-should-not-still-be-on-screen) (default `true`). `false` leaves every window open, which is what it did before |
