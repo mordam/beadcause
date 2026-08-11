@@ -466,7 +466,11 @@ await check('the inbox draws its list through the reconciler, not through innerH
 
 await check('the inbox follows the event log rather than sweeping on a 25-second clock', () => {
   const app = read('public/app.js');
-  assert.ok(/\/api\/poll\?since=\$\{at\}/.test(app), 'the long poll is gone from app.js');
+  // The loop itself moved to public/stream.js in bc-rk2o, so the assertion moved with
+  // it: what this file cares about is that the inbox is on the log rather than that the
+  // request is written here. test/stream.mjs holds the other four views to the same.
+  assert.ok(/window\.beadcause\??\.stream\??\.follow\??\.?\(/.test(app), 'the inbox no longer mounts the shared stream');
+  assert.ok(/\/api\/poll\?/.test(read('public/stream.js')), 'the long poll is gone from stream.js');
   // The timer is still here and must be: it is what a wide scope and an old daemon
   // fall back to. What must not come back is `load` being the only thing on it.
   assert.ok(app.includes('POLL_MS[state.scope]'), 'the fallback timer is gone');

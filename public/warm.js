@@ -77,7 +77,13 @@
     { id: 'console', paths: ['/api/consoles'] },
     { id: 'prs', paths: ['/api/prs'] },
     { id: 'advocates', paths: ['/api/work', '/api/questions?scope=human'] },
-    { id: 'admin', paths: ['/api/admin', '/api/work'] },
+    // `/api/work` was here too, because /admin fetched it — for the single `observing`
+    // boolean, which the delta stream now carries on every wake (bc-rk2o). It is off
+    // this list rather than merely unused: a path under a view is a path that view does
+    // not warm for the others, and leaving it here would have left /monitor cold every
+    // time you arrived from /admin. /admin still *reads* a held `/api/work` for its
+    // first frame; it is simply no longer the page that fills it.
+    { id: 'admin', paths: ['/api/admin'] },
   ];
 
   /* ------------------------------------------------------------------ storage */

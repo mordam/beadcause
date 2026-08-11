@@ -117,6 +117,11 @@
        it did not need to touch. First of the shared files, because every page script
        below asks it for a warm list before it asks the daemon for a cold one. -->
   <script src="/warm.js"></script>
+  <!-- The delta stream: one long poll on /api/poll, so this page learns what moved
+       instead of re-asking for everything on a clock. Beside warm.js because the two
+       are the same bargain at the two ends of a visit — one paints what you already
+       had, the other keeps it true. -->
+  <script src="/stream.js"></script>
   <script src="/presence.js"></script>
   <script src="/tabbar.js"></script>
   <!-- Which repo the launcher lists, and where ＋ starts. Before console.js, which
