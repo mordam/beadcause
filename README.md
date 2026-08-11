@@ -6311,6 +6311,69 @@ on every sweep for good. GitHub knows the answer exactly: `mergeCommit` **is** t
 squash commit, which is a better anchor than the ancestry walk could produce. Same
 rule as the sweep — asked only after the local test says no.
 
+### It will not push an unresolved merge
+
+**git commits conflict markers without a murmur.** `git add -A && git commit` in the
+middle of a merge stages a file still full of `<<<<<<<` / `=======` / `>>>>>>>` and
+produces a merge commit that is indistinguishable from a resolved one: right parents,
+right message, nothing on stderr, nothing in `git status` afterwards. From git's point of
+view those are seven characters like any other seven.
+
+On 2026-08-11 that reached one `git push` from `origin`. Two conflict-resolver sessions
+raced in `.claude/worktrees/chat-tabs-dmt` (bc-d2y6); one ran `git merge --abort` in the
+window between the other's `node --check` and its `git commit`, so the commit captured
+the **re-conflicted** `public/console.js`. Nothing said so. The tell, fifteen minutes
+later, was `npm test` failing fourteen checks of sixteen in `test/dismissed.mjs` with
+`Unexpected token '<<'`, thirty-eight suites into a hundred-and-five-suite run — which
+reads as a regression in dismissal, not as *the file you are testing does not parse*. And
+`public/console.js` is served to a phone.
+
+So `bin/deliver.js` asks two questions before it pushes anything, and refuses on either:
+
+1. **Does any changed text file carry a conflict marker?**
+2. **Does every changed `.js` still parse?** — `node --check`, one file at a time, so the
+   error names a file instead of a test.
+
+Both are sub-second, and both are asked *first*: ahead of the push, ahead of `gh`, ahead
+of the bead. Everything after that line writes to `origin` or to a phone, and a refusal
+is only cheap while nothing has been written anywhere. `node scripts/land-check.mjs`
+pins that as negative assertions — the branch must not reach the bare origin, `gh` must
+not be called at all, and no delivery question must be filed, because a refusal that has
+already opened a pull request has put an unmergeable one in the inbox.
+
+**It reads the committed blob, not the working tree.** That is the whole of bc-d2y6: the
+tree can be spotless while `HEAD` is broken, which is exactly what happens when the file
+is repaired *after* the commit rather than before it. Every working-tree check passes over
+that branch. `git show <ref>:<path>` does not.
+
+**`=======` is deliberately not one of the markers.** It is the one of the three that
+occurs in real text — a setext `<h1>` underline in Markdown, and this README is 600KB of
+Markdown. `<<<<<<<`, `>>>>>>>` and diff3's `|||||||` never occur by accident, and a real
+conflict has all of them, so dropping the ambiguous one costs no detection and buys a
+check that cannot cry wolf. Exactly seven, at the start of a line, followed by a space or
+the end of it, which is what git writes. Binary files are skipped on git's own
+`--numstat` verdict rather than on their extension, and deleted files are skipped because
+they have no blob to read.
+
+The same check, by hand or a commit earlier:
+
+```bash
+npm run conflicts                                # this branch, against origin/main
+node scripts/conflict-check.mjs --staged         # what `git commit` would write now
+node scripts/conflict-check.mjs --commit HEAD~1  # one commit, against its parent
+node scripts/conflict-check.mjs --install-hook   # and stop having to remember
+```
+
+`--install-hook` writes a `pre-commit` hook, and **one install covers every worktree of
+this repo** — git resolves hooks through the *common* git directory, so a hook written
+once in the main checkout is already running in all twenty-five, including ones created
+after the install. It refuses to overwrite a `pre-commit` it did not write, and prints
+the line to add instead. `git commit --no-verify` still skips it, as it skips every hook;
+that is the right answer for a repo whose subject is unattended agents, because the guard
+that cannot be bypassed on purpose is the one somebody disables permanently at three in
+the morning. `bin/deliver.js` has no `--no-verify` to reach for, and it is the one that
+actually stands between a broken file and `origin`.
+
 ### Checking it
 
 `npm test` covers three libraries. `test/pr.mjs` drives `lib/pr.js` against a fake `gh` on
@@ -6333,8 +6396,9 @@ decides. None of the three touches the network, a bead, or a repo.
 `node scripts/land-check.mjs` is the end-to-end half, and it is the only place the merge
 itself is exercised: a real `git` against a real bare remote, a real `bd` against a
 scratch workspace under `/tmp`, the real `bin/deliver.js`, and a fake `gh` that logs every
-call. Seven scenarios — green checks, a refusal from GitHub, a red check, `--review`,
-`--owed`, where the merge method comes from, and the local fast-forward. That last one is
+call. Eight scenarios — green checks, a refusal from GitHub, a red check, `--review`,
+`--owed`, where the merge method comes from, the local fast-forward, and a commit
+carrying an unresolved merge. The fast-forward is
 the only scenario that delivers from a real `git worktree`, because that is where a worker
 delivers from and the whole behaviour turns on it: the fake `gh` moves the bare origin's
 `main` on merge, and the checks are that the main checkout ends up at `origin/main` — and
@@ -6345,6 +6409,20 @@ every scenario that did not merge, because a bead closed over work sitting in an
 pull request is invisible from every screen in the app. `BEADCAUSE_CONFIG_DIR` points it
 at a scratch config whose ntfy is off, so a harness run cannot reach anyone's phone;
 `--keep` leaves the temp world for inspection.
+
+The unresolved-merge scenario is negative all the way through, for the reason above: it
+commits the markers the way one really gets committed (`git add -A`, `--no-verify`, no
+complaint from git) and then asserts that the branch never reached the bare origin, that
+`gh` was not called *once*, that the bead is still open and that no question was filed —
+a refusal that has already pushed has published the broken file, and one that has already
+asked has put an unmergeable pull request on the phone. It ends by delivering the same
+branch resolved, so the refusal is provably about the markers and not about anything else
+the scenario did. `test/conflicted.mjs` covers the detection underneath it against a real
+scratch repo, and most of its checks are about what must *not* be found: `=======` under a
+Markdown heading, six or twenty `<` rather than seven, a marker in the middle of a line, a
+binary blob, a deleted file, and a `.txt` that would not parse as JavaScript and is not
+asked to. A guard that refuses a delivery it should not is worse than no guard, because
+the answer to it is to take it out.
 
 `node scripts/delivery-check.mjs` is the other half: the real `public/app.js` in a
 headless Chrome the size of a phone, against a fixture built by `lib/delivery.js` and

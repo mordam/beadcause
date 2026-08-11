@@ -64,14 +64,16 @@
  * Prints `landed #<n> <url> <sha>` when it merged, or `<question-id> <pr-url>` when it
  * handed it over. Exits non-zero, loudly, on every condition where carrying on would
  * produce a PR that misrepresents what is in the branch — a dirty tree, no commits, a
- * detached head. A merge that did not happen is **not** one of those: the work is
- * pushed, the PR is open, the question is filed, and that is a good ending.
+ * detached head, or a commit carrying an unresolved merge (see `inspectBranch` below).
+ * A merge that did not happen is **not** one of those: the work is pushed, the PR is
+ * open, the question is filed, and that is a good ending.
  */
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { parseJson } from '../lib/bd.js';
 import { loadConfig } from '../lib/config.js';
+import { inspectBranch, report as conflictReport } from '../lib/conflicted.js';
 import { ownerName } from '../lib/owner.js';
 import { cardsForDelivery, deliveryBody, deliveryTitle, DELIVERY_LABEL } from '../lib/delivery.js';
 import { deployFor, deployHint } from '../lib/deploy.js';
@@ -219,6 +221,40 @@ const ahead = Number(git(['rev-list', '--count', `${upstream}..HEAD`]));
  * not, the original refusal stands, word for word.
  */
 const nothingAhead = !ahead;
+
+/**
+ * An unresolved merge, or a file that no longer parses — refused here, before anything.
+ *
+ * git commits conflict markers without a murmur, so a merge commit carrying three of
+ * them is indistinguishable from a resolved one at every point between the commit and
+ * whoever loads the file. On 2026-08-11 that reached this command: a resolver session
+ * committed a re-conflicted `public/console.js` (bc-d2y6) and the only symptom was a
+ * test suite failing 38 suites into the gate with `Unexpected token '<<'`, which reads
+ * as a regression in the thing being tested rather than as a file that does not parse.
+ * One `git push` from a phone being served an unparseable script.
+ *
+ * Asked of the **committed blobs**, not the working tree — the tree can be clean while
+ * the branch is broken, which is exactly what happens when the file is fixed after the
+ * commit rather than before it. And asked *first*, ahead of the push, the pull request
+ * and the bead: everything below this line writes to `origin` or to Adam's phone, and a
+ * refusal is only cheap while nothing has been written anywhere.
+ *
+ * `lib/conflicted.js` has the rest of the reasoning, including why `=======` is not one
+ * of the markers it looks for.
+ */
+if (ahead) {
+  const findings = inspectBranch(dir, { ref: 'HEAD', base: upstream });
+  if (findings.length) {
+    die(
+      `refusing to push ${branch} — ${findings.length} file${findings.length === 1 ? '' : 's'} the commits carry ` +
+        `${findings.some((f) => f.kind === 'conflict') ? 'an unresolved merge' : 'a syntax error'}:\n\n` +
+        `${conflictReport(findings, { what: 'the commit' })}\n\n` +
+        'Install the hook and this is caught at `git commit` instead of here, in every\n' +
+        'worktree of this repo: `node scripts/conflict-check.mjs --install-hook`.',
+      6
+    );
+  }
+}
 
 /* ------------------------------------------------------------------- the bead */
 
