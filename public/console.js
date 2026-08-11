@@ -116,6 +116,8 @@
     });
     if (res.status === 401) {
       localStorage.removeItem('beadcause.token');
+      // Held payloads are somebody's, and as of this refusal not provably yours.
+      window.beadcause?.warm?.forget?.();
       askForToken();
       throw new Error('token rejected');
     }
@@ -184,6 +186,13 @@
     $('#composer').hidden = true;
     document.body.classList.add('launching');
 
+    // What this tab had last time, drawn before the request has left. The launcher is
+    // a list of conversations per repo and it is read at a glance, so the whole cost
+    // of arriving here used to be the wait in front of it. See public/warm.js.
+    const warm = window.beadcause?.warm;
+    const hit = warm?.read?.('/api/consoles');
+    if (Array.isArray(hit?.data?.consoles)) adoptConsoles(hit.data);
+
     let data;
     try {
       data = await api('/api/consoles');
@@ -191,7 +200,20 @@
       if (err.message !== 'token rejected') toast(err.message, true);
       return;
     }
+    warm?.write?.('/api/consoles', data);
+    adoptConsoles(data);
+    // Only from a request that came back, and once per document — see public/warm.js.
+    warm?.prewarm?.({ here: 'console', api });
+  }
 
+  /**
+   * Become a `/api/consoles` payload and draw it.
+   *
+   * Split out of `showLauncher` because two things arrive with this shape now — the
+   * fetch and the payload kept from the last visit — and a second copy of it is how a
+   * warm launcher would come to disagree with a fetched one.
+   */
+  function adoptConsoles(data) {
     state.workspaces = data.workspaces || [];
     state.consoles = data.consoles || [];
     /* Nothing is fed to the picker from here, deliberately. This page's numbers are
