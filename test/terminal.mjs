@@ -177,10 +177,12 @@ await check('the flags: named the first time, resumed after', () => {
   assert.match(again, /claude --resume 'abc-123'$/, `got: ${again}`);
 
   // The brief form still reads and deletes the prompt file before exec, and the
-  // session flag has to land on `claude` rather than on the relay.
+  // session flag has to land on `claude` rather than on the relay. The prompt is last
+  // and behind a `--` (bc-i4sa): this one is typed by a person into the opening field,
+  // so a leading dash would otherwise be parsed as a flag and the pty would just close.
   const seeded = commandFor(cfg, '/tmp/slave', '/tmp/prompt.md', { claudeSessionId: 'abc-123' });
   assert.match(seeded, /rm -f '\/tmp\/prompt\.md'/, `got: ${seeded}`);
-  assert.match(seeded, /claude --session-id 'abc-123' "\$P"$/, `got: ${seeded}`);
+  assert.match(seeded, /claude --session-id 'abc-123' -- "\$P"$/, `got: ${seeded}`);
 
   // No id at all is what a caller from before this existed looks like: unchanged.
   assert.match(commandFor(cfg, '/tmp/slave', null), /claude$/);

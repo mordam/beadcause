@@ -4598,7 +4598,7 @@ a bead, and that is all it knows. So:
 #### Closing the window — a session that has finished should not still be on screen
 
 The `exit` above only runs **when `claude` exits**, and a session that has finished its
-work does not exit. `claude "$P"` is interactive — the brief is its first prompt, not
+work does not exit. `claude … -- "$P"` is interactive — the brief is its first prompt, not
 its whole life — so when the last turn ends the TUI goes back to waiting for a human
 who, by construction, is not there. The bead is closed, the pull request is merged, and
 the window is still open.
