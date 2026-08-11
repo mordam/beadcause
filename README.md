@@ -6167,6 +6167,64 @@ minute), and **again, unconditionally, before a window opens**. `holdOpenPrs: fa
 switches it off. `node test/prqueue.mjs` covers the filter and `node test/twinqueue.mjs`
 the sibling it sits beside.
 
+### The bead somebody is already sitting in
+
+The filter above holds a bead because of something in a repository. This one holds it
+because of something on the laptop: a **window that is already open on it**.
+
+bc-vq78 is what it costs, and it is the worst of the family. Two sessions were open on
+climative/cl-xe2 at the same time — one busy since 17:18 and writing files, the other
+handed the same bead an hour later with a plain brief, which told it that claiming the bead
+"is what stops a second session being opened on top of you". It ran the claim, got no
+complaint, and worked for seventy minutes before noticing that files it had not written
+were changing mtime. cl-xe2 spanned ten separate repositories; both windows were pointed at
+the same uncommitted worktrees. Nothing but the second session's suspicion stood between
+that and two agents editing one tree.
+
+**The claim is not the guard the brief advertises**, and that is the whole of it. Things
+take it off again, all of them legitimately:
+
+- **"Request changes" reopens the bead and drops the assignee** — that is the only signal
+  an advocate reads, so asking for changes has to do it, and the session that built the
+  branch is usually still sitting in its worktree when you tap it.
+- **A worker can lose its slot without its window going anywhere.** A timeout, or a
+  check-in it never answered: the advocate stops counting it, which is right — a slot is
+  not a bead — but the window is still there.
+- **A restarted daemon forgets its workers outright**, and a restart usually follows a
+  merge, which is exactly when sessions are live.
+
+So the evidence here is the window itself: a running Claude Code process whose name carries
+this bead's id. That is not a new inference — it is the same `namesBead` rule the
+[reaper](#closing-the-window--a-session-that-has-finished-should-not-still-be-on-screen)
+already trusts to decide which window
+to close, and it is what the incident report reconstructed by hand from `ps` and
+`~/.claude/sessions/*.json`.
+
+**Two guards, and each covers the other's gap.** A worker this advocate remembers opening
+is filtered where the launch is chosen, which catches the session that is *too young* to
+have renamed itself — a window carries no bead id until its first turn runs. This filter
+catches the session the advocate has *forgotten*, which is every case above. Neither is
+sufficient alone, and the failure they prevent is not a wasted window but a corrupted tree,
+so both stay.
+
+It matches against every live session on the laptop rather than this workspace's, because
+ids are prefixed per workspace (`cl-`, `bc-`, `sp-`) and a match therefore cannot cross
+one — while a window working a climative bead from a directory that maps somewhere else is
+exactly the case a workspace filter would miss. A record whose process is gone holds
+nothing: nothing deletes those files on exit, so "a record exists" and "a session is
+running" are different questions, and every row is liveness-checked before it is believed.
+An idle window holds it too — an interactive session says its last word and goes back to
+waiting, so a delivered or handed-back worker sits there idle with a worktree full of
+uncommitted work, which is the same collision with a quieter first half.
+
+There is no interval on this one, unlike the three sweeps above it: the session records are
+files on this laptop, so the read is free and happens on every tick — and again,
+unconditionally, immediately before a window opens, which is the read that catches a
+session that renamed itself while the tick was running. The cost of a wrong hold is one
+bead that waits, named on the advocate's card with the pid of the window holding it, until
+that window closes. `holdLiveSessions: false` switches it off. `node test/livequeue.mjs`
+covers it.
+
 ### The session log, kept in the repo
 
 A session's window closes when it exits, the rendered log in `~/.config/beadcause/`
@@ -9237,6 +9295,7 @@ history.
 | `advocates.inMainIntervalMinutes` | how often that looks (default 10). It runs before the survey, so a bead it flags is out of the queue in the same tick and no session is opened on it |
 | `advocates.holdOpenPrs` | [hold a bead out of the queue while an open pull request already carries its work](#the-bead-whose-work-is-already-in-an-open-pull-request) (default `true`). It closes nothing — an open PR is not a merged one — it holds, with the number on the card. Without it a worker briefed to merge is opened beside a resolver briefed that the merge is not its to make |
 | `advocates.inflightIntervalMinutes` | how often that asks GitHub (default 5, shorter than the sweeps above because a delivery that could not merge opens a pull request and hands the bead back to `bd ready` in the same minute). It also asks *unconditionally* right before opening a session |
+| `advocates.holdLiveSessions` | [hold a bead out of the queue while a live session already names it](#the-bead-somebody-is-already-sitting-in) (default `true`). The claim is not the guard the brief says it is — "request changes" drops it, a timeout drops the slot, a restart forgets the worker — and without this a second window opens into a worktree somebody is still editing. No interval: the session records are files on this laptop, so it reads on every tick and again before a launch |
 | `advocates.sessionLog` | archive each finished session to `refs/beadcause/sessions/<bead>` and note its commits (default `true`) |
 | `advocates.sessionTranscripts` | also store the raw Claude Code transcript — megabytes, and it carries paths and tool output (default `false`; set per repo in `perWorkspace`) |
 | `advocates.closeFinishedSessions` | [close a work session's window once the session has finished](#closing-the-window--a-session-that-has-finished-should-not-still-be-on-screen) — the bead closed, a pull request delivered, or the bead handed back for a decision, and never an ending the daemon merely inferred (default `true`). `false` leaves every window open, which is what it did before |
