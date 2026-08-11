@@ -28,7 +28,12 @@
    the inbox with neither the picker nor the two chip rows it replaced: no way at all to
    change which repo you are looking at. They have to arrive together, which is what a
    cache version is for. */
-const CACHE = 'beadcause-v22';
+/* v23: the endorsement queue. `/endorse` and its script are new paths, and index.html
+   grew the 🗳️ that opens it — so a phone holding v22's cached inbox would have neither
+   the door nor the page behind it, and one holding v22's `/` beside a v23 daemon would
+   show a top-bar button that 404s from the cache the moment the tailnet is slow. The
+   page they have to arrive with is the whole point of the version. */
+const CACHE = 'beadcause-v23';
 const SHELL = [
   '/',
   '/index.html',
@@ -69,6 +74,13 @@ const SHELL = [
   '/pulls',
   '/prs.html',
   '/prs.js',
+  // The endorsement queue. Three paths for one page, the same bargain the console
+  // makes with its five: /endorse is what the 🗳️ in the inbox points at, /queue is
+  // what you type, and /endorsements is what a notification could carry later.
+  '/endorse',
+  '/queue',
+  '/endorse.html',
+  '/endorse.js',
   '/console.html',
   '/console.js',
   // console.js does not merely use the send queue, it is built on it — the composer

@@ -2696,6 +2696,114 @@ exactly as it was found, that a rebuild fires only for the paths that moved, tha
 `startDeploy` returns while its command is still running, and that a runner with a dead
 pid settles to `unconfirmed` or `lost` and never to `ok`.
 
+## The endorsement queue — a group tap, or a row at a time
+
+A worker that trips over work no longer stops to ask. It files the bead there and then
+with `beadcause-file`, and the bead arrives carrying `unendorsed`, which is a hold with
+teeth: no advocate queues it, no launcher will open a session on it, and it is out of
+every count that says how much work is waiting (lib/endorse.js, lib/filing.js). The
+decision is still yours and it is still made before an agent spends an hour on the
+thing; it is simply no longer the thing the finder waits on.
+
+That trade only holds up if the other end of it exists. Until this screen the held
+beads were a muted pill on the advocate console reading `3 held for endorsement` —
+a number with no door behind it, and no way at all to see which three from a phone.
+
+**`/endorse` is the door** (`/queue` and `/endorsements` reach the same page). One
+list, every workspace at once, newest first, narrowed by the space picker in the top
+bar like every other standing view.
+
+### The row is the bead, not a summary of it
+
+Unfolded, a row shows what the agent actually wrote: what the work is, what done looks
+like, and the provenance paragraph saying how it was found — whether the priority was
+clamped, whether it looks like a duplicate. Everywhere else in this app a list row is
+a teaser for a sheet. Here the sheet is the point, so it is in the list: you are being
+asked whether an hour of unattended agent should go on this, and a decision made off a
+title is a rubber stamp with extra steps.
+
+Folded, the row carries the id, the workspace, the type, the priority — and **the bead
+it was found under**, which is the one sentence a bead cannot say about itself and
+usually the thing that tells you whether this is a real discovery or a tangent. That
+line costs a `bd show` per row, because `bd list --json` carries every text field but
+not `dependencies[]`, and the `discovered-from` edge is where the answer lives. It is
+bounded and it is a read, so it never queues behind Dolt's single writer; a lookup that
+fails costs the row its provenance line and nothing else.
+
+The list caps at sixty and **says so when it has** — an endorsement queue with sixty
+beads in it is a backlog to answer, not a list to page through, and a silent truncation
+would read as "you have answered them all". A workspace whose `bd` fell over is named
+on the page for the same reason: an empty queue over a broken tracker is the one lie
+this screen could tell.
+
+### Four verdicts per row, and a group tap above them
+
+The four are lib/verdict.js and they are four different acts:
+
+- **Endorse** — the marker comes off and the bead becomes ordinary work. One tap, no
+  arming: it is idempotent all the way down, so two taps on a train are one
+  endorsement and no error card.
+- **Adjust ✎** — the six fields the proposal card offers, aimed at a bead that already
+  exists: title, type, priority, description, acceptance, labels. The two labels the
+  daemon owns are kept out of the box entirely rather than shown and then stripped.
+  Saving **keeps the hold** — rewriting a title is not the same act as agreeing to the
+  work — and *Save & endorse* is the one tap that does both.
+- **Ask for changes** — your objection on the thread, the bead left exactly where it
+  was, so the next session that touches it reads what is wrong instead of re-filing the
+  same bead next week. The note is required, and an empty box says so rather than
+  quietly doing nothing.
+- **Revoke** — closed, with your reason, and the marker left on so the discovery and
+  your rejection both stay on the record. This is the one that cannot be taken back, so
+  it is the one that **arms**: the first press writes nothing at all and the button
+  changes to say what the second will do. The same trade Merge makes on the PR board,
+  and for the same reason — a `confirm()` on a phone is a sheet you dismiss by reflex.
+
+Above the list, rows **tick**. Six discoveries filed overnight and five of them
+obviously fine is what a busy week actually produces, so the bar endorses every
+selected bead in one request per workspace — not one request per bead, which would be
+six Dolt write locks taken in a row over a phone link. Group revoke is there too and it
+arms; group *adjust* and group *ask for changes* are deliberately not, even though the
+API takes them, because one title cannot be given to six beads and one objection typed
+at six is an objection about none of them.
+
+What happened is never toasted away. An endorsed bead leaves the queue immediately, so
+its outcome is pinned to the top of the list where the rows used to be — the only
+evidence the tap worked, on a screen where "did that go through?" must not be a question
+you answer by opening a laptop. Each verdict says what it actually did, including when
+that is nothing: *already endorsed*, *nothing to change — it already reads that way*,
+*endorsed 5 of 6* with the reason the sixth did not.
+
+### Where it lives, and the tab it is not
+
+Two doors, and neither of them is a sixth tab. The bottom bar is full at five and what
+gives up its place is its own decision (bc-j0zl); a screen that settled that by
+squeezing itself in would be answering a question nobody asked it.
+
+- **The advocate console's `N held for endorsement` pill is a link.** That is the
+  number you were already reading, and it was the thing with no door behind it.
+- **🗳️ in the inbox's top bar**, beside ⚖️.
+
+The inbox door carries **no badge**, deliberately, and it is the one thing on this page
+that has an obvious one and should not: the count would cost a `bd list --label
+unendorsed` per workspace on every thirty-second poll, where the three counts already
+in that bar are free by-products of a sweep the poller was making anyway. The number
+lives where it is already computed.
+
+### Checking it
+
+`node test/endorsequeue.mjs` covers the sweep with a stub `bd`: that the provenance
+comes off the edge rather than the prose and that the edge beats the parent, that the
+two fields bd names differently arrive renamed, that the list is one list across
+workspaces, that a broken workspace is named and the rest still answer, that the cap is
+reported, and that a verdict drops the cache — so the laptop on its own poll stops
+drawing a bead the phone has just endorsed.
+
+`node scripts/endorse-check.mjs [--out=DIR]` drives the real page in a headless Chrome
+the size of a phone, against a fixture that records every write. The two assertions it
+exists for are the ones invisible from the server: that a group tap is **one request
+per workspace** carrying all of its ids, and that the first press of Revoke writes
+**nothing at all**.
+
 ## Advocates — an agent per repo, whose job is the queue reaching zero
 
 Everything above is a **channel**. A question reaches your phone, an answer reaches
@@ -5021,6 +5129,7 @@ cookie says so), and `/auth/signout` ends the session.
 | GET | `/api/graph` | `?workspace=&id=` | `{nodes, links}` — the whole workspace with no `id` |
 | GET | `/api/bead` | `?workspace=&id=` | one issue in full, plus `comments[]` — for the graph's detail sheet |
 | GET | `/api/bead-children` | `?workspace=&id=` | `{children[]}` — every child of that bead, closed ones included, open work first. Its own route because `bd show` does not carry children |
+| GET | `/api/unendorsed` | `?refresh=1` | `{beads[], counts, truncated, errors[]}` — the endorsement queue: every held bead in every workspace, newest first, each carrying the whole card (description, acceptance, the agent's provenance note) and `from`, the bead it was discovered under. No `workspace` parameter — the space picker narrows it on the client. Cached for a few seconds; a verdict drops that cache |
 | POST | `/api/bead/endorse` | `{workspace, id}` or `{workspace, ids[]}` | takes the `unendorsed` marker off, so the bead becomes ordinary work an advocate will queue and a session can be opened on. **Idempotent** — two taps are one endorsement, no error, no second write — and the one verdict that may be aimed at a bead that is not held |
 | POST | `/api/bead/revoke` | `{workspace, ids[], reason?}` | closes it with your reason under a fixed prefix, and **leaves the marker on**: what an agent filed and what you thought of it both stay on the record. A bead already closed is `already: true` rather than an error; one already endorsed is a `409` |
 | POST | `/api/bead/adjust` | `{workspace, ids[], edits, endorse?}` | the ✎ of the proposal card, aimed at a bead that exists. `edits` may name `title, type, priority, description, acceptance, labels`, through the same clamps a proposed bead goes through; the two labels the daemon owns (`unendorsed`, `agent-filed`) are not yours to set. **Keeps the marker** unless `endorse: true`. A title may not be given to a group |
