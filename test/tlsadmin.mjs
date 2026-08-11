@@ -69,6 +69,9 @@ async function check(name, fn) {
     console.log(`       ${String(err.message).split('\n').slice(0, 6).join('\n       ')}`);
   }
 }
+function skip(name) {
+  console.log(`  skip ${name}`);
+}
 const done = (code) => {
   fs.rmSync(tmp, { recursive: true, force: true });
   console.log(failures ? `\n${failures} of ${ran} failed` : `\n${ran} passed`);
@@ -91,6 +94,33 @@ function selfSigned(days) {
     ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-keyout', keyFile, '-out', certFile, '-days', String(days), '-subj', '/CN=test'],
     { stdio: ['ignore', 'ignore', 'ignore'], timeout: 60000 }
   );
+  return { cert: fs.readFileSync(certFile), key: fs.readFileSync(keyFile) };
+}
+
+/**
+ * One that is genuinely past its date. `-days` will not go backwards, so the dates are
+ * given outright; `-not_before`/`-not_after` arrived in OpenSSL 3.5 and are absent from
+ * LibreSSL, so this returns null there and the check that needs it skips out loud.
+ */
+const stamp = (msFromNow) => new Date(Date.now() + msFromNow).toISOString().replace(/[-:T]/g, '').replace(/\.\d+Z$/, 'Z');
+function selfSignedExpired(agoDays) {
+  const certFile = path.join(tmp, 'old-c.pem');
+  const keyFile = path.join(tmp, 'old-k.pem');
+  try {
+    execFileSync(
+      'openssl',
+      [
+        'req', '-x509', '-newkey', 'rsa:2048', '-nodes',
+        '-keyout', keyFile, '-out', certFile,
+        '-not_before', stamp(-(agoDays + 90) * 86400000),
+        '-not_after', stamp(-agoDays * 86400000),
+        '-subj', '/CN=test',
+      ],
+      { stdio: ['ignore', 'ignore', 'ignore'], timeout: 60000 }
+    );
+  } catch {
+    return null;
+  }
   return { cert: fs.readFileSync(certFile), key: fs.readFileSync(keyFile) };
 }
 
@@ -184,6 +214,30 @@ await check('a certificate this close to expiry is marked, not merely printed', 
   plant({ have: true });
   assert.equal(certificateState(config({ enabled: true })).alarming, false, 'and forty days is not');
 });
+
+// bc-jv86: `have` is "there is a pair on disk for this name", not "the calendar still
+// likes it", because it is what decides both what goes on the socket and what URL a
+// phone is handed — and those two must not disagree. Past the date the daemon keeps
+// serving it on purpose, so the screen has to say *expired* rather than either "no
+// certificate" (there is one, and it is what every browser is refusing) or "-3 days
+// left" (a number nobody reads as an outage).
+const dead = selfSignedExpired(3);
+if (!dead) {
+  skip('an expired certificate is still a certificate, and is marked as expired — this openssl cannot mint one');
+} else {
+  await check('an expired certificate is still a certificate, and is marked as expired', () => {
+    plant({ have: true, pair: dead });
+    const state = certificateState(config({ enabled: true }));
+    assert.equal(state.have, true, 'it is on disk and it is on the socket — "no certificate yet" would be a lie');
+    assert.equal(state.expired, true, 'and this is the field that says so');
+    assert.ok(state.daysLeft <= 0, `got ${state.daysLeft}`);
+    assert.equal(state.alarming, true);
+
+    const view = tlsView(config({ enabled: true }));
+    assert.equal(view.wouldServe, `https://${NAME}:4318`, 'a restart serves the same expired certificate — not plain http');
+    assert.equal(view.expired, true, 'and the card is told, so it can say so instead of counting negative days');
+  });
+}
 
 await check('the switch says what it will cost before it is pressed', () => {
   plant({ have: true });

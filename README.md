@@ -503,6 +503,43 @@ suite is the one nobody can do by reading: the client's `matches()` and the serv
 workspace, because those two disagreeing in the direction "rings but is not shown" is a
 question you were told about and cannot find.
 
+#### The row it costs, and why it keeps it
+
+The picker is a full-width row of its own, so six pages carry two rows of sticky chrome
+where they carried one. On a phone that is worth arguing about, so it was measured
+instead: at 360×640 the row is **43px** — a 31px control and the bar's 12px gap — which
+takes the bar from 61px to 104px and the bar plus the tab bar from 116px to 159px, 18%
+of the screen to **25%**.
+
+It keeps the row, and the reason is arithmetic rather than taste. 360px less the bar's
+padding is 328px; on the inbox the brand is 133px with the "3 waiting" chip in it and
+the icon buttons are 172px, which with the gaps is 329px — the first row is already
+full before a picker is mentioned, and inline the picker needs 184px (148px for its
+widest row, 36px for the count beside it). Hiding the chip while a repo is picked does
+not rescue it: measured, the inbox stays two lines with the chip gone, because the icon
+buttons are 172 of the 328 on their own. Collapsing onto the first row *where it fits*
+(`flex: 1 1 <basis>`) works on `/console`, `/monitor` and `/endorse` and on none of the
+three you are on most — so the picker would be a title on one tab and a clipped chip on
+the next, which is the four-controls-in-one-coat this replaced. Hiding it on scroll means
+a fixed, translated header on six pages, because a sticky bar that shrinks mid-scroll
+moves every card up 43px under your thumb — and the row is back the moment you scroll
+up, which is when you were reading it. Folding it into the mark is the only one that
+gets a single row at 360px, and it pays with the picker's whole job: the repo name is
+exactly what does not fit, so what is left is a control whose current value is invisible.
+
+What settles it is how far the first row would have to be cleared to hold the picker
+instead: at 360px, two of the four icon buttons gone leaves 87px; two gone *and* the
+chip hidden leaves 176px, still 8px short; it takes three of the four buttons and the
+chip to reach the 184px, at 220px. That is not a layout trick, it is emptying the bar.
+
+`node scripts/topbar-check.mjs [--out=DIR]` is what stops this being decided once and
+forgotten. Two widths, every page with a picker: the bar is at most two lines, the
+picker has the last line to itself at the full width of the bar, no label in the
+dropdown is clipped, and the bar plus the tab bar stays inside a **170px** budget — a
+third row is +43px and fails it on the spot. It also prints the first-row arithmetic per
+page and says so if *every* page ever has room for the picker inline, because that, and
+only that, is when collapsing would cost nothing and this is worth reopening.
+
 ### Space details — the page the advocate console became
 
 Every setting a space has is one you used to change by opening `~/.beadcause/config.json`
@@ -1868,6 +1905,59 @@ differently depending on which repo the process is standing in, and its test wou
 assert whatever this Mac happens to have noted. `git for-each-ref
 refs/beadcause/agents/` is the answer for a human who needs the list.
 
+### How a note reaches a session that never thought to ask
+
+Writing is the easy half. The brief in the system prompt says to check `notes` before
+you start, and that is a *pull* — it costs nothing and it works only on a session that
+remembers to run a command before it has read anything, which most do not. So the work
+brief also **pushes**: `openWorkSession` reads this repo's notes and `workPromptFor`
+puts the likely ones in front of the session, above the paragraph about running the
+tests, which is what a good half of them turn out to be about.
+
+Both halves stay. The pull is the only thing that works for whatever the selection did
+not pick, and the section says so in its own last line.
+
+**Which notes.** Two signals, ranked in that order, in `relevantNotes`:
+
+- **A note that names the bead**, or its parent — matched as a substring, so a note
+  saying `run it for bc-rk2o.2-.5 too` is found by every child in that range. The
+  precision is as good as this gets, because an agent writing `Bead: bc-u4na` at the
+  end of a note is saying *this is what that bead was about* in the one vocabulary both
+  sides share, and it is a real convention rather than a hoped-for one: nineteen of the
+  first twenty notes in this repo's store name at least one bead. It rescues exactly
+  what the second signal misses — a note about a bead's subject in words the bead
+  itself never uses scores 0.9, i.e. noise.
+- **A note that reads like the bead** — ten times the cosine between the two bags of
+  distinctive words, above a floor of `1.6`. The tokeniser keeps `.`, `/` and `-`
+  *inside* a token, because `lib/session.js` and `test/browse.mjs` are where the whole
+  signal is. The floor is a gap between two populations rather than a percentile of
+  one: measured across forty real beads, the noise floor sits at about 1.0 and the
+  correct note scores 2.0 to 4.7. A bead about filling in timesheets tops out at 1.03
+  and is handed nothing, which is the case that has to keep working — a section that is
+  noise once is a section nobody reads again.
+
+**What it costs when the pile is large, which is the part worth being honest about.**
+Bodies are capped at four notes and 4500 characters and always will be; a note is taken
+whole or not at all, since a trap clipped mid-sentence is a trap you cannot act on. What
+is *not* capped is the line of keys underneath, so nothing in the store is ever
+invisible from the brief — the session can see that `sw-cache-version-conflicts` exists
+and go and read it. That line is what makes the cap honest: without it a capped section
+reads as the whole store, and pushing would be strictly worse than pulling for
+everything it left out. At a few hundred notes the key line is itself worth capping;
+until then the ceiling that binds is the bodies.
+
+**A repo whose store is empty gets no section**, not a heading over nothing — an agent
+shown an empty section twice learns the section is furniture and stops reading it on the
+day it has something in it. And a worker is handed **its own kind's notes only**;
+reading another kind's is `notes --of=<agent>`, which the brief names, and whether one
+should be *handed* another's unasked is `bc-pud4`.
+
+`notesIn(dir, agent)` is the one tier-1 read that names a directory, and the daemon is
+the caller it exists for: it opens sessions in four repos from one process and is
+standing in none of them. Every read an *agent* can reach still resolves from
+`process.cwd()`, which is the whole point of the indirection — `lib/foundation.js` draws
+the same line in the same place with `effective(dir, agent)`.
+
 ### Where the rest lives: `~/.config/beadcause` is a git repo
 
 The memory that follows an agent, and the blackboard, have no repo they belong to —
@@ -2706,6 +2796,15 @@ read asserting the Mirror is not in the bar's tab list, that neither the route n
 exists, that the chip and the pane are both still on `monitor.html`, and that the
 device-filter the second reason rests on is still there.
 
+`node test/pagepaths.mjs` holds the same two absences from the other side, and the pair is
+deliberate rather than duplicated. The static read knows the *shape* the route would take
+today — `urlPath === '/mirror'` in `lib/server.js` — and would miss a `/mirror` that arrived
+by any other spelling: a redirect, a prefix match, a `mirror.html` served straight off
+`public/`. So `pagepaths.mjs` asks a running server for `/mirror` and `/mirror.html` and
+requires a 404 from both, which is the claim the decision actually makes — not "the code
+does not say `/mirror`" but "there is nothing there". Reversing the decision on purpose
+means deleting an assertion in each, which is two lines in a diff somebody can argue with.
+
 **What is still owed is the ambiguity, not the decision.** Two tab bars stacked on one
 screen with nothing visual to say that one changes the page and the other changes a pane
 is the actual complaint, and the fix is to restyle the in-page pair as the segmented
@@ -2713,6 +2812,34 @@ control it already is (two mutually exclusive modes) — filed as bc-stci. The e
 meant to share, scoping this bar's CSS apart from the foundations page's, has landed
 ahead of it as bc-4aw: `.mon-tabs` is now this bar's own selector, which is what a
 restyle needs to be able to move it without moving the other page.
+
+### The Mirror pane waits, it does not poll
+
+The **Mirror** pane beside the advocate console follows whatever the phone has open and draws the
+version that would not fit in a hand — the whole brief, every comment, the options as
+buttons. It follows rather than chooses: the view comes off `/api/presence`, which every
+page publishes as it moves, and the presence event wakes the parked `/api/poll`, so a card
+opening in a hand is on the big screen as fast as the network allows and **nothing is
+polled in between**. Each view behind it costs a `bd` call, and they are paid for on a
+move rather than on a clock.
+
+A chat session is the exception, because it changes while nothing moves at all — the agent
+is mid-sentence. That used to be a 1.5s `setInterval` re-reading the whole session, which
+made a turn arrive up to a second and a half after it was written and cost forty requests a
+minute for a session nobody was talking to. It has a parked request of its own now, on the
+same `/api/console/poll` [the console's own page lives on](#the-chat-session--deciding-what-to-file):
+it waits on that session's sequence and hands back the whole session the moment it moves,
+so an idle one is one held request and a streamed turn lands as it is written. Repaints are
+coalesced to a tenth of a second on the way in — a delta moves the sequence per token, and
+this pane's composer is *inside* what a repaint rebuilds, unlike the console page's.
+
+`node scripts/mirror-check.mjs` holds it to that, in headless Chrome against fixtures
+served from the script: that an idle session is read **once** and then parked on, that
+streamed words arrive through the park rather than through a second read, and — the case a
+timer never had to think about — that the request still in flight when the phone leaves the
+session neither repaints the pane nor starts another one, because the phone can come back
+to a session while the old poll is still out. `--baseline` fails all three, since HEAD's
+mirror never asks `/api/console/poll` anything at all.
 
 Advocates carries a **badge** when there is something behind it — how many advocates
 are waiting on an answer. The number rides the inbox's own poll (`/api/questions`
@@ -2761,10 +2888,11 @@ notch substituted in, for the Chromes with no `Emulation.setSafeAreaInsets`.
 The *paths* are checked separately, in `npm test`: `node test/pagepaths.mjs` asks a
 real server for every URL a phone might still have on its home screen and checks which
 document came back — all five that reach the advocate console, both that reach the pull
-request board, and so on — plus that `/work.js`, deleted with the sessions view, 404s
-rather than lingering. The aliases live in a run of one-line `if`s in `serveStatic`,
-which is exactly the shape a merge eats, and a broken one is silent: the page is fine,
-the shortcut is not.
+request board, and so on — plus the two kinds of path that must **not** resolve: `/work.js`,
+deleted with the sessions view, and `/mirror` and `/mirror.html`, which were never made
+because [the Mirror is a pane](#the-mirror-is-a-pane-not-a-tab). The aliases live in a
+run of one-line `if`s in `serveStatic`, which is exactly the shape a merge eats, and a
+broken one is silent: the page is fine, the shortcut is not.
 
 ## Loaded once, and kept — what a tab tap actually costs
 
@@ -2826,6 +2954,54 @@ runs only with a sequence to start from, so a daemon that predates the field nev
 starts one. And every failure — a refused poll, a dropped tailnet, a restart — falls
 back to the 25-second timer that was there before. The one thing that must never happen
 is an inbox that has quietly stopped refreshing.
+
+### The delta stream — every view on the event log
+
+For a while the inbox was the only view on the log, and the other four still refreshed
+by throwing their whole payload away on a wall-clock timer: ten seconds on `/admin`,
+twenty on `/monitor`, sixty on `/prs`, and never at all on the chat launcher, which
+simply went stale until you navigated away and came back. Two of those pulled a `bd`
+sweep across every workspace behind them — `/admin` asked for `/api/work` every ten
+seconds, all day, to read a single boolean off it — and every one of them was paid
+whether or not anything had moved.
+
+`public/stream.js` is that loop, lifted out of `app.js` and mounted by all five. It owns
+the socket, the sequence, the abort and the visibility rule; what an event *means* stays
+with the view, because only the view knows whether `type: 'merged'` is a lamp, a count or
+nothing at all. Five hand-rolled long-polls with five subtly different resync behaviours
+was the shape worth not growing into.
+
+The thing that makes four more parked clients free is `want=presence`. The daemon sweeps
+`bd` for a poll that asked for the inbox questions, and the other four views draw none of
+them — so they ask to be *woken* rather than told, and then go and get their own payload,
+which for three of them is an in-memory read. Without it, four parked views would have
+meant four sweeps per event: the timer's bill arriving by another route.
+
+What each of them then does with a wake is the interesting part, and it is different in
+each case because what is expensive is different in each case:
+
+| View | On a wake |
+|---|---|
+| **Inbox** | Adopts the questions the poll carries. It is the one view whose park does ask for them, and the payload arrives with the wake. |
+| **Advocates** | Takes the advocate roster straight off the poll — `advocates.snapshot()` rides every wake — so a pause, a resume or a check-in repaints with no request at all. It goes back to `bd` only for events `bd` would answer differently, which an advocate saying it is still surveying is not. |
+| **Admin** | Reads `observing` off the poll, which is the whole reason it ever touched `/api/work`, and re-asks `/api/admin` — two in-memory reads, no `bd` — when an advocate or a terminal moved. Its numbers are promises about what a press will do, so half-patching them was never an option. |
+| **Board** | Re-asks `/api/prs` when a pull request actually moved. The three lamps are the daemon's own reading of GitHub, `origin/main` and the deploy journal; a client that set them from an event would be a second, worse copy of that ladder. The daemon drops its board cache as those events fire, so the first board through does the one `gh` sweep and every other open board shares it. |
+| **Chat launcher** | Was the odd one out — no timer to delete, just no refresh — and now re-asks `/api/consoles` when something moved. |
+
+Two events were added for it, both on the daemon: opening and closing an in-app terminal
+now say so, because `/admin` draws a count of open terminals into the label of the button
+that closes them and the ten-second timer was the only thing keeping that number true.
+
+**What this deliberately gives up.** GitHub is outside the daemon's log, so a pull
+request opened by something other than this app — an agent's `deliver.js`, a push from
+another machine — is not an event and does not wake the board; the ⟳, the next
+daemon-side event or arriving at the page is what brings it in. And a session claiming a
+bead in a terminal nobody told the daemon about is invisible to `/monitor` for the same
+reason, where the twenty-second timer used to catch it inside twenty seconds. Both were
+being paid for with a sweep a minute on every open page, and in practice a running
+advocate emits several events a minute, so the page it matters on is the busy one.
+
+With the app open and nothing moving, the daemon now logs no periodic sweeps at all.
 
 ### A repaint that leaves alone what did not change
 
@@ -3277,6 +3453,58 @@ instead: reach refusing a pid with no terminal, the length refused on the messag
 typed rather than on a flattened one, and the AppleScript matching a tty as well as an id
 and sending its paste with `newline no` and exactly one Return after it.
 
+### …and then go and find it on the Mac
+
+The dead end after that one. You could read a session and answer it, and still not know
+*which of a dozen worktree windows on the desk it is* — finding it meant going through
+iTerm's window list by hand, comparing paths, on the machine you had just walked over to.
+So the same page has a **Bring it up** button above the box. One tap raises that
+session's iTerm window over everything else and doubles it in place, twice as wide and
+twice as tall, and closing the view puts it back at exactly the bounds and position it
+had. It is gated on the same `reach` as the composer, from the same response, so a
+session in Terminal.app or tmux says there is no window rather than offering a button
+that would do nothing.
+
+Four things about it are decisions rather than details:
+
+- **The rectangle to go back to lives in the daemon, not the page.** `lib/focus.js`
+  holds it keyed by pid, read off the window in the same `osascript` call that enlarges
+  it — split into two calls, the second would read the rectangle the first had already
+  enlarged and save *that*, so a second tap would leave a window nothing could restore.
+  It is also why a phone that reloads mid-way finds the window as it left it, and why
+  the second tap is a *restore* rather than a second enlarge.
+- **It is clamped to the screen it is on.** A window doubled about its centre near an
+  edge would put half of itself off the display, and the half that goes missing is as
+  likely as not to be the one you drag the window by. `magnify` in `lib/iterm.js` caps
+  the size at the screen and slides the result back inside it, so a window already
+  filling its display simply does not move. When nothing could be measured it grows from
+  its top left corner instead of its centre — not a lesser version of the same thing, but
+  the recoverable direction. That case is not hypothetical: the screen probe and the
+  `activate` were fired at iTerm together in the first draft, the probe lost the race and
+  came back empty, and a real window grew 368px off the left of a real display. The probe
+  now runs first, alone.
+- **Closing the view is what puts it back, and a locked phone is not a close.** The page
+  beacons a restore as it is torn down — the ✕, the back button, a closed tab. It
+  deliberately does *not* act on `visibilitychange`: you tap the button, put the phone in
+  your pocket and walk to the Mac, and a window that shrank at that moment would have
+  undone the one thing you asked for. The ways of leaving that send nothing — a lock that
+  never comes back, a discarded tab — are covered by a lease renewed by the page's own
+  two-second poll, and three minutes after nothing is watching, the daemon puts the
+  window back on its own.
+- **Nothing is persisted, and focus is not handed back.** These rectangles live as long
+  as the process does; a daemon restart forgets them and leaves the window big, which is
+  the lesser evil, because a pid is reused and a rectangle read off disk after a reboot
+  could move a window belonging to something else entirely. And the app that had the
+  keyboard does not get it back on close: you asked for that window to be in front
+  because you are about to use it.
+
+`test/focus.mjs` covers the arithmetic and the rules over a window made of numbers — the
+saved rectangle written once, a restore consuming it, a refused restore keeping the
+record so the sweep can retry rather than stranding the window, and the clamp checked
+against the same measured three-display fixture `test/cards.mjs` uses. The page half is
+in `scripts/say-check.mjs` alongside the composer, including the one thing only a real
+browser can show: that the beacon really does leave a document that is going away.
+
 Every card has a **Graph →** into the whole workspace — which is also the answer to
 "how do I see what another session just created", since the graph draws every open
 issue rather than only the questions.
@@ -3285,10 +3513,12 @@ Two `bd` calls per workspace (`status --json` for the counts, `list
 --status=in_progress --limit 0 --json` for the beads — `--limit 0` because bd's own
 default is 50, and a silently truncated list here would read as the whole truth),
 run in parallel across all of them:
-about two seconds for six. It refreshes every 20s and on ⟳, deliberately not on the
-inbox's 30s cycle — the inbox is polled by every client all day, and this is opened
-when you want it. It also stops while the Mirror pane is the one showing, because a
-hidden page must not keep sweeping every tracker on the Mac. A workspace that fails
+about two seconds for six. It used to run every 20s for as long as the page was open;
+it now follows [the delta stream](#the-delta-stream--every-view-on-the-event-log)
+instead, so the advocate roster repaints off the poll for free and those `bd` calls run
+only when something happened that they would answer differently — plus the ⟳ and a cold
+boot. It also stops while the Mirror pane is the one showing, because a hidden page must
+not keep sweeping every tracker on the Mac. A workspace that fails
 reports its error in place rather than vanishing from the list; a missing row would
 read as "nothing happening there", which is the one thing it doesn't mean.
 
@@ -3996,6 +4226,111 @@ exists for are the ones invisible from the server: that a group tap is **one req
 per workspace** carrying all of its ids, and that the first press of Revoke writes
 **nothing at all**.
 
+## An error the app hits files itself as a P0
+
+Everything above is about work somebody decided to do. This is about the other kind:
+the app breaks in front of you, a red toast says so, and then the fact is gone. Four
+files have their own local `toast(msg, bad)` — `public/app.js`, `public/console.js`,
+`public/foundations.js`, `public/term.js` — and nothing on either side catches an
+uncaught exception or an unhandled rejection at all. You see it on a phone, in a room,
+once. By the time you are at the Mac you remember that *something* went wrong on the
+graph sheet and not what.
+
+So an error reported to `POST /api/error` becomes tracker state. A **P0 bug**, endorsed,
+labelled `app-error` — and the advocate then picks it up ahead of everything else with
+no change of its own, because its queue was already sorted highest-priority-then-oldest.
+Nothing new had to be taught how to care.
+
+**Filing is the easy half. Not filing the same thing forty times is the hard half.** One
+broken selector on a view that re-renders on every poll is not forty bugs, and a tracker
+that says it is has been made useless by the feature meant to help it. So every report
+is fingerprinted twice, in a deliberate order:
+
+1. **The source `file:line`** — the primary key, because it is the most specific thing a
+   report carries. Two different bugs on one line are vanishingly rarer than two
+   different lines with the same generic message; there are a great many ways to say
+   "Failed to fetch".
+2. **The message text** — the backup, and it exists for one case: an unrelated edit
+   above the throw site moves the line. Without it, the same bug files a fresh P0 every
+   time somebody adds an import.
+
+Both go on the bead as labels, hashed — a bd label has no quoting story and a message
+can contain anything at all, and a stack-frame path is long enough to make `bd show`
+unreadable. The readable form is written into the description, where a person can see
+what a later report will be matched *on*. The lookup is one `bd list --all --label-any`
+per report: an OR over both keys in a single call, because this runs on the hot path of
+a page that may be reporting several times a second.
+
+Three outcomes, and the third is the interesting one:
+
+| The fingerprint matches | What happens |
+|---|---|
+| nothing | a new **P0 bug**, titled from the message, with everything the report carried |
+| **an open bead** | a comment on it — occurrence number, timestamp, page. No second bead |
+| **a closed bead** | a **new** bead, with a `discovered-from` edge to the closed one |
+
+That last row is a decision, not an oversight. A bug that comes back after being fixed
+is a regression, and a regression that silently reopens the old bead loses the fact that
+it was ever fixed — along with the commit that was supposed to have fixed it, and the
+close reason somebody wrote. The edge is what carries "we have been here before" to
+whoever picks it up, and a reopened bead cannot carry it.
+
+**A bead matched on the message alone learns the new `file:line`.** The label is added
+the moment the drift is noticed, so the next report hits the primary key directly and
+the bead accumulates every line the bug has lived on — which turns out to be the fastest
+way to see that a bug has been moving around a file for three weeks.
+
+### Why these are the one thing filed without the hold
+
+Everything else an agent files arrives `unendorsed` and nothing may work it until you
+say so, and everything else an agent files is clamped to P2 or worse — what an agent
+*decided* was work may not outrank what you chose. Both are switched off here, in the
+one place that says so (`ERROR_PRIORITY` in lib/errors.js).
+
+The reason is that a reported error is not a judgement. No agent thought this might be
+worth doing; a program failed, and the report is a fact about your Mac. Holding a P0
+crash behind a tap you have not read yet defeats the entire point, which is that the
+advocate is already on it by the time you look. The provenance stamps stay on — the bead
+still carries `agent-filed`, so `bd list --label agent-filed` is still the whole audit —
+and the note on the bead says in its own words why it arrived endorsed, rather than
+blaming a space setting that was never consulted.
+
+The honest cost: a broken build can file several P0s at once, and they are workable
+immediately. `bd list --label app-error` is the list, and closing one is a tap.
+
+### The race it has to survive, which is not the one you would guess
+
+A page whose render throws reports, re-renders, and reports again — three requests in
+flight before the first `bd create` has returned. bd's own single-writer retry does not
+help at all here, because those three creates do not conflict with each other. They all
+succeed, and you get three P0 beads for one bug: the exact failure this whole thing
+exists to prevent, arriving through the door built to guard it.
+
+So `intake` serialises per fingerprint, in-process. Two *different* errors still file
+concurrently, and a report whose predecessor failed is still filed rather than
+inheriting the rejection — one `bd` lock timeout must not silently swallow every later
+occurrence of that error for as long as the daemon runs.
+
+**The endpoint never answers 5xx.** It is called *by* error handling: a 500 here is
+itself an error, the page reports the failure of its own reporting, and the loop has no
+floor. A tracker that is down answers `200 {ok: false, reason}` instead, which a
+reporter can log and stop on.
+
+### Checking it
+
+`node test/apperrors.mjs` covers the three outcomes against a stub `bd` that implements
+`--label-any`, `--all` and the status filter the way bd implements them — a stub that
+returned everything whatever it was asked would pass whatever the code did. It asserts
+the acceptance criteria directly (twice → one bead and one comment; a moved line → still
+one bead, matched on the message; a closed match → a second bead carrying the edge), the
+argv the lookup is actually made with, and the three-at-once race.
+
+Its own fixture is worth a sentence, because it was wrong first: one JSON file for the
+whole tracker made `bd create` a read-modify-write race *between processes*, so two
+distinct errors came back holding the same id — which reads exactly like the
+serialisation bug the test exists to disprove. It is one file per bead now, and the id
+is claimed with an exclusive create.
+
 ## Advocates — an agent per repo, whose job is the queue reaching zero
 
 Everything above is a **channel**. A question reaches your phone, an answer reaches
@@ -4049,6 +4384,15 @@ bead can move. On top of that, two exclusions of our own:
 - **P4 is a backlog** — a list of things deliberately not being done. Without this
   the queue can never reach zero and "clear" stops meaning anything. Move the line
   with `minPriority`.
+- **The same job twice is one session.** Two beads can carry near-identical titles
+  without anyone proposing anything — filed by hand, pulled in from JIRA, or created
+  by an approval that *was* flagged as a duplicate and that you tapped anyway. Both
+  are ready, and the second window's first act would be to find the work already
+  committed on the first one's branch. So a bead whose title matches one that is
+  already in progress — or that a session is already open on — waits for it, at the
+  same near-verbatim threshold that refuses a duplicate approval. Waits, not
+  disappears: it is a pill on the repo's advocate card naming the bead it is behind,
+  and it goes back in the queue by itself when that one closes.
 
 When that set is empty the advocate says **clear** and stops. That is the whole of
 "done".
@@ -4254,7 +4598,7 @@ a bead, and that is all it knows. So:
 #### Closing the window — a session that has finished should not still be on screen
 
 The `exit` above only runs **when `claude` exits**, and a session that has finished its
-work does not exit. `claude "$P"` is interactive — the brief is its first prompt, not
+work does not exit. `claude … -- "$P"` is interactive — the brief is its first prompt, not
 its whole life — so when the last turn ends the TUI goes back to waiting for a human
 who, by construction, is not there. The bead is closed, the pull request is merged, and
 the window is still open.
@@ -6718,6 +7062,53 @@ failed-validation limits there are per hour. And "there is still no certificate"
 repo supports, so the first notification is news and the ninetieth is not — unlike a
 renewal that is failing, which is an outage with a date on it.
 
+### And once it has actually expired: it stays HTTPS, broken and loud
+
+Ninety days of a renewal that never worked, through a fortnight of daily priority-5
+pushes, and the date goes past. **Nothing downgrades.** The expired certificate stays on
+the socket, plain http on 4318 is still 307'd to the name, the URL a phone is handed is
+still `https://<name>:4318`, and every page now arrives behind a certificate warning
+until somebody fixes it. That is a decision (bc-jv86) rather than what happened to fall
+out of the code, and it went the other way for half of one release: `certificate()`
+counted a past date as *no certificate*, so a daemon that **rebooted** after expiry bound
+plain http with no redirect — silently, and only if the Mac happened to restart. Same
+machine, same config, two behaviours.
+
+Falling back to plain http is the tempting answer and it buys less than it looks:
+
+- **It does not bring the installed app back.** The PWA on the phone was installed from
+  `https://<name>:4318`, and `http://100.x.y.z:4318` is a *different origin* — a fresh
+  install, a fresh pairing (localStorage does not follow a cross-origin redirect), and
+  still not a secure context, so still no service worker and no microphone. All it buys
+  is that a QR scanned *after* the outage answers.
+- **Google sign-in is gone either way** — it will not accept a non-HTTPS redirect URI,
+  and the check for one is the same expired certificate.
+- **It spends the one property worth keeping**: that this origin never quietly gets
+  worse without being asked. A version that works at a lower standard from then on is
+  exactly the one that never gets fixed — and reaching this state at all means a
+  fortnight of pushes already went unread.
+
+So the two halves of the daemon are made to agree instead. `certificateName()` asks
+whether there is a pair on disk for this name, not whether the calendar still likes it —
+which is what stops `publicBaseUrl` drifting to `http://100.x.y.z:4318` behind the
+socket's back, and what stops the first `loadConfig()` after expiry *persisting* that
+into `config.json`, where the priority-5 "certificate has EXPIRED" push would click
+through to a URL the running daemon bounces straight back to https. The admin card says
+**expired — every phone is warned** rather than counting down into negative numbers, and
+offers the retry. The inbox itself is not unreachable while you fix it: loopback on the
+Mac is plain http and always was.
+
+```
+[beadcause] tls  the certificate for mac.tailnet.ts.net EXPIRED 3.1 days ago and could
+                 not be replaced — serving it anyway, so every phone gets a certificate
+                 warning until this is fixed
+[beadcause] tls  fix it by hand: tailscale cert mac.tailnet.ts.net
+```
+
+`test/certrenew.mjs` drives a certificate that is genuinely past its date — `openssl
+-not_before/-not_after`, because `-days` will not go backwards — and pins that a boot
+after expiry puts TLS on the port, redirects plain http, and still pushes the alarm.
+
 ## Signing in with Google
 
 There are **two** credentials, and which one a caller uses is decided by whether it can
@@ -6924,6 +7315,267 @@ nonce is the one we sent, and that Google says the address is verified — which
 hole the allowlist would otherwise have, since anybody can put any address on an account
 they have not proved they own.
 
+## Slack — the same decision, in a channel
+
+Off by default, and it stays off until you have given it a channel and a token.
+
+A question that reaches your phone as an ntfy notification can also reach a Slack
+channel as a message with a button per option. Pressing one **writes the same answer, on
+the same bead, as tapping it in the app** — the beads a "yes" files, the amendment it
+commits, the pull request it merges, the deploy it starts. It is not a chat feature and
+it is not a copy of the inbox: it is a second delivery surface for one decision, for the
+case where the conversation about the work is already in a channel and the person who
+should answer is reading that rather than a phone.
+
+```json
+"slack": { "enabled": true, "channel": "C0123456789" }
+```
+
+and the bot token in `~/.config/beadcause/slack-bot.key`, the app-level token in
+`slack-app.key`, both `chmod 600`. That is the whole of it.
+
+### The two tokens, and why there are two
+
+**The bot token** (`xoxb-…`, scopes `chat:write` and `chat:write.public` if the channel
+is one the bot has not joined) is what posts and what edits. **The app-level token**
+(`xapp-…`, scope `connections:write`, made under *Basic Information → App-Level Tokens*)
+is what makes the buttons work — and it is not optional in the way it sounds.
+
+Slack's ordinary interactivity wants a **Request URL**: a public HTTPS address it can
+POST to when somebody presses a button. beadcause has no such address and should not
+have one — it serves a tailnet name, behind Tailscale, deliberately unreachable from the
+internet. So the daemon uses **Socket Mode** instead: it opens an outbound WebSocket to
+Slack and interactions arrive down it. Turn Socket Mode on in the app's settings, enable
+*Interactivity*, and give it the app-level token.
+
+With the bot token alone, questions post and their buttons do nothing. That is a real
+half-configured state and it looks like a broken app rather than a missing token, so the
+daemon says so in its startup log rather than leaving you to find out by pressing one:
+
+```
+[beadcause] slack       C0123456789 — no app token in ~/.config/beadcause/slack-app.key, so the buttons will not answer
+```
+
+**Neither token is a field in `config.json`, and there is deliberately nowhere to put
+one.** That file is committed to the git repo in `~/.config/beadcause` after every
+write, so a token in it would not be "on disk in the clear" — it would be in a history
+no rotation can reach back into. The `.key` names are the same construction that
+protects the Google client secret and the tailnet private key: that repo both ignores
+them and refuses to commit them. A `"botToken"` typed into the config by somebody
+following a Slack tutorial aborts the next snapshot and says which secret it found.
+`BEADCAUSE_SLACK_BOT_TOKEN` and `BEADCAUSE_SLACK_APP_TOKEN` are the other place, and
+they leave no copy at all.
+
+That construction protects the *history* and knows nothing about the filesystem, so the
+one thing it cannot promise is checked at startup instead: a token file other accounts on
+this Mac can read gets a line saying so, with the `chmod` that fixes it.
+
+### Which repos reach which channel
+
+The unit is the [space](#spaces--keeping-work-out-of-your-evening), not the repo,
+because a space is already where "keep work out of my evening" is answered — and the
+failure worth designing against here is not a missing message. It is a question from a
+private side project turning up in a channel other people read.
+
+| what | where | means |
+|---|---|---|
+| `slack.channel` | config | the default channel for every workspace |
+| `slackChannel` | on a space | that space's channel — **or `null`, meaning this space never posts**, however the global is set |
+| `slack.excludeWorkspaces` | config | one repo that never posts, outranking its space. The same idea as `ntfy.minimalWorkspaces` |
+| `slackDetail` | on a space | `minimal` posts a nudge with a link and no question text |
+
+A channel id (`C…`) or a DM id (`D…`), not a `#name` — the API takes ids, and a name
+that has been renamed since you typed it fails at post time rather than at configure
+time. `slackChannel` and `slackDetail` are hand-edited in `config.json` today; the space
+details screen does not offer them yet.
+
+Unlike ntfy, `detail` defaults to **full** on both levels. `minimal` exists because an
+ntfy.sh topic is readable by anybody who guesses its name, and a Slack channel you named
+in your own config is not a public relay — rounding a work space to minimal here would
+put a contentless nudge in the one channel where the question belongs in full.
+
+**A space's quiet policy applies to Slack exactly as it applies to your phone**, and by
+construction rather than by a second rule that could disagree: the post happens at the
+same point in the sweep as the ntfy push, *after* the quiet check, so a muted space and a
+bead the inbox filter is hiding reach a channel exactly as often as they reach the phone
+— never. The card still arrives in the inbox, as it always did; quiet has never meant
+lost.
+
+### What a question looks like once it has been answered
+
+A stale message with live buttons is the failure mode of this whole idea. Answer on the
+phone, and the message in the channel would otherwise sit there all week offering to
+answer it again — and the second answer would be a second comment on a closed bead.
+
+So the message is rewritten the moment the bead leaves the inbox: struck through, no
+buttons, and a line saying what was answered and by whom. It settles whichever way the
+question ended and wherever the ending happened — a tap on the phone, an ntfy action
+button, a press in the channel, an agent closing the bead, `bd close` on the Mac. The
+first three settle it in the same breath as the answer; the rest are caught by the
+poller's next sweep, up to thirty seconds later.
+
+Three endings read differently on purpose. **Answered** is an answer. **Handed back** is
+an option that said `closes: false` — a commission, work ordered rather than a decision
+taken. **Set aside** is a dismissal, which writes no answer at all.
+
+### Whose answer it is
+
+The person who pressed is named on the *Slack message* and not on the bead. The comment
+lands the way every token caller's does — see [Whose answer it
+is](#whose-answer-it-is) — because attributing it would need a mapping from a Slack user
+to an address and a scope to read one, and that is worth doing deliberately rather than
+as a side effect of this.
+
+If bd refuses to close the bead — a blocker still open, children unfinished — the
+message keeps its buttons, because the question is still a question, and the reason goes
+back privately to whoever pressed.
+
+### What it does not carry
+
+The question channel, and nothing else. Replies from an agent, [foundation
+requests](#what-an-agent-is--and-how-it-asks-to-be-different), [landings](#the-notification-with-nothing-to-answer),
+deploy results and certificate warnings all have their own push on the phone and none of
+them post to Slack. Each is a separate decision about what a room should carry, and a
+constitutional change to an agent in particular is not a thing to nod through from a chat
+window.
+
+### Checking it
+
+`test/slack.mjs`, against two servers it starts itself — one standing in for Slack, one
+for this daemon's own `/api/respond` — so nothing reaches slack.com or the tracker. It
+holds the four claims above: that unconfigured means no token is read at all, that a
+space can say no as loudly as it can say where, that a pressed button sends the option's
+own answer (the button carries an index, never the text, so a payload from outside this
+process cannot decide what gets written on a bead), and that a settled message has no
+live buttons left on it.
+
+## Publishing a document to Confluence
+
+Work that reaches beadcause produces durable prose. A UX review, a foundation, the
+summary a worker leaves on a bead — all of it ends up either in a repo or on an issue,
+and both of those are places the rest of a team does not look. Confluence is where they
+look. So **any document the [reader tab](#a-repo-that-could-not-be-read-says-so-instead-of-looking-empty)
+can open can be published to a Confluence page, and published again later to the same
+page**, from the same screen you were reading it on.
+
+It is off until you configure it, and an install that has not configured it never draws
+a button, never opens a credential file, and never mentions Confluence at all:
+
+```json
+"confluence": {
+  "site": "https://yourteam.atlassian.net",
+  "email": "you@yourteam.com",
+  "space": "ENG"
+}
+```
+
+```sh
+# the API token goes in a file, never in config.json — same rule as the Google client
+# secret, and for the same reason: that file is committed after every write
+printf '%s' 'ATATT3x…' > ~/.config/beadcause/confluence.key
+chmod 600 ~/.config/beadcause/confluence.key
+```
+
+An [Atlassian API token](https://id.atlassian.com/manage-profile/security/api-tokens) is
+what `email` and that file are: together they are HTTP basic auth against the Cloud REST
+API, which is Atlassian's own answer for a script. `.key` is not a naming preference —
+`~/.config/beadcause` [is a git repo](#where-the-rest-lives-configbeadcause-is-a-git-repo)
+that snapshots itself after every write, and `*.key` is both ignored there *and* on that
+file's `FORBIDDEN` list, so the token is protected by construction rather than by
+somebody choosing a good name. `BEADCAUSE_CONFLUENCE_TOKEN` works too and leaves no copy
+at all; `apiTokenFile` points somewhere else, and beadcause says so in the log if where
+you pointed it is a file that directory would commit.
+
+### Which spaces may publish, and to where
+
+`confluence.space` is the default target. A [space](#spaces--keeping-work-out-of-your-evening)
+may say otherwise, and it is the space rather than the workspace because "where does
+this side of my life get published" is the same kind of answer as "when may it interrupt
+me":
+
+```json
+"spaces": [
+  { "name": "Work", "workspaces": ["acme"], "confluenceSpace": "TEAM" },
+  { "name": "Evening", "workspaces": ["sideproject"], "confluenceSpace": false }
+]
+```
+
+`false` is a refusal and not "inherit" — a space that has said no does not start
+publishing the day a global default appears. Leave `confluence.space` unset entirely and
+**nothing** publishes except the spaces that name their own, which is the way round to
+configure it if most of what you read is not the team's business.
+
+This is deliberately **not** on the [space details screen](#space-details--the-page-the-advocate-console-became)
+with the other nine settings. It is the same line `name` and `workspaces` sit on the far
+side of: choosing which wiki an evening's work is published to is a config-file act, not
+a thing to do with a thumb, and an integration whose whole point is being deliberate
+loses that the moment its target is as easy to change as the act.
+
+### It is a button, pressed twice, under a target named in full
+
+Open a document and the footer says exactly what would happen:
+
+```
+┌────────────────────────────────────────────────────┐
+│  Confluence · ENG / The inbox, reviewed            │
+│  replaces the page that is there · last published  │
+│  3h ago                                            │
+│                                                    │
+│  [            Publish…            ]                │
+└────────────────────────────────────────────────────┘
+```
+
+The first press re-reads it back as the act — **Replace ENG / The inbox, reviewed** —
+and the second one does it. Nothing publishes on a poll, on a merge, or as a side effect
+of anything else: there is no automatic path in the code at all, because a page on a
+wiki other people read is not something a restart takes back.
+
+**The naming is enforced, not promised.** The second press sends the space key and the
+page title *as the screen drew them*, and the daemon re-derives what it would do now and
+refuses with a 409 if either has moved. Edit the document's `# heading` between reading
+the footer and pressing it, and you get "this would now publish … which is not what you
+were shown" instead of a second page under the new name. That is the difference between
+a property of the daemon and a promise the client makes.
+
+**A re-publish updates the page, and overwrites its body.** The page id is remembered in
+`state.json` under `published`, keyed by the document's own path — and unlike every
+other record in that file it has no expiry, because an expired record is not a stale
+fact, it is a duplicate page. If it is lost anyway (a state file restored from an older
+copy, a document published from another machine) the space is still searched for a page
+with that title before anything is created, so the worst case is an update to a page
+beadcause did not know it owned. Overwrite rather than append because the document on
+the Mac is the source of truth and the page is a copy of it; nothing is lost, since
+Confluence keeps its own version history and every update carries a message saying
+beadcause published it and from which file.
+
+**The URL comes back to the bead.** Open a document from a card's document list and the
+link carries the bead with it, so publishing comments the page URL onto that bead —
+which is where somebody looks for "where did this end up", and beadcause's own state
+file is not somewhere they can look at all. That half is best-effort on purpose: the
+page exists by the time the comment is attempted, and failing the request over it would
+tell your phone the publish did not happen when it did. The log says so instead.
+
+### The edges, said out loud
+
+- **Publish-out only.** Reading a Confluence page back in as context for an agent is a
+  different credential, a different surface and a different decision about what an
+  unattended agent may reach. It is scoped separately.
+- **Markdown and text only.** A `.pdf` or a `.csv` opens perfectly well in the reader
+  and there is nothing sensible to make a page out of, so the footer does not appear.
+- **A fenced code block arrives as preformatted text**, not the Confluence code macro,
+  and a mermaid block arrives as its source — Confluence has no mermaid without an app
+  installed, so the honest rendering of a diagram is the text that describes it.
+- **An observer instance may not press it.** Its line is acts on this Mac, and this is
+  further out than that.
+- **The title is the document's first `# heading`**, or its filename if it has none. It
+  is also the key a lost record is recovered by, so two documents that call themselves
+  the same thing are one page.
+
+`node test/confluence.mjs` (part of `npm test`) drives all of it against a fake
+Confluence on loopback that counts the pages it is asked to create — because the
+assertion that matters is not "the second call was an update", it is that **nothing was
+ever created twice**, including with the record deliberately thrown away.
+
 ## HTTP API
 
 Auth on everything under `/api/` except `/api/health`: header
@@ -6961,11 +7613,14 @@ cookie says so), and `/auth/signout` ends the session.
 | POST | `/api/space` | `{space, settings}` | change that space's settings from the app. A patch — only the keys sent are touched, and `null` clears one back to the global default. `name` and `workspaces` are not settable: moving a repo between spaces decides which questions may reach you and stays a config-file act. Writes the live `cfg` *and* `config.json`, so the running daemon and the next restart agree. Refused on an observer |
 | POST | `/api/notifications/dismiss` | `{keys[], confirm}` | clears the phone's notification rows for beads the filter excludes. `confirm: false` records the decline, which is what stops the next sweep asking again. The beads are untouched either way |
 | POST | `/api/ask` | `{workspace, title, body, priority}` | `{id, key}` — files a new `human` bead |
+| POST | `/api/error` | `{message, source?, line?, column?, stack?, url?, userAgent?, at?, kind?, workspace?}` | `{ok, action, id, key, fingerprint}` — an error the app hit, filed as a **P0 bug** or commented onto the bead that already covers it. `action` is `created` · `commented` · `regressed`. **`message` is the only required field**: a cross-origin `window.onerror` is handed `"Script error."` and nothing else, and that is still worth more than a red toast nobody saw. `workspace` defaults to the first configured one — the reporter is a page, which has no idea which repo it is looking at. **Never answers 5xx**, because it is called by error handling: a tracker that is down comes back `200 {ok: false, reason}`. See [an error the app hits files itself as a P0](#an-error-the-app-hits-files-itself-as-a-p0) |
 | POST | `/api/session` | `{workspace, id}` | `{dir}` — opens iTerm2 + `claude` on that bead |
 | POST | `/api/status` | `{workspace, id, phase, detail, actor}` | agent progress |
 | GET | `/api/agent-log` | `?workspace=&id=` | `{lines[], running, phase}` — the dispatched agent's log, as the CLI would have shown it |
 | GET | `/api/asset` | `?p=<abs path>` | image/doc bytes, restricted to `assetRoots` |
 | GET | `/doc` | `?p=<abs path>` | the HTML reader page |
+| GET | `/api/confluence` | `?p=<abs path>&workspace=` | what [publishing](#publishing-a-document-to-confluence) this document would do, before it happens: `{configured, publishable, site, spaceKey, title, action, existing, lastPublished}`. `{configured: false}` for an install with no `confluence` block, and it reads no credential to say so — the reader tab draws no button at that answer. Costs two GETs to Atlassian when it is on, because `action` is the thing the screen has to be able to say |
+| POST | `/api/confluence` | `{p, workspace, spaceKey, title, bead?}` | publish it. `spaceKey` and `title` are the confirmation — the target as the screen drew it — and a `409` is what you get if either has moved since, rather than a second page under the new name. Updates the page it made last time and overwrites its body; Confluence keeps the version history. Records the URL in `state.json` and, with `bead`, as a comment on that bead. Refused on an observer |
 | GET | `/api/graph` | `?workspace=&id=` | `{nodes, links}` — the whole workspace with no `id` |
 | GET | `/api/bead` | `?workspace=&id=` | one issue in full, plus `comments[]` — for the graph's detail sheet |
 | GET | `/api/bead-children` | `?workspace=&id=` | `{children[]}` — every child of that bead, closed ones included, open work first. Its own route because `bd show` does not carry children |
@@ -7020,6 +7675,7 @@ cookie says so), and `/auth/signout` ends the session.
 | GET | `/api/presence` | — | `{devices[]}` — who is where |
 | DELETE | `/api/presence` | `{device}` | forget one device |
 | POST | `/api/session-say` | `{pid, text}` | says one line into a live session's own iTerm window. `413` with the words left in the box if it is past `SAY_MAX` — the message rides to `osascript` as an argument, and past `ARG_MAX` the failure reads as "the session is gone", which is the one thing this must not lie about |
+| POST | `/api/session-focus` | `{pid, action}` | `focus` raises that session's iTerm window and doubles it in place; `restore` puts it back at the bounds it was read at. Focusing is gated on the same `reach` as the composer and on the pid still being live; restoring is gated on neither, because it arrives by `sendBeacon` from a page being torn down and must work for a window whose session has since exited |
 
 Two more, **loopback and token only**, and never proxied to a backend — anyone on
 the tailnet holding the token could otherwise stop the poller:
@@ -7156,15 +7812,93 @@ the fields it always read and renders exactly as it did.
 | `claudeSessionsDir` | where those per-process records live, if not `$CLAUDE_CONFIG_DIR/sessions` or `~/.claude/sessions` |
 | `claudeProjectsDir` | where session transcripts live, if not the `projects` folder of every `~/.claude…` directory. Takes a list. Governed by `claudeSessions` — off there means no transcripts either |
 | `assetRoots` | the only directories `/api/asset` will read images from |
+| `confluence.site` | your Atlassian Cloud site, e.g. `https://yourteam.atlassian.net`. Absent, [publishing](#publishing-a-document-to-confluence) is off and no credential is read |
+| `confluence.email` | the Atlassian account the API token belongs to — the two together are basic auth |
+| `confluence.space` | the Confluence space a document lands in by default. A beadcause space may name another with `confluenceSpace`, or refuse with `confluenceSpace: false` |
+| `confluence.apiTokenFile` | where the API token is read from, if not `~/.config/beadcause/confluence.key`. **The token itself is never a config field** — this file is committed after every write |
+| `jira` | JIRA per workspace, keyed by workspace name — `{"climative": {"enabled": true, "email": "you@company.com"}}`. Empty by default, and a workspace not named here costs nothing: no call is made about it at all. The site URL and the project keys come from that workspace's own `bd config get jira.url` / `jira.projects`, so `enabled` and `email` are usually the whole setting; `url` / `projects` here override for a workspace whose `bd` was never pointed at JIRA. **There is deliberately no token field** — see [JIRA, per workspace](#jira-per-workspace--read-only-and-one-setting) |
 | `pollSeconds` | how often new `human` beads are looked for (default 30) |
 | `monitor.enabled` | generate the LaunchAgent that opens the [activity monitor](#the-monitor--what-it-is-doing-right-now) at login (default `false`; `npm run monitor` works either way) |
 | `sharedServer` | leave `false` — see the note below |
 | `mirrorStateToBeads` | write `agent:<phase>` state labels into beads too (off — see Progress) |
 | `ntfy.detail` | `full` = question + option buttons in the notification; `minimal` = contentless nudge |
 | `ntfy.minimalWorkspaces` | forced to `minimal` regardless — put shared/work trackers here |
+| `slack.enabled` | post questions to a Slack channel with a button per option (default `false`). Off until this **and** a channel **and** a bot token all exist — see [Slack](#slack--the-same-decision-in-a-channel) |
+| `slack.channel` | the default channel, as an id (`C…`) or a DM id (`D…`), not a `#name` (default `null`). A [space](#spaces--keeping-work-out-of-your-evening) overrides it with `slackChannel`, in either direction — `null` there means that space never posts |
+| `slack.excludeWorkspaces` | one repo that never posts, outranking its space. The same idea as `ntfy.minimalWorkspaces` |
+| `slack.detail` | `full` = question + option buttons; `minimal` = a nudge with a link. Defaults to `full`, unlike ntfy, because a channel you named is not a public relay. Per space with `slackDetail` |
+| `slack.buttons`, `slack.maxButtons` | answer straight from the channel (default `true`), and how many options fit in the row (default 5; the rest stay in the app, and the message says how many) |
+| `slack.botTokenFile`, `slack.appTokenFile` | where the two tokens are read from. Default `null`, meaning `~/.config/beadcause/slack-bot.key` and `slack-app.key`. **There is deliberately no `botToken` or `appToken` field** — this file is committed to the git repo in that directory, and one typed in there aborts the next snapshot |
 
 `host` falls back to `127.0.0.1` if Tailscale was down when the config was
 written — fix the IP in the file if the phone can't connect.
+
+### JIRA, per workspace — read-only, and one setting
+
+Turn JIRA on for **one workspace** and the tickets assigned to you start arriving.
+There is nothing global and nothing team-wide about it: a workspace either has a JIRA
+behind it or it does not, and the setting that says so is a boolean and an address.
+
+```json
+"jira": { "climative": { "enabled": true, "email": "you@company.com" } }
+```
+
+Keyed by workspace name, like `sessionDirs` and `advocates.perWorkspace`. It is
+deliberately **not** a field on a `workspaces` entry: that array is discovered from
+`~/beads/*/.beads` and reconciled on every start, so anything written onto it by hand
+disappears at the next restart — which would present as JIRA quietly switching itself
+off overnight.
+
+**Why one setting is enough.** `bd` already holds per-workspace JIRA configuration, and
+if you have ever run `bd jira pull` in that workspace it is already there:
+
+```
+bd config get jira.url       ->  https://your-company.atlassian.net
+bd config get jira.projects  ->  TECH
+bd config get jira.username  ->  you@company.com
+```
+
+Those live in the workspace's Dolt database rather than in `.beads/config.yaml`, so
+they are read by asking `bd` rather than by parsing a file. Set `url` / `projects` in
+the block above only for a workspace whose `bd` has never been pointed at JIRA. One
+trap is worth knowing about, because it fails in the permissive direction: **`bd config
+get` prints `jira.url (not set)` on stdout and exits 0** for a key nobody has set, so a
+reader that trusts the exit code turns that sentence into a hostname. `bdConfig` in
+`lib/jira.js` is the one place that knows.
+
+**The token is the one thing that cannot be reused.** `bd` resolves `jira.api_token`
+from the `JIRA_API_TOKEN` environment variable, which on a machine set up the usual way
+is exported per-directory by a shell function in `~/.zshenv`. That is a *shell*
+mechanism, and beadcause runs under launchd — a client expecting to inherit that token
+would work in every hand-test from a terminal and authenticate as nobody in the only
+place it actually runs. So it goes in a file:
+
+```
+~/.config/beadcause/jira-<workspace>.key       # 0600
+```
+
+The `.key` extension is the entire protection, and it protects by construction rather
+than by anybody choosing well: `~/.config/beadcause` is a git repo that snapshots after
+every write, and `*.key` is both on `lib/commonrepo.js`'s `FORBIDDEN` list and in the
+`.gitignore` it writes. Exactly the reasoning behind
+[`google-client-secret.key`](#where-the-two-secrets-live-and-how-to-rotate-them) — a
+secret in `config.json` is not merely on disk in the clear, it is in a history that a
+rotation cannot reach back into. One file per workspace, because two workspaces may be
+two JIRA sites with two accounts, and a shared credential would quietly authenticate
+one of them as the wrong person.
+
+**Nothing in this path ever writes to JIRA.** Not as a policy anybody has to remember:
+`lib/jira.js` has no function that names an HTTP method and no code path that
+constructs a request body, which is the same way `lib/lookup.js` enforces "GET only"
+for an agent's network grant — a caller cannot reach a write by passing a flag, because
+there is no flag. Making beadcause write to JIRA would mean *adding* the capability,
+which is the point at which somebody has to decide it, explicitly and with an
+allowlist. `node test/jira.mjs` asserts both halves against the module's own source.
+
+A first configuration goes wrong in four ways — no site, a site that is not a URL, no
+address, no credential — and each one is reported as the fix rather than as the
+symptom, because a 401 and a 404 are the same stack trace and completely different
+mornings.
 
 ### Environment
 
@@ -7177,6 +7911,8 @@ written — fix the IP in the file if the phone can't connect.
 | `SKIP_CONFIGURE` | `scripts/install.sh` asks nothing and keeps the answers on file — the same as `--non-interactive`. `CLAUDECODE`, `AI_AGENT` and `CI` imply it, because a question asked of a terminal nobody is watching is a hang; `--interactive` asks anyway |
 | `BEADCAUSE_GOOGLE_CLIENT_SECRET` | the Google OAuth client secret, taking precedence over the secret file. The one place it leaves no copy on disk — see [rotating the two secrets](#where-the-two-secrets-live-and-how-to-rotate-them) |
 | `BEADCAUSE_SESSION_KEY` | the HMAC key sessions are signed with, instead of `~/.config/beadcause/session.key`. Setting it to a new value signs everybody out |
+| `BEADCAUSE_SLACK_BOT_TOKEN`, `BEADCAUSE_SLACK_APP_TOKEN` | the two Slack tokens, taking precedence over their files. The one place they leave no copy on disk — see [Slack](#slack--the-same-decision-in-a-channel) |
+| `JIRA_API_TOKEN` | a JIRA API token, taking precedence over the per-workspace `.key` file for the same reason the Google one does — it leaves no copy on disk. The daemon runs under launchd and will not have it; this is for a hand-run script or a test |
 | `BEADCAUSE_TAILSCALE` | the `tailscale` binary, overriding the three macOS paths that are searched by default. Has to exist to count — a path typed wrong reads as "no tailscale" rather than failing mysteriously later. See [renewing the certificate](#renewing-it-before-it-expires) |
 
 ### Every state file is replaced, never overwritten
