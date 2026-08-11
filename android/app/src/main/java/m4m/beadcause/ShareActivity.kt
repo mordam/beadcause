@@ -30,7 +30,9 @@ class ShareActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        if (!Prefs.isPaired(this)) {
+        // isLive: a share into a stale cleartext pairing would spin and fail. MainActivity
+        // is where the re-pair is explained, and this already routes there.
+        if (!Prefs.isLive(this)) {
             Toast.makeText(this, R.string.share_not_paired, Toast.LENGTH_LONG).show()
             startActivity(Intent(this, MainActivity::class.java))
             return finish()

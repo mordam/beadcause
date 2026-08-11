@@ -18,7 +18,9 @@
     <string name="pair_bad_address">That doesn\'t look like an address.</string>
     <string name="pair_bad_token">Found the server, but it rejected the token. Check ~/.config/beadcause/config.json.</string>
     <string name="pair_unreachable">Couldn\'t reach %1$s — is Tailscale on and the daemon running? (%2$s)</string>
-    <string name="pair_not_private">That address isn\'t on the tailnet. Beadcause only sends its token in the clear to a 100.64–100.127 Tailscale address — use the one from <b>npm run qr</b>.</string>
+    <string name="pair_not_private">That address isn\'t on a tailnet. Beadcause only sends its token to <b>https://…ts.net</b> — use the link from <b>npm run qr</b>.</string>
+    <string name="pair_no_certificate">%1$s is on the tailnet, but it\'s plain http — the Mac has no certificate yet. Turn on <b>HTTPS Certificates</b> at login.tailscale.com/admin/dns, restart the service, then re-run <b>npm run qr</b>.</string>
+    <string name="pair_stale">This version talks to your Mac over https, and the saved pairing (%1$s) doesn\'t. Scan the code from <b>npm run qr</b> again — the token is unchanged.</string>
     <string name="camera_denied">Camera access was declined, so enter the pairing URL below instead.</string>
     <string name="camera_unavailable">No camera available — enter the pairing URL below.</string>
 
