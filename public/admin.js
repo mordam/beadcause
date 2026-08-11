@@ -541,15 +541,57 @@
     }
   }
 
-  /** How the certificate is doing, in a phrase. */
+  /**
+   * How long ago, in the coarsest unit that still says something.
+   *
+   * Deliberately the same three tiers and the same two thresholds as `ago` in
+   * lib/tls.js, which is what `npm run swap:status` prints — the terminal and this card
+   * are two readouts of one fact, and two of them rounding differently is how "checked
+   * 2h ago" here and "checked 89m ago" there turn into a question about which is right.
+   * It stops at hours for the same reason that one does: the alarming case is a small
+   * number that has stopped moving, not a large one.
+   */
+  function ago(at) {
+    const then = Date.parse(at || '');
+    if (!Number.isFinite(then)) return null;
+    const secs = Math.max(0, Math.round((Date.now() - then) / 1000));
+    if (secs < 90) return `${secs}s ago`;
+    if (secs < 5400) return `${Math.round(secs / 60)}m ago`;
+    return `${Math.round(secs / 3600)}h ago`;
+  }
+
+  /**
+   * How the certificate is doing, in a phrase.
+   *
+   * The days come off the disk (`certificateState`) and the check comes off the socket
+   * (`serving.checkedAt`, stamped on the live listener by the renewal loop on every
+   * tick) — two facts, and the card is unreadable without both. A certificate with
+   * eighty-nine days left and a loop that last looked six weeks ago is a dead loop, and
+   * neither number says that on its own: the calendar keeps counting down whether or not
+   * anything is still renewing it, and this card was previously showing exactly that
+   * state as healthy.
+   *
+   * Nothing is said when the field is absent, which is the ordinary answer from a router
+   * older than it — it cannot hot-swap itself, so its snapshot predates a deploy until a
+   * `launchctl kickstart`. Silence there is the point: a card that guessed "checked just
+   * now" from the fact that it had *something* to draw would be asserting the one thing
+   * this is here to detect.
+   *
+   * No threshold is applied to the number on purpose. How old is too old is the renewal
+   * loop's own cadence, which is not on the wire — so this says when, plainly, and lets
+   * the reader compare it against a clock rather than inventing a limit here that the
+   * loop has never agreed to.
+   */
   function certPhrase(t) {
     if (!t.name) return 'Tailscale has not named this Mac yet — `tailscale status` did not answer.';
     if (!t.have) return `No certificate for ${t.name} yet.`;
+    const checked = ago(t.serving?.checkedAt);
+    const since = checked ? `, checked ${checked}` : '';
     // Expired is a fact about the calendar and not about whether there is one: the
     // daemon keeps serving it on purpose (bc-jv86), so this says which of the two.
-    if (t.expired) return `Certificate for ${t.name} — EXPIRED ${Math.abs(Math.round(t.daysLeft))} days ago.`;
+    if (t.expired) return `Certificate for ${t.name} — EXPIRED ${Math.abs(Math.round(t.daysLeft))} days ago${since}.`;
     const days = t.daysLeft === null ? 'an unreadable expiry' : `${Math.round(t.daysLeft)} days left`;
-    return `Certificate for ${t.name} — ${days}${t.renewing ? ', renewing' : ''}.`;
+    return `Certificate for ${t.name} — ${days}${t.renewing ? ', renewing' : ''}${since}.`;
   }
 
   /**
