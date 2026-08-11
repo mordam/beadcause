@@ -33,6 +33,7 @@ import http from 'node:http';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { freePort } from './helpers/net.mjs';
+import { removeTreeSync } from './helpers/tmp.mjs';
 
 import {
   DEFER_CEILING_MS,
@@ -212,9 +213,40 @@ for (const stream of [router.stdout, router.stderr]) {
   });
 }
 
+/**
+ * Stop the router and wait until it is genuinely gone.
+ *
+ * `kill()` only delivers the signal. The router answers it by stopping its backend and
+ * closing its servers — both of which are still writing under `dir` while it does — and
+ * only exits 300ms later. A removal fired in that window walks a directory something else
+ * is still using, and `rmdir` on a directory that gained a file since it was read is
+ * ENOTEMPTY: bc-t69u, printed as an uncaught stack from the exit handler below, after all
+ * 36 checks had passed. `force: true` never covered it — `force` is about a path that is
+ * *not* there, and this is a path that is more there than it was a moment ago.
+ *
+ * There is no `quiesce()` for a spawned process; waiting for its `exit` is the same idea.
+ * It has to happen here rather than in the exit handler, because an exit handler is the
+ * one place in a process that cannot wait for anything.
+ */
+const stopRouter = (graceMs = 5000) =>
+  new Promise((resolve) => {
+    if (router.exitCode !== null || router.signalCode !== null) return resolve();
+    const timer = setTimeout(() => router.kill('SIGKILL'), graceMs);
+    router.once('exit', () => {
+      clearTimeout(timer);
+      resolve();
+    });
+    router.kill('SIGTERM');
+  });
+
 const cleanup = () => {
-  if (!router.killed) router.kill('SIGKILL');
-  fs.rmSync(dir, { recursive: true, force: true });
+  // `killed` only says a signal was sent, so it reads true for a router that is ignoring
+  // one. What decides whether there is still a process here is whether it has exited.
+  if (router.exitCode === null && router.signalCode === null) router.kill('SIGKILL');
+  // `removeTreeSync`, not a bare `rmSync` — see test/helpers/tmp.mjs. A throw in an exit
+  // handler is an uncaught exception on the way out, and it cannot even change an exit
+  // code that is already set: the run stays green while printing a stack that reads red.
+  removeTreeSync(dir);
 };
 process.on('exit', cleanup);
 process.on('SIGINT', () => process.exit(130));
@@ -295,10 +327,14 @@ try {
     routerLog.filter((l) => /could not bring up/.test(l))[0]
   );
 
-  router.kill('SIGTERM');
 } catch (err) {
   bad('the run itself', err.stack || err.message);
 }
+
+// On both paths, not just the one that got this far: a run that threw left a router
+// behind too, and that one has a backend still coming up under `dir`. Before the summary
+// as well, so anything the shutdown says is in the log if the log is about to be printed.
+await stopRouter();
 
 if (failures) {
   console.log('\n--- router log ---');

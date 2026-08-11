@@ -9994,6 +9994,20 @@ would pass against a `quiesce()` that did nothing. Filed as bc-5uy8; bc-3qsw, bc
 bc-t69u and bc-94c6 are the same failure in `reap.mjs`, `superseded.mjs`, `slowstart.mjs`
 and `outagepush.mjs`, and each is a two-line change now that the helper exists.
 
+`slowstart.mjs` is done (bc-t69u), and it is the one that needed a third line — because
+the writer it races is not in the test process at all. Its scratch directory *is* the
+router's `BEADCAUSE_CONFIG_DIR`, so the `git init` that collides with the removal belongs
+to a grandchild: the backend, snapshotting. `quiesce()` cannot reach that one. The pending
+timer it flushes is module state, and the module holding it is in another process
+entirely — a flush here would wait on a timer nobody set. What stands in for a quiesce
+across a process boundary is waiting for the process. `kill()` only delivers the signal;
+the router then spends 300ms stopping its backend and closing its servers, and all of that
+is writing under the directory about to be removed. So the suite now awaits the router's
+`exit` before it prints its summary, and the exit handler uses `removeTreeSync` for
+whatever is still draining after that. What the bug looked like from outside was eighteen
+`beadcause-slow-*` directories sitting in `$TMPDIR`, one of them the exact `r3fCPl` named
+in the bead.
+
 ### A suite must not assert about a directory it does not own — `test/browse.mjs`
 
 The same shape as the teardown above, from the other side: not a suite whose cleanup
