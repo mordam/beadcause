@@ -21,7 +21,14 @@
    perfectly well. The version is also what evicts anything a v20 worker cached while
    the session had expired: it was network-first, so a redirect to /login could have
    been stored under `/`. */
-const CACHE = 'beadcause-v21';
+/* v22: the space picker. `/spacebar.js` is a new path *and* every page's own script now
+   asks it what to draw — app.js, prs.js, monitor.js, console.js and foundations.js all
+   register on it — so a phone holding v21's cached app.js beside v22's picker would draw
+   a dropdown nothing obeyed, and a phone holding v22's app.js without the file would draw
+   the inbox with neither the picker nor the two chip rows it replaced: no way at all to
+   change which repo you are looking at. They have to arrive together, which is what a
+   cache version is for. */
+const CACHE = 'beadcause-v22';
 const SHELL = [
   '/',
   '/index.html',
@@ -39,6 +46,10 @@ const SHELL = [
   // without it now — it is the only way off a page — so it belongs in the shell
   // rather than being fetched once per page over a phone link.
   '/tabbar.js',
+  // The space picker in the top bar, on the same five pages and for the same reason: a
+  // page cached without it is a page with no way to change which repo the app is about,
+  // and on the inbox it is what the space and workspace chip rows became.
+  '/spacebar.js',
   // On every page that can open a detail drawer, and on both pages that can be one.
   '/drawer.js',
   '/doc.html',

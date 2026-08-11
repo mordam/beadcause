@@ -309,8 +309,8 @@ interrupt you*:
 ]
 ```
 
-The phone then shows a space row above the workspace chips, and picking a space
-narrows both the list and the chips below it.
+A space is then one of the things you can pick in the **space picker** at the top of
+every screen — see below.
 
 **And it narrows the notifications, not just the view.** The filter is stored on the
 server rather than per device, so the poller reads the same value the list is drawn
@@ -325,6 +325,88 @@ you press **All**:
 [beadcause] sophab/sp-4kd arrived quietly (outside the inbox filter: Work / acme)
 [beadcause] acme/cl-9x2 arrived quietly (Work is muted right now)
 ```
+
+### One space at a time — the picker in the top bar
+
+Beadcause reads every workspace under `~/beads/`, which in practice is every repo you
+have. That is right for a notification daemon and wrong for a screen: six repos of
+questions, advocates, pull requests and chats interleaved by priority is a list where
+the thing you are doing this hour sits three rows below something you will not touch
+for a month, and no sorting fixes it, because every one of those rows is legitimately
+live.
+
+So there is **one dropdown, in the top bar of every standing view**, and what it
+selects is what the whole app is about:
+
+```
+┌──────────────────────────────────────────────┐
+│  ●  ▣   3 waiting          ⌨️  ⚖️  ⟳          │
+│  ┌────────────────────────────────┐  ┌───┐   │
+│  │ beadcause · 3              ▾   │  │ 3 │   │
+│  └────────────────────────────────┘  └───┘   │
+└──────────────────────────────────────────────┘
+     Personal ─┬─ Personal — all · 4
+               ├─   beadcause · 3
+               ├─   sophab
+               └─   deluvia · 1
+     Climative ─── Climative — all · 12
+                   climative · 12
+     All spaces · 16
+```
+
+Pick `beadcause` and it is beadcause's questions in the inbox, beadcause's advocate on
+the advocate console, beadcause's pull requests on the board, beadcause's chats in the
+launcher and beadcause's agents on the foundations screen. Nothing else, anywhere. The
+count on the right is how many beads inside the selection are asking you something,
+and it is hidden at zero; a border in the accent colour is on the picker whenever
+something is being kept off the screen, because an app that looks identical showing you
+everything and showing you one sixth of it is an app you eventually stop trusting.
+
+**Both levels are offered, because both are things you mean.** "Climative, all of it"
+is a workday; "beadcause" is an hour. Each space's repos are listed under it, so the
+dropdown reads as the hierarchy it is, and a workspace in no configured space appears
+under `Other` — the same synthetic name the space row always used for it. Every
+configured repo gets a row whether or not anything is waiting in it: the picker is how
+you *reach* a quiet repo, and a list of only the noisy ones is one you cannot use to
+change the subject.
+
+**This replaced four separate controls.** The inbox had a space chip row and a
+workspace chip row; the chat launcher had its own repo tab bar with its own
+localStorage key; the foundations screen had a 📁 button that cycled workspaces; the PR
+board and the advocate console had nothing at all and showed you everything. Four
+states for one intention, so switching context meant setting the same thing in four
+places and still having two screens ignore you. Two of those controls survive as
+*faces* of the picker rather than copies of it — the launcher's repo tabs and the
+foundations 📁 write the same server-owned filter, so a tap on either moves the bar
+above it and every other page with it.
+
+**The selection is the server's, and it is the same value that decides whether your
+phone rings** (`POST /api/filter`, stored in `state.json`) — which is exactly what the
+section above describes, and it has not changed: a bead outside the selection arrives
+without a push, still files, still counts, and comes back the moment you widen. Two
+consequences worth knowing:
+
+- **Narrowing on the laptop narrows the phone.** One person with two devices should not
+  have them disagreeing about what they are working on.
+- **`All spaces` is still the default, and nothing narrows it for you.** A picker that
+  defaulted to one repo would silence five others for somebody who had never touched
+  it, and a question you were never told about is the failure this app exists to
+  prevent. Narrowing is a decision you make.
+
+The admin page deliberately has no picker: it is the one screen that acts on every repo
+at once, and a control it ignored would be a lie about what its buttons do.
+
+`GET /api/spaces` is what the four pages that never sweep the tracker draw the picker
+from — the spaces, the counts, the configured workspaces and the stored filter. It
+costs no `bd` call at all: the counts are cached off the last sweep, the way the "3
+waiting" chip beside it already is, so a control drawn on every page load cannot become
+a `bd human list` across every workspace on every page load.
+
+`node test/spacebar.mjs` (part of `npm test`) covers it, and the check that earns the
+suite is the one nobody can do by reading: the client's `matches()` and the server's
+`matchesFilter()` are run against each other over every combination of filter and
+workspace, because those two disagreeing in the direction "rings but is not shown" is a
+question you were told about and cannot find.
 
 ### And it offers to tidy up the noise it already made
 
@@ -868,8 +950,8 @@ Scrolling raises a **"5 of 9"** against the right edge, with a rail whose thumb 
 sized by how much of the list is on screen: how many above, how many below, how many
 in total, which several open questions otherwise give you no sense of at all. It fades
 out 1.6s after you stop, because it is a navigation aid and not a permanent fixture
-sitting on top of a card's buttons. It counts what the space and workspace chips have
-left in the list rather than what the server sent, and it is hidden entirely while a
+sitting on top of a card's buttons. It counts what the space picker has left in the
+list rather than what the server sent, and it is hidden entirely while a
 card is open — that card scrolls itself, and a count of the list underneath would be
 describing something you can't see.
 
@@ -1610,10 +1692,11 @@ and wrapping it would destroy the only alignment it has.
 The inbox is `bd human list` filtered to open, and that is the app's whole premise:
 a bead reaches your phone because it is *asking you something*. The cost of that
 premise is that a workspace with no `human` beads reads as completely idle — the
-Climative space chip said **0** while 54 beads were open in it and five were being
-worked on. Arithmetically correct, and indistinguishable from a broken app.
+Climative space said **0** in the picker while 54 beads were open in it and five were
+being worked on. Arithmetically correct, and indistinguishable from a broken app.
 
-So the **first row of filter chips** carries one setting, in three positions:
+So the **row of filter chips** under the top bar carries one setting, in three
+positions:
 
 | | shows | costs |
 |---|---|---|
@@ -1629,12 +1712,20 @@ means has to be *readable* without a tap; behind a gear, the only thing saying w
 "Climative 59" was not a count of questions was an accent border on the gear itself,
 and you had to already know what it meant.
 
-It sits above the space and workspace rows because it is the coarsest of the three —
-those two filter the rows that came back, this one decides which rows are fetched at
-all. That difference is drawn rather than written: the scope chips are banded into one
-segmented switch with a rule under it, and the filtering rows are loose pills below.
-Being the only unconditional row, it is also what stopped the filter nav from hiding
-itself when a workspace had a single space and a single repo in it.
+It sits directly under the space picker, and the two are genuinely different kinds of
+control rather than two filters stacked: the picker says which repo any of this is
+about — on every page in the app, and to the notifications — while the scope decides
+which rows are fetched at all, and only here. That difference is drawn rather than
+written: the scope chips are banded into one segmented switch with a rule under it, and
+the picker is a dropdown in the chrome above. The space and workspace chip rows that
+used to be here are gone; they were this page's private copy of a choice the whole app
+now shares.
+
+One thing follows from that and used to be the other way round: **switching scope no
+longer resets the repo.** It did when the workspace filter belonged to this page, on the
+grounds that it was probably pinned to the one workspace that had a question in it. Now
+the same value is on five screens and in the push decision, and a tap on `Both` must not
+quietly change what you are working on — here or on the phone in your pocket.
 
 Three things make this safe to widen:
 
@@ -2922,9 +3013,40 @@ The waiting list survives a restart, alongside the workers and for the same reas
 the windows are still open, and a daemon that forgot them would leave the pile this
 was written to clear. An observer instance signals nothing at all.
 
-Windows already open when this shipped are not swept up: their workers left the slot
-list long ago, so nothing knows their pids. Close them by hand once; everything from
-then on closes itself.
+##### The windows nobody is holding
+
+Everything above starts from a **worker**: a row on the slot list, carrying the pid the
+advocate launched. That is the narrowest possible claim to a window and it is why the
+signal is safe. It is also why it could not touch the pile it was written for — those
+windows had left the slot list hours or days before the feature existed, so nothing knew
+their pids and nothing was ever going to signal them. Same for any window open when the
+daemon was down: the session finished, the worker was reconciled away, and the window
+stayed.
+
+`sweepFinishedWindows` is the other end of the same job. It reads every live Claude Code
+session in the advocate's workspace — whether or not this daemon opened it — and puts the
+finished ones on the same closing list, where the four guards above decide the rest. That
+is a genuinely wider claim than a worker row, which is why it is its own setting rather
+than a detail of the one above, and why the two guards that replace the worker row are
+the two that carry the weight:
+
+| before a window with no worker is queued at all | why |
+|---|---|
+| its name **starts** with `DONE-` or `done-` | not a guess about the session — the session's own account of itself. Both the work brief and `rename-session.sh --done` write that prefix at the end of the work and nowhere else. A window that closed its bead and never got as far as renaming itself is missed on purpose: a session that did not finish its own protocol is a window somebody should read |
+| the bead named in that name is **closed** | guard 1 again, and the one that does the work here. The case this widening risks is a window of *yours*, opened by hand and named after a bead — and while that bead is open, nothing can reach it |
+| it has been **idle** for `sweepIdleMinutes` (default 20) | minutes rather than the 90 seconds a worker's window gets, because this window's identity is inferred from its *name* and not from a launch we made. Anybody actually reading it would have touched it inside twenty |
+
+The bead id is read out of the name as the left-most lowercase `prefix-slug` — the second
+field, ahead of the title — so a title may contain hyphenated words or mention other
+beads. `DONE-Beadcause` is that exact shape and is *not* an id: matching is
+case-sensitive, which is what tells a project name from a bead.
+
+The sweep looks every `sweepIntervalMinutes` (default 5) rather than every poll, because
+each candidate window costs a `bd show` and nothing makes one appear suddenly. It runs
+while an advocate is paused — pausing means "open no more sessions", not "leave the
+screen full" — and never while observing. `closeFinishedSessions: false` switches it off
+along with everything else in this section: an off switch that only delayed the signal by
+twenty minutes would not be one.
 
 #### Reclaiming a slot, by asking
 
@@ -3031,7 +3153,54 @@ them to ask GitHub.
 `.claude/worktrees-retired/`, the same soft delete the `ship` skill does by hand, so
 it is resumable. The branch is kept deliberately — `git branch -d` refuses a branch
 checked out in another worktree, and the branch is what makes the retirement
-reversible. Retired worktrees accumulate; nothing here ever removes one.
+reversible.
+
+#### Emptying the attic
+
+A soft delete nothing ever hardens is a rename. Retiring ran unattended every fifteen
+minutes; the only thing that ever *emptied* `.claude/worktrees-retired/` was a shell
+script in the `ship` skill, which runs when a human ships — so on this repo the attic
+reached **a hundred entries and 1.2 GB in two days**, and bc-2v7k was filed against it.
+The half that fills was automatic and the half that empties was not.
+
+So the same tick now does both. After the sweep retires, `expireRetired` removes what
+has outlived its resumability: older than `tidyAtticDays` by the `.note` stamp, plus
+every gate the retirement itself had to pass — unlocked, on a branch, nobody's `cwd`
+inside it, no *tracked* modifications, contained in main or merged as a pull request,
+and not named by a live handoff in `.claude/handoffs/`. Anything failing one is kept
+and named, exactly as above. Removal is `git worktree remove`, never `rm -rf`, and the
+branch survives the directory. Unregistered directories are ignored rather than
+removed: one means somebody moved things by hand, which is a thing to look at.
+
+**The removal takes `--force`, and that is not a loosened gate.** `git worktree remove`
+refuses a worktree carrying *untracked* files, and a retired worktree is allowed to carry
+them — that is what the soft delete is for. Without the flag such an entry passes all
+seven gates and then loses to git on the last line, permanently: two of the 105 entries
+in the attic that filed this were in exactly that state, and no amount of waiting would
+have moved them. (Ignored files are fine unforced — git objects only to untracked ones,
+which is worth knowing before assuming a `node_modules` symlink is the problem.)
+`test/attic.mjs` caught this on its first run. A single `--force` covers the unclean case
+and nothing else — a *locked* worktree needs two, and the lock gate means this never
+reaches one; tracked edits and unmerged commits were both refused several gates earlier,
+on their own evidence.
+
+**Occupancy is compared through symlinks.** git reports worktree paths fully resolved
+and a session's `cwd` keeps whatever prefix it started with — on macOS `/var/folders/…`
+and `/private/var/folders/…` are one directory sharing none of their first eight
+characters. Compared with `path.resolve` alone, the check that stops a worktree being
+taken out from under somebody answers "nobody is in it" every time.
+
+An entry with no `.note` is kept forever and says so. Directory mtime is the only other
+signal and it is the wrong one — a background process touching a file is not somebody
+resuming a session, and it is the difference between keeping a directory and deleting
+it. `prune-retired.sh --backfill` is where a stamp gets invented, under a human.
+
+**Ancestry is asked of `origin/main`, not `main`.** Nothing merges locally any more, so
+the local `main` branch stays wherever the last `git pull` left it while GitHub moves
+the real one — on this checkout the gap was *fifty commits*, and eight retired worktrees
+were being described as "not merged into main" over work that had shipped two days
+earlier. Both sweeps ask `origin/main` first and fall back to `main` for a repo with no
+remote, which is also what stops a stale local ref from quietly holding the attic shut.
 
 **A `STRAY` row in the attic sweep is worth distrusting before you act on it.** The
 sweep lives outside this repo, but what it reports about `.claude/worktrees-retired/`
@@ -4420,7 +4589,13 @@ The limits, stated plainly:
   again with no tap), and an ntfy push goes to the phone — the same argument as the
   certificate warning, since every other channel this daemon has runs through the
   backend that is missing. A recovery push follows, because an alarm you are never told
-  is over is an alarm you learn to ignore.
+  is over is an alarm you learn to ignore. All three surfaces are tested against a real
+  router driven into the outage on purpose: `test/slowstart.mjs` for the log and the
+  503, and `test/outagepush.mjs` for the push, which points `ntfy.server` at a ten-line
+  http server inside the test and asserts that exactly one outage push arrives however
+  many bring-ups fail after it, that it names the build, and that the recovery push
+  arrives too. The push was the one surface with no test for a while, which is the wrong
+  way round — it is also the only one that works when nobody is at the Mac.
 - **And the degraded half of that is on the advocate console.** `/api/work` carries
   `router` beside `service`: one dim line naming the build being served on a good day,
   and an amber block when the phone is on an older build than the disk — because the
@@ -4885,13 +5060,14 @@ cookie says so), and `/auth/signout` ends the session.
 | POST | `/api/respond` | `{workspace, id, response, create?, edits?}` | comments, then closes the bead. `create` is the 1-based indices of a proposal's beads to file; without it, `CREATE:` in the text means all and `CREATE: 1,3` means those. `edits` is `{n: {title, type, priority, description, acceptance}}` keyed by the same numbers, applied before creating. A `MERGE:` / `CHANGES:` / `DECLINE:` response on a delivery question acts on its pull request first — see [Landing work](#landing-work--a-branch-a-pull-request-and-the-workers-own-merge) |
 | GET | `/api/pr` | `?workspace=&id=` | `{delivery, pr, unavailable}` — the live diffstat, check rollup and mergeability of a delivery question's PR. Every failure is an answer rather than a 500: no `gh`, no remote, GitHub unreachable all come back with `pr: null` and a sentence in `unavailable` |
 | GET | `/api/prs` | `?refresh=1` | the PR board: every pull request in every repo with its Merged · Pushed · Deployed lamps, plus `observing`. Cached 25s on the daemon; `refresh=1` forces the `gh` sweep |
-| POST | `/api/pr/merge` | `{workspace, number, method?}` | merges it at GitHub, then fast-forwards this Mac's `main`. The two halves report separately — `{pr, alreadyMerged, land}` — because a merge that landed and a fast-forward refused over open files is a *good* outcome and one flat failure over both would send you to GitHub to find out which |
+| POST | `/api/pr/merge` | `{workspace, number, method?}` | merges it at GitHub, fast-forwards this Mac's `main`, and retires the inbox's own "Merge #N?" card if a worker filed one. Three halves report separately — `{pr, alreadyMerged, land, cards}` — because a merge that landed and a fast-forward refused over open files is a *good* outcome and one flat failure over both would send you to GitHub to find out which. The card is **closed**, never answered: merging a pull request is a fact, and the card is spent because of that fact rather than because anything wrote `MERGE:` under your name |
 | POST | `/api/pr/ship` | `{workspace, number}` | the declared deploy where the repo has one, an iTerm session where it does not. `409` if the PR is not merged — shipping an unmerged pull request has no meaning. Refused on an observer |
 | POST | `/api/release/ship` | `{workspace}` | ships the whole release queue — one deploy for every merge sitting on `origin` and not live, which is what a deploy has always done anyway. `409` on an empty queue (a restart for nothing), on a repo that declares no deploy (there is no window that means "and the other three"), and on one already deploying. Refused on an observer |
 | POST | `/api/pr/comment` | `{workspace, number, text}` | a note on the pull request at GitHub and nothing else. Not `/api/comment`, which writes on a *bead* and puts an agent onto answering it |
 | POST | `/api/comment` | `{workspace, id, text, agent?}` | comments, sets `human-replied`, dispatches that agent to reply (default when absent or unknown) |
 | POST | `/api/dismiss` | `{workspace, id, reason?}` | takes the card off the screen and **closes nothing**. Writes your note if you typed one, writes nothing at all if you did not, and never touches the status — "I am not dealing with this now" is not "this is decided" |
 | POST | `/api/filter` | `{space, workspace}` | which slice the inbox is, remembered server-side so every client agrees and the notifications match. Each is a name or `all`, bounded at 120 characters. Widening forgets what you had declined |
+| GET | `/api/spaces` | — | what the [space picker](#one-space-at-a-time--the-picker-in-the-top-bar) draws: `{spaces, workspaces[], counts, filter, waiting}`. Costs no `bd` call — the counts are cached off the last sweep — because it is fetched on every page load of every standing view |
 | POST | `/api/notifications/dismiss` | `{keys[], confirm}` | clears the phone's notification rows for beads the filter excludes. `confirm: false` records the decline, which is what stops the next sweep asking again. The beads are untouched either way |
 | POST | `/api/ask` | `{workspace, title, body, priority}` | `{id, key}` — files a new `human` bead |
 | POST | `/api/session` | `{workspace, id}` | `{dir}` — opens iTerm2 + `claude` on that bead |
@@ -4902,6 +5078,10 @@ cookie says so), and `/auth/signout` ends the session.
 | GET | `/api/graph` | `?workspace=&id=` | `{nodes, links}` — the whole workspace with no `id` |
 | GET | `/api/bead` | `?workspace=&id=` | one issue in full, plus `comments[]` — for the graph's detail sheet |
 | GET | `/api/bead-children` | `?workspace=&id=` | `{children[]}` — every child of that bead, closed ones included, open work first. Its own route because `bd show` does not carry children |
+| POST | `/api/bead/endorse` | `{workspace, id}` or `{workspace, ids[]}` | takes the `unendorsed` marker off, so the bead becomes ordinary work an advocate will queue and a session can be opened on. **Idempotent** — two taps are one endorsement, no error, no second write — and the one verdict that may be aimed at a bead that is not held |
+| POST | `/api/bead/revoke` | `{workspace, ids[], reason?}` | closes it with your reason under a fixed prefix, and **leaves the marker on**: what an agent filed and what you thought of it both stay on the record. A bead already closed is `already: true` rather than an error; one already endorsed is a `409` |
+| POST | `/api/bead/adjust` | `{workspace, ids[], edits, endorse?}` | the ✎ of the proposal card, aimed at a bead that exists. `edits` may name `title, type, priority, description, acceptance, labels`, through the same clamps a proposed bead goes through; the two labels the daemon owns (`unendorsed`, `agent-filed`) are not yours to set. **Keeps the marker** unless `endorse: true`. A title may not be given to a group |
+| POST | `/api/bead/changes` | `{workspace, ids[], note}` | your objection on the thread and nothing else — the bead stays held, so the next session that touches it reads what is wrong instead of re-filing it next week. The note is required, because a changes-requested with nothing said is indistinguishable from having done nothing |
 | GET | `/api/work` | — | `{workspaces[], elsewhere[], advocates[], service, router}` — per workspace: claimed beads, live `claude` sessions, counts, errors. `service` is what launchd is running; `router` is whether that program is actually serving anything, or is on an older build than the disk — see the router section. `router` is `null` under `npm run start:bare`, where there is no router |
 | GET | `/api/agents` | — | `{agents[], default}` — the roster you can address a comment to |
 | POST | `/api/agents` | `{name, description}` | creates one and returns the new roster. `tools` is never accepted here |
@@ -5050,6 +5230,7 @@ the fields it always read and renders exactly as it did.
 | `advocates.respectQuietHours` | a quiet space's advocate watches without launching (default `true`) |
 | `advocates.tidyWorktrees` | retire merged, clean, unlocked worktrees after a session ends (default `true`) — moved to `.claude/worktrees-retired/`, never deleted |
 | `advocates.tidyIntervalMinutes` | how often it sweeps when nothing has just finished (default 15) |
+| `advocates.tidyAtticDays` | how long a retired worktree stays in `.claude/worktrees-retired/` before the same sweep removes it for good (default 2). `0` keeps the attic forever, which is what this did before — and fractional values are honoured, so a removal rule can be rehearsed at `0.01` on a real attic |
 | `advocates.reconcileLanded` | close beads whose pull request was merged **on github.com** rather than from a card (default `true`). Without it such a bead stays open, stays in `bd ready`, and the advocate opens fresh sessions on work already in `main` |
 | `advocates.landedIntervalMinutes` | how often that asks GitHub (default 10). It also asks *unconditionally* right before opening a session, whatever this says — being late there costs a whole session |
 | `advocates.sessionLog` | archive each finished session to `refs/beadcause/sessions/<bead>` and note its commits (default `true`) |
@@ -5057,6 +5238,8 @@ the fields it always read and renders exactly as it did.
 | `advocates.closeFinishedSessions` | [close a work session's window once its bead is closed](#closing-the-window--a-session-that-has-finished-should-not-still-be-on-screen) (default `true`). `false` leaves every window open, which is what it did before |
 | `advocates.closeGraceSeconds` | how long an idle session gets between its bead closing and the first signal (default 90) |
 | `advocates.closeHardSeconds`, `advocates.closeGiveUpMinutes` | how long `SIGTERM` gets before `SIGKILL` (default 45), and how long the whole thing gets before it gives up and leaves the window for you (default 30 min) |
+| `advocates.sweepFinishedWindows` | [also close finished windows no advocate is holding a worker for](#the-windows-nobody-is-holding) — the ones already open when the above shipped, and any left by a daemon that was down (default `true`). Only a name starting `DONE-`, only a closed bead; `false` leaves your own windows where you put them |
+| `advocates.sweepIdleMinutes`, `advocates.sweepIntervalMinutes` | how long such a window must have been idle first (default 20), and how often the sweep looks at all (default 5) |
 | `agents` | extra reply agents beyond the four built in — `{id, name, emoji, description}`, plus `tools`/`model` if you set them by hand |
 | `defaultAgent` | which one answers when you haven't picked (default `answerer`) |
 | `agents[].tools` | the allowlist that agent may be *armed* with, for one reply at a time. Config-file only — see [Allow tools](#allow-tools--for-one-comment-and-only-that-one) |

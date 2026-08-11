@@ -309,6 +309,29 @@
 
   /* ------------------------------------------------------------- the release queue */
 
+  /* The two numbers this board is about, as predicates, so the card head and the tab
+     badge cannot drift apart on what "to ship" means. The rule itself belongs to
+     `count()` in lib/prboard.js — this is the same rule applied to a *subset*, which is
+     what the space picker makes possible: the server counts every repo, and a board
+     showing one of them must not carry the other six on its tab. */
+  const isOpen = (p) => p.stage === 'open';
+  const isOwed = (p) => p.stage === 'merged' || (p.stage === 'pushed' && p.deployTracked);
+
+  /** Is this repo in the selected space? See public/spacebar.js. */
+  const inSpace = (r) => window.beadcause?.space?.matches?.(r.workspace) ?? true;
+
+  /**
+   * How many merges this repo owes a ship — the daemon's queue where it sent one, the
+   * predicate above where it did not.
+   *
+   * The two answer the same question and the queue is the better answer: it counts what
+   * a deploy would actually pick up, so a merge nobody has fetched is out of it and one
+   * covered by a deploy that has already run is too. See lib/release.js. The fallback is
+   * not dead code — an observer, or a phone left open across a daemon that predates the
+   * queue, gets a board with no `release` on its cards and must still say a number.
+   */
+  const owedIn = (c) => (c.release ? c.release.count : c.prs.filter(isOwed).length);
+
   /**
    * What one deploy of this repo would make live, and the number on the button.
    *
@@ -373,14 +396,8 @@
   }
 
   function repoHtml(c) {
-    const open = c.prs.filter((p) => p.stage === 'open').length;
-    // The queue where the daemon computed one, and the board's own older reckoning
-    // where it did not — an observer, or a payload from a daemon predating /api/prs
-    // carrying `release`. The two agree on this repo; only the queue counts what a
-    // deploy would actually pick up. See lib/release.js.
-    const owed = c.release
-      ? c.release.count
-      : c.prs.filter((p) => p.stage === 'merged' || (p.stage === 'pushed' && p.deployTracked)).length;
+    const open = c.prs.filter(isOpen).length;
+    const owed = owedIn(c);
     const summary = [open ? `${open} open` : '', owed ? `${owed} to ship` : '', c.error ? 'error' : '']
       .filter(Boolean)
       .join(' · ');
@@ -559,7 +576,11 @@
    * strip is the only thing on the page that can say why.
    */
   function deploysHtml() {
-    const list = deploys();
+    // A deploy belongs to the repo it ships, so the strip narrows with everything else.
+    // The banner does not: a restart of beadcause itself is why this page is blank, and
+    // suppressing the one line that says so because the deploy was of another repo
+    // would leave the screen unexplained.
+    const list = deploys().filter(inSpace);
     const banner =
       state.gone && restarting()
         ? `<p class="deploy-banner">beadcause is restarting — that is the deploy. This page comes back on its own.</p>`
@@ -605,7 +626,11 @@
     // trackers rather than GitHub repos — was eight hundred pixels of scrolling past
     // the word "none" to reach a build line. They are still named, because "which
     // repos did it even look at" is a question this screen has to answer.
-    const repos = d.repos || [];
+    // Only the repos in the selected space. Which is also why the "nothing here" line
+    // below distinguishes the two ways of being empty: no repos at all is a
+    // configuration to go and fix, and no repos *in this space* is one tap from being
+    // undone in the bar above.
+    const repos = (d.repos || []).filter(inSpace);
     const quiet = repos.filter((r) => !r.prs.length && !r.error);
     const cards = repos.filter((r) => r.prs.length || r.error).map(repoHtml).join('');
     const rest = quiet.length
@@ -616,7 +641,9 @@
     // The build line rides under the cards rather than in the header: it is the
     // footnote that defines the third lamp, and it only means something once you have
     // seen one.
-    return cards || rest ? stale + cards + rest + build : `${stale}<div class="empty">No workspaces configured.</div>`;
+    if (cards || rest) return stale + cards + rest + build;
+    const only = (d.repos || []).length ? ` in ${esc(window.beadcause?.space?.label?.() || 'this space')}` : '';
+    return `${stale}<div class="empty">${only ? `No repos${only}.` : 'No workspaces configured.'}</div>`;
   }
 
   function render() {
@@ -629,13 +656,16 @@
     // decisions plus merged work that is not running. Set from here rather than from
     // the inbox's poll, because this is the only page that fetches the board.
     if (state.data) {
-      const c = state.data.counts || {};
-      // The release queue where the daemon computed one, `owed` where it did not — the
-      // two answer the same question and only the first counts what a deploy would
-      // actually pick up. See `count` in lib/prboard.js and lib/release.js.
-      const ship = c.ship ?? c.owed ?? 0;
-      const n = (c.open || 0) + ship;
-      window.beadcause?.tabBadge?.('prs', n, n ? `${plural(c.open || 0, 'open pull request')}, ${ship} to ship` : '');
+      // Counted over the repos in the selected space rather than read off
+      // `state.data.counts`, which is every repo the server looked at. A badge that
+      // counted six repos over a board showing one would be the tab arguing with the
+      // page it opens. Summed per card rather than over the flattened rows, because
+      // the release queue is a fact about a repo — see `owedIn`.
+      const cards = (state.data.repos || []).filter(inSpace);
+      const open = cards.flatMap((r) => r.prs).filter(isOpen).length;
+      const owed = cards.reduce((n, r) => n + owedIn(r), 0);
+      const n = open + owed;
+      window.beadcause?.tabBadge?.('prs', n, n ? `${plural(open, 'open pull request')}, ${owed} to ship` : '');
     }
 
     window.scrollTo(0, scrollY);
@@ -752,11 +782,21 @@
         // Both halves, always. A merge that landed and a fast-forward that was refused
         // because there is uncommitted work in the checkout is a good outcome, and one
         // word over the pair would send you to the Mac to find out which happened.
+        //
+        // And the third half where there was one: merging here spends the inbox's own
+        // "Merge #N?" card, and a card that vanishes from another screen with nothing
+        // said about it is indistinguishable from a card that was never there. What is
+        // reported is the *bead* rather than the card id, because the bead is what you
+        // were waiting on — the card was only how it was asked.
+        const closed = (data.cards || []).filter((c) => c.closed);
+        const beads = closed.map((c) => c.work?.closed && c.bead).filter(Boolean);
         state.said = {
           key,
-          text: `${data.alreadyMerged ? `#${p.number} was already merged` : `Merged #${p.number}`} — ${
-            data.land?.note || 'nothing else to do here'
-          }.`,
+          text:
+            `${data.alreadyMerged ? `#${p.number} was already merged` : `Merged #${p.number}`} — ${
+              data.land?.note || 'nothing else to do here'
+            }.` +
+            (closed.length ? ` Closed its inbox card${beads.length ? ` and ${beads.join(', ')}` : ''}.` : ''),
           bad: false,
         };
       } else if (action === 'ship') {
@@ -869,8 +909,9 @@
       if (state.first) {
         state.first = false;
         // Unfold the repo with something to act on — arriving at a closed heading
-        // would make the fold cost a tap on every visit for no reason.
-        state.card = (state.data.repos || []).find((r) => r.prs.length)?.workspace || null;
+        // would make the fold cost a tap on every visit for no reason. Inside the
+        // selected space, or it would unfold a card this board is not drawing.
+        state.card = (state.data.repos || []).find((r) => r.prs.length && inSpace(r))?.workspace || null;
       }
       state.error = null;
       render();
@@ -963,6 +1004,17 @@
   }
 
   window.beadcause?.presence?.report({ view: 'prs' });
+
+  /* The space picker moved — on this device or on the other one. Nothing is refetched:
+     the board already holds every repo, and which of them is drawn is a decision made
+     at paint time. An open card in a repo that has just been filtered away is closed
+     with it, or reopening the space would leave a fold nobody remembers opening. */
+  window.beadcause?.space?.onChange(() => {
+    if (state.card && !(state.data?.repos || []).some((r) => r.workspace === state.card && inSpace(r))) {
+      state.card = null;
+    }
+    render();
+  });
 
   document.getElementById('prs-refresh').addEventListener('click', () => {
     loadDeploys();
