@@ -40,7 +40,14 @@
    neither the door nor the page behind it, and one holding the old `/` beside a v24
    daemon would show a top-bar button that 404s out of the cache the moment the tailnet
    is slow. The page they have to arrive with is the whole point of the version. */
-const CACHE = 'beadcause-v24';
+/* v25: /monitor became the space details screen — the selected space's own settings,
+   written from the page through `POST /api/space`, plus a gear to /admin. No new path:
+   monitor.html, monitor.js and style.css are all already in the shell. The version is
+   what makes the three arrive together, and they have to: a phone holding v24's cached
+   monitor.js beside v25's monitor.html would draw a gear over a page with no settings
+   card, and one holding v25's script against v24's stylesheet would draw seven controls
+   with no layout at all — a wall of unstyled buttons over the advocate cards. */
+const CACHE = 'beadcause-v25';
 const SHELL = [
   '/',
   '/index.html',
