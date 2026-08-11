@@ -7,7 +7,7 @@ import { beginShutdown, installCrashHandlers } from '../lib/crash.js';
 import { declareOwnDeploy, ownWorkspace } from '../lib/deploy.js';
 import { hotSwapProblem, problemBanner } from '../lib/service.js';
 import { attachTerminalSocket, releaseSockets } from '../lib/termsocket.js';
-import { closeServer, startRenewal } from '../lib/tls.js';
+import { cleartextWarning, closeServer, startRenewal } from '../lib/tls.js';
 import { pushCertificate } from '../lib/notify.js';
 import { startSlack, slackStatusLine, slackTokenWarnings } from '../lib/slack.js';
 import { repoStatusLine, repoWarnings } from '../lib/repos.js';
@@ -37,8 +37,22 @@ const startStandby = process.argv.includes('--standby');
 
 const setupUrl = `${cfg.baseUrl}/?t=${cfg.token}`;
 
+/**
+ * The one thing this Mac knows about the link it is handing out that the person taking
+ * it does not: whether the Android app will accept it — bc-affn.
+ *
+ * **On stderr, every time, because stdout here is a value rather than a display.**
+ * `--url` is piped into shell scripts (scripts/install.sh, the QR page, anything that
+ * wants the address), and a warning mixed into that would be a URL nothing can use.
+ * `cleartextWarning` answers null for the https case, so the ordinary run stays silent.
+ */
+const sayIfCleartext = () => {
+  for (const line of cleartextWarning(cfg.baseUrl) || []) console.warn(`[beadcause] ${line}`);
+};
+
 if (process.argv.includes('--url')) {
   console.log(setupUrl);
+  sayIfCleartext();
   process.exit(0);
 }
 
@@ -81,6 +95,9 @@ if (process.argv.includes('--qr')) {
   } catch {
     console.log('  (no APK published yet — npm run android)\n');
   }
+  // Last, so it is what is still on screen when somebody walks off with the phone —
+  // and after both codes, because the http one is the address in both of them.
+  sayIfCleartext();
   process.exit(0);
 }
 

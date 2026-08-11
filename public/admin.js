@@ -689,6 +689,13 @@
              Open the new address here, or scan it on another device.`
           : 'Nothing moved, so nothing was signed out. The code is here anyway.'
       }</p>
+      ${
+        view.pairing.appRefuses
+          ? `<p class="admin-warn"><strong>This code pairs a browser, not the Android app.</strong> The address is plain
+             http, and the app only sends its token to <code>https://…ts.net</code> — scanning this on the app gets a
+             refusal, with the fix back up there under <strong>HTTPS</strong>.</p>`
+          : ''
+      }
       <div class="tls-qr">${view.pairing.qr}</div>
       <div class="admin-btns">
         <a class="primary" href="${esc(view.pairing.url)}">Open ${esc(hostOf(view.pairing.origin))}</a>
