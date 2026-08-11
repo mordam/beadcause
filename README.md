@@ -3304,6 +3304,55 @@ advocate emits several events a minute, so the page it matters on is the busy on
 
 With the app open and nothing moving, the daemon now logs no periodic sweeps at all.
 
+#### The last timer, and the event that deleted it
+
+One wall-clock timer survived that sweep, on the PR board, and it is worth saying why —
+because the reason was not "the deploy strip is special", it was a gap in the log.
+
+The strip at the top of `/prs` answers *is something being made to run, right this
+second?* Its own subject genuinely cannot come off an event: the steps inside a deploy
+are a file being written on this Mac by a detached runner, and no event carries them, so
+while something is live the strip asks `/api/deploys` every four seconds and always
+will. That is not the timer that mattered. The one that mattered was the **idle** tick —
+every thirty seconds, on every open board, for as long as one was open — and it existed
+to answer a question nobody on that page could otherwise ask: *has a deploy started
+somewhere else?* The Ship button on another device, an agent's own `POST /api/deploy`,
+[the release queue shipping itself](#deploying-a-repo-when-it-says-how). Deleting it
+would have meant a deploy running for up to its whole duration with nothing on a second
+screen saying so, which on this repo is a daemon being SIGKILLed under a phone that
+thinks it is idle.
+
+The gap was that `bus.emit({type: 'deploy'})` fired only when a deploy **settled**. The
+daemon knew perfectly well when one began — every one of the five ways to start a deploy
+goes through one function in `lib/server.js` — it simply never said. It says now, and
+the idle tick is gone: an idle board holds a socket, asks for nothing, and switches to
+its fast clock in the moment something begins shipping.
+
+**It is the same event type for both, and the record's `status` is the difference.**
+`queued` on the way in, and a settled word — `ok`, `failed`, `unconfirmed`, `lost` — on
+the way out. That was the cheaper half of the choice by a long way: a second type would
+have had to be added to `BOARD_EVENTS` in `public/stream.js` and to every other list of
+event names that has to stay in step with it, in exchange for a fact already in the
+payload. A client that knows which statuses a runner still owns tells "started" from
+"settled" without a second request; one that does not goes and asks, which is what every
+consumer of this event did before it existed.
+
+**The fallback is the part to not delete later.** A board whose stream is not following
+has nothing left to wake it, and a strip that has quietly stopped refreshing looks
+exactly like a strip with nothing to say — the one failure the whole move onto the log
+must not introduce. So the thirty-second tick is still in the file and is used whenever
+`stream.following` is false: a service-worker shell cached before `stream.js` existed, a
+proxy that answers `/api/poll` and keeps no log, the gap between a broken poll and its
+next retry. `public/stream.js`'s `onSettle` is what tells the strip to put its clock
+back, which is exactly what that callback is for.
+
+`node test/deploystart.mjs` holds both halves: the start event out of the real
+`/api/poll` at a real socket, that `lib/server.js` starts a deploy in exactly one place
+so a sixth call site cannot forget to announce, and — with the real `public/prs.js` and
+the real `public/stream.js` in a `vm` against a fake clock — that an idle board sets no
+timeout, that a `deploy` event alone turns the fast tick on, and that a page with no
+stream behind it keeps the old one.
+
 ### Filled once is not kept warm
 
 The background fill above has a limit that took a while to show itself, because it is
