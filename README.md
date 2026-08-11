@@ -2872,9 +2872,40 @@ The waiting list survives a restart, alongside the workers and for the same reas
 the windows are still open, and a daemon that forgot them would leave the pile this
 was written to clear. An observer instance signals nothing at all.
 
-Windows already open when this shipped are not swept up: their workers left the slot
-list long ago, so nothing knows their pids. Close them by hand once; everything from
-then on closes itself.
+##### The windows nobody is holding
+
+Everything above starts from a **worker**: a row on the slot list, carrying the pid the
+advocate launched. That is the narrowest possible claim to a window and it is why the
+signal is safe. It is also why it could not touch the pile it was written for — those
+windows had left the slot list hours or days before the feature existed, so nothing knew
+their pids and nothing was ever going to signal them. Same for any window open when the
+daemon was down: the session finished, the worker was reconciled away, and the window
+stayed.
+
+`sweepFinishedWindows` is the other end of the same job. It reads every live Claude Code
+session in the advocate's workspace — whether or not this daemon opened it — and puts the
+finished ones on the same closing list, where the four guards above decide the rest. That
+is a genuinely wider claim than a worker row, which is why it is its own setting rather
+than a detail of the one above, and why the two guards that replace the worker row are
+the two that carry the weight:
+
+| before a window with no worker is queued at all | why |
+|---|---|
+| its name **starts** with `DONE-` or `done-` | not a guess about the session — the session's own account of itself. Both the work brief and `rename-session.sh --done` write that prefix at the end of the work and nowhere else. A window that closed its bead and never got as far as renaming itself is missed on purpose: a session that did not finish its own protocol is a window somebody should read |
+| the bead named in that name is **closed** | guard 1 again, and the one that does the work here. The case this widening risks is a window of *yours*, opened by hand and named after a bead — and while that bead is open, nothing can reach it |
+| it has been **idle** for `sweepIdleMinutes` (default 20) | minutes rather than the 90 seconds a worker's window gets, because this window's identity is inferred from its *name* and not from a launch we made. Anybody actually reading it would have touched it inside twenty |
+
+The bead id is read out of the name as the left-most lowercase `prefix-slug` — the second
+field, ahead of the title — so a title may contain hyphenated words or mention other
+beads. `DONE-Beadcause` is that exact shape and is *not* an id: matching is
+case-sensitive, which is what tells a project name from a bead.
+
+The sweep looks every `sweepIntervalMinutes` (default 5) rather than every poll, because
+each candidate window costs a `bd show` and nothing makes one appear suddenly. It runs
+while an advocate is paused — pausing means "open no more sessions", not "leave the
+screen full" — and never while observing. `closeFinishedSessions: false` switches it off
+along with everything else in this section: an off switch that only delayed the signal by
+twenty minutes would not be one.
 
 #### Reclaiming a slot, by asking
 
@@ -2981,7 +3012,54 @@ them to ask GitHub.
 `.claude/worktrees-retired/`, the same soft delete the `ship` skill does by hand, so
 it is resumable. The branch is kept deliberately — `git branch -d` refuses a branch
 checked out in another worktree, and the branch is what makes the retirement
-reversible. Retired worktrees accumulate; nothing here ever removes one.
+reversible.
+
+#### Emptying the attic
+
+A soft delete nothing ever hardens is a rename. Retiring ran unattended every fifteen
+minutes; the only thing that ever *emptied* `.claude/worktrees-retired/` was a shell
+script in the `ship` skill, which runs when a human ships — so on this repo the attic
+reached **a hundred entries and 1.2 GB in two days**, and bc-2v7k was filed against it.
+The half that fills was automatic and the half that empties was not.
+
+So the same tick now does both. After the sweep retires, `expireRetired` removes what
+has outlived its resumability: older than `tidyAtticDays` by the `.note` stamp, plus
+every gate the retirement itself had to pass — unlocked, on a branch, nobody's `cwd`
+inside it, no *tracked* modifications, contained in main or merged as a pull request,
+and not named by a live handoff in `.claude/handoffs/`. Anything failing one is kept
+and named, exactly as above. Removal is `git worktree remove`, never `rm -rf`, and the
+branch survives the directory. Unregistered directories are ignored rather than
+removed: one means somebody moved things by hand, which is a thing to look at.
+
+**The removal takes `--force`, and that is not a loosened gate.** `git worktree remove`
+refuses a worktree carrying *untracked* files, and a retired worktree is allowed to carry
+them — that is what the soft delete is for. Without the flag such an entry passes all
+seven gates and then loses to git on the last line, permanently: two of the 105 entries
+in the attic that filed this were in exactly that state, and no amount of waiting would
+have moved them. (Ignored files are fine unforced — git objects only to untracked ones,
+which is worth knowing before assuming a `node_modules` symlink is the problem.)
+`test/attic.mjs` caught this on its first run. A single `--force` covers the unclean case
+and nothing else — a *locked* worktree needs two, and the lock gate means this never
+reaches one; tracked edits and unmerged commits were both refused several gates earlier,
+on their own evidence.
+
+**Occupancy is compared through symlinks.** git reports worktree paths fully resolved
+and a session's `cwd` keeps whatever prefix it started with — on macOS `/var/folders/…`
+and `/private/var/folders/…` are one directory sharing none of their first eight
+characters. Compared with `path.resolve` alone, the check that stops a worktree being
+taken out from under somebody answers "nobody is in it" every time.
+
+An entry with no `.note` is kept forever and says so. Directory mtime is the only other
+signal and it is the wrong one — a background process touching a file is not somebody
+resuming a session, and it is the difference between keeping a directory and deleting
+it. `prune-retired.sh --backfill` is where a stamp gets invented, under a human.
+
+**Ancestry is asked of `origin/main`, not `main`.** Nothing merges locally any more, so
+the local `main` branch stays wherever the last `git pull` left it while GitHub moves
+the real one — on this checkout the gap was *fifty commits*, and eight retired worktrees
+were being described as "not merged into main" over work that had shipped two days
+earlier. Both sweeps ask `origin/main` first and fall back to `main` for a repo with no
+remote, which is also what stops a stale local ref from quietly holding the attic shut.
 
 **A `STRAY` row in the attic sweep is worth distrusting before you act on it.** The
 sweep lives outside this repo, but what it reports about `.claude/worktrees-retired/`
@@ -5003,6 +5081,7 @@ the fields it always read and renders exactly as it did.
 | `advocates.respectQuietHours` | a quiet space's advocate watches without launching (default `true`) |
 | `advocates.tidyWorktrees` | retire merged, clean, unlocked worktrees after a session ends (default `true`) — moved to `.claude/worktrees-retired/`, never deleted |
 | `advocates.tidyIntervalMinutes` | how often it sweeps when nothing has just finished (default 15) |
+| `advocates.tidyAtticDays` | how long a retired worktree stays in `.claude/worktrees-retired/` before the same sweep removes it for good (default 2). `0` keeps the attic forever, which is what this did before — and fractional values are honoured, so a removal rule can be rehearsed at `0.01` on a real attic |
 | `advocates.reconcileLanded` | close beads whose pull request was merged **on github.com** rather than from a card (default `true`). Without it such a bead stays open, stays in `bd ready`, and the advocate opens fresh sessions on work already in `main` |
 | `advocates.landedIntervalMinutes` | how often that asks GitHub (default 10). It also asks *unconditionally* right before opening a session, whatever this says — being late there costs a whole session |
 | `advocates.sessionLog` | archive each finished session to `refs/beadcause/sessions/<bead>` and note its commits (default `true`) |
@@ -5010,6 +5089,8 @@ the fields it always read and renders exactly as it did.
 | `advocates.closeFinishedSessions` | [close a work session's window once its bead is closed](#closing-the-window--a-session-that-has-finished-should-not-still-be-on-screen) (default `true`). `false` leaves every window open, which is what it did before |
 | `advocates.closeGraceSeconds` | how long an idle session gets between its bead closing and the first signal (default 90) |
 | `advocates.closeHardSeconds`, `advocates.closeGiveUpMinutes` | how long `SIGTERM` gets before `SIGKILL` (default 45), and how long the whole thing gets before it gives up and leaves the window for you (default 30 min) |
+| `advocates.sweepFinishedWindows` | [also close finished windows no advocate is holding a worker for](#the-windows-nobody-is-holding) — the ones already open when the above shipped, and any left by a daemon that was down (default `true`). Only a name starting `DONE-`, only a closed bead; `false` leaves your own windows where you put them |
+| `advocates.sweepIdleMinutes`, `advocates.sweepIntervalMinutes` | how long such a window must have been idle first (default 20), and how often the sweep looks at all (default 5) |
 | `agents` | extra reply agents beyond the four built in — `{id, name, emoji, description}`, plus `tools`/`model` if you set them by hand |
 | `defaultAgent` | which one answers when you haven't picked (default `answerer`) |
 | `agents[].tools` | the allowlist that agent may be *armed* with, for one reply at a time. Config-file only — see [Allow tools](#allow-tools--for-one-comment-and-only-that-one) |
