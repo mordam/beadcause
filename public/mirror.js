@@ -12,7 +12,8 @@
  *     the phone publishes as it moves (public/presence.js). Tapping something here
  *     takes the wheel deliberately and says so, with one press to hand it back.
  *   - **It waits on the bus, not on a timer.** The presence event wakes the parked
- *     `/api/poll`, so a card opening in a hand shows up here as fast as the network
+ *     `/api/poll` — public/stream.js's, which this page mounts like every other
+ *     standing view — so a card opening in a hand shows up here as fast as the network
  *     allows, and nothing is polled in between. A chat session, which moves without
  *     the phone moving, has a parked request of its own on the same principle — see
  *     the console feed at the foot of this file.
@@ -41,6 +42,8 @@
   const tabsEl = document.getElementById('mon-tabs');
   const dot = document.getElementById('mirror-dot');
 
+  /* How long after a broken console poll to try again. The presence feed used to share
+     this and no longer does — `stream.js` owns that backoff now; see feed() below. */
   const RETRY_MS = 3000;
   /* The shortest gap between two rebuilds of this pane. A streamed turn moves a chat
      session's sequence once per token, so the console feed below can be handed a new
@@ -93,7 +96,6 @@
   /* --------------------------------------------------------------------- state */
 
   const state = {
-    seq: 0,
     devices: [],
     // Which device to follow. Empty means "whichever spoke last", which is the right
     // answer while there is only ever one phone awake.
@@ -775,21 +777,48 @@
   /* ---------------------------------------------------------------------- feed */
 
   /**
-   * One parked request, restarted the moment it returns.
+   * The delta stream, followed for presence — the sixth and last mount of stream.js.
    *
-   * It runs whether or not this tab is showing, which is deliberate: the whole
-   * argument for presence riding the bus is that a move is known instantly, and a
-   * mirror that started listening when you looked at it would be a poll with extra
-   * steps. The cost is a socket — the presence branch of `/api/poll` explicitly does
-   * not sweep `bd`.
+   * This was a `for (;;)` of its own until bc-2ml3, and the reason given for leaving it
+   * out of the conversion was that three of the shared loop's rules are inverted here:
+   * it runs whether or not its pane is showing, it never stops, and it has no fallback
+   * to stand down to. Read against what `stream.js` actually offers, none of the three
+   * survives — which is why this is a mount and not a sixth hand-rolled long poll:
+   *
+   *   - **"Whether or not the pane is showing" is not the visibility rule.** The pane
+   *     here is the mirror/advocates toggle *inside* one document, and stream.js has no
+   *     opinion about it: its rule is `document.hidden`, the browser tab. So passing no
+   *     `ready` keeps exactly the property this comment used to defend — the feed runs
+   *     while you are looking at the advocates pane, which is what makes the dot able to
+   *     say the phone has moved behind it. A window merely unfocused on a second screen
+   *     is `visible`, and that is the mirror's whole use case; hidden means minimised or
+   *     a background tab, where nothing here is being read by anyone.
+   *   - **"Never stops" is the retry, and it is the default.** `retryMs` walks a broken
+   *     poll out to a minute instead of re-asking a daemon that has gone every three
+   *     seconds for as long as the page is open, which is what this loop did.
+   *   - **"No fallback" is `onSettle` being optional.** A mount with a retry and no
+   *     settle handler is precisely "come back, there is nothing to stand down to".
+   *
+   * What the conversion adds beyond the backoff: an abort when the tab hides rather than
+   * a socket held in the dark, and a `resync` this loop had no concept of.
+   *
+   * `want: 'presence'` keeps the listener from making the daemon sweep every tracker on
+   * each event — this page reads `presence`, and nothing else here. `cold: true` because
+   * nothing else on this page carries a sequence, so the first request has to go and ask
+   * the log where it is; without it the pane would wait for the first event before it
+   * knew there were any devices at all.
+   *
+   * Optional throughout, as on the inbox: `monitor.html` loads `/stream.js` above this
+   * file, but a shell cached before that was true would make a bare call a TypeError in
+   * the first lines of this IIFE — a mirror pane with no tabs at all, rather than one
+   * that does not follow.
    */
-  async function feed() {
-    for (;;) {
-      try {
-        // `want=presence` keeps this listener from making the daemon sweep every
-        // tracker on each event: this page reads `presence`, and nothing else here.
-        const data = await api(`/api/poll?since=${state.seq}&wait=25&want=presence`);
-        state.seq = data.seq ?? state.seq;
+  function feed() {
+    const stream = window.beadcause?.stream?.follow?.({
+      api,
+      want: 'presence',
+      cold: true,
+      async onWake({ data, events, resync }) {
         const before = targetKey(target());
         if (Array.isArray(data.presence)) state.devices = data.presence.filter(notMe);
         const after = targetKey(target());
@@ -801,14 +830,16 @@
           render();
         }
         // Something happened to the bead we are showing. Nothing else would tell us:
-        // presence says where the phone is, not what the tracker did underneath it.
-        const touched = (data.events || []).some((ev) => ev.type !== 'presence' && ev.key && ev.key === target()?.key);
+        // presence says where the phone is, not what the tracker did underneath it. A
+        // resync is the log having rolled past us, which empties `events` and so would
+        // read as "nothing moved" — the one case where the honest answer is to re-read.
+        const key = target()?.key;
+        const touched = resync || (events || []).some((ev) => ev.type !== 'presence' && ev.key && ev.key === key);
         if (touched && state.active) await ensureDetail(true);
         dot.hidden = !state.moved;
-      } catch {
-        await new Promise((r) => setTimeout(r, RETRY_MS));
-      }
-    }
+      },
+    });
+    stream?.start();
   }
 
   /* ------------------------------------------------------------------- console */
