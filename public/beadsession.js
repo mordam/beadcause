@@ -278,6 +278,12 @@
    * fault. The daemon works all three out server-side, because the recorded path is a key
    * to look up rather than a place to read: retirement *moves* the directory.
    *
+   * `isMain` is the fact that would otherwise make one of those three read as a lie. The
+   * main checkout is a registered worktree like any other, so a session that never entered
+   * one records the checkout itself and comes back `live` under the repo's own name — true,
+   * and "its worktree: still live" says something about it that was never the case. So it
+   * is a fourth *sentence*, not a fourth state.
+   *
    * The pull request is the only thing here that costs a network call, so it arrives on a
    * second request after the page has drawn and patches this block alone. Until it does —
    * and forever, on an install with no `gh` — the section is still complete: where the
@@ -286,8 +292,12 @@
   function worktreeHtml() {
     const wt = state.detail?.worktree;
     if (!wt) {
-      return `<p class="arc-none"><strong>Not available.</strong> This session recorded no worktree —
-        it ran in the main checkout, or exited before it entered one.</p>`;
+      // Not "it ran in the main checkout" — that case *does* record a directory and is
+      // handled below as `isMain`. A null worktree means nothing on disk tied the session
+      // to one: no session id to trace, or a transcript that has since been cleared.
+      return `<p class="arc-none"><strong>Not available.</strong> Nothing tied this session to a
+        directory — it recorded no session id, or its transcript was gone by the time the
+        archive was written.</p>`;
     }
 
     const where = wt.isMain
