@@ -347,6 +347,19 @@
       twins.length
         ? `<span class="pill muted" title="${esc(twins.map((h) => `${h.id} — ${h.why}`).join('\n'))}">${twins.length} the same job under another id</span>`
         : '',
+      // Last, because it is the only number on this row that is not work outstanding —
+      // every pill above it is something still to do, and this is what is finished. A
+      // link for exactly the reason `held` above it is one: the count was already being
+      // computed (`bd status` has always carried `closed_issues`) and there was nowhere
+      // to go from it, which is the whole of bc-qsj6.
+      //
+      // No `?ws=` on the link, exactly as `/endorse` above has none. The history is
+      // scoped by the space picker, which is one control shared by every page and stored
+      // on the server — a link that narrowed the list without moving the picker would
+      // hand you a page whose own control disagreed with what it was showing, and one
+      // that moved the picker would change what every other client is looking at
+      // because you tapped a count.
+      c.closed ? `<a class="pill muted" href="/history">${c.closed} closed</a>` : '',
     ].filter(Boolean);
     return `<div class="mon-domain">${pills.join('')}</div>`;
   }

@@ -106,7 +106,16 @@
    unstyled button into the middle of a label row and sizes the transcript as though it
    were not there, pushing the log off the bottom of the phone. Both look like a working
    page, which is the failure a cache version exists to prevent. */
-const CACHE = 'beadcause-v32';
+/* v33: a page of what has landed — every closed bead, newest first (bc-qsj6.1). Three new
+   paths (`/history`, `/history.html`, `/history.js`) *and* two files that already exist
+   move with them, which is the whole reason the version has to: index.html grows the 🗂
+   that is the only way to the page, and style.css grows the rules that make a row a row.
+   A phone holding v32's index.html beside a v33 daemon has a page it cannot reach at all
+   — silently, because a missing icon looks exactly like a bar that never had one — and
+   one holding v33's index.html against v32's stylesheet reaches it and finds forty
+   unstyled paragraphs of close reason with no rows around them. Both look like a working
+   app, which is the failure a cache version exists to prevent. */
+const CACHE = 'beadcause-v33';
 const SHELL = [
   '/',
   '/index.html',
@@ -172,6 +181,17 @@ const SHELL = [
   '/queue',
   '/endorse.html',
   '/endorse.js',
+  // What landed. Three paths again, and precached for a reason of its own rather than by
+  // symmetry: it is the one page here with no live half at all — no poll, no stream, no
+  // buttons that write — so a cached copy of it is not a degraded version of the screen,
+  // it is the screen, right up to the list it draws. `/done` is left out on purpose, the
+  // same way `/endorsements` above it is: nothing in the app links to either, both exist
+  // for a thumb typing into a URL bar, and that is a case which has a signal by
+  // definition. See the alias run in serveStatic.
+  '/history',
+  '/closed',
+  '/history.html',
+  '/history.js',
   '/console.html',
   '/console.js',
   // console.js does not merely use the send queue, it is built on it — the composer

@@ -155,6 +155,49 @@ const ADMIN = {
 
 /* One repo, one row per stage, so the PR board draws its full height — the open row
    that carries the merge button included, since clearing the bar is what is measured. */
+/* One page of history, with `more: true` so the *Show more* button is on the page — that
+   button is the lowest thing on the screen and the one the bar could hide, which makes it
+   what `CLEAR['/history']` measures. Two rows, one of them with a reason long enough to
+   fold, so the expander is drawn and measured like anything else. */
+const CLOSED = {
+  at: '2026-08-11T12:00:00Z',
+  offset: 0,
+  limit: 40,
+  more: true,
+  filter: { space: 'all', workspace: 'all' },
+  workspaces: ['demo', 'other'],
+  errors: [],
+  counts: { total: 9, matched: 9, shown: 2, byWorkspace: { demo: 6, other: 3 } },
+  beads: [
+    {
+      key: 'demo/de-a1b',
+      workspace: 'demo',
+      space: 'Work',
+      id: 'de-a1b',
+      title: 'The thing that landed this morning',
+      type: 'feature',
+      priority: 2,
+      closedAt: '2026-08-11T09:30:00Z',
+      reason: 'Landed as #4 as aaaaaaa — still owed: CAN BE DEPLOYED',
+      labels: [],
+      parent: null,
+    },
+    {
+      key: 'other/ot-9zz',
+      workspace: 'other',
+      space: 'Work',
+      id: 'ot-9zz',
+      title: 'And one whose close said rather a lot',
+      type: 'task',
+      priority: 1,
+      closedAt: '2026-08-10T17:05:00Z',
+      reason: `Answered via Beadcause. ${'The reason ran on for a while, which is the case the fold exists for. '.repeat(6)}`,
+      labels: [],
+      parent: 'ot-9z',
+    },
+  ],
+};
+
 const PRS = {
   unavailable: null,
   build: { dir: '/Users/x/repos/demo', commit: 'a'.repeat(40), short: 'aaaaaaa', at: '2026-08-09T09:00:00Z' },
@@ -266,6 +309,7 @@ function serve() {
     if (p === '/api/work') return json(WORK);
     if (p === '/api/consoles') return json({ consoles: CONSOLES, workspaces: ['demo', 'other'] });
     if (p === '/api/admin') return json(ADMIN);
+    if (p === '/api/closed') return json(CLOSED);
     if (p === '/api/prs') return json(PRS);
     // The advocate console carries the mirror pane, which parks a long-poll here and
     // restarts it the moment it returns. An immediate empty answer would turn that
@@ -292,6 +336,7 @@ function serve() {
     if (rel === '/prs' || rel === '/pulls') rel = '/prs.html';
     if (rel === '/monitor' || rel === '/advocates' || rel === '/sessions' || rel === '/work') rel = '/monitor.html';
     if (rel === '/admin') rel = '/admin.html';
+    if (rel === '/history' || rel === '/closed' || rel === '/done') rel = '/history.html';
     const file = path.join(PUBLIC, rel === '/' ? 'index.html' : rel.replace(/^\/+/, ''));
     if (!file.startsWith(PUBLIC) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) {
       res.writeHead(404).end('no');
@@ -467,6 +512,23 @@ const CLEAR = {
   '/monitor': MON_CLEAR,
   // The same page, reached by the path the phone's home screen still holds.
   '/sessions': MON_CLEAR,
+  // *Show more* is the lowest thing on the history and the only control on it, so it is
+  // what the bar could hide — and a paged list whose way to the next page sits under the
+  // tab bar is a history that stops at forty rows with nothing saying why.
+  //
+  // A missing entry here is not a soft failure, which is worth knowing before adding the
+  // next page: `CLEAR[page.url]` of `undefined` reaches `Runtime.evaluate` as an absent
+  // expression, and the CDP error takes the whole run down with an "Invalid parameters"
+  // stack — after the new page's own assertions have all passed, so it reads as anything
+  // but a missing probe.
+  '/history': `(() => {
+    const more = document.querySelector('#hx-more');
+    if (!more) return { what: 'Show more', missing: true };
+    document.scrollingElement.scrollTop = document.scrollingElement.scrollHeight;
+    const r = more.getBoundingClientRect();
+    const bar = document.querySelector('.tabbar').getBoundingClientRect();
+    return { what: 'Show more', bottom: Math.round(r.bottom), barTop: Math.round(bar.top) };
+  })()`,
   // The kill button is the last thing on the last scope's card, and it is the one
   // control on this page you must never press by accident. A bar sitting over it
   // would put "stop every running session" exactly where a thumb reaches for the
@@ -516,6 +578,13 @@ const PAGES = [
   // Pause all / resume all. Nothing on it is reachable any other way, so a bar that
   // failed here would strand the one control that stops everything.
   { url: '/admin', tab: 'admin', name: 'admin' },
+  // What landed (bc-qsj6.1). `tab: null` for the reason the board and the chat session
+  // are: a history is somewhere you glance, not somewhere you live, so nothing on the bar
+  // points at it and nothing on the bar may claim to be it. It is in this list for the
+  // stronger half of the same argument — it is reached from a pill on the advocate
+  // console and from a typed URL, which makes it exactly the kind of page whose bar
+  // quietly rots, and the bar is the only way off it.
+  { url: '/history', tab: null, name: 'history' },
 ];
 
 let failures = 0;

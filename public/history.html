@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0b0f14" media="(prefers-color-scheme: dark)">
+  <meta name="theme-color" content="#f6f7f9" media="(prefers-color-scheme: light)">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <title>Beadcause · what landed</title>
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<!--
+  No `interactive-widget=resizes-content` and no `dictate.js`, unlike the inbox and the
+  endorsement queue: there is nothing on this page to type into. It is the one screen in
+  the app that is purely read, which is also why it carries no composer, no verdicts and
+  no buttons that write.
+-->
+<body class="doc-body">
+  <header class="topbar">
+    <div class="brand">
+      <span class="dot" id="pulse"></span>
+      <h1>Landed</h1>
+    </div>
+    <div class="sheet-actions">
+      <!-- The only control. ⟳ sends `refresh=1`, which is what skips the minute-long
+           sweep cache in lib/history.js — the one case where a stale answer is worth
+           re-asking for is you having just closed something and come here to look. -->
+      <button id="hx-refresh" class="icon-btn" aria-label="Refresh">⟳</button>
+    </div>
+  </header>
+
+  <main id="hx" class="list" aria-live="polite">
+    <div class="empty">Reading what has closed…</div>
+  </main>
+
+  <script src="/presence.js"></script>
+  <script src="/tabbar.js"></script>
+  <!-- Which repo's history this is. Before history.js, which registers its refetch on it
+       at the top of its own IIFE — and it is a *refetch* here rather than a repaint,
+       because this endpoint pages and so it has to be the server that narrows. -->
+  <script src="/spacebar.js"></script>
+  <script src="/history.js"></script>
+  <!-- Every row is a link into the graph, and that is the whole navigation of this page:
+       the drawer opens the bead's own detail sheet over the list rather than navigating
+       the list away, so dismissing it returns to exactly the row and the scroll position
+       you tapped from. -->
+  <script src="/drawer.js"></script>
+</body>
+</html>

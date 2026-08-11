@@ -4226,6 +4226,116 @@ exists for are the ones invisible from the server: that a group tap is **one req
 per workspace** carrying all of its ids, and that the first press of Revoke writes
 **nothing at all**.
 
+## What landed — the history of everything that has closed
+
+Every other list in this app is about work that is **not** done. The inbox is what needs
+answering, the advocate console is what is running, the PR board is what is waiting to
+land, the endorsement queue is what nobody has looked at yet. There was nowhere at all to
+look at what was actually *finished*: beadcause had 369 closed beads and the only reader
+for them was `bd list --status=closed` in a terminal, on the Mac, which is the one place
+you are not when you want to know whether a thing ever shipped.
+
+`/history` is that list. Newest close first, forty rows at a time, scoped to the space
+picker like every other screen. `/closed` and `/done` serve the same page — the screen has
+more than one honest name and which one you reach for depends on the question you arrived
+with.
+
+### The close reason is the row
+
+A bead's `close_reason` is not bookkeeping here, it is the whole content of the screen,
+because `bin/deliver.js` writes the sentence that says what happened:
+
+> Landed as #113 as e8315969 — still owed: CAN BE DEPLOYED — lib/server.js changed, so the
+> router needs main on disk before it swaps; nothing to rebuild.
+
+That says what landed, where it landed, and what is still owed, which is three of the four
+things you came to the page for. The other endings are as load-bearing: `Answered via
+Beadcause`, a revoke's reason under its fixed prefix, `Superseded by bc-rk2o`. So the
+reason is drawn on the row rather than folded behind it, and it is sent **in full**.
+
+In full is a real cost — the longest reason in this tracker is 1664 characters — and it is
+paid because **nothing else in the app draws `close_reason` at all.** The bead detail sheet
+renders the status and never the reason (grep `public/graph.js`), so a reason truncated on
+the server would be a sentence that exists nowhere a phone can reach. What the page does
+instead is fold: four lines, with *Read the whole reason* over text that is already in the
+DOM. Five of 369 rows need it.
+
+Everything else on the row is slim — no description, no acceptance, no notes — for the
+reason `agentBeads` is slim: one workspace's closed beads are **1.29 MB** raw and 129 KB
+without those three fields. That is the opposite trade from the endorsement queue next
+door, and deliberately: there the decision *is* reading the bead, so the rows are fat and
+the list is capped at 60; here you are scanning a history, so the rows are thin and the
+list pages instead of stopping.
+
+### Why this one endpoint takes the space filter, when none of the others do
+
+`/api/prs` and `/api/unendorsed` both hand over every workspace and let the client narrow
+to the picker's selection. `/api/closed` cannot, and the reason is paging rather than
+taste: a page of 30 swept across seven repos, narrowed *afterwards* on the client, is a
+page of three rows — with a *Show more* that pages through six repos of beads you asked
+not to see in order to find the next three you did. **Whoever slices has to be whoever
+pages.** So `space` and `workspace` ride on the query, `matchesFilter` — the same
+two-level test that decides whether a bead may ring your phone — is applied before the
+slice, and the page refetches when the picker moves rather than redrawing what it holds.
+
+The sweep is cached whole for a minute and every page comes out of that cache, which is
+also why `newestClosedFirst` breaks ties on id: `offset` has to mean the same thing on the
+second request as on the first, or a row appears twice.
+
+**Nothing drops that cache on a write**, and that is a decision rather than an oversight.
+A stale row here is a row arriving late — nothing on this page is actionable, so there is
+no button to 409 — while the hooks would have to go in six files and would *still* be
+wrong, because the process that closes most beads in this tracker is `bin/deliver.js`, a
+worker session whose close the daemon cannot observe at all. A rule that is uniformly a
+minute old beats one that is instant for three closes in seven. ⟳ sends `refresh=1`.
+
+### Where it lives, and the tab it is not
+
+**The advocate console's `N closed` pill is a link**, sitting last on the row after every
+count that is work still outstanding. It is free: `bd status` has always carried
+`closed_issues` and `collectWork` has always called it, so the number cost nothing to
+surface and had nowhere to go — which is the same shape as the `N held for endorsement`
+pill beside it, and the same principle. *The count you were already reading is what opens
+the list behind it.*
+
+**It is not a tab, and it is not a glyph in the inbox's top bar.** The bar's own rule is
+that a tab is a claim that a page is somewhere you *live*, and a history is somewhere you
+glance — the argument that took the PR board off it. The inbox header was the assumption
+bc-qsj6.1 was written against, and it was **measured and abandoned**: a fifth `.icon-btn`
+in `.sheet-actions` takes it from 172px to 216px, which pushes the bar to three rows and
+198px of sticky chrome against the 170px budget bc-hne3 spent. `node
+scripts/topbar-check.mjs` fails on the spot, which is exactly what that file exists for —
+and §6 step 8 of `docs/ux-review.md` has the inbox header *giving up* its last glyph
+rather than taking another, with the note that the trade is the one decision in the plan
+that should not be made without Adam. So the one-tap door from the inbox is an open
+question on a bead, not a thing this change decided quietly.
+
+The page carries no badge and never should. A count of what is finished is not a count of
+what is waiting on you.
+
+### What it deliberately does not do
+
+No poll and no stream, unlike the five standing views: a history does not move, the only
+change it can ever see is one row arriving at the top, and mounting the delta stream would
+put a fifth long poll on the daemon for a page you read for ten seconds. It is also **not
+in `warm.js`** — the prewarm exists so the next *tab* is instant, and two of those payloads
+are a `bd` sweep, so prewarming a screen nobody opens hourly would buy a sweep across
+seven workspaces on every load of every other page.
+
+### Checking it
+
+`node test/closed.mjs` covers the sweep and the slice against a stub `bd`: that the order
+is newest-close-first and total, that a page is a page and `offset` past the end is empty
+rather than an error, that `limit` is clamped, that the filter is applied *before* the
+slice at both of its levels, that a workspace whose `bd` threw is named in `errors` while
+the rest still answer, that the reason arrives whole, and that the three counts mean the
+three different things they claim to.
+
+`node test/pagepaths.mjs` covers all three paths serving the one page, and
+`node scripts/tabbar-check.mjs` that the bar is on it and marks nothing as current.
+`node scripts/topbar-check.mjs` now measures this page's chrome too, because it carries a
+picker — and it is what said no to the inbox glyph.
+
 ## An error the app hits files itself as a P0
 
 Everything above is about work somebody decided to do. This is about the other kind:
@@ -7553,6 +7663,7 @@ cookie says so), and `/auth/signout` ends the session.
 | GET | `/api/graph` | `?workspace=&id=` | `{nodes, links}` — the whole workspace with no `id` |
 | GET | `/api/bead` | `?workspace=&id=` | one issue in full, plus `comments[]` — for the graph's detail sheet |
 | GET | `/api/bead-children` | `?workspace=&id=` | `{children[]}` — every child of that bead, closed ones included, open work first. Its own route because `bd show` does not carry children |
+| GET | `/api/closed` | `?space=&workspace=&offset=&limit=&refresh=1` | `{beads[], offset, limit, more, counts, filter, workspaces[], errors[], at}` — [what landed](#what-landed--the-history-of-everything-that-has-closed): every closed bead in every workspace, newest first, one page at a time. Rows are slim (no description, no acceptance, no notes) but the `reason` is sent **in full**, because nothing else in the app draws `close_reason` at all. **The only list endpoint here that takes the space filter as a parameter**, and paging is why: whoever slices has to be whoever pages, or a 30-row page narrowed on the client is three rows and a *Show more* that walks through repos you asked not to see. `counts` is `{total, matched, shown, byWorkspace}` — every closed bead, how many are inside the selection, and how many are on this page. `offset` past the end is an empty page, not a 400; `limit` is clamped to `PAGE_MAX`. Cached 60s, and deliberately dropped by nothing — see lib/history.js |
 | GET | `/api/unendorsed` | `?refresh=1` | `{beads[], counts, truncated, errors[]}` — the endorsement queue: every held bead in every workspace, newest first, each carrying the whole card (description, acceptance, the agent's provenance note) and `from`, the bead it was discovered under. No `workspace` parameter — the space picker narrows it on the client. Cached for a few seconds; a verdict drops that cache |
 | POST | `/api/bead/endorse` | `{workspace, id}` or `{workspace, ids[]}` | takes the `unendorsed` marker off, so the bead becomes ordinary work an advocate will queue and a session can be opened on. **Idempotent** — two taps are one endorsement, no error, no second write — and the one verdict that may be aimed at a bead that is not held |
 | POST | `/api/bead/revoke` | `{workspace, ids[], reason?}` | closes it with your reason under a fixed prefix, and **leaves the marker on**: what an agent filed and what you thought of it both stay on the record. A bead already closed is `already: true` rather than an error; one already endorsed is a `409` |
@@ -7579,6 +7690,7 @@ cookie says so), and `/auth/signout` ends the session.
 | GET | `/monitor`, `/advocates`, `/sessions`, `/work`, `/work.html` | — | the advocate console — and the sessions view it absorbed (one page, five paths) |
 | GET | `/session` | `?pid=` | the HTML page for one live session: its facts and its transcript |
 | GET | `/graph` | `?ws=&id=` | the HTML graph page |
+| GET | `/history`, `/closed`, `/done` | — | [what landed](#what-landed--the-history-of-everything-that-has-closed) — the closed beads, newest first (one page, three paths) |
 | GET | `/api/consoles` | — | `{consoles[], workspaces[]}` — every chat session, newest first; `closedAt` set on the finished ones |
 | POST | `/api/console/close` | `{id}` | soft-closes it and returns the new list. `409` mid-turn; saying anything to it reopens it |
 | POST | `/api/console` | `{workspace, seed?}` | `{id, console}` — opens one; a `seed` bead auto-starts the first turn |

@@ -122,6 +122,7 @@ function serve() {
     if (rel === '/prs' || rel === '/pulls') rel = '/prs.html';
     if (rel === '/monitor' || rel === '/advocates' || rel === '/sessions' || rel === '/work') rel = '/monitor.html';
     if (rel === '/endorse') rel = '/endorse.html';
+    if (rel === '/history') rel = '/history.html';
     if (rel === '/foundations') rel = '/foundations.html';
     const file = path.join(PUBLIC, rel === '/' ? 'index.html' : rel.replace(/^\/+/, ''));
     if (!file.startsWith(PUBLIC) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) {
@@ -305,7 +306,12 @@ const PROBE = `(() => {
 /* Every page with a picker. The admin page is deliberately not one (it acts on every
    repo at once) and the drawers — /graph, /doc, /session, /terminal — are not standing
    views, so neither carries a `.spacebar` to measure. */
-const PAGES = ['/', '/monitor', '/console', '/prs', '/endorse', '/foundations'];
+/* Seven now. `/history` joined because it carries a picker — the history is scoped to the
+   selected repo like every other list — and the inbox is in this list for a second reason
+   on top of the picker it has always had: the 🗂 that reaches /history is a *fifth* icon
+   button in `.sheet-actions`, and a fifth icon is exactly the "one at a time" this file's
+   header says a third row arrives as. */
+const PAGES = ['/', '/monitor', '/console', '/prs', '/endorse', '/foundations', '/history'];
 
 /* 360px is the cheap Android the app is for and the width the trade was argued at; 393
    is the phone in the hand. Both, because a rule that only holds at one width holds by

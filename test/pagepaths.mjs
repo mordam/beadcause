@@ -142,6 +142,16 @@ const PAGES = [
     marker: '/endorse.js',
     paths: ['/endorse', '/queue', '/endorsements', '/endorse.html'],
   },
+  // What landed (bc-qsj6.1). Three for the same reason the queue above has three: "what
+  // did I get done" is `/history`, "did that ever close" is `/closed`, and `/done` is what
+  // a thumb types. Only the first two are in sw.js's shell — an alias nothing links to has
+  // a signal by definition — which makes `/done` exactly the one a future edit would drop
+  // without noticing, since nothing else in the repo mentions it.
+  {
+    what: 'what landed',
+    marker: '/history.js',
+    paths: ['/history', '/closed', '/done', '/history.html'],
+  },
   { what: 'the chat session', marker: '/console.js', paths: ['/console', '/console.html'] },
   { what: 'the in-app terminal', marker: '/term.js', paths: ['/terminal', '/term.html'] },
   { what: 'the admin screen', marker: '/admin.js', paths: ['/admin', '/admin.html'] },

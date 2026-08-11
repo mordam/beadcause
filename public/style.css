@@ -4560,3 +4560,86 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
    and the bead ids on every board. Nothing had said so, and a browser's own underline
    under an uppercase 11px chip reads as a rendering fault rather than as a link. */
 a.pill { text-decoration: none; }
+
+/* ------------------------------------------------------ what landed (/history)
+
+   A history, so the rows are the opposite trade from the endorsement queue's above:
+   thin, scannable, forty at a time. What each row has to carry is four things — which
+   bead, when it closed, what it was called, and the sentence that says what happened
+   to it — and the fourth is the one this screen exists for. See public/history.js.
+
+   Day headings do the work a column of "3h ago / 5h ago / 1d ago" cannot: the question
+   you arrive with is what you got done on a given day, and relative time answers a
+   different one. `.section-label` is borrowed for them, with its top margin pulled in
+   because `.list` already puts 12px of gap between every child. */
+
+.list > .section-label:first-child { margin-top: 4px; padding-top: 0; border-top: 0; }
+.list > .section-label { margin: 10px 0 -2px; }
+
+/* The whole card is the link into the bead's own sheet, so it has to give back the two
+   things a browser does to an <a> by default. Not `display: block` — `.card` is what
+   draws the border and the ground, and this only changes what the anchor does. */
+a.closed-row { display: block; text-decoration: none; color: inherit; }
+a.closed-row:active { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
+.closed-row .card-head { padding: 12px 14px 13px; }
+.closed-row .meta { margin-bottom: 6px; }
+
+/* Not `.q`, which is 19px: that size is right for a question you are being asked one at
+   a time and wrong for the fortieth row of a list you are scanning. */
+.closed-title { font-size: 15.5px; font-weight: 620; line-height: 1.35; margin: 0; letter-spacing: -0.008em; }
+.closed-parent { margin: 3px 0 0; font-size: 12px; color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+
+/* The close reason — the row's whole point, and the only place in the app it is legible
+   (the bead sheet does not draw it at all). Folded to four lines rather than clamped in
+   the payload, because five reasons in this tracker are over 500 characters and one is
+   1664: unfolded they would each be most of a screen, and truncated on the server they
+   would be nowhere. `pre-wrap` because a delivery's reason is a sentence with its own
+   line breaks in it, and `overflow-wrap: anywhere` because it also carries bare shas. */
+.closed-why {
+  margin: 7px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--prose);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+/* All four, not just `display`. Dropping back to `display: block` is what *used* to
+   release the clamp, and it is no longer enough on its own: `line-clamp` is a real
+   property now and Chrome keeps honouring the `-webkit-` alias outside a `-webkit-box`,
+   so the computed value stays 4 and the text stays clipped. The clamp is cancelled
+   explicitly and `overflow` goes back with it, or the reason you asked to read is still
+   four lines long with no scrollbar to say so. */
+.closed-why.unfolded {
+  display: block;
+  -webkit-line-clamp: none;
+  line-clamp: none;
+  overflow: visible;
+}
+/* Closed without a word about what happened. Dimmer and italic, because the absence is
+   the fact rather than a quotation of one. */
+.closed-why.none { color: var(--muted); font-style: italic; }
+
+/* A <span role="button">, not a <button>: the card around it is the <a> that opens the
+   bead, and a button inside an anchor is not valid HTML. It keeps a tap target of its
+   own so unfolding a reason is never a mis-tap into the sheet. */
+.closed-more {
+  display: inline-block;
+  margin-top: 5px;
+  padding: 5px 0;
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--accent);
+  cursor: pointer;
+}
+.closed-more:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
+
+/* The foot: how much of the history is on screen, what is outside the picker, and the
+   way to the next page. Its own element rather than part of the list, because "show
+   more" inserts rows *above* it — see `append` in public/history.js. */
+.hx-foot { display: flex; flex-direction: column; gap: 2px; padding: 2px 0 10px; }
+.hx-more { flex: 0 0 auto; margin-bottom: 6px; }
+.hx-foot .board-foot { margin: 0; text-align: center; }
