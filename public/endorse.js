@@ -31,6 +31,14 @@
  * title cannot be given to six beads (the server refuses it outright), and one
  * objection typed at six is an objection about none of them.
  *
+ * **And the fifth control is the one that decides nothing.** Endorse, adjust, revoke and
+ * ask-for-changes are four answers; Discuss is what you press when you do not have one
+ * yet. It opens a thread with an agent of your choosing on the bead itself — the same
+ * dispatch commenting on a question has always made (lib/dispatch.js) — and the bead
+ * keeps its `unendorsed` marker throughout, because a conversation is not a verdict. The
+ * folded row carries a 💬 count for the same reason: a bead you asked three questions
+ * about last night must never read as one nobody has opened.
+ *
  * **What happened is pinned to the row, never toasted.** These calls change real work
  * — a bead that is now workable, a bead that is now closed — and "did that go through?"
  * must not be a question you answer by opening a laptop. A group answers per bead: the
@@ -55,6 +63,14 @@
      and every verdict drops that cache — so a stale row is at worst one poll old. */
   const REFRESH_MS = 45000;
 
+  /* How often an open discussion asks whether the agent has said anything yet, and how
+     many times it will ask before giving up. Nothing pushes a reply on a held bead (see
+     `talkHtml`), so this is the whole of how an answer reaches the phone — and 3s × 200
+     is ten minutes, which is `autoDispatchTimeoutMs`: the point past which the daemon
+     has killed the agent and there is nothing left to wait for. */
+  const TALK_POLL_MS = 3000;
+  const TALK_TRIES = 200;
+
   /** What `adjust` may rewrite — the same six as EDITABLE in lib/verdict.js. */
   const TYPES = ['task', 'bug', 'feature', 'epic', 'chore', 'decision'];
 
@@ -77,6 +93,19 @@
     armed: null,
     /** The adjust form, when it is open: `{ key, fields }`. Null the rest of the time. */
     edit: null,
+    /**
+     * The discussion, when one is open on a row:
+     * `{ key, workspace, id, thread, text, sending, loading, running, activity }`.
+     *
+     * At most one, like the fold and the adjust form — a phone shows one conversation
+     * at a time, and two open threads would be two poll timers arguing over the same
+     * repaint.
+     */
+    talk: null,
+    /** Who can answer, from `/api/agents`. Empty if the roster would not load. */
+    agents: [],
+    /** The chosen agent's id. A mode rather than a per-bead setting, as in the inbox. */
+    agent: '',
     /** What you have typed at the open row, kept out here so a repaint does not lose it. */
     note: '',
     /**
@@ -120,6 +149,9 @@
   const pickedRows = () => rows().filter((b) => state.picked.has(b.key));
 
   const isArmed = (key, action) => state.armed === `${action}@${key}`;
+
+  /** The selected agent, falling back to whatever the server offered first. */
+  const currentAgent = () => state.agents.find((a) => a.id === state.agent) || state.agents[0] || null;
 
   /* ------------------------------------------------------------------ one row */
 
@@ -184,6 +216,12 @@
       b.type ? `<span class="pill">${esc(b.type)}</span>` : '',
       b.priority != null ? `<span class="pill p${esc(b.priority)}">P${esc(b.priority)}</span>` : '',
       b.status && b.status !== 'open' ? `<span class="pill st-${esc(b.status)}">${esc(b.status)}</span>` : '',
+      // A thread on this bead, from the folded row. Without it a bead you asked three
+      // questions about last night looks exactly like one nobody has opened — which is
+      // the state this whole queue exists to empty, so it is the one thing a row must
+      // never be wrong about. The count is `comment_count` off the same `bd list` the
+      // row came from; no extra call (see `toRow` in lib/endorsequeue.js).
+      b.commentCount ? `<span class="pill talk">💬 ${esc(b.commentCount)}</span>` : '',
       // Provenance that survives endorsement (lib/filing.js). Its absence is the tell
       // that a bead was labelled `unendorsed` by hand rather than filed by an agent.
       b.filed ? '' : '<span class="pill muted">not agent-filed</span>',
@@ -242,18 +280,118 @@
     </div>`;
   }
 
+  /* --------------------------------------------------------------- the discussion */
+
+  /**
+   * Talking about a bead instead of deciding on it.
+   *
+   * The fifth control on a row, and the only one that is not a verdict: the other four
+   * all end with the bead somewhere else, and this one deliberately leaves it exactly
+   * where it was. Half of what a decision needs at 07:00 is not endorse-or-revoke but a
+   * question — is this not already filed, which file would it touch, what breaks if we
+   * leave it — and without somewhere to ask it the queue offers a choice between
+   * approving work you have not understood and turning down work that might have been
+   * right.
+   *
+   * **Nothing here can resolve the bead, and the panel says so.** The comment is written
+   * as you and the marker is untouched; the agent that answers runs on the read-only
+   * allowlist in lib/agents.js, which has no `bd label`, no `bd close` and no `bd
+   * create` on it. So a thread can run for a week and the bead is still held at the end
+   * of it — which is the point, and is why the hint under the box is worth its two lines.
+   *
+   * **The reply is pulled, not pushed.** `checkReplies` watches `bd human` questions and
+   * an unendorsed bead is not one, so nothing will buzz your phone when the agent
+   * answers. Instead the panel polls `/api/bead/thread` while the daemon says an agent
+   * is running, and the row says which agent is thinking while it waits. That is honest
+   * about the trade: this screen is where you already are when you ask.
+   */
+  function bubbleHtml(c) {
+    const who = c.agent ? `${c.agent.emoji || '🤖'} ${c.agent.name}` : c.author || 'you';
+    return `<div class="comment${c.agent ? ' from-agent' : ''}">
+      <span class="who">${esc(who)}${c.at ? ` · ${esc(age(c.at))}` : ''}</span>
+      <p class="eq-bubble">${esc(c.text)}</p>
+    </div>`;
+  }
+
+  /** The agent chips — who answers. Absent, rather than empty, if the roster failed. */
+  function agentRowHtml() {
+    if (!state.agents.length) return '';
+    const chosen = currentAgent();
+    const chips = state.agents
+      .map(
+        (a) => `<button class="chip agent-chip" type="button" data-act="agent" data-agent="${esc(a.id)}"
+          aria-pressed="${a.id === chosen?.id}">${esc(a.emoji || '🤖')} ${esc(a.name)}</button>`
+      )
+      .join('');
+    return `<div class="section-label">Who answers</div>
+      <div class="chip-row agent-row">${chips}</div>
+      <p class="eq-agent-desc">${esc(chosen?.description || '')}</p>`;
+  }
+
+  function talkHtml(b) {
+    const t = state.talk;
+    const thread = t.thread || [];
+    const waiting = t.running
+      ? `<p class="eq-waiting">${esc(t.activity?.detail || 'An agent is picking up your question…')}</p>`
+      : '';
+    const body = thread.length
+      ? `<div class="comments">${thread.map(bubbleHtml).join('')}</div>`
+      : `<p class="board-hint">${
+          t.loading ? 'Reading the thread…' : 'Nothing said about this one yet. Ask, and it stays held while you talk.'
+        }</p>`;
+
+    return `<div class="eq-talk">
+      <div class="section-label">Before you decide</div>
+      ${body}
+      ${waiting}
+      ${agentRowHtml()}
+      <div class="board-say">
+        <textarea data-talk rows="3" placeholder="Ask about it — is this already covered, what would it touch…">${esc(
+          t.text || ''
+        )}</textarea>
+        <div class="board-say-row">
+          ${window.beadcause?.dictation?.buttonHtml({ label: 'Dictate this question' }) || ''}
+        </div>
+      </div>
+      <div class="board-actions">
+        <button class="board-btn merge" data-act="send" data-key="${esc(b.key)}">${
+          t.sending ? 'Sending…' : 'Send'
+        }</button>
+        <button class="board-btn link" data-act="close-talk" data-key="${esc(b.key)}">Back to the verdicts</button>
+      </div>
+      <p class="board-hint">This is a conversation, not a verdict: the bead keeps its
+        <code>unendorsed</code> marker however long the thread runs, and nothing can open a
+        session on it until you endorse it. The agent can read the repo and the tracker and
+        cannot write to either.</p>
+    </div>`;
+  }
+
   /* ------------------------------------------------------------- the unfolded row */
+
+  /** What the agent wrote, which every state of the open row shows above its controls. */
+  const wordsHtml = (b) => `
+      ${field('What the work is', b.description)}
+      ${field('What done looks like', b.acceptance)}
+      ${field('Design', b.design)}
+      ${b.notes ? `<div class="eq-field prov"><h3>How it was found</h3><p>${emph(b.notes)}</p></div>` : ''}`;
 
   function openHtml(b) {
     const editing = state.edit?.key === b.key;
     const said = state.said?.key === b.key ? `<div class="board-said${state.said.bad ? ' bad' : ''}">${esc(state.said.text)}</div>` : '';
 
     if (editing) return `<div class="board-open">${editHtml(b)}${said}</div>`;
+    // The bead's own words stay above the thread: the question you are typing is
+    // *about* the description, and a discussion panel that replaced it would have you
+    // scrolling back and forth to ask what it says.
+    if (state.talk?.key === b.key) return `<div class="board-open">${wordsHtml(b)}${talkHtml(b)}${said}</div>`;
 
     const revoking = isArmed(b.key, 'revoke');
     const buttons = [
       `<button class="board-btn merge" data-act="endorse" data-key="${esc(b.key)}">Endorse</button>`,
       `<button class="board-btn" data-act="edit" data-key="${esc(b.key)}">Adjust ✎</button>`,
+      `<button class="board-btn" data-act="talk" data-key="${esc(b.key)}">${
+        b.commentCount ? `Discuss 💬 ${esc(b.commentCount)}` : 'Discuss 💬'
+      }</button>`,
       `<button class="board-btn" data-act="changes" data-key="${esc(b.key)}">Ask for changes</button>`,
       `<button class="board-btn revoke${revoking ? ' armed' : ''}" data-act="revoke" data-key="${esc(b.key)}">${
         revoking ? 'Revoke it — sure?' : 'Revoke'
@@ -262,10 +400,7 @@
     ];
 
     return `<div class="board-open">
-      ${field('What the work is', b.description)}
-      ${field('What done looks like', b.acceptance)}
-      ${field('Design', b.design)}
-      ${b.notes ? `<div class="eq-field prov"><h3>How it was found</h3><p>${emph(b.notes)}</p></div>` : ''}
+      ${wordsHtml(b)}
       <div class="board-actions">${buttons.join('')}</div>
       <div class="board-say">
         <textarea data-note rows="2" placeholder="Say what is wrong with it, or why you are turning it down…">${esc(
@@ -566,6 +701,141 @@
     load({ refresh: true });
   }
 
+  /* ---------------------------------------------------------- driving a discussion */
+
+  /** The token'd GET every discussion read makes. Throws with the server's own words. */
+  async function get(path) {
+    const res = await fetch(path, { headers: { 'x-beadcause-token': token } });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+    return data;
+  }
+
+  /**
+   * Who can answer. Once, lazily — the first time a discussion is opened.
+   *
+   * A roster that will not load must not stop you asking: with no chips the server
+   * falls back to its default agent exactly as it would have, which is the same bargain
+   * the inbox makes (see `loadAgents` in public/app.js).
+   */
+  async function loadAgents() {
+    if (state.agents.length) return;
+    try {
+      const data = await get('/api/agents');
+      state.agents = data.agents || [];
+      if (!state.agents.some((a) => a.id === state.agent)) state.agent = data.default || state.agents[0]?.id || '';
+    } catch {
+      state.agents = [];
+    }
+  }
+
+  /**
+   * Read the thread, and find out whether anyone is still writing into it.
+   *
+   * `poll` is what makes this a conversation on a phone. Nothing pushes a reply on a
+   * held bead — `checkReplies` only watches `bd human` questions — so the answer arrives
+   * because this asks again, and it asks only while the daemon says an agent is running.
+   * `TALK_TRIES` bounds that: an agent that dies without commenting must not leave a
+   * phone polling a dead bead until the tab is closed.
+   */
+  async function readThread(key, { poll = false, tries = 0 } = {}) {
+    const t = state.talk;
+    if (!t || t.key !== key) return;
+    try {
+      const data = await get(`/api/bead/thread?workspace=${encodeURIComponent(t.workspace)}&id=${encodeURIComponent(t.id)}`);
+      if (state.talk?.key !== key) return;
+      state.talk.thread = data.thread || [];
+      state.talk.running = Boolean(data.running);
+      state.talk.activity = data.activity || null;
+      state.talk.loading = false;
+      render();
+      if (poll && state.talk.running && tries < TALK_TRIES) {
+        setTimeout(() => readThread(key, { poll: true, tries: tries + 1 }), TALK_POLL_MS);
+      }
+    } catch (err) {
+      if (state.talk?.key !== key) return;
+      state.talk.loading = false;
+      // Pinned to the row rather than thrown away: the thread on screen is still the
+      // thread, and the only thing that has failed is finding out whether it has moved.
+      state.said = { key, text: `Could not read the thread — ${err.message}`, bad: true };
+      render();
+    }
+  }
+
+  /** Open the panel on a row, with whatever has already been said on that bead. */
+  async function openTalk(key) {
+    const b = rowFor(key);
+    if (!b) return;
+    state.talk = { key, workspace: b.workspace, id: b.id, thread: [], text: '', loading: true, running: false };
+    state.armed = null;
+    state.edit = null;
+    state.said = null;
+    render();
+    await loadAgents();
+    if (state.talk?.key === key) render();
+    // Poll from the start: an agent may already be mid-reply on this bead from the last
+    // time you asked, and opening the panel onto a stale thread that never moves is
+    // indistinguishable from an agent that never came.
+    readThread(key, { poll: true });
+  }
+
+  /**
+   * Send the question, and start waiting for the answer.
+   *
+   * The bead is not touched beyond the comment, so there is nothing to take off the
+   * screen and nothing to re-sort: the row stays exactly where it was, which is the
+   * whole difference between this and the four verdicts. The queue is reloaded anyway,
+   * for the one thing that did change — the 💬 count on the folded row.
+   */
+  async function send(key) {
+    const t = state.talk;
+    if (!t || t.key !== key || t.sending) return;
+    const text = String(t.text || '').trim();
+    if (!text) {
+      state.said = { key, text: 'Type the question first — the comment is the discussion.', bad: true };
+      return render();
+    }
+
+    t.sending = true;
+    state.said = { key, text: 'Sending…', bad: false };
+    render();
+
+    try {
+      const res = await fetch('/api/bead/discuss', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-beadcause-token': token },
+        body: JSON.stringify({ workspace: t.workspace, id: t.id, text, agent: currentAgent()?.id || undefined }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+      if (state.talk?.key !== key) return;
+      state.talk.sending = false;
+      state.talk.text = '';
+      state.talk.thread = data.thread || state.talk.thread;
+      state.talk.running = Boolean(data.dispatched);
+      // Said plainly when nobody is coming. A comment that quietly gets no answer is
+      // the exact failure dispatch exists to fix, and "auto-dispatch is off for this
+      // workspace" is a thing you can act on where a silent thread is not.
+      state.said = {
+        key,
+        text: data.dispatched
+          ? `Asked ${data.agent?.name || 'an agent'} — the bead stays held.`
+          : `Your question is on the bead, but no agent was sent${data.reason ? ` — ${data.reason}` : ''}.`,
+        bad: !data.dispatched,
+      };
+      render();
+      if (data.dispatched) setTimeout(() => readThread(key, { poll: true }), TALK_POLL_MS);
+    } catch (err) {
+      if (state.talk?.key !== key) return;
+      state.talk.sending = false;
+      state.said = { key, text: err.message, bad: true };
+      render();
+    }
+    // The 💬 count on the folded row, and nothing else — the daemon has already dropped
+    // the queue cache so this comes back with the comment counted.
+    load({ refresh: true });
+  }
+
   /** The adjust form as the server wants it: the six fields, labels split on commas. */
   function editsNow() {
     const f = state.edit?.fields || {};
@@ -617,6 +887,20 @@
         state.edit = null;
         return render();
       }
+      if (action === 'talk') return openTalk(key);
+      if (action === 'close-talk') {
+        // The thread stays on the bead; only the panel closes. Nothing typed is worth
+        // keeping — a half-written question you have navigated away from is one you
+        // decided not to ask.
+        state.talk = null;
+        state.said = null;
+        return render();
+      }
+      if (action === 'send') return send(key);
+      if (action === 'agent') {
+        state.agent = btn.dataset.agent || '';
+        return render();
+      }
       if (action === 'save' || action === 'save-endorse') {
         return act(key, 'adjust', { edits: editsNow(), endorse: action === 'save-endorse' });
       }
@@ -644,9 +928,12 @@
     if (row) {
       const key = row.dataset.row;
       state.row = state.row === key ? null : key;
-      // Everything typed, armed or half-edited belongs to the row that is closing.
+      // Everything typed, armed or half-edited belongs to the row that is closing —
+      // including the discussion panel, whose poll stops the moment `state.talk` is not
+      // this row any more (see `readThread`).
       state.armed = null;
       state.edit = null;
+      state.talk = null;
       state.note = '';
       state.said = null;
       render();
@@ -659,6 +946,11 @@
     const note = ev.target.closest('[data-note]');
     if (note) {
       state.note = note.value;
+      return;
+    }
+    const question = ev.target.closest('[data-talk]');
+    if (question) {
+      if (state.talk) state.talk.text = question.value;
       return;
     }
     const f = ev.target.closest('[data-edit]');
@@ -691,6 +983,7 @@
       if (state.row && !live.has(state.row)) {
         state.row = null;
         state.edit = null;
+        state.talk = null;
       }
       if (state.first) state.first = false;
       state.error = null;
@@ -718,6 +1011,7 @@
     if (state.row && !live.has(state.row)) {
       state.row = null;
       state.edit = null;
+      state.talk = null;
     }
     render();
   });
@@ -726,8 +1020,10 @@
 
   setInterval(() => {
     // Not while you are mid-sentence, mid-edit or holding an armed revoke: a repaint
-    // would throw the first two away and disarm the third under your thumb.
-    if (!state.busy && !state.armed && !state.edit && !state.note) load();
+    // would throw the first two away and disarm the third under your thumb. A
+    // half-typed question is a mid-sentence too — and an open discussion is doing its
+    // own polling anyway, on a much shorter timer.
+    if (!state.busy && !state.armed && !state.edit && !state.note && !state.talk?.text) load();
   }, REFRESH_MS);
 
   if (!token) {

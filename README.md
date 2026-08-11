@@ -3603,7 +3603,8 @@ a teaser for a sheet. Here the sheet is the point, so it is in the list: you are
 asked whether an hour of unattended agent should go on this, and a decision made off a
 title is a rubber stamp with extra steps.
 
-Folded, the row carries the id, the workspace, the type, the priority — and **the bead
+Folded, the row carries the id, the workspace, the type, the priority, a **💬 count if
+anything has been said about it** — and **the bead
 it was found under**, which is the one sentence a bead cannot say about itself and
 usually the thing that tells you whether this is a real discovery or a tangent. That
 line costs a `bd show` per row, because `bd list --json` carries every text field but
@@ -3654,6 +3655,49 @@ you answer by opening a laptop. Each verdict says what it actually did, includin
 that is nothing: *already endorsed*, *nothing to change — it already reads that way*,
 *endorsed 5 of 6* with the reason the sixth did not.
 
+### Talking about one before you decide
+
+**Discuss 💬** is the fifth control on a row and the only one that is not a verdict. The
+four above all end with the bead somewhere else; this one deliberately leaves it exactly
+where it was, because half of what a decision needs at 07:00 is not endorse-or-revoke but
+a question — *is this not already filed, which file would it even touch, what breaks if
+we leave it.* Without somewhere to ask, the queue is a choice between approving work you
+have not understood and turning down work that might have been right.
+
+Almost none of it is new, which is the point. Commenting on a bead has always dispatched
+an agent to answer it ([who you are talking to](#who-you-are-talking-to)), and the roster
+is already the four shapes a question about a proposal takes: answer it, go and find the
+evidence, argue the other side, or say what is left to decide. What was missing was a
+conversation that **does not resolve the bead**.
+
+So: pick who answers from the same chips the inbox uses, type the question, and the
+comment goes on the bead as *you*. The bead keeps its `unendorsed` marker however long
+the thread runs — nothing here writes a label — and the agent could not take it off if
+it tried: its allowlist names the read-only `bd` verbs one at a time, so `bd label`,
+`bd update`, `bd close` and `bd create` are all off it (lib/agents.js). The prompt says
+so as well, and says which of the two is the guard.
+
+Two consequences worth knowing:
+
+- **The answer is pulled, not pushed.** Nothing will buzz your phone when the agent
+  replies, because the reply poller watches `bd human` questions and an unendorsed bead
+  is not one. The panel polls the thread every few seconds while the daemon says an agent
+  is running, and names the one that is thinking while you wait. Close the panel and the
+  poll stops; the thread is on the bead either way.
+- **A bead endorsed on the laptop while the page was open refuses the question**, with
+  the same 409 revoke and ask-for-changes give. A question typed at work that has already
+  been approved reads as if it had not been.
+
+The folded row then carries a **💬 count**, and that is not decoration: a bead you asked
+three questions about last night must never read as one nobody has opened, which is the
+state this whole queue exists to empty. It costs nothing — `bd list` carries
+`comment_count` already — and the verdict cache is dropped on the way out so the count is
+there on the next poll rather than fifteen seconds later.
+
+*Discuss* and *Ask for changes* are different acts and both are worth having: an
+objection is a verdict you have reached and want the next session to read; a discussion
+is the one you have not reached yet.
+
 ### Where it lives, and the tab it is not
 
 Two doors, and neither of them is a sixth tab. The bottom bar is full at five and what
@@ -3678,6 +3722,15 @@ two fields bd names differently arrive renamed, that the list is one list across
 workspaces, that a broken workspace is named and the rest still answer, that the cap is
 reported, and that a verdict drops the cache — so the laptop on its own poll stops
 drawing a bead the phone has just endorsed.
+
+`node test/discuss.mjs` covers the conversation, and every assertion in it is a way the
+thread could quietly decide something: that the comment is the *only* write and the
+marker is still on afterwards, that a bead endorsed on the laptop is refused before
+anything is written, that one question cannot be typed at two beads, that no `bd` verb a
+reply agent may run (`label`, `update`, `close`, `create`, `delete`) is on its allowlist,
+that an agent you have since deleted keeps its own name in the thread rather than being
+relabelled the default — and that a bead you have just asked about comes back from
+`/api/unendorsed` carrying its 💬 rather than reading as untouched.
 
 `node scripts/endorse-check.mjs [--out=DIR]` drives the real page in a headless Chrome
 the size of a phone, against a fixture that records every write. The two assertions it
@@ -6578,6 +6631,8 @@ cookie says so), and `/auth/signout` ends the session.
 | POST | `/api/bead/revoke` | `{workspace, ids[], reason?}` | closes it with your reason under a fixed prefix, and **leaves the marker on**: what an agent filed and what you thought of it both stay on the record. A bead already closed is `already: true` rather than an error; one already endorsed is a `409` |
 | POST | `/api/bead/adjust` | `{workspace, ids[], edits, endorse?}` | the ✎ of the proposal card, aimed at a bead that exists. `edits` may name `title, type, priority, description, acceptance, labels`, through the same clamps a proposed bead goes through; the two labels the daemon owns (`unendorsed`, `agent-filed`) are not yours to set. **Keeps the marker** unless `endorse: true`. A title may not be given to a group |
 | POST | `/api/bead/changes` | `{workspace, ids[], note}` | your objection on the thread and nothing else — the bead stays held, so the next session that touches it reads what is wrong instead of re-filing it next week. The note is required, because a changes-requested with nothing said is indistinguishable from having done nothing |
+| POST | `/api/bead/discuss` | `{workspace, id, text, agent?}` | your question on the thread, and a reply agent sent to answer it — the one thing you can do to a held bead that is **not** a verdict. The comment is the only write: no label moves, the `unendorsed` marker stays, and a bead endorsed since the queue was drawn is a `409`. One id only, never a list. Answers `{thread[], dispatched, agent, reason}`, and `reason` is why nobody was sent when nobody was |
+| GET | `/api/bead/thread` | `?workspace=&id=` | `{thread[], running, activity}` — the comments on one bead with each author resolved against the roster, plus whether an agent is still writing. What the discussion panel polls, because nothing pushes a reply on a bead that is not a `human` question |
 | GET | `/api/work` | — | `{workspaces[], elsewhere[], advocates[], service, router}` — per workspace: claimed beads, live `claude` sessions, counts, errors. `service` is what launchd is running; `router` is whether that program is actually serving anything, or is on an older build than the disk — see the router section. `router` is `null` under `npm run start:bare`, where there is no router |
 | GET | `/api/agents` | — | `{agents[], default}` — the roster you can address a comment to |
 | POST | `/api/agents` | `{name, description}` | creates one and returns the new roster. `tools` is never accepted here |
