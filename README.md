@@ -173,8 +173,17 @@ images:
 ```
 ````
 
+- **A choice writes the answer; it does not send it.** Tapping an option opens the
+  card if it was closed and puts that option's `response` in the answer box, where
+  it is yours to edit, qualify or take back — *Answer & close* under the box is what
+  commits it. The commonest thing anyone wants to do with a multiple-choice question
+  is pick one *and say something about it*, and a button that answered outright had
+  nowhere to put the second half. Tapping a second choice replaces the first; tapping
+  the one you already picked empties the box again; and a choice tapped after you have
+  typed something appends to it, because words you wrote are never thrown away.
 - `options[].response` is the exact text recorded as the answer — write it so a
-  future agent can act on it without re-reading the question.
+  future agent can act on it without re-reading the question. It is what lands in the
+  box, so write it as a sentence rather than as a button label.
 - `recommended: true` on one option puts a ★ and a tag on its button. `recommend:
   <id or label>` beside the list is the same thing said once instead of per row,
   and wins if both are written. Only one option is ever starred: two is the block
@@ -186,8 +195,12 @@ images:
   comments the answer, drops the `human` label and leaves the bead open and
   unclaimed — so it goes straight into `bd ready` and an advocate picks it up as
   work, instead of a session having to reopen it by hand and put the card back in
-  your inbox. Everything else about the tap is the same, including the card
-  leaving the inbox; the toast says which of the two happened.
+  your inbox. Everything else is the same, including the card leaving the inbox; the
+  toast says which of the two happened. **The button under the box says so before you
+  press it** — it reads *Answer & commission* while that choice is the one in the box,
+  because the close is the one outcome that is not going to happen. The option's id
+  rides with the answer and the server re-reads the bead to decide, so editing the
+  sentence into your own words does not turn a commission back into a close.
 - `diagram` is mermaid, rendered on the phone. ` ```mermaid ` fences in the prose
   render too.
 - `docs` are files on the Mac you need to read before answering. Each opens in the
@@ -239,19 +252,26 @@ Suggested — read out of the design            tap to fill the box
 [ ★ Restore at promotion ]  [ Restore at startup ]
 ```
 
-**A chip fills the box; it never sends.** That is the whole difference between
-these and the buttons above. An `options[].response` was written by an agent as
-the answer, so tapping it twice answers and closes. A suggestion is a sentence
-this parser lifted out of a paragraph, so it goes where you can read it, edit it
-and add a caveat, and *Answer & close* is still what commits it. Tapping a second
-chip swaps your pick; tapping one after you have typed something appends, because
-the words you wrote are never thrown away.
+**A chip fills the box, exactly as a written option does.** Tapping a second chip
+swaps your pick; tapping one after you have typed something appends, because the
+words you wrote are never thrown away. Two differences from the buttons above
+survive, and both come from where the words came from. A chip **lets go the moment
+you edit it** — it is only ever a claim that the box says exactly what the chip
+says, while an option stays lit while you qualify it. And a chip **carries no id**,
+so it cannot commission work: `closes: false` is a thing an agent wrote about an
+answer it wrote, and this parser is guessing.
 
 **Write the list and it will be found.** Any of these parse, in this order:
 
 - `**Bold label** — the rest.` as a bulleted or numbered list. The bold run
   becomes the chip; everything after it rides along in the answer.
 - `Option A — …`, `Option B: …`, anywhere — list, heading or bare paragraph.
+- `**(a)** …`, `(b) …`, `c) …` — a lettered or numbered run, as list items or as
+  paragraphs. The letter stays on the chip and in the answer, because it is the
+  word the question itself used: *I recommend (b)* stars the right one, which no
+  amount of matching on labels could work out. The run has to start at `a` (or `1`)
+  and have no holes in it — a pair that starts at `(c)` is a fragment of something
+  quoted, not a question being asked here.
 - A plain list directly under a lead-in line: *The options:*, *Choices:*,
   *Candidates:*, *Two ways forward:*.
 
@@ -272,8 +292,9 @@ and a second set of chips beside them would be two answers to one question
 disagreeing about what the question is.
 
 **A `decision` block is still better** and is what to write when you know the
-question is going to a phone: it gets full-width buttons above the fold, the
-exact sentence you chose recorded as the answer, and one tap fewer. This is the
+question is going to a phone: full-width buttons above the fold rather than chips
+in the box, the sentence you meant recorded as the answer rather than one lifted
+out of a paragraph, and the only place `closes: false` can be said. This is the
 safety net under everything else.
 
 #### Checking it
@@ -292,6 +313,13 @@ Two, because the parser and the gesture fail in different ways:
   reads like tidying up a duplicate. `--baseline` serves the committed `public/`,
   where it must score 7/23: every suggestion case failing, every control passing.
   Not in `npm test` — it needs Chrome.
+- **`node scripts/option-check.mjs`** — the same, for the buttons a real block
+  draws. It counts writes too, and adds the three things a written option has that
+  a chip does not: that the pick survives you rewriting its words, that the id
+  reaches `/api/respond` when you finally press the button, and that the button
+  renames itself over a commission. `--baseline` stops at the sixth check, because
+  the committed build arms the first tap instead of opening the card. Not in
+  `npm test` — it needs Chrome.
 
 ## Spaces — keeping work out of your evening
 
@@ -513,19 +541,23 @@ set.
   and another at the foot of the brief, where you land after a diagram and a thread.
   Collapsing scrolls you back onto the card you were reading rather than leaving you
   wherever the shrinking list happened to put you.
-- **Two taps on an option.** The first arms it, the second commits — a pocket tap
-  shouldn't close a bead. It disarms after 6s.
+- **An option fills the box.** Tapping a choice opens the card and writes that
+  choice's own sentence into the answer box, still editable and unsent; the button
+  under the box commits it. It replaced a two-tap arm-then-confirm, which was safe
+  against a pocket tap but had nowhere to put the qualifying sentence that usually
+  comes with a choice. The pocket is still covered: nothing leaves the phone until
+  you press the button under the words you are looking at.
 - **Free text**, with *Answer & close* or *Comment only* if you want the question
   to stay open. **Drafts are saved on every keystroke** to localStorage, so
   collapsing the card, opening a doc, a background refresh, or the phone killing
   the tab can't eat a half-written answer. A collapsed card with a draft says
   *Resume your answer* and shows a "draft saved" flag; the draft is cleared only
   once the answer is accepted. **The list never repaints while an answer is in
-  progress** — not on the 25s refresh, not when the two-tap arm timer expires.
+  progress** — not on the 25s refresh, not when a two-tap arm timer expires.
   Rebuilding it would destroy the textarea, drop focus, close the keyboard and
   reset scroll, which reads exactly like the answer being thrown away. Repaints
-  are deferred until the box is empty and unfocused; the armed-option state is
-  painted in place instead.
+  are deferred until the box is empty and unfocused; which option is lit, and what
+  the button under the box promises, are painted in place instead.
 - **Or set it aside**, under the two buttons — see [Setting a card
   aside](#setting-a-card-aside-is-not-answering-it) below. Two taps like everything
   else that makes something disappear, and the second one spells out what it is
@@ -673,11 +705,15 @@ a gate that appeared **between** the card opening and the press — a child reop
 a blocker filed while you were reading. That window is real, so nothing about the
 server-side check is relaxed on the strength of the card having asked first.
 
-Two known limits, both deliberate: a **decision block's option buttons** and a
-**proposal's Create-all** also close the bead and are still drawn on a gated card,
-falling back to the `409` note when pressed — hiding them would leave a decision
-card with no visible way to decide. And a **delivery** keeps its three buttons,
-because those are about a pull request rather than about the bead.
+One known limit, deliberate: a **proposal's Create-all** also closes the bead and is
+still drawn on a gated card, falling back to the `409` note when pressed — hiding it
+would leave a proposal with no visible way to approve it. And a **delivery** keeps its
+three buttons, because those are about a pull request rather than about the bead.
+
+A **decision block's option buttons** used to be on that list and no longer are:
+tapping one writes into the answer box and closes nothing, so on a gated card it
+fills a box whose only button is *Comment*. The choice reaches the thread, the bead
+stays open because it was always going to, and nothing has to be refused to say so.
 
 ### What is gated, and what is deliberately not
 

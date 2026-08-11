@@ -595,19 +595,24 @@ body {
 }
 .option:active { transform: scale(0.99); }
 .option .hint { font-size: 12.5px; font-weight: 420; color: var(--muted); }
-.option.confirm { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
-.option.confirm .hint { color: color-mix(in srgb, var(--accent-ink) 72%, transparent); }
+
+/* The choice whose words are in the box below. Filled, because it is the one state
+   here that is a claim about something else on the card — everything else about an
+   option describes the option, and this describes the answer. Tapping it again
+   empties the box and puts it back to the row of unmade choices. */
+.option.picked { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+.option.picked .hint { color: color-mix(in srgb, var(--accent-ink) 72%, transparent); }
 
 /* The one the brief argued for. A tinted edge and a tag, never a filled button:
-   filled is what `confirm` means here, and a recommendation that looked like an
-   armed button would be read as "already pressed". */
+   filled is what `picked` means here, and a recommendation that looked like a
+   pressed button would be read as "already chosen". */
 .option.rec { border-color: color-mix(in srgb, var(--accent) 55%, var(--line)); }
 .rec-tag {
   align-self: flex-start;
   font-size: 11px; font-weight: 600; letter-spacing: 0.02em;
   color: var(--accent);
 }
-.option.confirm .rec-tag { color: color-mix(in srgb, var(--accent-ink) 80%, transparent); }
+.option.picked .rec-tag { color: color-mix(in srgb, var(--accent-ink) 80%, transparent); }
 
 /* An option that commissions work rather than settling it — `closes: false` in the
    decision block. Quieter than the recommendation, because it is a fact about what
@@ -617,7 +622,7 @@ body {
   font-size: 11px; font-weight: 600; letter-spacing: 0.02em;
   color: var(--muted);
 }
-.option.confirm .hand-tag { color: color-mix(in srgb, var(--accent-ink) 72%, transparent); }
+.option.picked .hand-tag { color: color-mix(in srgb, var(--accent-ink) 72%, transparent); }
 
 .actions { display: flex; gap: 8px; padding: 0 15px 14px; }
 
@@ -3408,8 +3413,9 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
 .mir-sub { font-size: 12.5px; color: var(--muted); }
 .mir-plain { white-space: pre-wrap; font: inherit; color: var(--prose); margin: 0 0 14px; }
 
-/* An option is a whole answer, so it is drawn as a target rather than a word:
-   the label is what gets recorded, and pressing one closes the question. */
+/* An option is a whole answer, so it is drawn as a target rather than a word: the
+   label is what gets recorded. Clicking one writes it into the composer below and
+   stops there — the button under the box is what closes the question. */
 .mir-options { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0 0; }
 .mir-opt {
   display: flex;
@@ -3429,6 +3435,11 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
 }
 .mir-opt:hover { border-color: var(--accent); }
 .mir-opt small { font-weight: 500; color: var(--muted); }
+/* The choice whose words are in the composer, filled for the same reason the
+   phone's is: it is the one state here that is a claim about something else on
+   the page. */
+.mir-opt.picked { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+.mir-opt.picked small { color: color-mix(in srgb, var(--accent-ink) 72%, transparent); }
 
 .mir-comment { padding: 10px 0; border-top: 1px solid var(--line); }
 .mir-comment:first-of-type { border-top: none; padding-top: 0; }
