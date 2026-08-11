@@ -4426,6 +4426,55 @@ Two notes:
   controlling iTerm", approve it once in System Settings → Privacy & Security →
   Automation.
 
+### The card table — where session windows go
+
+A dozen live sessions used to land wherever iTerm cascaded them: across every
+display, half of them stacked, and the newest one on top of the window you were
+typing in. They are dealt instead — one screen, a grid of slots, each window
+wandering a little inside its own slot so the set reads as cards on a table rather
+than a stack of identical rectangles snapped to a grid. Cells tile the screen and a
+card can only move within its own cell, so no amount of wander makes two cards cover
+each other; the emptiest cell always wins, so a table with room in it fills before
+anything doubles up.
+
+Where a card lands is a hash of its bead id, not a die roll, which means the same
+session reopened comes back to the same square of the table. That is worth more than
+it sounds when you are hunting for the session you started twenty minutes ago.
+
+`sessionWindows.screen` picks the display — `largest` by default, which is the
+external monitor when one is plugged in and the laptop when it isn't, so one default
+is right either way. `sessionWindows.card` sizes them, `jitter` sets the wander (`0`
+snaps to the grid), and `layout: false` puts the old cascade back.
+
+The windows also open with a **profile of their own**, written to
+`~/Library/Application Support/iTerm2/DynamicProfiles/beadcause.json` and picked up
+by iTerm without a restart. It inherits from your Default profile, so session windows
+still look like your terminal, and overrides three things a session needs and a shell
+does not: unlimited scrollback (the interesting part of an agent session is usually
+the part that has already scrolled past), no confirmation sheet when a worker closes
+its own window, and a normal window type so a full-screen Default profile can't
+defeat the layout. The file is rewritten only when it changed — iTerm reloads every
+profile on each write. If it isn't loaded yet, the window opens on the default
+profile rather than failing.
+
+#### It hands the keyboard back
+
+Opening a window used to mean losing the sentence you were typing. iTerm brings
+itself to the front and makes a new window key whether or not anybody says
+`activate` — there is no background-window flag in either its AppleScript or its
+Python API, and `set frontmost of <window> to true` doesn't work. So focus is
+*borrowed*, not never taken: the window that had the keyboard gets it back
+(`select`, after a beat long enough to beat iTerm's own activation), and if you were
+in another app entirely — the usual case, since the button that opens a session is on
+a phone — that app is raised again too. Which app that was is read from `lsappinfo`
+rather than System Events, because the daemon runs under launchd, where the
+Automation prompt System Events needs may never be shown to anybody.
+
+A keystroke typed in the half-second while the window is coming up still lands in it.
+What this removes is the far worse case: the window that *keeps* focus, so the rest
+of your command goes into a fresh agent's prompt. Set `sessionWindows.stealFocus:
+true` for the old behaviour.
+
 ## The terminal — driving a session from the phone
 
 That button needs you to walk to the Mac. **⌨️** in the top bar, or **Drive a session
@@ -5344,6 +5393,11 @@ the fields it always read and renders exactly as it did.
 | `openSessions` | allow `POST /api/session` to open a Claude session on the Mac (default `true`) |
 | `sessionDirs` | override where a workspace's session opens. Normally unnecessary — see Discussing a question on the Mac |
 | `sessionPermissionMode` | `--permission-mode` for an opened session (default `auto`; `null` to omit the flag) |
+| `sessionWindows.layout` | deal session windows onto one screen as cards (default `true`; `false` leaves them wherever iTerm cascades them). See [The card table](#the-card-table--where-session-windows-go) |
+| `sessionWindows.screen` | which display: `largest` (default), `main`, or a 0-based index |
+| `sessionWindows.card` | a card in points, and the gap around it inside its slot (default `{width: 780, height: 540, gap: 24}`) |
+| `sessionWindows.jitter` | how far a card may wander inside its slot (default `18`; `0` snaps them to the grid) |
+| `sessionWindows.stealFocus` | let the new window keep the keyboard (default `false` — the keyboard is handed back to whatever had it) |
 | `beadConsole` | allow the [chat session](#the-chat-session--deciding-what-to-file) to open conversations and create beads (default `true`) |
 | `consoleModel` | model for a chat-session turn (default `null` — whatever `claude` uses on its own; `"sonnet"` for a cheaper conversation) |
 | `consoleTimeoutMs` | kill a chat-session turn that has been going this long (default 15 min) |
