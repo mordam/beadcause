@@ -40,6 +40,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import http from 'node:http';
+import { spawnSync } from 'node:child_process';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
@@ -88,23 +89,47 @@ const DAEMON = 'beadcause-test';
 // which is the failure the `--actor` flag was added for.
 const CALLS = path.join(tmp, 'calls.log');
 const FAKE = path.join(tmp, 'bd');
+
+/**
+ * The bodies the fake serves from `bd show`, so a card that needs a block in its
+ * description can have one. Built from the real parsers' own writers further down, so
+ * a fixture cannot drift away from what the server parses.
+ */
+const BODIES = path.join(tmp, 'bodies.json');
+const SEQ = path.join(tmp, 'seq');
+fs.writeFileSync(BODIES, '{}');
+
 fs.writeFileSync(
   FAKE,
   `#!/usr/bin/env node
 const fs = require('fs');
 const args = process.argv.slice(2);
 fs.appendFileSync(${JSON.stringify(CALLS)}, JSON.stringify({ args, env: process.env.BEADS_ACTOR || null }) + '\\n');
+const bodies = JSON.parse(fs.readFileSync(${JSON.stringify(BODIES)}, 'utf8'));
 const bead = (id) => ({
   id, issue_type: 'task', status: 'open', title: 'An ordinary question', comment_count: 2,
-  priority: 1, labels: ['human'], description: 'Which way?', dependencies: [],
+  priority: 1, labels: ['human'], description: bodies[id] || 'Which way?', dependencies: [],
 });
 if (args[0] === 'show') { process.stdout.write(JSON.stringify([bead(args[1])])); process.exit(0); }
 if (args[0] === 'human' && args[1] === 'list') { process.stdout.write(JSON.stringify([bead('zz-1')])); process.exit(0); }
 if (args[0] === 'comments') { process.stdout.write('[]'); process.exit(0); }
+// A create has to come back with an id or the handler reports a 502 and writes
+// nothing — which would pass a test asserting only that nothing went wrong.
+if (args[0] === 'create') {
+  let n = 0;
+  try { n = Number(fs.readFileSync(${JSON.stringify(SEQ)}, 'utf8')) || 0; } catch {}
+  n += 1;
+  fs.writeFileSync(${JSON.stringify(SEQ)}, String(n));
+  process.stdout.write(JSON.stringify({ id: 'zz-new' + n }));
+  process.exit(0);
+}
 process.stdout.write('[]');
 `,
   { mode: 0o755 }
 );
+
+/** Give an id a description for the length of one case. */
+const bodyFor = (map) => fs.writeFileSync(BODIES, JSON.stringify(map));
 
 const calls = () =>
   fs.existsSync(CALLS)
@@ -134,6 +159,75 @@ const envFor = (verb) =>
     .filter((c) => c.args[0] === verb)
     .map((c) => c.env);
 
+/**
+ * The `--actor` on every call bd was given, write or not — including the ones the
+ * `writes` filter deliberately leaves out, `dep` among them. What the bookkeeping
+ * assertions need: proving a call was *not* attributed means finding it first.
+ */
+const actorsForAny = (verb, sub = null) =>
+  calls()
+    .filter((c) => c.args[0] === verb && (sub === null || c.args[1] === sub))
+    .map((c) => {
+      const at = c.args.lastIndexOf('--actor');
+      return at === -1 ? null : c.args[at + 1];
+    });
+
+/* ------------------------------------------------------------------ fake gh */
+
+/**
+ * Enough `gh` for a pull request's verdict to be given: the auth probe lib/pr.js
+ * starts with, the view behind it, and the three acts. It writes nothing anywhere —
+ * what is being asserted here is what reached *bd*, not what reached GitHub.
+ */
+const BIN = path.join(tmp, 'bin');
+fs.mkdirSync(BIN, { recursive: true });
+const PR_STATE = path.join(tmp, 'pr.json');
+fs.writeFileSync(
+  PR_STATE,
+  JSON.stringify({
+    number: 7,
+    title: 'Something small',
+    url: 'https://github.com/acme/widgets/pull/7',
+    state: 'OPEN',
+    isDraft: false,
+    mergeable: 'MERGEABLE',
+    headRefName: 'bead/zz-work',
+    baseRefName: 'main',
+    additions: 4,
+    deletions: 1,
+    changedFiles: 1,
+    statusCheckRollup: [],
+    reviewDecision: null,
+    mergedAt: null,
+    mergeCommit: null,
+  })
+);
+fs.writeFileSync(
+  path.join(BIN, 'gh'),
+  `#!/usr/bin/env node
+const fs = require('fs');
+const args = process.argv.slice(2);
+const out = (s) => { process.stdout.write(s); process.exit(0); };
+if (args[0] === 'auth') out('Logged in to github.com\\n');
+if (args[0] === 'pr') {
+  const pr = JSON.parse(fs.readFileSync(${JSON.stringify(PR_STATE)}, 'utf8'));
+  if (args[1] === 'view') out(JSON.stringify(pr));
+  if (args[1] === 'merge') {
+    pr.state = 'MERGED';
+    pr.mergedAt = '2026-08-10T12:00:00Z';
+    pr.mergeCommit = { oid: 'abcdef0123456789' };
+    fs.writeFileSync(${JSON.stringify(PR_STATE)}, JSON.stringify(pr));
+    out('Merged pull request #7\\n');
+  }
+  if (args[1] === 'close' || args[1] === 'comment') out('done\\n');
+}
+process.stderr.write('unknown gh invocation: ' + args.join(' ') + '\\n');
+process.exit(1);
+`,
+  { mode: 0o755 }
+);
+process.env.PATH = `${BIN}${path.delimiter}${process.env.PATH}`;
+
 /* ----------------------------------------------------------------- the app */
 
 const ws = path.join(tmp, 'ws');
@@ -146,6 +240,9 @@ const BASE = {
   actor: DAEMON,
   bdBin: FAKE,
   workspaces: [{ name: 'demo', dir: ws }],
+  // A checkout for the workspace, which a delivery needs before it will act on a pull
+  // request at all, and which the console resolves its working directory from.
+  sessionDirs: { demo: ws },
   openSessions: false,
   autoDispatch: false,
   claudeSessions: false,
@@ -365,6 +462,248 @@ reset();
   const r = await post(onPort, '/api/respond', { workspace: 'demo', id: 'zz-1', response: 'Fine.' }, stale);
   check(() => assert.equal(r.status, 401), 'and on its own it does not get in');
   check(() => assert.deepEqual(writes(), []), 'having written nothing');
+}
+
+/* ---------------------------------------------------------- filing the beads */
+
+/**
+ * The category bc-vq21 left open, and the reason it was left open was wrong.
+ *
+ * The worry was that `--actor` would set a created bead's `owner` — which is read as
+ * *whose queue this is*, by `bd ready` and by the agents list — and quietly move new
+ * work out of the advocate's reach. It does not. `--actor` writes `created_by`, a
+ * byline, and `owner` comes from the git identity of the directory bd runs in. The
+ * real-bd case at the bottom of this file is what proves that; these assert that the
+ * paths pass an actor at all.
+ */
+console.log('\nfiling beads — the byline on a create\n');
+
+reset();
+{
+  const r = await post(onPort, '/api/ask', { workspace: 'demo', title: 'Look at this', body: 'From the share sheet.' }, COOKIE);
+  check(() => assert.equal(r.status, 200), 'the share target files a question from a signed-in browser');
+  check(() => assert.deepEqual(actorsFor('create'), [SIGNED_IN]), 'and it is filed under the address that filed it');
+  check(() => assert.deepEqual(envFor('create'), [SIGNED_IN]), 'BEADS_ACTOR agreeing, as everywhere else');
+}
+
+reset();
+{
+  const r = await post(onPort, '/api/ask', { workspace: 'demo', title: 'From the shade' }, TOKEN);
+  check(() => assert.equal(r.status, 200), 'and over the token, which is how the Android share target arrives');
+  check(() => assert.deepEqual(actorsFor('create'), [DAEMON]), 'filed as beadcause, exactly as before');
+}
+
+reset();
+{
+  // The console: a conversation about what to file, then one button that files it.
+  // Unseeded, so nothing spawns — `sendTurn` is only reached by a seeded console.
+  const opened = await post(onPort, '/api/console', { workspace: 'demo' }, COOKIE);
+  check(() => assert.equal(opened.status, 200), 'a chat session opens');
+  const draft = {
+    beads: [
+      { ref: 'a', title: 'The first one', description: 'Because.', type: 'task', priority: 2 },
+      { ref: 'b', title: 'The second one', description: 'And this.', type: 'task', priority: 2, dependsOn: ['a'] },
+    ],
+  };
+  await post(onPort, '/api/console/draft', { id: opened.json.id, draft }, COOKIE);
+  reset();
+  const made = await post(onPort, '/api/console/create', { id: opened.json.id, draft }, COOKIE);
+  check(() => assert.equal(made.status, 200), 'and the button files what was on screen');
+  check(
+    () => assert.deepEqual(actorsFor('create'), [SIGNED_IN, SIGNED_IN]),
+    'every bead it files carries the address that pressed it'
+  );
+  check(
+    // Wiring two beads together is not a sentence anybody said. Same rule that left
+    // the `human-replied` label alone.
+    () => assert.deepEqual(actorsForAny('dep', 'add'), [DAEMON]),
+    'the `bd dep add` between them stays the daemon’s — that is plumbing, not a byline'
+  );
+}
+
+reset();
+{
+  // An advocate's proposal: the agent wrote the words, the approval made the beads.
+  const { APPROVE_MARKER } = await import(LIB('proposal.js'));
+  bodyFor({
+    'zz-prop': [
+      'The advocate would like to file these.',
+      '',
+      '```beadproposal',
+      'workspace: demo',
+      'beads:',
+      '  - title: Cache-bust site.js',
+      '    type: task',
+      '    priority: 2',
+      '    description: |',
+      '      No ?v= on the script tag.',
+      '    acceptance: A deploy changes the URL.',
+      '    rationale: Found while reading the template.',
+      '```',
+    ].join('\n'),
+  });
+  const r = await post(onPort, '/api/respond', { workspace: 'demo', id: 'zz-prop', response: `${APPROVE_MARKER} yes` }, COOKIE);
+  check(() => assert.equal(r.status, 200), 'approving a proposal creates what it proposed');
+  check(
+    () => assert.deepEqual(actorsFor('create'), [SIGNED_IN]),
+    'and the bead records who approved it — the `advocate` label still says who proposed it'
+  );
+  check(
+    () => assert.deepEqual(actorsFor('comment'), [SIGNED_IN]),
+    'the answer on the proposal is yours too, as it already was'
+  );
+  bodyFor({});
+}
+
+/* -------------------------------------------------- the verdict on a pull request */
+
+/**
+ * The other category left open: the notes a delivery leaves on the *work* bead.
+ *
+ * The wrapper around each is the daemon's, but the direction inside it is verbatim
+ * what you typed, and "who asked for changes" is the first thing the next session
+ * wants to know. The reopen beside them is not attributed — putting a bead back in
+ * the queue is bookkeeping, and that line has not moved.
+ */
+console.log('\na pull request’s verdict\n');
+
+const { deliveryBody, CHANGES_MARKER, DECLINE_MARKER, MERGE_MARKER } = await import(LIB('delivery.js'));
+const DELIVERY = {
+  workspace: 'demo',
+  bead: 'zz-work',
+  repo: 'acme/widgets',
+  number: 7,
+  url: 'https://github.com/acme/widgets/pull/7',
+  branch: 'bead/zz-work',
+  base: 'main',
+  method: 'squash',
+  summary: 'Something small.',
+};
+
+reset();
+{
+  bodyFor({ 'zz-pr': deliveryBody(DELIVERY) });
+  const r = await post(
+    onPort,
+    '/api/respond',
+    { workspace: 'demo', id: 'zz-pr', response: `${CHANGES_MARKER} the second helper is doing two things` },
+    COOKIE
+  );
+  check(() => assert.equal(r.status, 200), 'asking for changes from a signed-in browser works');
+  check(
+    // Two comments: the note on the work bead, and the answer on the question. Both
+    // yours, and the first is the one this bead was about.
+    () => assert.deepEqual(actorsFor('comment'), [SIGNED_IN, SIGNED_IN]),
+    'the note on the work bead is yours — a next session can see who asked'
+  );
+  check(
+    () => assert.deepEqual(actorsForAny('update'), [DAEMON]),
+    'the reopen-and-unclaim beside it is not — returning a bead to the queue is bookkeeping'
+  );
+}
+
+reset();
+{
+  bodyFor({ 'zz-pr': deliveryBody(DELIVERY) });
+  const r = await post(
+    onPort,
+    '/api/respond',
+    { workspace: 'demo', id: 'zz-pr', response: `${DECLINE_MARKER} start from the router instead` },
+    TOKEN
+  );
+  check(() => assert.equal(r.status, 200), 'and declining over the token still lands');
+  check(
+    () => assert.deepEqual(actorsFor('comment'), [DAEMON, DAEMON]),
+    'written as beadcause — the token names nobody, here as anywhere else'
+  );
+}
+
+reset();
+{
+  bodyFor({ 'zz-pr': deliveryBody(DELIVERY) });
+  const r = await post(onPort, '/api/respond', { workspace: 'demo', id: 'zz-pr', response: `${MERGE_MARKER} in it goes` }, COOKIE);
+  check(() => assert.equal(r.status, 200), 'merging from a signed-in browser works');
+  check(
+    // One tap closes two beads: the question because it was answered, and the work
+    // because it landed. Two names across them would read as two people.
+    () => assert.deepEqual(actorsFor('close'), [SIGNED_IN, SIGNED_IN]),
+    'both closes are yours — the work bead and the question are one act'
+  );
+  bodyFor({});
+}
+
+/* ------------------------------------------------- against the real bd binary */
+
+/**
+ * The claim the whole create decision rests on, asked of the thing that decides it.
+ *
+ * Every assertion above is about the argv beadcause produces. This one is about what
+ * `bd` does with it, and no fake can answer it honestly: that `--actor` on a create
+ * writes `created_by` and leaves `owner` alone, so an attributed bead is in the same
+ * queue as an unattributed one and `bd ready` still hands it to the advocate. If that
+ * were false, every create above would be quietly filing work where nothing would
+ * pick it up — which is exactly what bc-5l8s was afraid of.
+ *
+ * Skipped, loudly, where `bd` is not installed. A machine without the tracker cannot
+ * answer the question, and failing there would say something untrue about the code.
+ */
+console.log('\nwhat bd actually does with --actor on a create\n');
+
+const bdOnPath = (() => {
+  const r = spawnSync('bd', ['version'], { encoding: 'utf8' });
+  return !r.error;
+})();
+
+if (!bdOnPath) {
+  console.log('  \x1b[33m—\x1b[0m skipped: no `bd` on PATH, so what it does with --actor cannot be asked here');
+} else {
+  const real = path.join(tmp, 'realws');
+  fs.mkdirSync(path.join(real, '.beads'), { recursive: true });
+  // Spawned directly, never through a shell: `~/.zshenv` rewrites BEADS_DIR from the
+  // shell's cwd, so a shell here would resolve to somebody's actual tracker. This is
+  // the same reason lib/bd.js uses execFile — see the note at the top of it.
+  const env = { ...process.env, BEADS_DIR: path.join(real, '.beads') };
+  const bdRun = (args) => spawnSync('bd', args, { env, cwd: real, encoding: 'utf8', timeout: 60000 });
+
+  const init = bdRun(['init', '--skip-agents', '--prefix', 'at']);
+  if (init.status !== 0) {
+    bad('a temp workspace can be made to ask in', (init.stderr || init.stdout || '').split('\n')[0]);
+  } else {
+    const { Bd } = await import(LIB('bd.js'));
+    const realBd = new Bd({ bin: 'bd', actor: DAEMON });
+    const realWs = { name: 'real', dir: path.join(real, '.beads') };
+
+    // The two creates beadcause now makes: one from a signed-in browser, one from a
+    // token caller. Everything else about them is identical.
+    const mine = await realBd.create(realWs, { title: 'Filed from a phone', labels: [], priority: 2 }, { actor: SIGNED_IN });
+    const theirs = await realBd.create(realWs, { title: 'Filed by the daemon', labels: [], priority: 2 });
+
+    const rows = (await realBd.json(realWs, ['list', '--limit', '0'])) || [];
+    const row = (id) => rows.find((r) => r.id === id) || {};
+
+    check(() => assert.ok(mine && theirs), 'both creates come back with an id');
+    check(
+      () => assert.equal(row(mine).created_by, SIGNED_IN),
+      '`--actor` lands in created_by — which is a byline, and is the whole point'
+    );
+    check(() => assert.equal(row(theirs).created_by, DAEMON), 'and the daemon’s create still says beadcause');
+    check(
+      // The assertion bc-5l8s turned on. If `owner` moved with the actor, an attributed
+      // bead would belong to a different queue than the one that asked for it.
+      () => assert.equal(row(mine).owner, row(theirs).owner),
+      'and `owner` is identical across the two — the flag does not touch it'
+    );
+
+    const ready = await realBd.ready(realWs, { excludeLabel: 'human' });
+    check(
+      () => assert.ok(ready.some((r) => r.id === mine)),
+      'an attributed create still reaches the advocate: `bd ready` offers it'
+    );
+    check(
+      () => assert.equal(ready.some((r) => r.id === mine), ready.some((r) => r.id === theirs)),
+      'and offers it on exactly the same terms as an unattributed one'
+    );
+  }
 }
 
 for (const s of [...(onServers || []), ...(offServers || [])]) s.close?.();
