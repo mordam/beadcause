@@ -52,10 +52,10 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import http from 'node:http';
-import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { boundPort } from './helpers/net.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(HERE, '..');
@@ -272,20 +272,13 @@ const cfg = {
   advocates: { enabled: false, workspaces: [] },
 };
 
-const port = await new Promise((resolve, reject) => {
-  const probe = net.createServer();
-  probe.on('error', reject);
-  probe.listen(0, '127.0.0.1', () => {
-    const { port: p } = probe.address();
-    probe.close(() => resolve(p));
-  });
-});
-
 // The one object the whole process holds: what the endpoint mutates is this, and every
 // assertion about "the running daemon" below reads it back out of here.
-const live = { ...cfg, port };
+const live = { ...cfg, port: 0 };
 const app = createApp(live);
 const servers = listen(live, app.handler);
+const port = await boundPort(servers);
+live.port = port;
 
 const call = (pathname, opts = {}) =>
   new Promise((resolve, reject) => {
@@ -308,15 +301,6 @@ const call = (pathname, opts = {}) =>
     if (opts.body) req.write(JSON.stringify(opts.body));
     req.end();
   });
-
-for (let i = 0; i < 100; i += 1) {
-  try {
-    await call('/api/health');
-    break;
-  } catch {
-    await new Promise((r) => setTimeout(r, 50));
-  }
-}
 
 const got = await call('/api/space?space=Work');
 check('GET /api/space answers with no `bd` on the machine at all', () => {
