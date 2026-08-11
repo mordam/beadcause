@@ -23,6 +23,24 @@
  * `redirectUri`, a `baseUrl` — where the port has to be known first and there is
  * nothing else to read it off.
  *
+ * In practice that is two shapes, and both of them are shapes where there is genuinely
+ * no listener in this process to read anything off:
+ *
+ * - a `config.json` written for a *child* to read — `test/slowstart.mjs`,
+ *   `test/outagepush.mjs`, `scripts/test-swap.js` and `scripts/space-check.mjs` each
+ *   spawn `bin/router.js` or `bin/beadcause.js`, so the number has to be on disk before
+ *   the process that binds it exists;
+ * - an OAuth `redirectUri`, which `lib/auth.js` reads back and compares — so it has to be
+ *   the port the server ends up on, and it is written into the config that *makes* the
+ *   server. `test/auth.mjs` and `test/attribution.mjs` are that case, and both of them
+ *   use `boundPort` for their sign-in-*off* daemon in the same file, which is the
+ *   distinction drawn as sharply as it can be drawn.
+ *
+ * A `baseUrl` on its own is not one of these: `createApp` and `listen` hold the config
+ * object by reference, so a suite can bind on port 0 and fill `cfg.baseUrl` in on the
+ * line after `await boundPort(servers)`, before it makes its first request. Most of the
+ * suites here do exactly that.
+ *
  * This file is under `test/helpers/` rather than `test/` on purpose:
  * `scripts/test.mjs` discovers suites with a non-recursive readdir of `test/`
  * filtered on `.mjs`, so a subdirectory is invisible to it. That is what keeps a

@@ -48,10 +48,10 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import http from 'node:http';
-import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { boundPort } from './helpers/net.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(HERE, '..');
@@ -164,6 +164,7 @@ fs.writeFileSync(
 /* --------------------------------------------------------------------- server */
 
 const cfg = {
+  port: 0,
   host: '127.0.0.1',
   baseUrl: 'http://127.0.0.1',
   token: 'session-test-token',
@@ -181,19 +182,9 @@ const cfg = {
   advocates: { enabled: false, workspaces: [] },
 };
 
-// A port picked up front rather than `port: 0`: listen() binds asynchronously and hands
-// the servers back immediately, so address() is still null on the next line.
-const port = await new Promise((resolve, reject) => {
-  const probe = net.createServer();
-  probe.on('error', reject);
-  probe.listen(0, '127.0.0.1', () => {
-    const { port: p } = probe.address();
-    probe.close(() => resolve(p));
-  });
-});
-
 const { createApp, listen } = await import(LIB('server.js'));
-const servers = listen({ ...cfg, port }, createApp({ ...cfg, port }).handler);
+const servers = listen(cfg, createApp(cfg).handler);
+const port = await boundPort(servers);
 
 const call = (pathname, { token = cfg.token, body = null } = {}) =>
   new Promise((resolve, reject) => {
@@ -221,15 +212,6 @@ const call = (pathname, { token = cfg.token, body = null } = {}) =>
     req.on('error', reject);
     req.end(payload ?? undefined);
   });
-
-for (let i = 0; i < 100; i += 1) {
-  try {
-    await call('/api/health');
-    break;
-  } catch {
-    await new Promise((r) => setTimeout(r, 50));
-  }
-}
 
 /* --------------------------------------------------- the record, not just the log */
 
