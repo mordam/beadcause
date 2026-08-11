@@ -4388,13 +4388,13 @@ an observer, because a phone asking it to is not the observer acting on its own.
 
 #### The failures it already noticed and swallowed
 
-The poll cycle catches and logs five background sweeps — the poll itself, the deploy
-sweep, the owed-close sweep, the advocate tick, the release sweep — and carries on. That
-is right, and it stays: none of them may be allowed to stop the others. But it also means a
-`TypeError` in the advocate has been logged every thirty seconds for a week with nobody
-reading it, and *that* is a bug that should be a bead.
+The poll cycle catches and logs six background failures — the poll itself, the deploy
+sweep, the owed-close sweep, the advocate tick, the release sweep, and the per-question
+reply push — and carries on. That is right, and it stays: none of them may be allowed to
+stop the others. But it also means a `TypeError` in the advocate has been logged every
+thirty seconds for a week with nobody reading it, and *that* is a bug that should be a bead.
 
-So each of those five now also calls `reportSweepFailure`, and **the bar there is higher
+So each of those six now also calls `reportSweepFailure`, and **the bar there is higher
 than the crash path's**: only errors that are bugs by construction are filed. A sweep that
 failed did not kill anything and may well work on the next tick, so `spawn gh ENOENT` or a
 bd lock timeout stays a log line, while a `TypeError` or a `ReferenceError` — which cannot
@@ -4433,11 +4433,11 @@ browser report from the same line land on **one** bead, asserted rather than ass
 
 Two of its checks read source rather than behaviour, which is worth knowing before one
 fails on you. Observer mode is driven in a child process, because `OBSERVING` is read from
-the environment once at module load and cannot be flipped in-process. And the five swallowed
-sweeps are asserted by grepping `lib/server.js` for their `sweepFailed('…')` labels — a
-sixth sweep added to the poll cycle without one will fail that check by name, which is the
-whole intent: the list going stale silently is how "logged for a week with nobody reading
-it" comes back.
+the environment once at module load and cannot be flipped in-process. And the six swallowed
+failures are asserted by grepping `lib/server.js` for their `sweepFailed('…')` labels — a
+seventh added to the poll cycle without one will fail that check by name, which is the whole
+intent: the list going stale silently is how "logged for a week with nobody reading it"
+comes back.
 
 ## Advocates — an agent per repo, whose job is the queue reaching zero
 

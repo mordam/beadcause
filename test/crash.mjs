@@ -509,12 +509,19 @@ await check('bin/beadcause.js arms the handlers and disarms them on the way down
   );
 });
 
-await check('the five swallowed sweeps in the poll cycle all report', () => {
+await check('every swallowed failure in the poll cycle reports', () => {
   const src = fs.readFileSync(LIB('server.js'), 'utf8');
   const named = [...src.matchAll(/sweepFailed\('([^']+)'/g)].map((m) => m[1]);
   assert.deepEqual(
     named.sort(),
-    ['the advocate tick', 'the deploy sweep', 'the owed-close sweep', 'the poll', 'the release sweep'],
+    [
+      'the advocate tick',
+      'the deploy sweep',
+      'the owed-close sweep',
+      'the poll',
+      'the release sweep',
+      'the reply push',
+    ],
     `every catch in the cycle reports, got ${named.join(', ')}`
   );
   // A `return console.error(...)` would have made the poll's report unreachable.
