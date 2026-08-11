@@ -12,6 +12,12 @@
   So: one bar, the same on all of them, fixed to the bottom where a thumb already is.
   Any view is one tap from any other, and nothing closes any more.
 
+  **A tab is not a shortcut to a page; it is a claim that the page is somewhere you
+  live.** That is what took **PRs** out of the bar again (bc-l8jp.6): the pull request
+  board is somewhere you glance and then act on, and its rows are incoming work, so the
+  rows moved into the inbox and the board kept its URLs without keeping a fifth of the
+  bar. A page can be reachable, load-bearing and not a tab — and several are.
+
   It is built here rather than pasted into five <head>-alike blocks of HTML because
   there is no templating in this app and a bar that says different things on
   different pages is worse than no bar. One list, one place to add a tab, and one
@@ -45,10 +51,18 @@
     // The id and the href stay `console`: they live in stored conversation records
     // and on the phone's home screen.
     { id: 'console', href: '/console', icon: '🧾', label: 'Chat', paths: ['/console', '/console.html'] },
-    // Next to Advocates on purpose: that is where the sessions are, this is where the
-    // work they finished goes, and the two are read one after the other. "PRs" rather
-    // than "Pull requests" for the reason the tab beside it is called Chat — above.
-    { id: 'prs', href: '/prs', icon: '🔀', label: 'PRs', paths: ['/prs', '/pulls', '/prs.html'] },
+    // There was a **PRs** tab here, next to Advocates. It is gone (bc-l8jp.6) and the
+    // reason is the same as the gap above it: a tab is a claim that a screen is somewhere
+    // you *live*, and the pull request board is somewhere you glance — "did that ship?" —
+    // and then act on twice a day. The rows themselves are incoming work like everything
+    // else the inbox holds, so they are cards in the inbox now, under their own filter
+    // with a sub-filter over the status ladder. `/prs`, `/pulls` and `/prs.html` all still
+    // serve the board, which is still the whole of the shipping screen; what points at it
+    // is a link on every PR card rather than a fifth of this bar.
+    //
+    // Which means the board is a page the bar marks nothing as current on. That is
+    // deliberate and it is checked (scripts/tabbar-check.mjs): the bar is still there,
+    // because it is the only way off any of these pages.
     // The sessions view too. `/sessions`, `/work` and `/work.html` all serve this page
     // now, and they stay in `paths` so the bar marks the right tab for a phone opening
     // the shortcut it has had on its home screen for months.
