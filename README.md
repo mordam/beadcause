@@ -3838,6 +3838,74 @@ brief and leaving the bead open for attempt 3. It now recognises that state, clo
 bead exactly as its own merge would, and prints `landed #42` — having pushed nothing,
 because a card merge deletes the remote branch and pushing would recreate it.
 
+### The duplicate that comes ready the moment its original lands
+
+The sweep above closes work that turned out to be done. This one asks about work that
+turned out to be somebody else's, and the difference between "closes" and "asks" is the
+whole design.
+
+A worker that finds two beads describing the same job has always had the right instinct
+and no tools for it. Closing a bead is not a worker's call, so the move available was to
+park the duplicate behind the original with `bd dep add` and write *"when the original
+lands, close this as superseded rather than working it"* in a comment. Every step of that
+is correct, and it holds right up until the original lands — at which point closing the
+blocker makes the duplicate `bd ready`, the advocate picks it up, and an unattended
+session opens on a bead whose own comments say not to work it.
+
+bc-e1kv, parked behind bc-0nea, which landed as #33. The session that opened did the only
+honest thing available — verified the fix really was in `main`, filed a question asking
+for the close — and spent its whole window re-deriving a conclusion already written on
+the bead. The gap was that "superseded, pending approval to close" lived in prose, where
+nothing between the blocker closing and a worker reading that prose could act on it.
+
+So it is a label. A worker writes two lines and stops:
+
+```sh
+bd dep add bc-e1kv bc-0nea
+bd label add bc-e1kv superseded-by:bc-0nea
+```
+
+`superseded-by:<id>` is [endorsement](#the-endorsement-queue--a-group-tap-or-a-row-at-a-time)'s shape with a different ending. Same two layers: the marked bead is out
+of `bd ready` and out of every advocate queue, and `openWorkSession` asks the tracker
+itself and refuses one handed straight to it. The refusal carries more weight here than
+it does for `unendorsed`, and that is worth knowing rather than glossing — the marker
+carries the original's id inside it, so there is no fixed string to give bd's
+`--exclude-label` and the filter is a row check in one function rather than a flag the
+tracker honours.
+
+The ending is what differs. An `unendorsed` bead is waiting to be let *into* the queue;
+this one is waiting to be let *out of the tracker*, and nothing but you may decide that.
+So when the named original closes, the advocate does not open a session — it puts the
+duplicate in the inbox as a card, with two options and both of them real:
+
+- **Close it — bc-0nea covered it.** The tap *is* the close. Answering a `human` bead
+  closes it, which is why the card is the duplicate itself rather than a separate
+  question about it: nothing to keep in step, nothing to clean up.
+- **Keep it — not the same job.** A `closes: false` option, so it commissions rather than
+  concludes, and it takes the marker off on the way past. A handover that left the marker
+  on would be a button that did not do what it said.
+
+Three writes, in the order that survives a failure halfway: the comment, then the ask
+appended to the bead's notes (`--append-notes`, so nothing it already said is
+overwritten), then the `human` label — which *is* "it is in the inbox", and goes last so
+a card never appears before its options. A retry recognises its own work by a marker in
+those notes, so a label write that failed on the Dolt lock costs a sweep rather than a
+second comment every ten minutes.
+
+Two things it deliberately will not do. **It never asks about a bead whose original it
+could not read**: "the tracker is mid-write" and "that bead is gone" are the same
+sentence from here, and a card claiming a bead had vanished would be wrong every time it
+was the former — so the duplicate stays held and the reason is logged every sweep. And
+**tapping "open a session" on the card does not lift the marker**, unlike the same tap on
+an unendorsed bead. The two markers do not mean the same thing: `unendorsed` is "nobody
+has looked at this", and looking at it is exactly what that tap does, where
+`superseded-by:` is a claim about two beads that opening one of them to read is no
+verdict on.
+
+`askSuperseded: false` switches it off; `supersededIntervalMinutes` is how often it
+looks, defaulting to 10. The worker's brief carries the two commands, which is what makes
+any of it reachable — nothing but a worker ever sets this marker.
+
 ### The session log, kept in the repo
 
 A session's window closes when it exits, the rendered log in `~/.config/beadcause/`
@@ -5979,6 +6047,8 @@ the fields it always read and renders exactly as it did.
 | `advocates.tidyAtticDays` | how long a retired worktree stays in `.claude/worktrees-retired/` before the same sweep removes it for good (default 2). `0` keeps the attic forever, which is what this did before — and fractional values are honoured, so a removal rule can be rehearsed at `0.01` on a real attic |
 | `advocates.reconcileLanded` | close beads whose pull request was merged **on github.com** rather than from a card (default `true`). Without it such a bead stays open, stays in `bd ready`, and the advocate opens fresh sessions on work already in `main` |
 | `advocates.landedIntervalMinutes` | how often that asks GitHub (default 10). It also asks *unconditionally* right before opening a session, whatever this says — being late there costs a whole session |
+| `advocates.askSuperseded` | [ask about a bead a worker marked `superseded-by:` another, once that other one closes](#the-duplicate-that-comes-ready-the-moment-its-original-lands) (default `true`). Without it a marked bead is held out of every queue with nothing left to let it out again |
+| `advocates.supersededIntervalMinutes` | how often that looks (default 10). Unlike the sweep above it is never forced before a launch, because a marked bead cannot reach one |
 | `advocates.sessionLog` | archive each finished session to `refs/beadcause/sessions/<bead>` and note its commits (default `true`) |
 | `advocates.sessionTranscripts` | also store the raw Claude Code transcript — megabytes, and it carries paths and tool output (default `false`; set per repo in `perWorkspace`) |
 | `advocates.closeFinishedSessions` | [close a work session's window once its bead is closed](#closing-the-window--a-session-that-has-finished-should-not-still-be-on-screen) (default `true`). `false` leaves every window open, which is what it did before |
