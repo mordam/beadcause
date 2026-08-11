@@ -60,11 +60,14 @@
   </header>
 
   <!--
-    Which slice of the tracker the list is, then which space, then which workspace —
-    three rows of chips, coarsest first, all painted by renderFilters() in app.js.
-    The first of them used to be a gear opening a modal; it is a row like the others
-    now, because a setting that changes what every count on the screen means should
-    not need a tap to read.
+    The inbox's own filter, and all of it: which slice of the tracker, and which kinds
+    of incoming thing. Built by public/inboxfilter.js — one line at rest saying what is
+    selected, the full set of chips on hover with a pointer and on a tap without one.
+
+    It held three permanent rows once, coarsest first: the scope, then the space, then
+    the workspace. The bottom two are the space picker in the top bar now; the top one
+    is inside the panel with the kinds, because two rows of chips above the list is two
+    questions you cannot see on a phone.
   -->
   <nav class="filters" id="filters" hidden></nav>
 
@@ -103,6 +106,11 @@
        and it is what the two chip rows that used to be in #filters became, so the list
        below is filtered by the bar above it rather than by a row of its own. -->
   <script src="/spacebar.js"></script>
+  <!-- The inbox's filter: the scope and a chip per kind of incoming thing, behind one
+       collapsed line. Before app.js, because app.js hands it the scope group and asks
+       it whether each row is in view as it renders — and a page that drops it falls
+       back to the unfiltered list rather than to no list. -->
+  <script src="/inboxfilter.js"></script>
   <!-- The answer collapsing into beads and the beads going into the mark. Before
        app.js because submit() reaches for it on the tap; it registers itself on
        `beadcause` and touches nothing else, so a page that drops it still answers

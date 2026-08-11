@@ -145,15 +145,85 @@ body {
 }
 
 /*
-  Three stacked rows — the scope, then the spaces, then the workspaces within the
-  chosen space — so the container stacks and each row scrolls sideways on its own.
-  Only the scope row is unconditional; with one space and one workspace this is a
-  single row of three chips.
+  One line, always. `#filters` held three stacked rows of chips once — the scope, then
+  the spaces, then the workspaces — and now holds a single collapsed control (see
+  public/inboxfilter.js) whose panel is *absolutely positioned*, so opening it draws
+  over the list instead of pushing it down. That matters twice: the cards under the
+  pointer do not move as you reach for a chip, and paintScrollPos() measures this nav
+  to decide which card you are reading, so its height has to be the same open or shut.
 */
 .filters {
-  display: flex; flex-direction: column; gap: 6px;
-  padding: 12px 16px 4px;
+  display: flex;
+  padding: 10px 16px 6px;
 }
+.filter-menu { position: relative; max-width: 100%; }
+/*
+  What the control says when nobody is reaching for it: the scope and the kinds, in
+  words, on one line. Shaped like a chip because that is what it replaced, and wide
+  enough to be an obvious target — this is the only way into the filters on a phone.
+*/
+.filter-summary {
+  display: inline-flex; align-items: center; gap: 8px;
+  max-width: 100%;
+  min-height: 34px;
+  padding: 6px 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--muted);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.filter-summary .sel { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.filter-summary .caret { flex: 0 0 auto; font-size: 10px; }
+.filter-menu.open .filter-summary { border-color: var(--accent); color: var(--text); }
+/* Narrowed is a state you have to be able to see without opening anything — the whole
+   risk of a collapsed filter is forgetting it is set. */
+.filter-menu.narrowed .filter-summary {
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
+}
+.filter-panel {
+  position: absolute; top: calc(100% + 6px); left: 0; z-index: 18;
+  display: flex; flex-direction: column; gap: 12px;
+  min-width: max(260px, 100%);
+  max-width: min(420px, calc(100vw - 32px));
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  box-shadow: 0 12px 32px rgb(0 0 0 / 0.38);
+}
+/* `display: flex` beats the UA's [hidden] rule, so the attribute needs saying again —
+   without this the panel is open from the moment the page loads. */
+.filter-panel[hidden] { display: none; }
+/*
+  The 6px gap above the panel, made part of the control. Without it, moving the mouse
+  from the summary to a chip crosses ordinary page and fires a pointerleave; with it
+  the whole path is inside the element, and the grace timer in inboxfilter.js is only
+  ever needed for a genuine exit.
+*/
+.filter-panel::before {
+  content: ''; position: absolute; left: 0; right: 0; top: -8px; height: 8px;
+}
+.filter-group { display: flex; flex-direction: column; gap: 7px; }
+.filter-legend {
+  color: var(--muted);
+  font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+}
+/* Inside the panel there is room to wrap, and nothing below to scroll past — so the
+   sideways scroll the rows used in the page flow would only hide chips here. */
+.filter-panel .chip-row { flex-wrap: wrap; overflow: visible; }
+/* How many rows picking this chip would leave you with. Dimmer than the label: it is
+   the consequence of the control, not the control. */
+.chip-count { margin-left: 6px; opacity: 0.72; font-variant-numeric: tabular-nums; }
+.chip[aria-pressed="true"] .chip-count { opacity: 0.85; }
+/* A kind with nothing of it in view. Still pressable, and still worth reading — the
+   zero is the answer to the question the chip asks. */
+.filter-panel .chip.none { opacity: 0.55; }
+.filter-panel .chip.none[aria-pressed="true"] { opacity: 1; }
 .chip-row {
   display: flex; gap: 8px;
   overflow-x: auto;
@@ -167,7 +237,11 @@ body {
   switch rather than three independent chips — and a rule under it draws the line
   between "which slice of the tracker" and "which part of that slice".
 */
-.chip-row.scopes { gap: 0; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
+.chip-row.scopes { gap: 0; }
+/* The switch is one object and must not break across lines, whatever the panel's
+   width — a segmented control with its last segment on a row of its own is three
+   chips again. */
+.filter-panel .chip-row.scopes { flex-wrap: nowrap; }
 .chip-row.scopes .chip {
   border-radius: 0;
   border-left-width: 0;
