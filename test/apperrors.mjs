@@ -1,0 +1,575 @@
+#!/usr/bin/env node
+/**
+ * A reported error becomes one bead, and the second occurrence becomes one comment.
+ *
+ *     npm test
+ *     node test/apperrors.mjs
+ *
+ * The feature (bc-p38c.1) is easy to get right in the direction that shows: an error is
+ * posted and a P0 bead appears. Every way it goes wrong is on the *other* side — a bead
+ * per occurrence, from a page that reports on every render. So this file spends most of
+ * its assertions on the three dedupe outcomes and on the one race that produces them:
+ *
+ * 1. **The same error twice** → one bead, one comment. The acceptance criterion.
+ * 2. **The same error from a line that has moved** → still the same bead, matched on the
+ *    message, and the bead *learns* the new `file:line` so the next one matches directly.
+ * 3. **The same error whose only match is closed** → a new bead with a `discovered-from`
+ *    edge to the closed one. Not a reopen: a regression that quietly reopens the old
+ *    bead loses the fact that it was ever fixed.
+ * 4. **Three at once** → still one bead. `window.onerror` fires, the render runs again,
+ *    and three requests are in flight before the first `bd create` returns. bd's own
+ *    lock retry does not help here, because those three creates do not conflict.
+ *
+ * The `bd` is a stub binary over a JSON file, in the shape test/endorse.mjs established:
+ * it implements `--label-any`, `--all` and the status filter the way bd implements them,
+ * because the lookup under test *is* those flags — a stub that returned everything
+ * whatever it was asked would pass whatever the code did. It logs its argv, so the flags
+ * are asserted as they are actually passed rather than as they are meant to be.
+ *
+ * Nothing here reaches a real tracker, iTerm, or the network beyond loopback.
+ */
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import http from 'node:http';
+import os from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+import { boundPort } from './helpers/net.mjs';
+
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const LIB = (name) => path.join(HERE, '..', 'lib', name);
+
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'beadcause-apperr-'));
+// Before anything under lib/ is imported: CONFIG_DIR resolves once, at module load.
+process.env.BEADCAUSE_CONFIG_DIR = path.join(tmp, 'config');
+fs.mkdirSync(process.env.BEADCAUSE_CONFIG_DIR, { recursive: true });
+
+const { Bd } = await import(LIB('bd.js'));
+const { UNENDORSED } = await import(LIB('endorse.js'));
+const { FILED_LABEL, DISCOVERED_FROM } = await import(LIB('filing.js'));
+const {
+  intake,
+  fingerprint,
+  normalizeSource,
+  normalizeMessage,
+  frameFromStack,
+  pickMatch,
+  titleFor,
+  labelsFor,
+  ERROR_LABEL,
+  ERROR_PRIORITY,
+  AT_PREFIX,
+  MSG_PREFIX,
+} = await import(LIB('errors.js'));
+
+/* ------------------------------------------------------------------- the stub bd */
+
+const BEADS = path.join(tmp, 'beads');
+const BD_LOG = path.join(tmp, 'bd-calls.log');
+const FAKE_BD = path.join(tmp, 'bd');
+
+/**
+ * A tracker as a directory — **one file per bead**, and that is not a style choice.
+ *
+ * The first version of this stub kept the whole world in one JSON file and allocated
+ * ids from a counter inside it. Under `Promise.all` that is a read-modify-write race
+ * between two `bd` *processes*: both read, both increment, the second write wins, and
+ * two distinct errors come back holding the same id with one bead on disk. It reads
+ * exactly like the serialisation bug the test was written to disprove, which is the
+ * worst way for a fixture to be wrong. One file per bead has no shared write at all,
+ * and the id is claimed with `wx` — the first process to create `zz-3.json` owns 3.
+ *
+ * `list` honours `--label-any` (OR), `--label` (AND) and `--all` the way bd does,
+ * because the lookup under test *is* those flags: a stub that returned everything
+ * whatever it was asked would pass whatever the code did.
+ */
+fs.writeFileSync(
+  FAKE_BD,
+  `#!/usr/bin/env node
+const fs = require('fs');
+const path = require('path');
+const args = process.argv.slice(2);
+fs.appendFileSync(${JSON.stringify(BD_LOG)}, JSON.stringify(args) + '\\n');
+const DIR = ${JSON.stringify(BEADS)};
+const file = (id) => path.join(DIR, id + '.json');
+const read = (id) => { try { return JSON.parse(fs.readFileSync(file(id), 'utf8')); } catch { return null; } };
+const write = (i) => fs.writeFileSync(file(i.id), JSON.stringify(i, null, 2));
+const all = () => fs.readdirSync(DIR).filter((f) => f.endsWith('.json')).map((f) => read(path.basename(f, '.json'))).filter(Boolean);
+const one = (n) => { const i = args.indexOf(n); return i < 0 ? null : args[i + 1]; };
+const many = (n) => { const out = []; for (let i = 0; i < args.length; i++) if (args[i] === n) out.push(...String(args[i + 1] || '').split(',')); return out.filter(Boolean); };
+const die = (m) => { process.stderr.write(m + '\\n'); process.exit(1); };
+
+if (args[0] === 'list') {
+  const any = many('--label-any');
+  const need = many('--label');
+  let rows = all();
+  if (!args.includes('--all')) rows = rows.filter((i) => i.status !== 'closed');
+  if (need.length) rows = rows.filter((i) => need.every((l) => (i.labels || []).includes(l)));
+  if (any.length) rows = rows.filter((i) => any.some((l) => (i.labels || []).includes(l)));
+  process.stdout.write(JSON.stringify(rows));
+  process.exit(0);
+}
+if (args[0] === 'create') {
+  if (fs.existsSync(path.join(DIR, '..', 'fail-create'))) die('the tracker said no');
+  // Claim an id atomically: whoever wins the exclusive create owns the number.
+  let id = null;
+  for (let n = 1; n < 500 && !id; n++) {
+    try { fs.writeFileSync(file('zz-' + n), '{}', { flag: 'wx' }); id = 'zz-' + n; } catch { /* taken */ }
+  }
+  if (!id) die('out of ids');
+  write({
+    id,
+    title: one('--title') || '',
+    description: one('--description') || '',
+    acceptance: one('--acceptance') || '',
+    notes: one('--notes') || '',
+    issue_type: one('--type') || 'task',
+    priority: Number(one('--priority') ?? 2),
+    status: 'open',
+    labels: many('--label'),
+    deps: many('--deps'),
+    comment_count: 0,
+    comments: [],
+    created_by: one('--actor') || '',
+  });
+  process.stdout.write(JSON.stringify({ id }));
+  process.exit(0);
+}
+if (args[0] === 'comment') {
+  const issue = read(args[1]) || die('no issue ' + args[1]);
+  issue.comments.push(args[2]);
+  issue.comment_count = issue.comments.length;
+  write(issue);
+  process.exit(0);
+}
+if (args[0] === 'label' && args[1] === 'add') {
+  const issue = read(args[2]) || die('no issue ' + args[2]);
+  if (!issue.labels.includes(args[3])) issue.labels.push(args[3]);
+  write(issue);
+  process.exit(0);
+}
+if (args[0] === 'show') {
+  const issue = read(args[1]) || die('no issue found');
+  process.stdout.write(JSON.stringify([issue]));
+  process.exit(0);
+}
+process.stdout.write('[]');
+`,
+  { mode: 0o755 }
+);
+
+const bdCalls = () =>
+  fs.existsSync(BD_LOG) ? fs.readFileSync(BD_LOG, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)) : [];
+const clearCalls = () => fs.rmSync(BD_LOG, { force: true });
+const issues = () =>
+  fs
+    .readdirSync(BEADS)
+    .filter((f) => f.endsWith('.json'))
+    .map((f) => JSON.parse(fs.readFileSync(path.join(BEADS, f), 'utf8')))
+    .sort((a, b) => String(a.id).localeCompare(String(b.id), 'en', { numeric: true }));
+const bead = (id) => JSON.parse(fs.readFileSync(path.join(BEADS, `${id}.json`), 'utf8'));
+const setBead = (i) => fs.writeFileSync(path.join(BEADS, `${i.id}.json`), JSON.stringify(i, null, 2));
+const FAIL_FLAG = path.join(tmp, 'fail-create');
+const reset = ({ failCreate = false } = {}) => {
+  fs.rmSync(BEADS, { recursive: true, force: true });
+  fs.mkdirSync(BEADS, { recursive: true });
+  fs.rmSync(FAIL_FLAG, { force: true });
+  if (failCreate) fs.writeFileSync(FAIL_FLAG, '1');
+  clearCalls();
+};
+reset();
+
+const wsDir = path.join(tmp, 'ws', '.beads');
+fs.mkdirSync(wsDir, { recursive: true });
+const ws = { name: 'demo', dir: wsDir };
+const bd = new Bd({ bin: FAKE_BD, actor: 'beadcause-test' });
+
+/** One realistic browser report, as `window.onerror` would hand it over. */
+const REPORT = {
+  message: "Cannot read properties of undefined (reading 'title')",
+  source: 'https://mac.tail1234.ts.net:4318/app.js?v=27',
+  line: 3315,
+  column: 18,
+  url: 'https://mac.tail1234.ts.net:4318/#bc-p38c',
+  userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_2 like Mac OS X)',
+  at: '2026-08-11T12:00:00.000Z',
+  kind: 'error',
+};
+
+/* --------------------------------------------------------------------- harness */
+
+let failures = 0;
+let ran = 0;
+async function check(name, fn) {
+  ran += 1;
+  try {
+    await fn();
+    console.log(`  ok   ${name}`);
+  } catch (err) {
+    failures += 1;
+    console.log(`  FAIL ${name}`);
+    console.log(`       ${String(err.message).split('\n').slice(0, 10).join('\n       ')}`);
+  }
+}
+
+console.log('\na reported error is one bead, however many times it happens\n');
+
+/* -------------------------------------------------------------- the fingerprint */
+
+await check('the same file spelled four ways is one file', () => {
+  const want = 'public/app.js';
+  assert.equal(normalizeSource('https://mac.tail1234.ts.net:4318/public/app.js?v=27'), want, 'phone, cache-busted');
+  assert.equal(normalizeSource('http://127.0.0.1:4317/public/app.js'), want, 'a desktop tab on the bare daemon');
+  assert.equal(normalizeSource('file:///Users/adammorgan/checkout/public/app.js'), want, 'the daemon itself');
+  assert.equal(normalizeSource('/public/app.js#frag'), want, 'and a bare path with a fragment');
+  assert.equal(
+    normalizeSource('/Users/adammorgan/neadamthal.projects/beadcause/.claude/worktrees/x-1/lib/server.js'),
+    'lib/server.js',
+    'a worktree is not a different bug from the main checkout'
+  );
+  assert.equal(normalizeSource(''), '');
+  assert.equal(normalizeSource(null), '');
+});
+
+await check('the message is normalised over what differs between two occurrences', () => {
+  assert.equal(
+    normalizeMessage('fetch https://host:4318/api/bead?id=bc-4f2 failed'),
+    normalizeMessage('fetch https://host:4318/api/bead?id=bc-9aa failed'),
+    'one broken fetch, two beads asked for'
+  );
+  assert.equal(normalizeMessage('deploy 20260811T120000 failed'), normalizeMessage('deploy 20260811T130000 failed'));
+  assert.notEqual(normalizeMessage('exit 1'), normalizeMessage('exit 2'), 'small numbers are kept — they mean things');
+  assert.equal(normalizeMessage('  Failed   to fetch\n'), 'failed to fetch', 'and whitespace is not a difference');
+});
+
+await check('a stack is read in both dialects, and the first real frame wins', () => {
+  const v8 = frameFromStack(
+    'TypeError: x is not a function\n    at render (https://host/app.js:120:9)\n    at tick (https://host/app.js:9:1)'
+  );
+  assert.deepEqual(v8, { source: 'https://host/app.js', line: 120, column: 9 });
+  const bare = frameFromStack('Error: nope\n    at /Users/a/lib/server.js:44:7');
+  assert.deepEqual(bare, { source: '/Users/a/lib/server.js', line: 44, column: 7 });
+  const safari = frameFromStack('render@https://host/app.js:120:9\nglobal code@https://host/app.js:1:1');
+  assert.deepEqual(safari, { source: 'https://host/app.js', line: 120, column: 9 }, 'the phone runs Safari');
+  assert.equal(frameFromStack('Script error.'), null);
+  assert.equal(frameFromStack(''), null);
+});
+
+await check('a report with no source at all still has a fingerprint', () => {
+  // `window.onerror` for a cross-origin script is handed "Script error." and nothing
+  // else. That report is worth less than a full one and much more than a red toast.
+  const fp = fingerprint({ message: 'Script error.' });
+  assert.equal(fp.at, '');
+  assert.equal(fp.atLabel, '', 'nothing to key on by source');
+  assert.ok(fp.msgLabel.startsWith(MSG_PREFIX), 'and the message is the only key there is');
+  assert.deepEqual(labelsFor(fp), [ERROR_LABEL, fp.msgLabel], 'so no empty label reaches bd');
+});
+
+await check('the fingerprint is stable across the noise and moves with the line', () => {
+  const a = fingerprint(REPORT);
+  assert.equal(a.at, 'app.js:3315', 'the daemon serves public/ at the root, so the URL really is /app.js');
+  assert.ok(a.atLabel.startsWith(AT_PREFIX) && a.msgLabel.startsWith(MSG_PREFIX));
+  const later = fingerprint({ ...REPORT, source: 'http://127.0.0.1:4317/app.js?v=31', at: 'whenever' });
+  assert.deepEqual({ at: later.at, m: later.msgLabel }, { at: a.at, m: a.msgLabel }, 'same bug, same everything');
+  const moved = fingerprint({ ...REPORT, line: 3402 });
+  assert.notEqual(moved.atLabel, a.atLabel, 'the line moved, so the primary key moved');
+  assert.equal(moved.msgLabel, a.msgLabel, 'and the backup did not — which is the whole point of it');
+});
+
+await check('the title leads with the symptom and is cut to fit a card', () => {
+  const fp = fingerprint(REPORT);
+  const title = titleFor(REPORT, fp);
+  assert.ok(title.startsWith('Cannot read properties'), `the message leads: ${title}`);
+  assert.ok(title.endsWith('app.js:3315'), `and the place is on the end: ${title}`);
+  const long = titleFor({ message: 'x'.repeat(400) }, fp);
+  assert.ok(long.length <= 120, `cut, got ${long.length}`);
+  assert.ok(long.includes('…'), 'and it says it was cut');
+  assert.equal(titleFor({}, { at: '' }), 'an error with no message');
+});
+
+/* --------------------------------------------------------------- the three outcomes */
+
+await check('the first report files a P0 bug, endorsed, labelled as a class', async () => {
+  reset();
+  const out = await intake(bd, ws, REPORT);
+  assert.equal(out.action, 'created');
+  const rows = issues();
+  assert.equal(rows.length, 1, 'one bead');
+  const bead = rows[0];
+  assert.equal(bead.priority, ERROR_PRIORITY, 'P0 — the advocate sorts highest-priority-first with no change');
+  assert.equal(bead.issue_type, 'bug');
+  assert.ok(bead.labels.includes(ERROR_LABEL), '`bd list --label app-error` is every one of these');
+  assert.ok(bead.labels.includes(FILED_LABEL), 'and the provenance stamp survives, as for anything agent-filed');
+  assert.ok(
+    !bead.labels.includes(UNENDORSED),
+    'but NOT held: a P0 crash behind a tap defeats the point — ' + JSON.stringify(bead.labels)
+  );
+  assert.ok(bead.description.includes('app.js:3315'), 'the readable fingerprint is on the bead');
+  assert.ok(bead.description.includes(REPORT.userAgent), 'along with everything the report carried');
+  assert.doesNotMatch(bead.notes, /auto-endorsement is on for this space/, 'and it does not blame a space setting');
+  assert.match(bead.notes, /it is a program that failed/, 'it says why it arrived endorsed in its own words');
+});
+
+await check('posting the same error twice yields one bead and one comment', async () => {
+  reset();
+  const first = await intake(bd, ws, REPORT);
+  const second = await intake(bd, ws, { ...REPORT, at: '2026-08-11T12:05:00.000Z' });
+  assert.equal(second.action, 'commented');
+  assert.equal(second.id, first.id, 'the same bead');
+  const rows = issues();
+  assert.equal(rows.length, 1, `one bead, got ${rows.length}: ${rows.map((r) => r.title).join(' | ')}`);
+  assert.equal(rows[0].comments.length, 1, 'and exactly one comment');
+  assert.match(rows[0].comments[0], /Occurrence 2|happened again/);
+  assert.match(rows[0].comments[0], /12:05/, 'the comment says when');
+  assert.match(rows[0].comments[0], /app\.js:3315/, 'and where');
+});
+
+await check('the lookup asks bd for either fingerprint, closed beads included, in one call', async () => {
+  reset();
+  await intake(bd, ws, REPORT);
+  clearCalls();
+  await intake(bd, ws, REPORT);
+  const list = bdCalls().filter((c) => c[0] === 'list');
+  assert.equal(list.length, 1, `one lookup per report, got ${list.length}`);
+  const call = list[0];
+  assert.ok(call.includes('--all'), `closed beads are in scope or a regression is invisible — ${call.join(' ')}`);
+  const any = call[call.indexOf('--label-any') + 1].split(',');
+  const fp = fingerprint(REPORT);
+  assert.deepEqual(any.sort(), [fp.atLabel, fp.msgLabel].sort(), 'both keys, OR-ed, in one call');
+  assert.ok(call.includes('--limit') && call[call.indexOf('--limit') + 1] === '0', 'and no page limit');
+});
+
+await check('posting from a line that has moved still matches, on the message', async () => {
+  reset();
+  const first = await intake(bd, ws, REPORT);
+  // An unrelated edit above the throw site. Without the message fingerprint every
+  // subsequent report would file a fresh P0 whenever somebody added an import.
+  const moved = await intake(bd, ws, { ...REPORT, line: 3402 });
+  assert.equal(moved.action, 'commented');
+  assert.equal(moved.id, first.id);
+  assert.equal(moved.matchedOn, 'message', 'matched on the backup, because the primary key moved');
+  assert.equal(issues().length, 1, 'still one bead');
+  assert.match(issues()[0].comments[0], /line has moved/, 'and the comment says so, so the drift is on the record');
+});
+
+await check('and the bead learns the new line, so the next report matches directly', async () => {
+  reset();
+  await intake(bd, ws, REPORT);
+  await intake(bd, ws, { ...REPORT, line: 3402 });
+  const movedLabel = fingerprint({ ...REPORT, line: 3402 }).atLabel;
+  assert.ok(issues()[0].labels.includes(movedLabel), 'the new file:line went on the bead');
+  clearCalls();
+  const third = await intake(bd, ws, { ...REPORT, line: 3402 });
+  assert.equal(third.matchedOn, 'source', 'so the third report hits the primary key, not the backup');
+  assert.equal(issues().length, 1);
+  assert.equal(issues()[0].comments.length, 2);
+});
+
+await check('an error whose only match is closed files a new bead, linked to it', async () => {
+  reset();
+  const first = await intake(bd, ws, REPORT);
+  // Somebody fixed it and closed the bead. Then it came back.
+  const closed = bead(first.id);
+  closed.status = 'closed';
+  setBead(closed);
+
+  const again = await intake(bd, ws, { ...REPORT, at: '2026-08-12T09:00:00.000Z' });
+  assert.equal(again.action, 'regressed');
+  assert.notEqual(again.id, first.id, 'a NEW bead — reopening loses the fact that it was ever fixed');
+  assert.equal(issues().length, 2);
+  const fresh = bead(again.id);
+  assert.ok(
+    fresh.deps.includes(`${DISCOVERED_FROM}:${first.id}`),
+    `linked back to the closed one — got ${JSON.stringify(fresh.deps)}`
+  );
+  assert.equal(fresh.status, 'open');
+  assert.equal(fresh.priority, ERROR_PRIORITY);
+  assert.match(fresh.notes, /regression/i, 'and it says why it is a second bead');
+  assert.equal(bead(first.id).comments.length, 0, 'the closed bead is not commented on or touched');
+});
+
+await check('a live bead wins over a closed one carrying the same fingerprint', async () => {
+  reset();
+  const first = await intake(bd, ws, REPORT);
+  const closed = bead(first.id);
+  closed.status = 'closed';
+  setBead(closed);
+  const second = await intake(bd, ws, REPORT); // files the regression bead
+  const third = await intake(bd, ws, REPORT);
+  assert.equal(third.action, 'commented', 'the third report is an occurrence of the regression, not a fourth bead');
+  assert.equal(third.id, second.id);
+  assert.equal(issues().length, 2, 'and a regression does not file one bead per occurrence either');
+});
+
+await check('pickMatch prefers live over closed, and source over message', () => {
+  const fp = fingerprint(REPORT);
+  const closedBySource = { id: 'a', status: 'closed', labels: [fp.atLabel] };
+  const openByMessage = { id: 'b', status: 'open', labels: [fp.msgLabel] };
+  const openBySource = { id: 'c', status: 'open', labels: [fp.atLabel, fp.msgLabel] };
+  assert.equal(pickMatch([closedBySource, openByMessage], fp).bead.id, 'b', 'live beats closed');
+  assert.equal(pickMatch([openByMessage, openBySource], fp).bead.id, 'c', 'and the primary key beats the backup');
+  assert.equal(pickMatch([openBySource], fp).matchedOn, 'source');
+  assert.equal(pickMatch([openByMessage], fp).matchedOn, 'message');
+  assert.equal(pickMatch([{ id: 'd', status: 'open', labels: ['unrelated'] }], fp), null);
+  assert.equal(pickMatch([], fp), null);
+});
+
+/* -------------------------------------------------------------------- the race */
+
+await check('three reports of one error at once are still one bead', async () => {
+  // The case this exists for: a page whose render throws reports, re-renders, and
+  // reports again before the first `bd create` has returned. bd's own single-writer
+  // retry does not help — these creates do not conflict, they succeed.
+  reset();
+  const outs = await Promise.all([
+    intake(bd, ws, REPORT),
+    intake(bd, ws, { ...REPORT, at: '2026-08-11T12:00:01.000Z' }),
+    intake(bd, ws, { ...REPORT, at: '2026-08-11T12:00:02.000Z' }),
+  ]);
+  assert.equal(issues().length, 1, `one bead, got ${issues().length}`);
+  assert.equal(outs.filter((o) => o.action === 'created').length, 1, 'exactly one of the three filed it');
+  assert.equal(issues()[0].comments.length, 2, 'and the other two became comments');
+});
+
+await check('two different errors at once are not serialised behind each other', async () => {
+  reset();
+  const [a, b] = await Promise.all([
+    intake(bd, ws, REPORT),
+    intake(bd, ws, { ...REPORT, message: 'Failed to fetch', source: '/public/console.js', line: 155 }),
+  ]);
+  assert.notEqual(a.id, b.id);
+  assert.equal(issues().length, 2, 'two bugs, two beads');
+});
+
+await check('a failed report does not poison every later occurrence of it', async () => {
+  // The chain the race test relies on must recover: if the first report's `bd create`
+  // fails, the next report has to be filed rather than inheriting the rejection.
+  reset({ failCreate: true });
+  await assert.rejects(() => intake(bd, ws, REPORT));
+  fs.rmSync(FAIL_FLAG, { force: true });
+  const out = await intake(bd, ws, REPORT);
+  assert.equal(out.action, 'created', 'the tracker came back, so the error is filed');
+  assert.equal(issues().length, 1);
+});
+
+/* ------------------------------------------------------------------ the endpoint */
+
+const { createApp, listen } = await import(LIB('server.js'));
+
+const cfg = {
+  host: '127.0.0.1',
+  // Port 0, and the real one read back off the listener — see test/helpers/net.mjs.
+  // ~20 sessions run this suite at once and a number somebody typed loses that race.
+  port: 0,
+  baseUrl: 'http://127.0.0.1',
+  token: 'apperr-token',
+  actor: 'beadcause-test',
+  bdBin: FAKE_BD,
+  workspaces: [ws],
+  sessionDirs: {},
+  openSessions: false,
+  autoDispatch: false,
+  claudeSessions: false,
+  pollSeconds: 3600,
+  terminal: false,
+  ntfy: { enabled: false },
+  advocates: { enabled: false, workspaces: [] },
+};
+const app = createApp(cfg);
+const servers = listen(cfg, app.handler);
+const port = await boundPort(servers);
+
+const post = (pathname, body) =>
+  new Promise((resolve, reject) => {
+    const payload = JSON.stringify(body);
+    const req = http.request(
+      {
+        host: '127.0.0.1',
+        port,
+        path: pathname,
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'content-length': Buffer.byteLength(payload),
+          'x-beadcause-token': cfg.token,
+        },
+      },
+      (res) => {
+        let out = '';
+        res.setEncoding('utf8');
+        res.on('data', (c) => (out += c));
+        res.on('end', () => resolve({ status: res.statusCode, json: JSON.parse(out || '{}') }));
+      }
+    );
+    req.on('error', reject);
+    req.write(payload);
+    req.end();
+  });
+
+for (let i = 0; i < 100; i += 1) {
+  try {
+    await post('/api/nothing', {});
+    break;
+  } catch {
+    await new Promise((r) => setTimeout(r, 20));
+  }
+}
+
+await check('POST /api/error files it, and a second post comments', async () => {
+  reset();
+  const first = await post('/api/error', REPORT);
+  assert.equal(first.status, 200, JSON.stringify(first.json));
+  assert.equal(first.json.ok, true);
+  assert.equal(first.json.action, 'created');
+  assert.equal(first.json.key, `demo/${first.json.id}`);
+  const second = await post('/api/error', REPORT);
+  assert.equal(second.json.action, 'commented');
+  assert.equal(second.json.id, first.json.id);
+  assert.equal(issues().length, 1);
+});
+
+await check('the workspace is optional — the reporter is a page, not a repo', async () => {
+  reset();
+  const res = await post('/api/error', { ...REPORT, workspace: undefined });
+  assert.equal(res.json.ok, true, JSON.stringify(res.json));
+  assert.equal(res.json.key, `demo/${res.json.id}`, 'and it defaults to the daemon’s own workspace');
+  const named = await post('/api/error', { ...REPORT, workspace: 'nope' });
+  assert.equal(named.status, 400, 'but a workspace that was named and does not exist is still an error');
+});
+
+await check('a message is required, and nothing else is', async () => {
+  reset();
+  const empty = await post('/api/error', { source: '/app.js', line: 1 });
+  assert.equal(empty.status, 400);
+  assert.match(String(empty.json.error), /message/);
+  assert.equal(issues().length, 0);
+  const bare = await post('/api/error', { message: 'Script error.' });
+  assert.equal(bare.json.ok, true, `a cross-origin onerror carries nothing else — ${JSON.stringify(bare.json)}`);
+  assert.equal(issues().length, 1);
+});
+
+await check('a tracker that is down is an answer, never a 500', async () => {
+  // This endpoint is called *by* error handling. A 5xx here is reported to it, and the
+  // page reports its own reporting, forever.
+  reset({ failCreate: true });
+  const res = await post('/api/error', REPORT);
+  assert.equal(res.status, 200, 'a 5xx would be reported back to this same endpoint');
+  assert.equal(res.json.ok, false);
+  assert.ok(res.json.reason, 'and it says what went wrong, so the page can log it and stop');
+});
+
+await check('the endpoint is registered once, on POST', async () => {
+  const { assertRoutes } = await import(LIB('server.js'));
+  const routes = assertRoutes(app.handler);
+  assert.ok(routes.includes('POST /api/error'), 'it is in the table createApp asserts over');
+  assert.ok(!routes.includes('GET /api/error'), 'and only on POST — a GET must not file anything');
+});
+
+/* -------------------------------------------------------------------- the result */
+
+for (const s of servers) s.close();
+fs.rmSync(tmp, { recursive: true, force: true });
+
+console.log(`\n${ran - failures}/${ran} checks passed\n`);
+process.exit(failures ? 1 : 0);
