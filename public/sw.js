@@ -118,7 +118,18 @@
    safe by construction: v32's warm.js under v33's app.js has no `refresh`, and app.js
    looks for it and does nothing — that page is as cold as it was and no more expensive,
    which is the fallback the warm layer promises everywhere else. */
-const CACHE = 'beadcause-v33';
+/* v34: every advocate card on /monitor gained a switch for whether that repo has an
+   advocate at all, and a repo with none gained one too (bc-04wd). No new path —
+   monitor.js and style.css are both already here — and it is the pair v25 and v32 were
+   about, one row further along: a phone holding v33's stylesheet under v34's monitor.js
+   has a `.adv-actions` row that does not wrap, and `.card` is `overflow: hidden`, so the
+   fifth control is clipped away rather than cramped — the switch is simply not on the
+   screen it was added to. The sentence drawn in its place where a space's veto or a `"*"`
+   list makes the switch a lie has no `.adv-why` rule either, so it lands as body-sized
+   prose in the middle of a row of pills. The other direction is the milder one and still
+   wrong: v33's monitor.js under v34's stylesheet is the console as it was, wrapping a row
+   that has nothing extra in it. Both look like a working page. */
+const CACHE = 'beadcause-v34';
 const SHELL = [
   '/',
   '/index.html',
