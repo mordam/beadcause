@@ -1082,7 +1082,7 @@
     if (state.spaceError) {
       // The synthetic "Other" group lands here: it is a place the picker offers, not a
       // thing with settings, and the server 404s it rather than inventing one.
-      return `<article class="card mon-card plain space-card">
+      return `<article class="card work-card mon-card plain space-card">
         <div class="work-head"><h2>${esc(name)}</h2><span class="mon-state dim">no settings</span></div>
         <p class="subtitle">${esc(state.spaceError)}${
           name === 'Other'
@@ -1232,7 +1232,12 @@
         } — config drift, and nothing here reaches them.</div>`
       : '';
 
-    return `<article class="card mon-card space-card">
+    // `work-card` is the padding, and this was the one card on the page without it —
+    // every setting in it sat on the card's left border, and the only thing holding the
+    // head off the top one was the margin an unstyled <h2> happens to bring. bc-8l74
+    // took that margin away to make the head a row, so the class it should always have
+    // had is here now. See `.space-card` in public/style.css.
+    return `<article class="card work-card mon-card space-card">
       <div class="work-head">
         <h2>${esc(d.space)}</h2>
         <span class="mon-state ${head.tone}">${esc(head.text)}</span>
