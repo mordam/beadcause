@@ -111,6 +111,10 @@
     workspaces: [],
     /** workspace → how many beads are asking you something. */
     counts: {},
+    /** The repos whose sweep threw, from lib/sweep.js. A count that is missing one of
+     *  these is arithmetic over a sweep with a hole in it, and must not be drawn as a
+     *  figure — see `tail`. */
+    trouble: [],
     filter: { space: ALL, workspace: ALL },
     /** Has anything real arrived yet? Until it has, the bar is not drawn. */
     known: false,
@@ -199,9 +203,25 @@
     return { space: ALL, workspace: ALL };
   };
 
-  /** A count, drawn only where there is one — a row of zeroes reports emptiness
-   *  rather than offering somewhere to go. */
-  const tail = (n) => (n ? ` · ${n}` : '');
+  /** Did this repo fail to answer the last sweep? Then no number about it is a fact. */
+  const unsure = (workspace) => (state.trouble || []).some((t) => t && t.workspace === workspace);
+
+  /** And a space is unsure if any of its repos is — the total is the sum. */
+  const spaceUnsure = (s) => ((s && s.workspaces) || []).some(unsure);
+
+  /**
+   * A count, drawn only where there is one — a row of zeroes reports emptiness rather
+   * than offering somewhere to go.
+   *
+   * `unknown` is what stops that rule turning a broken sweep into a quiet repo. A
+   * count is arithmetic over the rows that came back, so a repo that threw contributes
+   * nothing to it and drops out of the row entirely — indistinguishable, on this
+   * control, from a repo with nothing in it. The ⚠ is the difference between "there is
+   * nothing here" and "we could not ask", and the number stays beside it when there is
+   * one: whatever was last read is still the best answer available, it just stops
+   * being presented as the whole of it.
+   */
+  const tail = (n, unknown) => (unknown ? ` · ${n || '?'} ⚠` : n ? ` · ${n}` : '');
 
   const option = (value, text, on) =>
     `<option value="${esc(value)}"${on ? ' selected' : ''}>${esc(text)}</option>`;
@@ -217,17 +237,20 @@
    */
   function paint() {
     const total = Object.values(state.counts).reduce((a, b) => a + b, 0);
+    const anyTrouble = (state.trouble || []).length > 0;
     const now = valueOf(state.filter);
-    const rows = [option(ALL, `All spaces${tail(total)}`, now === ALL)];
+    const rows = [option(ALL, `All spaces${tail(total, anyTrouble)}`, now === ALL)];
 
     for (const s of state.spaces) {
       const inside = (s.workspaces || []).filter((w) => state.workspaces.includes(w));
       // A space whose every workspace has left the config is config drift, not a place
       // to go. Its own row stays — it is still what the filter may be pinned to.
       rows.push(`<optgroup label="${esc(s.name)}${s.quiet ? ' 🔕' : ''}">`);
-      rows.push(option(`space:${s.name}`, `${s.name} — all${tail(s.count)}`, now === `space:${s.name}`));
+      rows.push(
+        option(`space:${s.name}`, `${s.name} — all${tail(s.count, spaceUnsure(s))}`, now === `space:${s.name}`)
+      );
       for (const w of inside) {
-        rows.push(option(`ws:${w}`, `${w}${tail(state.counts[w] || 0)}`, now === `ws:${w}`));
+        rows.push(option(`ws:${w}`, `${w}${tail(state.counts[w] || 0, unsure(w))}`, now === `ws:${w}`));
       }
       rows.push('</optgroup>');
     }
@@ -238,7 +261,7 @@
       // pinned to "Other" has a row to be selected in.
       rows.push(`<optgroup label="Other">`);
       for (const w of rest) {
-        rows.push(option(`ws:${w}`, `${w}${tail(state.counts[w] || 0)}`, now === `ws:${w}`));
+        rows.push(option(`ws:${w}`, `${w}${tail(state.counts[w] || 0, unsure(w))}`, now === `ws:${w}`));
       }
       rows.push('</optgroup>');
     }
@@ -246,9 +269,22 @@
     sel.innerHTML = rows.join('');
 
     const n = waiting();
-    count.hidden = !n;
-    count.textContent = String(n);
-    count.title = `${n} waiting in ${label()}`;
+    // The badge answers for whatever is selected, so it is unsure when the selection
+    // is: one repo that threw, a space holding one, or — under All — any repo at all.
+    const { space: pickedSpace, workspace: pickedWs } = state.filter;
+    const unknown =
+      pickedWs !== ALL
+        ? unsure(pickedWs)
+        : pickedSpace !== ALL
+          ? spaceUnsure(state.spaces.find((s) => s.name === pickedSpace))
+          : (state.trouble || []).length > 0;
+    // A zero that is not a fact still has to be drawn, or the one repo nobody could
+    // read would leave the bar looking exactly like a repo with nothing in it.
+    count.hidden = !n && !unknown;
+    count.textContent = unknown ? `${n || '?'} ⚠` : String(n);
+    count.title = unknown
+      ? `${n} waiting in ${label()} — and at least one repo could not be read`
+      : `${n} waiting in ${label()}`;
     // The count is inside the bar and the bar is not a live region, so the number has
     // to carry its own words for a reader that cannot see where it sits.
     count.setAttribute('aria-label', count.title);
@@ -335,6 +371,9 @@
     if (Array.isArray(data.spaces)) state.spaces = data.spaces;
     if (Array.isArray(data.workspaces)) state.workspaces = data.workspaces;
     if (data.counts && typeof data.counts === 'object') state.counts = data.counts;
+    // Adopted even when empty, unlike the three above: an empty list is "every repo
+    // answered this time", and it is what takes the ⚠ back off.
+    if (Array.isArray(data.trouble)) state.trouble = data.trouble;
     const first = !state.known;
     state.known = true;
     if (data.filter && !writes) {
