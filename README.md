@@ -2547,6 +2547,51 @@ merging happens at GitHub. It refuses to **ship**, for the same reason it refuse
 `POST /api/session`: a button whose consequence is an unattended agent deploying a
 checkout it is only visiting.
 
+### The release queue — the number over Ship
+
+A deploy has never shipped one pull request. It fast-forwards the checkout to
+`origin/<base>` and restarts, so it makes **every** merge sitting there live at once —
+pressing Ship on one row has always carried the four behind it. What the button could
+not say was how many, and with six sessions a day merging here that is the difference
+between a routine press and the day's work going out.
+
+So the top of each repo's card carries **the queue**: the merges that are on `origin`
+and are not running, with the count drawn over a Ship that deploys the lot in one press
+(`POST /api/release/ship`). It is the same `startDeploy` the row's Ship calls, with the
+pull requests named in the record's reason so the deploy log afterwards says what it
+carried, and it arms the same way. It refuses an **empty** queue rather than restarting
+the daemon for nothing, refuses a repo that has **declared no deploy** (there is no
+window that means "and the other three"), and refuses one already deploying.
+
+A merge only joins the queue once its commit is on `origin/<base>` **as this Mac has
+seen it** — a merge nobody has fetched could not be picked up by the pull, so it stays
+off the queue and keeps the row note it already had. And it leaves the queue when it is
+demonstrably live: in the build this daemon is running, or covered by a deploy that
+exited 0 and started *after* GitHub timestamped the merge. `unconfirmed` and `lost` — the
+two words lib/deploy.js has for "nobody knows" — settle nothing, ever.
+
+**And each merge gets a bead.** The notification a delivery sends says *still owed:
+deploy* and is gone by morning; a bead is still in the tracker the next time you look,
+and it closes itself when the merge goes live. One per pull request, labelled `ship`,
+carrying a `ship: <repo>#<n>` marker that makes filing idempotent whatever else is going
+on, and labelled `unendorsed` — lib/endorse.js's hold, which is a filter in every
+advocate queue *and* a refusal in the launcher — so nothing ever opens a session on one:
+shipping is a tap, not an agent. Two things bound it,
+because a tracker filling with chores is worse than no tracker at all —
+
+- **The first sight of a repo files nothing.** The board carries three weeks of merged
+  pull requests; a new install, a new workspace, or this feature's own first run writes a
+  watermark (`~/.config/beadcause/releases.json`) and only merges after it are its
+  business. An unreadable watermark file stops the sweep outright rather than starting
+  again from nothing, because starting again from nothing is exactly the flood.
+- **Only where a ship is visible.** A repo with no declared deploy and no build this
+  daemon can see has no event that would ever close one of these, so none is filed there.
+
+`release.beads: false` turns the filing off and leaves the number; `release.seconds`
+(300) is how often the queue is swept, which is slow on purpose — it is a `gh` call per
+repo when nobody has looked at the board recently, and "this merged and has not shipped"
+keeps for five minutes.
+
 ### What it costs, and what it keeps
 
 One `gh pr list` per repo plus a handful of `bd` lookups, cached for 25 seconds on the
@@ -2568,7 +2613,12 @@ and the window-opening one does not, and that a refusal lands under the row as G
 own sentence. `node test/prship.mjs` covers the fork itself end to end through the
 daemon — a declared deploy started with no window, a repo with none falling through to
 the session, two taps not becoming two deploys, and an unmerged pull request deploying
-nothing.
+nothing. `node test/release.mjs` covers the queue: what counts as shipped and the three
+answers it can give, that the first sight of a repo files nothing, that two ticks over
+one merge file one bead — with the ledger entry torn out from under the second, because
+the ledger is a watermark and the marker on the bead is what stops the duplicate — that
+`unconfirmed` closes nothing, and, over real HTTP against `createApp`, that one press
+runs one deploy for the whole queue and the next one is refused.
 
 ### Deploying a repo, when it says how
 
@@ -3143,8 +3193,8 @@ The default has since moved to a merge commit (`pr.mergeMethod`), which makes th
 half true again and turns this second half into the belt beside those braces: it is
 what covers a workspace that asks for `squash` on purpose. The reason the default
 moved is that this sweep is not the only thing gating on ancestry — the `ship` skill
-and its attic sweep do too, they live outside this repo, and nothing here can teach
-them to ask GitHub.
+does too, and its own step 7 is still outside this repo. Its *attic* sweep is not:
+since bc-uytt that is `bin/attic.js` here, so it asks GitHub the same way this does.
 
 **Retired means moved, not deleted**: `git worktree move` into
 `.claude/worktrees-retired/`, the same soft delete the `ship` skill does by hand, so
@@ -3190,7 +3240,8 @@ taken out from under somebody answers "nobody is in it" every time.
 An entry with no `.note` is kept forever and says so. Directory mtime is the only other
 signal and it is the wrong one — a background process touching a file is not somebody
 resuming a session, and it is the difference between keeping a directory and deleting
-it. `prune-retired.sh --backfill` is where a stamp gets invented, under a human.
+it. `bin/attic.js --backfill` is where a stamp gets invented, under a human, with
+`--dry-run` available to see what it would say first.
 
 **Ancestry is asked of `origin/main`, not `main`.** Nothing merges locally any more, so
 the local `main` branch stays wherever the last `git pull` left it while GitHub moves
@@ -3199,20 +3250,42 @@ were being described as "not merged into main" over work that had shipped two da
 earlier. Both sweeps ask `origin/main` first and fall back to `main` for a repo with no
 remote, which is also what stops a stale local ref from quietly holding the attic shut.
 
-**A `STRAY` row in the attic sweep is worth distrusting before you act on it.** The
-sweep lives outside this repo, but what it reports about `.claude/worktrees-retired/`
-is read as a statement about this one — and for a while it was wrong. It tested each
-retired directory for a registration by piping `git worktree list` into `grep -q`
-under `set -o pipefail`: grep exits at its first match, git takes SIGPIPE while it is
-still walking the rest, the pipeline reports 141, and a directory that *is* registered
-reads as one that is not. It called most of a healthy 85-entry attic unregistered, a
-different subset each run, which is what a race looks like from the outside. bc-bcdp
-was filed against the attic on that evidence; the attic was fine, and every directory
-in it had been put there by `git worktree move` exactly as this page describes.
-Two things to check before believing the next one: `git worktree list --porcelain |
-grep worktrees-retired | wc -l` against `ls -1d .claude/worktrees-retired/*/ | wc -l`,
-and whether the row survives a second run. `test/pipefail.mjs` keeps the construct out
-of this repo's own scripts, where it sat in four places.
+#### The sweep a human runs — and why it moved in here
+
+The daemon empties the attic on its own tick. The `ship` skill sweeps it too, and until
+bc-uytt that was a **second implementation of the same gates**: 210 lines of bash in
+`~/.claude-personal/skills/ship/prune-retired.sh`, versioned by nothing, tested by
+nothing, run by every ship, drifting from the code above that fills the directory it
+reads. Both of its bugs came from that, and neither was findable from its output.
+
+**bc-bcdp is the first.** It tested each retired directory for a registration by piping
+`git worktree list` into `grep -q` under `set -o pipefail`: grep exits at its first
+match, git takes SIGPIPE while it is still walking the rest, the pipeline reports 141,
+and a directory that *is* registered reads as one that is not. It called most of a
+healthy 85-entry attic unregistered, a different subset each run, which is what a race
+looks like from the outside. A session read that, believed it, and filed a bug describing
+a hand-`mv` that never happened and a name collision that did not exist. The attic was
+fine, and every directory in it had been put there by `git worktree move` exactly as this
+page describes. `test/pipefail.mjs` keeps the construct out of this repo's own scripts,
+where it sat in four places.
+
+**The second was found by the port, which is the argument for it.** `grep -rlq -- "$n"
+"$dir" --exclude-dir=archive` puts the flag *after* the path, and `grep` on this laptop
+is ugrep, which only honours `--exclude-dir` before it — so it took the flag for a
+filename, warned to a stderr that `2>/dev/null` swallowed, and searched `archive/`
+anyway. Every *spent* handoff went on protecting its attic entry forever. GNU grep
+accepts flags anywhere, which is exactly why nobody would have seen this.
+
+So `bin/attic.js` is what the skill calls now, and `lib/attic.js` is a **layer, not a
+second sweep**: it calls `expireRetired` above for every gate and every removal, and adds
+only what a fifteen-minute tick has no reason to produce — the `STRAY` rows (an
+unregistered directory, or a `.note` whose directory is gone: reported by name, never
+deleted), the report a person reads, and `--backfill`. `test/atticcli.mjs` holds it,
+starting with the claim the bash version could not make: a healthy attic reports **zero**
+strays, and the same zero five runs running.
+
+It is still repo-agnostic — it takes any repo's main checkout, and sophab, which has no
+daemon, still depends on it as the only thing that empties its attic.
 
 Two limits worth knowing. A session's `cwd` is recorded when it starts, so a session
 that later entered a worktree does not show as being *in* it — the lock is what
@@ -5083,6 +5156,7 @@ cookie says so), and `/auth/signout` ends the session.
 | GET | `/api/prs` | `?refresh=1` | the PR board: every pull request in every repo with its Merged · Pushed · Deployed lamps, plus `observing`. Cached 25s on the daemon; `refresh=1` forces the `gh` sweep |
 | POST | `/api/pr/merge` | `{workspace, number, method?}` | merges it at GitHub, fast-forwards this Mac's `main`, and retires the inbox's own "Merge #N?" card if a worker filed one. Three halves report separately — `{pr, alreadyMerged, land, cards}` — because a merge that landed and a fast-forward refused over open files is a *good* outcome and one flat failure over both would send you to GitHub to find out which. The card is **closed**, never answered: merging a pull request is a fact, and the card is spent because of that fact rather than because anything wrote `MERGE:` under your name |
 | POST | `/api/pr/ship` | `{workspace, number}` | the declared deploy where the repo has one, an iTerm session where it does not. `409` if the PR is not merged — shipping an unmerged pull request has no meaning. Refused on an observer |
+| POST | `/api/release/ship` | `{workspace}` | ships the whole release queue — one deploy for every merge sitting on `origin` and not live, which is what a deploy has always done anyway. `409` on an empty queue (a restart for nothing), on a repo that declares no deploy (there is no window that means "and the other three"), and on one already deploying. Refused on an observer |
 | POST | `/api/pr/comment` | `{workspace, number, text}` | a note on the pull request at GitHub and nothing else. Not `/api/comment`, which writes on a *bead* and puts an agent onto answering it |
 | POST | `/api/comment` | `{workspace, id, text, agent?}` | comments, sets `human-replied`, dispatches that agent to reply (default when absent or unknown) |
 | POST | `/api/dismiss` | `{workspace, id, reason?}` | takes the card off the screen and **closes nothing**. Writes your note if you typed one, writes nothing at all if you did not, and never touches the status — "I am not dealing with this now" is not "this is decided" |
