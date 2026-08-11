@@ -12,11 +12,19 @@
   So: one bar, the same on all of them, fixed to the bottom where a thumb already is.
   Any view is one tap from any other, and nothing closes any more.
 
-  It is a bar of *views*, and only views. The chat session was in it and is not any
-  more (see the gap in TABS below): a tab that was also the way to create something
-  was a tab doing a job a bar like this cannot do, because whatever it did would have
-  to make sense on all five pages and creating does not. The bar navigates; ＋ on the
-  inbox creates.
+  **A tab is not a shortcut to a page; it is a claim that the page is somewhere you
+  live.** That is what took **PRs** out of the bar again (bc-l8jp.6): the pull request
+  board is somewhere you glance and then act on, and its rows are incoming work, so the
+  rows moved into the inbox and the board kept its URLs without keeping a fifth of the
+  bar. A page can be reachable, load-bearing and not a tab — and several are.
+
+  **Chat** went the same way in the same breath (bc-l8jp.5), for a second reason on top
+  of that one: it was the one tab that was also the way to *create* something, and a bar
+  drawn identically on every page cannot hold a create — whatever it did would have to
+  mean the same thing on all of them, and creating does not. So the conversations you
+  have open are inbox rows like the pull requests, and starting one is ＋ on the inbox.
+  The bar navigates; the inbox creates.
+
 
   It is built here rather than pasted into five <head>-alike blocks of HTML because
   there is no templating in this app and a bar that says different things on
@@ -39,12 +47,12 @@
     // to recognise all of them or the bar shows nothing as current on a page you are
     // plainly looking at.
     { id: 'inbox', href: '/', icon: '📥', label: 'Inbox', paths: ['/', '/index.html'] },
-    // There was a Chat tab here, and it is gone (bc-l8jp.5). Not because the chat
-    // session mattered less than the four that are left, but because it was the one
+    // There was a **Chat** tab here, and it is gone (bc-l8jp.5). Not because the chat
+    // session mattered less than the ones that are left, but because it was the one
     // tab that was two things at once: a *list* of conversations you had already
     // started, and the only way to start another. Both belong somewhere better. The
     // list is a category in the inbox now — the conversations you have open are
-    // incoming things, exactly like a question or a merge, and the inbox's kind
+    // incoming things, exactly like a question or a pull request, and the inbox's kind
     // filter already had a table to add them to. Starting one is the ＋ on the inbox,
     // which is the primary action of the whole app and was never a navigation.
     //
@@ -53,12 +61,22 @@
     // page answers to both of its paths exactly as before (see `serveStatic`, and
     // test/pagepaths.mjs); it is reached from a row in the inbox or from ＋ rather
     // than from here, and the bar on it marks nothing as current because you are not
-    // on one of these four views. It also frees a slot on a five-tab bar, which is
-    // what §6 step 8 of the UX review and bc-3xb were both arguments about.
-    // Next to Advocates on purpose: that is where the sessions are, this is where the
-    // work they finished goes, and the two are read one after the other. "PRs" rather
-    // than "Pull requests" for the reason the tab beside it is called Chat — above.
-    { id: 'prs', href: '/prs', icon: '🔀', label: 'PRs', paths: ['/prs', '/pulls', '/prs.html'] },
+    // on one of these views. It freed a slot on what was then a five-tab bar, which is
+    // what §6 step 8 of the UX review and bc-3xb were both arguments about — and the
+    // tab below went the same way in the same breath, so that argument is settled twice
+    // over rather than narrowly.
+    // There was a **PRs** tab here too, next to Advocates. It is gone (bc-l8jp.6) and the
+    // reason is the same as the gap above it: a tab is a claim that a screen is somewhere
+    // you *live*, and the pull request board is somewhere you glance — "did that ship?" —
+    // and then act on twice a day. The rows themselves are incoming work like everything
+    // else the inbox holds, so they are cards in the inbox now, under their own filter
+    // with a sub-filter over the status ladder. `/prs`, `/pulls` and `/prs.html` all still
+    // serve the board, which is still the whole of the shipping screen; what points at it
+    // is a link on every PR card rather than a fifth of this bar.
+    //
+    // Which means the board, like the chat session, is a page the bar marks nothing as
+    // current on. That is deliberate and it is checked (scripts/tabbar-check.mjs): the
+    // bar is still there, because it is the only way off any of these pages.
     // The sessions view too. `/sessions`, `/work` and `/work.html` all serve this page
     // now, and they stay in `paths` so the bar marks the right tab for a phone opening
     // the shortcut it has had on its home screen for months.

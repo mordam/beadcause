@@ -59,8 +59,8 @@ if (!fs.existsSync(CHROME)) {
 
 /* ---------------------------------------------------------------- the fixture */
 
-/* One repo, four rows, one per stage — including the row nobody has looked at, which
-   is the case a two-state lamp gets wrong. */
+/* One repo, five rows, one per rung of the ladder — including the row nobody has looked
+   at, which is the case a two-state lamp gets wrong. */
 const row = (over) => ({
   workspace: 'demo',
   repo: 'acme/demo',
@@ -84,13 +84,14 @@ const row = (over) => ({
   pushed: true,
   local: true,
   deployed: true,
+  shipped: true,
   deployTracked: true,
   // The default is the repo that has declared no deploy, because that is most of them
   // — and it is the row whose Ship still opens a window on the Mac. The one that
   // deploys from here is a row of its own below, so both are on screen at once.
   deployDeclared: false,
   deployHint: '',
-  stage: 'deployed',
+  stage: 'live',
   note: '',
   ...over,
 });
@@ -122,9 +123,9 @@ const BOARD = () => ({
   observing: false,
   build: { dir: '/Users/x/repos/demo', commit: 'a'.repeat(40), short: 'aaaaaaa', at: '2026-08-09T09:00:00Z' },
   // `ship` is absent, not zero, when there is no queue to report — a daemon predating
-  // the queue sends no such key, and the tab badge has to fall back to `owed` rather
-  // than read an invented nought. See `render` in public/prs.js.
-  counts: { open: 1, merged: 1, pushed: 1, deployed: 1, closed: 0, owed: 2, ...(RELEASE ? { ship: RELEASE.count } : {}) },
+  // the queue sends no such key, and nothing may read an invented nought. (There was a
+  // tab badge fed from these numbers; the PRs tab is gone with bc-l8jp.6 and so is it.)
+  counts: { review: 1, merged: 1, pushed: 2, deployed: 0, live: 1, closed: 0, owed: 3, ...(RELEASE ? { ship: RELEASE.count } : {}) },
   repos: [
     {
       workspace: 'demo',
@@ -148,7 +149,8 @@ const BOARD = () => ({
           pushed: false,
           local: false,
           deployed: false,
-          stage: 'open',
+          shipped: null,
+          stage: 'review',
           checks: { state: 'passing', passing: 2, failing: 0, pending: 0, failed: [], total: 2 },
           beads: [{ id: 'de-a1b', title: 'the bead it is for', status: 'open' }],
         }),
@@ -157,6 +159,7 @@ const BOARD = () => ({
           number: 3,
           title: 'Merged and pushed, not shipped',
           deployed: false,
+          shipped: false,
           stage: 'pushed',
           note: 'Merged and pushed — but not in the build that is running. Ship it.',
         }),
@@ -167,6 +170,7 @@ const BOARD = () => ({
           pushed: null,
           local: null,
           deployed: null,
+          shipped: null,
           stage: 'merged',
           note: 'Nothing here has seen that commit yet — this Mac may not have fetched.',
         }),
@@ -175,6 +179,7 @@ const BOARD = () => ({
           number: 5,
           title: 'Merged in a repo that wrote its deploy down',
           deployed: false,
+          shipped: false,
           stage: 'pushed',
           deployDeclared: true,
           deployHint: 'runs `launchctl` · rebuilds APK · restarts beadcause',
@@ -495,31 +500,32 @@ try {
 
   const shipped = await evalJs(s, LAMPS(1));
   ok(
-    JSON.stringify(shipped) === JSON.stringify(['on:Merged', 'on:Pushed', 'on:Deployed']),
-    `a shipped one lights all three — ${JSON.stringify(shipped)}`
+    JSON.stringify(shipped) === JSON.stringify(['on:Merged', 'on:Pushed', 'on:Deployed', 'on:Live']),
+    `a shipped one lights all four — ${JSON.stringify(shipped)}`
   );
 
   const owed = await evalJs(s, LAMPS(3));
   ok(
-    JSON.stringify(owed) === JSON.stringify(['on:Merged', 'on:Pushed', 'off:Deployed']),
-    `merged and pushed but not running is two lit, one dark — ${JSON.stringify(owed)}`
+    JSON.stringify(owed) === JSON.stringify(['on:Merged', 'on:Pushed', 'off:Deployed', 'off:Live']),
+    `merged and pushed but not running is two lit, two dark — ${JSON.stringify(owed)}`
   );
 
   const unknown = await evalJs(s, LAMPS(2));
   ok(
-    unknown[1] === 'unknown:Pushed' && unknown[2] === 'unknown:Deployed',
+    unknown[1] === 'unknown:Pushed' && unknown[2] === 'unknown:Deployed' && unknown[3] === 'unknown:Live',
     `what nobody has looked at is neither on nor off — ${JSON.stringify(unknown)}`
   );
 
   const open = await evalJs(s, LAMPS(4));
   ok(
-    JSON.stringify(open) === JSON.stringify(['off:Merged', 'off:Pushed', 'off:Deployed']),
+    JSON.stringify(open) === JSON.stringify(['off:Merged', 'off:Pushed', 'off:Deployed', 'off:Live']),
     `an open one lights nothing — ${JSON.stringify(open)}`
   );
 
   const spoken = await evalJs(s, SPOKEN(2));
   ok(
-    JSON.stringify(spoken) === JSON.stringify(['Merged: yes', 'Pushed: not known', 'Deployed: not known']),
+    JSON.stringify(spoken) ===
+      JSON.stringify(['Merged: yes', 'Pushed: not known', 'Deployed: not known', 'Live: not known']),
     `and a reader hears the state, which colour alone would not carry — ${JSON.stringify(spoken)}`
   );
 

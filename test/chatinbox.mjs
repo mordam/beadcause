@@ -219,7 +219,11 @@ try {
   await check('the bar holds no Chat tab', () => {
     const bar = read('public/tabbar.js');
     const ids = [...bar.matchAll(/^\s*\{\s*id: '([a-z]+)'/gm)].map((m) => m[1]);
-    assert.ok(ids.length >= 4, `expected the tab table, found ${ids.length} entries`);
+    // That the table was read at all, keyed off a tab rather than off a count: the bar
+    // has lost two tabs since this was written (bc-l8jp.6 took PRs a moment after this
+    // took Chat) and a count here would fail as "the tab table is unreadable" every time
+    // the bar legitimately changes size.
+    assert.ok(ids.includes('inbox'), `expected the tab table, found: ${ids.join(', ') || 'nothing'}`);
     assert.ok(!ids.includes('console'), `the Chat tab is still in the bar: ${ids.join(', ')}`);
   });
 

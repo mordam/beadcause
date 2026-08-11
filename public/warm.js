@@ -55,14 +55,22 @@
    * order a thumb travels along them. One list, one place to add a view — the same
    * argument as `TABS` in tabbar.js, and the two have to stay in step: a view added
    * there and forgotten here is a tab that is still cold, which is invisible until
-   * you are on a phone wondering why one tab is slower than the other three.
+   * you are on a phone wondering why one tab is slower than the other two.
    *
-   * `console` is the one entry with no tab behind it, and it is not a leftover.
-   * bc-l8jp.5 took the Chat tab off the bar, but it did not make the page rarer —
-   * it made it the destination of the ＋ and of every chat row in the inbox, so it
-   * is now reached from the view most likely to be warming things, by the tap most
-   * worth having warm. A standing page is what earns an entry here; being on the
-   * bar is only the usual reason a page is one.
+   * A **view** is not the same thing as a tab, though, and two entries here prove it:
+   * the board lost its tab in bc-l8jp.6 and the chat session lost its in bc-l8jp.5, and
+   * both are still standing pages — reached from a PR card, a chat row or the ＋, all of
+   * them on the inbox — that still boot from `/api/prs` and `/api/consoles` and are
+   * therefore still worth warming. If anything the taps that reach them matter more now
+   * than they did on the bar. What belongs here is a page somebody arrives at, not a
+   * place on a bar.
+   *
+   * `/api/prs` is deliberately **not** listed under `inbox`, even though the inbox now
+   * draws a card per pull request off it. A path under a view is a path that view does not
+   * warm for the others, and the inbox is the one page that would then leave the board
+   * cold — precisely when a kind filter means the inbox never asks for it at all. It reads
+   * and writes the same entry directly instead (`warmBoard` and `loadBoard` in app.js), so
+   * one sweep still serves both screens.
    */
   const VIEWS = [
     { id: 'inbox', paths: ['/api/questions?scope=human'] },

@@ -196,6 +196,76 @@ for (const [name, brief] of [
   );
 }
 
+/* --------------------------------------- the step that outlives the window (bc-goo.10) */
+
+/**
+ * The one part of the ending written for the next agent rather than for Adam.
+ *
+ * It is asserted here rather than trusted because the three things that make it work are
+ * each one sentence, and each of them is the kind of sentence a later edit tidies away:
+ *
+ * 1. **The foreshadow comes before the ending.** A session told about this only in the
+ *    closing sequence has to reconstruct the run from memory, and what it reconstructs is
+ *    "worked on lib/foo.js" — a summary of what it did, not the thing that surprised it.
+ *    So the position is the feature, and position is what the index comparison checks.
+ * 2. **Silence is the expected answer.** The failure mode of the whole feature is a
+ *    paragraph filed every single run, at which point the store is noise and nobody opens
+ *    it. `amendment.reflectionPrompt` states that as a bar for the same reason; a brief
+ *    that dropped the sentence would still work and would quietly fill the store.
+ * 3. **The marker stays last.** The writes are tool calls and the marker is the last line
+ *    of the final message, so the step has to come first *and* has to say why — a session
+ *    obeying both instructions in the other order puts its marker in the middle, and a
+ *    line whose whole value is that it can be grepped for stops being findable.
+ *
+ * Both stores are named because there are two and the choice between them is the whole
+ * of getting it right: a repo fact in `remember` is advice followed where it is false,
+ * and a general lesson in `note` is one never seen again. See `memoryBrief` in
+ * lib/memory.js, which is the single copy of the long version.
+ */
+console.log('\nthe step that writes something down before the window closes');
+
+for (const [name, brief] of [
+  ['lands its own work', land],
+  ['asks first', ask],
+  ['no remote', none],
+]) {
+  check(
+    `"${name}" foreshadows the step up in the brief, where the surprise is still in front of it`,
+    brief.indexOf('notice the surprises as you hit them') > 0 &&
+      brief.indexOf('notice the surprises as you hit them') < brief.indexOf('Write down anything you learned'),
+    (brief.match(/.*notice the surprises.*/) || [])[0]
+  );
+  check(
+    `"${name}" names both stores, and the one question that chooses between them`,
+    /beadcause-memory note\b/.test(brief) && /beadcause-memory remember\b/.test(brief) && /would this still be true somewhere/.test(brief),
+    (brief.match(/.*beadcause-memory.*/) || [])[0]
+  );
+  check(
+    `"${name}" does not ask for something every run — silence is the expected answer`,
+    /Most runs should write nothing/.test(brief),
+    (brief.match(/.*Most runs.*/) || [])[0]
+  );
+  check(`"${name}" keeps the line that stops this becoming a second tracker`, /work item attached is a bead, not a note/.test(brief));
+  // The ordering the marker depends on: write, rename, then the message whose last line
+  // is the marker. Numbered *and* argued, because a session reads the numbers.
+  check(
+    `"${name}" runs the three closing steps in the order the marker needs`,
+    /^1\. \*\*Write down anything you learned/m.test(brief) &&
+      /^2\. \*\*Rename this session/m.test(brief) &&
+      /^3\. \*\*Make the last line of your final message/m.test(brief),
+    (brief.match(/^\d\. \*\*.*/gm) || []).join(' | ')
+  );
+  check(
+    `"${name}" says outright that the writes happen before the final message, not after the marker`,
+    /\*\*before\*\* your final message/.test(brief) && /nothing can follow it/.test(brief)
+  );
+  check(
+    `"${name}" owes the step whichever way it ends, including the ones that hand the work back`,
+    /whichever way this session ends/.test(brief),
+    (brief.match(/.*whichever way this session ends.*/) || [])[0]
+  );
+}
+
 check(
   'a second attempt says so in all three, since whatever stopped the first is still there',
   [null, MODE(), MODE({ autoMerge: false })].every((m) => /This is attempt 2/.test(workPromptFor('beadcause', BEAD, 2, m, OWNER)))

@@ -1644,6 +1644,43 @@ repo fact in `remember` is advice the agent will follow somewhere it is false, a
 general lesson in `note` is one it will never see again once it is working elsewhere.
 Neither is a corruption, and both are one rewrite away.
 
+### The moment a worker actually writes
+
+A store an agent is *able* to use is not a store an agent uses. The worker's own ending
+had two steps in it, and both were for you: a `DONE-` prefix on the session name and the
+`** BEAD WORK DONE **` line, each written for whoever scrolls a wall of windows hours
+later. Nothing in it was for the next agent — and that ending is the last moment
+anything could be, because immediately after it the done file is written, the shell
+exits, iTerm closes the window, and everything that session worked out goes with it.
+
+So the brief now carries a third step, first in the closing sequence, and it says the
+two things that make it work rather than merely present:
+
+- **It is foreshadowed up in the brief**, right after the line about running the tests,
+  because a session told about this only at the end has to reconstruct the run from
+  memory — and what it reconstructs is a summary of what it did, not the thing that
+  surprised it. Twenty minutes lost to a trap at turn nine reads as obvious by turn
+  ninety. The noticing has to happen while the surprise is in front of it; only the
+  writing belongs at the end.
+- **Silence is the expected answer**, in the same words the amendment channel uses for
+  the same problem: the failure mode is a paragraph of *"worked on `lib/foo.js`"* filed
+  every single run, at which point the store is noise and nobody opens it. The bar is
+  stated as a bar — would this have saved *you* an hour if it had been there when you
+  started — and the existing line holds: anything with a work item attached is a bead,
+  not a note.
+
+**The order inside the ending is not free**, and the step says so outright rather than
+trusting its number. The writes are tool calls; the marker has to be the last line of
+the final message with nothing after it. A session obeying "write down what you learned"
+and "put the marker last" in the other order puts its marker in the middle, and a line
+whose entire value is that it can be grepped for stops being findable. It is also owed
+on **every** ending, including the ones that hand the work back — a run that discovered
+the bead was bigger than it looked is usually the run that learned the most, and gating
+this on a closed bead would lose exactly those. `test/land.mjs` asserts the position of
+the foreshadow, both stores and the question between them, the "most runs should write
+nothing" sentence, and that the three steps come out numbered in the order the marker
+needs.
+
 ### Reading another agent, without being able to be one
 
 ```
@@ -2052,6 +2089,62 @@ The wider scopes poll at 60s rather than the inbox's 25s: they are a full `bd li
 sweep, about 2.5s of `bd` across seven workspaces, and that does not want to run four
 times a minute for a list you are glancing at.
 
+### One list, five kinds — and the sub-filter for pull requests
+
+The inbox is not one list. An advocate asking to create beads, a worker asking you to
+merge, a plain question, a **pull request**, and — under `Both` and `Agent` — the live
+beads nobody is asking you about, are five different jobs that happen to arrive at the
+same address. `KINDS` in `public/inboxfilter.js` is the table that names them, and it is
+the only place that knows which row is which: one row of it buys a chip, a count, a
+predicate and a place in the summary line. The chips live in the same collapsed
+hover-open control as the scope switch, because two collapsing controls side by side
+would be the three permanent chip rows again with extra steps.
+
+Each kind carries a `side` — which scope can fetch it. `human` sweeps questions, `agent`
+sweeps live beads, and a chip for something the current scope cannot contain would be a
+control that does nothing, so it is not offered and a selection the new scope cannot
+produce is dropped rather than kept and ignored. `any` is the third value: a pull request
+comes off `gh` rather than off a `bd` sweep, so there is no scope that could have failed
+to fetch one.
+
+**Pull requests are the one kind with a second axis.** Selecting `PRs` reveals a status
+sub-filter over [the ladder](#the-ladder-in-one-place) — `review · merged · pushed ·
+deployed · live` — and with nothing chosen the inbox shows only what has **not merged**.
+A merged pull request is history, and history should be asked for: five are open right
+now and thirty have merged in the last three weeks, so a PR chip with no second axis
+would be a list of last month with this morning somewhere inside it. Two rules keep that
+honest:
+
+- **The default is a narrowing nobody set, so the line says so.** At rest the control
+  reads `Human · All kinds · unmerged` — the status group says `unmerged` where every
+  other group says `All`. On a screen with no pull requests on it at all, it says nothing
+  about them.
+- **A status outlives the chip that set it.** Pick `Live`, then widen back to `All
+  kinds`, and the chips go away while the narrowing does not — so the summary keeps
+  naming it (`Human · All kinds · Live`). A list narrowed by something no longer on
+  screen is the one thing this control exists to prevent.
+
+A closed pull request gets **no card at all**: it is not on the way anywhere, and a rung
+the sub-filter deliberately does not offer must not be able to reach the list. The board
+still shows them.
+
+The board itself is fetched on its own clock — a minute, and only while a pull request
+could be in the list at all — because `/api/prs` is a `gh` call per repo behind a
+25-second cache on the daemon, and asking it every 25 seconds because the inbox polls
+would keep that sweep hot all day for six repos. The rows are synthesised at render time
+and never merged into `state.questions`: nearly everything reading that array is about
+beads — the waiting count, the picker's per-repo numbers, the answer path — and a pull
+request is none of them.
+
+**A kind filter does not change what rings your phone.** The space picker's does — it is
+stored on the server and the push path reads it — and this deliberately does not: it
+lives in `localStorage`, on the device, because "I am reading merges this hour" is not
+"do not tell me about questions". The accepted consequence is that a hidden kind can
+still notify you, and the summary line is the standing reminder that the list is
+narrowed. `node test/inboxkinds.mjs` covers the table (every row matches exactly one
+kind, in both directions), the scope rule, the sub-filter's defaults and the chrome on
+both a pointer and a touchscreen.
+
 ### The top bar says who is asking, not what the app is called
 
 The widest part of the bar used to be the word **Beadcause** — on a screen you
@@ -2241,10 +2334,10 @@ way **What this is blocking** does and asserts that bead ends up under it.
 
 The standing views — it started as four: the **inbox**, the **chat session**, the
 **sessions** and the **advocates**, with the **pull requests** and the **admin**
-screen since. Two of the six have left again: Sessions, because it and Advocates
-turned out to be one view drawn twice, and Chat, for a different reason given below.
-They are separate pages, and each one used to end in an ✕ in the top right that
-hard-navigated back to `/`. That made the inbox a hallway — chat session to advocates
+screen since. Three of the six have left again: **Sessions**, because it and Advocates
+turned out to be one view drawn twice, and then **Chat** and **PRs**, both for the reason
+given below. They are separate pages, and each one used to end in an ✕ in the top right
+that hard-navigated back to `/`. That made the inbox a hallway — chat session to advocates
 was two taps through a page you did not want — and the ad-hoc cross-links that grew to
 paper over it (sessions → advocates, advocates → sessions) were the same complaint,
 admitting itself.
@@ -2252,34 +2345,49 @@ admitting itself.
 So all of them carry the same bar along the bottom, where a thumb already is:
 
 ```
-  📥       🔀         📣         ⏸
- Inbox    PRs    Advocates   Admin          ＋
+  📥         📣         ⏸
+ Inbox   Advocates   Admin              ＋
  ▔▔▔▔▔
 ```
 
-Four tabs is 90px each at 360px. Five was 72px, which "Advocates" still fits; six
-would be 60px, which it does not — so the stylesheet steps the type down when a sixth
-tab is there (`.tabbar:has(.tab-item:nth-child(6))`), keyed off the bar's own contents
-rather than off a count written down somewhere, so adding or removing a tab needs
-nothing else. It is dormant below six and will come back on its own if the bar fills
-up again.
+**A tab is not a shortcut to a page; it is a claim that the page is somewhere you live.**
+That is what took **PRs** back out of the bar (bc-l8jp.6): the board is somewhere you
+glance — *did that ship?* — and then act on twice a day, and its rows are incoming work
+like everything else the inbox holds. So [the rows moved into the
+inbox](#where-you-read-it-an-inbox-card-and-the-board) and the board kept its URLs
+without keeping a fifth of the bar. `/prs`, `/pulls` and `/prs.html` all still serve it —
+they are on the phone's home screen and in the notification a ship sends — and what points
+at it now is a link on every PR card.
+
+Which makes the board a page the bar marks **nothing** as current on. That is deliberate,
+and it is checked: `scripts/tabbar-check.mjs` carries it with `tab: null`, asserting the
+bar is still there (it is the only way off the page) and that no tab lights for a page this
+is not. A page can be reachable, load-bearing, and not a tab.
+
+Three tabs is 120px each at 360px. Four was 90px, five was 72px — which "Advocates" still
+fits — and six would be 60px, which it does not, so the stylesheet steps the type down when
+a sixth tab is there (`.tabbar:has(.tab-item:nth-child(6))`), keyed off the bar's own
+contents rather than off a count written down somewhere, so adding or removing a tab needs
+nothing else. It is dormant below six and will come back on its own if the bar fills up
+again.
 
 ### Why Chat is not a tab, and ＋ is not a tab either
 
-The Chat tab was two jobs at one address: the conversations you had already started,
+Chat went the same way as PRs, in the same afternoon, and for one more reason on top of
+the one above: it was two jobs at one address — the conversations you had already started,
 and the only way to start another. Neither belonged on this bar.
 
 The **list** is incoming work like everything else the inbox holds — a conversation
 you left half-finished is a thing waiting on you in exactly the sense a question is —
 so open chat sessions are rows in the inbox now, under their own category in the
-[kind filter](#what-the-inbox-shows), beside Questions, Proposals and Merges. The row
+[kind filter](#what-the-inbox-shows), beside Questions, Proposals, Merges and PRs. The row
 says which conversation it is and what state it is in without opening it: the repo, a
 breathing spark while the agent is composing, "2 proposed · your turn" when there is a
 proposal waiting to be read, and when it last moved. Tapping it goes into the session.
 
 **Starting** one is the ＋ in the bottom-right corner of the inbox, above the bar. A
-bar drawn identically on five pages cannot hold a *create*, because whatever it did
-would have to mean the same thing on all five and creating does not; and the button
+bar drawn identically on every standing page cannot hold a *create*, because whatever it
+did would have to mean the same thing on all of them and creating does not; and the button
 belongs next to the thumb rather than in the top bar with ⟳, because it is the primary
 action of the app. It floats over the list and the list pays for it — the foot of the
 page reserves the button's height, the same way it reserves the bar's, so the last card
@@ -2288,11 +2396,11 @@ more it asks which, because offering to start work in a repo the app is not show
 you is the one thing the space picker exists to stop. Either way it lands on
 `/console?id=<id>`, which is exactly where the launcher's own ＋ lands.
 
-**`/console` is still a live route with no tab pointing at it.** The id and the href
-are in stored conversation records and on the phone's home screen, so both of its
-paths still serve the page — a bookmark that 404s is a worse outcome than a page with
-no tab. It keeps the bar, because that is how you leave it, and nothing on the bar is
-marked current there: you are not on one of the four.
+**`/console` is still a live route with no tab pointing at it**, exactly as `/prs` is. The
+id and the href are in stored conversation records and on the phone's home screen, so both
+of its paths still serve the page — a bookmark that 404s is a worse outcome than a page
+with no tab. It keeps the bar, because that is how you leave it, and nothing on the bar is
+marked current there: you are not on one of the three.
 
 Advocates carries a **badge** when there is something behind it — how many advocates
 are waiting on an answer. The number rides the inbox's own poll (`/api/questions`
@@ -2329,12 +2437,13 @@ could not leave, on a view whose first load unfolds one.
 
 `node scripts/tabbar-check.mjs` checks it, headless at phone size against fixtures
 the script serves itself: the bar is on every page and pinned to the bottom,
-exactly one tab is current and it is the right one — none on the chat session, which
-the bar no longer holds — the current tab is not a link, and the last row of the list,
-the chat session's composer and the last advocate card all clear it. ＋ is checked
+exactly one tab is current and it is the right one — or, on the chat session and the pull
+request board, that **none** is — the current tab is not a link, and the last row of the
+list, the chat session's composer and the last advocate card all clear it. ＋ is checked
 there too, and driven rather than read: it is a real tap target, it sits above the bar
 rather than over it, the last card clears *it* as well, and tapping it asks which repo
-and then lands on the conversation it just made. All of it in both colour schemes. `--fake-inset` re-runs the safe-area sums with a
+and then lands on the conversation it just made. All of it in both colour schemes.
+`--fake-inset` re-runs the safe-area sums with a
 notch substituted in, for the Chromes with no `Emulation.setSafeAreaInsets`.
 
 The *paths* are checked separately, in `npm test`: `node test/pagepaths.mjs` asks a
@@ -2871,31 +2980,62 @@ hidden page must not keep sweeping every tracker on the Mac. A workspace that fa
 reports its error in place rather than vanishing from the list; a missing row would
 read as "nothing happening there", which is the one thing it doesn't mean.
 
-## Pull requests — merged, pushed, deployed
+## Pull requests — review, merged, pushed, deployed, live
 
 A delivery question asks *may I merge this?* and is gone the moment you answer it — and
 most work never raises one, because [the worker merged it
 itself](#landing-work--a-branch-a-pull-request-and-the-workers-own-merge). Either way the
 question that starts once the merge has happened had nowhere to be asked from a phone:
-**it merged — did it reach origin, and is it running?** Those are three different facts.
-They go true at three different times, and the gap between them is where work sits for a
-week believing it has shipped. This tab is the only place that gap is visible, which is
-what makes it the *more* important screen now that a worker lands its own work: the merge
-stopped being a thing Adam does, and the deploy did not.
+**it merged — did it reach origin, did anything deploy it, and is it running?** Those are
+four different facts. They go true at four different times, and the gap between them is
+where work sits for a week believing it has shipped. This is the only place that gap is
+visible, which is what makes it the *more* important screen now that a worker lands its own
+work: the merge stopped being a thing Adam does, and the deploy did not.
 
-So: the 🔀 tab, one card per repo, one row per pull request, and three lamps on every
-row.
+### The ladder, in one place
+
+Where a pull request has got to is **one word**, decided by `stageOf` in `lib/prstage.js`
+and nowhere else, and every screen reads it off the row:
+
+| rung | what it means |
+|---|---|
+| **review** | open on GitHub, waiting on a decision |
+| **merged** | merged at GitHub, and this Mac has not seen the merge commit on `origin` |
+| **pushed** | on `origin`, and no deploy has carried it |
+| **deployed** | a deploy *ran* that carried it — an `ok` record in the journey journal (`lib/deploy.js`) that started after the merge |
+| **live** | it is in the build **this daemon is running** |
+| *closed* | closed without merging. Off the ladder: not a rung on the way anywhere |
+
+**deployed and live are two rungs on purpose.** They answer different questions and only
+one of them is provable here. `deployed` is the deploy journal's answer, and for every repo
+but this one it is the *only* answer available — sophab goes out by `fly deploy` and nothing
+on this Mac can then look at what is serving. `live` is ancestry against the commit this
+process booted from, which only beadcause can claim about beadcause. Collapsing them would
+mean either calling a `fly deploy` "live" — a claim nothing here can check — or calling a
+merge that demonstrably is not running "deployed", which is the lie this whole screen exists
+to prevent. Both are reachable in a real flow, and `test/prstage.mjs` asserts each rung is.
+
+That ladder was three independent flags until bc-l8jp.6, computed in the board and about to
+be computed a second time by the inbox. One function, six rungs, and the sort order
+(`RANK`) generated from the same table, so the words and the order cannot move apart.
+
+### Where you read it: an inbox card, and the board
+
+**Pull requests are cards in the inbox** — [under their own filter, with a sub-filter over
+the ladder](#what-the-inbox-shows) — and the board at `/prs` is where you act on one. Both
+draw the row from the same renderer, `public/prcard.js`; there were two before that bead,
+and a fact added to one screen was a fact missing from the other.
 
 ```
 #42  Turn the launcher's repo chips into tabs            2h ›
-     bc-jin   +764 −20   5 files   ✓ 3
-     ● Merged   ● Pushed   ○ Deployed
+     beadcause  Pushed  bc-jin   +764 −20   5 files   ✓ 3
+     ● Merged   ● Pushed   ○ Deployed   ○ Live
 ```
 
-**The lamps are the page.** They are on every row rather than behind the fold,
-because "which of these has not shipped" is a question you answer by scanning, and a
-fold would make it a question you answer by tapping twelve times. Tapping a row opens
-what you can do about it.
+**The lamps are the evidence; the word is the conclusion.** They are on every row rather
+than behind the fold, because "which of these has not shipped" is a question you answer by
+scanning, and a fold would make it a question you answer by tapping twelve times. On the
+board, tapping a row opens what you can do about it.
 
 **A lamp has three states, not two.** On, off, and *unknown* — a hollow, dashed ring:
 
@@ -2903,13 +3043,16 @@ what you can do about it.
 - **Pushed** — the merge commit is reachable from `origin/<base>` **as this Mac last
   fetched it**. The board re-fetches each checkout at most every two minutes, and
   only when something merged is waiting on the answer.
-- **Deployed** — the merge commit is in the build that is *running*. beadcause deploys
+- **Deployed** — a deploy of this repo ran, and ended `ok`, after the merge. Read from the
+  same journal the [release queue](#the-release-queue--the-number-over-ship) counts, so
+  the two cannot disagree about what has been shipped.
+- **Live** — the merge commit is in the build that is *running*. beadcause deploys
   by `launchctl kickstart`, a restart, so the code that is running is the code that
   was at `HEAD` when this process started and nothing after it. That commit is read
   **once, at import**, and never again: reading it lazily would report main's newest
   commit as deployed the moment another session merged something, which is exactly
   the lie this column exists to prevent. The page names the commit at its foot, so
-  the word "deployed" is never a claim you have to take on trust.
+  the word is never a claim you have to take on trust.
 
 The third state is the one that matters. This Mac has never fetched that commit; this
 repo has no deploy the daemon can see at all — only its own. An unknown drawn as
@@ -2962,7 +3105,7 @@ says **no bead named** rather than borrowing one.
   Ship needed no guard was that a window is something you can watch and stop, and a
   declared deploy is not. The session's brief carries what is already true — merged, on
   origin, not in the running build — so it does not start by working out what this
-  screen already knew. Offered on merged rows even when all three lamps are lit, because
+  screen already knew. Offered on merged rows even when every lamp is lit, because
   a repo can need shipping twice.
 
   Both halves of the app now mean the same thing by the word: **Ship it** on a delivery
@@ -3037,7 +3180,11 @@ given a card each.
 `node test/prboard.mjs` covers the daemon's half against real git in a temp directory
 with a real `origin` to fetch from — the three-state ancestry, deployed meaning the
 boot commit rather than the newest one, the bead tiers, and that `landLocally` leaves
-a dirty checkout exactly as it found it. `node scripts/prs-check.mjs` covers the
+a dirty checkout exactly as it found it. `landParent` — the same fast-forward asked for
+from inside a worktree, which is how [a worker's own
+delivery](#landing-work--a-branch-a-pull-request-and-the-workers-own-merge) ends — has
+its own real worktree there, because the only thing it adds is *which checkout moves*,
+and it has to be the one the next `git worktree add` will branch from. `node scripts/prs-check.mjs` covers the
 phone's half in headless Chrome with every POST recorded: that the first tap on merge
 sends *nothing*, that Ship is absent until it is merged, that the deploying Ship arms
 and the window-opening one does not, and that a refusal lands under the row as GitHub's
@@ -4138,7 +4285,7 @@ session finishes ──► beadcause-deliver ──► pushes the branch ──�
                         └──► 🔀 PR board: merged, on origin, not yet running → Ship
 ```
 
-Five things follow, and they are the whole of the change:
+Six things follow, and they are the whole of the change:
 
 - **A worker merges, and only ever through a pull request.** Not `git merge`, not
   `git push origin main`, not "just this once because it is trivial". There is still no
@@ -4150,6 +4297,15 @@ Five things follow, and they are the whole of the change:
   branch is the only place that conflict can be resolved by whoever wrote the code, while
   the reasons are still on their screen, so the brief asks for the downmerge *and* for the
   tests to be re-run after it: a clean merge of two working branches is not a working tree.
+- **And it brings the merge back down to this Mac afterwards.** The merge is at GitHub, so
+  `origin/main` has it the instant it lands and the laptop's own `main` does not — until
+  something happens to fetch: a deploy, a merge from the board, a person. Nothing
+  reliably did. In between, every new worktree branched from before the delivery, and the
+  session that got it paid with a downmerge of work it had never heard of. So a delivery
+  ends by fast-forwarding the **main checkout** — not its own worktree, where the ref
+  cannot move anyway — and it is the same `landLocally` the **Merge & push** button uses,
+  refusal and all: *a checkout with uncommitted work in it is not touched*, it says so on
+  the bead instead, and Adam's open files are worth more than a tidy `main`.
 - **It will not merge over a red check, and it will not wait forever for a green one.**
   Failing checks stop it and become a card in your inbox — the button there *does* let
   you merge over red, because a red check is sometimes a flake and judging that is what
@@ -4621,8 +4777,13 @@ decides. None of the three touches the network, a bead, or a repo.
 `node scripts/land-check.mjs` is the end-to-end half, and it is the only place the merge
 itself is exercised: a real `git` against a real bare remote, a real `bd` against a
 scratch workspace under `/tmp`, the real `bin/deliver.js`, and a fake `gh` that logs every
-call. Five scenarios — green checks, a refusal from GitHub, a red check, `--review`, and
-`--owed`. The assertions that matter are the negative ones: `gh pr merge` must not appear
+call. Seven scenarios — green checks, a refusal from GitHub, a red check, `--review`,
+`--owed`, where the merge method comes from, and the local fast-forward. That last one is
+the only scenario that delivers from a real `git worktree`, because that is where a worker
+delivers from and the whole behaviour turns on it: the fake `gh` moves the bare origin's
+`main` on merge, and the checks are that the main checkout ends up at `origin/main` — and
+that it is left alone, with the reason on the bead, when there is an uncommitted edit in
+it. The assertions that matter are the negative ones: `gh pr merge` must not appear
 in the log for the red check or for `--review`, and the work bead must still be open in
 every scenario that did not merge, because a bead closed over work sitting in an unmerged
 pull request is invisible from every screen in the app. `BEADCAUSE_CONFIG_DIR` points it
@@ -6035,7 +6196,7 @@ cookie says so), and `/auth/signout` ends the session.
 | GET | `/api/poll` | `?since=<seq>&wait=<s>` | long-poll: `{seq, resync, events[], advocates, presence, observing}` **plus the whole `/api/questions` screen** when something moved — the same `inboxPayload()` builds both, so a client can refresh itself from either and get the same inbox. `questions`, `requests` and `spaces` are `null` rather than `[]` when nothing moved: an empty array means the channel is empty, and a poll that timed out never asked. `want=presence` says the questions are not wanted, which is what makes a quiet poll cost no `bd` at all |
 | POST | `/api/respond` | `{workspace, id, response, create?, edits?}` | comments, then closes the bead. `create` is the 1-based indices of a proposal's beads to file; without it, `CREATE:` in the text means all and `CREATE: 1,3` means those. `edits` is `{n: {title, type, priority, description, acceptance}}` keyed by the same numbers, applied before creating. A `MERGE:` / `CHANGES:` / `DECLINE:` response on a delivery question acts on its pull request first — see [Landing work](#landing-work--a-branch-a-pull-request-and-the-workers-own-merge) |
 | GET | `/api/pr` | `?workspace=&id=` | `{delivery, pr, unavailable}` — the live diffstat, check rollup and mergeability of a delivery question's PR. Every failure is an answer rather than a 500: no `gh`, no remote, GitHub unreachable all come back with `pr: null` and a sentence in `unavailable` |
-| GET | `/api/prs` | `?refresh=1` | the PR board: every pull request in every repo with its Merged · Pushed · Deployed lamps, plus `observing`. Cached 25s on the daemon; `refresh=1` forces the `gh` sweep |
+| GET | `/api/prs` | `?refresh=1` | the PR board: every pull request in every repo with its Merged · Pushed · Deployed · Live lamps and its rung of [the ladder](#the-ladder-in-one-place), plus `observing`. Read by the board *and* by the inbox, which draws a card per row. Cached 25s on the daemon; `refresh=1` forces the `gh` sweep |
 | POST | `/api/pr/merge` | `{workspace, number, method?}` | merges it at GitHub, fast-forwards this Mac's `main`, and retires the inbox's own "Merge #N?" card if a worker filed one. Three halves report separately — `{pr, alreadyMerged, land, cards}` — because a merge that landed and a fast-forward refused over open files is a *good* outcome and one flat failure over both would send you to GitHub to find out which. The card is **closed**, never answered: merging a pull request is a fact, and the card is spent because of that fact rather than because anything wrote `MERGE:` under your name |
 | POST | `/api/pr/ship` | `{workspace, number}` | the declared deploy where the repo has one, an iTerm session where it does not. `409` if the PR is not merged — shipping an unmerged pull request has no meaning. Refused on an observer |
 | POST | `/api/release/ship` | `{workspace}` | ships the whole release queue — one deploy for every merge sitting on `origin` and not live, which is what a deploy has always done anyway. `409` on an empty queue (a restart for nothing), on a repo that declares no deploy (there is no window that means "and the other three"), and on one already deploying. Refused on an observer |

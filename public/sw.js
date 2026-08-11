@@ -55,16 +55,18 @@
    holding v26's app.js without the file would fall back to the whole-list rebuild
    and a cold fetch per tab, which is the entire thing being fixed. They have to
    arrive together, which is what a cache version is for. */
-/* v27: Chat stopped being a tab. No new path — every file involved is already here —
-   but three of them changed together and a phone holding a mixture of v26 and v27 gets
-   a screen that is wrong in a way it cannot explain: index.html without app.js is a ＋
-   that does nothing when tapped, app.js without index.html is an inbox whose rows say
+/* v27: two tabs left the bar in the same breath, and each put its rows in the inbox.
+   Pull requests became cards: `/prcard.js` is a new path *and* four cached files
+   disagree without it — tabbar.js no longer draws the PRs tab, app.js draws cards it
+   cannot render without prcard.js, inboxfilter.js builds its status sub-filter off the
+   ladder in it, and prs.js takes its own row renderer from it, so a board page cached at
+   v26 beside a v27 prs.js is a blank board. Chat went the same way with no new path at
+   all, which is the more dangerous half: index.html without app.js is a ＋ that does
+   nothing when tapped, app.js without index.html is an inbox whose rows say
    `data.consoles` and whose create button is not on the page, and either without
-   style.css is a floating button with no shape sitting over the last card. The tab it
-   replaced is gone from tabbar.js in the same breath, so a stale shell is also a bar
-   with a Chat tab and no ＋ — which is the old app, complete, and therefore the one
-   mixture nobody would think to suspect. They have to arrive together, which is what a
-   cache version is for. */
+   style.css is a floating button with no shape sitting over the last card. Every one of
+   those is an old app that looks complete — a bar with both tabs still on it most of all
+   — which is the failure a version exists to prevent. */
 const CACHE = 'beadcause-v27';
 const SHELL = [
   '/',
@@ -91,6 +93,10 @@ const SHELL = [
   // line. In the shell for the same reason the picker is: without it the inbox has no
   // control on it at all to say which slice of the tracker you are looking at.
   '/inboxfilter.js',
+  // One pull request, drawn once, for the inbox's cards and the board's rows. In the
+  // shell because the inbox is: a cached inbox without it draws no PR cards at all, and
+  // the filter reads the status ladder off it to build its sub-filter.
+  '/prcard.js',
   // What each of the five standing pages boots from. In the shell rather than left to
   // network-first because the whole point of it is the first frame after a tab tap:
   // a page that has to fetch its cache before it can read it has already lost the

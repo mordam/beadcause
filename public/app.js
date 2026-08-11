@@ -104,6 +104,12 @@
     // comes back next week phrased exactly the same way.
     propEdit: new Set(),
     edits: new Map(),
+    // The pull request board, whole, from `/api/prs` — the rows this list draws its PR
+    // cards from (see prRows). Its own fetch on its own clock, never merged into
+    // `questions`: a pull request is not a bead and every consumer of that array is.
+    board: null,
+    /** Why the last board sweep said nothing, if it failed or `gh` is missing. */
+    boardError: null,
     // The live half of a delivery card: key → { loading, pr, unavailable }. The
     // diffstat and the check rollup come from GitHub rather than from the bead,
     // because a diffstat frozen when the session ended is wrong the moment anyone
@@ -1316,6 +1322,176 @@
     }
   }
 
+  /* ------------------------------------------------------- pull requests */
+
+  /*
+    Pull requests, as cards in this list — which is what took **PRs** off the bottom bar
+    (bc-l8jp.6).
+
+    A tab is a claim that a screen is somewhere you *live*. The board was not: it is a
+    thing you glance at ("did that ship?") and act on twice a day, and it cost a fifth of
+    the bar to say so. The rows themselves are incoming work like everything else here, so
+    they belong in the one list that already sorts incoming work — which is also the list
+    that can put a pull request next to the bead it is for.
+
+    Four decisions, in the order they matter:
+
+    - **The board is fetched on its own clock, not on the inbox's poll.** `/api/prs` is a
+      `gh` call per repo behind a 25-second server cache; the inbox polls every 25 seconds
+      and would keep that sweep hot all day for six repos. So: a minute, and **only while a
+      pull request could be in the list at all** — the kind filter answers that, and
+      reading `Questions` for an hour costs nothing.
+    - **They are rows, not `state.questions`.** Nearly everything reading that array is
+      about beads: the waiting count, the picker's per-repo numbers, the answer path, the
+      write. A pull request is none of those, and it is synthesised at render time from the
+      board — the same shape the chat rows use.
+    - **Unmerged, unless you ask.** The status sub-filter's default (public/inboxfilter.js).
+      Thirty pull requests merged in the last three weeks and five are open; a list that
+      showed all thirty-five would bury this morning under this month.
+    - **A closed pull request gets no card at all.** Closed without merging is not on the
+      way anywhere, and a rung the sub-filter deliberately does not offer must not be able
+      to reach this list — see the `sub` block in the filter's KINDS table.
+
+    What a card does *not* have yet is merge, close and comment. Those are bc-l8jp.7, which
+    opens one full screen; until then the card links to the pull request on GitHub and to
+    the board, which is where every button already lives.
+  */
+
+  /** How often the board is re-swept while pull requests are in view. */
+  const BOARD_MS = 60000;
+
+  /** Which space a repo is in, the way the server groups them. See lib/spaces.js. */
+  const spaceForWorkspace = (ws) =>
+    state.spaces.find((s) => (s.workspaces || []).includes(ws))?.name || 'Other';
+
+  /**
+   * The board, as rows this list can carry.
+   *
+   * `key` is prefixed rather than bare so it can never collide with a bead's
+   * `workspace/id` — the drawer, the scroll anchor and `byKey` all key off it. `space` is
+   * stamped on here because the inbox filters on `q.space` before anything else and a row
+   * without one would vanish the moment a space was picked.
+   */
+  const prRows = () =>
+    (state.board?.repos || []).flatMap((repo) =>
+      (repo.prs || [])
+        .filter((p) => p.stage !== 'closed')
+        .map((p) => ({
+          key: `pr:${p.key}`,
+          pr: p,
+          workspace: p.workspace,
+          space: spaceForWorkspace(p.workspace),
+        }))
+    );
+
+  /** The ladder's order, for sorting. The words themselves are public/prcard.js's. */
+  const prRank = (row) => {
+    const ids = window.beadcause?.prCard?.stageIds?.() || [];
+    const at = ids.indexOf(row.pr?.stage);
+    return at === -1 ? ids.length : at;
+  };
+
+  /**
+   * One pull request as a card.
+   *
+   * The inside of it — the number, the title, the repo, the rung, the beads, the diffstat
+   * and the four lamps — is `bodyHtml` in public/prcard.js, the same function the board
+   * draws its rows with. That is the whole point of that file: this card and that row are
+   * the same object seen twice, and they were two renderers until this bead.
+   *
+   * The two links are the two things you can do about a pull request from here. **GitHub**
+   * is the pull request itself; **the board** is where Merge, Ship and Comment are, and it
+   * is now the only door to a page no tab points at any more.
+   */
+  function prCardHtml(row) {
+    const card = window.beadcause?.prCard;
+    const p = row.pr;
+    if (!card || !p) return '';
+    return `<article class="card pr-card" id="card-${cardId(row.key)}" data-key="${esc(row.key)}"
+      data-stage="${esc(p.stage)}">
+      <div class="work-row pr-row">${card.bodyHtml(p, { titleHref: p.url, repo: true })}</div>
+      ${p.note ? `<p class="board-note">${esc(p.note)}</p>` : ''}
+      <div class="actions">
+        <a class="linkish" href="${esc(p.url)}" target="_blank" rel="noopener noreferrer">GitHub ↗</a>
+        <a class="linkish" href="/prs">Merge or ship →</a>
+      </div>
+    </article>`;
+  }
+
+  /**
+   * Is a pull request even wanted right now?
+   *
+   * The kind filter decides, and it is the one thing that makes the extra sweep honest:
+   * with `Questions` or `Merges` selected there is nothing a board could put on screen, so
+   * nothing is asked for. Without the filter file at all the answer is *no* — a page whose
+   * control never loaded has no way to show a status sub-filter either, and the whole
+   * board's history dumped unfiltered into the inbox is a worse fallback than no PR rows.
+   */
+  const prsWanted = () => {
+    const on = window.beadcause?.inboxFilter?.selected?.();
+    return Array.isArray(on) && (!on.length || on.includes('pr'));
+  };
+
+  /** When the board was last *asked for* — not when it last answered. See loadBoard. */
+  let boardAt = 0;
+  let boardBusy = false;
+
+  /**
+   * Sweep the board, at most about once a minute.
+   *
+   * Failure is deliberately quiet *in the list* and loud in one place: the rows are simply
+   * not there, and `boardTrouble()` says why under an empty list — which is where somebody
+   * who selected `PRs` and got nothing is actually looking. The last good board stays on
+   * screen rather than being thrown away, the same call the board page itself makes.
+   *
+   * The throttle is stamped *before* the request, so it counts asking rather than
+   * answering. Both halves of that matter: a filter tap seconds after a sweep reuses what
+   * is in hand, and a failing sweep waits for the next tick instead of being asked again
+   * by the very `render()` it just triggered.
+   */
+  async function loadBoard({ force = false } = {}) {
+    if (!state.token || boardBusy || !prsWanted()) return;
+    if (!force && Date.now() - boardAt < 20000) return;
+    boardBusy = true;
+    boardAt = Date.now();
+    try {
+      const data = await api('/api/prs');
+      state.board = data;
+      state.boardError = data.unavailable || null;
+      // Into the same warm entry the board page reads and writes (public/warm.js): one
+      // sweep now warms both screens, and the background prewarm's floor sees it and
+      // leaves the path alone. Without this the two pages would each fetch it.
+      window.beadcause?.warm?.write?.('/api/prs', data);
+    } catch (err) {
+      if (err.message !== 'token rejected') state.boardError = err.message;
+    } finally {
+      boardBusy = false;
+      render();
+    }
+  }
+
+  /**
+   * The board this device already had, drawn in the first frame.
+   *
+   * The same entry the board page keeps, because it is the same payload — and the whole
+   * point of the warm layer is that a tab switch does not go blank while a `gh` sweep per
+   * repo runs. The fetch behind it still happens; what this removes is the second or two
+   * of an inbox with no pull requests in it that had them a moment ago.
+   */
+  function warmBoard() {
+    const hit = window.beadcause?.warm?.read?.('/api/prs');
+    if (!Array.isArray(hit?.data?.repos)) return false;
+    state.board = hit.data;
+    state.boardError = hit.data.unavailable || null;
+    return true;
+  }
+
+  /** The one line that explains a list with no pull requests in it. */
+  const boardTrouble = () => {
+    if (!prsWanted() || !state.boardError) return '';
+    return ` Pull requests could not be read: ${esc(state.boardError)}`;
+  };
+
   /** The selected agent, falling back to the first one the server offered. */
   const currentAgent = () => state.agents.find((a) => a.id === state.agent) || state.agents[0] || null;
 
@@ -2062,18 +2238,18 @@
     // questions feed, so when the other channel has something in it, say which
     // emptiness this is.
     if ((state.requests || []).length) {
-      return `<div class="empty">Nothing about work is waiting.${widenNudge()}</div>`;
+      return `<div class="empty">Nothing about work is waiting.${widenNudge()}${boardTrouble()}</div>`;
     }
     if (state.scope === 'agent') {
-      return `<div class="empty"><strong>Nothing live</strong>No open, claimed or blocked beads in any workspace.</div>`;
+      return `<div class="empty"><strong>Nothing live</strong>No open, claimed or blocked beads in any workspace.${boardTrouble()}</div>`;
     }
     if (state.scope === 'both') {
-      return `<div class="empty"><strong>Nothing live</strong>No questions, and no bead open anywhere.</div>`;
+      return `<div class="empty"><strong>Nothing live</strong>No questions, and no bead open anywhere.${boardTrouble()}</div>`;
     }
     // The one empty state that is also the app at rest, so it is the one that says
     // what the button in the corner is for. ＋ is the only control on this screen with
     // nothing else naming it, and an empty inbox is exactly when you would want it.
-    return `<div class="empty"><strong>Nothing to decide</strong>No open questions labelled <code>human</code>.${widenNudge()} ＋ starts a conversation about what to file next.</div>`;
+    return `<div class="empty"><strong>Nothing to decide</strong>No open questions labelled <code>human</code>.${widenNudge()}${boardTrouble()} ＋ starts a conversation about what to file next.</div>`;
   }
 
   /**
@@ -2442,8 +2618,9 @@
    * see `survey` in public/inboxfilter.js.
    *
    * `any` is the exception and it is not a special case so much as the absence of
-   * one: a chat session comes off no `bd` sweep, so there is no scope that could
-   * have failed to fetch it and no scope in which its chip would be dead.
+   * one: a pull request comes off `gh` and a chat session off no sweep at all, so for
+   * neither is there a scope that could have failed to fetch it, and neither has a
+   * scope in which its chip would be dead.
    */
   const kindsForScope = () =>
     (window.beadcause?.inboxFilter?.KINDS || [])
@@ -2466,11 +2643,17 @@
     const f = window.beadcause?.inboxFilter;
     if (!f) return;
     const counts = {};
+    /** The level below: how many pull requests are on each rung of the ladder. */
+    const status = {};
     for (const q of rows) {
       const kind = f.kindOf(q);
-      if (kind) counts[kind] = (counts[kind] || 0) + 1;
+      if (!kind) continue;
+      if (q.pr?.stage) status[q.pr.stage] = (status[q.pr.stage] || 0) + 1;
+      // Counted *through* the row's own sub-filter, so `PRs 2` means the two you would
+      // get and not the thirty-five that exist. Every kind without one answers true.
+      if (f.inSub?.(q) ?? true) counts[kind] = (counts[kind] || 0) + 1;
     }
-    f.survey({ kinds: kindsForScope(), counts });
+    f.survey({ kinds: kindsForScope(), counts, sub: { status } });
   }
 
   /** Chips and the one line above them, repainted in place. Never rebuilds the panel. */
@@ -2849,11 +3032,11 @@
     // Two levels of filter: space (work vs personal), then workspace within it.
     // With no spaces configured the first level is skipped entirely and this
     // behaves exactly as it did before.
-    // The chat sessions go through both of them too — they are rows in this list and
-    // a filter that some of the list ignored would be worse than no filter. Filtered
-    // by the same two predicates rather than by a copy of them, which is why they are
-    // concatenated before the space test rather than after it.
-    const rows = [...state.questions, ...chatRows()];
+    // The pull requests and the chat sessions go through both filters too — they are
+    // rows in this list, and a filter that some of the list ignored would be worse than
+    // no filter. Concatenated before the space test rather than after it, so all three
+    // kinds of row are narrowed by the same predicate rather than by a copy of it.
+    const rows = [...state.questions, ...prRows(), ...chatRows()];
     const inSpace = state.space === 'all' ? rows : rows.filter((q) => spaceOf(q) === state.space);
     const inRepo =
       state.workspace === 'all' ? inSpace : inSpace.filter((q) => q.workspace === state.workspace);
@@ -2885,9 +3068,9 @@
     const reqs = requestsHtml();
     if (reqs) chunks.push({ key: '@requests', html: reqs });
 
-    // `rows`, not `state.questions`: with no beads at all but a conversation open,
-    // the list is not empty — and the first-run copy `emptyHtml` writes would be
-    // sitting above a chat you are in the middle of.
+    // `rows`, not `state.questions`: with no beads at all but a pull request open or a
+    // conversation on the go, the list is not empty — and the first-run copy `emptyHtml`
+    // writes would be sitting above a chat you are in the middle of.
     if (!rows.length) {
       chunks.push({ key: '@empty', html: emptyHtml() });
     } else if (!visible.length) {
@@ -2900,7 +3083,7 @@
         key: '@empty',
         html: `<div class="empty">Nothing waiting${where ? ` in ${esc(where)}` : ''}.${
           kinded ? kindNudge() : widenNudge()
-        }</div>`,
+        }${boardTrouble()}</div>`,
       });
     } else {
       // Anything you've already replied to sinks to the bottom. It is not waiting on
@@ -2908,22 +3091,34 @@
       // questions that are. Order within each group is left exactly as the server
       // sent it (priority, then age).
       //
-      // The conversations sit between the two groups, and the rule is the same one:
-      // a bead asking you a question outranks a chat you can pick up whenever, and a
-      // chat you are in the middle of outranks a bead an agent already has back.
-      // Newest first among themselves, because a conversation is a thing you were
-      // just doing rather than a thing with a priority.
-      const beads = visible.filter((q) => !q.session);
+      // The pull requests and the conversations sit between the two, on the same rule: a
+      // bead asking you a question outranks either, and either outranks a bead an agent
+      // already has back. Among themselves the pull requests are in ladder order — what
+      // is in review before what is waiting on a deploy — and then newest first, which is
+      // the board's own order (lib/prstage.js); the chats are newest first alone, because
+      // a conversation is a thing you were just doing rather than a thing with a rung.
+      // Pull requests before chats: one of them is a decision somebody is waiting on, the
+      // other is yours to pick up whenever.
+      //
+      // Their keys are `pr:<workspace>#<number>` and `chat/<id>`, two more namespaces
+      // beside the `@` panes and the beads' `workspace/id`: no bead key can begin with
+      // either and no pane key can, so a reconcile cannot mistake one for another. Which
+      // is what lets a row be left alone on every poll where its own HTML did not change
+      // — the spark starting or a count moving is the whole of what rebuilds a chat row.
+      const beads = visible.filter((q) => !q.pr && !q.session);
+      const prs = visible
+        .filter((q) => q.pr)
+        .sort(
+          (a, b) =>
+            prRank(a) - prRank(b) || String(b.pr.updatedAt || '').localeCompare(String(a.pr.updatedAt || ''))
+        );
       const chats = visible
         .filter((q) => q.session)
         .sort((a, b) => String(b.session.updatedAt).localeCompare(String(a.session.updatedAt)));
       const waiting = beads.filter((q) => !q.awaitingAgent);
       const replied = beads.filter((q) => q.awaitingAgent);
       for (const q of waiting) chunks.push({ key: q.key, html: cardHtml(q) });
-      // Keyed `chat/<id>` by `chatRows`, which no bead key can collide with, so the
-      // reconciler treats a conversation exactly as it treats a card: the row is
-      // rebuilt when its own HTML changes — the spark starting, the count moving —
-      // and left alone on every poll where it did not.
+      for (const q of prs) chunks.push({ key: q.key, html: prCardHtml(q) });
       for (const q of chats) chunks.push({ key: q.key, html: chatRowHtml(q) });
       for (const q of replied) chunks.push({ key: q.key, html: cardHtml(q) });
     }
@@ -2936,6 +3131,9 @@
     // has already fetched, so this costs one GitHub round trip per pull request for
     // the life of the tab, not one per render.
     for (const q of visible) if (q.delivery) ensurePr(q);
+    // And the board, if pull requests are wanted and the last sweep has gone stale. A
+    // no-op the rest of the time — see loadBoard.
+    loadBoard();
 
     openLinksInNewTab(listEl);
     const drawn = drawDiagrams(listEl);
@@ -2954,8 +3152,9 @@
     // 25s poll must not make it flash on screen at someone who isn't scrolling.
     paintScrollPos(false);
     // Beads only. The monitor draws this as "N waiting", which is a claim about work
-    // asking you something — and a conversation you left open is not one of those.
-    publishView(visible.filter((q) => !q.session));
+    // asking you something — and neither a pull request sitting on origin nor a
+    // conversation you left open is one of those.
+    publishView(visible.filter((q) => !q.pr && !q.session));
   }
 
   /**
@@ -4469,6 +4668,10 @@
    * with a warm list up there is no hurry, and without one there is nothing at all.
    */
   function warmBoot() {
+    // The pull requests first, and unconditionally: they are a second payload with a
+    // warm entry of its own, and whether the questions were kept says nothing about
+    // whether the board was. `adopt` renders, so this only has to be in `state` before it.
+    warmBoard();
     const hit = window.beadcause?.warm?.read?.(questionsPath(state.scope));
     if (!Array.isArray(hit?.data?.questions)) return false;
     seq = hit.seq;
@@ -4764,6 +4967,18 @@
     }, POLL_MS[state.scope] || 25000);
   }
 
+  /**
+   * The board's own clock — a minute, and only while a pull request could be in view.
+   *
+   * Separate from the poll above and deliberately slower: `/api/prs` is a `gh` call per
+   * repo behind a 25-second cache on the daemon, and asking it every 25 seconds because
+   * the inbox does would keep that sweep running all day for a screen nobody is reading.
+   * The board page itself uses the same minute, for the same reason.
+   */
+  setInterval(() => {
+    if (!document.hidden) loadBoard();
+  }, BOARD_MS);
+
   // These keep fetching; render() decides whether it's safe to repaint.
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) {
@@ -4775,6 +4990,9 @@
     }
     if (canFollow()) schedulePoll();
     else load();
+    // The board is not on the delta stream — it is a `gh` sweep behind its own minute
+    // — so coming back asks it directly. A no-op unless the last sweep has aged out.
+    loadBoard();
   });
   schedulePoll();
 
@@ -4816,10 +5034,14 @@
     if (!f) return;
     f.mount(filtersEl, {
       groups: [scopeGroup],
-      // Nothing is refetched — the kinds are a view over rows already in hand — so a
-      // plain repaint is the whole of it. Forced, because a filter tap is a decision
-      // and must not be deferred behind a half-written answer.
-      onChange: () => render(true),
+      // Forced, because a filter tap is a decision and must not be deferred behind a
+      // half-written answer. Nothing is refetched for the kinds themselves — they are a
+      // view over rows already in hand — but selecting `PRs` may be the first time this
+      // tab has wanted a board at all, and `loadBoard` is what goes and gets one.
+      onChange: () => {
+        render(true);
+        loadBoard();
+      },
     });
     f.survey({ kinds: kindsForScope() });
   }
@@ -4832,6 +5054,11 @@
   // either, this is the cold start it always was.
   if (warmBoot() && canFollow()) schedulePoll();
   else load();
+  // The pull requests, beside the questions rather than after them: the two feeds are
+  // independent and the board is the slower of the two, so starting it second and
+  // waiting for neither is what puts the questions on screen first. It is not on the
+  // delta stream either — a `gh` sweep is nothing an event log can carry.
+  loadBoard();
   // After the list, and never blocking it: the chooser only appears inside an open
   // card, so there is nothing on screen waiting for this.
   loadAgents();

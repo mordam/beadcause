@@ -17,6 +17,12 @@
 // composer, the last advocate card — clears it. Both colour schemes, and the
 // inbox's full-screen open card too, which is meant to win over the bar.
 //
+// One page is in the list with `tab: null` and it is not an omission: the pull request
+// board stopped being a tab in bc-l8jp.6 — its rows are cards in the inbox now — and it
+// still carries the bar, because the bar is the only way off it. There, *no* tab may be
+// current, which is the assertion that catches a stale `paths` entry lighting a tab this
+// page is not.
+//
 // The badge too, on the inbox: Advocates carries the proposal count the poll hands
 // it, it stays inside its tab rather than spilling into the next one, and a tab with
 // nothing behind it draws nothing.
@@ -152,7 +158,7 @@ const ADMIN = {
 const PRS = {
   unavailable: null,
   build: { dir: '/Users/x/repos/demo', commit: 'a'.repeat(40), short: 'aaaaaaa', at: '2026-08-09T09:00:00Z' },
-  counts: { open: 1, merged: 1, pushed: 1, deployed: 1, closed: 0, owed: 2 },
+  counts: { review: 1, merged: 1, pushed: 1, deployed: 0, live: 1, closed: 0, owed: 2 },
   repos: [
     {
       workspace: 'demo',
@@ -185,8 +191,9 @@ const PRS = {
           pushed: false,
           local: false,
           deployed: false,
+          shipped: null,
           deployTracked: true,
-          stage: 'open',
+          stage: 'review',
           note: '',
         },
         {
@@ -213,6 +220,7 @@ const PRS = {
           pushed: true,
           local: true,
           deployed: false,
+          shipped: false,
           deployTracked: true,
           stage: 'pushed',
           note: 'Merged and pushed — but not in the build that is running. Ship it.',
@@ -478,25 +486,27 @@ const CLEAR = {
    than written out as a number, so adding or dropping a tab is one line here and not
    a test that fails with "five tabs: <four of them>".
 
-   Chat was the second of these and is not a view in the bar any more (bc-l8jp.5): the
-   conversations are rows in the inbox and ＋ starts a new one. The page is still here,
-   under `PAGES`, with `tab: null` — a subordinate view keeps the bar, because the bar
-   is how you leave it, and nothing on it is current because you are not on one of
-   these four. */
-const TABS = ['inbox', 'prs', 'advocates', 'admin'];
+   Two of the five went in one afternoon and neither page went with it. Chat was the
+   second tab (bc-l8jp.5) — the conversations are rows in the inbox now and ＋ starts a
+   new one — and PRs was the fourth (bc-l8jp.6), whose pull requests are cards in the
+   same list. Both are still here under `PAGES` with `tab: null`, because a subordinate
+   view keeps the bar: the bar is how you leave it, and nothing on it is current since
+   you are not on one of these three. */
+const TABS = ['inbox', 'advocates', 'admin'];
 
 const PAGES = [
   { url: '/', tab: 'inbox', name: 'inbox' },
   // No tab of its own any more, and that is the thing being checked here: the bar is
-  // still on it (this is how you get back), the four tabs are all links, and none of
-  // them claims to be where you are. A tab lighting up on a page it does not lead to
-  // would be the bar lying about where you are — worse than no mark at all.
+  // still on it (this is how you get back), every tab is a link, and none of them claims
+  // to be where you are. A tab lighting up on a page it does not lead to would be the bar
+  // lying about where you are — worse than no mark at all.
   { url: '/console', tab: null, name: 'console' },
-  // "PRs" rather than "Pull requests" because five labels share 393px here and 360px
-  // on the common Android width. The stylesheet has a `:has(:nth-child(6))` step-down
-  // for when a sixth tab arrives; at five it does not apply, and this page is in the
-  // list to keep the shortest-label tab measured rather than trusted.
-  { url: '/prs', tab: 'prs', name: 'prs' },
+  // `tab: null` for the same reason (bc-l8jp.6): the board's pull requests are cards in
+  // the inbox, and every one of them links back here for the buttons. It keeps the bar,
+  // because the bar is the only way off it, and it is in this list precisely because a
+  // page with no tab pointing at it is the kind that quietly rots: the bar still has to
+  // be there, still has to clear the last row of buttons, and must light nothing.
+  { url: '/prs', tab: null, name: 'prs' },
   { url: '/monitor', tab: 'advocates', name: 'advocates' },
   // The same page under the path the sessions view left behind. The tab it lights has
   // to be Advocates: a shortcut that lands somewhere the bar calls nothing is a page
@@ -584,8 +594,12 @@ try {
       if (insets) ok(p.inner === BOTTOM_INSET, `clears the home indicator — ${p.inner}px of safe-area padding`);
       const cur = p.items.filter((i) => i.current);
       if (page.tab === null) {
-        // A view with no tab. Everything still has to be reachable from it.
-        ok(cur.length === 0, `no tab is current on a view the bar does not hold (${cur.length})`);
+        // A page the bar deliberately marks nothing on — the chat session (bc-l8jp.5) and
+        // the pull request board (bc-l8jp.6), both of them still the only place their own
+        // work can be done from. The bar has to be *there*, because it is the way off the
+        // page, and it must not light a tab this is not, which is what a stale `paths`
+        // entry would do.
+        ok(cur.length === 0, `no tab is current, and that is right here (${cur.map((i) => i.tab).join(',') || 'none'})`);
       } else {
         ok(cur.length === 1, `exactly one tab is current (${cur.length})`);
         ok(cur[0]?.tab === page.tab, `the current tab is ${page.tab} (got ${cur[0]?.tab})`);
@@ -629,7 +643,8 @@ try {
         ok(b.advocates.inside, 'a badge stays inside its own tab');
         ok(b.sessions === null, 'there is no Sessions tab left to badge');
         ok(b.console === null, 'there is no Chat tab left either — ＋ replaced it');
-        ok(b.inbox.text === null && b.prs.text === null, 'a tab with nothing behind it has no badge');
+        ok(b.prs === null, 'nor a PRs tab — its pull requests are cards in this list');
+        ok(b.inbox.text === null, 'a tab with nothing behind it has no badge');
       }
 
       // ＋ — what the Chat tab became. It is the primary action of the app and it
