@@ -22,7 +22,17 @@
     // filters, the counts, the empty state, the order — is about work, and a
     // constitutional decision is not work. See `requestsHtml`.
     requests: [],
+    // The conversations you have open, and for the same reason as `requests`: a chat
+    // session is not a bead. It has no id in any tracker, nothing about it can be
+    // answered, and every count in the chrome is about beads — so it rides its own
+    // array and is turned into rows at render time (see `chatRows`). What it *is*
+    // part of is the list you look at, which is the whole point of bc-l8jp.5.
+    consoles: [],
     spaces: [],
+    // Every configured workspace, which the inbox needs for one thing only: ＋ has to
+    // know where to start a conversation, and "the repos in the selected space" is a
+    // question about the config rather than about the beads on screen.
+    workspaces: [],
     // The counts the chrome draws — beads asking you something, agents running,
     // advocates waiting. Server-held rather than counted out of the rows above,
     // because two of the three are about things that are not in this list at all
@@ -484,6 +494,47 @@
       <strong>⟳ You answered this${when ? ` ${when}` : ' before'}${times}</strong>
       ${b.response ? `<p>${esc(b.response)}</p>` : ''}
     </div>`;
+  }
+
+  /**
+   * This card got here without making a noise — and which of the two kinds of quiet
+   * it was.
+   *
+   * **Two silences that read identically until you say which.** A bead outside the
+   * inbox filter and a bead in a muted space both arrive, both file, both count, and
+   * both leave the phone dark (see `quietReasonFor` on the server). The difference is
+   * the whole of what you can do about it: a mute ends on a clock and there is nothing
+   * to press, a filter ends when you press **All**. Before this the distinction lived
+   * only in the daemon's log, which is not a thing anyone reads from a phone at 2am.
+   *
+   * **And it is what stops the pile reading as a rush.** Widen the filter and every
+   * bead it was hiding appears at once, in a list ordered by priority — indistinguish-
+   * able from four questions that landed while you were reaching for the chip. So the
+   * line leads with *when*, not with the reason: "arrived quietly 3h ago" is a card
+   * that was already there, and that sentence is the acceptance criterion.
+   *
+   * The filter is quoted as it stood at the arrival, because by now it is almost
+   * certainly not that any more — that is the point of having widened it — and the
+   * value from then is the only one that explains anything.
+   *
+   * One line, dim, in the card head under the pills and above the question — where a
+   * postmark goes. On the collapsed card as well as the open one, because the pile is
+   * read from the list and most of these are never opened at all; and above the
+   * question rather than below it, so it cannot be mistaken for something an agent
+   * said. It states a fact and does nothing: the card answers exactly as it did.
+   */
+  function arrivedQuietHtml(q) {
+    const a = q.arrivedQuiet;
+    if (!a) return '';
+    const when = relTime(a.at);
+    const why =
+      a.reason === 'muted'
+        ? `${a.space ? esc(a.space) : 'that space'} was muted`
+        : `hidden by the inbox filter${a.filter && a.filter !== 'all' ? ` — ${esc(a.filter)}` : ''}`;
+    return `<p class="quiet-note">
+      <span aria-hidden="true">${a.reason === 'muted' ? '🔕' : '🔇'}</span>
+      <span>Arrived quietly${when ? ` ${esc(when)}` : ''} · ${why}</span>
+    </p>`;
   }
 
   /**
@@ -2194,6 +2245,7 @@
           ${draft && !open ? '<span class="draft-flag">draft saved</span>' : ''}
           <time>${esc(relTime(q.createdAt))}</time>
         </div>
+        ${arrivedQuietHtml(q)}
         ${activityHtml(q)}
         <p class="q">${esc(q.question || q.title)}</p>
         ${q.question && q.title !== q.question ? `<p class="subtitle">${esc(q.title)}</p>` : ''}
@@ -2670,7 +2722,10 @@
     if (state.scope === 'both') {
       return `<div class="empty"><strong>Nothing live</strong>No questions, and no bead open anywhere.${boardTrouble()}</div>`;
     }
-    return `<div class="empty"><strong>Nothing to decide</strong>No open questions labelled <code>human</code>.${widenNudge()}${boardTrouble()}</div>`;
+    // The one empty state that is also the app at rest, so it is the one that says
+    // what the button in the corner is for. ＋ is the only control on this screen with
+    // nothing else naming it, and an empty inbox is exactly when you would want it.
+    return `<div class="empty"><strong>Nothing to decide</strong>No open questions labelled <code>human</code>.${widenNudge()}${boardTrouble()} ＋ starts a conversation about what to file next.</div>`;
   }
 
   /**
@@ -2928,6 +2983,76 @@
   /** Which space a question belongs to. Unassigned workspaces collect under "Other". */
   const spaceOf = (q) => q.space || 'Other';
 
+  /* ------------------------------------------------------ the chat sessions */
+
+  /**
+   * The conversations you have open, as rows this list can hold.
+   *
+   * They arrive on the same payload as everything else (`/api/questions` →
+   * `consoles`) and are turned into rows here rather than merged into
+   * `state.questions`, because nearly everything that reads that array is about beads:
+   * the waiting count, the space picker's per-repo numbers, `byKey`, the answer path,
+   * the flight the answer takes into the mark. A chat session would be counted by all
+   * of them and could be answered by none.
+   *
+   * What a row does carry is exactly what the two filters above it read — `workspace`
+   * and `space` for the picker, and `session` for the kind table, which is the field
+   * `kindOf` tests. `key` is namespaced with a `chat/` prefix that no workspace can
+   * produce, so a row here can never collide with a bead's `workspace/id`.
+   */
+  const chatRows = () =>
+    (state.consoles || []).map((c) => ({
+      session: c,
+      key: `chat/${c.id}`,
+      workspace: c.workspace,
+      space: c.space || null,
+    }));
+
+  /**
+   * What a chat row says while you are scrolling past it.
+   *
+   * The requirement is "which session, in what state, **without opening it**", so the
+   * state is a word rather than a colour: the agent is composing a reply, or a
+   * proposal is sitting there waiting to be read, or it is your turn. Those are the
+   * only three things a conversation can be doing, and which one it is decides
+   * whether you tap it now or later.
+   *
+   * It borrows `.console-row` and `.work-row` from the launcher on purpose. A
+   * conversation is the same object on both screens and a second shape for it would
+   * be a second thing to recognise; what differs is the `.card` around it, because
+   * here it is one item in a stack of cards rather than a line in a list.
+   */
+  function chatRowHtml(row) {
+    const c = row.session;
+    const agent = (c.agent || 'console') === 'console' ? null : { name: c.agentName || c.agent, emoji: c.agentEmoji || '🤖' };
+    const thinking = c.status === 'thinking';
+    // The same two marks the launcher draws: the phase slot takes the spark while a
+    // turn is running, so what the conversation *is* has to be readable somewhere
+    // else — the pill beside the repo.
+    const phase = thinking ? '<span class="spark"></span>' : agent ? esc(agent.emoji) : '💬';
+    const bits = [];
+    if (thinking) bits.push('thinking…');
+    else if (c.beadCount) bits.push(`${c.beadCount} proposed · your turn`);
+    else if (!c.messageCount) bits.push('not started');
+    else bits.push('your turn');
+    if (c.created?.length) bits.push(`${c.created.length} created`);
+    if (c.seed) bits.push(`from ${c.seed.id}`);
+    // `data-key` because that is what capturePlace() anchors the scroll position to,
+    // and a row that carried none would be a hole in the list you cannot be restored
+    // to — the poll would put you back at the nearest card instead.
+    return `<a class="card chat-card work-row" href="/console?id=${encodeURIComponent(c.id)}"
+      data-key="${esc(row.key)}">
+      <span class="work-phase">${phase}</span>
+      <span class="work-main">
+        <span class="work-title">${esc(c.title || 'Untitled')}</span>
+        <span class="work-sub"><span class="pill">${esc(c.workspace)}</span>${
+          agent ? `<span class="pill agent">${esc(agent.emoji)} ${esc(agent.name)}</span>` : ''
+        }${esc(bits.join(' · '))}</span>
+      </span>
+      <time>${esc(relTime(c.updatedAt))}</time>
+    </a>`;
+  }
+
   /**
    * The scope chips. The third column is what the settings panel used to spell out
    * under the switch; it rides along as the chip's `title` and its accessible name,
@@ -2971,12 +3096,14 @@
    * about, `both` does both — so a chip for the other side would be a control that
    * cannot change anything. The filter drops any selection this leaves unreachable;
    * see `survey` in public/inboxfilter.js.
+   *
+   * `any` is the exception and it is not a special case so much as the absence of
+   * one: a pull request comes off `gh` and a chat session off no sweep at all, so for
+   * neither is there a scope that could have failed to fetch it, and neither has a
+   * scope in which its chip would be dead.
    */
   const kindsForScope = () =>
     (window.beadcause?.inboxFilter?.KINDS || [])
-      // `any` is the exception, and it is the absence of a special case rather than one:
-      // a pull request comes off `gh` and no `bd` sweep fetches it, so there is no scope
-      // that could have failed to and none in which its chip would be dead.
       .filter(
         (k) =>
           k.side === 'any' ||
@@ -3385,11 +3512,11 @@
     // Two levels of filter: space (work vs personal), then workspace within it.
     // With no spaces configured the first level is skipped entirely and this
     // behaves exactly as it did before.
-    // The pull requests go through both filters too — they are rows in this list, and a
-    // filter that some of the list ignored would be worse than no filter. Concatenated
-    // before the space test rather than after it, so they are narrowed by the same
-    // predicate rather than by a copy of it.
-    const rows = [...state.questions, ...prRows()];
+    // The pull requests and the chat sessions go through both filters too — they are
+    // rows in this list, and a filter that some of the list ignored would be worse than
+    // no filter. Concatenated before the space test rather than after it, so all three
+    // kinds of row are narrowed by the same predicate rather than by a copy of it.
+    const rows = [...state.questions, ...prRows(), ...chatRows()];
     const inSpace = state.space === 'all' ? rows : rows.filter((q) => spaceOf(q) === state.space);
     const inRepo =
       state.workspace === 'all' ? inSpace : inSpace.filter((q) => q.workspace === state.workspace);
@@ -3421,6 +3548,9 @@
     const reqs = requestsHtml();
     if (reqs) chunks.push({ key: '@requests', html: reqs });
 
+    // `rows`, not `state.questions`: with no beads at all but a pull request open or a
+    // conversation on the go, the list is not empty — and the first-run copy `emptyHtml`
+    // writes would be sitting above a chat you are in the middle of.
     if (!rows.length) {
       chunks.push({ key: '@empty', html: emptyHtml() });
     } else if (!visible.length) {
@@ -3441,25 +3571,35 @@
       // questions that are. Order within each group is left exactly as the server
       // sent it (priority, then age).
       //
-      // The pull requests sit between the two, on the same rule: a bead asking you a
-      // question outranks one, and one outranks a bead an agent already has back. Among
-      // themselves they are in ladder order — what is in review before what is waiting on
-      // a deploy — and then newest first, which is the board's own order (lib/prstage.js).
+      // The pull requests and the conversations sit between the two, on the same rule: a
+      // bead asking you a question outranks either, and either outranks a bead an agent
+      // already has back. Among themselves the pull requests are in ladder order — what
+      // is in review before what is waiting on a deploy — and then newest first, which is
+      // the board's own order (lib/prstage.js); the chats are newest first alone, because
+      // a conversation is a thing you were just doing rather than a thing with a rung.
+      // Pull requests before chats: one of them is a decision somebody is waiting on, the
+      // other is yours to pick up whenever.
       //
-      // Their keys are `pr:<workspace>#<number>`, which is a third namespace beside the
-      // `@` panes and the beads' `workspace/id`: no bead key can begin with `pr:` and no
-      // pane key can, so a reconcile cannot mistake one for the other.
-      const beads = visible.filter((q) => !q.pr);
+      // Their keys are `pr:<workspace>#<number>` and `chat/<id>`, two more namespaces
+      // beside the `@` panes and the beads' `workspace/id`: no bead key can begin with
+      // either and no pane key can, so a reconcile cannot mistake one for another. Which
+      // is what lets a row be left alone on every poll where its own HTML did not change
+      // — the spark starting or a count moving is the whole of what rebuilds a chat row.
+      const beads = visible.filter((q) => !q.pr && !q.session);
       const prs = visible
         .filter((q) => q.pr)
         .sort(
           (a, b) =>
             prRank(a) - prRank(b) || String(b.pr.updatedAt || '').localeCompare(String(a.pr.updatedAt || ''))
         );
+      const chats = visible
+        .filter((q) => q.session)
+        .sort((a, b) => String(b.session.updatedAt).localeCompare(String(a.session.updatedAt)));
       const waiting = beads.filter((q) => !q.awaitingAgent);
       const replied = beads.filter((q) => q.awaitingAgent);
       for (const q of waiting) chunks.push({ key: q.key, html: cardHtml(q) });
       for (const q of prs) chunks.push({ key: q.key, html: prCardHtml(q) });
+      for (const q of chats) chunks.push({ key: q.key, html: chatRowHtml(q) });
       for (const q of replied) chunks.push({ key: q.key, html: cardHtml(q) });
     }
     paintList(chunks);
@@ -3497,8 +3637,9 @@
     // 25s poll must not make it flash on screen at someone who isn't scrolling.
     paintScrollPos(false);
     // Beads only. The monitor draws this as "N waiting", which is a claim about work
-    // asking you something — and a pull request sitting on origin is not one of those.
-    publishView(visible.filter((q) => !q.pr));
+    // asking you something — and neither a pull request sitting on origin nor a
+    // conversation you left open is one of those.
+    publishView(visible.filter((q) => !q.pr && !q.session));
   }
 
   /**
@@ -5017,6 +5158,14 @@
     // whatever is on screen instead of silently emptying the pane.
     state.requests = Array.isArray(data.requests) ? data.requests.map(merge).filter(live) : state.requests;
     state.questions = data.questions.map(merge).filter(live);
+    // Taken whole rather than merged: a conversation has no local state on this page
+    // — no draft, no open card, nothing half-answered — so the server's copy is
+    // always the better one. Absent means a server that predates the field, and
+    // keeping the last list is the same call `requests` makes above.
+    if (Array.isArray(data.consoles)) state.consoles = data.consoles;
+    // What the ＋ offers when the space holds more than one repo. Kept here rather
+    // than read off `data` at the tap, because the tap can happen between polls.
+    if (Array.isArray(data.workspaces)) state.workspaces = data.workspaces;
     state.spaces = data.spaces || [];
     // Absent means a server that predates the counts — keep the last ones rather
     // than blanking the chrome, exactly as the requests pane does above.
@@ -5208,6 +5357,112 @@
   }
 
   $('#refresh').addEventListener('click', load);
+
+  /* ------------------------------------------------------------------- ＋ */
+
+  /*
+    Start a conversation about what to file next — the create the Chat tab used to be.
+
+    It lands exactly where the launcher's own ＋ lands, by doing exactly what it does:
+    POST /api/console, then `/console?id=<id>`. Deliberately the same two lines rather
+    than a new endpoint or a redirect through `/console`, because the thing being
+    reused is the *destination* — a bookmark, a stored conversation record and a
+    home-screen shortcut all name that URL, and it is the one thing here that has to
+    keep meaning what it meant.
+
+    Where it starts is the space picker's answer, not a fourth copy of "which repo am
+    I working in": `space.inside()` is the configured workspaces the selection allows,
+    which is one repo when a repo is picked, and every repo in the space otherwise.
+    One candidate starts there without asking. More than one asks, because ＋ cannot
+    know, and offering to start work in a repo the app is not currently showing you is
+    the one thing the filter exists to stop.
+  */
+  const composeEl = $('#compose');
+  const composePickEl = $('#compose-pick');
+  let composing = false;
+
+  const startableRepos = () => {
+    const inside = window.beadcause?.space?.inside?.();
+    if (Array.isArray(inside)) return inside;
+    // No picker on the page — every configured workspace is a candidate, which is what
+    // the picker would have said with nothing selected.
+    return state.workspaces;
+  };
+
+  function hideComposePick() {
+    composePickEl.hidden = true;
+    composeEl.setAttribute('aria-expanded', 'false');
+  }
+
+  function showComposePick(repos) {
+    const row = $('#compose-pick-row');
+    row.innerHTML = repos.length
+      ? repos.map((w) => `<button class="chip" data-ws="${esc(w)}">${esc(w)}</button>`).join('')
+      : `<span class="hint">${
+          state.workspaces.length ? 'No workspaces in this space.' : 'No workspaces configured.'
+        }</span>`;
+    composePickEl.hidden = false;
+    composeEl.setAttribute('aria-expanded', 'true');
+    row.querySelector('.chip')?.focus();
+  }
+
+  async function startChat(workspace) {
+    if (composing) return;
+    composing = true;
+    composeEl.disabled = true;
+    hideComposePick();
+    try {
+      const made = await api('/api/console', { method: 'POST', body: JSON.stringify({ workspace }) });
+      location.href = `/console?id=${encodeURIComponent(made.id)}`;
+    } catch (err) {
+      composing = false;
+      composeEl.disabled = false;
+      // 403 is `beadConsole: false` in the config, which is a deliberate setting and
+      // not a fault — its own words rather than the daemon's.
+      if (err.message !== 'token rejected') {
+        toast(err.status === 403 ? 'Chat sessions are turned off in the config.' : err.message, true);
+      }
+    }
+  }
+
+  /* Guarded, and not out of habit: the service worker caches the document and this
+     script separately, so a phone can legitimately be running today's app.js against
+     last week's index.html for one load. An unguarded listener there throws before
+     the poll is scheduled — which turns a missing button into a blank inbox. */
+  if (composeEl && composePickEl) {
+    composeEl.addEventListener('click', () => {
+      if (!composePickEl.hidden) {
+        hideComposePick();
+        return;
+      }
+      const repos = startableRepos();
+      if (repos.length === 1) startChat(repos[0]);
+      else showComposePick(repos);
+    });
+
+    $('#compose-pick-row').addEventListener('click', (ev) => {
+      const chip = ev.target.closest('[data-ws]');
+      if (chip) startChat(chip.dataset.ws);
+    });
+
+    // Tapping past it closes it, which is the same bargain the kind filter's panel
+    // makes: a panel over the list must not still be there when you reach for a card.
+    document.addEventListener('pointerdown', (ev) => {
+      if (!composePickEl.hidden && !ev.target.closest('.compose-wrap')) hideComposePick();
+    });
+    document.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Escape' && !composePickEl.hidden) {
+        hideComposePick();
+        composeEl.focus();
+      }
+    });
+    // What tells the stylesheet to keep the foot of the list clear of the button, the
+    // same way `has-tabbar` keeps it clear of the bar. Set from here rather than
+    // written into the markup because it is a fact about this script having wired ＋
+    // up: on the stale-document load above there is no button, and reserving space
+    // under one would be a gap at the end of the list with nothing in it.
+    document.body.classList.add('has-compose');
+  }
 
   /*
     Open this page in Chrome — shown only where there is somewhere to go.
