@@ -1429,7 +1429,7 @@ add:
       <tbody>
         <tr><td class="mono">advocates.workspaces</td><td class="num">[]</td><td>which repos get one; <code>["*"]</code> for every one</td></tr>
         <tr><td class="mono">maxWorkers / maxWorkersLimit</td><td class="num">1 / 3</td><td>sessions per advocate; a config asking for six gets three <em>and a log line</em></td></tr>
-        <tr><td class="mono">globalMaxWorkers</td><td class="num">10</td><td>so six repos cannot open eighteen windows</td></tr>
+        <tr><td class="mono">globalMaxWorkers</td><td class="num">20</td><td>so six repos cannot open eighteen windows; a stepper at the top of the console, capped at 36, so the one number that binds first needs no restart to change</td></tr>
         <tr><td class="mono">minPriority</td><td class="num">3</td><td>P4 is a backlog — without this the queue never reaches zero and “clear” stops meaning anything</td></tr>
         <tr><td class="mono">settleSeconds</td><td class="num">60</td><td>how long a new bead sits before a session opens on it</td></tr>
         <tr><td class="mono">propose / proposeCooldownHours</td><td class="num">true / 12</td><td>at most one ask per repo per window; nothing is created without approval</td></tr>
