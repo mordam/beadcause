@@ -39,11 +39,11 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import http from 'node:http';
-import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import vm from 'node:vm';
 import { fileURLToPath } from 'node:url';
+import { boundPort } from './helpers/net.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(HERE, '..');
@@ -361,17 +361,9 @@ const cfg = {
 await import(path.join(ROOT, 'lib', 'foundation.js'));
 const { createApp, listen } = await import(path.join(ROOT, 'lib', 'server.js'));
 
-const port = await new Promise((resolve, reject) => {
-  const probe = net.createServer();
-  probe.on('error', reject);
-  probe.listen(0, '127.0.0.1', () => {
-    const { port: p } = probe.address();
-    probe.close(() => resolve(p));
-  });
-});
-
-const app = createApp({ ...cfg, port });
-const servers = listen({ ...cfg, port }, app.handler);
+const app = createApp(cfg);
+const servers = listen(cfg, app.handler);
+const port = await boundPort(servers);
 
 const get = (pathname) =>
   new Promise((resolve, reject) => {
@@ -387,15 +379,6 @@ const get = (pathname) =>
     req.on('error', reject);
     req.end();
   });
-
-for (let i = 0; i < 100; i += 1) {
-  try {
-    await get('/api/health');
-    break;
-  } catch {
-    await new Promise((r) => setTimeout(r, 20));
-  }
-}
 
 const answer = await get('/api/bead-children?workspace=demo&id=bc-goo');
 

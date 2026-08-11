@@ -38,11 +38,11 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import http from 'node:http';
-import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { boundPort } from './helpers/net.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const LIB = (f) => path.join(HERE, '..', 'lib', f);
@@ -261,18 +261,10 @@ const base = {
 const { createApp, listen } = await import(LIB('server.js'));
 const { listDeploys } = await import(LIB('deploy.js'));
 
-const port = await new Promise((resolve, reject) => {
-  const probe = net.createServer();
-  probe.on('error', reject);
-  probe.listen(0, '127.0.0.1', () => {
-    const { port: p } = probe.address();
-    probe.close(() => resolve(p));
-  });
-});
-
-const cfg = { ...base, port };
+const cfg = { ...base, port: 0 };
 const app = createApp(cfg);
 const servers = listen(cfg, app.handler);
+const port = await boundPort(servers);
 
 const request = (method, pathname, body) =>
   new Promise((resolve, reject) => {
@@ -303,15 +295,6 @@ const request = (method, pathname, body) =>
 
 const post = (pathname, body) => request('POST', pathname, body);
 const get = (pathname) => request('GET', pathname);
-
-for (let i = 0; i < 100; i += 1) {
-  try {
-    await post('/api/nothing', {});
-    break;
-  } catch {
-    await sleep(20);
-  }
-}
 
 const records = () => listDeploys({ limit: 200 });
 
