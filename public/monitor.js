@@ -277,9 +277,17 @@
    * `deferredByPriority` is the part of `ready` it is deliberately leaving alone. The
    * difference between "4 ready" and "4 ready, 3 of them below the floor" is the
    * difference between an advocate that is idle and one that is behaving as told.
+   *
+   * `heldByChildren` is the second such subtraction, and it earns a pill for the same
+   * reason: an epic whose children are the work is ready by bd's reckoning and not by
+   * the advocate's, so without this the queue is one shorter than `bd ready` says and
+   * nothing on screen accounts for the difference. Its `why` goes in the tooltip —
+   * "held" is the number, "bc-3zo9.1 is ready under it" is the answer to the question
+   * the number provokes.
    */
   function domainHtml(w, a) {
     const c = w?.counts || {};
+    const held = (a && a.heldByChildren) || [];
     const pills = [
       c.open != null ? `<span class="pill">${c.open} open</span>` : '',
       c.ready ? `<span class="pill">${c.ready} ready</span>` : '',
@@ -288,6 +296,9 @@
       a && a.queue ? `<span class="pill mine">${a.queue} for the advocate</span>` : '',
       a && a.deferredByPriority
         ? `<span class="pill muted">${a.deferredByPriority} below the priority floor</span>`
+        : '',
+      held.length
+        ? `<span class="pill muted" title="${esc(held.map((h) => `${h.id} — ${h.why}`).join('\n'))}">${held.length} waiting on ${held.length === 1 ? 'its children' : 'their children'}</span>`
         : '',
     ].filter(Boolean);
     return `<div class="mon-domain">${pills.join('')}</div>`;
