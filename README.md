@@ -72,7 +72,7 @@ It still exits non-zero — it just never exits with nothing running.
 npm run monitor              # live view of what the daemon is doing
 npm run check                # the checks around the agent log — safe with the daemon up
 npm run secrets              # has a secret ever reached the config repo's history?
-npm run swap:status          # which build is actually answering the port
+npm run swap:status          # which build is answering the port, and the certificate on it
 npm run uninstall-service    # remove the service (keeps your config and token)
 tail -f ~/Library/Logs/beadcause.log
 launchctl kickstart -k gui/$(id -u)/m4m.beadcause   # only for bin/router.js itself
@@ -7905,7 +7905,7 @@ Every response carries `x-beadcause-build` and `x-beadcause-pid`, so `curl -sI`
 against the real port settles the question that started all this:
 
 ```bash
-npm run swap:status     # active pid, build, whether disk has moved past it
+npm run swap:status     # active pid, build, whether disk has moved past it, the certificate
 npm run swap            # swap now, even if nothing changed
 npm test                # drives a real swap under load and proves nothing drops
 curl -sI http://127.0.0.1:4318/api/health | grep beadcause
@@ -8161,6 +8161,30 @@ certificate inside the renewal loop's alarm window is
 marked rather than merely printed, using the same two thresholds the push uses, so the
 screen cannot call "fine" something your phone is being nagged about.
 
+**And when the loop last looked**, in the same words `npm run swap:status` uses:
+
+```
+Certificate for mac.tailnet.ts.net — 61 days left, checked 3h ago.
+```
+
+The days come off the disk and the check comes off the socket — `serving.checkedAt`,
+stamped on the live listener by the renewal loop on every tick — and the card is
+unreadable without both. Eighty-nine days left and a check from six weeks ago is a dead
+renewal loop sitting on a certificate that still happens to be valid, and the calendar
+keeps counting down whether or not anything is still renewing it: until this was on the
+card, that state was drawn as *healthy*. It is left as a plain "when" with no threshold
+of its own, because how old is too old is the loop's own cadence and that is not on the
+wire; the rounding is deliberately the same three tiers as the terminal's, so two
+readouts of one fact cannot disagree by a unit and turn into a question about which is
+right. Nothing is said at all when the field is absent — an older router cannot hot-swap
+itself, so its snapshot predates a deploy until a `launchctl kickstart`, and a card that
+filled that in from the fact that it had *something* to draw would be asserting the one
+thing this exists to detect. Under `npm run start:bare` the answer comes from this
+process's own listener instead, which is honest for the same reason: `bin/beadcause.js`
+runs the renewal loop over those very sockets, so the stamp is read off the same object
+as the material beside it. `test/tlsadmin.mjs` pins both halves — the field surviving
+`tlsView`, and the sentence, by running the real `public/admin.js` in a vm.
+
 **What pressing it costs, in the button, before you press it.** Turning HTTPS on moves
 the origin, and the token lives in `localStorage`, which is per origin — so *every
 paired browser is signed out, including the one you are pressing it with*. The button
@@ -8331,6 +8355,37 @@ the app going dark.
                  your Tailscale account does not support getting TLS certs
 [beadcause] tls  fix it by hand: tailscale cert mac.tailnet.ts.net
 ```
+
+**And you can go and ask, rather than waiting to be told.** A push arrives at the point
+where it is nearly too late and a log line is on a Mac nobody is sitting at, so neither
+answers "is my certificate fine?" on a day when it is. `npm run swap:status` — the command
+already run to ask what the daemon is doing — names the certificate beside the build:
+
+```
+cert     mac.tailnet.ts.net — 61.4 days left  (checked 3h ago)
+cert     mac.tailnet.ts.net — 9.1 days left  (checked 2h ago)  ⚠ EXPIRING — the renewal
+         that should have happened has not: tailscale cert mac.tailnet.ts.net
+```
+
+Three things about that line are deliberate. It is **marked**, not merely printed, once
+the number is inside the alarm window — the same `ALARM_BELOW_DAYS` the push uses, so the
+line and the notification can never disagree about what "fine" means — and it carries the
+command that fixes it, because a warning you have to go and research is one that waits
+until the weekend. It says **when the loop last looked**: a certificate with two months
+left and a check from six weeks ago is a dead renewal loop, and neither fact says that on
+its own. And the number is read off the **socket**, through the router's
+`/internal/router/state`, so a certificate swapped by `setSecureContext` an hour ago is
+what you see rather than whatever was true at boot.
+
+The three answers that are not a number are kept apart on purpose, because collapsing any
+pair of them would be reassuring and wrong: `none — serving plain HTTP` is a tailnet
+without *HTTPS Certificates* or a provisional listener still waiting, which is supported
+and not a fault; `an unreadable expiry` is an alarm, since bytes that will not parse are
+not "fine for another 89 days"; and `not reported` means the router answering predates the
+field — it cannot hot-swap itself, so `launchctl kickstart -k gui/$(id -u)/m4m.beadcause`
+is what makes it answer. `test/certstatus.mjs` pins all of them, and pins the printer by
+spawning `--status` against a stub control plane, because a fixture is the only way to
+have a certificate that is nine days old on a machine whose real one is ninety.
 
 Two details worth knowing if you ever debug this:
 
@@ -8972,7 +9027,7 @@ cookie says so), and `/auth/signout` ends the session.
 | GET | `/terminal` | `?id=` or `?ws=&seed=` | the terminal page |
 | GET | `/api/admin` | — | every scope and what pausing it would cost. Read-only and cheap — no `bd` call, no spawn — because `/admin` polls it and the counts on the buttons have to be current when you press one |
 | POST | `/api/admin` | `{action, what, scope, mode}` | pause or resume everything, one space, or one half of it. `what` is `all` · `advocates` · `terminals`; `mode` is `drain` (default — no new launches, running workers finish untouched) or `kill`. Never run at boot: a `launchctl kickstart -k` behaves exactly as it did. Refused on an observer |
-| GET | `/api/tls` | `?pairing=1` | what HTTPS is doing: the setting, the certificate on disk (name, days left), what the socket is actually serving, the URL a phone would be handed, and whether a restart is owed. Cheap enough to poll — two file reads and a memoised MagicDNS name, and it never asks `tailscale cert` for anything. `?pairing=1` adds the link and a QR |
+| GET | `/api/tls` | `?pairing=1` | what HTTPS is doing: the setting, the certificate on disk (name, days left), what the socket is actually serving (`serving`: name, days left, and `checkedAt` — when the renewal loop last looked, `null` from anything too old to say), the URL a phone would be handed, and whether a restart is owed. Cheap enough to poll — two file reads and a memoised MagicDNS name, and it never asks `tailscale cert` for anything. `?pairing=1` adds the link and a QR |
 | POST | `/api/tls` | `{enabled}` | turns HTTPS on or off: writes `tls.enabled`, fetches the certificate when it is on (asynchronously — the synchronous one would block every request for the length of a Let's Encrypt round trip), and moves `baseUrl`. Pressing it while it is already on is the retry. Binds nothing: TLS is decided when the listener is created, so the reply carries `restartNeeded`. Refused on an observer, which shares this config with the live daemon |
 | GET | `/api/deploys` | `?limit=` or `?id=` | the recent deploys, or one with its log. Four endings, not two: `ok`, `failed`, and the two that mean nobody knows — `unconfirmed` (the ordinary ending of a restart) and `lost` |
 | POST | `/api/deploy` | `{workspace, bead?, reason?}` | runs that repo's declared deploy. `409` with no declaration, or if one is already running. Means "written down and a process owns it", never "it worked". Refused on an observer |
@@ -8987,7 +9042,7 @@ the tailnet holding the token could otherwise stop the poller:
 
 | Method | Path | Returns |
 |---|---|---|
-| GET | `/internal/router/state` | `{router, disk, stale, poisoned, deferred, serving, outage, retryAt, slowness, active, retiring[]}` — what `npm run swap:status` prints. `poisoned` is a build that *died* at startup; `deferred` is one that was only slow, and when it will be tried again |
+| GET | `/internal/router/state` | `{router, disk, stale, poisoned, deferred, serving, outage, retryAt, slowness, certificate, active, retiring[]}` — what `npm run swap:status` prints. `poisoned` is a build that *died* at startup; `deferred` is one that was only slow, and when it will be tried again. `certificate` is `{name, daysLeft, checkedAt}` off the live socket, or `null` when the port is serving plain HTTP |
 | POST | `/internal/router/swap` | `{ok, active}` — or `{ok:false, error}` if the new build would not start |
 
 Every proxied response also carries `x-beadcause-build` and `x-beadcause-pid`,
