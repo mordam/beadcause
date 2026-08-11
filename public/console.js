@@ -44,6 +44,30 @@
    */
   const repoNow = () => window.beadcause?.space?.filter?.workspace || 'all';
 
+  /**
+   * Whether the dismissed conversations are being shown — and where that answer lives.
+   *
+   * `sessionStorage`, not `localStorage`, and that is the whole design. Closing a row
+   * is how you say you are done with it, so the list has to open on the live ones or
+   * the ✕ buys you nothing; a preference remembered forever would quietly undo the
+   * default for good, one tap a month ago. A tab is the right lifetime: tapping a
+   * dismissed row is a navigation and coming back must not re-hide the list you were
+   * reading, and opening the app tomorrow starts clean again.
+   *
+   * Unlike the repo tab above, this is nobody else's filter — it is a view of one list
+   * on one screen, it decides nothing about what notifies you, so there is no reason
+   * for the server to own it.
+   */
+  const SHOW_DISMISSED_KEY = 'beadcause.console.dismissed';
+  const readShowDismissed = () => {
+    try {
+      return sessionStorage.getItem(SHOW_DISMISSED_KEY) === '1';
+    } catch {
+      // Private mode, or a WebView with storage denied. Not a reason to fail to draw.
+      return false;
+    }
+  };
+
   const state = {
     token: '',
     id: new URLSearchParams(location.search).get('id') || '',
@@ -61,6 +85,7 @@
      * and nothing else, and any other tab clears it.
      */
     stray: '',
+    showDismissed: readShowDismissed(),
     console: null,
     seq: 0,
     // The cards as edited here. Authoritative over the server's copy while the
@@ -335,6 +360,12 @@
 
   const inRepo = (c) => (state.stray ? c.workspace === state.stray : inSpace(c.workspace));
 
+  /** Closed is dismissed: still there, still openable, out of the way until asked for. */
+  const isDismissed = (c) => Boolean(c.closedAt);
+
+  /** Whether a row is drawn at all, which is the one thing the toggle changes. */
+  const shown = (c) => state.showDismissed || !isDismissed(c);
+
   /**
    * The tab bar: All, then one per repo in the selected space, each carrying how many
    * conversations it holds.
@@ -344,6 +375,10 @@
    * start in — and a row of zeroes would report emptiness rather than offering a
    * place to begin.
    *
+   * It counts what the list would *show*, dismissed ones included only while they are
+   * being shown. A tab reading 3 over a list of nothing is the same broken screen the
+   * empty state below is written to avoid, one line higher up.
+   *
    * `All` means all of the *selected space*, not all of the Mac. With one repo picked
    * this row is a single tab and says the same thing twice, which is the honest picture:
    * there is one repo in scope and you are in it.
@@ -351,7 +386,7 @@
   function renderRepoTabs() {
     const row = $('#ws-row');
     const now = state.stray || repoNow();
-    const count = (ws) => state.consoles.filter((c) => c.workspace === ws).length;
+    const count = (ws) => state.consoles.filter((c) => c.workspace === ws && shown(c)).length;
     const tab = (id, label, n) => {
       const on = now === id;
       return `<button class="chip" role="tab" id="ws-tab-${esc(id)}" data-ws="${esc(id)}"
@@ -360,7 +395,7 @@
     row.innerHTML =
       // All counts the space, not whatever a stray tab has narrowed the list to — it is
       // the tab that would take you back out to it.
-      tab('all', 'All', state.consoles.filter((c) => inSpace(c.workspace)).length) +
+      tab('all', 'All', state.consoles.filter((c) => inSpace(c.workspace) && shown(c)).length) +
       tabsHere()
         .map((ws) => tab(ws, ws, count(ws)))
         .join('');
@@ -410,27 +445,38 @@
   /**
    * The conversations in the selected repo.
    *
-   * Live ones first, finished ones under them. A chat session is over when the
-   * beads exist, and a list where everything sorts by recency puts the one thing
-   * you have already dealt with at the top.
+   * Live ones first, dismissed ones under them — and by default no dismissed ones at
+   * all. Closing a row is the ✕ beside it and it means "I have dealt with this": the
+   * transcript stays, the id keeps working, saying anything to it brings it back, and
+   * until then it is out of the way. They used to sort to the bottom instead, which
+   * kept the list in the right order and let it grow forever.
+   *
+   * An empty list is where this can go wrong, so the emptiness says which kind it is:
+   * nothing here yet, or nothing left that you have not already finished with.
    */
   function renderRecent() {
     const rows = state.consoles.filter(inRepo);
-    const live = rows.filter((c) => !c.closedAt);
-    const closed = rows.filter((c) => c.closedAt);
-    $('#recent-label').hidden = !rows.length;
+    const live = rows.filter((c) => !isDismissed(c));
+    const dismissed = rows.filter(isDismissed);
+    const listed = state.showDismissed ? [...live, ...dismissed] : live;
+    $('#recent-label').hidden = !listed.length;
     const now = state.stray || repoNow();
     const where = now === 'all' ? window.beadcause?.space?.label?.() || 'here' : now;
-    const chunks = rows.length
-      ? [...live, ...closed].map((c) => ({ key: c.id, html: consoleRowHtml(c) }))
-      : [
-          {
-            key: '@empty',
-            html: `<div class="empty"><strong>${
-              state.consoles.length ? `Nothing in ${esc(where)} yet` : 'No conversations yet'
-            }</strong>＋ starts one${now === 'all' ? '' : ` in ${esc(now)}`}.</div>`,
-          },
-        ];
+    const nothingYet = `<strong>${
+      state.consoles.length ? `Nothing in ${esc(where)} yet` : 'No conversations yet'
+    }</strong>＋ starts one${now === 'all' ? '' : ` in ${esc(now)}`}.`;
+    // Everything here has been dismissed. Not the same screen as an empty one, and
+    // saying "nothing yet" over ten conversations you had would read as data loss.
+    // `where` is the picker's word for the selection and it is "everything" on All,
+    // which reads as nonsense in this sentence where it is fine in the one above.
+    const allDismissed = `<strong>${now === 'all' ? 'Nothing still open' : `Nothing open in ${esc(now)}`}</strong>${
+      dismissed.length === 1 ? 'One conversation is' : `${dismissed.length} conversations are`
+    } dismissed — <em>Dismissed</em> above shows them. ＋ starts a new one${
+      now === 'all' ? '' : ` in ${esc(now)}`
+    }.`;
+    const chunks = listed.length
+      ? listed.map((c) => ({ key: c.id, html: consoleRowHtml(c) }))
+      : [{ key: '@empty', html: `<div class="empty">${dismissed.length ? allDismissed : nothingYet}</div>` }];
     // Keyed rather than rebuilt from joined HTML, because this list now repaints on the
     // delta stream rather than only when you arrive: a turn finishing in one
     // conversation must not throw away the other nine rows and the scroll position over
@@ -439,6 +485,42 @@
     const paint = window.beadcause?.warm?.paint;
     if (paint) paint($('#recent'), chunks);
     else $('#recent').innerHTML = chunks.map((c) => c.html).join('');
+
+    renderDismissToggle(dismissed.length);
+  }
+
+  /**
+   * The toggle beside the tabs, and the count that makes the filtered list obvious.
+   *
+   * Drawn from the same numbers the list was just drawn from — how many dismissed
+   * conversations are under the selected tab, whether or not they are being shown —
+   * so the two can never disagree about what is being hidden. With none under this
+   * tab there is nothing to reveal and the button goes away entirely; the state
+   * stays, because switching to a repo that has some should show them if that is what
+   * you asked for a moment ago.
+   */
+  function renderDismissToggle(n) {
+    const btn = $('#ws-dismissed');
+    btn.hidden = !n;
+    btn.setAttribute('aria-pressed', String(state.showDismissed));
+    btn.innerHTML = `Dismissed <span class="chip-count">${n}</span>`;
+    btn.setAttribute(
+      'aria-label',
+      `${state.showDismissed ? 'Hide' : 'Show'} ${n} dismissed conversation${n === 1 ? '' : 's'}`
+    );
+  }
+
+  /** Show them or put them away, and remember it for as long as this tab is open. */
+  function setShowDismissed(on) {
+    state.showDismissed = on;
+    try {
+      sessionStorage.setItem(SHOW_DISMISSED_KEY, on ? '1' : '0');
+    } catch {
+      // Storage denied. The toggle still works; it just forgets on the next page.
+    }
+    // The tabs too: their counts are of the rows that would be listed.
+    renderRepoTabs();
+    renderRecent();
   }
 
   const pickerOpen = () => !$('#ws-pick').hidden;
@@ -492,7 +574,7 @@
     if (c.beadCount) bits.push(`${c.beadCount} proposed`);
     if (c.created?.length) bits.push(`${c.created.length} created`);
     if (c.seed) bits.push(`from ${c.seed.id}`);
-    const done = Boolean(c.closedAt);
+    const done = isDismissed(c);
     const agent = chatAgent(c);
     // Two marks, because the one that is loudest is also the one that gets taken
     // over: the phase slot says 💬 for a chat session and the agent's own emoji for
@@ -506,7 +588,7 @@
           <span class="work-title">${esc(c.title || 'Untitled')}</span>
           <span class="work-sub"><span class="pill">${esc(c.workspace)}</span>${
             agent ? `<span class="pill agent">${esc(agent.emoji)} ${esc(agent.name)}</span>` : ''
-          }${done ? '<span class="pill">closed</span>' : ''}${
+          }${done ? '<span class="pill">dismissed</span>' : ''}${
             bits.length ? ` ${esc(bits.join(' · '))}` : ''
           }</span>
         </span>
@@ -517,8 +599,11 @@
           ? // Nothing to close, and no "reopen" button either: saying anything to a
             // closed chat session reopens it, so the way back in is the row itself.
             ''
-          : `<button class="row-x" data-close="${esc(c.id)}" aria-label="${
-              agent ? `Close this chat with the ${esc(agent.name)}` : 'Close this chat session'
+          : // "Dismiss", not "close", because that is what a tap here does now: it
+            // leaves the list rather than the app, and the toggle it leaves under says
+            // the same word back.
+            `<button class="row-x" data-close="${esc(c.id)}" aria-label="${
+              agent ? `Dismiss this chat with the ${esc(agent.name)}` : 'Dismiss this chat session'
             }">✕</button>`
       }
     </div>`;
@@ -1303,6 +1388,9 @@
       ev.stopPropagation();
       closeConsole(btn.dataset.close, btn);
     });
+
+    // Not delegated like the tabs: this button is in the page, not rebuilt by a paint.
+    $('#ws-dismissed').addEventListener('click', () => setShowDismissed(!state.showDismissed));
 
     /* The picker moved — from this row, from the dropdown above it, or from the phone in
        your pocket. All three end here, so the row and the list agree however it happened.

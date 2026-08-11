@@ -67,15 +67,30 @@
    style.css is a floating button with no shape sitting over the last card. Every one of
    those is an old app that looks complete — a bar with both tabs still on it most of all
    — which is the failure a version exists to prevent. */
-/* v28: every view moved onto the delta stream. `/stream.js` is a new path *and* all five
+/* v28: you can talk about an unendorsed bead before deciding on it. No new path — the
+   discussion panel is part of endorse.js — which is exactly why the version has to
+   move: a phone holding v27's cached style.css beside v28's endorse.js draws the thread,
+   the agent chips and the ask box with none of the rules that make them a panel rather
+   than a run of unstyled paragraphs under the verdicts, and one holding v27's endorse.js
+   against the new daemon simply has no Discuss button and no 💬 count on a row that has
+   a thread on it — which is the state this feature exists to end. Two cached files that
+   have to arrive together is the whole job of a cache version. */
+/* v29: tapping a pull request opens it full screen, with merge, close, comment and the
+   conflict path (bc-l8jp.7). No new path — app.js and style.css are both already here —
+   and that is exactly why the version has to move: the two have to arrive together. A
+   phone holding v28's app.js beside v29's stylesheet draws a row whose tap still goes to
+   GitHub; one holding v29's app.js against v28's stylesheet opens the sheet with no facts
+   column, no pinned action bar and a comment box the buttons sit on top of. Both look like
+   a working app, which is the failure a cache version exists to prevent. */
+/* v30: every view moved onto the delta stream. `/stream.js` is a new path *and* all five
    standing pages mount it in place of the `setInterval` they used to refresh on — so a
-   phone holding v27's cached admin.js, monitor.js or prs.js beside a v28 daemon still has
-   the ten-second sweep this removed, and one holding v28's scripts without the file has
+   phone holding v29's cached admin.js, monitor.js or prs.js beside a v30 daemon still has
+   the ten-second sweep this removed, and one holding v30's scripts without the file has
    four pages that never refresh at all: the timer is deleted in the same change that adds
    the poll, and nothing else brings a row up to date. That is the strictest version of
    what a cache version is for — the failure is not a broken page, it is a page that looks
    right and is quietly hours out of date. */
-const CACHE = 'beadcause-v28';
+const CACHE = 'beadcause-v30';
 const SHELL = [
   '/',
   '/index.html',
