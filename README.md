@@ -9364,6 +9364,26 @@ forbids nested syntax on purpose: that is the price of a truncated rule failing 
 next `npm test` rather than quietly for a week. The detector is shown the exact wreck, so
 a guard that cannot fail is not mistaken for a file that is fine.
 
+It carries a third invariant for a third way a rule goes quiet, after truncated and
+written-twice: **written for a layout the element never got.** `.mon-card .work-head` — the
+head of every card on `/monitor` — had `align-items: center` and `flex-wrap: wrap` and no
+`display: flex` anywhere, so both properties did nothing, and `.adv-actions
+{ margin-left: auto }` was dead beside them for the same reason. The head laid out as a
+plain block and stacked the repo's name, the state line and the controls on three lines:
+127px of head on a phone where the row is 88px, and the two cards with no controls 80px
+where the row is 36px. The sketch under [Space details](#space-details--the-page-the-advocate-console-became)
+above draws that head as one line, because one line is what it was written to be — the
+page had simply never done it. Nothing complained, and nothing could: two properties that
+do nothing render as exactly the layout you would have had without them, which is why this
+is a test and not a lint. So the narrow invariant is that the rule giving that head its
+flex properties also gives it a `display: flex`, that the `.space-card` copy of it stays
+gone (the space card is a `.mon-card`, so one selector draws all four heads), and that
+every card the page draws wears both `mon-card` and `work-card` — the second being the
+padding, which the space card was the one card on the page without. The general form —
+no block sets a flex-container property unless something gives that element a flex display
+— needs the markup rather than the stylesheet, because five live rules here are modifier
+classes on a base class that supplies the display; that is bc-ah0v.
+
 ## Notes on bd
 
 - **`bd human respond` is broken in bd 1.1.2** — it dies with `storage is nil`.
