@@ -4130,20 +4130,23 @@ rebase before it can merge") on a card, with the next step yours to work out at 
 act as *Request changes* on a delivery card: a note back to a session on the same branch,
 where the only difference is who wrote the note — Adam's sentence about the code there,
 GitHub's about the merge base here. The brief (`conflictPromptFor` in `lib/session.js`) pins
-down five things, because an unattended session with a vague scope invents one:
+down six things, because an unattended session with a vague scope invents one:
 
 1. **the branch is what is behind, not `main`** — read the other way round, "resolve the
    conflict" is a session merging a branch into main by hand, which is the one act nothing
    here may do;
 2. **work in a worktree** — `git worktree list` first, because six sessions share these
    checkouts and the main one is the daemon's own;
-3. **a tree already mid-merge is somebody else's** — stand down and say so, and do *not*
+3. **take that tree's lock, and read a refusal as an answer** — an occupied worktree looks
+   exactly like an idle one otherwise, which is
+   [its own section](#an-occupied-worktree-that-reads-as-idle) below;
+4. **a tree already mid-merge is somebody else's** — stand down and say so, and do *not*
    run `git merge --abort`. That one is the second layer under the de-duplication below,
    for the two resolvers that are already up rather than the second one that must not be
    opened;
-4. **run the repo's own gate afterwards** — a clean merge of two working branches is not a
+5. **run the repo's own gate afterwards** — a clean merge of two working branches is not a
    working tree;
-5. **push the branch, then stop** — the merge stays a tap here.
+6. **push the branch, release the lock, then stop** — the merge stays a tap here.
 
 It is armed like merge, because it starts something unattended. It refuses unless GitHub
 reports the pull request `CONFLICTING` *right now*, asked again at the moment of the press
@@ -4193,6 +4196,57 @@ memory and never on disk, for the reason a phone's whereabouts is: a handle is w
 exactly as long as the iTerm holding it, and a record that survived a restart would only
 ever be a claim about a window nobody can address. `node test/resolvers.mjs` asserts all of
 it — including ten simultaneous presses producing one window and nine nudges.
+
+#### An occupied worktree that reads as idle
+
+The de-duplication above stops the *second window*, and it is worth being honest about what
+it does not stop. The record is in memory, so a daemon restart forgets every session it
+opened; and a window opened by hand — the ordinary case at this Mac — was never in the record
+at all. In both, the next resolver arrives at a worktree somebody is already merging in, and
+asks the only question available to it: *is anything happening here?*
+
+Nothing in a worktree answered that. `git worktree list` shows an occupied tree and an idle
+one identically, and so did the `SessionStart` hook that prints them
+(`~/.claude/hooks/worktree-guard.sh`). The reason is narrower than it looks: `EnterWorktree`
+locks the worktrees it **creates** — `locked claude session <name> (pid 82761 start …)` —
+and only those. Measured on 2026-08-11: entering an existing worktree by path — which is
+exactly what the brief asks of a resolver whose branch is already checked out somewhere —
+locks nothing. So the tell that a tree was busy existed for every worktree except the ones
+where two sessions could collide.
+`ps aux | grep <path>` and `ListAgents` were the only answers, and the second one sees only
+peers of the same harness.
+
+So the brief now has the session say so in the tree itself, `git worktree lock .` with a
+reason carrying this window's pid and the pull request number. Two properties do the work:
+
+- **The lock refuses.** `git worktree lock` on an already-locked tree exits 128 and prints
+  the existing reason — so the *attempt* is the occupancy check, with no gap between reading
+  and taking for a second resolver to arrive in. Four answers, and they are four rather than
+  two: it succeeds (yours, release it at the end); it names a pid `ps` still knows (somebody
+  is in there — say which, and leave); it names a pid `ps` does not know (a session crashed
+  — take it over, and say so, because standing down for a dead session is how a tree becomes
+  permanently unusable); or it names *your own* pid, which is the lock the harness took when
+  you created the tree, so carry on and leave it alone — it goes when the window does.
+- **The pid is already understood.** The `SessionStart` hook resolves the pid in a lock
+  reason against `ps` and prints a dead one as `STALE pid <n> — prunable`, which is what
+  keeps a crashed resolver's lock from reading like a live one for ever. That convention
+  predates this and is the reason the reason has that shape.
+
+Finding your own pid is the awkward part, and the brief spells it out rather than leaving an
+unattended session to work it out twice: `$$` is a shell that dies with the command that
+printed it, so a lock taken in its name reads as stale within seconds, and the walk up the
+process tree to the `claude` process has to be wrapped in `zsh -c '…'` — a worktree-isolated
+session's own Bash calls refuse `$$`, `$PPID` and every shell loop as *"too complex to verify
+that it stays inside the worktree"*. A brief that handed a session a command it will be
+refused would have told it nothing at all.
+
+What this deliberately does not fix. The daemon cannot take the lock on the session's behalf:
+it knows neither the pid nor how long the window will outlive the launch call. A session that
+dies without unlocking leaves a stale lock — which is the pid's whole job, not an oversight.
+And `git worktree lock` is being repurposed from the removable-media case it is documented
+for; the one real cost of that is `sweepWorktrees` in `lib/tidy.js`, which leaves a locked
+worktree alone (`why: 'locked'`) — correct while a resolver is in there, and the reason
+releasing the lock is a numbered step rather than a suggestion. That is bc-7uie.
 
 `node test/prfull.mjs` covers the daemon's half: that the description comes from `gh` and
 the rung from the board, that the attribution finds the session for *this* branch when a
@@ -9030,7 +9084,7 @@ history.
 | `auth.google.sessionDays` | how long a signed-in browser stays signed in (default `30`) |
 | `auth.google.enabled` | `false` turns sign-in off while leaving the rest of the block configured (default `true`) |
 | `workspaces` | auto-discovered from `~/beads/*/.beads`, and **reconciled on every start** — entries whose directory has gone are dropped and new ones picked up, both logged. Renaming a workspace directory used to leave a stale entry that failed on every poll tick, silently hiding that whole workspace from the phone |
-| `repos` | the checkouts **one workspace** may be worked in, keyed by workspace name — `{"climative": {"root": "~/climative.dev", "default": "architecture", "approved": ["architecture", "athena-service"]}}`. Empty by default, and a workspace not named here costs nothing: it is one repo, as every workspace was before this existed. `approved` is a list you write and nothing discovers — a directory under `root` that is not in it resolves to nothing. Each repo's identity is the **service token** it declares in its own `config/config.yaml`, read from the checkout rather than restated here; `default` is the repo a bead carrying no token belongs to, and `tokenPath` / `tokenKey` override where the token is read from. See [Many repos, one workspace](#many-repos-one-workspace--the-approved-list-and-the-token-that-names-each) |
+| `repos` | the checkouts **one workspace** may be worked in, keyed by workspace name — `{"climative": {"root": "~/climative.dev", "default": "architecture", "approved": ["architecture", "athena-service"]}}`. Empty by default, and a workspace not named here costs nothing: it is one repo, as every workspace was before this existed. `approved` is a list you write and nothing discovers — a directory under `root` that is not in it resolves to nothing. Each repo's identity is the **service token** it declares in its own `config/config.yaml`, read from the checkout rather than restated here; `default` is the repo a bead carrying no token belongs to, and `tokenPath` / `tokenKey` override where the token is read from. A bead says which repo it is about by carrying that token as a `repo:<token>` label. See [Many repos, one workspace](#many-repos-one-workspace--the-approved-list-and-the-token-that-names-each) and [how a bead names one](#how-a-bead-says-which-repo-it-is-about--repotoken) |
 | `openSessions` | allow `POST /api/session` to open a Claude session on the Mac (default `true`) |
 | `sessionDirs` | override where a workspace's session opens. Normally unnecessary — see Discussing a question on the Mac |
 | `sessionPermissionMode` | `--permission-mode` for an opened session (default `auto`; `null` to omit the flag) |
@@ -9269,6 +9323,73 @@ three it was.
 
 One repo and no `default` is that repo — there is nothing to be wrong about. Several and
 no `default` is no repo, and says so.
+
+### How a bead says which repo it is about — `repo:<token>`
+
+A label, and it is the same shape as
+[`superseded-by:`](#the-duplicate-that-comes-ready-the-moment-its-original-lands):
+
+```
+bd create --title "Athena drops the last page of results" --label repo:as
+bd label add cl-9f2 repo:as
+bd list --label repo:as
+```
+
+A label rather than a field on the bead, because it is the only per-bead thing beads
+itself will carry, sync and filter on without beadcause owning a schema — those three
+commands work today, and the value rides Dolt to every other machine on the workspace.
+The alternative is a line in the description that beadcause parses, and prose that has
+to be parsed correctly is exactly what this whole thing exists to stop relying on.
+
+**`resolveSessionDir` is where it becomes a directory, and it is the only place.**
+Twenty-five call sites go through that one function in `lib/session.js` — the iTerm
+session, the phone terminal, the chat console, the advocate, the PR board, the deploy —
+so everything downstream of a bead lands in whatever it answered, and every one of them
+gets the repo by passing the bead it already holds:
+
+```js
+resolveSessionDir(cfg, workspace, bead)      // the directory
+resolveSessionRepo(cfg, workspace, bead)     // { dir, repo: {name, dir, token} | null }
+```
+
+The third argument is optional at every call site, and `repo` is `null` for every
+workspace that has no approved list — which is `sophab`, `deluvia`, `ehatt`, `beadcause`
+itself and every other install of this. Those workspaces do not reach the new branch at
+all: `multiRepo` is false, nothing is read from disk, and the `sessionDirs` /
+`projectRoot` / `fallbackWorkspace` rules answer exactly as they did before. That is
+asserted in `test/sessiondir.mjs` rather than believed, because "it still works for
+Climative" is not the claim that matters to the four workspaces that were working
+already.
+
+A caller with no bead in hand — the advocate's open-PR sweep, the deploy board — passes
+none and gets the `default` repo. That is the right answer to a question about the
+workspace rather than about one bead, and it is the same answer those callers used to
+get from the one directory a workspace had.
+
+**Four ways a bead names no checkout, and all four refuse.** A token no approved repo
+declares, a token two of them both declare, a bead carrying two different `repo:` labels,
+and a bare `repo:` with nothing after it. Each throws a 409 with its own sentence —
+`lib/server.js` already turns that into the message on whatever screen the tap came from
+— and none of them becomes `architecture`. Only a bead carrying *no* `repo:` label
+resolves to the default, because that is a bead that has said where it belongs. Two
+labels naming the same token is one answer written twice and resolves fine.
+
+**`sessionDirs.<workspace>` does not override this**, and that is a decision. It pins one
+directory, and a workspace with several checkouts has no one directory to pin — honouring
+it would send every bead in the workspace to the same repo however it was labelled, with
+nothing on screen to say why. So the repo the bead named wins, and a workspace configured
+both ways says so in the startup log:
+
+```
+[repos] sessionDirs.climative pins /Users/you/climative.dev/architecture, but climative has an approved repo list — the repo a bead names wins, so that override no longer decides anything. Take it out, or empty repos.climative.approved
+```
+
+**One caller runs it backwards, and needs its own answer.** `ownWorkspace` in
+`lib/deploy.js` maps *this checkout* back to a workspace name, to decide which graph the
+daemon files its own crashes on. Forwards, a multi-repo workspace answers with one repo;
+backwards, every approved checkout **is** that workspace, so all of them are compared. A
+single comparison against the default would have filed a crash from a session running in
+`~/climative.dev/athena-service` onto whichever workspace came next in the list.
 
 ### Environment
 

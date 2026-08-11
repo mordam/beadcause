@@ -551,9 +551,10 @@ console.log('\none pull request, full screen\n');
   check('a conflicting pull request reaches the launch', res.status === 403, `HTTP ${res.status} ${JSON.stringify(res.json)}`);
   check('and stops there, because windows are off here', /openSessions/.test(res.json.error || ''), res.json.error);
 
-  // What the session would be asked to do. The four things it must say are the four an
+  // What the session would be asked to do. The five things it must say are the five an
   // unattended session gets wrong when a brief is vague: which way the merge goes, where to
-  // stand, that the repo's own gate runs afterwards, and that it stops at a push.
+  // stand, that it says so in the lock while it stands there, that the repo's own gate runs
+  // afterwards, and that it stops at a push.
   const brief = conflictPromptFor(
     'demo',
     { number: 8, title: 'the conflicting one', repo: 'acme/widgets', branch: 'bead/zz-work', base: 'main', beads: [{ id: 'zz-work' }] },
@@ -570,7 +571,52 @@ console.log('\none pull request, full screen\n');
   check('it stands down on a merge somebody else started', /already mid-merge, stop/.test(brief), brief.slice(0, 900));
   check('and names the abort it must not run', /do \*\*not\*\* run `git merge --abort`/.test(brief), brief.slice(0, 900));
   check('it runs the repo’s own gate afterwards', /CLAUDE\.md/.test(brief), brief);
-  check('and it stops at a push — the merge stays a tap', /Push the branch\. Then stop\./.test(brief), brief.slice(-500));
+  check('and it stops at a push — the merge stays a tap', /Push the branch\. Then \*\*release the lock\*\*/.test(brief), brief.slice(-900));
+  // bc-7uie. The two checks above are only reachable if "somebody is in here" is visible at
+  // all, and it was not: a resolver reusing an existing worktree entered it by path, and
+  // `EnterWorktree` locks the trees it creates and only those — so `git worktree list` and
+  // the SessionStart hook showed an occupied tree exactly as they show an idle one.
+  check(
+    'it takes the lock on the tree it works in',
+    /git worktree lock \. --reason "resolver pid <that pid> #8"/.test(brief),
+    brief.slice(0, 1600)
+  );
+  check(
+    'and the reason carries a pid, which is what a reader resolves against ps',
+    /worktree-guard\.sh/.test(brief) && /resolves the pid in a lock\n?\s*reason against `ps`/.test(brief),
+    brief.slice(0, 2400)
+  );
+  // A worktree-isolated session's own Bash calls refuse `$$`, `$PPID` and shell loops as
+  // "too complex to verify that it stays inside the worktree", so the walk up to the
+  // `claude` process is unrunnable unwrapped — and a brief that hands an unattended session
+  // a command it will be refused has told it nothing.
+  check(
+    'the pid walk is wrapped so an isolated session can actually run it',
+    /zsh -c 'pid=\$\$;/.test(brief) && /grep -q claude/.test(brief),
+    brief.slice(0, 1600)
+  );
+  // The refusal `git worktree lock` gives on an already-locked tree is the occupancy check —
+  // there is no window between reading and taking for a second resolver to arrive in.
+  check(
+    'a lock a live pid holds sends it away rather than in',
+    /pid `ps` still knows\.\*\* Somebody is working in there/.test(brief),
+    brief.slice(0, 2400)
+  );
+  check(
+    'and a lock no live pid holds is taken over, not stood down for',
+    /pid `ps` does not know\.\*\* A session crashed/.test(brief),
+    brief.slice(0, 2400)
+  );
+  check(
+    'the lock the harness took on a tree it created is left alone',
+    /naming your own pid\.\*\* That is the lock the harness took/.test(brief),
+    brief.slice(0, 2400)
+  );
+  check(
+    'and the lock is released whichever way the session stops',
+    /git worktree unlock \./.test(brief) && /Release it whichever way you stop/.test(brief),
+    brief.slice(-900)
+  );
   check('nothing in it merges into the base', !/merge .*into \\?`main/.test(brief.replace(/branch is what is behind[^\n]*\n/, '')), brief);
 }
 
