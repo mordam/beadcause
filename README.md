@@ -5866,6 +5866,25 @@ it is resumable. The branch is kept deliberately — `git branch -d` refuses a b
 checked out in another worktree, and the branch is what makes the retirement
 reversible.
 
+**What holds those gates is `test/retire.mjs`,** and for a long time nothing did. The
+attic below had two suites while this half — the one that acts on a directory somebody
+may still be *sitting in* — was named in no test file in the repo, running unattended
+every fifteen minutes with `prMerges` on. Each gate is now asserted on its own with its
+own reason, in a real repo with a real `origin` and real worktrees, because every claim
+here is a question about refs and registrations and a fake git would only prove the fake
+works. The one thing faked is `gh`, and it is on `PATH` for the sweeps run *without*
+`prMerges` too: with GitHub present and answering MERGED, a worktree left as "not merged"
+can only mean the flag gated the call. Then every gate was deleted from `lib/tidy.js` one
+at a time to watch the suite go red — seventeen of eighteen, including the four that are
+not `if` statements and are therefore the easy ones to lose in a refactor: the
+symlink-aware `realPath`, `origin/main` asked before `main`, the `.note` stamp, and `git
+worktree move` swapped for a plain rename. The eighteenth survives deletion and no test
+can catch it, because there is nothing to catch: the main checkout is never *under*
+`.claude/worktrees/`, so the location gate has already refused it, and the line excluding
+it by path is a second lock on a door that was not there. It is kept for the same reason
+its comment gives — excluded by location is a thing to say out loud — but it is worth
+knowing that it is the one line here whose removal changes nothing.
+
 #### Emptying the attic
 
 A soft delete nothing ever hardens is a rename. Retiring ran unattended every fifteen
