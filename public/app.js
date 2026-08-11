@@ -4810,7 +4810,16 @@
       const row = byKey(key);
       if (!row?.pr) return;
       if (armFirst(key, 'conflicts')) return;
-      await actOnPr(row, '/api/pr/conflicts', {}, (res) => `Session open on ${res.branch} — it pushes the branch and stops.`);
+      // Two sentences, because the daemon now answers two different things. A second
+      // press does not open a second window — it speaks to the session that already has
+      // the pull request (lib/resolvers.js, bc-utyr) — and a press that reads back
+      // "Session open" over a session somebody opened ten minutes ago is exactly the
+      // report that made two of them look like one.
+      await actOnPr(row, '/api/pr/conflicts', {}, (res) =>
+        res.reused
+          ? `Already being resolved on ${res.branch} — told that session you pressed again.`
+          : `Session open on ${res.branch} — it pushes the branch and stops.`
+      );
       return;
     }
 

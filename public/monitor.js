@@ -378,11 +378,18 @@
    * closes. Which is exactly why it needs the pill — "1 ready" that never becomes a
    * session, with nothing on screen naming the bead it is waiting behind, is
    * indistinguishable from an advocate that has stopped working.
+   *
+   * `heldByPr` is the fifth (bc-utyr), and the one whose pill is a *link*: a bead held
+   * because an open pull request already carries its work is waiting on something you
+   * can act on from the phone you are reading this on — a merge, or a conflict to
+   * resolve — and the board is where both taps live. The others name a bead you would
+   * have to go and find; this one names a number and takes you to it.
    */
   function domainHtml(w, a) {
     const c = w?.counts || {};
     const waiting = (a && a.heldByChildren) || [];
     const twins = (a && a.heldByTwin) || [];
+    const prs = (a && a.heldByPr) || [];
     const pills = [
       c.open != null ? `<span class="pill">${c.open} open</span>` : '',
       c.ready ? `<span class="pill">${c.ready} ready</span>` : '',
@@ -407,6 +414,9 @@
         : '',
       twins.length
         ? `<span class="pill muted" title="${esc(twins.map((h) => `${h.id} — ${h.why}`).join('\n'))}">${twins.length} the same job under another id</span>`
+        : '',
+      prs.length
+        ? `<a class="pill muted" href="/prs" title="${esc(prs.map((h) => `${h.id} — ${h.why}`).join('\n'))}">${prs.length} in an open pull request</a>`
         : '',
     ].filter(Boolean);
     return `<div class="mon-domain">${pills.join('')}</div>`;

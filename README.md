@@ -3832,16 +3832,20 @@ rebase before it can merge") on a card, with the next step yours to work out at 
 act as *Request changes* on a delivery card: a note back to a session on the same branch,
 where the only difference is who wrote the note — Adam's sentence about the code there,
 GitHub's about the merge base here. The brief (`conflictPromptFor` in `lib/session.js`) pins
-down four things, because an unattended session with a vague scope invents one:
+down five things, because an unattended session with a vague scope invents one:
 
 1. **the branch is what is behind, not `main`** — read the other way round, "resolve the
    conflict" is a session merging a branch into main by hand, which is the one act nothing
    here may do;
 2. **work in a worktree** — `git worktree list` first, because six sessions share these
    checkouts and the main one is the daemon's own;
-3. **run the repo's own gate afterwards** — a clean merge of two working branches is not a
+3. **a tree already mid-merge is somebody else's** — stand down and say so, and do *not*
+   run `git merge --abort`. That one is the second layer under the de-duplication below,
+   for the two resolvers that are already up rather than the second one that must not be
+   opened;
+4. **run the repo's own gate afterwards** — a clean merge of two working branches is not a
    working tree;
-4. **push the branch, then stop** — the merge stays a tap here.
+5. **push the branch, then stop** — the merge stays a tap here.
 
 It is armed like merge, because it starts something unattended. It refuses unless GitHub
 reports the pull request `CONFLICTING` *right now*, asked again at the moment of the press
@@ -3849,6 +3853,48 @@ rather than trusted from the row: a session opened for a conflict somebody has a
 resolved is a window you have to go and close, and a pointless window is worse than a
 sentence. Refused outright on an observer instance, for the reason `POST /api/session` is —
 an unattended agent in a checkout it is only visiting.
+
+#### One press, one session — and what a second press does
+
+On 2026-08-11 one press of that button produced **two** sessions. Both carried the same
+brief, and the brief correctly says *if the branch is already checked out somewhere, use
+that* — right for one resolver, wrong for two. They merged `main` into the same worktree at
+the same time, and the damage was not the kind anybody notices in a log: one session's
+`git merge --abort` landed between the other's resolution and its `git add && git commit`,
+so commit `2183762` carried **unresolved conflict markers into `public/console.js`**, with
+two parents and the shape of a perfectly ordinary merge commit. `test/dismissed.mjs` went
+2/16. A human reading the diff is the only reason it was caught, and the repair had to
+check that `main`'s side was genuinely still in the tree — an aborted merge can reset the
+index and still commit, silently reverting everything the base added while looking clean.
+That is bc-utyr.
+
+So the daemon now remembers which session it opened for which pull request (`lib/resolvers.js`),
+and a second press **does not open a second window**. It does the useful half of what the
+press was asking for instead: it types one line into the window that already has the pull
+request — the same channel [Reclaim](#reclaiming-a-slot-by-asking) speaks to workers over —
+saying the button was pressed again, that nothing new is coming, and that starting a second
+merge in that tree is precisely what the press must not cause. The phone reads back
+*"Already being resolved on `<branch>` — told that session you pressed again"*.
+
+Three states, not two, and the third is the point:
+
+- **nothing is on it** — open a window, and remember the handle;
+- **something is on it and answers** — the nudge lands, and no second window;
+- **something is on it and cannot be asked** — an iTerm too old to report a session id
+  leaves a record with no handle, and *"I cannot ask"* is not *"it is gone"*. It is
+  refused, with the age said out loud, and the record ages out by itself after half an
+  hour rather than stranding the button for good. Same distinction `reclaim` keeps about a
+  worker whose window macOS would not talk to, and for the same reason: treating a refusal
+  as absence is what opens the second window.
+
+**Everything for one pull request is serialised**, which is not belt-and-braces — it is the
+actual shape of the incident. One press produced two requests a moment apart, and a
+check-then-launch with an `await` in the middle is a check both of them pass. Under the
+lock the second request arrives after the first has a handle to hand it. The state is in
+memory and never on disk, for the reason a phone's whereabouts is: a handle is worth
+exactly as long as the iTerm holding it, and a record that survived a restart would only
+ever be a claim about a window nobody can address. `node test/resolvers.mjs` asserts all of
+it — including ten simultaneous presses producing one window and nine nudges.
 
 `node test/prfull.mjs` covers the daemon's half: that the description comes from `gh` and
 the rung from the board, that the attribution finds the session for *this* branch when a
@@ -4975,6 +5021,13 @@ bead can move. On top of that, two exclusions of our own:
   same near-verbatim threshold that refuses a duplicate approval. Waits, not
   disappears: it is a pill on the repo's advocate card naming the bead it is behind,
   and it goes back in the queue by itself when that one closes.
+- **A bead whose pull request is already open is not ready.** The work exists, on a
+  branch, and what happens to it next is a merge, a review or a conflict resolution —
+  none of which is a fresh session's job, and a worker briefed to *merge* opened beside a
+  resolver briefed that the merge is not its to make is how a branch lands out from under
+  a review. Held, with the pull request number on the card. See [the bead whose work is
+  already in an open pull
+  request](#the-bead-whose-work-is-already-in-an-open-pull-request).
 
 When that set is empty the advocate says **clear** and stops. That is the whole of
 "done".
@@ -5708,6 +5761,52 @@ dozen sessions land through GitHub and pull at their own pace, so local `main` r
 carries what nobody else has. It asks once per bead per branch, recognising its own work by
 a marker in the notes — the `human` label cannot be the guard, because answering "keep it
 open" takes that label off. `flagInMain: false` switches it off.
+
+### The bead whose work is already in an open pull request
+
+The three sweeps above are all about work that **finished** without the tracker noticing.
+This one is about work that has not finished and does not need a second session either: a
+bead whose pull request is *open*.
+
+bc-utyr is what it costs. The advocate opened a worker on bc-dmt while #115 — the pull
+request that *was* bc-dmt, built and delivered by the previous attempt — was open,
+conflicting, and had two sessions on it resolving the conflict. There was nothing left for
+a worker to do, and the window was worse than merely wasted: the two briefs disagree about
+who merges. A worker's brief tells it to run `beadcause-deliver`, which **merges**; a
+resolver's says outright that the merge is a tap on the phone and is not its to make. Two
+live briefs disagreeing about that is how a branch lands out from under a review that had
+not finished.
+
+So an open pull request is work in flight, and **the bead it carries is not ready**. It is
+not *done* either — `state: OPEN` is not `state: MERGED`, so nothing here closes anything —
+which leaves held as the only honest third thing, exactly as the [duplicate
+filter](#what-counts-as-work) already does. Which beads a pull request carries is the same
+tiering the board uses ([Which bead a pull request is
+for](#which-bead-a-pull-request-is-for)): the delivery block, the title, the branch tag,
+then the body's claims, each verified against the tracker before it is believed.
+
+**This one errs toward holding, and the duplicate filter errs toward working — deliberately,
+and the difference is the evidence.** A title comparison can be wrong about two genuinely
+different jobs, so it must risk doing the work twice. A pull request naming a bead is not a
+resemblance; it is a branch with commits on it. The cost of a wrong hold is one bead that
+waits, named on the advocate's card with the pull request number on it, until that pull
+request merges or is closed — both of which happen on their own. The cost of a wrong launch
+is the incident above.
+
+A draft is still open and is still held: work on a branch with somebody's intention
+attached, and a second session writing the same feature beside it is the same waste with a
+different label. A pull request naming no bead holds nothing, because there is no bead to
+hold. And **a `gh` that will not answer holds nothing back** — a network failure must not
+be able to empty a queue — though a failed read keeps the map the last good one left
+rather than clearing it, because the map that was true four minutes ago is a better answer
+than none.
+
+Asked every `inflightIntervalMinutes` (default 5, shorter than the sweeps above because
+this is the one whose answer moves the moment *this daemon* does something — a delivery
+that could not merge opens a pull request and hands the bead back to `bd ready` in the same
+minute), and **again, unconditionally, before a window opens**. `holdOpenPrs: false`
+switches it off. `node test/prqueue.mjs` covers the filter and `node test/twinqueue.mjs`
+the sibling it sits beside.
 
 ### The session log, kept in the repo
 
@@ -8385,6 +8484,8 @@ history.
 | `advocates.supersededIntervalMinutes` | how often that looks (default 10). Unlike the sweep above it is never forced before a launch, because a marked bead cannot reach one |
 | `advocates.flagInMain` | [ask about an open bead naming a `worktree-*` branch that is already in `origin/main`](#the-bead-whose-branch-is-already-in-main) (default `true`). It never closes anything — a merged branch is a fact, "so the bead is done" is your call |
 | `advocates.inMainIntervalMinutes` | how often that looks (default 10). It runs before the survey, so a bead it flags is out of the queue in the same tick and no session is opened on it |
+| `advocates.holdOpenPrs` | [hold a bead out of the queue while an open pull request already carries its work](#the-bead-whose-work-is-already-in-an-open-pull-request) (default `true`). It closes nothing — an open PR is not a merged one — it holds, with the number on the card. Without it a worker briefed to merge is opened beside a resolver briefed that the merge is not its to make |
+| `advocates.inflightIntervalMinutes` | how often that asks GitHub (default 5, shorter than the sweeps above because a delivery that could not merge opens a pull request and hands the bead back to `bd ready` in the same minute). It also asks *unconditionally* right before opening a session |
 | `advocates.sessionLog` | archive each finished session to `refs/beadcause/sessions/<bead>` and note its commits (default `true`) |
 | `advocates.sessionTranscripts` | also store the raw Claude Code transcript — megabytes, and it carries paths and tool output (default `false`; set per repo in `perWorkspace`) |
 | `advocates.closeFinishedSessions` | [close a work session's window once the session has finished](#closing-the-window--a-session-that-has-finished-should-not-still-be-on-screen) — the bead closed, a pull request delivered, or the bead handed back for a decision, and never an ending the daemon merely inferred (default `true`). `false` leaves every window open, which is what it did before |
