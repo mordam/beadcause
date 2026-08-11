@@ -415,6 +415,31 @@ body {
    recorded, not a cancel, so making it the smaller target would misdescribe it. */
 .shade-actions { display: flex; gap: 8px; }
 
+/* The repos this sweep could not read, above the list. See troubleHtml() in app.js.
+
+   --danger and not --warn, which is the one place this app steps outside the orange
+   the pane above it uses. The orange means "something is about to be left in a mess";
+   this means the screen under it is *incomplete*, and every count on it is arithmetic
+   over a sweep with a hole in it. A caveat about whether you can believe the list is
+   not the same voice as an unsent draft, and drawing it in the same colour would let
+   it be read as one more thing to tidy. */
+.trouble {
+  padding: 11px 12px;
+  border: 1px solid color-mix(in srgb, var(--danger) 55%, transparent);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--danger) 8%, var(--surface));
+}
+.trouble strong { display: block; font-size: 14px; color: var(--text); }
+.trouble ul { margin: 7px 0 0; padding-left: 17px; }
+.trouble li { font-size: 12.5px; line-height: 1.45; color: var(--text); margin-top: 3px; }
+.trouble li b { font-weight: 700; }
+/* The error is `bd`'s own sentence and can be long. Wrapped rather than truncated:
+   which lock, which workspace and which command is the whole of what makes it
+   actionable, and a phone that has to be turned sideways to read it is still a phone
+   that was told. */
+.trouble-held { display: block; color: var(--muted); font-size: 11.5px; }
+.trouble-note { display: block; margin-top: 7px; color: var(--muted); font-size: 11.5px; }
+
 /* How many are waiting, on the ⚖️ in the header — the channel's only presence in
    the chrome, since a request is never in the list below. */
 .icon-btn { position: relative; }

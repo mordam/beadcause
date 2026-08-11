@@ -28,6 +28,13 @@
     // array and is turned into rows at render time (see `chatRows`). What it *is*
     // part of is the list you look at, which is the whole point of bc-l8jp.5.
     consoles: [],
+    // The repos the last sweep could not read, each with what `bd` said (lib/sweep.js).
+    // Its own array for the same reason `requests` is one, and drawn as a pane above
+    // the list rather than folded into the empty state: a failed sweep is a fact about
+    // this screen whether or not there is anything else on it, and an empty inbox that
+    // is empty *because nobody could ask* is the one thing this app must never draw as
+    // "nothing to decide".
+    trouble: [],
     spaces: [],
     // Every configured workspace, which the inbox needs for one thing only: ＋ has to
     // know where to start a conversation, and "the repos in the selected space" is a
@@ -1533,6 +1540,48 @@
     return ` Pull requests could not be read: ${esc(state.boardError)}`;
   };
 
+  /**
+   * The repos this sweep could not read — named, with the reason, above the list.
+   *
+   * A pane and not a line inside `emptyHtml`, which is the whole of bc-ksdc. Two
+   * reasons it cannot be part of the empty state:
+   *
+   * - **The list is usually not empty when this happens.** Seven repos are swept and
+   *   one fails; the other six fill the screen and the missing one leaves no gap. An
+   *   inbox that is quietly six-sevenths of itself looks exactly like an inbox.
+   * - **The empty state is a claim, and this is what makes it false.** "Nothing to
+   *   decide" under a repo that never answered is the app asserting something it did
+   *   not check, which is the one failure the whole thing exists to prevent.
+   *
+   * Not filtered by space or workspace, deliberately, and for the same reason the
+   * foundation pane is not: a repo you have filtered out is still a repo you are not
+   * being told about, and the filter is a decision about what to *look* at rather
+   * than about what you may be lied to over.
+   *
+   * `held` is how many rows are standing in for the ones that could not be read — the
+   * last good answer, kept rather than replaced by none. Zero means this repo has not
+   * answered since the daemon started, which is the one case where the list really has
+   * nothing of its to show, and the line says so rather than implying staleness.
+   */
+  function troubleHtml() {
+    const rows = (state.trouble || []).filter((t) => t && t.workspace);
+    if (!rows.length) return '';
+    const line = (t) => {
+      const held = Number(t.held) || 0;
+      const standing = held
+        ? `showing what it last said (${held} ${held === 1 ? 'bead' : 'beads'})`
+        : 'nothing of its is on this list';
+      return `<li><b>${esc(t.workspace)}</b> — ${esc(t.error || 'the sweep failed')}
+        <span class="trouble-held">${esc(standing)}</span></li>`;
+    };
+    return `<div class="trouble" role="status">
+      <strong>${rows.length === 1 ? 'A repo could not be read' : `${rows.length} repos could not be read`}</strong>
+      <ul>${rows.map(line).join('')}</ul>
+      <span class="trouble-note">Retried on every sweep. Counts on this screen are what
+        was last read, not what is there now.</span>
+    </div>`;
+  }
+
   /** The selected agent, falling back to the first one the server offered. */
   const currentAgent = () => state.agents.find((a) => a.id === state.agent) || state.agents[0] || null;
 
@@ -2734,6 +2783,11 @@
       // you reach a quiet repo.
       workspaces: Array.isArray(data.workspaces) ? data.workspaces : undefined,
       counts,
+      // So the picker's own numbers carry the same caveat the pane above the list
+      // does. `state.trouble` rather than `data.trouble`: this is called with a
+      // reconciled filter and one payload behind it, and the two must not be able to
+      // disagree about which repos answered.
+      trouble: state.trouble,
       filter: data.filter,
     });
   }
@@ -3113,6 +3167,12 @@
     if (ask) chunks.push({ key: '@shade', html: ask });
     const reqs = requestsHtml();
     if (reqs) chunks.push({ key: '@requests', html: reqs });
+    // Under the foundation pane and above everything the sweep produced, including the
+    // empty state — see `troubleHtml`. Below the requests because a request is a
+    // decision somebody is waiting on and this is a caveat about the list; above the
+    // list because a caveat under forty cards is a caveat nobody reads.
+    const missed = troubleHtml();
+    if (missed) chunks.push({ key: '@trouble', html: missed });
 
     // `rows`, not `state.questions`: with no beads at all but a pull request open or a
     // conversation on the go, the list is not empty — and the first-run copy `emptyHtml`
@@ -4579,6 +4639,12 @@
     // always the better one. Absent means a server that predates the field, and
     // keeping the last list is the same call `requests` makes above.
     if (Array.isArray(data.consoles)) state.consoles = data.consoles;
+    // Taken whole, and taken even when empty — unlike `requests` and `consoles` above.
+    // An empty list here is the good news ("every repo answered this time") and it has
+    // to be able to clear the pane, which is the whole reason the record is rebuilt on
+    // each sweep rather than accumulated. Absent still means a server that predates the
+    // field, and that keeps whatever is on screen.
+    if (Array.isArray(data.trouble)) state.trouble = data.trouble;
     // What the ＋ offers when the space holds more than one repo. Kept here rather
     // than read off `data` at the tap, because the tap can happen between polls.
     if (Array.isArray(data.workspaces)) state.workspaces = data.workspaces;
