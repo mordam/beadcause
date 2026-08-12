@@ -4998,6 +4998,46 @@ arms; group *adjust* and group *ask for changes* are deliberately not, even thou
 API takes them, because one title cannot be given to six beads and one objection typed
 at six is an objection about none of them.
 
+### Endorse all — the tap that empties it
+
+A tick per bead is fine for six. It is not fine for a hundred, and a hundred is what
+this queue actually reaches: a hundred held beads is not a hundred decisions, it is one
+decision about a hundred beads, and a queue that can only be drained a tick at a time is
+one nobody drains — which quietly takes the meaning out of the hold, because a hold
+nobody lifts is indistinguishable from work nobody filed.
+
+So **Endorse all** sits in the header beside the count, reachable with nothing ticked —
+not in the selection bar, which does not exist until you have started ticking, and which
+is therefore the one place a control for "I have not ticked anything" cannot live. Three
+things about it:
+
+- **It acts on what is drawn, never on what merely exists.** The count is taken over the
+  rows the space picker is showing, exactly like the header line beside it, so a page
+  narrowed to one repo endorses that repo. What the picker is holding back is *named* in
+  the confirmation and left alone — "1 bead in another space stays held" — because a tap
+  you made while looking at one space silently reaching into another is the single thing
+  this control must never do. So is the cap: the sweep stops at sixty, and a queue of a
+  hundred and one endorsing sixty under the word *all* would be the truncation lying
+  twice, so the overflow is named too.
+- **It arms, where the single row and the group bar deliberately do not.** Those two are
+  one tap because endorsing is idempotent all the way down and the worst a stray tap does
+  is queue work you meant to queue eventually. That argument stops being true somewhere
+  around the hundredth bead, and releasing a hundred beads to the advocate at once is the
+  exact act [the hold](#the-endorsement-queue--a-group-tap-or-a-row-at-a-time) exists to
+  make deliberate. So the first tap writes nothing and only says what the second will do,
+  and it says it as a count and the repos it covers — the same rule the inbox's bulk
+  approve is under: the button names what it will act on before it acts.
+- **Moving the picker disarms it.** An armed *Endorse all 60 in beadcause* whose second
+  tap landed after the filter moved would endorse a different sixty in a different repo.
+  That is one line in the page's `onChange`, and it is the line the promise above rests
+  on.
+
+Underneath it is the same request the group bar makes — one POST per workspace carrying
+that workspace's ids, never one per bead — and it needs no new route, because the cap on
+a single verdict is a hundred ids and the cap on the queue is sixty. A partial failure is
+reported the way every other group reports one: *Endorsed 59 beads. cl-xyz did not: …*,
+with the bead that did not go through still sitting on the queue.
+
 What happened is never toasted away. An endorsed bead leaves the queue immediately, so
 its outcome is pinned to the top of the list where the rows used to be — the only
 evidence the tap worked, on a screen where "did that go through?" must not be a question
@@ -5083,10 +5123,11 @@ relabelled the default — and that a bead you have just asked about comes back 
 `/api/unendorsed` carrying its 💬 rather than reading as untouched.
 
 `node scripts/endorse-check.mjs [--out=DIR]` drives the real page in a headless Chrome
-the size of a phone, against a fixture that records every write. The two assertions it
+the size of a phone, against a fixture that records every write. The three assertions it
 exists for are the ones invisible from the server: that a group tap is **one request
-per workspace** carrying all of its ids, and that the first press of Revoke writes
-**nothing at all**.
+per workspace** carrying all of its ids, that the first press of Revoke — and of Endorse
+all — writes **nothing at all**, and that Endorse all under a narrowed picker leaves the
+bead in the space you were not looking at exactly where it was.
 
 ## An error the app hits files itself as a P0
 
