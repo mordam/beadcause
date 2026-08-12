@@ -10269,10 +10269,11 @@ delivering somewhere other than its repo's default branch says so.
 **And it is asked of GitHub, never of the checkout** — which is the surprising half.
 The cheap local answer is `git symbolic-ref refs/remotes/origin/HEAD`, and it is wrong
 often enough to be dangerous: that ref is written once, by `clone`, and nothing ever
-refreshes it. Measured across the forty-seven Climative checkouts on this Mac, three of
-them disagree with GitHub — `climative-api-service` and `synapse-repo` both say
-`origin/develop`, and `frontend-base` says `origin/TECH-5989-bootstrap-nginx`, a feature
-branch — while GitHub says `main` for all three. A delivery that trusted the local ref
+refreshes it. Every one of the forty-seven Climative checkouts on this Mac was read, and
+three of them name an `origin/HEAD` GitHub disagrees with — `climative-api-service` and
+`synapse-repo` both say `origin/develop`, and `frontend-base` says
+`origin/TECH-5989-bootstrap-nginx`, a feature branch — while GitHub says `main` for all
+three. A delivery that trusted the local ref
 would open those pull requests into a branch nobody merges, silently, because a pull
 request into the wrong base is a perfectly valid pull request. The answer is cached per
 `owner/repo` for the life of the process, since a repo's default branch changes about

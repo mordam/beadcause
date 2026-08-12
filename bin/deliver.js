@@ -146,8 +146,10 @@ const method = mergeMethod(String(arg('--method') || cfg.pr?.mergeMethod || 'mer
  * `--base` still wins outright — a session delivering into something other than its
  * repo's default branch says so on the command line. With no flag the answer comes from
  * `baseFor` in lib/prbase.js: `pr.base` for a workspace that is one repo, and the repo's
- * own default branch for a workspace that is forty of them, because one setting cannot
- * name forty bases and two of the Climative checkouts on this Mac are not on `main`.
+ * own default branch for a workspace that is forty of them. One setting cannot name
+ * forty bases, and whether they all happen to agree today is not something a delivery
+ * should be resting on — a pull request opened into the wrong base is a perfectly valid
+ * pull request, so being wrong here is silent.
  */
 const baseFlag = arg('--base');
 const tests = arg('--tests') || '';

@@ -20,8 +20,8 @@
  *
  * 3. **GitHub is asked, never `refs/remotes/origin/HEAD`.** That ref is written by
  *    `clone` and never refreshed, and on this Mac three of the forty-seven Climative
- *    checkouts disagree with GitHub about their own default branch — one of them names
- *    a feature branch. So the test's checkouts are given an `origin/HEAD` that is
+ *    checkouts name an `origin/HEAD` GitHub disagrees with — one of them a feature
+ *    branch. So the test's checkouts are given an `origin/HEAD` that is
  *    *wrong on purpose*, and the assertion is that the answer comes from `gh` anyway.
  *
  * 4. **A `gh` that will not say is a fallback, not a refusal.** No `gh`, no auth, no
