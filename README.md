@@ -4640,7 +4640,7 @@ says **no bead named** rather than borrowing one.
   says which. GitHub's merge puts the commit on `origin/<base>` itself, so the work is
   off the laptop the moment it lands; the "& push" half is bringing this Mac's own
   `<base>` up with it, and it **will not touch a checkout with uncommitted work in
-  it** — it says so instead. Both halves are always reported separately: a merge that
+  it** — it says so instead, naming the paths in the way. Both halves are always reported separately: a merge that
   landed and a fast-forward refused because you have files open is a good outcome, and
   one flat word over the pair would send you to the Mac to find out which happened.
   It takes **two taps**, with the consequence written into the button between them —
@@ -6965,7 +6965,18 @@ Six things follow, and they are the whole of the change:
   ends by fast-forwarding the **main checkout** — not its own worktree, where the ref
   cannot move anyway — and it is the same `landLocally` the **Merge & push** button uses,
   refusal and all: *a checkout with uncommitted work in it is not touched*, it says so on
-  the bead instead, and Adam's open files are worth more than a tidy `main`.
+  the bead instead, and Adam's open files are worth more than a tidy `main`. **It names
+  the paths that stopped it**, and says outright when every one of them is untracked.
+  That reads as a detail and is not: the refusal is per-delivery but the checkout is
+  *shared*, so a single stray path holds up **every** session's fast-forward, silently,
+  until a person happens to look. A `.beads/` directory left behind by a reverted
+  `bd init` did precisely that for a day and 114 commits — nothing was lost, the merges
+  were all safely on `origin`, but nothing merged in that window was *live*, and
+  `--status` went on saying `disk … (matches what is running)` throughout, because the
+  checkout was simply old. Each session that hit it paid to work that out again. The
+  fix is that the sentence is now diagnostic; ignoring `.beads/` was the other option
+  and was declined, because it would have hidden the residue as well as the symptom,
+  and any *other* stray path reproduces the condition identically (bc-s7fs).
 - **It will not merge over a red check, and it will not wait forever for a green one.**
   Failing checks stop it and become a card in your inbox — the button there *does* let
   you merge over red, because a red check is sometimes a flake and judging that is what
