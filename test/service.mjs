@@ -39,6 +39,7 @@ import {
   LABEL,
   LOADED_ENV,
 } from '../lib/service.js';
+import { removeTreeSync } from './helpers/tmp.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -67,7 +68,7 @@ const bad = (name, detail) => {
 const check = (name, cond, detail = '') => (cond ? ok(name) : bad(name, detail));
 
 const tmpdir = fs.mkdtempSync(path.join(os.tmpdir(), 'beadcause-service-'));
-process.on('exit', () => fs.rmSync(tmpdir, { recursive: true, force: true }));
+process.on('exit', () => removeTreeSync(tmpdir));
 
 /** A fake home whose LaunchAgents folder holds exactly the plist a case needs. */
 function home(name, xml) {

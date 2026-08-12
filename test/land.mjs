@@ -40,6 +40,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { cleanupTmp } from './helpers/tmp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const LIB = path.join(HERE, '..', 'lib', 'session.js');
@@ -453,7 +454,7 @@ check('nor is an explicit rebase', moveSquashDefault({ pr: { mergeMethod: 'rebas
 /* ------------------------------------------------------------------ verdict */
 
 console.log('');
-fs.rmSync(tmp, { recursive: true, force: true });
+await cleanupTmp(tmp);
 if (failures) {
   console.log(`\x1b[31m${failures} check${failures === 1 ? '' : 's'} failed\x1b[0m`);
   process.exit(1);

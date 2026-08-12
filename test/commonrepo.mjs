@@ -52,6 +52,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { cleanupTmp } from './helpers/tmp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const LIB = (name) => path.join(HERE, '..', 'lib', name);
@@ -202,6 +203,6 @@ await check('and finds one forced past the guard, by content and by path', async
   assert.equal(byPath.kind, 'path');
 });
 
-fs.rmSync(tmp, { recursive: true, force: true });
+await cleanupTmp(tmp);
 console.log(failures ? `\n${failures} of ${ran} failed` : `\n${ran} passed`);
 process.exit(failures ? 1 : 0);

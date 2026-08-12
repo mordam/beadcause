@@ -33,6 +33,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { cleanupTmp } from './helpers/tmp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const LIB = (name) => path.join(HERE, '..', 'lib', name);
@@ -408,6 +409,6 @@ console.log('\nread-only by construction');
   check('and no exported name promises a write', writes.length === 0, writes.join(', '));
 }
 
-fs.rmSync(tmp, { recursive: true, force: true });
+await cleanupTmp(tmp);
 console.log(failures ? `\n${failures} failed\n` : '\nall passed\n');
 process.exit(failures ? 1 : 0);
