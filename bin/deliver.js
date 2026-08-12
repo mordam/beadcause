@@ -85,6 +85,7 @@ import { park, questionType } from '../lib/park.js';
 import * as pr from '../lib/pr.js';
 import { baseFor } from '../lib/prbase.js';
 import { landParent } from '../lib/prboard.js';
+import { repoUnits } from '../lib/repos.js';
 import { prPolicyFor } from '../lib/spaces.js';
 
 function arg(...names) {
@@ -726,11 +727,48 @@ if (awaitingApproval) console.error(`beadcause-deliver: not merged — #${reques
  * the button. It is a terrible reason to fail a delivery whose branch is already pushed
  * and whose pull request is already open.
  */
+/**
+ * And **which repo's** deploy, which in a workspace of forty checkouts is not the
+ * workspace's. This session is standing in a worktree of one of them, so the unit is the
+ * one whose checkout owns this worktree's object database — `git rev-parse
+ * --git-common-dir`, which is what `landParent` above already asks for the same reason.
+ *
+ * A worktree that matches no approved repo gets no hint and no Ship, said out loud: it is
+ * the same state as a repo that declared nothing, and inventing the workspace's key for it
+ * would put a button on the card that deploys a checkout this branch was never in.
+ */
+let shipKey = ws.name;
+{
+  const units = repoUnits(cfg, ws.name);
+  if (units.length === 1 && !units[0].repo) {
+    shipKey = units[0].key;
+  } else {
+    // Relative (`.git`) or absolute depending on git's version and where it is run, so it is
+    // resolved against this directory either way; a git that will not answer leaves `common`
+    // as this directory, which matches nothing and is reported below rather than guessed at.
+    let common = path.resolve(dir);
+    try {
+      common = path.resolve(dir, git(['rev-parse', '--git-common-dir']), '..');
+    } catch {
+      /* not a checkout, or a git that refused — handled by finding no unit */
+    }
+    const mine = units.find((u) => u.repo && path.resolve(u.repo.dir) === common);
+    if (mine) shipKey = mine.key;
+    else {
+      shipKey = '';
+      console.error(
+        `beadcause-deliver: ${dir} is not an approved ${ws.name} repo, so the card offers no Ship — ` +
+          `add it to repos.${ws.name}.approved if a deploy of it should be one tap`
+      );
+    }
+  }
+}
+
 let shipHint = '';
 try {
-  shipHint = deployHint(deployFor(cfg, ws.name));
+  shipHint = shipKey ? deployHint(deployFor(cfg, shipKey)) : '';
 } catch (err) {
-  console.error(`beadcause-deliver: ${ws.name} declares a deploy this cannot read, so the card offers no Ship — ${first(err)}`);
+  console.error(`beadcause-deliver: ${shipKey} declares a deploy this cannot read, so the card offers no Ship — ${first(err)}`);
 }
 
 // Before the new card exists, so the inbox is never holding two questions about the

@@ -179,7 +179,7 @@ check('the entry lands in the stored file, and in the config the caller is holdi
   const cfg = config({ workspaces: [{ name: 'beadcause', dir: path.join(tmp, 'beads') }], sessionDirs: { beadcause: root } });
   const notice = declareOwnDeploy(cfg, { root, home: home('live', path.join(root, 'bin', 'router.js')) });
 
-  assert.match(notice, /deploys\.beadcause declared/);
+  assert.match(notice, /deploys\["beadcause"\] declared/);
   assert.deepEqual(stored().deploys.beadcause.command, ['launchctl', 'kickstart', '-k', `gui/{uid}/${LABEL}`]);
   assert.equal(stored().deploys.beadcause.restarts, true);
   assert.deepEqual(cfg.deploys.beadcause, stored().deploys.beadcause);

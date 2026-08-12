@@ -175,7 +175,10 @@ await check('every start in lib/server.js goes through the one place that emits'
   assert.ok(at > 0, 'beginDeploy is gone');
   const body = src.slice(at, src.indexOf('\n}', at));
   assert.ok(/startDeploy\(/.test(body), 'the one startDeploy call is not the one inside beginDeploy');
-  assert.ok(/bus\.emit\(\{ type: 'deploy'/.test(body), 'beginDeploy no longer emits');
+  // Across newlines: the payload grew a `key` when deploys became per-repo (bc-l853.6) and
+  // wrapped, and what this asserts is that the emit is still there rather than how it is laid
+  // out.
+  assert.ok(/bus\.emit\(\{[\s\S]*?type: 'deploy'/.test(body), 'beginDeploy no longer emits');
   // Five callers, and a sixth that forgot would be caught by the count above.
   const callers = src.match(/beginDeploy\(/g) || [];
   assert.ok(callers.length >= 6, `only ${callers.length - 1} call sites reach beginDeploy; there were five`);
