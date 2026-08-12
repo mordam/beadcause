@@ -5651,11 +5651,38 @@ that the one file this repo works hardest to keep free of seams did not have to 
 for a test. Two things about it are worth knowing before changing it: the router's output
 goes to a *file* and not a pipe, because writes to a pipe are asynchronous and
 `process.exit()` drops them, so the last lines a dying process writes are the ones that
-disappear; and the signal has to wait for the first bring-up to finish, because
-`process.on('SIGTERM')` is registered on the last line of `bin/router.js` and a router
-signalled before that is killed by node's default disposition without running `shutdown` at
-all. Both of those failed by going *quiet*, which reads as a broken exemption rather than
-as a test that was early.
+disappear; and the SIGTERM and the SIGUSR2 are sent **back to back, with nothing in
+between**, because the shutdown they have to interrupt is over in milliseconds. Both of
+those failed by going *quiet*, which reads as a broken exemption rather than as a test
+that was mistimed.
+
+**Why there is no gap between the two signals** (bc-1wf9). `shutdown` appears to give
+itself 300ms before `process.exit(0)`, but that timer is `unref`ed: once the port is closed
+and the backends are stopped there is nothing holding the loop open, and the router is gone
+in a few milliseconds. The suite used to send the SIGTERM, wait up to 80ms for the
+`shutting down — stopping backends` line, and only then send the SIGUSR2 — and under a
+full-tree run on a loaded laptop that wait routinely lost the race. The crash then landed on
+a router that had already gone, and what came back was the shutdown's own exit `0`, or a
+bare `SIGUSR2` when it caught the process mid-teardown with that handler already restored
+to its default. Retrying the same race three times did not make it likelier; the log said
+"signalled before it was listening", which was the one thing it was not. Sent together
+there is no gap to lose, and both orderings agree on which arrives first — the kernel
+delivers the lower-numbered pending signal first, and libuv dispatches what it queued in
+the order it was posted — so the suite asserts the ordering from the log afterwards rather
+than trying to buy it with a sleep.
+
+The other half of that is in the router itself, and it is not only a test fix:
+`process.on('SIGTERM')` used to be registered on the **last line** of `bin/router.js`,
+after the first bring-up. Until then node's default disposition answered a SIGTERM, so a
+`launchctl kickstart -k` landing during startup killed the router where it stood — no
+`shutdown`, backends orphaned to their own minute-long guard, the port dropped rather than
+closed — and that window covered arming the crash handlers, fetching a certificate and the
+whole first bring-up, which is seconds on a cold start and exactly the seconds a
+restart-loop lands in. The handlers go on immediately after `listen()` now, which is the
+earliest point at which `shutdown` has a socket to close; everything else it touches is
+either empty (`active`, `retiring`) or optional (`crash`, still null until
+`armCrashHandlers` finishes, which is what the `if (shuttingDown)` on that function's way
+out has always been for).
 
 
 ## Advocates — an agent per repo, whose job is the queue reaching zero
