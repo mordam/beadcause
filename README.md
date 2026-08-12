@@ -10482,6 +10482,25 @@ would pass against a `quiesce()` that did nothing. Filed as bc-5uy8; bc-3qsw, bc
 bc-t69u and bc-94c6 are the same failure in `reap.mjs`, `superseded.mjs`, `slowstart.mjs`
 and `outagepush.mjs`, and each is a two-line change now that the helper exists.
 
+**One of the four was not two lines, and the difference is worth keeping.**
+`test/outagepush.mjs` runs a real router, and a router is a supervisor: it has backends
+of its own, and they hold the same scratch directory as their `BEADCAUSE_CONFIG_DIR`.
+Its teardown killed that router and removed the directory on the next line — but
+`kill()` only queues a signal, so the removal was racing a process that had not been
+told yet, let alone gone. That is bc-94c6, and its title is the whole of it: **SIGKILL is
+not a wait.** `removeTree`'s retry loop hides it, and hiding it is not the same as not
+having it — a suite that needs ten attempts and a second and a half of backoff to take
+its own directory away is one that never waited for the thing writing into it.
+
+So that suite reaps before it removes: SIGTERM, then `once('exit')`, which resolves when
+the child has actually been reaped, with a SIGKILL five seconds later for a router that
+will not go. SIGTERM rather than SIGKILL because it is the only signal the router can act
+on — `shutdown` in bin/router.js stops the backends first — so one wait covers the
+grandchildren too, and the retry loop goes back to being the backstop it is meant to be.
+The teardown also moved out of the `process.on('exit')` handler and below the `catch`,
+because an exit handler is precisely where waiting is impossible; what stays behind there
+is `removeTreeSync` for the exits that never reach it.
+
 ### A suite must not assert about a directory it does not own — `test/browse.mjs`
 
 The same shape as the teardown above, from the other side: not a suite whose cleanup
