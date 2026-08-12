@@ -355,6 +355,32 @@ section('through the real server');
     }
   };
 
+  /* The warning has existed since bc-c6qp and nothing ever emitted it, so the README's
+     "beadcause says so in the log" was a promise no code kept. It is said once, at boot,
+     for both Atlassian tokens — a fact about a file on disk, not a per-request one. */
+  {
+    const said = [];
+    const real = console.warn;
+    console.warn = (...a) => said.push(a.join(' '));
+    try {
+      createApp({ ...base, ...CFG });
+      check('a token file the config repo refuses is not complained about', !said.some((s) => /WILL be committed/.test(s)), said.join(' | '));
+
+      said.length = 0;
+      createApp({
+        ...base,
+        ...CFG,
+        confluence: { ...CFG.confluence, apiTokenFile: path.join(process.env.BEADCAUSE_CONFIG_DIR, 'confluence-token.txt') },
+        workspaces: [{ name: 'acme', dir: path.join(tmp, 'ws') }],
+        jira: { acme: { enabled: true, email: 'a@b.com', tokenFile: 'jira-token.txt' } },
+      });
+      check('one that it would COMMIT is said out loud at boot — the only tell there is', said.filter((s) => /WILL be committed/.test(s)).length === 2, said.join(' | '));
+      check('and both integrations are covered, not just the one that had the check', /confluence-token\.txt/.test(said.join(' ')) && /jira-token\.txt/.test(said.join(' ')), said.join(' | '));
+    } finally {
+      console.warn = real;
+    }
+  }
+
   await drive({ ...base }, async (get) => {
     const res = await get(`/api/confluence?p=${encodeURIComponent(DOC)}`);
     const body = await res.json();
