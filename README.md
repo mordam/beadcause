@@ -10453,6 +10453,70 @@ one. The half that can be had without one is measured for real, by pointing the 
 at a binary that does not exist and asserting on both the message and the absent profile
 directory.
 
+### A suite must not have a clock for a pass condition — `test/slowstart.mjs`
+
+The third of these, and the worst-reading one. `test/slowstart.mjs` proves that a backend
+which is merely *slow* is retried rather than condemned, and the only honest way to prove
+it is on a real router: give one a health window nothing can start inside, touch nothing,
+and see whether it comes back on its own. That much is right and has not changed. What was
+wrong is that the window was a **constant** — `healthTimeoutMs: 250` — and the wait for
+the recovery was another one, a flat two minutes.
+
+Neither number means anything on its own. The router widens its window by *doubling*, so
+the number of bring-ups it needs is the distance in doublings between 250ms and how long
+this laptop actually takes to start a backend — three when it is idle, seven when eight
+sessions are running `npm test` at once — and every one of those bring-ups costs an outage
+pause that doubles too (2s, 4s, 8s, 16s, 32s, 60s). The ladder to recovery is therefore
+~20s idle and ~170s loaded, against a deadline nailed to 120s. Same tree, same code, red
+or green depending on what else was on the Mac.
+
+And it did not fail like a flake. It failed as `timed out waiting for the router to bring
+a backend up on its own`, over a log full of `would not start in time` — which at a glance
+is indistinguishable from **the router can no longer start a backend**, in the suite that
+exists to catch exactly that. It is the last thing a session sees before deciding whether
+its own work is safe to deliver, and the only way to tell the two apart was to re-run the
+suite alone and see it pass. bc-pv7a hit it as three green full runs, a fourth red on this
+suite, and 36 of 36 a minute later on the same tree.
+
+So the machine is **measured** rather than assumed. Before the router is started at all, a
+backend is spawned by hand exactly as `spawnBackend` does it — same argv, same cwd, same
+config dir, same `/internal/state` poll with the same token — and timed. Everything else
+is derived from that one number:
+
+| | |
+|---|---|
+| the window | `MEASURED / 8`, floored at the old 250ms. Still far too short to start anything, so the experiment is the one it always was — but now a *fixed* number of doublings short instead of however many this laptop happens to be having, which is what makes the ladder the same length on every machine. |
+| the deadline | walked, not guessed. `ladder()` runs the same policy the router runs — `healthDeadline` per attempt, `nextSlowness` per bring-up, `outageRetryMs` between them — and returns when the window would first be wide enough, so the wait can never land in the middle of a rung. |
+| the verdict | settled by spawning one more backend by hand, if it does time out anyway. |
+
+That last row is the half that answers "was it this machine or was it the router", in the
+message, without going to the log. If the hand-spawned backend cannot start inside the
+widest window the router had already reached, then neither could the router and there was
+no chance here it failed to take: the run says **THIS MACHINE, NOT THE ROUTER**, names both
+numbers, and is *inconclusive rather than failed* — the checks that do not depend on a
+clock have all run and the exit code stays 0. If it starts promptly, the router had every
+chance and did not take it, and that is a regression: **THE ROUTER, NOT THIS MACHINE**,
+with the hand-measured start, the window it was up against, and the router's own last
+`still starting after Ns` line quoted at the point of failure rather than below it.
+
+Three smaller things fall out of it, and each is a way this could have gone quietly wrong:
+
+- A hand-spawned backend that **exits** is never read as a slow one. `timeOneStart`
+  returns `{ms}`, `{slow}` or `{exited}`, because a backend that dies at startup is a
+  broken build — the case the router is *right* to condemn — and folding it into "this
+  machine is struggling" would turn a real breakage into a green run.
+- The measurement is capped at 45s, under the **60s orphan guard** in bin/beadcause.js: a
+  backend given `--port` expects a router to touch `/internal/state` every ten seconds and
+  exits **0** when a minute passes without one. Nothing in the measurement is a router, so
+  a longer ceiling would collect that clean exit and report a broken backend.
+- If the window turns out *not* to have been too short — the machine got four times faster
+  in the seconds after proving it was not — the slow path never happened and there was
+  nothing to recover from. That is inconclusive too, and says so, rather than failing an
+  assertion about a router that is serving perfectly well.
+
+Filed as bc-9zv0. The sibling failure in the same file is bc-t69u, its `ENOTEMPTY` teardown
+race, which is the `test/helpers/tmp.mjs` story above and not this one.
+
 ### `npm run checks` — the browser half, and why `npm test` can still see it rot
 
 The twenty-eight `scripts/*-check.mjs` are the only cover this repo has for layout, taps
