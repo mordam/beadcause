@@ -909,6 +909,44 @@ children" is not a decision to take from a lock screen, and a `force` flag that
 skipped the check would only reach the same refusal from bd a moment later, since
 `respond` does not pass `--force` either.
 
+#### Exactly which beads — and the two that read backwards
+
+Inventing a gate is the worse of the two failures here and the silent one: a bead bd
+would close happily becomes unanswerable from the phone, and nothing anywhere says
+why. So the rules are measured against the binary rather than described from memory —
+`test/closegatereal.mjs` builds each shape below in a throwaway workspace and asserts
+that what beadcause answers and what `bd close` then does are the same answer. Against
+bd 1.1.2:
+
+| the bead | bd | beadcause |
+|---|---|---|
+| an **epic** with a child not closed | refuses | refuses |
+| an **epic** whose children have all closed, or has none | closes | permits |
+| a **feature**, **task**, **bug** or **chore** with open children | **closes** | **permits** |
+| **blocked** by a `blocks` dependency not closed | refuses | refuses |
+| a `related`, `parent-child` or `discovered-from` edge, open | closes | permits |
+| a **blocker** closing while what it blocks stays open | closes | permits |
+
+Two rows there are worth saying out loud, because both were assumed the other way
+round and each cost somebody an afternoon:
+
+- **`epic` means the word, not "has children".** A feature with five open children
+  closes without a murmur. bc-5864 was filed on exactly that: `bc-rk2o` was closed by
+  `bin/deliver.js` while `bc-rk2o.1` was still open, which read as bd permitting a
+  close the gate would have refused — an invented gate, the expensive failure, caught
+  in the wild. `bc-rk2o` is a feature. bd permitted it, the gate would have permitted
+  it too, and nothing disagreed with anything.
+- **Not-closed is what counts, not open.** `in_progress` is a child a session is
+  working on right now, and `deferred` reads as *settled* everywhere else in this app.
+  Neither is closed, so both still gate — on a child and on a blocker alike.
+
+And the delivery path does not ask this question at all, which is agreement rather
+than a second opinion. `bin/deliver.js` attempts the close and handles the refusal —
+it records it for the daemon to retry (`lib/owed.js`) and says so on the bead in bd's
+own words — because by then the merge has already happened and a refusal has somewhere
+to go. A tap on a card has nowhere: it is about to write a comment it cannot take
+back, so it asks first. Same rules on both paths; bd is the thing refusing in both.
+
 ### The best refusal is a button that was never there
 
 Refusing before anything is written fixed the damage. It did not fix the shape:
@@ -979,12 +1017,20 @@ be reporting the merge as a failure.
 
 ### Checking it
 
-Four, because the things that can break here are different things:
+Five, because the things that can break here are different things:
 
 - **`node test/closegate.mjs`** — the gate itself: the two refusals, and, the
-  expensive half, the six cases that must **not** be refused. A question bd would
+  expensive half, the seven cases that must **not** be refused. A question bd would
   close happily becoming unanswerable from the phone is a worse bug than the one
   this fixes, and a silent one.
+- **`node test/closegatereal.mjs`** — the same claims, asked of `bd` instead of a
+  fixture. The file above stubs `run()`, so it proves the gate matches what this
+  code *believes* about bd and can never catch the belief being wrong — which is
+  the failure bc-5864 was filed about. This one runs `bd init` in a throwaway
+  workspace, builds each shape from the [table above](#exactly-which-beads--and-the-two-that-read-backwards),
+  and for every one asserts the gate's answer *and* what a real `bd close` then
+  does. ~35s and a real tracker, which is what the question costs; it skips out
+  loud where `bd` is not on PATH.
 - **`node test/closepaths.mjs`** — what each of the two ways out is allowed to
   write, which is a different claim and the one that kept breaking. Both endpoints
   are driven over real HTTP with `cfg.bdBin` pointed at a fake `bd`, so *"wrote
