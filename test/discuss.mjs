@@ -48,6 +48,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { boundPort } from './helpers/net.mjs';
+import { cleanupTmp } from './helpers/tmp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const LIB = (name) => path.join(HERE, '..', 'lib', name);
@@ -462,7 +463,7 @@ await check('the page draws that count, and offers the way in', () => {
 
 for (const s of servers) s.close();
 app.bus?.close?.();
-fs.rmSync(tmp, { recursive: true, force: true });
+await cleanupTmp(tmp);
 
 console.log(`\n${ran - failures}/${ran} passed\n`);
 process.exit(failures ? 1 : 0);

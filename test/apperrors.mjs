@@ -41,6 +41,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { boundPort } from './helpers/net.mjs';
+import { cleanupTmp } from './helpers/tmp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const LIB = (name) => path.join(HERE, '..', 'lib', name);
@@ -694,7 +695,7 @@ await check('the endpoint is registered once, on POST', async () => {
 /* -------------------------------------------------------------------- the result */
 
 for (const s of servers) s.close();
-fs.rmSync(tmp, { recursive: true, force: true });
+await cleanupTmp(tmp);
 
 console.log(`\n${ran - failures}/${ran} checks passed\n`);
 process.exit(failures ? 1 : 0);
