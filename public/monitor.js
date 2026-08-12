@@ -465,6 +465,10 @@
    */
   function workerRow(a, w) {
     const chips = [
+      // A batch head stands for several beads and the row shows one title. Without this
+      // the others are invisible: they left the queue, one window went up, and nothing on
+      // screen says the two facts are the same fact.
+      w.batch?.length ? `<span class="tag">carrying ${esc(w.batch.length)} more under it</span>` : '',
       w.claimed ? '<span class="tag ok">claimed</span>' : '<span class="tag">not claimed yet</span>',
       w.ended ? '<span class="tag warn">the window has exited</span>' : '',
       // Where a reclaim got to. Asked and unanswered is the state worth seeing: the
