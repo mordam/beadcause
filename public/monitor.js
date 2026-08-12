@@ -1291,11 +1291,27 @@
     // `ntfy.minimalWorkspaces` and `autoDispatchExclude` are per-repo lists that outrank
     // it. A screen that showed only the space's answer would be quietly wrong about
     // exactly the repo that had been singled out.
+    //
+    // A row is a workspace, and since lib/repos.js that is not always one checkout: a
+    // `checkouts` count means this row's single answer governs that many repos of an org
+    // sharing one tracker. Saying so is the whole of what the space-is-the-unit decision
+    // asks of the screen — one row reading as one repo understated the reach of every
+    // setting above it by fortyfold. See the block above `autoDispatchAllowed` in
+    // lib/spaces.js.
+    const many = d.repos.filter((r) => typeof r.checkouts === 'number');
+    const total = d.repos.reduce((n, r) => n + (typeof r.checkouts === 'number' ? r.checkouts : 1), 0);
     const repos = d.repos.length
       ? `<div class="space-repos">${d.repos
           .map(
             (r) => `<div class="space-repo">
               <span class="pill id">${esc(r.name)}</span>
+              ${
+                typeof r.checkouts === 'number'
+                  ? `<span class="tag ${r.checkouts ? 'dim' : 'warn'}">${
+                      r.checkouts ? `${r.checkouts} checkout${r.checkouts === 1 ? '' : 's'}, one answer` : 'no checkout resolved'
+                    }</span>`
+                  : ''
+              }
               <span class="tag${r.ntfyDetail === 'minimal' ? ' warn' : ' dim'}">${esc(r.ntfyDetail)} push</span>
               <span class="tag ${r.autoDispatch ? 'ok' : 'dim'}">${r.autoDispatch ? 'agents may answer' : 'no agent replies'}</span>
               <span class="tag ${r.autoEndorse ? 'warn' : 'dim'}">${r.autoEndorse ? 'files endorsed' : 'files held'}</span>
@@ -1318,7 +1334,13 @@
               }
             </div>`
           )
-          .join('')}</div>`
+          .join('')}</div>${
+          many.length
+            ? `<p class="subtitle">${esc(
+                many.map((r) => r.name).join(', ')
+              )} holds many checkouts sharing one tracker, so the settings above are one answer for all of them — which repo a bead is about does not change them.</p>`
+            : ''
+        }`
       : '<p class="subtitle">No configured repo is in this space.</p>';
 
     const missing = d.missing.length
@@ -1340,7 +1362,7 @@
       ${missing}
       ${state.spaceSaid ? `<div class="adv-note${state.spaceSaid.bad ? ' bad' : ''}">${esc(state.spaceSaid.text)}</div>` : ''}
       ${section(`space:${d.space}:cfg`, 'Settings', '', rows)}
-      ${section(`space:${d.space}:repos`, 'What each repo resolves to', String(d.repos.length), repos)}
+      ${section(`space:${d.space}:repos`, 'What each repo resolves to', String(total), repos)}
     </article>`;
   }
 

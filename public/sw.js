@@ -182,26 +182,41 @@
    font, sized to whatever the flex row leaves it, on a 393px screen where the three
    buttons beside it then wrap around it. It still takes a channel id, which is exactly
    the "looks like a working page" failure a cache version exists to prevent. */
-/* v40: the pull request board came back as a third chip on the advocates page (bc-d4d5),
+/* v40: Endorse all in the endorsement queue's header — one tap for the whole drawn
+   list rather than a tick per bead (bc-mf88). No new path: endorse.js and style.css are
+   both already here, and it is the v32 pairing again. The harmless direction is v39's
+   endorse.js against v40's stylesheet, which is the queue exactly as it was with three
+   unused rules behind it. The other is not: v40's endorse.js beside v39's style.css has
+   no `.eq-head-row`, so the flex row never forms — the accent-filled button drops onto
+   its own line directly under "101 beads waiting on you" and above the subtitle, full
+   bleed across a 393px screen, which is both the shape and the position this control was
+   deliberately not given. And when it arms, `.eq-all-hint` is missing too, so the
+   sentence naming the count and every repo the tap covers renders at body size in the
+   middle of the header rather than as a hint under the button, reading as the page's own
+   prose rather than as the question it is. It still endorses the right beads, which is
+   exactly the "looks like a working page" failure a cache version exists to prevent —
+   and here the working page is one whose most consequential button is the biggest thing
+   on the screen and no longer says which tap does what. */
+/* v41: the pull request board came back as a third chip on the advocates page (bc-d4d5),
    which deletes prs.html, adds montabs.js, and points /prs, /pulls and /prs.html at
    monitor.html. One new path and one deleted one — and unusually for this list, both
    halves of the pairing break rather than one of them merely being the app as it was.
 
-   v39's monitor.html beside v40's mirror.js is the dead direction. That HTML has no
-   `<script src="/montabs.js">` and no `#prs` section, and v40's mirror.js has given the
+   The old monitor.html beside the new mirror.js is the dead direction. That HTML has no
+   `<script src="/montabs.js">` and no `#prs` section, and the new mirror.js has given the
    chip row away — it subscribes to `beadcause.monTabs`, which on that page never exists,
    so nothing is listening to the row at all. The Mirror chip stops responding to a tap
    and its pane can never be shown again.
 
-   v40's monitor.html beside v39's mirror.js is the loud one, and it is loud in the wrong
-   place. The new HTML loads /prs.js, and v39's cached copy of that file is still the
+   The new monitor.html beside the old prs.js is the loud one, and it is loud in the wrong
+   place. The new HTML loads /prs.js, and a cached copy from before this is still the
    standalone page: its first act is `getElementById('prs-refresh').addEventListener`,
    against a top bar that now has one shared ⟳ and no such button. That throws on load,
    so the board never draws at all — the pane sits on "Asking every repo…" — while the
    two chips either side of it work perfectly, which is what makes it read as a slow
    network rather than as a page that has half-loaded. It arrives on the one screen the
    Ship button is on, which is the whole reason this bead existed. */
-const CACHE = 'beadcause-v40';
+const CACHE = 'beadcause-v41';
 const SHELL = [
   '/',
   '/index.html',
