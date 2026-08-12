@@ -3730,6 +3730,51 @@ anyway. That fallback is live in three other places too — a page loaded withou
 `sessionStorage`. In every one of them the inbox is exactly the inbox it was before
 this section existed.
 
+### The shell's cache version — one note per bump rather than one line
+
+None of the above is what makes the shell instant; `public/sw.js` is, and it precaches
+every page in the app. The price of a precache is that a phone can end up holding a
+*mixture*: an `app.js` from Tuesday beside a `style.css` from Thursday, both cached,
+both perfectly valid, and together a screen with a button on it that nothing lays out
+or nothing answers. `const CACHE = 'beadcause-vNN'` is the one guard against that.
+Moving it makes `install` re-fetch the whole shell as a single all-or-nothing `addAll`
+and `activate` delete every cache that is not the new one, so the phone gets one
+generation of files or the coherent old one — never a mixture.
+
+**A change owes a bump when it leaves a mixed pair that is broken rather than merely
+older** — a new script calling a function its cached sibling does not have, a page whose
+script is not in the cache, or a stylesheet that lays out a control the cached page draws
+anyway. That judgement, and the suite that makes it on every branch, are [the cache
+version a branch forgot to move](#the-cache-version-a-branch-forgot-to-move); what is
+below is the other half — where the *record* of a bump lives once you have decided to
+make one.
+
+**Each version's argument is its own file in `docs/sw-cache/`,** because that argument
+is the only durable record of which two files must not be mixed — a version number on
+its own is unauditable a month later. Those notes lived as comment blocks above the
+`const` until bc-5ghk, and the top of `sw.js` was, by some distance, this repo's most
+conflict-prone region: around eight worker sessions run against it at once, every
+branch that bumped appended prose to the same lines, and two changes with nothing to do
+with each other came back from GitHub as `CONFLICTING` for no reason but where the
+paragraphs sat. That is the same failure `scripts/test.mjs` was written to remove from
+the suite list, and it has the same fix — bumping means *adding a file*, and two
+branches adding different files do not conflict.
+
+**The name is exactly `vNN.md`, with no slug, and that is load-bearing.** Two branches
+that both pick `v39` then collide on one path, which git has to report as an add/add
+conflict. Being told is the whole point, because the `const` will not tell you: two
+branches that write it the *same* value merge clean and in silence, which lands two
+changes under one cache key and a cache that never invalidates again. A descriptive
+name (`v39-chat-tabs.md`) would let both of them through quietly.
+
+**When it does conflict:** keep both notes, `git mv` yours to the next free number — and
+move the version pairs named inside its own prose up with it, since that prose is the
+record of what must not be mixed — then set the `const` by hand to the highest number in
+the directory and re-read the line, because git may already have merged it. `node
+test/swcache.mjs` is the gate: it fails if the `const` is not the highest note in the
+directory, if a note's own heading disagrees with its filename, if the numbers have a
+gap or a duplicate, or if a version block reappears as prose inside `sw.js`.
+
 ## Detail opens over the tab, not instead of it
 
 The graph and the reader are linked from every view that names a bead — the inbox,
