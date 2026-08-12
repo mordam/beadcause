@@ -77,6 +77,14 @@ const ago = (minutes) => new Date(Date.now() - minutes * 60000);
 const working = (id, title, over = {}) => bead(id, title, { inProgress: true, ...over });
 
 /**
+ * The batch head on the other Mac, as the tracker shows it from here: an epic, claimed, and
+ * carrying one machine's claim. An **epic**, because that is the qualifier — a batch head is
+ * always one, and a session on a plain parent speaks only for the bead it was handed.
+ */
+const heldEpic = (id, handle, minutes = 2) =>
+  working(id, 'the epic', { issue_type: 'epic', labels: [leaseLabel(handle, ago(minutes))] });
+
+/**
  * One machine's view of the shared tracker.
  *
  * Labels are rows, so two machines writing two different ones is not a conflict Dolt has
@@ -156,9 +164,12 @@ function machine(w, rows, { handle, overrides = {}, bdOver = {} } = {}) {
     listLabel: async () => [],
     show: async (_ws, id) => {
       shows.set(id, (shows.get(id) || 0) + 1);
+      // The whole row and not three fields of it, because `leaseHolderAbove` reads the type:
+      // a claim on an epic above a bead holds it, and a claim on a plain parent does not.
+      const row = rows.find((r) => r.id === id);
       return {
-        id,
-        status: rows.find((r) => r.id === id)?.closed ? 'closed' : 'in_progress',
+        ...(row || { id, issue_type: 'task' }),
+        status: row?.closed ? 'closed' : 'in_progress',
         labels: [...(view.get(id) || [])],
       };
     },
@@ -389,7 +400,7 @@ await check('holdLeases: false launches anyway', async () => {
  * belongs to somebody else's daemon. A claim on an ancestor is a claim on the subtree.
  */
 await check('a bead inside another Mac subtree gets no window', async () => {
-  const rows = [working('x-1', 'the epic', { labels: [leaseLabel('beta', ago(2))] }), bead('x-1.1', 'a child')];
+  const rows = [heldEpic('x-1', 'beta'), bead('x-1.1', 'a child')];
   const w = world(rows);
   const alpha = machine(w, rows, { handle: 'alpha' });
 
@@ -404,7 +415,7 @@ await check('a bead inside another Mac subtree gets no window', async () => {
 
 /** However deep. The claim is on the subtree, and a grandchild is in it. */
 await check('however far down the subtree it is', async () => {
-  const rows = [working('x-1', 'the epic', { labels: [leaseLabel('beta', ago(2))] }), bead('x-1.2.3', 'a grandchild')];
+  const rows = [heldEpic('x-1', 'beta'), bead('x-1.2.3', 'a grandchild')];
   const w = world(rows);
   const alpha = machine(w, rows, { handle: 'alpha' });
 
@@ -434,12 +445,35 @@ await check('it holds the subtree and nothing beside it', async () => {
 });
 
 /**
+ * And the qualifier, which is the other half of "nothing beside it". `heldByChildren` fires
+ * its upward check only against a **batch head**, and test/twinqueue.mjs holds that line for
+ * this laptop: a session handed one plain parent speaks for one bead, and holding its
+ * children behind it would leave nobody doing either. The rule here cannot see whether the
+ * other machine's window took a batch — a label says a machine and a moment — so it uses the
+ * one thing a batch head always is, and the two rules then agree. They have to: the same two
+ * beads must not resolve one way when the window is on this Mac and another way when it is
+ * on the next desk.
+ */
+await check('a claim on a plain parent holds nothing under it', async () => {
+  const rows = [
+    working('x-1', 'a plain parent, being worked', { labels: [leaseLabel('beta', ago(2))] }),
+    bead('x-1.1', 'a child'),
+  ];
+  const w = world(rows);
+  const alpha = machine(w, rows, { handle: 'alpha' });
+
+  const card = await alpha.tick();
+  assert.deepEqual(heldIds(card), [], 'a parent is not a subtree');
+  assert.deepEqual(alpha.opened, ['x-1.1']);
+});
+
+/**
  * What it costs, which is the argument for asking this at all: one read per ancestor per
  * pass however many children are in the queue, and none at all for a bead with no parent.
  */
 await check('the ancestor is read once for the whole queue', async () => {
   const rows = [
-    working('x-1', 'the epic', { labels: [leaseLabel('beta', ago(2))] }),
+    heldEpic('x-1', 'beta'),
     bead('x-1.1', 'a child'),
     bead('x-1.2', 'another'),
     bead('x-1.3', 'a third'),
@@ -456,7 +490,7 @@ await check('the ancestor is read once for the whole queue', async () => {
 
 /** A tracker that will not answer holds nothing back — the queue is not its to empty. */
 await check('a bd that cannot answer holds nothing', async () => {
-  const rows = [working('x-1', 'the epic', { labels: [leaseLabel('beta', ago(2))] }), bead('x-1.1', 'a child')];
+  const rows = [heldEpic('x-1', 'beta'), bead('x-1.1', 'a child')];
   const w = world(rows);
   const alpha = machine(w, rows, {
     handle: 'alpha',
@@ -481,7 +515,7 @@ await check('a bd that cannot answer holds nothing', async () => {
  * there is a whole worker record to look at rather than one label.
  */
 await check('this Mac is not held by its own claim above it', async () => {
-  const rows = [working('x-1', 'the epic', { labels: [leaseLabel('alpha', ago(5))] }), bead('x-1.1', 'a child')];
+  const rows = [heldEpic('x-1', 'alpha', 5), bead('x-1.1', 'a child')];
   const w = world(rows);
   const alpha = machine(w, rows, { handle: 'alpha' });
 
@@ -492,7 +526,7 @@ await check('this Mac is not held by its own claim above it', async () => {
 
 /** The single-person guarantee, one level up: no handle, no subtree, no read. */
 await check('a Mac that does not know who it is is held by no subtree', async () => {
-  const rows = [working('x-1', 'the epic', { labels: [leaseLabel('somebody', ago(2))] }), bead('x-1.1', 'a child')];
+  const rows = [heldEpic('x-1', 'somebody'), bead('x-1.1', 'a child')];
   const w = world(rows);
   const solo = machine(w, rows, { handle: null });
 
@@ -504,7 +538,7 @@ await check('a Mac that does not know who it is is held by no subtree', async ()
 
 /** Off is off, one level up too. */
 await check('holdLeases: false enters the subtree anyway', async () => {
-  const rows = [working('x-1', 'the epic', { labels: [leaseLabel('beta', ago(2))] }), bead('x-1.1', 'a child')];
+  const rows = [heldEpic('x-1', 'beta'), bead('x-1.1', 'a child')];
   const w = world(rows);
   const alpha = machine(w, rows, { handle: 'alpha', overrides: { holdLeases: false } });
 
@@ -525,7 +559,9 @@ await check('holdLeases: false enters the subtree anyway', async () => {
  * withdraws rather than carrying a second branch for the same work.
  */
 await check('two Macs in one subtree and exactly one survives', async () => {
-  const rows = [bead('x-1', 'the epic')];
+  // One child, so `minBatchBeads` means nobody forms a batch here and the epic launches as
+  // an ordinary bead: the race does not need batching to run, only a window above a window.
+  const rows = [bead('x-1', 'the epic', { issue_type: 'epic' })];
   const w = world(rows);
   const alpha = machine(w, rows, { handle: 'alpha' });
   const beta = machine(w, rows, { handle: 'beta' });
