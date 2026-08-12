@@ -38,8 +38,6 @@
 
   const token = localStorage.getItem('beadcause.token') || '';
   const pane = document.getElementById('mirror');
-  const advPane = document.getElementById('mon');
-  const tabsEl = document.getElementById('mon-tabs');
   const dot = document.getElementById('mirror-dot');
 
   /* How long after a broken console poll to try again. The presence feed used to share
@@ -116,7 +114,10 @@
     picks: new Map(),
     busy: '',
     note: null,
-    active: localStorage.getItem('beadcause.mirror.tab') === 'mirror',
+    // Whether the Mirror chip is the one that is up. Set from public/montabs.js, which
+    // owns the row — including at boot, so this starts false and is corrected before
+    // anything reads it rather than being decided twice from localStorage.
+    active: false,
     // Set while the tab is hidden and the phone has moved, so the tab itself can say
     // there is something new behind it.
     moved: false,
@@ -910,39 +911,37 @@
 
   /* ---------------------------------------------------------------------- tabs */
 
-  function showTab(which) {
-    state.active = which === 'mirror';
-    localStorage.setItem('beadcause.mirror.tab', which);
-    advPane.hidden = state.active;
-    pane.hidden = !state.active;
-    for (const b of tabsEl.querySelectorAll('[data-tab]')) b.setAttribute('aria-pressed', String(b.dataset.tab === which));
-    // What this device is looking at, which the chip just changed. On the mirror pane
-    // you are looking at *another* device, so this one is nowhere — `null` keeps the
-    // record and marks it idle rather than dropping it, which is what a mirror on a
-    // third screen should see. See the presence note at the foot of monitor.js.
-    window.beadcause?.presence?.report({ view: state.active ? null : 'sessions' });
-    if (state.active) {
-      state.moved = false;
-      dot.hidden = true;
-      ensureDetail(true);
-    } else {
-      // Nothing repaints while this pane is hidden, so a parked poll on the way back
-      // would only be a held request nobody reads. Coming back forces a fresh read,
-      // which starts a fresh one.
-      stopConsole();
-      window.beadcause?.monitor?.refresh();
-    }
+  /* Which chip is up is public/montabs.js's to decide — there are three of them now, and
+     the pane going away has to be told as much as the one arriving. This answers for
+     this pane and nothing else: the `hidden` attributes, the aria-pressed states and
+     what presence.js is told all moved there, and the report that used to be written out
+     here is the empty `data-view` on the Mirror chip in monitor.html.
+
+     Called once at boot as well as on every change, so there is no separate first paint.
+     Handing the advocates pane back is *its* subscriber's business now, not this one's:
+     with three panes, "not the mirror" stopped being a name for one page. */
+  function watchTabs() {
+    window.beadcause?.monTabs?.onChange((which) => {
+      state.active = which === 'mirror';
+      if (state.active) {
+        state.moved = false;
+        dot.hidden = true;
+        ensureDetail(true);
+      } else {
+        // Nothing repaints while this pane is hidden, so a parked poll on the way back
+        // would only be a held request nobody reads. Coming back forces a fresh read,
+        // which starts a fresh one.
+        stopConsole();
+      }
+    });
   }
 
-  tabsEl.addEventListener('click', (e) => {
-    const b = e.target.closest('[data-tab]');
-    if (b) showTab(b.dataset.tab);
-  });
-
   if (!token) {
+    // The chip still works and the pane still swaps — montabs.js does both. What an
+    // unpaired device does not do is go and ask, which is why nothing subscribes here.
     pane.innerHTML = '<div class="empty"><strong>This device is not paired</strong>Open the inbox first.</div>';
   } else {
-    showTab(state.active ? 'mirror' : 'advocates');
+    watchTabs();
     feed();
   }
 })();

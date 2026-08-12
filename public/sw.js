@@ -39,7 +39,7 @@
   directory, and re-read the line: git may well have merged it silently. `node
   test/swcache.mjs` checks precisely that, in about a second.
 */
-const CACHE = 'beadcause-v40';
+const CACHE = 'beadcause-v41';
 const SHELL = [
   '/',
   '/index.html',
@@ -100,8 +100,12 @@ const SHELL = [
   '/archive',
   '/beadsession.html',
   '/beadsession.js',
-  // The pull request board. Both paths, the same way the advocate console has five:
-  // /pulls is what you type when GitHub's own word for the tab is the one in your head.
+  // The pull request board — a pane on the advocates page now (bc-d4d5), so its three
+  // paths are three more ways of asking for monitor.html and are precached for the same
+  // reason that page's own five are: a redirect target left out of the shell is a
+  // home-screen shortcut that only works with a signal. /pulls is what you type when
+  // GitHub's own word for the tab is the one in your head; /prs.html is what a phone
+  // that bookmarked the page it used to be still asks for.
   '/prs',
   '/pulls',
   '/prs.html',
@@ -132,6 +136,10 @@ const SHELL = [
   '/work.html',
   '/monitor.html',
   '/monitor.js',
+  // The chip row on it, and which of its three panes is up. In the shell because that
+  // page is: without this file the chips are dead and two of the three panes — the board
+  // and the mirror — are unreachable from a cached advocates page.
+  '/montabs.js',
   // The ledger. In the shell because it is a tab: every tab has to open instantly from
   // the bar whatever the link is doing, and this is the one page in the app you might
   // reasonably open *because* you are somewhere with no signal and are trying to

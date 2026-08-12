@@ -2020,7 +2020,13 @@
     state.slackDraft = { space: spaceName(), text: e.target.value };
   });
 
-  document.getElementById('refresh').addEventListener('click', load);
+  /* The ⟳ is the page's, and this page has three panes now — so it only means *this*
+     one while this one is up. Without the guard, pressing it on the board would sweep
+     `bd` for every tracker on the Mac to refresh a roster nobody is looking at, which is
+     the same bill `ready` below exists to stop the stream running up. */
+  document.getElementById('refresh').addEventListener('click', () => {
+    if (!out.hidden) load();
+  });
   /* The space picker moved. Which repos are drawn is decided at paint time off the
      /api/work payload already in hand — but *whose settings* the card at the top shows
      has changed, and that is a different space's config, so it is fetched. Painted
@@ -2105,21 +2111,23 @@
     logTimer = setTimeout(() => pumpLogs().finally(scheduleLogs), LOG_MS);
   }
 
-  // How the tab bar brings this pane back up to date when you return to it.
+  // Kept for anything that wants this pane refreshed from outside. The chip row does it
+  // through the subscription at the foot of this file now, rather than by name.
   window.beadcause = window.beadcause || {};
   window.beadcause.monitor = { refresh: load };
 
-  /* Where this device is, for a mirror on some other screen. There is no selection to
-     publish — being here is the whole report — and the id stays `sessions` because that
-     is what lib/presence.js whitelists and what the mirror already has a name for; this
-     page is simply what the name now points at.
+  /* Where this device is, for a mirror on some other screen, is published by
+     public/montabs.js rather than here — because on this page it is a fact about which
+     of the three chips is up, and there is no moment at which this file knows that and
+     that one does not. The ids are on the chips themselves in monitor.html: `sessions`
+     for this pane, because that is what lib/presence.js whitelists and what the mirror
+     already has a name for; `prs` for the board; and nothing at all for the Mirror.
 
-     This page can also *be* a mirror, and presence.js's own header was right that a
-     device which followed itself would be absurd — so `showTab` in mirror.js revises
-     this to `null` while the mirror pane is up, and mirror.js drops its own device from
-     the list it follows. Both halves are needed: the report is honest about which pane
-     you are on, and the list cannot circle back on this one even mid-switch. */
-  window.beadcause?.presence?.report({ view: 'sessions' });
+     That last one is not tidiness. This page can also *be* a mirror, and presence.js's
+     own header was right that a device which followed itself would be absurd — so the
+     report goes `null` while the mirror pane is up, and mirror.js drops its own device
+     from the list it follows. Both halves are needed: the report is honest about which
+     pane you are on, and the list cannot circle back on this one even mid-switch. */
 
   if (!token) {
     out.innerHTML = '<div class="empty"><strong>This device is not paired</strong>Open the inbox first.</div>';
@@ -2127,6 +2135,17 @@
     // Paint what this tab had, then go and ask. The order is the whole point: `load`
     // is not made faster by this, it is made invisible.
     warmBoot();
-    load();
+    /* And ask only while this is the pane you are on. The chip row calls back once at
+       boot with whichever chip is up — which is the boot `load()` that used to be
+       written here — and again every time you come back to this one, which is what
+       mirror.js used to do by calling `beadcause.monitor.refresh` by name. Arriving on
+       /prs, which is this same page with the board up, now costs no `bd` sweep at all.
+
+       The fallback is not dead code: a service worker holding a monitor.html from before
+       the chip row was a file would load this one beside no montabs.js, and a page that
+       then never asked for anything would be a blank roster with no way to fill it. */
+    const tabs = window.beadcause?.monTabs;
+    if (tabs) tabs.onChange((which) => which === 'advocates' && load());
+    else load();
   }
 })();
