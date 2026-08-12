@@ -1302,7 +1302,45 @@ async function armCrashHandlers() {
 
 const routerBuildAtStart = routerStamp();
 
+/**
+ * Put the port down and stop the backends, once.
+ *
+ * Declared above the socket it closes because it has to be *registered* the moment the
+ * socket exists — see the two `process.on` calls below `listen()`. Nothing can call it
+ * before then, so `servers` is always initialised by the time this body runs.
+ */
+const shutdown = () => {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  // Before anything is closed. A teardown makes things in flight reject, and the router
+  // tears down on every `launchctl kickstart` — so without this every restart would file a
+  // P0 about a router doing exactly as it was told. `crash` is null until `armCrashHandlers`
+  // has finished, which is why that function checks `shuttingDown` on its way out.
+  crash?.beginShutdown();
+  log('shutting down — stopping backends');
+  for (const be of [active, ...retiring].filter(Boolean)) stop(be);
+  // `closeServer`, because `listen()` now hands back the request server: on the tailnet
+  // address the port is held by the `net.Server` in front of it, and closing the HTTPS
+  // server alone would leave 4318 bound by a process on its way out.
+  servers.forEach(closeServer);
+  // Give SIGTERM a moment to land on the children before the router's own exit
+  // orphans them. Their own guard would catch it a minute later; this is tidier.
+  setTimeout(() => process.exit(0), 300).unref();
+};
+
 const servers = listen();
+// Armed here, on the line after the port is held, and not at the end of this file where
+// they used to be. `launchctl kickstart -k` is a SIGTERM, and until these are registered
+// node's default disposition is what answers one: the process is killed where it stands,
+// `shutdown` never runs, the backends are orphaned to their own minute-long guard and the
+// port goes without being closed. That window used to cover everything below — arming the
+// crash handlers, fetching a certificate, and the whole first bring-up, which is seconds
+// on a cold start and exactly the seconds a restart-loop lands in. `shutdown` is written
+// to be safe this early: `active` and `retiring` are simply empty, and `crash` is null
+// until `armCrashHandlers` has finished, which is what its optional call and the
+// `if (shuttingDown)` on that function's way out are between them for.
+process.on('SIGINT', shutdown);
+process.on('SIGTERM', shutdown);
 // In the installed configuration this process is what terminates TLS, so it is also
 // what may have just fetched the first certificate — and therefore what has to move
 // `baseUrl` onto the name. Its backends bind loopback and deliberately do not. Before
@@ -1339,24 +1377,3 @@ await bringUp('first start').catch((err) => {
 watchDisk();
 watchSelf();
 heartbeat();
-
-const shutdown = () => {
-  if (shuttingDown) return;
-  shuttingDown = true;
-  // Before anything is closed. A teardown makes things in flight reject, and the router
-  // tears down on every `launchctl kickstart` — so without this every restart would file a
-  // P0 about a router doing exactly as it was told. `crash` is null until `armCrashHandlers`
-  // has finished, which is why that function checks `shuttingDown` on its way out.
-  crash?.beginShutdown();
-  log('shutting down — stopping backends');
-  for (const be of [active, ...retiring].filter(Boolean)) stop(be);
-  // `closeServer`, because `listen()` now hands back the request server: on the tailnet
-  // address the port is held by the `net.Server` in front of it, and closing the HTTPS
-  // server alone would leave 4318 bound by a process on its way out.
-  servers.forEach(closeServer);
-  // Give SIGTERM a moment to land on the children before the router's own exit
-  // orphans them. Their own guard would catch it a minute later; this is tidier.
-  setTimeout(() => process.exit(0), 300).unref();
-};
-process.on('SIGINT', shutdown);
-process.on('SIGTERM', shutdown);
