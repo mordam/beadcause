@@ -71,6 +71,7 @@ It still exits non-zero — it just never exits with nothing running.
 ```bash
 npm run monitor              # live view of what the daemon is doing
 npm run check                # the checks around the agent log — safe with the daemon up
+                             # (also run inside `npm test`, as test/agentlog.mjs)
 npm run secrets              # has a secret ever reached the config repo's history?
 npm run swap:status          # which build is answering the port, and the certificate on it
 npm run uninstall-service    # remove the service (keeps your config and token)
@@ -142,11 +143,15 @@ otherwise its poller would keep firing notifications with no listener behind the
 - **Editing `lib/` needs no restart.** The router swaps a fresh backend in under the
   port a few seconds later — see [The router](#the-router--why-you-never-restart-it)
   for what it will and will not do for you.
-- **`npm run check` is not a test suite.** It is one file — `scripts/check-agent-log.js`,
-  the contract the [session log](#watching-it-work--the-session-log) rests on — and it
-  says so rather than pretending to cover the rest. It runs against a throwaway config
-  directory on an ephemeral port and never touches `bd`, so it is safe to run with the
-  daemon up. The suite proper is `npm test`, and the browser checks it deliberately
+- **`npm run check` is one suite of the gate, not a second gate.** It is one file —
+  `scripts/check-agent-log.js`, the contract the
+  [session log](#watching-it-work--the-session-log) rests on — kept as its own command
+  because it runs against a throwaway config directory on an ephemeral port and never
+  touches `bd`, so it is safe to run with the daemon up and it answers *did I break the
+  pane?* in a fifth of a second. It is **also** inside `npm test`, as
+  [`test/agentlog.mjs`](#the-session-log-contract-is-inside-the-gate--testagentlogmjs), so
+  forgetting to type it is no longer the same as not having it. The suite proper is
+  `npm test`, and the browser checks it deliberately
   leaves out — they want a Chrome — are `npm run checks`, all twenty-eight of them, four
   at a time, with a list of which failed. See
   [`npm run checks`](#npm-run-checks--the-browser-half-and-why-npm-test-can-still-see-it-rot),
@@ -6429,6 +6434,54 @@ than a sweep. And **a close bd would refuse writes nothing at all** — the comm
 that guard reads, so a comment left over a close that failed would blind this to that
 bead permanently. `reconcileLanded: false` switches the whole thing off.
 
+#### The fortnight that was really forty rows
+
+The sweep says it looks back fourteen days, and for its first weeks it did not. It asked
+for the **forty most recent merged pull requests** and *then* filtered those to a
+fortnight, so the forty decided and the fourteen days were decoration — forty merges is
+under a day on this repo, which merged 152 pull requests in the two days to 2026-08-11.
+
+That is worse than a short window, because it does not expire. A bead past the fortieth
+row is not stranded for a fortnight, it is stranded **for good**: the next sweep asks the
+same question of a window that has moved further forward, so nothing ever looks at it
+again. bc-8ug and bc-jin are the worked examples — both merged well inside the fourteen
+days, both about a hundred pull requests back by the time anything swept, both left
+`in_progress` over shipped work, and bc-jin holding three beads out of `bd ready` behind
+it for two days. They were closed by hand.
+
+The cap was not carelessness; it was buying something. `beadsFor` costs a `bd show` per
+candidate id on every row it is handed, and each bead it resolves costs a `bd comments`
+and another `bd show` behind that. `bd` here is a subprocess and a Dolt read, so a wide
+window multiplied subprocesses by how busy the fortnight had been — every ten minutes,
+for rows the sweep had already decided about. Three changes bought it back:
+
+- **The window goes into the query.** `pr.listMergedSince` asks GitHub for a span of time
+  — `merged:A..B` — and halves the interval whenever a slice comes back full, so the
+  fortnight is the fortnight and the limit is only a guard against a runaway answer. It
+  bisects rather than walking backwards a page at a time because `gh pr list --search`
+  answers in **creation** order, not merge order: a full page is an arbitrary subset with
+  respect to `mergedAt`, so moving the bound to its oldest row steps straight over
+  everything that merged in between and was not on that page. A slice that answers with
+  fewer rows than the limit answered whole, and that is the only fact being relied on.
+- **The fields shrink.** A merged pull request is not a merge decision, so the sweep stops
+  asking for `statusCheckRollup` — which walks every check run on every row. Measured
+  against the same 152 merges: **15.9 seconds with it, 2.2 without**. Asking about a
+  fortnight is now four times faster than asking about forty rows used to be.
+- **The per-row `bd` work is gated on one query.** `candidateTiers` is pure string work —
+  it reads the title, the branch and the body — so every id a pull request could resolve
+  to is knowable for free, and one `bd list` says which beads are not closed. A row naming
+  no live bead is decided without spawning anything, which on a fortnight of merges is
+  very nearly all of them. A quiet fortnight and a frantic one now cost the same sweep.
+
+Two things that deliberately did not change. **Retries.** A bead a transient refusal
+skipped stays open, so it stays in the live set, so its pull request is looked at again on
+every tick for the full fourteen days — which is why the gate is built from open beads
+rather than from a memo of pull requests already decided about. And **the truncation
+report**, which arrived with bc-4qmp: a ceiling that cannot be paged past is still a
+ceiling, so `result.truncated` still says how far back the sweep actually reached, and the
+advocate still logs it when the answer *changes* rather than every ten minutes. It is no
+longer reached on a quiet Tuesday.
+
 The same hole had a second side. `beadcause-deliver` on a branch whose pull request has
 already merged has nothing to push and nothing to open, and it used to die there with
 `exit 2` — so the one command a worker is given to land work with could not close the
@@ -7442,6 +7495,65 @@ create. `--out=<dir>` writes a screenshot; `--keep` leaves it served so you can 
 yourself. It needs `npm run vendor` to have run — a fresh worktree has no
 `public/vendor`, and without it the app throws on its first markdown render and the
 list never appears, which looks exactly like a bug in whatever you just changed.
+
+### The cache version a branch forgot to move
+
+`public/sw.js` precaches every path in `SHELL` under one key, `const CACHE =
+'beadcause-vNN'`, and moving that number is the whole of what stops a phone holding
+Tuesday's `app.js` beside Thursday's `style.css`. Whether a branch owes the move is a
+judgement — most changes under `public/` do not, and a bump costs every installed phone
+a full re-download of the shell — so it is made by reading the diff. Several suites
+assert that a particular file is *listed* in `SHELL`. Nothing asked the other question.
+
+bc-dmt (#115) is what that costs. `public/console.js` gained two calls to
+`chat.queue.repaint()`; `public/sendqueue.js` gained the `repaint` key they call, on the
+same branch. Both files are in `SHELL`, `const CACHE` was byte-identical to main, all
+120-odd suites were green and the pull request was clean and mergeable — and a phone
+holding the old `sendqueue.js` beside the new `console.js` throws a `TypeError` on the
+one gesture the branch adds. It was caught by somebody reading the diff by eye, and then
+two more sessions spent an evening each re-deriving the same finding, one of them nearly
+fooled by the five `repaint`s already in the old `sendqueue.js` — every one of them
+prose in a comment.
+
+`test/swbump.mjs` asks it now, on every `npm test`, about the branch you are on. It
+compares the working tree against the `main` it grew from, so the answer arrives before
+the commit rather than after it, and it says one of two things:
+
+- **An advisory, which never fails the run.** Two or more files in `SHELL` changed and
+  `const CACHE` did not move: here they are, decide. That over-reports on purpose. The
+  purely additive change legitimately skips the bump — bc-p38c.2 put `report.js` on all
+  twelve pages and owed nothing, because cached HTML without the new tag is the app
+  exactly as it was — and a check that turned that into a failure would be taken out
+  within a week.
+- **A failure, which is not a judgement.** One modified `SHELL` file gained a member,
+  another modified `SHELL` file gained a *call* to it, and the version did not move.
+  That is the bc-dmt shape, and on the mixed pair the call lands on `undefined` and
+  throws. Both halves have to have existed before the branch: two files added together
+  are never a mixed pair, because a cache from before the branch has neither.
+
+The reading is deliberately narrow. Comments are stripped before a line is read, and a
+member counts as gained only if it is *defined* at head and not at base — appearing in
+the file is not enough, which is the difference between catching bc-dmt and being fooled
+by the same comments that fooled a human. Bare reads (`.thing` with no call) are left
+out: a missing member read is `undefined`, which may well be harmless, and only the
+half that fails a branch has to be certain. Against the last 80 merges on `main` the
+failing half fires exactly once — on bc-dmt — and the advisory on eleven.
+
+The analysis itself is `lib/swbump.js` and reads nothing: the caller hands it the two
+versions of each changed file and the lines the diff added. So the suite can be pointed
+at any two revisions, which is how the two branches the rule was written from are
+regression-tested in place:
+
+```
+node test/swbump.mjs                                     # this branch, working tree included
+node test/swbump.mjs --base 65745de5^2 --head 65745de5   # bc-dmt: flagged
+node test/swbump.mjs --base cbfd7367^  --head cbfd7367   # bc-p38c.2: silent
+```
+
+What it does not do is decide whether a *stylesheet* and the page it lays out are a
+broken pair — the case a member name cannot see, and the one the version comments in
+`public/sw.js` argue about most. That stays a reading, and the advisory is what puts it
+in front of you.
 
 ## The Android app
 
@@ -10401,6 +10513,44 @@ get wrong in silence: that every `test/*.mjs` on disk is in the list (the chain 
 `test/*.mjs` survive, that the three pinned positions hold, and that a failure still
 stops the run, propagates its exit code, and does not run what comes after it.
 
+### The session-log contract is inside the gate — `test/agentlog.mjs`
+
+`/api/agent-log` is the whole contract the [session log](#watching-it-work--the-session-log)
+pane rests on: whether it keeps tailing or stops and leaves the log readable is decided
+entirely by what that endpoint returns, and that is not something you can see by looking
+at the pane. Nothing under `test/` imported `lib/agentlog.js` or `lib/activity.js` at all.
+What covered them was `scripts/check-agent-log.js`, and nothing ran it unless somebody
+remembered to type `npm run check`.
+
+**The reason it was out did not survive being read.** The `scripts/*-check.mjs` family is
+outside `npm test` because each one needs headless Chrome and two need a vendored
+`public/vendor` — a real reason, and it still holds for them. It was never the reason this
+one was out. The file says of itself *"This is not the test suite — there isn't one yet"*,
+which was true when it was written and describes its own shape rather than anything it
+needs: a throwaway `BEADCAUSE_CONFIG_DIR`, an ephemeral port, and a `bdBin` of `/bin/false`
+so that *"it never reaches `bd`"* is enforced rather than promised. No Chrome, no `bd`, no
+git, no network, nothing machine-specific, and — unlike land-check, which skips on a
+machine with no `bd` — **no way for it to skip at all**. It runs in about a fifth of a
+second, which is a rounding error beside the two suites that are pinned for being slow.
+
+**Proved rather than argued.** With `activity.phase !== 'blocked'` deleted from the
+`running` expression in `lib/server.js` — a failed run then leaves the phone polling a file
+that will never change again, forever, which is the exact failure the endpoint exists to
+prevent — `test/agentlog.mjs` exits 1 on *"running follows the activity store, both ways"*,
+and `test/routes.mjs`, `test/session.mjs`, `test/stream.mjs`, `test/reporter.mjs` and
+`test/cards.mjs` are all still green. Five suites that touch the same server, and not one of
+them could tell.
+
+**It is a wrapper, not a move.** `scripts/test.mjs` discovers `test/*.mjs`, so the harness
+cannot be found where it lives; moving it would work and would cost `npm run check`, which
+is documented as the thing that is safe with the daemon up and is what you actually reach
+for while changing the pane. A wrapper buys the discovery and leaves every reference to the
+harness true. It sorts into the middle of the run, where nothing depends on order, so the
+pinned FIRST/LAST list — [the one line every session has to edit](#npm-test) — is untouched.
+A *missing* harness is a failure and not a skip: cover that quietly stops existing is the
+thing being fixed here, and a wrapper that shrugged when its target went would be a second
+helping of it.
+
 ### A teardown must not be able to fail a run — `test/helpers/tmp.mjs`
 
 Nearly every suite here ends the same way: make a temp directory at the top, point
@@ -10463,6 +10613,73 @@ after `quiesce()` it is. Without that half, an assertion that the directory ends
 would pass against a `quiesce()` that did nothing. Filed as bc-5uy8; bc-3qsw, bc-r87b,
 bc-t69u and bc-94c6 are the same failure in `reap.mjs`, `superseded.mjs`, `slowstart.mjs`
 and `outagepush.mjs`, and each is a two-line change now that the helper exists.
+
+**One of the four was not two lines, and the difference is worth keeping.**
+`test/outagepush.mjs` runs a real router, and a router is a supervisor: it has backends
+of its own, and they hold the same scratch directory as their `BEADCAUSE_CONFIG_DIR`.
+Its teardown killed that router and removed the directory on the next line — but
+`kill()` only queues a signal, so the removal was racing a process that had not been
+told yet, let alone gone. That is bc-94c6, and its title is the whole of it: **SIGKILL is
+not a wait.** `removeTree`'s retry loop hides it, and hiding it is not the same as not
+having it — a suite that needs ten attempts and a second and a half of backoff to take
+its own directory away is one that never waited for the thing writing into it.
+
+So that suite reaps before it removes: SIGTERM, then `once('exit')`, which resolves when
+the child has actually been reaped, with a SIGKILL five seconds later for a router that
+will not go. SIGTERM rather than SIGKILL because it is the only signal the router can act
+on — `shutdown` in bin/router.js stops the backends first — so one wait covers the
+grandchildren too, and the retry loop goes back to being the backstop it is meant to be.
+The teardown also moved out of the `process.on('exit')` handler and below the `catch`,
+because an exit handler is precisely where waiting is impossible; what stays behind there
+is `removeTreeSync` for the exits that never reach it.
+
+#### Why the helper was the easy half — `test/tmpadoption.mjs`
+
+Writing `cleanupTmp` fixed one suite. Adoption then sat at two files for a day while
+sixty-eight others kept the line that loses, and this one bug was filed eight separate
+times: bc-5uy8 for `dedupe.mjs`, then bc-3qsw, bc-r87b, bc-t69u, bc-94c6, bc-qjsx, bc-mc4q
+and bc-b495 as it surfaced in `reap.mjs`, `superseded.mjs`, `slowstart.mjs`,
+`outagepush.mjs`, `twinqueue.mjs` and `epicqueue.mjs`. Each was diagnosed from the stack
+by somebody who could not tell, from anything in the tree, that sixty-odd other suites
+still carried the same two lines. **A fix nothing can see the absence of gets refiled
+rather than finished**, and each refiling cost a session the four minutes to re-run a
+gate plus the argument about whether the red was theirs.
+
+So the sweep went in as one change — sixty-eight suites mechanically, `epicqueue.mjs` by
+hand, because it clears the config dir between *every* case rather than once at the end —
+and `test/tmpadoption.mjs` keeps it swept: any suite naming `BEADCAUSE_CONFIG_DIR` that
+removes its scratch root with a bare recursive `fs.rmSync` fails the repo, with the file,
+the line and which helper it wants. The sixty-ninth suite is the one that matters, and it
+will be written next month by someone copying the suite next to it, which is precisely how
+every one of these got the line to begin with.
+
+Three details it takes care to get right, each of which flagged something wrong on the
+first run:
+
+- **A child's env counts.** Seven suites never set `BEADCAUSE_CONFIG_DIR` on themselves at
+  all — they hand it to a spawned process in `{ ...process.env, BEADCAUSE_CONFIG_DIR: dir }`.
+  The commit is scheduled in the child, the parent's `rmSync` races it just the same, and a
+  scan keyed on `process.env.` alone would have called those seven clean. `slowstart.mjs`
+  and `outagepush.mjs`, both already-filed instances, are in that group.
+- **Which helper is the parser's call, not a regex's.** Thirteen of the sixty-eight remove
+  their tree somewhere that cannot `await` — inside `process.on('exit', …)`, or the
+  synchronous `done(code)` that runs just before `process.exit`. Those get
+  `removeTreeSync`. The way to find them is not to pattern-match the enclosing function
+  but to write `await`, ask `node --check`, and take a `SyntaxError` as the answer:
+  *cannot await* is exactly the condition `removeTreeSync` exists for, so the compiler
+  sorts the two cases with no judgement required.
+- **A quotation is not a call site.** The scan's own header and `test/helpers/tmp.mjs`
+  both quote the losing line in order to explain it, and the first run duly failed the
+  repo for its documentation. Comment lines are skipped — `test/grepargs.mjs` skips them
+  for the same reason and for the same two files. The alternative is a check whose easiest
+  fix is deleting the explanation.
+
+What it deliberately leaves alone is as much of the rule as what it flags. Removing a
+single file cannot raise `ENOTEMPTY`; a fake-bin or spy directory holds no git repo; and
+fifteen suites never remove their scratch root at all, which leaks a directory the OS
+clears and, having no `rmdir` in it, cannot lose this race. Flagging any of those would be
+a rule that makes working lines look broken, and a lint people learn to work around is
+worse than none.
 
 ### A suite must not assert about a directory it does not own — `test/browse.mjs`
 

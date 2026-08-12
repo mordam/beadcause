@@ -49,6 +49,7 @@ import path from 'node:path';
 import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { freePort } from './helpers/net.mjs';
+import { removeTreeSync } from './helpers/tmp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(HERE, '..');
@@ -296,7 +297,7 @@ const cleanup = () => {
   } catch {
     /* nothing to kill is the good case */
   }
-  fs.rmSync(dir, { recursive: true, force: true });
+  removeTreeSync(dir);
 };
 process.on('exit', cleanup);
 process.on('SIGINT', () => process.exit(130));

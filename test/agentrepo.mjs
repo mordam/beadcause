@@ -31,6 +31,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { cleanupTmp } from './helpers/tmp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(HERE, '..');
@@ -320,7 +321,7 @@ check('git itself refuses to see inside an agent repo', ignored.status === 0);
 
 /* ------------------------------------------------------------------ end */
 
-fs.rmSync(CONFIG, { recursive: true, force: true });
+await cleanupTmp(CONFIG);
 
 console.log(failures ? `\n${failures} failed\n` : '\nall good\n');
 assert.equal(failures, 0, `${failures} check(s) failed`);
