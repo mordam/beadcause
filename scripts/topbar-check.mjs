@@ -24,7 +24,13 @@
 //     to prevent;
 //   * the bar **plus the tab bar** stays inside a **170px** budget on a 640px screen.
 //     159px is what it costs today. A third row is +43px and fails this on the spot,
-//     which is the whole point of the number being written down.
+//     which is the whole point of the number being written down;
+//   * and the page **fits the screen at all** — that one is not about the bar, but this
+//     is the file that noticed. A page laying out wider than the viewport is shrink-
+//     fitted by the browser, so every measurement above it is in a different unit from
+//     the width it is being judged at. /monitor was 376px at a 360px screen until
+//     bc-3ui6, and the symptom is not a horizontal scrollbar — it is the whole console
+//     drawn at 96% and draggable sideways, which reads as a font being slightly off.
 //
 // It also prints the arithmetic that made the decision, per page, and says so when the
 // premise has expired: if *every* page's first row grows enough room to hold the picker
@@ -335,13 +341,18 @@ try {
       room.push({ at, page, width: size.width, spare: m.spare, need: m.need, brandW: m.brandW, actsW: m.actsW });
 
       /* Does the page fit the screen at all? A page laying out wider than the viewport
-         has been shrink-fitted by the browser, so it is not the size it was designed
-         at. /monitor is 376px at a 360px screen today — bc-3ui6 — and this is a notice
-         rather than an assertion so that this file does not ship red. When that bead
-         lands, the notice goes quiet and this can become one. */
-      if (m.layoutW > size.width)
-        notices.push(
-          `\x1b[33m!\x1b[0m ${at}: the page lays out at ${m.layoutW}px on a ${size.width}px screen, so the browser has scaled it to ${Math.round((size.width / m.layoutW) * 100)}% — known, bc-3ui6.`
+         has been shrink-fitted by the browser, so nothing on it is the size it was
+         designed at and every other number in this file is in a different unit from the
+         screen it is being compared to. This was a notice while /monitor was 376px at a
+         360px screen (bc-3ui6 — one negative margin against an unpadded `<body>`); that
+         landed, so it is an assertion, which is the only form that stops the next one
+         arriving. It costs one declaration to fail it and nobody would see it: the
+         browser scales the page silently and it reads as a font being slightly wrong. */
+      if (m.layoutW <= size.width) ok(`${at}: the page fits the screen (lays out at ${m.layoutW}px, unscaled)`);
+      else
+        bad(
+          `${at}: the page fits the screen`,
+          `it lays out at ${m.layoutW}px on a ${size.width}px screen, so the browser has scaled it to ${Math.round((size.width / m.layoutW) * 100)}% — something on it is wider than the body`
         );
 
       if (outDir) {

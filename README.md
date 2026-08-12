@@ -547,6 +547,19 @@ third row is +43px and fails it on the spot. It also prints the first-row arithm
 page and says so if *every* page ever has room for the picker inline, because that, and
 only that, is when collapsing would cost nothing and this is worth reopening.
 
+The fifth thing it asserts is not about the bar at all, and it is there because measuring
+the bar is what found it: **the page has to fit the screen**. Every number above is a
+width compared against 360 or 393, and if anything on the page lays out wider than the
+body then the browser has shrink-fitted the whole document and none of those numbers is
+in the same unit as the screen any more. `/monitor` was 376px at 360 — `nav#mon-tabs`
+carried `margin: -18px -16px 14px`, which on the agents' page cancels `.launcher`'s
+`18px 16px` padding but here has an unpadded `<body>` to cancel and so simply pushed the
+strip past both edges. The symptom was not a scrollbar. It was the advocate console drawn
+at **96%**, draggable sideways by 16px, with the strip's first chip starting 2px off the
+left of the screen and the bottom tab bar's last label cut in half — which reads as a
+font being slightly wrong rather than as a layout bug, and sat there unnoticed until a
+check printed the number (bc-3ui6).
+
 ### Space details — the page the advocate console became
 
 Every setting a space has is one you used to change by opening `~/.beadcause/config.json`
