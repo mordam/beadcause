@@ -82,6 +82,7 @@ import { pushLanded } from '../lib/notify.js';
 import { oweClose } from '../lib/owed.js';
 import { park, questionType } from '../lib/park.js';
 import * as pr from '../lib/pr.js';
+import { baseFor } from '../lib/prbase.js';
 import { landParent } from '../lib/prboard.js';
 import { prPolicyFor } from '../lib/spaces.js';
 
@@ -130,7 +131,7 @@ const owner = ownerName(cfg);
 const wsName = arg('--workspace', '-w');
 const beadId = arg('--bead', '-b');
 /**
- * Where it lands and how — the flag, then the config, then the built-in default.
+ * How it lands — the flag, then the config, then the built-in default.
  *
  * The config half was missing, and its absence was invisible because the literal here
  * happened to equal the default over there. `pr.mergeMethod` reached `lib/session.js`,
@@ -139,8 +140,19 @@ const beadId = arg('--bead', '-b');
  * changed the promise and not the act. Read here, the setting means what it says, and
  * the brief and the command cannot drift apart.
  */
-const base = arg('--base') || cfg.pr?.base || 'main';
 const method = mergeMethod(String(arg('--method') || cfg.pr?.mergeMethod || 'merge').toLowerCase());
+/**
+ * And *where* it lands, which is no longer one string for the whole install.
+ *
+ * `--base` still wins outright — a session delivering into something other than its
+ * repo's default branch says so on the command line. With no flag the answer comes from
+ * `baseFor` in lib/prbase.js: `pr.base` for a workspace that is one repo, and the repo's
+ * own default branch for a workspace that is forty of them. One setting cannot name
+ * forty bases, and whether they all happen to agree today is not something a delivery
+ * should be resting on — a pull request opened into the wrong base is a perfectly valid
+ * pull request, so being wrong here is silent.
+ */
+const baseFlag = arg('--base');
 const tests = arg('--tests') || '';
 const risk = arg('--risk') || '';
 const left = arg('--left') || '';
@@ -173,6 +185,8 @@ if (!ws || !beadId || has('--help') || has('-h')) {
   console.error(`workspaces: ${cfg.workspaces.map((w) => w.name).join(', ')}`);
   process.exit(1);
 }
+
+const base = baseFlag || (await baseFor(cfg, ws.name, dir));
 
 const git = (args) => execFileSync('git', args, { cwd: dir, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 }).trim();
 
@@ -282,6 +296,27 @@ const gh = await pr.available();
 if (!gh.ok) die(gh.reason, 4);
 
 /**
+ * And this particular checkout — because `gh` being installed says nothing about
+ * whether *this* repo has a GitHub remote any account here can see.
+ *
+ * It used to be found out two steps later, by `git push` failing on a missing
+ * `origin` or by `gh pr create` failing on a repo it cannot resolve. Both of those name
+ * the remote and neither names the repo, which was fine while a workspace was one
+ * checkout and the repo was never in doubt. In a workspace of forty it is exactly the
+ * half you need, so it is asked here — before the push, while a refusal is still free —
+ * and the slug is kept, because resolving it is a `gh` call and it is wanted twice more
+ * below.
+ */
+const slug = await pr.slugFor(dir);
+if (!slug) {
+  die(
+    `no GitHub repo is visible from ${dir} — nothing there opens pull requests. ` +
+      `The work is committed on ${branch}; say so on ${beadId} and leave it there.`,
+    4
+  );
+}
+
+/**
  * The pull request this delivery is about, and the repo it is in.
  *
  * Module-scope and assigned rather than declared where they are first used, because
@@ -327,7 +362,7 @@ if (nothingAhead) {
   const merged = await mergedPrFor(branch);
   if (!merged) die(`${branch} has no commits that ${upstream} does not — there is nothing to deliver`, 2);
   request = merged;
-  repoSlug = await pr.slugFor(dir);
+  repoSlug = slug;
   console.error(
     `beadcause-deliver: nothing to push — #${merged.number} was already merged into ${base}. Closing ${beadId} over it.`
   );
@@ -393,7 +428,7 @@ if (request) {
 
 /* ------------------------------------------------- the cards already open on it */
 
-repoSlug = await pr.slugFor(dir);
+repoSlug = slug;
 
 /**
  * Close every merge card already open for this pull request, before this delivery

@@ -154,6 +154,11 @@
     spaceError: null,
     /** What the last press changed, in the daemon's words rather than the label's. */
     spaceSaid: null,
+    /* The Slack channel field, which is the one control on this card you *type* into.
+       Same reason as the steppers below: a stream event repaints this page under your
+       thumb, and a half-typed channel id living in the DOM would be thrown away by a
+       poll nobody asked for. `{ space, text }`, dropped the moment a press sends it. */
+    slackDraft: null,
     /* The three halves of a stepper that has been moved but not yet applied — see
        `limitControl`. All keyed the same way (`stepKey`), and all in `state` rather
        than in the markup for one reason: this page repaints off a poll every couple
@@ -1027,7 +1032,7 @@
 
      - **Muted** is two-state. There is no global "mute everything" behind it, so
        "not set" and "off" are the same thing and a third button would be a lie.
-     - **The six with a global behind them** are three-state — On, Off, *Inherit* —
+     - **The seven with a global behind them** are three-state — On, Off, *Inherit* —
        because `prPolicyFor` is explicit that a space may override the global in either
        direction, so "off" and "following the default, which is off" are different
        answers that must survive the default changing under them. The Inherit button
@@ -1037,6 +1042,11 @@
      - **Quiet hours and quiet days** are a pair of times and a row of days, each
        clearable, because "no quiet hours" is a state you have to be able to get back
        to and deleting the key is the only way there.
+     - **The Slack channel** is the only one you type, and it has three answers rather
+       than two: a channel id, *Never* — which stores an empty string and means this
+       space stays out of Slack however the global is set — and *Inherit*. Never and
+       Inherit look identical on the day you press them and come apart the day
+       `slack.channel` changes, which is the whole reason both buttons are there.
   */
 
   /** The name of the space this page is about, or null when nothing is narrowed to one. */
@@ -1131,6 +1141,10 @@
         : { text: 'may reach you', tone: 'live' };
 
     const days = s.quietDays || [];
+    // Only this space's — switching space while a channel is half-typed is a different
+    // answer to a different question, and carrying it across would be the card showing
+    // you one space's channel under another space's name.
+    const draft = state.slackDraft?.space === name ? state.slackDraft.text : null;
     const rows = [
       `<div class="space-row">
         <div class="space-row-head">
@@ -1192,6 +1206,50 @@
         </div>
       </div>`,
 
+      // The only field on this card that is a free-text id rather than a choice, and the
+      // only one whose two ways of saying "nothing" are different answers — see
+      // `slackChannelFor`. `Never` writes an empty string and keeps this space out of
+      // the channel however `slack.channel` is set; `Inherit` deletes the key. The
+      // input's value comes from the draft first, so a repaint mid-type cannot take it.
+      `<div class="space-row">
+        <div class="space-row-head">
+          <span class="space-what">Slack channel</span>
+          <span class="space-state ${s.slackChannel ? 'live' : s.slackChannel === '' ? 'held' : 'dim'}">${
+            s.slackChannel
+              ? esc(s.slackChannel)
+              : s.slackChannel === ''
+                ? 'never posts'
+                : `inherited · ${g.slackChannel ? esc(g.slackChannel) : 'none'}`
+          }</span>
+        </div>
+        <p class="space-help">Where this space's questions are posted, with a button per option — a channel id (<b>C…</b>) or a DM id (<b>D…</b>), not a #name.${
+          quiet.slack ? '' : ' <b>Slack is off</b> in the config, so nothing here posts anywhere until it is on.'
+        }</p>
+        <div class="space-btns space-channel">
+          <input type="text" id="slack-channel" value="${esc(draft ?? s.slackChannel ?? '')}" placeholder="${esc(
+            g.slackChannel || 'C0123456789'
+          )}" aria-label="Slack channel for this space" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="done">
+          <button class="adv-btn primary" data-space-channel="set" title="Post this space&#39;s questions to the channel typed here">Set</button>
+          <button class="adv-btn${s.slackChannel === '' ? ' on' : ''}" data-space-set="slackChannel" data-value="" title="This space never posts to Slack, whatever the global channel is">Never</button>
+          <button class="adv-btn${s.slackChannel === null ? ' on' : ''}" data-space-set="slackChannel" data-value="null" title="Follow the global slack.channel, which is currently ${esc(g.slackChannel || 'unset')}">Inherit (${esc(g.slackChannel || 'none')})</button>
+        </div>
+      </div>`,
+
+      `<div class="space-row">
+        <div class="space-row-head">
+          <span class="space-what">Slack detail</span>
+          <span class="space-state ${s.slackDetail ? 'live' : 'dim'}">${
+            s.slackDetail ? esc(s.slackDetail) : `inherited · ${esc(g.slackDetail)}`
+          }</span>
+        </div>
+        <p class="space-help">How much of the question goes into the channel. <b>minimal</b> posts a nudge and a link with none of the words — the answer for a channel with people in it who should see that a decision is waiting without seeing what it is about.</p>
+        <div class="space-btns">
+          <button class="adv-btn${s.slackDetail === 'full' ? ' on' : ''}" data-space-set="slackDetail" data-value="full">Full</button>
+          <button class="adv-btn${s.slackDetail === 'minimal' ? ' on' : ''}" data-space-set="slackDetail" data-value="minimal">Minimal</button>
+          <button class="adv-btn${s.slackDetail === null ? ' on' : ''}" data-space-set="slackDetail" data-value="null">Inherit (${esc(g.slackDetail)})</button>
+        </div>
+      </div>`,
+
       tri(
         'autoDispatch',
         'Agents may answer unasked',
@@ -1233,20 +1291,56 @@
     // `ntfy.minimalWorkspaces` and `autoDispatchExclude` are per-repo lists that outrank
     // it. A screen that showed only the space's answer would be quietly wrong about
     // exactly the repo that had been singled out.
+    //
+    // A row is a workspace, and since lib/repos.js that is not always one checkout: a
+    // `checkouts` count means this row's single answer governs that many repos of an org
+    // sharing one tracker. Saying so is the whole of what the space-is-the-unit decision
+    // asks of the screen — one row reading as one repo understated the reach of every
+    // setting above it by fortyfold. See the block above `autoDispatchAllowed` in
+    // lib/spaces.js.
+    const many = d.repos.filter((r) => typeof r.checkouts === 'number');
+    const total = d.repos.reduce((n, r) => n + (typeof r.checkouts === 'number' ? r.checkouts : 1), 0);
     const repos = d.repos.length
       ? `<div class="space-repos">${d.repos
           .map(
             (r) => `<div class="space-repo">
               <span class="pill id">${esc(r.name)}</span>
+              ${
+                typeof r.checkouts === 'number'
+                  ? `<span class="tag ${r.checkouts ? 'dim' : 'warn'}">${
+                      r.checkouts ? `${r.checkouts} checkout${r.checkouts === 1 ? '' : 's'}, one answer` : 'no checkout resolved'
+                    }</span>`
+                  : ''
+              }
               <span class="tag${r.ntfyDetail === 'minimal' ? ' warn' : ' dim'}">${esc(r.ntfyDetail)} push</span>
               <span class="tag ${r.autoDispatch ? 'ok' : 'dim'}">${r.autoDispatch ? 'agents may answer' : 'no agent replies'}</span>
               <span class="tag ${r.autoEndorse ? 'warn' : 'dim'}">${r.autoEndorse ? 'files endorsed' : 'files held'}</span>
               <span class="tag ${r.autoMerge ? 'ok' : 'warn'}">${r.autoMerge ? 'auto-merge' : 'hands you the PR'}</span>
               ${r.autoMerge && r.requireApproval ? '<span class="tag warn">approval first</span>' : ''}
               <span class="tag ${r.autoShip ? 'ok' : 'dim'}">${r.autoShip ? 'ships itself' : 'waits for Ship'}</span>
+              ${
+                // Only where Slack is on at all: a "no slack" tag on every repo of every
+                // install that has never configured it would be a column of noise about a
+                // feature nobody here uses. Where it *is* on, this is the tag that catches
+                // `slack.excludeWorkspaces` — the per-repo veto that outranks the space,
+                // exactly like `ntfy.minimalWorkspaces` on the row above.
+                quiet.slack
+                  ? `<span class="tag ${r.slackChannel ? 'ok' : 'warn'}">${
+                      r.slackChannel
+                        ? `slack ${esc(r.slackChannel)}${r.slackDetail === 'minimal' ? ' · minimal' : ''}`
+                        : 'no slack'
+                    }</span>`
+                  : ''
+              }
             </div>`
           )
-          .join('')}</div>`
+          .join('')}</div>${
+          many.length
+            ? `<p class="subtitle">${esc(
+                many.map((r) => r.name).join(', ')
+              )} holds many checkouts sharing one tracker, so the settings above are one answer for all of them — which repo a bead is about does not change them.</p>`
+            : ''
+        }`
       : '<p class="subtitle">No configured repo is in this space.</p>';
 
     const missing = d.missing.length
@@ -1268,7 +1362,7 @@
       ${missing}
       ${state.spaceSaid ? `<div class="adv-note${state.spaceSaid.bad ? ' bad' : ''}">${esc(state.spaceSaid.text)}</div>` : ''}
       ${section(`space:${d.space}:cfg`, 'Settings', '', rows)}
-      ${section(`space:${d.space}:repos`, 'What each repo resolves to', String(d.repos.length), repos)}
+      ${section(`space:${d.space}:repos`, 'What each repo resolves to', String(total), repos)}
     </article>`;
   }
 
@@ -1364,7 +1458,7 @@
     // one kind of press an instance that "never acts" must not make.
     if (data.observing) {
       for (const el of out.querySelectorAll(
-        '[data-space-set],[data-space-day],[data-space-hours],#qh-from,#qh-to,[data-step="global"],[data-apply="global"]'
+        '[data-space-set],[data-space-day],[data-space-hours],[data-space-channel],#qh-from,#qh-to,#slack-channel,[data-step="global"],[data-apply="global"]'
       )) {
         el.disabled = true;
         el.title = 'This instance only watches — the settings belong to the daemon that acts.';
@@ -1682,6 +1776,10 @@
       });
       state.space = r;
       state.spaceError = null;
+      // Whatever was typed has either just been sent or has just been overruled by a
+      // press on Never or Inherit. Either way the field goes back to showing what the
+      // space now says, which is the only thing on this card that is true.
+      state.slackDraft = null;
       state.spaceSaid = {
         text: r.changed?.length ? `${r.changed.join(', ')} changed` : 'nothing to change — it was already set that way',
       };
@@ -1815,6 +1913,23 @@
       return;
     }
 
+    const chan = e.target.closest('[data-space-channel]');
+    if (chan) {
+      e.preventDefault();
+      const typed = (out.querySelector('#slack-channel')?.value || '').trim();
+      // A blank field and a press on Set is the one gesture with no honest reading:
+      // `""` is what Never writes and it is a *different* answer from Inherit, so
+      // picking one of them here would be the card quietly deciding which. Both
+      // buttons are an inch away.
+      if (!typed) {
+        state.spaceSaid = { text: 'Type a channel id, or press Never or Inherit.', bad: true };
+        render();
+        return;
+      }
+      saveSpace({ slackChannel: typed }, chan);
+      return;
+    }
+
     const sum = e.target.closest('[data-toggle]');
     if (sum) {
       toggle(sum.dataset.toggle);
@@ -1894,7 +2009,24 @@
     }
   });
 
-  document.getElementById('refresh').addEventListener('click', load);
+  /* The one field on this page you type into, and this page repaints off a stream
+     event rather than off your thumb — so what has been typed is held in `state` and
+     drawn from there, the same treatment the limit steppers get and for the same
+     reason. Without it a poll landing between the first character and the press takes
+     the channel id away and the field silently goes back to what the space already
+     said. */
+  out.addEventListener('input', (e) => {
+    if (!e.target.closest('#slack-channel')) return;
+    state.slackDraft = { space: spaceName(), text: e.target.value };
+  });
+
+  /* The ⟳ is the page's, and this page has three panes now — so it only means *this*
+     one while this one is up. Without the guard, pressing it on the board would sweep
+     `bd` for every tracker on the Mac to refresh a roster nobody is looking at, which is
+     the same bill `ready` below exists to stop the stream running up. */
+  document.getElementById('refresh').addEventListener('click', () => {
+    if (!out.hidden) load();
+  });
   /* The space picker moved. Which repos are drawn is decided at paint time off the
      /api/work payload already in hand — but *whose settings* the card at the top shows
      has changed, and that is a different space's config, so it is fetched. Painted
@@ -1979,21 +2111,23 @@
     logTimer = setTimeout(() => pumpLogs().finally(scheduleLogs), LOG_MS);
   }
 
-  // How the tab bar brings this pane back up to date when you return to it.
+  // Kept for anything that wants this pane refreshed from outside. The chip row does it
+  // through the subscription at the foot of this file now, rather than by name.
   window.beadcause = window.beadcause || {};
   window.beadcause.monitor = { refresh: load };
 
-  /* Where this device is, for a mirror on some other screen. There is no selection to
-     publish — being here is the whole report — and the id stays `sessions` because that
-     is what lib/presence.js whitelists and what the mirror already has a name for; this
-     page is simply what the name now points at.
+  /* Where this device is, for a mirror on some other screen, is published by
+     public/montabs.js rather than here — because on this page it is a fact about which
+     of the three chips is up, and there is no moment at which this file knows that and
+     that one does not. The ids are on the chips themselves in monitor.html: `sessions`
+     for this pane, because that is what lib/presence.js whitelists and what the mirror
+     already has a name for; `prs` for the board; and nothing at all for the Mirror.
 
-     This page can also *be* a mirror, and presence.js's own header was right that a
-     device which followed itself would be absurd — so `showTab` in mirror.js revises
-     this to `null` while the mirror pane is up, and mirror.js drops its own device from
-     the list it follows. Both halves are needed: the report is honest about which pane
-     you are on, and the list cannot circle back on this one even mid-switch. */
-  window.beadcause?.presence?.report({ view: 'sessions' });
+     That last one is not tidiness. This page can also *be* a mirror, and presence.js's
+     own header was right that a device which followed itself would be absurd — so the
+     report goes `null` while the mirror pane is up, and mirror.js drops its own device
+     from the list it follows. Both halves are needed: the report is honest about which
+     pane you are on, and the list cannot circle back on this one even mid-switch. */
 
   if (!token) {
     out.innerHTML = '<div class="empty"><strong>This device is not paired</strong>Open the inbox first.</div>';
@@ -2001,6 +2135,17 @@
     // Paint what this tab had, then go and ask. The order is the whole point: `load`
     // is not made faster by this, it is made invisible.
     warmBoot();
-    load();
+    /* And ask only while this is the pane you are on. The chip row calls back once at
+       boot with whichever chip is up — which is the boot `load()` that used to be
+       written here — and again every time you come back to this one, which is what
+       mirror.js used to do by calling `beadcause.monitor.refresh` by name. Arriving on
+       /prs, which is this same page with the board up, now costs no `bd` sweep at all.
+
+       The fallback is not dead code: a service worker holding a monitor.html from before
+       the chip row was a file would load this one beside no montabs.js, and a page that
+       then never asked for anything would be a blank roster with no way to fill it. */
+    const tabs = window.beadcause?.monTabs;
+    if (tabs) tabs.onChange((which) => which === 'advocates' && load());
+    else load();
   }
 })();

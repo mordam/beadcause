@@ -292,6 +292,218 @@ console.log('\nthe pressed chip');
   );
 }
 
+/* --------------------------------------- a flex row says it is one, everywhere (bc-ah0v)
+ *
+ * The general form of the third one. `.mon-card .work-head` above is the instance that
+ * was actually broken; this is the property that would have caught it the day it was
+ * written, and catches the next one: **no block sets a flex-container property unless
+ * something gives that element a flex or grid display.**
+ *
+ * It cannot be answered from the stylesheet alone, which is why it took a second bead.
+ * Fourteen live rules here set `align-items`/`gap`/`flex-wrap`/… without a `display` of
+ * their own, and every one of them is the same shape as the bug — a rule whose element
+ * is supposed to get its display from somewhere else. Five of those get it from a *base
+ * class on the same element* (`.svc-set` on `.svc`, `.agent-row` on `.chip-row`,
+ * `.board-row` and `.pr-card .pr-row` on `.work-row`, `.mon-times` on `.meta`), which the
+ * CSS cannot see: only the markup knows those classes are ever worn together. So the
+ * markup is read too, the way `wears()` above reads it, and each rule is resolved in two
+ * stages:
+ *
+ *   1. the stylesheet, where it can. A rule whose selector is *reached by* a display rule
+ *      — same key compound plus extra qualifiers, and no ancestor the display rule does
+ *      not also require — is settled without asking anybody: `.chip-row.scopes` is fine
+ *      because `.chip-row` is `display: flex`.
+ *   2. the markup, for the rest. Every `class="…"` and `.className =` in `public/*.html`
+ *      and `public/*.js` becomes an element with a class list; a rule is fine if every
+ *      element that could wear its key compound is given a flex display by *some* rule.
+ *
+ * Two deliberate limits, both in the permissive direction, because a layout guard that
+ * cries wolf gets deleted. Ancestors are ignored when matching an element (a display from
+ * `.dialog .row` counts for a `.row` anywhere), and a display inside an `@media` counts at
+ * every width. What is left is still the exact shape of the bug: an element that *nothing
+ * anywhere* lays out as a flex container, carrying properties that only a flex container
+ * reads.
+ *
+ * The third outcome is the one worth keeping honest: a rule the markup cannot speak for
+ * at all, because its class is only ever built at runtime (`row.className = \`chip-row
+ * ${g.id}s\``). Those are reported as failures rather than skipped — a check with a
+ * silent "don't know" bucket is a check that empties into it. The way out is to write the
+ * class where a grep can see it, or, if it genuinely cannot be written down, to put the
+ * `display` in the same block as the properties that need it, which is what the rule
+ * should have said in the first place.
+ */
+
+console.log('\nevery flex property has a flex container');
+
+/** Simple selectors of one compound — pseudo-classes and attribute tests dropped. */
+const compound = (part) => {
+  const bare = part.replace(/::?[a-zA-Z-]+(\([^)]*\))?/g, '').replace(/\[[^\]]*\]/g, '');
+  return {
+    classes: [...bare.matchAll(/\.([A-Za-z0-9_-]+)/g)].map((m) => m[1]),
+    id: (bare.match(/#([A-Za-z0-9_-]+)/) || [])[1] || null,
+    tag: (bare.match(/^([a-zA-Z][a-zA-Z0-9]*)/) || [])[1] || null,
+  };
+};
+
+/** One selector as its chain of compounds, keyed on the last. */
+const chain = (sel) => {
+  const parts = sel.trim().split(/\s*[>+~]\s*|\s+/).filter(Boolean).map(compound);
+  return { sel: sel.trim(), parts, key: parts[parts.length - 1], combinator: /[>+~]/.test(sel) };
+};
+
+/** Nothing to go on: `*`, or a compound that was pseudo-classes only. */
+const anything = (c) => !c.classes.length && !c.id && !c.tag;
+
+/** `a` asks for no more than `b` does. */
+const implies = (a, b) => a.classes.every((x) => b.classes.includes(x)) && (!a.id || a.id === b.id) && (!a.tag || a.tag === b.tag);
+
+/** An element could wear this compound. A tagless element (a `.className =`) matches any tag. */
+const wornBy = (c, el) => c.classes.every((x) => el.classes.has(x)) && (!c.id || c.id === el.id) && (!c.tag || !el.tag || c.tag === el.tag);
+
+/** Everything `c` reaches, `g` reaches too: same key, and no ancestor `c` does not have. */
+function reaches(g, c) {
+  if (g.combinator || anything(g.key) || !implies(g.key, c.key)) return false;
+  let i = c.parts.length - 2;
+  for (let j = g.parts.length - 2; j >= 0; j--) {
+    while (i >= 0 && !implies(g.parts[j], c.parts[i])) i--;
+    if (i < 0) return false;
+    i--;
+  }
+  return true;
+}
+
+const FLEX_PROP = /(?:^|;)\s*(align-items|align-content|justify-content|justify-items|place-items|place-content|flex-wrap|flex-flow|flex-direction|gap|row-gap|column-gap)\s*:/;
+const FLEX_DISPLAY = /(?:^|;)\s*display\s*:\s*(?:inline-)?(?:flex|grid)/;
+
+/**
+ * Class lists the markup can actually produce. A `${…}` in a class attribute is dropped,
+ * but any quoted string inside it is kept — `class="prop-field${f.pills ? ' pills' : ''}"`
+ * is the only place `.prop-field.pills` is ever written down.
+ */
+function elements(dir) {
+  const tokens = (value) => {
+    const out = [];
+    const literal = value.replace(/\$\{([\s\S]*?)\}/g, (_, inner) => {
+      for (const q of inner.matchAll(/(["'])([A-Za-z0-9_ -]*)\1/g)) out.push(...q[2].split(/\s+/));
+      return ' ';
+    });
+    out.push(...literal.split(/\s+/));
+    return out.filter((c) => /^[A-Za-z0-9_-]+$/.test(c));
+  };
+
+  const found = [];
+  for (const file of fs.readdirSync(dir).filter((f) => /\.(html|js)$/.test(f))) {
+    const text = fs.readFileSync(path.join(dir, file), 'utf8');
+    for (const m of text.matchAll(/<([a-zA-Z][a-zA-Z0-9]*)\b([^>]*)>/g)) {
+      const cls = m[2].match(/class\s*=\s*(["'`])([\s\S]*?)\1/);
+      if (!cls) continue;
+      found.push({ file, tag: m[1].toLowerCase(), classes: new Set(tokens(cls[2])), id: (m[2].match(/id\s*=\s*["'`]([A-Za-z0-9_-]+)/) || [])[1] || null });
+    }
+    for (const m of text.matchAll(/\.className\s*=\s*(["'`])([\s\S]*?)\1/g)) {
+      found.push({ file, tag: null, classes: new Set(tokens(m[2])), id: null });
+    }
+  }
+  return found;
+}
+
+/** Every selector setting flex-container properties for something no rule lays out as one. */
+function auditFlex(css, els) {
+  const src = css.replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' '));
+  const rules = [...src.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((m) => ({
+    selectors: m[1].split(',').map((s) => s.trim()).filter(Boolean),
+    body: m[2],
+    line: src.slice(0, m.index).split('\n').length,
+    atRule: m[1].trim().startsWith('@'),
+  }));
+
+  const givers = rules.filter((r) => !r.atRule && FLEX_DISPLAY.test(r.body)).flatMap((r) => r.selectors.map((s) => ({ ...chain(s), line: r.line })));
+  const dead = [];
+  const mute = [];
+
+  for (const rule of rules) {
+    if (rule.atRule || !FLEX_PROP.test(rule.body) || FLEX_DISPLAY.test(rule.body)) continue;
+    for (const sel of rule.selectors) {
+      const c = chain(sel);
+      if (anything(c.key)) continue;
+      const settled = givers.find((g) => reaches(g, c));
+      if (settled) continue;
+      const worn = els.filter((el) => wornBy(c.key, el));
+      if (!worn.length) {
+        mute.push({ line: rule.line, sel });
+        continue;
+      }
+      const orphan = worn.find((el) => !givers.some((g) => !anything(g.key) && wornBy(g.key, el)));
+      if (orphan) dead.push({ line: rule.line, sel, el: orphan, props: rule.body.trim().replace(/\s+/g, ' ') });
+    }
+  }
+  return { dead, mute, rules: rules.length, givers: givers.length };
+}
+
+{
+  const css = fs.readFileSync(path.join(PUBLIC, 'style.css'), 'utf8');
+  const els = elements(PUBLIC);
+  const { dead, mute } = auditFlex(css, els);
+
+  check(`the markup is readable at all (${els.length} elements with a class)`, els.length > 500, `only ${els.length} found — the readers below are matching nothing`);
+
+  check(
+    'no rule sets flex-container properties for an element nothing lays out as flex',
+    dead.length === 0,
+    dead
+      .slice(0, 6)
+      .map((d) => `line ${d.line}: "${d.sel}" — <${d.el.tag || 'el'} class="${[...d.el.classes].join(' ')}"> in ${d.el.file} is given no flex display by any rule\n        ${d.props}`)
+      .join('\n      ') + (dead.length > 6 ? `\n      …and ${dead.length - 6} more` : '')
+  );
+
+  check(
+    'and every such rule names a class the markup writes down, so it can be asked',
+    mute.length === 0,
+    mute.map((m) => `line ${m.line}: "${m.sel}" matches nothing in public/*.html or public/*.js — write the class where a grep can see it, or put the display in the block`).join('\n      ')
+  );
+}
+
+/* The same argument as the wreck above: a guard that cannot fail is one nobody should
+ * trust. So it is shown the bug it exists for — the real stylesheet with the one
+ * `display: flex` bc-8l74 added taken back off — and the four-line shapes either side of
+ * it, so that "passes" is not just "matches nothing". */
+{
+  const css = fs.readFileSync(path.join(PUBLIC, 'style.css'), 'utf8');
+  const els = elements(PUBLIC);
+  const undone = css.replace('.mon-card .work-head { display: flex; ', '.mon-card .work-head { ');
+
+  check('taking the display back off .mon-card .work-head is a change at all', undone !== css);
+  const { dead } = auditFlex(undone, els);
+  check(
+    'and the general check catches it, not just the narrow one above',
+    dead.some((d) => d.sel === '.mon-card .work-head'),
+    dead.map((d) => d.sel).join(', ') || 'nothing reported'
+  );
+
+  const el = [{ file: 'x.js', tag: 'div', classes: new Set(['head']), id: null }];
+  check(
+    'a bare flex property with no display anywhere is dead',
+    auditFlex('.head { align-items: center; }', el).dead.length === 1
+  );
+  check(
+    'the same rule is fine once some other rule lays the element out',
+    auditFlex('.head { align-items: center; }\n.head { display: flex; }', el).dead.length === 0
+  );
+  const modifier = [{ file: 'x.js', tag: 'div', classes: new Set(['row', 'tight']), id: null }];
+  check(
+    'and a modifier class is fine when the markup wears the base class too',
+    auditFlex('.row { display: flex; }\n.tight { gap: 2px; }', modifier).dead.length === 0,
+    'the markup half is not being consulted'
+  );
+  check(
+    'but not when nothing wears them together',
+    auditFlex('.row { display: flex; }\n.tight { gap: 2px; }', [{ file: 'x.js', tag: 'div', classes: new Set(['tight']), id: null }]).dead.length === 1
+  );
+  check(
+    'a rule for a class the markup never writes down is reported rather than skipped',
+    auditFlex('.ghost { gap: 2px; }', el).mute.length === 1
+  );
+}
+
 /* ------------------------------------------------------------------ the detector works
  *
  * A guard that cannot fail is a guard nobody should trust, and this one would have

@@ -352,17 +352,19 @@ await check('and "would `bd` answer /api/work differently" is one judgement, not
 /**
  * Every mount of the shared loop.
  *
- * Six rather than five, and the sixth is a second script on a page already here: the
- * mirror pane rides `monitor.html` beside the advocates page it is a mode of, and it
- * follows the log for its own reason (a phone moving) with its own sequence. It was
- * left hand-rolled when the other five were converted — see bc-2ml3, and the note at
- * `feed()` in mirror.js for why the three rules it looked to invert turned out not to.
+ * Six rather than five, and two of them are second and third scripts on a page already
+ * here: `monitor.html` carries three panes and each follows the log for its own reason.
+ * The mirror's is a phone moving, with its own sequence — it was left hand-rolled when
+ * the other five were converted, see bc-2ml3 and the note at `feed()` in mirror.js for
+ * why the three rules it looked to invert turned out not to. The board's is a pull
+ * request moving, and it arrived on that page with bc-d4d5 rather than being written
+ * there; it was already following the log as a page of its own.
  */
 const VIEWS = [
   { page: 'public/index.html', script: 'public/app.js', id: 'inbox' },
   { page: 'public/admin.html', script: 'public/admin.js', id: 'admin' },
   { page: 'public/monitor.html', script: 'public/monitor.js', id: 'advocates' },
-  { page: 'public/prs.html', script: 'public/prs.js', id: 'prs' },
+  { page: 'public/monitor.html', script: 'public/prs.js', id: 'prs' },
   { page: 'public/console.html', script: 'public/console.js', id: 'console' },
   { page: 'public/monitor.html', script: 'public/mirror.js', id: 'mirror' },
 ];

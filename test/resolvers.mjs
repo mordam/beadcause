@@ -32,6 +32,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { cleanupTmp } from './helpers/tmp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const LIB = (name) => path.join(HERE, '..', 'lib', name);
@@ -272,6 +273,6 @@ await check('the nudge says a press happened and that nothing new is being opene
   assert.equal(text.includes('\n'), false, 'one line — it lands in a window somebody is working in');
 });
 
-fs.rmSync(tmp, { recursive: true, force: true });
+await cleanupTmp(tmp);
 console.log(failures ? `\n\x1b[31m${failures} of ${ran} failed\x1b[0m\n` : `\n\x1b[32mall ${ran} checks passed\x1b[0m\n`);
 process.exit(failures ? 1 : 0);
