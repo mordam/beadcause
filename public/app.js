@@ -5665,11 +5665,47 @@
     for (const spec of MAINTAINED) maintain(warm, spec, data, events, resync);
   }
 
+  /**
+   * A deep link that names a pull request the kind filter is hiding, made to land.
+   *
+   * Two ways it can be hidden and both are the ordinary state of the control rather than
+   * something anybody set. The **status** group's default is `unmerged`, so every merged
+   * row is out of the list by default — and a merged row that has not shipped is the
+   * whole subject of the board this link comes from (see the PRs pane on /monitor), so
+   * that is the common case and not the corner. The **kinds** group hides them whenever
+   * something else is picked and PRs is not among it.
+   *
+   * Widening rather than drawing it anyway, which is the same choice `focusHash` already
+   * makes for `scope`: a card that appeared in a list its own filter excludes would be a
+   * row you cannot explain and cannot get back to once you collapse it. The status group
+   * goes to *all* of its rungs rather than to the one this row is on, because narrowing
+   * to `merged` to show a merged pull request would take every unmerged one off the
+   * screen to make room for it — a link that hid four rows to reveal one. Both changes
+   * are visible in the control's own summary line, and both persist, exactly as the
+   * scope widening does.
+   */
+  function revealPr(row) {
+    const f = window.beadcause?.inboxFilter;
+    if (!row?.pr || !f) return;
+    if (!f.inSub(row)) {
+      const sub = (f.KINDS || []).find((k) => k.id === 'pr')?.sub;
+      if (sub) f.setSub('pr', sub.options().map((o) => o.id));
+    }
+    const kinds = f.selected();
+    // Empty is "all kinds" and is already wide enough — adding `pr` to it would *narrow*
+    // the list to pull requests alone, which is the opposite of what this is for.
+    if (kinds.length && !kinds.includes('pr')) f.set([...kinds, 'pr']);
+  }
+
   /** #workspace/id from an ntfy notification tap, or the Android shell's deep link. */
   let hashHandled = '';
   async function focusHash() {
     const key = decodeURIComponent(location.hash.replace(/^#/, ''));
     if (!key || key === hashHandled) return;
+    // Before `byKey`, which reads the board rather than the filtered list and so finds a
+    // pull request whether or not the chips would draw it. `expand` below is what would
+    // not: it opens a card `render` never made.
+    revealPr(byKey(key));
     if (!byKey(key)) {
       // A deep link always names a question, and `agent` is the one scope with no
       // questions in it — so the tap would land on a list that silently ignored it.
