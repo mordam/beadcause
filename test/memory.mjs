@@ -110,6 +110,7 @@ fs.writeFileSync(path.join(store, 'android-keystore.jks'), 'PRETEND SIGNING KEY'
 fs.writeFileSync(path.join(store, 'android-keystore.properties'), 'storePassword=hunter2');
 fs.writeFileSync(path.join(store, 'loupe-sophab.png'), 'PRETEND PNG');
 fs.writeFileSync(path.join(store, 'status.json'), '{}');
+fs.writeFileSync(path.join(store, 'restart.json'), '{"at":"2026-08-11T00:00:00.000Z"}');
 fs.mkdirSync(path.join(store, 'logs'), { recursive: true });
 fs.writeFileSync(path.join(store, 'logs', 'run.log'), 'noise');
 fs.writeFileSync(path.join(store, 'config.json'), JSON.stringify({ token: 'abc' }, null, 2) + '\n');
@@ -122,6 +123,9 @@ check('config.json is tracked', tracked.includes('config.json'), tracked.join(' 
 check('the signing key is NOT tracked', !tracked.some((f) => f.includes('keystore')), tracked.join(' '));
 check('the check PNG is not tracked', !tracked.includes('loupe-sophab.png'), tracked.join(' '));
 check('status.json churn is not tracked', !tracked.includes('status.json'), tracked.join(' '));
+// The same argument, one file along: the router rewrites restart.json on every handover
+// and it means nothing thirty seconds later, so its history is noise (bc-kttd).
+check('restart.json churn is not tracked', !tracked.includes('restart.json'), tracked.join(' '));
 check('logs/ is not tracked', !tracked.some((f) => f.startsWith('logs/')), tracked.join(' '));
 
 check('an unchanged directory produces no commit', (await commit('nothing')) === null);
@@ -945,6 +949,55 @@ check(
   'and what the cost of getting it wrong is, so the choice is not arbitrary',
   /advice\s+you will follow somewhere it is false/.test(brief) && /never see again once you are working elsewhere/.test(brief),
   brief
+);
+
+/* ---------------------------- and the chat session is told *when* to write */
+//
+// bc-sgu4. The brief above anchors the read half to a moment every run has — "check
+// `recall` and `notes` first" — and it fires: thirteen of the thirty-four stored
+// conversations open a turn with `beadcause-memory recall`. It anchors the write half
+// to nothing, and the console is the one agent with no end of its own to hang it on: a
+// worker's brief numbers the write as a closing step, dispatch exits after one comment,
+// and a chat ends by the user not replying. Three days and twenty-eight conversations
+// later it had read constantly and written nothing.
+//
+// So each of the two protocols names its own moment, and both are asserted here for the
+// reason the paragraphs above are: a prompt paragraph is the load-bearing part of this
+// feature and nothing else in the suite would notice it going missing.
+
+const chat = await import('../lib/console.js');
+
+check(
+  'the proposal protocol names the write, not just the read',
+  /beadcause-memory remember/.test(chat.PROTOCOL) && /\bnote\b/.test(chat.PROTOCOL),
+  chat.PROTOCOL
+);
+check(
+  'and ties it to the one terminal act a console conversation has',
+  /before you write the block/i.test(chat.PROTOCOL),
+  chat.PROTOCOL
+);
+check(
+  'and says silence is the usual answer, so it does not become a second tracker',
+  /teach nothing worth\s+keeping/.test(chat.PROTOCOL),
+  chat.PROTOCOL
+);
+
+// The path that matters for every agent *except* the console: `agentEnv` stamps
+// BEADCAUSE_AGENT from the foundation being chatted with, so a memory written here is
+// written as the advocate, or as dispatch, or as the worker. For the advocate it is the
+// only path there has ever been — `memoryBrief` otherwise reaches it through
+// `surveyPrompt`, and no survey has ever run.
+const chatted = chat.chatProtocol('Adam');
+check(
+  'a chat with any other agent names the write too',
+  /beadcause-memory remember/.test(chatted) && /\bnote\b/.test(chatted),
+  chatted
+);
+check(
+  'with its own moment, because a chat has no end to save it up for',
+  /no end to save it up for/.test(chatted),
+  chatted
 );
 
 process.chdir(path.join(HERE, '..'));

@@ -42,7 +42,7 @@
  *
  *   node bin/router.js            supervise (this is what launchd runs)
  *   node bin/router.js --swap     force a swap now, even if nothing changed
- *   node bin/router.js --status   what is running, and on what build
+ *   node bin/router.js --status   what is running, on what build, on what certificate
  */
 import http from 'node:http';
 import net from 'node:net';
@@ -52,17 +52,31 @@ import { fileURLToPath } from 'node:url';
 import { loadConfig, reconcileBaseUrl } from '../lib/config.js';
 import { buildStamp, routerStamp } from '../lib/build.js';
 import { hotSwapProblem, LOADED_ENV } from '../lib/service.js';
-import { certificate, closeServer, daysLeftOf, isSecure, startRenewal, tailnetServer, tlsEnabled, MIN_VERSION } from '../lib/tls.js';
 import {
-  EXITED,
+  certificate,
+  certificateLine,
+  closeServer,
+  daysLeftOf,
+  isSecure,
+  startRenewal,
+  tailnetServer,
+  tlsEnabled,
+  MIN_VERSION,
+} from '../lib/tls.js';
+import {
   HEALTH_ATTEMPTS,
   HEALTH_BASE_MS,
+  PORTLOST,
+  PORT_ATTEMPTS,
+  PORT_TAKEN_EXIT,
   TIMEOUT,
   deferralMs,
+  exitKind,
   explain,
   healthDeadline,
   nextSlowness,
   outageRetryMs,
+  poisonable,
   startupError,
 } from '../lib/startup.js';
 
@@ -194,10 +208,12 @@ let crashBackoffMs = 0;
  * path, and it is the only ordering in which a poller cannot start inside a process
  * that then fails to bind.
  *
- * Fails in one of two ways and the difference is the whole of bc-excc: a child that
- * *exited* is a broken build (`EXITED`), and a child that is alive and has not answered
- * inside `deadlineMs` is a busy machine (`TIMEOUT`). The caller treats them nothing
- * alike — see `attemptStart`.
+ * Fails in one of three ways and the differences are the whole of bc-excc and bc-dw47: a
+ * child that *exited* is a broken build (`EXITED`), a child that is alive and has not
+ * answered inside `deadlineMs` is a busy machine (`TIMEOUT`), and a child that exited
+ * with `PORT_TAKEN_EXIT` lost the port between `freePort` choosing it and the bind
+ * (`PORTLOST`) — which is the one failure a plain retry cures, because the retry gets a
+ * different port. The caller treats them nothing alike — see `attemptStart`.
  */
 async function spawnBackend(deadlineMs) {
   const port = await freePort();
@@ -240,7 +256,18 @@ async function spawnBackend(deadlineMs) {
   const deadline = Date.now() + deadlineMs;
   for (;;) {
     if (child.exitCode !== null || child.signalCode) {
-      throw startupError(EXITED, `backend on :${port} exited before it was healthy`);
+      // The exit code is read here and nowhere else: a signalled child has no code at
+      // all, and `exitKind(null)` is `EXITED`, which is the right answer for one — a
+      // backend nobody in here killed and that died on a signal is not a port problem.
+      const kind = exitKind(child.exitCode);
+      const why = kind === PORTLOST ? 'could not bind it — something else took it first' : 'exited before it was healthy';
+      // The code, always, and it is not decoration: `exited before it was healthy` is the
+      // sentence that condemns a build, and which exit produced it is the whole of what
+      // anybody reading the log afterwards needs to know. A signalled child says so
+      // instead — `signal SIGKILL` is a very different diagnosis from `code 1`, and both
+      // of them arrived here as the same six words until bc-dw47.
+      const how = child.signalCode ? `signal ${child.signalCode}` : `code ${child.exitCode}`;
+      throw startupError(kind, `backend on :${port} ${why} (${how})`);
     }
     try {
       const state = await localJson(port, '/internal/state', { timeout: 2000 });
@@ -269,10 +296,18 @@ async function spawnBackend(deadlineMs) {
  * the window, because a *wedged* child is the only other thing a timeout can mean and a
  * fresh process is the only cure for that one. Beyond that the answer is not "again,
  * harder" but "later, wider", which is what `slowness` carries out of here.
+ *
+ * The exception, and bc-dw47's whole point, is a child that exited because its port had
+ * been taken. "The next spawn would break identically" is exactly what is false about
+ * that one — the next spawn asks the kernel for another port — so it is retried at once,
+ * up to `PORT_ATTEMPTS` times, and it costs neither a health attempt nor a mark on
+ * `slowness`: the machine was not slow and the build was never in question.
  */
 async function attemptStart(build) {
   let last = null;
-  for (let attempt = 0; attempt < HEALTH_ATTEMPTS; attempt++) {
+  let lost = 0;
+  let attempt = 0;
+  while (attempt < HEALTH_ATTEMPTS) {
     const ms = healthDeadline(attempt, slowness, HEALTH_BASE);
     try {
       const be = await spawnBackend(ms);
@@ -284,11 +319,22 @@ async function attemptStart(build) {
       return be;
     } catch (err) {
       last = err;
+      if (err.kind === PORTLOST) {
+        // Not `attempt++`: this says nothing about the build or the window, and spending
+        // the second health attempt on it would leave a genuinely slow start with none.
+        if (++lost >= PORT_ATTEMPTS) throw err;
+        warn(
+          `build ${build} lost its internal port (${lost}/${PORT_ATTEMPTS}) — ` +
+            'another process on this Mac took it first. Trying again now, on another one.'
+        );
+        continue;
+      }
       if (err.kind !== TIMEOUT) throw err;
       warn(
         `build ${build} was still starting after ${Math.round(ms / 1000)}s ` +
           `(attempt ${attempt + 1}/${HEALTH_ATTEMPTS}) — a slow machine says nothing about the build`
       );
+      attempt++;
     }
   }
   slowness = nextSlowness(slowness, { timedOut: true });
@@ -360,6 +406,34 @@ function retire(be) {
 }
 
 /**
+ * Tell the error-reporting quiet window that the port has just changed hands.
+ *
+ * bc-kttd. `lib/deploy.js` holds `POST /api/error` off across a deploy by reading the
+ * deploy journal, and a swap writes nothing into it — so a hand-run `npm run swap`, and
+ * every automatic one this file does when `lib/` moves, produced exactly the storm that
+ * mechanism exists to stop: a handful of failures that happened a moment before the new
+ * backend became healthy, described to it afterwards, each one a P0 in front of the
+ * advocate. `markRestart` leaves the one fact that costs, and lib/deploy.js explains at
+ * length why it is a file of its own rather than a fake deploy.
+ *
+ * **Lazily imported and never fatal**, for the reason at the top of this file and the
+ * reason `armCrashHandlers` gives at more length: lib/deploy.js reaches lib/session.js
+ * and so an import cycle, and none of that may stand between this process and the port.
+ * By the time this is first called that module is already in the cache — `armCrashHandlers`
+ * awaits it before the first `bringUp` — so the write lands on the next microtask, well
+ * ahead of any phone noticing it was ever gone.
+ *
+ * **At the handover, not at the spawn.** A build that is merely slow is started, timed
+ * out and retried while the old backend serves perfectly; marking those would hush a
+ * daemon that never moved. Only the assignment to `active` is the service changing hands.
+ */
+function noteRestart(be, reason) {
+  import('../lib/deploy.js')
+    .then(({ markRestart }) => markRestart({ build: be.build, pid: be.pid, reason }))
+    .catch((err) => warn(`could not record the handover (${err.message}) — the reconnect after this swap may file beads`));
+}
+
+/**
  * A backend went away on its own: a crash, an OOM, or its own orphan guard.
  *
  * Only the active one is worth reacting to — a draining backend exiting is the
@@ -419,6 +493,10 @@ async function bringUp(reason) {
 
     const previous = active;
     active = next;
+    // Before the log line and before the old one is retired: from here the phone is
+    // talking to a process that was not there a moment ago, and the reconnect it is
+    // about to make must not be a dozen beads. See `noteRestart`.
+    noteRestart(next, reason);
     poisoned = null;
     deferred = null;
     deferrals = 0;
@@ -432,21 +510,40 @@ async function bringUp(reason) {
   } catch (err) {
     // Remember the build we tried, not the one on disk now: if the files moved
     // again while we were failing, that newer build deserves its own attempt.
-    if (err.kind === TIMEOUT) {
-      // Not poison. The child was alive and unhurried, which is a sentence about this
-      // Mac, and condemning a build for it is how a good build stopped being served
-      // for as long as it took somebody to read a log file. Deferred instead: tried
-      // again on its own, with a window that has already been widened by `slowness`.
-      // Counted per build: a newer build has earned a fresh, short pause rather than
-      // inheriting the one the previous build's failures had grown to.
+    if (!poisonable(err.kind)) {
+      // Not poison. The child was alive and unhurried, or it never got the port it was
+      // given — either way that is a sentence about this Mac, and condemning a build for
+      // it is how a good build stopped being served for as long as it took somebody to
+      // read a log file. Deferred instead: tried again on its own, with a window that
+      // has already been widened by `slowness`. Counted per build: a newer build has
+      // earned a fresh, short pause rather than inheriting the one the previous build's
+      // failures had grown to.
       deferrals = deferred?.build === attempted ? deferrals + 1 : 1;
       const wait = deferralMs(deferrals);
-      deferred = { build: attempted, attempts: HEALTH_ATTEMPTS, until: Date.now() + wait, deferrals };
-      warn(
-        `build ${attempted} would not start in time — retrying in ${Math.round(wait / 1000)}s ` +
-          `with a longer window. The build is not condemned: ${HEALTH_ATTEMPTS} slow starts are ` +
-          'evidence about the machine, not about the code.'
-      );
+      const lostPort = err.kind === PORTLOST;
+      // Carried on the snapshot rather than left to be inferred from `attempts`: every
+      // surface that reads a deferral says "too slow to answer", and a deferral for a
+      // taken port would be four screens of a diagnosis that is simply not this one.
+      const why = lostPort
+        ? `build ${attempted} lost the race for an internal port ${PORT_ATTEMPTS} times — ` +
+          'something else on this Mac keeps taking it. Nothing is wrong with the build.'
+        : null;
+      deferred = {
+        build: attempted,
+        attempts: lostPort ? PORT_ATTEMPTS : HEALTH_ATTEMPTS,
+        until: Date.now() + wait,
+        deferrals,
+        why,
+      };
+      if (lostPort) {
+        warn(`${why} Retrying in ${Math.round(wait / 1000)}s.`);
+      } else {
+        warn(
+          `build ${attempted} would not start in time — retrying in ${Math.round(wait / 1000)}s ` +
+            `with a longer window. The build is not condemned: ${HEALTH_ATTEMPTS} slow starts are ` +
+            'evidence about the machine, not about the code.'
+        );
+      }
     } else {
       poisoned = attempted;
       deferred = null;
@@ -727,12 +824,22 @@ function snapshot() {
  * first one adopted without a restart are reflected here the moment they happen, rather
  * than reporting whatever was true at boot. Null while a provisional listener is still
  * waiting for one, because "serving plain HTTP" is exactly what that is.
+ *
+ * `checkedAt` comes off the same server object, stamped by the renewal loop on every
+ * tick — so a readout can say whether the loop is still running rather than only what
+ * the calendar says. A certificate with two months left and a check from six weeks ago
+ * is a dead loop, and those two facts are only distinguishable together.
  */
 function certificateOnSocket() {
-  const material = (servers || []).filter(isSecure).find((s) => s.tlsMaterial)?.tlsMaterial;
+  const server = (servers || []).filter(isSecure).find((s) => s.tlsMaterial);
+  const material = server?.tlsMaterial;
   if (!material) return null;
   const left = daysLeftOf(material.cert);
-  return { name: material.name, daysLeft: left === null ? null : Math.round(left * 10) / 10 };
+  return {
+    name: material.name,
+    daysLeft: left === null ? null : Math.round(left * 10) / 10,
+    checkedAt: server.tlsCheckedAt || null,
+  };
 }
 
 /**
@@ -1040,9 +1147,13 @@ function listen() {
     const listener = front || server;
     listener.on('error', (err) => {
       warn(`listen ${host}:${cfg.port} — ${err.message}`);
+      // The same code lib/server.js uses, and for the same reason it uses it: a router
+      // that could not have the port is a different event from a router that is broken,
+      // and a parent — a suite, in practice, since launchd reads no code at all — can
+      // only tell them apart if the number says so.
       if (++failed === hosts.length && bound === 0) {
         warn('no address could be bound — exiting');
-        process.exit(1);
+        process.exit(PORT_TAKEN_EXIT);
       }
     });
     listener.listen(cfg.port, host, () => {
@@ -1113,6 +1224,10 @@ if (process.argv.includes('--status')) {
   console.log(`active   ${line(s.active)}`);
   for (const be of s.retiring) console.log(`draining ${line(be)}`);
   console.log(`disk     ${s.disk}${s.stale ? '  ⚠ STALE — a swap is due' : '  (matches what is running)'}`);
+  // TLS on a line, next to the build, because this is the one command anybody runs to
+  // ask what the daemon is doing — and until now the certificate was only ever visible
+  // in launchd's log or in the push that arrives once it is nearly too late.
+  console.log(`cert     ${certificateLine(s.certificate).text}`);
   if (s.poisoned) console.log(`poisoned ${s.poisoned} — this build died at startup; not retried until the files change`);
   if (s.deferred) {
     const left = Math.max(0, Math.round((s.deferred.until - Date.now()) / 1000));
@@ -1219,7 +1334,45 @@ async function armCrashHandlers() {
 
 const routerBuildAtStart = routerStamp();
 
+/**
+ * Put the port down and stop the backends, once.
+ *
+ * Declared above the socket it closes because it has to be *registered* the moment the
+ * socket exists — see the two `process.on` calls below `listen()`. Nothing can call it
+ * before then, so `servers` is always initialised by the time this body runs.
+ */
+const shutdown = () => {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  // Before anything is closed. A teardown makes things in flight reject, and the router
+  // tears down on every `launchctl kickstart` — so without this every restart would file a
+  // P0 about a router doing exactly as it was told. `crash` is null until `armCrashHandlers`
+  // has finished, which is why that function checks `shuttingDown` on its way out.
+  crash?.beginShutdown();
+  log('shutting down — stopping backends');
+  for (const be of [active, ...retiring].filter(Boolean)) stop(be);
+  // `closeServer`, because `listen()` now hands back the request server: on the tailnet
+  // address the port is held by the `net.Server` in front of it, and closing the HTTPS
+  // server alone would leave 4318 bound by a process on its way out.
+  servers.forEach(closeServer);
+  // Give SIGTERM a moment to land on the children before the router's own exit
+  // orphans them. Their own guard would catch it a minute later; this is tidier.
+  setTimeout(() => process.exit(0), 300).unref();
+};
+
 const servers = listen();
+// Armed here, on the line after the port is held, and not at the end of this file where
+// they used to be. `launchctl kickstart -k` is a SIGTERM, and until these are registered
+// node's default disposition is what answers one: the process is killed where it stands,
+// `shutdown` never runs, the backends are orphaned to their own minute-long guard and the
+// port goes without being closed. That window used to cover everything below — arming the
+// crash handlers, fetching a certificate, and the whole first bring-up, which is seconds
+// on a cold start and exactly the seconds a restart-loop lands in. `shutdown` is written
+// to be safe this early: `active` and `retiring` are simply empty, and `crash` is null
+// until `armCrashHandlers` has finished, which is what its optional call and the
+// `if (shuttingDown)` on that function's way out are between them for.
+process.on('SIGINT', shutdown);
+process.on('SIGTERM', shutdown);
 // In the installed configuration this process is what terminates TLS, so it is also
 // what may have just fetched the first certificate — and therefore what has to move
 // `baseUrl` onto the name. Its backends bind loopback and deliberately do not. Before
@@ -1256,24 +1409,3 @@ await bringUp('first start').catch((err) => {
 watchDisk();
 watchSelf();
 heartbeat();
-
-const shutdown = () => {
-  if (shuttingDown) return;
-  shuttingDown = true;
-  // Before anything is closed. A teardown makes things in flight reject, and the router
-  // tears down on every `launchctl kickstart` — so without this every restart would file a
-  // P0 about a router doing exactly as it was told. `crash` is null until `armCrashHandlers`
-  // has finished, which is why that function checks `shuttingDown` on its way out.
-  crash?.beginShutdown();
-  log('shutting down — stopping backends');
-  for (const be of [active, ...retiring].filter(Boolean)) stop(be);
-  // `closeServer`, because `listen()` now hands back the request server: on the tailnet
-  // address the port is held by the `net.Server` in front of it, and closing the HTTPS
-  // server alone would leave 4318 bound by a process on its way out.
-  servers.forEach(closeServer);
-  // Give SIGTERM a moment to land on the children before the router's own exit
-  // orphans them. Their own guard would catch it a minute later; this is tidier.
-  setTimeout(() => process.exit(0), 300).unref();
-};
-process.on('SIGINT', shutdown);
-process.on('SIGTERM', shutdown);

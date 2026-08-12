@@ -141,6 +141,22 @@ check('and its exceptions are the same three hosts the code allows', () => {
   assert.ok(permitted.includes('10.0.2.2'), 'an emulator can no longer reach the host Mac');
 });
 
+check('and the Mac knows the same exceptions, so it can warn about the rest', () => {
+  // bc-affn: `cleartextWarning` is what `npm run qr` and `--url` print when the link
+  // they are handing out is one the app will refuse. Judged on the Mac, against this
+  // same list — a Mac that thought `10.0.2.2` was refusable would warn every emulator
+  // session, and one that thought the tailnet address was fine would warn none of the
+  // runs that need it.
+  const m = tls.match(/APP_CLEARTEXT_HOSTS = \[([^\]]*)\]/);
+  assert.ok(m, 'lib/tls.js has no APP_CLEARTEXT_HOSTS');
+  assert.deepEqual(
+    [...m[1].matchAll(/'([^']+)'/g)].map((x) => x[1]).sort(),
+    [...appLoopback()].sort(),
+    'the Mac and Address.LOOPBACK disagree about which http links the app still accepts'
+  );
+  assert.match(tls, /export function cleartextWarning/, 'nothing on the Mac says the link will be refused');
+});
+
 check('nothing permits cleartext to the tailnet address any more', () => {
   assert.doesNotMatch(netconf, /100\.\d/, 'a 100.x host is named in the network security config');
   // The CGNAT arithmetic survives in Address.kt, but only to explain the refusal.

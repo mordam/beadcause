@@ -5,13 +5,14 @@
  *     npm test
  *     node test/spacedetails.mjs
  *
- * Eight settings moved from "open config.json in an editor on the Mac" to a card on a
+ * Ten settings moved from "open config.json in an editor on the Mac" to a card on a
  * phone. What makes that worth a suite is not the controls, it is what sits behind
  * them: every one of these fields is read by something that decides whether your phone
  * rings, whether an agent answers a comment unasked, whether a bead an agent filed may be
- * worked before you have read it, or whether a worker merges its own pull request into
- * main. The failure modes are all silent, and all of the same shape — the screen says one
- * thing and the daemon does another.
+ * worked before you have read it, whether a worker merges its own pull request into
+ * main, or which Slack channel other people read the question in. The failure modes are
+ * all silent, and all of the same shape — the screen says one thing and the daemon does
+ * another.
  *
  * The `autoEndorse` half of that is its own suite (test/autoendorse.mjs), because what it
  * switches off is a safety property rather than a preference; what belongs here is that
@@ -19,7 +20,8 @@
  *
  * Six claims, and each is one nobody can make by reading the diff:
  *
- * 1. **`null` means inherit, and it is not the same as `false`.** `prPolicyFor` is
+ * 1. **`null` means inherit, and it is not the same as `false`** — nor, on the Slack
+ *    channel, the same as `""`. `prPolicyFor` is
  *    explicit that a space may override the global in either direction, so "off" and
  *    "following a default that is off" have to be distinguishable — and stay
  *    distinguishable when the default moves. A screen that collapsed them would look
@@ -90,7 +92,7 @@ function check(name, fn) {
 console.log('\nspace details');
 
 const spacesMod = await import(LIB('spaces.js'));
-const { readSettings, applySettings, spaceDetail, SETTINGS, prPolicyFor, isQuiet } = spacesMod;
+const { readSettings, applySettings, spaceDetail, SETTINGS, prPolicyFor, isQuiet, slackChannelFor } = spacesMod;
 
 /* ==================================================== 1. what a field can say */
 
@@ -101,6 +103,8 @@ check('a space that says nothing says null everywhere, not false', () => {
     quietHours: null,
     quietDays: null,
     ntfyDetail: null,
+    slackChannel: null,
+    slackDetail: null,
     autoDispatch: null,
     autoEndorse: null,
     autoMerge: null,
@@ -118,13 +122,37 @@ check('and `off` survives the global default it is overriding moving under it', 
   assert.equal(readSettings(cfg.spaces[0]).autoMerge, false, 'the screen has to be able to draw it as off, not as unset');
 });
 
+check('the Slack channel has three answers, and two of them are not the same nothing', () => {
+  // The claim the whole control is shaped around: no key follows `slack.channel`, and a
+  // key set to nothing means this space never posts however the global is set. A screen
+  // that collapsed them would take away the only way to say "not this space" — and it
+  // would take it away silently, the day somebody set a global channel.
+  const cfg = { slack: { enabled: true, channel: 'C-GLOBAL' }, spaces: [], workspaces: [{ name: 'a' }] };
+  cfg.spaces = [{ name: 'Inherits', workspaces: ['a'] }];
+  assert.equal(readSettings(cfg.spaces[0]).slackChannel, null);
+  assert.equal(slackChannelFor(cfg, 'a'), 'C-GLOBAL', 'no key at all follows the global');
+
+  cfg.spaces = [{ name: 'Never', workspaces: ['a'], slackChannel: '' }];
+  assert.equal(readSettings(cfg.spaces[0]).slackChannel, '', 'not null — the card draws these two differently');
+  assert.equal(slackChannelFor(cfg, 'a'), null, 'and it posts nowhere with a global channel set');
+
+  cfg.spaces = [{ name: 'Own', workspaces: ['a'], slackChannel: ' C-OWN ' }];
+  assert.equal(readSettings(cfg.spaces[0]).slackChannel, 'C-OWN');
+});
+
 check('a field the readers would ignore reads as unset, so the screen cannot promise it', () => {
   // "18:0" is what `minutesOfDay` refuses, which means the daemon is quiet at no time
   // at all. A card saying "quiet 18:0 → 09:00" over that would be worse than one saying
   // there are no quiet hours.
-  const s = readSettings({ name: 'P', quietHours: { from: '18:0', to: '09:00' }, ntfyDetail: 'loud' });
+  const s = readSettings({
+    name: 'P',
+    quietHours: { from: '18:0', to: '09:00' },
+    ntfyDetail: 'loud',
+    slackDetail: 'loud',
+  });
   assert.equal(s.quietHours, null);
   assert.equal(s.ntfyDetail, null);
+  assert.equal(s.slackDetail, null);
 });
 
 check('and what is stored is normalised, so two spellings of one answer are one answer', () => {
@@ -158,6 +186,16 @@ check('and an empty day list clears it too — "quiet on no days" is not a secon
   assert.ok(!('quietDays' in space));
 });
 
+check('setting the channel to nothing keeps the key, and clearing it removes the key', () => {
+  const space = { name: 'P', slackChannel: 'C-OWN', slackDetail: 'minimal' };
+  applySettings(space, { slackChannel: '' });
+  assert.equal(space.slackChannel, '', 'Never stores the empty string rather than deleting it');
+  applySettings(space, { slackChannel: null });
+  assert.ok(!('slackChannel' in space), 'Inherit is the only thing that takes the key away');
+  applySettings(space, { slackDetail: null });
+  assert.deepEqual(space, { name: 'P' });
+});
+
 check('what changed is what actually moved, not what was sent', () => {
   const space = { name: 'P', autoMerge: false };
   assert.deepEqual(applySettings(space, { autoMerge: false }), [], 'setting it to what it already was');
@@ -174,6 +212,9 @@ for (const [what, patch] of [
   ['the workspace list', { workspaces: ['a', 'b'] }],
   ['a string where a boolean goes', { autoMerge: 'false' }],
   ['a detail level nothing reads', { ntfyDetail: 'loud' }],
+  ['the same on the Slack side', { slackDetail: 'loud' }],
+  ['a channel that is not a string', { slackChannel: 42 }],
+  ['a channel sent as a boolean, which is what a three-state button would send', { slackChannel: false }],
   ['half a quiet-hours window', { quietHours: { from: '18:00' } }],
   ['a day nobody has', { quietDays: ['sat', 'funday'] }],
   ['a patch that is not an object', ['muted']],
@@ -200,6 +241,7 @@ const RESOLVE = {
   ntfy: { detail: 'full', minimalWorkspaces: ['beta'] },
   autoDispatchExclude: ['alpha'],
   pr: { autoMerge: false },
+  slack: { enabled: true, channel: 'C-GLOBAL', excludeWorkspaces: ['alpha'] },
 };
 
 check('the per-repo panel is the answer the daemon gives, not the space`s own setting', () => {
@@ -213,6 +255,12 @@ check('the per-repo panel is the answer the daemon gives, not the space`s own se
   assert.equal(byName.beta.autoDispatch, true);
   // And the space beating the global, which is the direction the PR policy needed.
   assert.equal(byName.alpha.autoMerge, true);
+  // Slack has the same shape of per-repo veto, and the panel is the only place it shows:
+  // the space says nothing, so beta follows the global channel, and alpha is on
+  // `slack.excludeWorkspaces` and reaches no channel at all.
+  assert.equal(byName.beta.slackChannel, 'C-GLOBAL');
+  assert.equal(byName.alpha.slackChannel, null);
+  assert.equal(byName.beta.slackDetail, 'full');
 });
 
 check('a repo the space names and the daemon does not have is called out, not silently dropped', () => {
@@ -227,6 +275,15 @@ check('the defaults travel, so an Inherit button can say what it would inherit t
   assert.equal(d.defaults.autoMerge, false);
   assert.equal(d.defaults.ntfyDetail, 'full');
   assert.equal(d.defaults.autoDispatch, true);
+  // What Inherit resolves to on the Slack row — `null` where nothing is configured, so
+  // the button can read "Inherit (none)" rather than promising a channel.
+  assert.equal(d.defaults.slackChannel, 'C-GLOBAL');
+  assert.equal(d.defaults.slackDetail, 'full');
+  assert.equal(spaceDetail({ ...RESOLVE, slack: {} }, 'Work').defaults.slackChannel, null);
+  // Not a setting and not editable here, but the card needs it: a channel set on a space
+  // while Slack is globally off is a control that changes nothing, and the row says so.
+  assert.equal(d.effective.slack, true);
+  assert.equal(spaceDetail({ ...RESOLVE, slack: {} }, 'Work').effective.slack, false);
 });
 
 check('and `Other` is not a space — it is a group the picker offers, with nothing to set', () => {
@@ -309,6 +366,13 @@ check('the page carries the settings card and the gear to admin', () => {
   const js = read('public/monitor.js');
   assert.ok(js.includes('/api/space?space='), 'the page never reads a space');
   assert.ok(js.includes("data-space-set"), 'nothing on the page writes one');
+  // The channel is the one control here that is typed rather than pressed, so it has a
+  // press of its own that reads the field — and a draft in `state`, because this page
+  // repaints off a stream event and a half-typed id in the DOM is one a poll can take.
+  assert.ok(js.includes('data-space-channel'), 'no way to send a typed channel');
+  assert.ok(js.includes('slackDraft'), 'the typed channel is not held against a repaint');
+  const css = read('public/style.css');
+  assert.ok(css.includes('.space-channel input'), 'the channel field has no box');
 });
 
 check('and the service worker version moved, or a cached phone gets the gear without the card', () => {
@@ -436,6 +500,31 @@ check('and the picker`s cached summary is refreshed, so the 🔕 is not a poll b
   // And the rest of the cached row is untouched: rebuilding it from `summarise(cfg, [])`
   // would zero every count in the picker and drop the synthetic "Other" group with them.
   assert.deepEqual(row.workspaces, ['alpha', 'beta']);
+});
+
+const never = await call('/api/space', { method: 'POST', body: { space: 'Work', settings: { slackChannel: '' } } });
+check('pressing Never writes a channel of "" — the one answer a missing key cannot give', () => {
+  assert.deepEqual(never.body.changed, ['slackChannel']);
+  assert.equal(never.body.settings.slackChannel, '', 'and comes back as "" rather than as null');
+  const onDisk = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
+  assert.equal(onDisk.spaces.find((s) => s.name === 'Work').slackChannel, '', 'the key is on disk, empty');
+});
+
+const channel = await call('/api/space', { method: 'POST', body: { space: 'Work', settings: { slackChannel: ' C-TYPED ' } } });
+check('and a typed channel reaches the running daemon through the resolver, trimmed', () => {
+  assert.equal(channel.status, 200);
+  // `slack.enabled` is not set on this config, so the resolver still answers null — which
+  // is the point: the setting is stored and it is the global switch that gates it.
+  assert.equal(live.spaces.find((s) => s.name === 'Work').slackChannel, 'C-TYPED');
+  live.slack = { enabled: true, channel: 'C-GLOBAL' };
+  assert.equal(slackChannelFor(live, 'alpha'), 'C-TYPED', 'the space beats the global');
+  delete live.slack;
+});
+
+const badChannel = await call('/api/space', { method: 'POST', body: { space: 'Work', settings: { slackChannel: true } } });
+check('a channel that is not a string is a 400 rather than a `true` in the config file', () => {
+  assert.equal(badChannel.status, 400);
+  assert.equal(live.spaces.find((s) => s.name === 'Work').slackChannel, 'C-TYPED', 'unchanged');
 });
 
 const refused = await call('/api/space', { method: 'POST', body: { space: 'Work', settings: { name: 'Renamed' } } });

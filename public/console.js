@@ -870,6 +870,12 @@
         <span class="work-main">
           <span class="work-title">${esc(c.title || 'Untitled')}</span>
           <span class="work-sub"><span class="pill">${esc(c.workspace)}</span>${
+            // The checkout, as a second pill beside the workspace rather than folded
+            // into it: with N repos behind one tracker name, "climative" no longer
+            // says where this conversation is reading from. Absent for every
+            // workspace that is one repo, and for anything an older daemon wrote.
+            c.repo?.name ? `<span class="pill">${esc(c.repo.name)}</span>` : ''
+          }${
             agent ? `<span class="pill agent">${esc(agent.emoji)} ${esc(agent.name)}</span>` : ''
           }${done ? '<span class="pill">dismissed</span>' : ''}${
             bits.length ? ` ${esc(bits.join(' · '))}` : ''

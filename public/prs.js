@@ -38,9 +38,12 @@
  * the lamp it belongs to: a lamp is something you scan for, and a restart in flight is
  * something you are told. Three things about it:
  *
- * - **It polls on its own clock.** Seconds while something is live, half a minute
- *   otherwise. The board behind it is a `gh` call per repo and cannot go that fast;
- *   /api/deploys is a directory read and can.
+ * - **It has a clock only while something is running.** Four seconds then, because a
+ *   step is a file being written on the Mac and no event can carry it — the board
+ *   behind it is a `gh` call per repo and could never go that fast, where /api/deploys
+ *   is a directory read and can. With nothing running there is no timer at all: the
+ *   daemon says on the event log when a deploy *starts* as well as when it settles, so
+ *   an idle board holds a socket and asks for nothing until one does.
  * - **A dropped connection during a restart is the deploy working, not the page
  *   breaking.** When a live deploy says it restarts beadcause, a failed fetch is
  *   drawn as "it is coming back" and the last board is left on screen — where the
@@ -80,10 +83,15 @@
      repo per event. */
   const BOARD_EVENTS = window.beadcause?.stream?.BOARD_EVENTS || ['merged', 'changes', 'pr-declined', 'deploy', 'advocate'];
 
-  /* The deploy strip's own clock. Fast enough that a step change is news rather than
-     history, and only while something is actually running — /api/deploys is a directory
-     read, but a phone in a pocket should not be asking every four seconds all day. */
+  /* The deploy strip's own clock, while something is actually running. Fast enough that
+     a step change is news rather than history — /api/deploys is a directory read, but a
+     phone in a pocket should not be asking every four seconds all day. */
   const DEPLOY_LIVE_MS = 4000;
+
+  /* The clock while nothing is running, which is now the *fallback* and not the rule:
+     the daemon emits a `deploy` event when one starts, so a following stream is what
+     turns the strip on. This is what a page with no stream behind it falls back to —
+     see `scheduleDeploys`. */
   const DEPLOY_IDLE_MS = 30000;
 
   /* How many deploys the strip asks for. The last few are the subject; a history of
@@ -935,29 +943,45 @@
   }
 
   /**
-   * The strip's clock, set from what the last answer said rather than fixed at boot.
+   * The strip's clock, set from what the last answer said rather than fixed at boot —
+   * and, while nothing is running, no clock at all.
    *
-   * A deploy that starts between two ticks has to speed the page up, and one that ends
-   * has to slow it down again — an interval decided once could only ever be wrong in
-   * one of those two directions. The previous timeout is always cleared, so a ⟳ in the
-   * middle of a wait moves the next tick rather than adding a second clock.
+   * A deploy's *steps* are a file being written on the Mac, and no event carries them,
+   * so a deploy in flight is still watched on a fast timer: four seconds, which is what
+   * makes a step change news rather than history. Nothing about that has changed.
    *
-   * This one survived the move onto the delta stream, and the reason is worth stating
-   * because it is the exception: a deploy's steps are a file being written on the Mac,
-   * and `bus.emit({type: 'deploy'})` fires when a deploy *settles* rather than when it
-   * starts — so nothing in the log says "something began shipping thirty seconds ago",
-   * and the idle tick below is the only thing that would notice. The stream shortens the
-   * other end of it: the settling event brings the final status in at once rather than
-   * up to thirty seconds later. Emitting on the start too would let this stop entirely.
+   * What has changed is the other end. This is the timer that survived the move onto the
+   * delta stream, and it survived for one reason: `bus.emit({type: 'deploy'})` used to
+   * fire only when a deploy *settled*, so nothing in the log ever said "something began
+   * shipping", and a 30-second idle tick was the only thing that would notice a deploy
+   * started somewhere else — the Ship button on another device, an agent's own
+   * `POST /api/deploy`, the release queue shipping itself. lib/server.js emits on the
+   * start too now (`beginDeploy` there), that event is already in `BOARD_EVENTS`, and
+   * `onWake` below turns this clock back on the moment one arrives. So an idle board
+   * holds a socket and asks for nothing.
+   *
+   * **The fallback is not decoration.** A page whose stream is not following has nothing
+   * to wake it, and a strip that had quietly stopped refreshing would look exactly like
+   * one with nothing to say. That is the whole failure mode public/stream.js's own
+   * `onSettle` contract exists for, so the idle tick is still here and is used whenever
+   * the stream is not up: an older service-worker shell with no stream.js at all, a stub
+   * or a proxy that keeps no log, a poll between its failure and its next retry.
+   *
+   * The previous timeout is always cleared, so a ⟳ in the middle of a wait moves the
+   * next tick rather than adding a second clock.
    */
   let deployTimer = null;
   function scheduleDeploys() {
     clearTimeout(deployTimer);
+    deployTimer = null;
     // Unreachable *and* a restart in flight is the fastest cadence there is a reason
     // for: nothing on the page will change until the daemon is back, and that is the
     // moment worth catching.
-    const wait = liveDeploys().length || (state.gone && restarting()) ? DEPLOY_LIVE_MS : DEPLOY_IDLE_MS;
-    deployTimer = setTimeout(loadDeploys, wait);
+    if (liveDeploys().length || (state.gone && restarting())) {
+      deployTimer = setTimeout(loadDeploys, DEPLOY_LIVE_MS);
+      return;
+    }
+    if (!stream?.following) deployTimer = setTimeout(loadDeploys, DEPLOY_IDLE_MS);
   }
 
   window.beadcause?.presence?.report({ view: 'prs' });
@@ -1004,7 +1028,10 @@
     // Mounted once and started every time `load` runs — the boot and the ⟳ — so a stream
     // that gave up after a run of failures can be picked back up by hand. `start` on one
     // that is already parked is a no-op.
-    if (stream) return stream.start();
+    if (stream) {
+      stream.start();
+      return scheduleDeploys();
+    }
     stream = window.beadcause.stream.follow({
       api: warmApi,
       want: 'presence',
@@ -1023,14 +1050,35 @@
         }
         if (!window.beadcause.stream.touched(events, BOARD_EVENTS)) return;
         load();
-        // A deploy has settled. The strip reads the journal directly — a step being
-        // written to a file is nothing the log can carry — so its own clock stays; what
-        // this saves is the up-to-thirty-second wait for the ending, which is the half
-        // of a deploy anybody is actually watching for.
+        // A deploy has started, or settled — lib/server.js emits the same event type for
+        // both, and the record's `status` is what tells them apart. This is the whole of
+        // the strip's clock while nothing is running: `loadDeploys` re-reads the journal
+        // and `scheduleDeploys` behind it puts the page onto the fast tick if what came
+        // back is live. The steps *within* a deploy are still a file being written on the
+        // Mac and nothing the log can carry, which is why the fast tick exists at all.
         if (window.beadcause.stream.touched(events, 'deploy')) loadDeploys();
+      },
+      /**
+       * The stream has stopped — put the timer back until it is following again.
+       *
+       * public/stream.js retries a broken poll on its own, and this fires whether or not
+       * one is coming: a page in a pocket, a daemon mid-restart, something that answers
+       * `/api/poll` but keeps no log at all. Every one of those is a strip with nothing
+       * left to wake it, and a strip that has quietly stopped refreshing looks exactly
+       * like one with nothing to say. `scheduleDeploys` reads `stream.following` and
+       * decides; it is called here rather than reasoned about, so the fallback and the
+       * fast tick stay one decision made in one place.
+       */
+      onSettle() {
+        scheduleDeploys();
       },
     });
     stream.start();
+    // The strip's fallback tick was decided before this existed — the boot calls
+    // `loadDeploys` while `load` is still in flight, and `follow` runs at the end of it.
+    // Decide it again now that there is a stream to ask, or an idle board would poll
+    // once more for nothing.
+    scheduleDeploys();
   }
 
   /**

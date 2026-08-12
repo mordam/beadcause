@@ -39,11 +39,13 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import vm from 'node:vm';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const LIB = (name) => path.join(HERE, '..', 'lib', name);
+const PAGE = path.join(HERE, '..', 'public', 'admin.js');
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'beadcause-tlsadmin-'));
 // Before lib/config.js is imported: CONFIG_DIR resolves once, at module load.
@@ -184,6 +186,99 @@ async function quietly(fn) {
 
 const stored = () => JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
 
+/* ------------------------------------------------- the card, as the page draws it */
+
+/**
+ * Run the real `public/admin.js` against a hand-made `/api/tls` body and hand back the
+ * HTML it put in the HTTPS card.
+ *
+ * The real file rather than a copy of `certPhrase`, for the reason test/dictate.mjs and
+ * test/spacebar.mjs do the same: a rewrite of the wording in a test would go on passing
+ * for as long as the phone shipped something else. A vm rather than a headless browser
+ * because there is nothing here a browser would add — no layout, no events, one string —
+ * and a Chrome per suite collides with every other session's on the CDP port.
+ *
+ * Everything the page touches at load is stubbed to record instead of render, and the
+ * other three fetches it makes (`/auth/whoami`, `/api/admin`, `/api/work`) are answered
+ * with a shape that makes it draw nothing: this asks about one card.
+ */
+const ADMIN_JS = fs.readFileSync(PAGE, 'utf8');
+
+async function drawTlsCard(over = {}) {
+  const view = {
+    enabled: true,
+    name: NAME,
+    have: true,
+    daysLeft: 61,
+    expired: false,
+    alarming: false,
+    renewing: false,
+    wouldServe: `https://${NAME}:4318`,
+    ifFlipped: 'http://100.96.105.106:4318',
+    originWillChange: true,
+    restartNeeded: false,
+    restartCommand: 'launchctl kickstart -k gui/501/m4m.beadcause',
+    tailnetHttpsUrl: 'https://login.tailscale.com/admin/dns',
+    serving: { tls: true, name: NAME, daysLeft: 61, checkedAt: null },
+    ...over,
+  };
+
+  const node = (id) => ({
+    id,
+    hidden: false,
+    innerHTML: '',
+    textContent: '',
+    href: '',
+    disabled: false,
+    dataset: {},
+    style: {},
+    classList: { add() {}, remove() {}, toggle() {}, contains: () => false },
+    // Null from every selector, which is what forces a full repaint rather than one of
+    // the partial paths — the settled card ends up in `innerHTML` as a string.
+    querySelector: () => null,
+    querySelectorAll: () => [],
+    closest: () => null,
+    addEventListener() {},
+    append() {},
+  });
+  const nodes = new Map();
+  const byId = (id) => {
+    if (!nodes.has(id)) nodes.set(id, node(id));
+    return nodes.get(id);
+  };
+
+  const fetchStub = async (url) => {
+    const body =
+      url === '/api/tls'
+        ? view
+        : url === '/auth/whoami'
+          ? { signedIn: false }
+          : // /api/admin and /api/work: enough shape to render nothing and throw nothing.
+            { scopes: [], observing: false };
+    return { ok: true, status: 200, json: async () => body };
+  };
+
+  const window = { beadcause: {} };
+  const ctx = vm.createContext({
+    window,
+    document: { getElementById: byId, createElement: () => node('made') },
+    localStorage: { getItem: () => 'tok-en', setItem() {} },
+    location: { search: '', pathname: '/admin', hash: '', assign() {} },
+    history: { replaceState() {} },
+    navigator: { userAgent: 'node' },
+    URLSearchParams,
+    fetch: fetchStub,
+    setTimeout,
+    clearTimeout,
+    console: { log() {}, error() {} },
+  });
+  vm.runInContext(ADMIN_JS, ctx);
+  // The page's loads are not awaited by it; drain the microtask queue rather than
+  // sleeping, so this is bounded and not a timer racing a loaded laptop.
+  for (let i = 0; i < 50; i++) await new Promise((r) => setImmediate(r));
+  return byId('tls').innerHTML;
+}
+
 /* ------------------------------------------------------- what the screen reads */
 
 await check('with no certificate on disk, HTTPS wanted is not HTTPS had', () => {
@@ -270,6 +365,58 @@ await check('and is asserted when the socket disagrees with the setting', () => 
   assert.equal(tlsView(on, { live: { tls: true, name: 'old-name.ts.net' } }).restartNeeded, true);
   // And the other direction — turned off, still serving.
   assert.equal(tlsView(config({ enabled: false }), { live: { tls: true, name: NAME } }).restartNeeded, true);
+});
+
+/* ------------------------------------------------- when the loop last looked */
+
+await check('the socket says when the renewal loop last looked, and the view carries it', () => {
+  plant({ have: true });
+  const at = new Date(Date.now() - 3 * 3600 * 1000).toISOString();
+  const view = tlsView(config({ enabled: true }), { live: { tls: true, name: NAME, daysLeft: 61, checkedAt: at } });
+  assert.equal(view.serving.checkedAt, at, '/api/tls drops it and the card can never say it');
+});
+
+await check('and says null rather than a guess when whatever answered did not carry it', () => {
+  plant({ have: true });
+  // A router that predates the field. It cannot hot-swap itself, so this is the ordinary
+  // answer between a deploy and a `launchctl kickstart` — not a fault, and not something
+  // to fill in from the fact that there was *something* to draw.
+  const old = tlsView(config({ enabled: true }), { live: { tls: true, name: NAME, daysLeft: 61 } });
+  assert.equal(old.serving.checkedAt, null);
+  // Nothing could say at all: no socket fact of any kind, including this one.
+  assert.equal(tlsView(config({ enabled: true }), { live: null }).serving, null);
+});
+
+/* The card itself, drawn by the real public/admin.js — because the field reaching
+   `/api/tls` and the sentence on the screen are two different claims, and the bead this
+   comes from was filed precisely because the first was true and the second was not. */
+
+await check('the HTTPS card says it, in the same words the terminal uses', async () => {
+  const at = new Date(Date.now() - 3 * 3600 * 1000).toISOString();
+  const html = await drawTlsCard({ serving: { tls: true, name: NAME, daysLeft: 61, checkedAt: at } });
+  assert.match(html, /checked 3h ago/, `the card never said it — got:\n${html.slice(0, 400)}`);
+  assert.match(html, /61 days left, checked 3h ago\./);
+});
+
+await check('an expired certificate says it too — a dead loop is why it got there', async () => {
+  const at = new Date(Date.now() - 40 * 60 * 1000).toISOString();
+  const html = await drawTlsCard({
+    have: true,
+    expired: true,
+    daysLeft: -3,
+    serving: { tls: true, name: NAME, daysLeft: -3, checkedAt: at },
+  });
+  assert.match(html, /EXPIRED 3 days ago, checked 40m ago\./);
+});
+
+await check('and the card says nothing at all when nothing reported it', async () => {
+  const older = await drawTlsCard({ serving: { tls: true, name: NAME, daysLeft: 61, checkedAt: null } });
+  assert.ok(!/checked/.test(older), `a router too old to carry it must not be guessed at — got:\n${older.slice(0, 400)}`);
+  const silent = await drawTlsCard({ serving: null });
+  assert.ok(!/checked/.test(silent));
+  // The sentence is otherwise untouched, so this is silence and not a card that failed
+  // to draw.
+  assert.match(silent, /61 days left\./);
 });
 
 /* -------------------------------------------------------------- pressing it */
@@ -429,6 +576,21 @@ await check('pairing() and wouldServe() agree about the origin', () => {
   const cfg = config({ enabled: true, baseUrl: `https://${NAME}:4318` });
   const url = wouldServe(cfg, certificateState(cfg));
   assert.equal(pairing(cfg, url).origin, `https://${NAME}:4318`);
+});
+
+// bc-affn. The panel this feeds is the one place a code is offered to "another device",
+// and on an http origin that device cannot be the Android app. The screen must not work
+// the rule out for itself — see `pairing()`.
+await check('and the pairing code says when it is a browser-only one', () => {
+  plant({ have: false });
+  const cfg = config({ enabled: true, baseUrl: 'http://100.96.105.106:4318' });
+  assert.equal(pairing(cfg, wouldServe(cfg, certificateState(cfg))).appRefuses, true);
+});
+
+await check('and does not, once there is a certificate to serve', () => {
+  plant({ have: true });
+  const cfg = config({ enabled: true, baseUrl: `https://${NAME}:4318` });
+  assert.equal(pairing(cfg, wouldServe(cfg, certificateState(cfg))).appRefuses, false);
 });
 
 done();

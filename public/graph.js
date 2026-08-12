@@ -698,10 +698,12 @@
     // waiting. `blocks 3` on something nobody has touched in a month is the case this
     // is here to make visible.
     //
-    // `waits` is counted off the graph's own edges by `enrichGraph` (lib/graph.js), not
-    // taken from bd's `dependency_count` — that number counts the edge to a bead's
-    // parent, so every subtask here used to say "waits on 1" while waiting on nothing.
-    // Nought is therefore a real answer and prints nothing at all.
+    // Both `blocks` and `waits` are counted off the graph's own typed edges by
+    // `enrichGraph` (lib/graph.js), not taken from bd's `dependent_count` and
+    // `dependency_count`. Those two count neighbours that have since closed — and, when
+    // it is `bd show` filling them rather than `bd list`, the parent-child edge as well,
+    // which is how an epic came to announce that it blocked its own children. Nought is
+    // therefore a real answer here, and prints nothing at all.
     const meta = [];
     if (d.type) meta.push(d.type.replace('_', ' ').replace(/^./, (c) => c.toUpperCase()));
     if (d.blocks) meta.push(`blocks ${d.blocks}`);
@@ -804,6 +806,39 @@
     // Deliberately not awaited. The sheet is on screen and readable at this line, and
     // the children are an addition to it — see loadChildren for what that buys.
     loadChildren(full, seq);
+    // Same contract, same reason, and independent of it: whichever of the two answers
+    // first lands first, and either failing leaves the other alone.
+    loadSession(full, seq);
+  }
+
+  /**
+   * Resolve the session row, once the sheet is already up — see `sessionRowHtml`.
+   *
+   * `loadChildren`'s contract, to the letter: not awaited by the caller, a failure that
+   * changes the row rather than the sheet, and the sequence check that drops an answer
+   * for a bead you have since navigated away from. The one difference is that a failure
+   * here is *reported to the renderer* instead of being swallowed, because the row has
+   * three states and "we asked and did not find out" is not the same one as "nothing
+   * ran".
+   *
+   * `outerHTML` rather than `innerHTML`: the tappable state is an `<a>` and the other two
+   * are `<div>`s, so the element itself has to change and not only what is inside it. The
+   * replacement carries the same id, which is what lets this be written once and read as
+   * idempotent.
+   */
+  async function loadSession(b, seq) {
+    let arc;
+    try {
+      arc = await api(
+        `/api/session-archive?workspace=${encodeURIComponent(workspace)}&id=${encodeURIComponent(b.id)}`
+      );
+    } catch {
+      arc = { failed: true, sessions: [] };
+    }
+    if (seq !== sheetSeq) return;
+    const slot = $('sheet-session');
+    if (!slot) return;
+    slot.outerHTML = sessionRowHtml(b.id, arc);
   }
 
   /**
@@ -1005,11 +1040,13 @@
    * prefix, "Superseded by bc-rk2o". Those are the endings, and the sheet is the
    * screen every bead link in the app opens.
    *
-   * Drawn in full, never clamped. The longest close reason in this tracker is 1664
-   * characters and the sheet body already scrolls, so there is nothing to gain by
-   * folding it and something real to lose: /history's row clamps its own copy to two
-   * lines (`.hist-why`) precisely because tapping the row lands here, and a clamp at
-   * both ends would put the sentence nowhere in the app at all.
+   * Drawn in full, never clamped, and this is now the *only* place that draws it whole.
+   * The longest close reason in this tracker is 1664 characters and the sheet body
+   * already scrolls, so there is nothing to gain by folding it and something real to
+   * lose: /history's row clamps its copy to two lines in CSS and `/api/history` no
+   * longer even sends more than 240 characters (`CLOSE_REASON_MAX` in lib/history.js),
+   * both of them on the understanding that tapping the row lands here. So a clamp added
+   * here would not shorten the sentence, it would delete it from the app.
    *
    * Only while the bead is actually closed. `bd` clears `closed_at` on reopen but
    * leaves `close_reason` sitting there, so a reopened bead would otherwise carry the
@@ -1029,6 +1066,100 @@
     // those newlines would break one sentence into a ragged column.
     const body = why ? `<div class="md">${md(why, FROM_BD)}</div>` : '';
     return `<div class="closed-note">${stamp}${body}</div>`;
+  }
+
+  /**
+   * The way through to what a session left behind — `/bead-session`, public/beadsession.js.
+   *
+   * Built like `beadUrl` above and, more importantly, *used* like it: a plain `<a href>`
+   * and no click handler. `/bead-session` is in drawer.js's DETAIL set, so a tap in the
+   * drawer retargets the panel and one back gesture returns you to the tab you came from.
+   * Intercepting the tap here is the one thing that would break that.
+   *
+   * `workspace=` rather than the `ws=` this page's own links use: the archived-session
+   * page accepts both, and the long spelling is the one the README documents.
+   */
+  const sessionUrl = (id) =>
+    `/bead-session?workspace=${encodeURIComponent(workspace)}&id=${encodeURIComponent(id)}`;
+
+  /**
+   * Whether a session ever ran on this bead — and the way in to it when one did.
+   *
+   * The last hop of the History tab. /history marks the rows that have an archived
+   * session (`🗄`, `.hist-sess`), tapping a row opens this sheet, and until now the trail
+   * stopped here: what the session actually *did* was readable only by knowing the URL.
+   * Same glyph as the list on purpose — the mark you followed off /history is the mark
+   * you land on.
+   *
+   * ## Three states, and which way each one is allowed to be wrong
+   *
+   * The row is drawn by `sheetHtml` at first paint, before the answer is in, because the
+   * answer costs a second request and the sheet must not wait on one — the same trade
+   * `loadChildren` makes. So it starts as **looking**, and `loadSession` replaces it with
+   * one of the other two.
+   *
+   * - **looking** is deliberately not tappable. A row that is a link and then stops being
+   *   one loses the tap of somebody who reached for it as it resolved; going the other
+   *   way — quiet, then tappable — cannot lose anything. So the flicker is one-directional.
+   * - **an archive** is a link, with the count and when the newest one ran. The count is
+   *   there because a bead worked three times is a fact about the bead, and the page it
+   *   opens starts on the newest.
+   * - **nothing archived** is the same box, muted, and *not* a link — a `div`, so there is
+   *   nothing to tap and nothing to focus. This is the acceptance criterion, and it is a
+   *   real one: most beads in this tracker were never worked by a session at all, and a
+   *   link that always opened "Not available" three times over would teach you to stop
+   *   following it.
+   *
+   * And a **failed check offers the link anyway**, which looks like the wrong branch and
+   * is not. The two failures are not symmetrical: saying "no session" over a bead that has
+   * one hides the page for good, because nothing on the sheet would ever suggest looking
+   * again; offering a link over a bead that has none costs one tap and lands on a page
+   * whose whole design is saying plainly what is not there. So the degraded path goes the
+   * way you can recover from.
+   *
+   * ## Why this asks `/api/session-archive`
+   *
+   * Not a field on `/api/bead`: that response is what the sheet paints from, so anything
+   * added to it is a `git` call every sheet open waits on — the argument `/api/bead-children`
+   * is already a separate route for. Not `/api/bead-session` either, though it is the
+   * endpoint the page itself uses: it reads the archived tree, `meta.json` and the state of
+   * the worktree, which is several `git` invocations to answer a question that is really
+   * `sessions.length > 0`. `/api/session-archive?workspace=&id=` is one `git log` over one
+   * ref and it already existed. The row needs presence and a date, and that is what it asks
+   * for.
+   *
+   * Pure, and the whole of the drawing — so all three states render in a test with no DOM,
+   * no fetch and no service worker behind them.
+   */
+  function sessionRowHtml(id, arc) {
+    const box = (cls, what, sub, href) =>
+      `<${href ? 'a' : 'div'} id="sheet-session" class="sheet-session${cls ? ` ${cls}` : ''}"${
+        href ? ` href="${esc(href)}"` : ''
+      }>
+        <span class="sess-glyph" aria-hidden="true">🗄</span>
+        <span class="sess-main">
+          <span class="sess-what">${esc(what)}</span>
+          <span class="sess-sub">${esc(sub)}</span>
+        </span>
+        ${href ? '<span class="sess-go" aria-hidden="true">›</span>' : ''}
+      </${href ? 'a' : 'div'}>`;
+
+    if (!arc) return box('is-checking', 'Session', 'looking for what it left…', null);
+    const sessions = (Array.isArray(arc.sessions) ? arc.sessions : []).filter(Boolean);
+    if (!sessions.length) {
+      // `arc.failed` is `loadSession`'s word for "the question did not get answered",
+      // which is not the same fact as "nothing ran" — see the header.
+      if (!arc.failed) {
+        // "archived", not "ran": the ref is the only evidence there is, and a session
+        // that died before it could write one is a different fact from a bead nobody
+        // ever worked. The row says what it knows.
+        return box('is-none', 'No session archived', 'nothing was left behind under this bead', null);
+      }
+      return box('', 'What its session did', 'if a session ran on this bead', sessionUrl(id));
+    }
+    const when = closedWhen(sessions[0].at);
+    const count = sessions.length === 1 ? '1 session' : `${sessions.length} sessions`;
+    return box('', 'What its session did', when ? `${count} · newest ${when}` : count, sessionUrl(id));
   }
 
   function sheetHtml(b) {
@@ -1055,6 +1186,16 @@
     // meaningless once you have scrolled past the description looking for it.
     const closed = closedHtml(b);
     if (closed) parts.push(closed);
+    // And under that, the way through to what actually ran. Above the relations rather
+    // than below them because those are more of the tracker and this is the one row on
+    // the sheet that leaves it — and because on a closed bead the three read in order:
+    // it closed, here is the sentence saying how, here is the session that did it.
+    //
+    // Drawn on every bead, in its unresolved state, and replaced when `loadSession`
+    // answers. Unconditional so the sheet's height does not jump under whatever you
+    // started reading, which is the cost `loadChildren` accepts and this one need not:
+    // one row is a known height, where a list of children is not.
+    parts.push(sessionRowHtml(b.id, null));
     // Above the description, because "what is this under, and what is it stuck
     // behind" is the question you have before you read a word of it — and because
     // a bead with neither draws nothing here, so it looks exactly as it did before.

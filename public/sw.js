@@ -159,7 +159,30 @@
    makes a strip a strip replaced by six chat titles wrapping onto four lines and
    pushing the transcript off the bottom of the phone. It still works, which is exactly
    the "looks like a working page" failure a cache version exists to prevent. */
-const CACHE = 'beadcause-v37';
+/* v38: what a session left behind, and the way in to it — `/bead-session?workspace=&id=`
+   (bc-nib3.5) plus the row on the bead detail sheet that opens it (bc-nib3.6). Three new
+   paths, and both halves of the pairing bite. A phone holding v37's style.css against
+   v38's beadsession.js draws the three "not available" sentences and the memory block
+   with no styling at all, which on the page that says nothing is there most of the time
+   is indistinguishable from a page that failed to load. And the sheet's own half is the
+   v32/v36 pairing once more: v37's graph.js beside v38's stylesheet opens the sheet it
+   always did, with no way through to the session — merely the app as it was, which is
+   the direction this is allowed to fail in — while v38's graph.js against v37's
+   stylesheet lands `.sheet-session` as an unframed line of text between the pills and
+   the description, reading as part of the bead's own prose rather than as the one thing
+   on the sheet you can tap through to. It still works, which is exactly the "looks like
+   a working page" failure a cache version exists to prevent. */
+/* v39: the space details card grew the two Slack rows — the channel a space posts to
+   and how much of the question goes in it (bc-ikj6). No new path: monitor.js and
+   style.css are both already here, and it is the v32 pairing again. The harmless
+   direction is v38's monitor.js against v39's stylesheet, which is the card as it was
+   with one unused rule behind it. The other is not: v39's monitor.js beside v38's
+   style.css draws the channel row's text field with no box, no height and no width rule
+   at all — a bare platform input in a row of pill buttons, in the platform's own form
+   font, sized to whatever the flex row leaves it, on a 393px screen where the three
+   buttons beside it then wrap around it. It still takes a channel id, which is exactly
+   the "looks like a working page" failure a cache version exists to prevent. */
+const CACHE = 'beadcause-v39';
 const SHELL = [
   '/',
   '/index.html',
@@ -212,6 +235,14 @@ const SHELL = [
   '/session',
   '/session.html',
   '/session.js',
+  // And the fourth: the same detail for a session that has *finished*, addressed by bead
+  // rather than by pid. Its own paths because it is its own document — a pid stops
+  // identifying anything once the process is gone, and this is the page you reach from a
+  // bead that closed months ago. `/archive` is here because it is a path a person types.
+  '/bead-session',
+  '/archive',
+  '/beadsession.html',
+  '/beadsession.js',
   // The pull request board. Both paths, the same way the advocate console has five:
   // /pulls is what you type when GitHub's own word for the tab is the one in your head.
   '/prs',

@@ -154,6 +154,11 @@
     spaceError: null,
     /** What the last press changed, in the daemon's words rather than the label's. */
     spaceSaid: null,
+    /* The Slack channel field, which is the one control on this card you *type* into.
+       Same reason as the steppers below: a stream event repaints this page under your
+       thumb, and a half-typed channel id living in the DOM would be thrown away by a
+       poll nobody asked for. `{ space, text }`, dropped the moment a press sends it. */
+    slackDraft: null,
     /* The three halves of a stepper that has been moved but not yet applied — see
        `limitControl`. All keyed the same way (`stepKey`), and all in `state` rather
        than in the markup for one reason: this page repaints off a poll every couple
@@ -384,12 +389,20 @@
    * can act on from the phone you are reading this on — a merge, or a conflict to
    * resolve — and the board is where both taps live. The others name a bead you would
    * have to go and find; this one names a number and takes you to it.
+   *
+   * `heldByLive` is the sixth (bc-vq78), and the one whose tooltip names a *process*: a
+   * bead held because a window is already open on it is waiting on that window ending,
+   * and the pid is what tells you which of the fifteen on screen it is. It earns the
+   * pill more than any of the others, because the state it prevents — two sessions
+   * editing one worktree — is invisible from every other view here, which is precisely
+   * how it went unnoticed for an hour.
    */
   function domainHtml(w, a) {
     const c = w?.counts || {};
     const waiting = (a && a.heldByChildren) || [];
     const twins = (a && a.heldByTwin) || [];
     const prs = (a && a.heldByPr) || [];
+    const sitting = (a && a.heldByLive) || [];
     const pills = [
       c.open != null ? `<span class="pill">${c.open} open</span>` : '',
       c.ready ? `<span class="pill">${c.ready} ready</span>` : '',
@@ -417,6 +430,11 @@
         : '',
       prs.length
         ? `<a class="pill muted" href="/prs" title="${esc(prs.map((h) => `${h.id} — ${h.why}`).join('\n'))}">${prs.length} in an open pull request</a>`
+        : '',
+      // No link, unlike the pull requests: the window this names is on the same page you
+      // are reading, in the sessions list below.
+      sitting.length
+        ? `<span class="pill muted" title="${esc(sitting.map((h) => `${h.id} — ${h.why}`).join('\n'))}">${sitting.length} with a session already open</span>`
         : '',
     ].filter(Boolean);
     return `<div class="mon-domain">${pills.join('')}</div>`;
@@ -1014,7 +1032,7 @@
 
      - **Muted** is two-state. There is no global "mute everything" behind it, so
        "not set" and "off" are the same thing and a third button would be a lie.
-     - **The six with a global behind them** are three-state — On, Off, *Inherit* —
+     - **The seven with a global behind them** are three-state — On, Off, *Inherit* —
        because `prPolicyFor` is explicit that a space may override the global in either
        direction, so "off" and "following the default, which is off" are different
        answers that must survive the default changing under them. The Inherit button
@@ -1024,6 +1042,11 @@
      - **Quiet hours and quiet days** are a pair of times and a row of days, each
        clearable, because "no quiet hours" is a state you have to be able to get back
        to and deleting the key is the only way there.
+     - **The Slack channel** is the only one you type, and it has three answers rather
+       than two: a channel id, *Never* — which stores an empty string and means this
+       space stays out of Slack however the global is set — and *Inherit*. Never and
+       Inherit look identical on the day you press them and come apart the day
+       `slack.channel` changes, which is the whole reason both buttons are there.
   */
 
   /** The name of the space this page is about, or null when nothing is narrowed to one. */
@@ -1118,6 +1141,10 @@
         : { text: 'may reach you', tone: 'live' };
 
     const days = s.quietDays || [];
+    // Only this space's — switching space while a channel is half-typed is a different
+    // answer to a different question, and carrying it across would be the card showing
+    // you one space's channel under another space's name.
+    const draft = state.slackDraft?.space === name ? state.slackDraft.text : null;
     const rows = [
       `<div class="space-row">
         <div class="space-row-head">
@@ -1176,6 +1203,50 @@
           <button class="adv-btn${s.ntfyDetail === 'full' ? ' on' : ''}" data-space-set="ntfyDetail" data-value="full">Full</button>
           <button class="adv-btn${s.ntfyDetail === 'minimal' ? ' on' : ''}" data-space-set="ntfyDetail" data-value="minimal">Minimal</button>
           <button class="adv-btn${s.ntfyDetail === null ? ' on' : ''}" data-space-set="ntfyDetail" data-value="null">Inherit (${esc(g.ntfyDetail)})</button>
+        </div>
+      </div>`,
+
+      // The only field on this card that is a free-text id rather than a choice, and the
+      // only one whose two ways of saying "nothing" are different answers — see
+      // `slackChannelFor`. `Never` writes an empty string and keeps this space out of
+      // the channel however `slack.channel` is set; `Inherit` deletes the key. The
+      // input's value comes from the draft first, so a repaint mid-type cannot take it.
+      `<div class="space-row">
+        <div class="space-row-head">
+          <span class="space-what">Slack channel</span>
+          <span class="space-state ${s.slackChannel ? 'live' : s.slackChannel === '' ? 'held' : 'dim'}">${
+            s.slackChannel
+              ? esc(s.slackChannel)
+              : s.slackChannel === ''
+                ? 'never posts'
+                : `inherited · ${g.slackChannel ? esc(g.slackChannel) : 'none'}`
+          }</span>
+        </div>
+        <p class="space-help">Where this space's questions are posted, with a button per option — a channel id (<b>C…</b>) or a DM id (<b>D…</b>), not a #name.${
+          quiet.slack ? '' : ' <b>Slack is off</b> in the config, so nothing here posts anywhere until it is on.'
+        }</p>
+        <div class="space-btns space-channel">
+          <input type="text" id="slack-channel" value="${esc(draft ?? s.slackChannel ?? '')}" placeholder="${esc(
+            g.slackChannel || 'C0123456789'
+          )}" aria-label="Slack channel for this space" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="done">
+          <button class="adv-btn primary" data-space-channel="set" title="Post this space&#39;s questions to the channel typed here">Set</button>
+          <button class="adv-btn${s.slackChannel === '' ? ' on' : ''}" data-space-set="slackChannel" data-value="" title="This space never posts to Slack, whatever the global channel is">Never</button>
+          <button class="adv-btn${s.slackChannel === null ? ' on' : ''}" data-space-set="slackChannel" data-value="null" title="Follow the global slack.channel, which is currently ${esc(g.slackChannel || 'unset')}">Inherit (${esc(g.slackChannel || 'none')})</button>
+        </div>
+      </div>`,
+
+      `<div class="space-row">
+        <div class="space-row-head">
+          <span class="space-what">Slack detail</span>
+          <span class="space-state ${s.slackDetail ? 'live' : 'dim'}">${
+            s.slackDetail ? esc(s.slackDetail) : `inherited · ${esc(g.slackDetail)}`
+          }</span>
+        </div>
+        <p class="space-help">How much of the question goes into the channel. <b>minimal</b> posts a nudge and a link with none of the words — the answer for a channel with people in it who should see that a decision is waiting without seeing what it is about.</p>
+        <div class="space-btns">
+          <button class="adv-btn${s.slackDetail === 'full' ? ' on' : ''}" data-space-set="slackDetail" data-value="full">Full</button>
+          <button class="adv-btn${s.slackDetail === 'minimal' ? ' on' : ''}" data-space-set="slackDetail" data-value="minimal">Minimal</button>
+          <button class="adv-btn${s.slackDetail === null ? ' on' : ''}" data-space-set="slackDetail" data-value="null">Inherit (${esc(g.slackDetail)})</button>
         </div>
       </div>`,
 
@@ -1247,6 +1318,20 @@
               <span class="tag ${r.autoMerge ? 'ok' : 'warn'}">${r.autoMerge ? 'auto-merge' : 'hands you the PR'}</span>
               ${r.autoMerge && r.requireApproval ? '<span class="tag warn">approval first</span>' : ''}
               <span class="tag ${r.autoShip ? 'ok' : 'dim'}">${r.autoShip ? 'ships itself' : 'waits for Ship'}</span>
+              ${
+                // Only where Slack is on at all: a "no slack" tag on every repo of every
+                // install that has never configured it would be a column of noise about a
+                // feature nobody here uses. Where it *is* on, this is the tag that catches
+                // `slack.excludeWorkspaces` — the per-repo veto that outranks the space,
+                // exactly like `ntfy.minimalWorkspaces` on the row above.
+                quiet.slack
+                  ? `<span class="tag ${r.slackChannel ? 'ok' : 'warn'}">${
+                      r.slackChannel
+                        ? `slack ${esc(r.slackChannel)}${r.slackDetail === 'minimal' ? ' · minimal' : ''}`
+                        : 'no slack'
+                    }</span>`
+                  : ''
+              }
             </div>`
           )
           .join('')}</div>${
@@ -1373,7 +1458,7 @@
     // one kind of press an instance that "never acts" must not make.
     if (data.observing) {
       for (const el of out.querySelectorAll(
-        '[data-space-set],[data-space-day],[data-space-hours],#qh-from,#qh-to,[data-step="global"],[data-apply="global"]'
+        '[data-space-set],[data-space-day],[data-space-hours],[data-space-channel],#qh-from,#qh-to,#slack-channel,[data-step="global"],[data-apply="global"]'
       )) {
         el.disabled = true;
         el.title = 'This instance only watches — the settings belong to the daemon that acts.';
@@ -1691,6 +1776,10 @@
       });
       state.space = r;
       state.spaceError = null;
+      // Whatever was typed has either just been sent or has just been overruled by a
+      // press on Never or Inherit. Either way the field goes back to showing what the
+      // space now says, which is the only thing on this card that is true.
+      state.slackDraft = null;
       state.spaceSaid = {
         text: r.changed?.length ? `${r.changed.join(', ')} changed` : 'nothing to change — it was already set that way',
       };
@@ -1824,6 +1913,23 @@
       return;
     }
 
+    const chan = e.target.closest('[data-space-channel]');
+    if (chan) {
+      e.preventDefault();
+      const typed = (out.querySelector('#slack-channel')?.value || '').trim();
+      // A blank field and a press on Set is the one gesture with no honest reading:
+      // `""` is what Never writes and it is a *different* answer from Inherit, so
+      // picking one of them here would be the card quietly deciding which. Both
+      // buttons are an inch away.
+      if (!typed) {
+        state.spaceSaid = { text: 'Type a channel id, or press Never or Inherit.', bad: true };
+        render();
+        return;
+      }
+      saveSpace({ slackChannel: typed }, chan);
+      return;
+    }
+
     const sum = e.target.closest('[data-toggle]');
     if (sum) {
       toggle(sum.dataset.toggle);
@@ -1901,6 +2007,17 @@
       e.preventDefault();
       readArchived(read.dataset.read, read.dataset.commit);
     }
+  });
+
+  /* The one field on this page you type into, and this page repaints off a stream
+     event rather than off your thumb — so what has been typed is held in `state` and
+     drawn from there, the same treatment the limit steppers get and for the same
+     reason. Without it a poll landing between the first character and the press takes
+     the channel id away and the field silently goes back to what the space already
+     said. */
+  out.addEventListener('input', (e) => {
+    if (!e.target.closest('#slack-channel')) return;
+    state.slackDraft = { space: spaceName(), text: e.target.value };
   });
 
   document.getElementById('refresh').addEventListener('click', load);
