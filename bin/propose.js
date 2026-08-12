@@ -49,6 +49,7 @@ import { parseProposal, proposalBody, proposalTitle, dupeNote } from '../lib/pro
 import { annotateDuplicates, liveCandidates } from '../lib/dupe.js';
 import { parseJson } from '../lib/bd.js';
 import { beadType, park, questionType } from '../lib/park.js';
+import { ownAddresseeLabels } from '../lib/addressee.js';
 
 function arg(...names) {
   for (const n of names) {
@@ -175,6 +176,9 @@ const out = bd([
   'advocate-proposal',
   '--label',
   `proposed-${kind === 'conflict' ? 'conflict' : 'discovery'}`,
+  // Whose decision this is, when a tracker is shared. Nothing at all on a single-person
+  // install — see lib/addressee.js.
+  ...ownAddresseeLabels(cfg).flatMap((l) => ['--label', l]),
   '--description',
   body,
   '--json',

@@ -3730,6 +3730,51 @@ anyway. That fallback is live in three other places too — a page loaded withou
 `sessionStorage`. In every one of them the inbox is exactly the inbox it was before
 this section existed.
 
+### The shell's cache version — one note per bump rather than one line
+
+None of the above is what makes the shell instant; `public/sw.js` is, and it precaches
+every page in the app. The price of a precache is that a phone can end up holding a
+*mixture*: an `app.js` from Tuesday beside a `style.css` from Thursday, both cached,
+both perfectly valid, and together a screen with a button on it that nothing lays out
+or nothing answers. `const CACHE = 'beadcause-vNN'` is the one guard against that.
+Moving it makes `install` re-fetch the whole shell as a single all-or-nothing `addAll`
+and `activate` delete every cache that is not the new one, so the phone gets one
+generation of files or the coherent old one — never a mixture.
+
+**A change owes a bump when it leaves a mixed pair that is broken rather than merely
+older** — a new script calling a function its cached sibling does not have, a page whose
+script is not in the cache, or a stylesheet that lays out a control the cached page draws
+anyway. That judgement, and the suite that makes it on every branch, are [the cache
+version a branch forgot to move](#the-cache-version-a-branch-forgot-to-move); what is
+below is the other half — where the *record* of a bump lives once you have decided to
+make one.
+
+**Each version's argument is its own file in `docs/sw-cache/`,** because that argument
+is the only durable record of which two files must not be mixed — a version number on
+its own is unauditable a month later. Those notes lived as comment blocks above the
+`const` until bc-5ghk, and the top of `sw.js` was, by some distance, this repo's most
+conflict-prone region: around eight worker sessions run against it at once, every
+branch that bumped appended prose to the same lines, and two changes with nothing to do
+with each other came back from GitHub as `CONFLICTING` for no reason but where the
+paragraphs sat. That is the same failure `scripts/test.mjs` was written to remove from
+the suite list, and it has the same fix — bumping means *adding a file*, and two
+branches adding different files do not conflict.
+
+**The name is exactly `vNN.md`, with no slug, and that is load-bearing.** Two branches
+that both pick `v39` then collide on one path, which git has to report as an add/add
+conflict. Being told is the whole point, because the `const` will not tell you: two
+branches that write it the *same* value merge clean and in silence, which lands two
+changes under one cache key and a cache that never invalidates again. A descriptive
+name (`v39-chat-tabs.md`) would let both of them through quietly.
+
+**When it does conflict:** keep both notes, `git mv` yours to the next free number — and
+move the version pairs named inside its own prose up with it, since that prose is the
+record of what must not be mixed — then set the `const` by hand to the highest number in
+the directory and re-read the line, because git may already have merged it. `node
+test/swcache.mjs` is the gate: it fails if the `const` is not the highest note in the
+directory, if a note's own heading disagrees with its filename, if the numbers have a
+gap or a duplicate, or if a version block reappears as prose inside `sw.js`.
+
 ## Detail opens over the tab, not instead of it
 
 The graph and the reader are linked from every view that names a bead — the inbox,
@@ -6847,6 +6892,72 @@ session that renamed itself while the tick was running. The cost of a wrong hold
 bead that waits, named on the advocate's card with the pid of the window holding it, until
 that window closes. `holdLiveSessions: false` switches it off. `node test/livequeue.mjs`
 covers it.
+
+### The bead another Mac has claimed
+
+Every filter above reads something this laptop can see — a row in this tracker, a pull
+request on this repo's GitHub, a process in this process table. That is the whole of the
+world right up until the tracker is [shared between machines](#a-tracker-two-macs-share),
+and then it is a blind spot with a session in it: two engineers, two daemons, two
+advocates, **one `bd ready`**. The same bead comes up ready on both, `candidates()` on
+each filters against its own busy ids and its own attempt counts, and two windows open on
+two Macs to write the same feature twice on two branches. It is the same-job collision the
+twin filter above catches, with the one guard that catches it removed: `findDuplicate`
+compares against rows *this* daemon can see, and `a.workers` is *this* daemon's worker
+list.
+
+**`bd update --claim` is not the answer, and why it is not is the whole design.** It is
+atomic, it does set the assignee and the status, and it is atomic *against the local
+Dolt* — which is the wrong scope. Sync is discrete: a claim written on one Mac is
+invisible to the other until the first has pushed and the second has pulled, which is
+`sync.seconds` later, two minutes by default. Claim-then-check inside that window is not a
+lease at all. It is two local writes that both succeed, and whichever syncs second
+silently takes a bead the other already has a window open on.
+
+There is nowhere to move it to, either. beadcause solved the same problem in the other
+direction once — five sessions racing to merge into a local `main`, fixed by handing the
+merge to GitHub *because GitHub serialises it*, which is why [the merge does not happen in
+this checkout](#landing-work--a-branch-a-pull-request-and-the-workers-own-merge). Dolt
+offers nothing of the sort. So this is honestly eventually consistent, and it says so out
+loud:
+
+- **The claim is a label, and it names the machine and the moment.**
+  `held:20260812T094200Z:adam@example.com`. A label, because labels are *rows*: two
+  machines writing two different ones is not a conflict Dolt has to resolve, it is two
+  rows, and after a sync **both machines can see both claims**. That is the entire
+  mechanism. A cell — the assignee, the status — would have been a real write conflict,
+  and the loser's evidence would be gone.
+- **The collision is detected afterwards, and the tiebreak is a string sort.** Earliest
+  stamp wins and the handle breaks a tie — and because the stamp leads the label, that is
+  exactly `labels.sort()[0]`. Both machines compute it from the same strings with no
+  further communication and cannot disagree, which is what makes *exactly one session
+  survives* a fact rather than a hope. Two clocks can make the **fair** answer wrong; they
+  cannot make the two machines answer **differently**, and only the second matters.
+- **The loser stands down loudly.** A cap that is silent reads exactly like an advocate
+  that has decided there is nothing to do, so the stand-down is a log line, an event, a
+  pill on the advocate's card — and a message into the losing window, which is told before
+  anything is signalled at it. The window then joins [the reaper's
+  list](#closing-the-window--a-session-that-has-finished-should-not-still-be-on-screen)
+  and closes once it is idle, so a session mid-sentence finishes the sentence. The bead is
+  charged no attempt: losing a coin toss is not evidence about the work.
+- **A claim expires.** `leaseMinutes`, an hour by default, restamped at half that by any
+  advocate still holding the worker. This is not a detail — a Mac that sleeps mid-bead
+  would otherwise park that work permanently, and a bead nobody may ever open is strictly
+  worse than the duplicate window the whole thing exists to prevent. A duplicate costs an
+  hour; a park costs the bead.
+
+**A Mac that does not know who it is claims nothing.** The handle comes from
+[`me`](#who-a-question-is-for--me-and-the-for-label), which is null by default — and with it null no label is
+written, no bead is held, and nothing here has a branch to enter. That is the same
+guarantee the addressee makes, out of the same setting and for the same reason: a
+single-person install is byte-for-byte what it was.
+
+The cost of a wrong hold is one bead that waits, named on the card with the handle of the
+person to go and ask — the only pill on that row that names something you cannot settle by
+looking at your own screen. `holdLeases: false` switches it off. `node test/lease.mjs`
+covers the tiebreak and the expiry, and `node test/leasequeue.mjs` drives two advocates
+over one faked tracker whose label store is per machine until a sync unions it, which is
+the only shape in which the race can be staged at all.
 
 ### The session log, kept in the repo
 
@@ -10198,11 +10309,85 @@ The failure path is what `node test/sync.mjs` covers, and it is the half that is
 for a reason: a sync that works is provable by looking at a second Mac, and a sync that
 quietly stopped looks exactly like a quiet team.
 
+### Who a question is for — `me` and the `for:` label
+
+Sharing the tracker hands every daemon the whole graph, which is the point, and it
+creates a problem the moment there is more than one of you. Every push in lib/notify.js
+goes to one ntfy topic and the inbox is one list. On one Mac that is correct — there is
+one person and every question is theirs. On six it is the same code doing something
+quite different: six daemons see the same new `human` bead and each buzzes its own
+phone about it. **One question rings six phones and five of those people cannot act on
+it.** The fan-out did not arrive with federation; it moved, from inside one process to
+across six.
+
+Space and workspace are not the fix, and it is worth being precise about why. Those two
+answer *which of my lives is this about*. This is *whose decision is this*, which is a
+different question with a different answer: two engineers on the same repo want the same
+space, the same workspace, and different questions out of it.
+
+So a question can name who it is for, as a `for:<handle>` label on the bead:
+
+```sh
+beadcause-ask -w acme -t 'Gross or net?' --for carol@example.com < brief.md
+beadcause-ask -w acme -t 'Which of these two?' --for everyone      < brief.md
+```
+
+**The addressee is on the bead, in the shared graph, and it could not be anywhere
+else.** Each Mac has to work out on its own that a question is not for the person
+holding it, and the tracker is the only thing all six machines agree about. A label
+also means `bd show` answers the question on any machine, with nothing beadcause-shaped
+in the loop.
+
+**It is stamped where the answer is actually known.** You will not normally type
+`--for`: a question filed on this Mac is addressed to this Mac's person automatically —
+by `beadcause-ask`, by a worker's [delivery card](#landing-work--a-branch-a-pull-request-and-the-workers-own-merge),
+by `beadcause-propose`, and by every question the daemon files itself. That is a write-time
+decision rather than a read-time one because `created_by` cannot answer it: it is
+`actor`, the literal string `beadcause`, identical on all six machines. The machine
+doing the asking is the only thing that knows.
+
+**Set `me` on each machine, to that machine's person.** It takes one handle or a list,
+for a person who answers to two addresses in the same graph:
+
+```json
+{ "me": ["carol@example.com", "carol@work.example"] }
+```
+
+**And with `me` unset — the default, and every install that has never heard of this —
+none of the above happens at all.** No label is stamped, no bead is anybody else's, and
+every question rings exactly as it did. That is not a default that happens to be quiet;
+it is a branch that cannot be entered, because a machine that cannot say who it is has
+no grounds to decide a question belongs to somebody else. It is deliberately not asked
+by `npm run configure`: on a one-Mac install the honest answer is that there is nobody
+to tell you apart from.
+
+**Nothing is ever hidden, and nothing is dropped.** An addressed question is the third
+answer `quietReasonFor` gives, beside `filtered` and `muted`, and it inherits their
+contract exactly — the event fires, the card files, the badge counts, the inbox shows it
+to everybody, and the *phone* stays dark. Every engineer can still read, answer and
+close a question addressed to somebody else; the label decides who is rung, and nothing
+more. A question that reached the wrong person is an annoyance. A question that reached
+nobody is the failure this whole app exists to prevent, which is why routing that could
+lose one would not be worth having.
+
+Two consequences of that ordering worth knowing:
+
+- **`addressed` outranks `filtered`.** A bead addressed to another engineer will not
+  ring here however far you widen the filter, so reporting it as filtered would be a
+  true sentence pointing at the wrong lever. The card says which: *Arrived quietly 3h
+  ago · asked of carol@example.com*, where a filtered one names the filter.
+- **Unlike the filter, it reaches the [foundation channel](#what-an-agent-is--and-how-it-asks-to-be-different).**
+  The filter is exempted there because its two levels are both answers to "which of my
+  lives is this about", and a constitutional request has no answer to that. It has a
+  perfectly good answer to "whose agent is this", which is the question being asked
+  here.
+
 ## Config — `~/.config/beadcause/config.json`
 
 | key | meaning |
 |---|---|
 | `owner` | what the agents call you. It goes into every agent prompt ("*<name>* is not at the keyboard", "*<name>* approves every bead before it exists"), the body of every pull request an agent opens, and the notes that land on a bead. Asked first by `npm run configure`; guessed from your git `user.name` (first word) when it has never been set |
+| `me` | who this Mac's person **is**, in the tracker — the handle a question is addressed to, or a list of them for somebody who answers to two addresses (default `null`). Not the same thing as `owner`, which is what agents call you in prose. `null` means this daemon is everybody and every question rings it, which is what a one-Mac install has always done; set it only on a tracker more than one person reads, and set it per machine. See [Who a question is for](#who-a-question-is-for--me-and-the-for-label) |
 | `port`, `host` | listens on `127.0.0.1` **and** the Tailscale IP only — never the LAN. The *address* is what gets bound; `baseUrl` is what gets handed out, and they differ on purpose |
 | `baseUrl` | the origin every generated link is built from — the pairing QR, the APK code, every notification's click target and action button, the terminal's `wss://`. Maintained for you: `https://<host>.<tailnet>.ts.net:<port>` when there is a certificate to serve it, the Tailscale address over plain http when there is not, and moved between the two on its own. Set it to something else — a real domain, a proxy — and it is never rewritten. See [the URL you are given](#the-url-you-are-given-and-what-happens-to-a-phone-that-already-has-one) |
 | `tls.enabled` | HTTPS on the tailnet address with a `tailscale cert` certificate and a TLS 1.2 floor (default `true`). Loopback is never TLS whatever this says, and a tailnet without *HTTPS Certificates* enabled falls back to plain http with the reason in the log. Set from the HTTPS card on `/admin` rather than by hand — see [the switch on the Admin screen](#the-switch-on-the-admin-screen) and [HTTPS on the tailnet name](#https-on-the-tailnet-name) |
@@ -10267,6 +10452,8 @@ quietly stopped looks exactly like a quiet team.
 | `advocates.holdOpenPrs` | [hold a bead out of the queue while an open pull request already carries its work](#the-bead-whose-work-is-already-in-an-open-pull-request) (default `true`). It closes nothing — an open PR is not a merged one — it holds, with the number on the card. Without it a worker briefed to merge is opened beside a resolver briefed that the merge is not its to make |
 | `advocates.inflightIntervalMinutes` | how often that asks GitHub (default 5, shorter than the sweeps above because a delivery that could not merge opens a pull request and hands the bead back to `bd ready` in the same minute). It also asks *unconditionally* right before opening a session |
 | `advocates.holdLiveSessions` | [hold a bead out of the queue while a live session already names it](#the-bead-somebody-is-already-sitting-in) (default `true`). The claim is not the guard the brief says it is — "request changes" drops it, a timeout drops the slot, a restart forgets the worker — and without this a second window opens into a worktree somebody is still editing. No interval: the session records are files on this laptop, so it reads on every tick and again before a launch |
+| `advocates.holdLeases` | [hold a bead out of the queue while another Mac has claimed it in the shared tracker, and stand down when one claims it underneath us](#the-bead-another-mac-has-claimed) (default `true`). Inert until `me` is set, which is every one-Mac install — with no handle there is no label to write and nobody to lose to. The claim is a `held:<stamp>:<handle>` label rather than the assignee, because two labels are two rows Dolt merges rather than a cell it cannot, which is what lets both machines see both claims and agree on the winner without talking |
+| `advocates.leaseMinutes` | how long one of those claims is good for (default 60, restamped at half that by whichever advocate still holds the worker). Not a load knob: it is how long a bead stays parked when the Mac holding it goes to sleep, and a bead parked forever is worse than the duplicate window this prevents |
 | `advocates.sessionLog` | archive each finished session to `refs/beadcause/sessions/<bead>` and note its commits (default `true`) |
 | `advocates.sessionTranscripts` | also store the raw Claude Code transcript — megabytes, and it carries paths and tool output (default `false`; set per repo in `perWorkspace`) |
 | `advocates.closeFinishedSessions` | [close a work session's window once the session has finished](#closing-the-window--a-session-that-has-finished-should-not-still-be-on-screen) — the bead closed, a pull request delivered, or the bead handed back for a decision, and never an ending the daemon merely inferred (default `true`). `false` leaves every window open, which is what it did before |
