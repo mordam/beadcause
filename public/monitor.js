@@ -366,6 +366,14 @@
    * alone. The difference between "4 ready" and "4 ready, 3 of them below the floor" is
    * the difference between an advocate that is idle and one that is behaving as told.
    *
+   * `heldByRepo` is the newest of them and the odd one out: every other hold on this
+   * row resolves itself in time — a window closes, a pull request merges, an epic's
+   * children get done — and this one never will. A bead naming a `repo:` token nothing
+   * approved declares, or one two approved repos both declare, waits on somebody
+   * editing a label or an approved list, and until then it is out of the queue with
+   * nothing else on screen accounting for it. Its tooltip carries lib/repos.js's own
+   * sentence, which names the fix.
+   *
    * `heldByChildren` is the third such subtraction, and it earns a pill for the same
    * reason: an epic whose children are the work is ready by bd's reckoning and not by
    * the advocate's, so without this the queue is one shorter than `bd ready` says and
@@ -394,6 +402,7 @@
    */
   function domainHtml(w, a) {
     const c = w?.counts || {};
+    const unplaced = (a && a.heldByRepo) || [];
     const waiting = (a && a.heldByChildren) || [];
     const twins = (a && a.heldByTwin) || [];
     const prs = (a && a.heldByPr) || [];
@@ -414,8 +423,22 @@
       c.inProgress ? `<span class="pill on">${c.inProgress} in progress</span>` : '',
       c.blocked ? `<span class="pill p1">${c.blocked} blocked</span>` : '',
       a && a.queue ? `<span class="pill mine">${a.queue} for the advocate</span>` : '',
+      // How many checkouts one workspace name is standing for. Absent for every
+      // single-repo workspace, which is almost all of them — and the tooltip is the
+      // approved list, because "climative" on its own no longer says what is in scope.
+      a && a.repos?.length
+        ? `<span class="pill muted" title="${esc(a.repos.join('\n'))}">${a.repos.length} checkout${
+            a.repos.length === 1 ? '' : 's'
+          }</span>`
+        : '',
       a && a.deferredByPriority
         ? `<span class="pill muted">${a.deferredByPriority} below the priority floor</span>`
+        : '',
+      // Toned `p1` rather than `muted`, unlike every other hold on this row: the others
+      // clear themselves when a window closes or a pull request merges, and this one
+      // never does. It is waiting on an edit, and the tooltip is where the edit is named.
+      unplaced.length
+        ? `<span class="pill p1" title="${esc(unplaced.map((h) => `${h.id} — ${h.why}`).join('\n'))}">${unplaced.length} naming no checkout</span>`
         : '',
       waiting.length
         ? `<span class="pill muted" title="${esc(waiting.map((h) => `${h.id} — ${h.why}`).join('\n'))}">${waiting.length} waiting on ${waiting.length === 1 ? 'its children' : 'their children'}</span>`
@@ -471,6 +494,10 @@
           }</span>`
         : '',
       w.sessionStatus ? `<span class="tag">${esc(w.sessionStatus)}</span>` : '',
+      // Which checkout the window is actually open in. Only ever present where the
+      // workspace holds more than one, which is why there is no chip on a sophab row
+      // saying "sophab" — see `repoNameFor` in lib/advocate.js.
+      w.repo ? `<span class="tag">${esc(w.repo)}</span>` : '',
       w.pid ? `<span class="tag dim">pid ${esc(w.pid)}</span>` : '',
       w.attempt > 1 ? `<span class="tag warn">attempt ${esc(w.attempt)}</span>` : '',
       // Nothing to address, so Reclaim cannot ask about this one — it will free the
@@ -539,7 +566,9 @@
             <span class="work-title">${esc(b.title)}</span>
             <span class="work-sub"><span class="pill id">${esc(b.id)}</span><span class="tag">${esc(
               P_LABEL[b.priority] ?? `P${b.priority}`
-            )}</span><span class="tag dim">${esc(b.type)}</span></span>
+            )}</span><span class="tag dim">${esc(b.type)}</span>${
+              b.repo ? `<span class="tag">${esc(b.repo)}</span>` : ''
+            }</span>
           </span>
           <time>${esc(age(b.createdAt))}</time>
         </a>`

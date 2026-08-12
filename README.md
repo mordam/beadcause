@@ -5671,7 +5671,9 @@ When that set is empty the advocate says **clear** and stops. That is the whole 
 to `maxWorkersLimit` (default 3, and a config asking for six gets three *and a log
 line*, rather than failing to start). `globalMaxWorkers` caps every advocate
 together (default 20, hard ceiling 36), so six repos each allowed 3 cannot open
-eighteen windows.
+eighteen windows. Both count *workspaces*, not checkouts — a workspace holding forty
+approved repos still gets `maxWorkers` windows in total, which is
+[a decision with a cost](#one-advocate-many-checkouts--what-spans-repos-and-what-does-not).
 
 Whenever a cap is what stopped a launch, it says so — on the card and in the log —
 because a slot limit that quietly drops a launch reads exactly like an advocate that
@@ -9951,10 +9953,12 @@ asserted in `test/sessiondir.mjs` rather than believed, because "it still works 
 Climative" is not the claim that matters to the four workspaces that were working
 already.
 
-A caller with no bead in hand — the advocate's open-PR sweep, the deploy board — passes
-none and gets the `default` repo. That is the right answer to a question about the
-workspace rather than about one bead, and it is the same answer those callers used to
-get from the one directory a workspace had.
+A caller with no bead in hand — the deploy board, a startup line — passes none and gets
+the `default` repo. That is the right answer to a question about the workspace rather
+than about one bead, and it is the same answer those callers used to get from the one
+directory a workspace had. A caller asking a question of *every* checkout is a different
+thing again, and the advocate's sweeps are all of them — see
+[One advocate, many checkouts](#one-advocate-many-checkouts--what-spans-repos-and-what-does-not).
 
 **Four ways a bead names no checkout, and all four refuse.** A token no approved repo
 declares, a token two of them both declare, a bead carrying two different `repo:` labels,
@@ -9980,6 +9984,87 @@ daemon files its own crashes on. Forwards, a multi-repo workspace answers with o
 backwards, every approved checkout **is** that workspace, so all of them are compared. A
 single comparison against the default would have filed a crash from a session running in
 `~/climative.dev/athena-service` onto whichever workspace came next in the list.
+
+### One advocate, many checkouts — what spans repos and what does not
+
+An advocate is one per **workspace**, and until Climative that was also one repo. Forty
+checkouts behind a single `cl-` graph splits the job in two, and the split is not
+obvious from the outside: some of what an advocate does is a question about the *tracker*
+and answers once, and some of it is a question about a *checkout* and has to be asked
+of all of them.
+
+**The caps stay per workspace.** `maxWorkers` counts one advocate's windows however many
+repos they are spread across, `launchCooldownSeconds` is one clock for the workspace, and
+`globalMaxWorkers` counts every advocate on this Mac at once. None of them becomes
+per-repo, and that is a decision rather than the path of least resistance: what these
+numbers ration is not checkouts, it is this laptop — iTerm windows on one screen,
+`claude` processes on one CPU, and one person who has to be able to look at the lot. A
+per-repo cap would turn "climative, 1 session at a time" into *forty* sessions the moment
+forty repos were approved, without anybody having typed a bigger number anywhere.
+
+The cost of that is real and is the price: two Climative repos move at once only up to
+`maxWorkers`, so a workspace that wants two going says so by stepping its limit to 2 —
+one press on the card, rather than a cap that scales with the length of a list. Within
+that limit the concurrency is genuine: one tick opens as many windows as it has slots
+for, in as many different checkouts as the beads name.
+
+**Every sweep that asks a checkout asks all of them.** Three do, and each was reading one
+directory when a workspace only had one:
+
+| Sweep | What it asks a checkout | What one directory would have cost |
+|---|---|---|
+| open pull requests | `gh pr list --state open` — which beads are already on a branch | a bead whose PR is open in `athena-service` looks exactly like a bead nobody has started, and gets a second window: [bc-utyr](#the-bead-whose-work-is-already-in-an-open-pull-request) with the repo name changed |
+| merged pull requests | which beads GitHub says landed | a bead stays open over work already in `main`, and the next tick spends a window proving it |
+| branches in main | `git merge-base --is-ancestor` against the base | the same, one state earlier — the branch is in the `main` of the repo it was cut from, and nowhere else |
+
+They are merged, not raced: the first checkout to name a bead wins, in the order the
+`approved` list is written, and the repo travels with the answer so the card can say
+`#115 already carries this work … — in athena-service` rather than naming a number that
+exists in all forty. **One checkout refusing is not the sweep failing.** A `gh` that times
+out in one repo leaves the other thirty-nine's answers standing and says so on the card
+(`1 of 3 checkouts did not answer`); only nothing answering anywhere keeps the previous
+map, because an empty map holds nothing back and would hand a window to the very bead the
+sweep exists to hold.
+
+**A bead naming no checkout is held, not launched.** `resolveSessionRepo` already refuses
+an unknown token, a token two approved repos both declare, and a bead labelled `repo:`
+twice — but a refusal at launch time surfaces in the two worst places available: it costs
+the bead one of its `maxAttemptsPerBead`, and the launch loop treats a refusal the way it
+treats iTerm saying no, which is to stop opening windows for the rest of the tick. One
+mislabelled bead would have held up every other repo.
+
+So it is the fifth subtraction from `bd ready`, beside the four that were already there,
+and it is the odd one out of the family: every other hold resolves itself in time — a
+window closes, a pull request merges, an epic's children get done — and this one never
+will. It is waiting on somebody editing a label or an approved list. The card draws it in
+the P1 tone rather than the muted one for exactly that reason, and its tooltip carries
+`lib/repos.js`'s own sentence, which names the fix:
+
+```
+2 naming no checkout   cl-9f2 — no approved climative repo declares the service token "ws" — approved: architecture (architecture), athena-service (as), building-service (bs)
+                       cl-a11 — service token "as" is declared by 2 approved climative repos (athena-service, audit-service) — beadcause will not guess between them
+```
+
+A queue emptied by that filter is **not** a clear queue, and the advocate says so and
+proposes nothing over it — the same rule the other four holds keep, for the same reason:
+an advocate reporting "clear" and then filing new work, while the beads it cannot place
+sit there unmentioned, is the loudest possible version of the bug the filter fixes.
+
+**And the card names the repo.** Each worker row carries the checkout its window is
+actually in, read off the directory the launch returned rather than off the bead's label —
+so it says where the window *went*, not where it was meant to go, and a `next` row says
+which checkout it would open in. The card's own numbers gain one more, `3 checkouts`,
+whose tooltip is the approved list — because "climative" on its own no longer says what
+is in scope. All three are absent for every single-repo workspace, which is why there is
+no chip saying `sophab` on a sophab row. `test/repoqueue.mjs` is the
+suite; `multiRepo` being false is what keeps every other workspace from reading a label,
+a directory or a `config/config.yaml` at all.
+
+**What is still one directory**, and deliberately out of this: the worktree sweep, the
+session-log archive and the survey agent that proposes work all still run in the
+workspace's default repo. Those are housekeeping in a checkout rather than questions
+about the queue, and each wants its own answer about what "all of them" means for a
+worktree attic — filed rather than guessed at.
 
 ### Environment
 
