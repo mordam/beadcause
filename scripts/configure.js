@@ -24,6 +24,7 @@ import { globalWorkerCap } from '../lib/advocate.js';
 import { ownerName } from '../lib/owner.js';
 import { repoList, repoStatusLine, forgetRepos } from '../lib/repos.js';
 import { scanTargets, scanRoot, parseApproved, resolveDefaultChoice, tildeHome } from '../lib/reposcan.js';
+import { readTeam } from '../lib/team.js';
 
 const HOME = os.homedir();
 const tty = process.stdin.isTTY && process.stdout.isTTY;
@@ -32,6 +33,19 @@ const dim = (s) => `\x1b[2m${s}\x1b[0m`;
 
 const cfg = loadConfig();
 const workspaces = cfg.workspaces.map((w) => w.name);
+
+/**
+ * What the team has already decided, when there is a team — see lib/team.js.
+ *
+ * Read here for one reason: question 2 is the one answer on this screen that is not really
+ * yours. Which workspaces are shared decides where an unattended agent may comment on a
+ * graph other people read, and on a federated install it must not depend on which
+ * engineers read the question carefully. A problem in the file is *not* raised here —
+ * `npm run onboard` is where that conversation belongs, and refusing to run the setup
+ * wizard over a typo in an unrelated file would be its own bug — so a broken profile is
+ * simply an absent one for these purposes.
+ */
+const teamShared = (readTeam().profile?.trackers || []).filter((t) => t.shared).map((t) => t.workspace);
 
 /** What is currently configured, in the same shape the interactive run reports. */
 function summary(c) {
@@ -113,7 +127,16 @@ if (!tty) {
 
 if (!workspaces.length) {
   console.log(`\nNo beads workspaces found under ~/beads.`);
-  console.log(`Create one and re-run: ${bold('npm run configure')}\n`);
+  // The one place this message is actively misleading is the case it is most likely to be
+  // read in: a second engineer with a fresh clone, whose tracker is not something they
+  // should create — it exists already, on a remote, and needs bootstrapping rather than
+  // making. Saying "create one" there is how somebody ends up with an empty private graph
+  // beside the team's.
+  if (teamShared.length) {
+    console.log(`team.json names ${teamShared.join(', ')}: bring it here with ${bold('npm run onboard')}, then re-run this.\n`);
+  } else {
+    console.log(`Create one and re-run: ${bold('npm run configure')}\n`);
+  }
   process.exit(0);
 }
 
@@ -171,6 +194,33 @@ cfg.owner = (await ask('   name:', ownerName(cfg))) || ownerName(cfg);
 
 /* ------------------------------------------------- shared vs private workspaces */
 
+/**
+ * The default is what is already true, and it used to be the literal string `'none'`.
+ *
+ * That was a re-run hazard rather than a first-run one, and it was the worst shape of it:
+ * `ask` turns an empty line into the default, so on an install that had answered this
+ * before, holding Enter through the wizard *removed* every workspace from
+ * `autoDispatchExclude` and `ntfy.minimalWorkspaces` — silently withdrawing the two
+ * protections that exist because a shared graph is read by other people. Nothing said so,
+ * and the summary printed at the end says "shared workspaces: (none)", which reads as a
+ * fact about the machine rather than as something the last keystroke did.
+ *
+ * Both lists are unioned in, because either one alone marks a workspace as shared, and any
+ * tracker `team.json` names is unioned in too: on a federated install this answer belongs
+ * to the team, and a default that quietly dropped it is exactly the "question nobody
+ * rereads" this was filed over.
+ */
+const sharedDefault =
+  [
+    ...new Set([
+      ...(cfg.autoDispatchExclude || []),
+      ...(cfg.ntfy?.minimalWorkspaces || []),
+      ...teamShared,
+    ]),
+  ]
+    .filter((name) => workspaces.includes(name))
+    .join(', ') || 'none';
+
 console.log(bold('2. Which of these are shared with other people?'));
 console.log(
   dim(
@@ -180,7 +230,10 @@ console.log(
       '   Comma-separated, or "none".'
   )
 );
-const sharedRaw = await ask('   shared:', 'none');
+if (teamShared.length) {
+  console.log(dim(`   team.json names ${teamShared.join(', ')} — the default keeps what the team decided.`));
+}
+const sharedRaw = await ask('   shared:', sharedDefault);
 const shared = /^none$/i.test(sharedRaw)
   ? []
   : sharedRaw
@@ -195,6 +248,13 @@ const shared = /^none$/i.test(sharedRaw)
 
 cfg.autoDispatchExclude = shared;
 cfg.ntfy = { ...cfg.ntfy, minimalWorkspaces: shared };
+
+// A team tracker dropped from the answer is not silently obeyed. `npm run onboard` is
+// additive and will put it back on the next install, so letting this look like the final
+// word would be a lie told by the quieter of the two.
+for (const name of teamShared.filter((n) => !shared.includes(n))) {
+  console.log(dim(`   (team.json names ${name} as shared — npm run onboard puts it back)`));
+}
 
 /* --------------------------------------------------------------------- spaces */
 

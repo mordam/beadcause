@@ -31,10 +31,12 @@ git clone <this repo> beadcause && cd beadcause
 npm run install-service
 ```
 
-That checks the prerequisites, installs dependencies, **asks you the handful of
-things that can't be guessed**, generates a launchd plist for *your* home directory
-and node binary, starts the service, waits for it to answer, and prints the pairing
-QR. It's re-runnable — run it again after pulling.
+That checks the prerequisites, installs dependencies, **points this Mac at the team's
+tracker if there is one**, **asks you the handful of things that can't be guessed**,
+generates a launchd plist for *your* home directory and node binary, starts the service,
+waits for it to answer, and prints the pairing QR. It's re-runnable — run it again after
+pulling. Joining a tracker somebody else already has needs one file and no questions at
+all: [installing against a team's tracker](#installing-against-a-teams-tracker).
 
 The questions, all with a safe default on Enter: **what the agents should call you**
 (the name every prompt, pull request body and bead note uses — guessed from your git
@@ -70,6 +72,7 @@ It still exits non-zero — it just never exits with nothing running.
 
 ```bash
 npm run monitor              # live view of what the daemon is doing
+npm run onboard              # is this Mac pointed at the team's tracker? (--dry-run to ask)
 npm run check                # the checks around the agent log — safe with the daemon up
                              # (also run inside `npm test`, as test/agentlog.mjs)
 npm run secrets              # has a secret ever reached the config repo's history?
@@ -88,6 +91,119 @@ machine, because `node` alone moves between `/opt/homebrew/bin`, `/usr/local/bin
 and any number of nvm paths. Kill any hand-started instance before installing — a
 second one can't bind the port, and it exits 1 rather than lingering, because
 otherwise its poller would keep firing notifications with no listener behind them.
+
+### Installing against a team's tracker
+
+Everything above was written for somebody setting up their own laptop, and for the
+**second** person onward almost every step of it quietly does nothing useful. This is the
+half that gets a new machine to the point where [a shared tracker](#a-tracker-two-macs-share)
+means anything, and it is one file plus one command.
+
+Three things are wrong on a fresh clone, and none of them looks wrong:
+
+- **The workspace does not exist.** `~/beads/<name>/.beads` was made once, by hand, on
+  somebody else's Mac. Here, `~/beads` is readdir'd, nothing is found, `npm run configure`
+  prints *No beads workspaces found* and exits 0, and the daemon comes up perfectly,
+  serving an empty inbox.
+- **A plain `git clone` fetches no beads.** Dolt data rides `refs/dolt/data`, which git
+  does not pull, so even with the workspace in place the tracker stays empty until
+  somebody runs `bd bootstrap`.
+- **The questions get six different answers.** The one that matters is *which workspaces
+  are shared*: it decides where an unattended agent may comment on a graph the whole team
+  reads, and it must not depend on who read the question carefully.
+
+**`team.json`, in the checkout, committed.** The shared half of the answer stops being a
+question and becomes a file everybody already has a copy of; changing it is a pull request
+rather than six conversations.
+
+```json
+{
+  "note": "the tracker is on refs/dolt/data in the architecture repo — see #eng-tools",
+  "trackers": [
+    {
+      "workspace": "acme",
+      "remote": "git+ssh://git@github.com/acme/architecture.git"
+    }
+  ],
+  "policy": { "sync": { "seconds": 120 } }
+}
+```
+
+That is the whole file. `dir` may be given when the workspace does not live under
+`~/beads/<workspace>` — Climative's lives inside the `architecture` checkout, because that
+is the repo the team already clones — and `shared` may be set to `false`, though a tracker
+with a remote is by definition one somebody else reads, so it defaults to `true`. `note`
+exists because JSON has none, and a file the whole team edits with nowhere to say why
+accumulates changes nobody can date.
+
+**Then, on the new Mac, the whole of it:**
+
+```bash
+git clone <this repo> beadcause && cd beadcause
+npm run install-service -- --non-interactive     # set it up the way the team has it
+```
+
+`--non-interactive` is the answer to "how do I get what everyone else has": the policy
+comes from the committed profile, and everything it is *not* allowed to carry is guessed
+per machine — your name from your git identity, a fresh token, a fresh ntfy topic. Run it
+without the flag and you get the same thing plus the questions, whose defaults are now
+what the team decided rather than a blank.
+
+The installer does the tracker **before** the questions, because on a fresh Mac there is
+no workspace for them to be about. For each tracker it writes `sync.remote` into
+`.beads/config.yaml` — bd's own file, comments and all — and runs `bd bootstrap`, which
+reads that line and clones. You can run it on its own at any time, and ask what it would
+do without doing it:
+
+```bash
+npm run onboard                  # create and bootstrap what is missing
+npm run onboard -- --dry-run     # print the plan and change nothing
+```
+
+**What a profile may not contain, enforced rather than documented.** `owner`, `me`, the
+token, the ntfy topic, `baseUrl`, `port`, `assetRoots`, `projectRoot`, `advocates`, and
+both sets of credentials. Those are already per-machine and already right, and a file that
+set them would make six Macs claim to be the same person — one topic is six phones buzzing
+for one question, and one `me` is [an addressee](#who-a-question-is-for--me-and-the-for-label)
+that means nothing. A key not on the allowlist is a **refusal, not an ignored line**: a
+setting silently dropped from a file the whole team reviewed is a policy they all believe
+they have. `policy` is the same allowlist from the other end, and it has one key today —
+a setting belongs there only if having it different on two machines changes how the
+*shared graph* behaves, which is true of the sync interval (the collision window is only
+as narrow as the slowest machine's) and not true of `autoDispatch`, whose global flag
+governs your own private workspaces.
+
+What the shared trackers *do* set, without anybody being asked, is the three protections
+that used to depend on question 2: no unattended agent comments on them
+(`autoDispatchExclude`), their questions push a contentless nudge rather than the text
+(`ntfy.minimalWorkspaces`), and beads an agent files itself keep waiting for a tap
+(`autoEndorsePerWorkspace`). All three are additive — a name you added yourself is never
+removed.
+
+**Two states are refused rather than repaired, and this is the part worth reading before
+you improvise.** If a beads database already sits where the team's tracker goes — you ran
+`bd init` first, or `bd-newws`, or the workspace is somebody's private one — the install
+stops, at exit 1, before anything has been loaded or unloaded. It is not fixable from
+there: `bd bootstrap` will not clone over a database that exists (`can't create database
+beads; database exists`), so the team's history never arrives, and the first `bd dolt pull`
+of the sync tick is then asked to merge two unrelated histories. That is the one outcome
+[nothing retries its way out of](#a-sync-that-stopped-is-loud-and-a-conflict-is-louder): a
+conflict, on every tick, until a person sorts it out. Move the local one aside and onboard
+into the empty space, or give the team's tracker a `dir` of its own. The same refusal
+covers a workspace already wired to a *different* remote, which nothing here rewrites.
+
+The order is the whole thing: **bootstrap before the workspace has ever been written to.**
+
+**An empty tracker is said out loud rather than left to look like a broken install.** The
+onboarding prints the bead count it ended up with, and when that is zero it says what zero
+means — the remote genuinely has none yet, or somebody pushed somewhere else. A step that
+*fails* (no network, ssh locked) only warns and the install carries on, because the
+daemon's own sync banner keeps saying so until it works, and `npm run onboard` picks up
+where it stopped.
+
+`BEADCAUSE_TEAM_FILE` points at a profile somewhere else, for trying one before six people
+clone it. With no `team.json` at all, none of this happens: one line, exit 0, and every
+solo install behaves exactly as it always did.
 
 ### Pairing a phone
 
@@ -10246,8 +10362,11 @@ Two consequences worth knowing before you do it:
 
 - **A plain `git clone` fetches no issues.** Dolt data on `refs/dolt/data` is not
   something git pulls by default, so a new machine or a new teammate must run
-  `bd bootstrap` once. That belongs in the install story, not in a debugging session six
-  weeks later.
+  `bd bootstrap` once. That belongs in the install story rather than in a debugging session
+  six weeks later, and it is now in it: `team.json` names the remote, the installer writes
+  it into the workspace's `config.yaml` and bootstraps from it, and nobody types the
+  command — see [installing against a team's tracker](#installing-against-a-teams-tracker),
+  including the two states it refuses instead.
 - **Nothing here is a JIRA sync.** Pull-only, surgical, and unchanged — see
   [JIRA, per workspace](#jira-per-workspace--read-only-and-one-setting).
 
@@ -11014,6 +11133,7 @@ deliberately rather than drifted through.
 | `BEADCAUSE_SLACK_BOT_TOKEN`, `BEADCAUSE_SLACK_APP_TOKEN` | the two Slack tokens, taking precedence over their files. The one place they leave no copy on disk — see [Slack](#slack--the-same-decision-in-a-channel) |
 | `JIRA_API_TOKEN` | a JIRA API token, taking precedence over the per-workspace `.key` file for the same reason the Google one does — it leaves no copy on disk. The daemon runs under launchd and will not have it; this is for a hand-run script or a test |
 | `BEADCAUSE_TAILSCALE` | the `tailscale` binary, overriding the three macOS paths that are searched by default. Has to exist to count — a path typed wrong reads as "no tailscale" rather than failing mysteriously later. See [renewing the certificate](#renewing-it-before-it-expires) |
+| `BEADCAUSE_TEAM_FILE` | the team profile to read instead of `team.json` in the checkout. For trying a profile before six people clone it, and for the suite that drives the onboarding against a local remote — see [installing against a team's tracker](#installing-against-a-teams-tracker) |
 
 ### Every state file is replaced, never overwritten
 
