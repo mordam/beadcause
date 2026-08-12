@@ -80,6 +80,7 @@ import { deployFor, deployHint } from '../lib/deploy.js';
 import { landedReason } from '../lib/landed.js';
 import { pushLanded } from '../lib/notify.js';
 import { oweClose } from '../lib/owed.js';
+import { park, questionType } from '../lib/park.js';
 import * as pr from '../lib/pr.js';
 import { landParent } from '../lib/prboard.js';
 import { prPolicyFor } from '../lib/spaces.js';
@@ -719,12 +720,18 @@ const delivery = {
   left,
 };
 
+// Typed after the bead it is about to park, because bd will only let an epic be
+// blocked by another epic (lib/park.js) — and an epic is delivered like anything
+// else. Off the row `show` already returned rather than a second lookup. Nothing here
+// reads the card's type: every caller finds these by DELIVERY_LABEL.
+const cardType = questionType(bead.issue_type);
+
 const out = bd([
   'create',
   '--title',
   deliveryTitle(delivery),
   '--type',
-  'task',
+  cardType,
   '--priority',
   '1',
   '--label',
@@ -755,10 +762,12 @@ const questionId = created.id || created.issue?.id;
 // The work bead waits behind the question. Without this the advocate's next tick sees
 // a bead that is open and unblocked, and opens a second session onto work that is
 // already sitting in a PR — the exact duplication the whole channel exists to stop.
-try {
-  bd(['dep', 'add', beadId, questionId]);
-} catch (err) {
-  console.error(`beadcause-deliver: filed ${questionId}, but could not park ${beadId} behind it — ${String(err.message).split('\n')[0]}`);
+// No `human` fallback here, unlike ask and propose: the work bead is about to be
+// closed by the merge, and a label nothing takes back off would leave it in the
+// inbox as a card with no question on it forever.
+{
+  const { parked, note } = park(bd, beadId, questionId, { label: false });
+  if (!parked) console.error(`beadcause-deliver: ${note}`);
 }
 
 try {
