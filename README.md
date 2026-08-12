@@ -2966,14 +2966,19 @@ That is what took **PRs** back out of the bar (bc-l8jp.6): the board is somewher
 glance — *did that ship?* — and then act on twice a day, and its rows are incoming work
 like everything else the inbox holds. So [the rows moved into the
 inbox](#where-you-read-it-an-inbox-card-and-the-board) and the board kept its URLs
-without keeping a fifth of the bar. `/prs`, `/pulls` and `/prs.html` all still serve it —
-they are on the phone's home screen and in the notification a ship sends — and what points
-at it now is a link on every PR card.
+without keeping a fifth of the bar. `/prs`, `/pulls` and `/prs.html` all still work —
+they are on the phone's home screen and in the notification a ship sends.
 
-Which makes the board a page the bar marks **nothing** as current on. That is deliberate,
-and it is checked: `scripts/tabbar-check.mjs` carries it with `tab: null`, asserting the
-bar is still there (it is the only way off the page) and that no tab lights for a page this
-is not. A page can be reachable, load-bearing, and not a tab.
+**Kept its URLs and lost its way in.** With no tab, the only route to the board was the
+link on a PR card in the inbox — so on a day when no pull request was showing there, there
+was no route at all, and **Ship** lives on that board. A ship bead that says *press Ship on
+the pull request board and this closes itself* was not answerable from a phone without
+typing a URL. That is bc-d4d5, and the fix is not to undo bc-l8jp.6: the board is [a pane
+on the advocates page](#the-board-is-a-pane-too) now, which is the Mirror's argument for
+the second time. `/prs`, `/pulls` and `/prs.html` land there with its chip up, the bar
+marks **Advocates** as current on all three, and `scripts/tabbar-check.mjs` asserts exactly
+that. The chat session is still the page the bar marks nothing on, still with `tab: null`
+in that check — a page can be reachable, load-bearing, and not a tab.
 
 Four tabs is 90px each at 360px. Three was 120px, five was 72px — which "Advocates" still
 fits — and six would be 60px, which it does not, so the stylesheet steps the type down when
@@ -3155,11 +3160,12 @@ more it asks which, because offering to start work in a repo the app is not show
 you is the one thing the space picker exists to stop. Either way it lands on
 `/console?id=<id>`, which is exactly where the launcher's own ＋ lands.
 
-**`/console` is still a live route with no tab pointing at it**, exactly as `/prs` is. The
-id and the href are in stored conversation records and on the phone's home screen, so both
-of its paths still serve the page — a bookmark that 404s is a worse outcome than a page
-with no tab. It keeps the bar, because that is how you leave it, and nothing on the bar is
-marked current there: you are not on one of the four.
+**`/console` is still a live route with no tab pointing at it** — the last one, now that
+`/prs` [is a pane on the advocates page](#the-board-is-a-pane-too). The id and the href are
+in stored conversation records and on the phone's home screen, so both of its paths still
+serve the page — a bookmark that 404s is a worse outcome than a page with no tab. It keeps
+the bar, because that is how you leave it, and nothing on the bar is marked current there:
+you are not on one of the four.
 
 ### The ✕ came with the row
 
@@ -3249,10 +3255,11 @@ about how much room the bar has:
   a tab is a claim that the page is somewhere you live, and nobody lives in a lens.
 - **It is the one surface in the app that is meaningless on a phone** — which is the
   device a bottom tab is tapped from. The Mirror follows *another* device and drops its
-  own (`notMe` in `public/mirror.js`, and `showTab` reports `view: null` while the pane is
-  up, so a mirror cannot circle back onto the page it is drawn on). A phone that tapped a
-  Mirror tab would therefore find nothing to follow and read "Looking for a device…"
-  forever. That is not a tab, it is a dead end with an icon.
+  own (`notMe` in `public/mirror.js`, and its chip declares no view at all — `data-view=""`
+  in `monitor.html`, so `public/montabs.js` publishes `view: null` while the pane is up and
+  a mirror cannot circle back onto the page it is drawn on). A phone that tapped a Mirror
+  tab would therefore find nothing to follow and read "Looking for a device…" forever.
+  That is not a tab, it is a dead end with an icon.
 
 There was a third reason when this was decided — *the bar is full at five, and
 `style.css`'s `:has(.tab-item:nth-child(6))` rule is the stylesheet quietly admitting
@@ -3260,6 +3267,50 @@ it* — and it has **since expired**: PRs left the bar in bc-l8jp.6 and there is
 place on it again. The decision does not move, and that is the point of writing the other
 two down: the next person to notice the empty slot should not have to re-derive why the
 Mirror is not what goes in it.
+
+### The board is a pane too
+
+The empty slot was tested a second time and the answer came out the same way. bc-l8jp.6
+took **PRs** off the bar on the rule at the top of this section; what nobody noticed for a
+week is that it left the board with no route in except a link on an inbox card, so on a day
+with no pull request in the inbox there was no way to reach it — and **Ship** is on it.
+bc-d4d5 put it back as the **third chip on this same row**, between Advocates and Mirror,
+on the Mirror's own two reasons: it is a mode of the advocates page (the same space's
+repos, seen as work waiting to ship rather than work running), and it is somewhere you
+glance and act on rather than somewhere you live. So the row reads **Advocates · PRs ·
+Mirror**, the bottom bar still has four tabs, and `/prs`, `/pulls` and `/prs.html` are
+three more paths to `monitor.html` with the middle chip up.
+
+What that cost, and what it did not:
+
+- **`public/prs.html` is gone; `public/prs.js` is not.** The board is the same renderer,
+  drawing into a `<section id="prs">` on the advocates page instead of a `<main>` of its
+  own — so there is still one PR card renderer (`public/prcard.js`) and one status ladder
+  (`lib/prstage.js`), which is the thing bc-l8jp.6 bought and this had no business
+  spending.
+- **The chip row grew a file.** A two-way swap can live in whichever pane owns it, which
+  is where it was (`mirror.js`); a three-way one cannot, because the pane going *away* has
+  to be told as much as the one arriving and "the other one" stops naming anything. So
+  `public/montabs.js` owns the row, the panes subscribe, and each of the three answers only
+  for itself. The mapping — which section a chip shows, and what `presence.js` should say
+  this device is looking at — is declared on the chips in the HTML.
+- **A hidden pane is stood down, not merely invisible.** Each of the three holds a parked
+  `/api/poll`, and the board's wakes are a `gh` call per repo; the subscription is what
+  stops all three running at once. Nothing is fetched for the board until its chip is up.
+- **The top bar is shared.** One ⟳ for the page, and each pane ignores it while it is
+  hidden — rather than a second refresh button that would mean a different half of the same
+  screen depending on where your thumb landed.
+
+`node test/montabs.mjs` runs the real chip row in a vm and holds what no single pane can
+see: exactly one pane up after every swap, every subscriber told on every change *and* once
+at boot, one pane throwing not stranding the two beside it, and the board's three URLs
+selecting the board whatever chip was stored. `node test/prstage.mjs` holds the pair of
+claims above it: the bar still has no PRs tab, and `monitor.html` still carries the chip,
+the shared renderer ahead of the board, and the bar that is the way off it. `node
+test/pagepaths.mjs` asks a running server for all three of the old paths and requires the
+page they land on to be one that draws a board — `/monitor.js` proves they reach the
+advocates page and only `/prs.js` proves the page can draw the Ship button, which is the
+failure that started this.
 
 So `public/mirror.js` stays a pane inside `monitor.html`, and what the other answer would
 have cost is not spent: no `/mirror` route, no `mirror.html`, and the pane-swap keeps the
@@ -4326,9 +4377,17 @@ be computed a second time by the inbox. One function, six rungs, and the sort or
 ### Where you read it: an inbox card, and the board
 
 **Pull requests are cards in the inbox** — [under their own filter, with a sub-filter over
-the ladder](#what-the-inbox-shows) — and the board at `/prs` is where you act on one. Both
-draw the row from the same renderer, `public/prcard.js`; there were two before that bead,
-and a fact added to one screen was a fact missing from the other.
+the ladder](#what-the-inbox-shows) — and the board, [the PRs chip on the advocates
+page](#the-board-is-a-pane-too), is where you act on one. Both draw the row from the same
+renderer, `public/prcard.js`; there were two before that bead, and a fact added to one
+screen was a fact missing from the other.
+
+A row on the board folds open to what you can *do* — Merge & push, Ship, Comment, and
+**Full view**, which is a link into the inbox's own full-screen sheet for that pull request
+rather than a second copy of it. The status sub-filter widens itself when that link names a
+rung it is hiding (`revealPr` in `public/app.js`): the board's whole subject is what has
+merged and not shipped, and the inbox's default is `unmerged`, so without that the link
+would silently land on a list the row is not in.
 
 ```
 #42  Turn the launcher's repo chips into tabs            2h ›
