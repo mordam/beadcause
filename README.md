@@ -1481,7 +1481,7 @@ having is not "no cycles" but "no module that only loads second".
 
 ### Looking something up — and why it is not `Bash(curl:*)`
 
-The last four entries are the difference between a question that turns on one
+The last five entries are the difference between a question that turns on one
 external fact getting answered and getting a comment saying it cannot be. Smallest
 first:
 
@@ -1494,6 +1494,11 @@ first:
   most questions. It earns its place because to *all* of them a page that assembles
   itself in the browser looks empty, and an agent cannot tell that from a page that
   genuinely says nothing.
+- **`beadcause-confluence <page>`** — a page on the team's wiki, which is not a public
+  URL and is behind a login every one of the four above reads as a login screen. It is
+  the only one that carries a credential, so it is also the only one bounded by an
+  allowlist you write yourself — see
+  [reading a page in](#reading-a-page-in--and-why-the-allowlist-is-empty-to-begin-with).
 
 `Bash(curl:*)` was considered and refused, because the pattern does not mean what it
 looks like it means: it matches `-X POST`, `-d`, `--upload-file`, and `-o` writing
@@ -9181,9 +9186,12 @@ tell your phone the publish did not happen when it did. The log says so instead.
 
 ### The edges, said out loud
 
-- **Publish-out only.** Reading a Confluence page back in as context for an agent is a
-  different credential, a different surface and a different decision about what an
-  unattended agent may reach. It is scoped separately.
+- **Publishing and reading are separate switches.** Reading a page back in is the other
+  half and it is
+  [configured on its own](#reading-a-page-in--and-why-the-allowlist-is-empty-to-begin-with):
+  an install that publishes into `ENG` reads nothing at all until it also says which
+  spaces may be read. Nothing about pushing a document out implies letting an
+  unattended agent pull anything back.
 - **Markdown and text only.** A `.pdf` or a `.csv` opens perfectly well in the reader
   and there is nothing sensible to make a page out of, so the footer does not appear.
 - **A fenced code block arrives as preformatted text**, not the Confluence code macro,
@@ -9199,6 +9207,106 @@ tell your phone the publish did not happen when it did. The log says so instead.
 Confluence on loopback that counts the pages it is asked to create — because the
 assertion that matters is not "the second call was an update", it is that **nothing was
 ever created twice**, including with the record deliberately thrown away.
+
+### Reading a page in — and why the allowlist is empty to begin with
+
+The other direction, and a separate switch: **an agent can read a Confluence page you
+have named a space for, and nothing else on that site.**
+
+Half of why a repo is the way it is never reaches the repo. The runbook, the spec the
+service half-implements, the decision somebody wrote up after the incident — those live
+on the wiki, and to every other grant an agent has they are a login screen. `WebFetch`
+gets the sign-in page, `beadcause-get` gets a 401, and `beadcause-browse` acts as nobody
+and so gets the sign-in page too. An agent cannot tell any of that from a page that says
+nothing, which is the same failure [looking things up](#looking-something-up--and-why-it-is-not-bashcurl)
+was built to fix, one login further in.
+
+```json
+"confluence": {
+  "site": "https://yourteam.atlassian.net",
+  "email": "you@yourteam.com",
+  "readSpaces": ["ENG", "RUNBOOKS"]
+}
+```
+
+**`readSpaces` starts empty and stays empty until you write it — including on an install
+that already publishes.** That is the whole safety argument, so it is worth saying why
+it is not merely cautious. The API token this uses is the *same* token that publishes,
+and a token that can publish into one space can read the entire site: the HR space, the
+board deck, the incident write-ups with customer names in them. So "reading is on
+because Confluence is configured" would quietly mean *every unattended agent this Mac
+dispatches may read the company wiki*, decided by nobody, on the day publishing was
+switched on for an unrelated reason. Naming the spaces one at a time is the same move as
+naming the [`bd` verbs one at a time](#what-a-reply-agent-may-do--and-the-four-verbs-it-used-to-have-by-accident) rather than taking
+`Bash(bd *)`, and it is the same reason: the short version of the grant is not a smaller
+version of it.
+
+**The check is against the space the page is really in, never the one the URL claims.**
+This is the part that would be wrong if it looked right. A Confluence URL is
+`…/wiki/spaces/ENG/pages/777/On-call+rota`, and the `ENG` in it is decoration — the id
+is what resolves, and Confluence serves the page whatever that segment says. A reader
+that allowlisted on the URL would hand over any page in the site to anyone who could
+retype one path segment. So the space key comes back from Confluence with the page and
+is checked against `readSpaces` then; a page named by *title* is refused earlier still,
+before any request at all, so asking for a page in a space you may not read does not
+even tell Atlassian that somebody was interested.
+
+    beadcause-confluence --spaces                          which spaces are readable
+    beadcause-confluence https://…/pages/777/On-call+rota   by URL
+    beadcause-confluence 777                                by id
+    beadcause-confluence "ENG/On-call rota"                 by space and title
+
+There is no flag to write a page, comment on one, search the site, list what a space
+contains or download an attachment — no code path here builds a POST, a PUT or a search,
+which is the same construction as `beadcause-get` having no way to name a method.
+**Searching is the deliberate omission**: "find the page about the rota" reaches every
+title in a space rather than one page somebody named, and that is the shape that turns a
+narrow grant back into a wide one. A page gets named by pasting its URL, which is what a
+person does anyway.
+
+**It is fetched every time, and never cached.** A wiki page is edited by other people,
+so a cached copy served as current is not a stale answer, it is a wrong fact with
+nothing on it to say so. What comes back instead is the version number and the date, at
+the top, above the page — because the agents are told to cite what they read, and on a
+page that changes under them "the page said this, at v14, today" is a fact where "the
+page says this" is a hostage:
+
+```
+# CONFLUENCE ENG/On-call rota
+# https://yourteam.atlassian.net/wiki/spaces/ENG/pages/777/On-call+rota
+# version 14 · updated 2026-08-01T09:00:00.000Z · read just now, never cached
+
+## Paging
+…
+```
+
+The body is markdown, converted back from Confluence's storage format — the mirror of
+the conversion that publishes one. It is lossy in listed ways rather than quietly:
+**a macro arrives as `[jira macro]`** rather than as its content, because a macro is a
+server-side include and its content is genuinely not in the page; **layouts and columns
+flatten**; **an image arrives as its filename**, since the bytes are an attachment and
+this reads pages; and **a table nested inside a table cell is dropped**, because markdown
+has no such thing and merging its rows into the outer table would be a silent corruption
+rather than a visible gap.
+
+The grant is `Bash(beadcause-confluence:*)`, on the reply agents and the advocate, and
+it is inert on an install with no readable space — which is why it can sit on the list
+unconditionally. What is *not* unconditional is the paragraph in the prompt: the agents
+are told about this only when there is a space to read, because an agent told about a
+capability that is switched off spends a run finding that out, and an agent never told
+about one it has may as well not have it.
+
+**Two edges worth knowing.** A [short link](https://support.atlassian.com/confluence-cloud/)
+(`/wiki/x/AbCdEf`) is refused with a message saying to use the long URL — only a browser
+can resolve one, and the API does not. And `readSpaces` is a single global list rather
+than a per-[space](#spaces--keeping-work-out-of-your-evening) one: unlike
+`confluenceSpace` for publishing, the reader is a command an agent runs in a checkout
+and has no honest way to know which beadcause space it is acting for. So list only the
+spaces that *every* agent this Mac dispatches may read.
+
+`node test/confluenceread.mjs` (part of `npm test`) drives it against the same kind of
+fake Confluence, and the case it exists for is the third paragraph above: a page in a
+space that is not readable, behind a URL that says it is.
 
 ## HTTP API
 
@@ -9525,6 +9633,7 @@ history.
 | `confluence.email` | the Atlassian account the API token belongs to — the two together are basic auth |
 | `confluence.space` | the Confluence space a document lands in by default. A beadcause space may name another with `confluenceSpace`, or refuse with `confluenceSpace: false` |
 | `confluence.apiTokenFile` | where the API token is read from, if not `~/.config/beadcause/confluence.key`. **The token itself is never a config field** — this file is committed after every write |
+| `confluence.readSpaces` | the space keys an unattended agent may [read a page out of](#reading-a-page-in--and-why-the-allowlist-is-empty-to-begin-with), e.g. `["ENG"]`. **Empty by default and does not inherit `space`** — the token that publishes can read the whole site, so an install that publishes still reads nothing until this names a space |
 | `jira` | JIRA per workspace, keyed by workspace name — `{"climative": {"enabled": true, "email": "you@company.com"}}`. Empty by default, and a workspace not named here costs nothing: no call is made about it at all. The site URL and the project keys come from that workspace's own `bd config get jira.url` / `jira.projects`, so `enabled` and `email` are usually the whole setting; `url` / `projects` here override for a workspace whose `bd` was never pointed at JIRA. **There is deliberately no token field** — see [JIRA, per workspace](#jira-per-workspace--read-only-and-one-setting) |
 | `pollSeconds` | how often new `human` beads are looked for (default 30) |
 | `monitor.enabled` | generate the LaunchAgent that opens the [activity monitor](#the-monitor--what-it-is-doing-right-now) at login (default `false`; `npm run monitor` works either way) |
