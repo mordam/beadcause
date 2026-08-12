@@ -42,6 +42,7 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { removeTreeSync } from './helpers/tmp.mjs';
 
 let failures = 0;
 const ok = (name) => console.log(`  ✓ ${name}`);
@@ -61,7 +62,10 @@ const check = async (name, fn) => {
 /* ------------------------------------------------------------------ the world */
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'beadcause-prbase-'));
-process.on('exit', () => fs.rmSync(tmp, { recursive: true, force: true }));
+// The retrying, never-fatal removal rather than a bare `rmSync`: this suite runs `git
+// init` in the tree it is about to take away, and a teardown must not be able to fail a
+// run its assertions passed. See test/helpers/tmp.mjs.
+process.on('exit', () => removeTreeSync(tmp));
 
 const BIN = path.join(tmp, 'bin');
 const TREE = path.join(tmp, 'climative.dev');
