@@ -320,8 +320,46 @@ writeConfig();
 const env = { ...process.env, BEADCAUSE_CONFIG_DIR: dir };
 
 let router = null;
+
+/**
+ * Stop the router and wait until it has actually been reaped — the same wait
+ * `test/outagepush.mjs` does, for the same reason, because this suite runs the same kind
+ * of process.
+ *
+ * `kill()` only queues a signal, and the thing it is queued for is a supervisor with a
+ * backend of its own, holding this scratch directory as its `BEADCAUSE_CONFIG_DIR` and
+ * writing state into it. So removing the directory on the next line races a process that
+ * has not been told yet, let alone gone, and the tick it loses reads as `ENOTEMPTY:
+ * directory not empty, rmdir` out of the teardown (bc-t69u, bc-94c6). `removeTreeSync`
+ * already keeps that from throwing, which is what stopped the stack trace landing under
+ * "all N checks passed" — but a retry loop that needs a second and a half of backoff to
+ * take a directory away is hiding this rather than not having it, and what it leaves
+ * behind when it finally gives up is the `beadcause-slow-*` dir the bead also asks about.
+ *
+ * SIGTERM rather than SIGKILL, because SIGTERM is the only one the router can act on: its
+ * handler stops the backends first (bin/router.js), so waiting on this one exit is most of
+ * the wait for the grandchild too. `once('exit')` is the wait itself. The SIGKILL after
+ * five seconds is for a router that will not go, which is a hang rather than a race and
+ * should not also cost the suite a stall.
+ */
+async function stopRouter() {
+  if (!router || router.exitCode !== null || router.signalCode) return;
+  const gone = new Promise((resolve) => router.once('exit', resolve));
+  router.kill('SIGTERM');
+  const hard = setTimeout(() => router.kill('SIGKILL'), 5000);
+  await gone;
+  clearTimeout(hard);
+}
+
+/**
+ * The backstop, for the exits that never reach `stopRouter` — a throw above the try block,
+ * or the SIGINT below. An exit handler cannot wait, so it does the only thing one can:
+ * signal, and retry the removal synchronously.
+ */
 const cleanup = () => {
-  if (router && !router.killed) router.kill('SIGKILL');
+  // `killed` only records that a signal was sent, so it reads true for a router that is
+  // ignoring one. What says whether there is still a process here is whether it exited.
+  if (router && router.exitCode === null && !router.signalCode) router.kill('SIGKILL');
   removeTreeSync(dir);
 };
 process.on('exit', cleanup);
@@ -578,7 +616,6 @@ try {
     );
   }
 
-  router.kill('SIGTERM');
 } catch (err) {
   if (err.tooFast) {
     inconclusive =
@@ -588,8 +625,12 @@ try {
   } else if (!err.skipped) {
     bad('the run itself', err.stack || err.message);
   }
-  if (router) router.kill('SIGTERM');
 }
+
+// On both paths, and before the summary rather than after it: a run that threw left a
+// router behind too, and anything its shutdown says belongs in the log if the log is
+// about to be printed.
+await stopRouter();
 
 if (failures || inconclusive) {
   console.log('\n--- router log ---');
