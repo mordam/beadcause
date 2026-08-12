@@ -163,7 +163,7 @@ if (filed.length) {
   // a window on it.
   warn(
     endorsed
-      ? `filed ${count}, endorsed — auto-endorsement is on for this space, so they are ready work ` +
+      ? `filed ${count}, endorsed — auto-endorsement is on for this repo, so they are ready work ` +
           'and an advocate may pick them up. Carry on with what you were doing; they are not yours.'
       : `filed ${count}, held for endorsement — ` +
           'nothing will be worked on them until they are endorsed. Carry on with what you were doing.'

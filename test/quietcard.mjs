@@ -45,6 +45,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { boundPort } from './helpers/net.mjs';
+import { cleanupTmp } from './helpers/tmp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(HERE, '..');
@@ -388,5 +389,5 @@ check('the class it draws has a rule, so the line is not an unstyled paragraph',
 });
 
 console.log(failures ? `\n\x1b[31m${failures} of ${ran} failed\x1b[0m\n` : `\n${ran} passed\n`);
-fs.rmSync(tmp, { recursive: true, force: true });
+await cleanupTmp(tmp);
 process.exit(failures ? 1 : 0);

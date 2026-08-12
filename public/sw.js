@@ -182,7 +182,70 @@
    font, sized to whatever the flex row leaves it, on a 393px screen where the three
    buttons beside it then wrap around it. It still takes a channel id, which is exactly
    the "looks like a working page" failure a cache version exists to prevent. */
-const CACHE = 'beadcause-v39';
+/* v40: Endorse all in the endorsement queue's header — one tap for the whole drawn
+   list rather than a tick per bead (bc-mf88). No new path: endorse.js and style.css are
+   both already here, and it is the v32 pairing again. The harmless direction is v39's
+   endorse.js against v40's stylesheet, which is the queue exactly as it was with three
+   unused rules behind it. The other is not: v40's endorse.js beside v39's style.css has
+   no `.eq-head-row`, so the flex row never forms — the accent-filled button drops onto
+   its own line directly under "101 beads waiting on you" and above the subtitle, full
+   bleed across a 393px screen, which is both the shape and the position this control was
+   deliberately not given. And when it arms, `.eq-all-hint` is missing too, so the
+   sentence naming the count and every repo the tap covers renders at body size in the
+   middle of the header rather than as a hint under the button, reading as the page's own
+   prose rather than as the question it is. It still endorses the right beads, which is
+   exactly the "looks like a working page" failure a cache version exists to prevent —
+   and here the working page is one whose most consequential button is the biggest thing
+   on the screen and no longer says which tap does what. */
+/* v41: the pull request board came back as a third chip on the advocates page (bc-d4d5),
+   which deletes prs.html, adds montabs.js, and points /prs, /pulls and /prs.html at
+   monitor.html. One new path and one deleted one — and unusually for this list, both
+   halves of the pairing break rather than one of them merely being the app as it was.
+
+   The old monitor.html beside the new mirror.js is the dead direction. That HTML has no
+   `<script src="/montabs.js">` and no `#prs` section, and the new mirror.js has given the
+   chip row away — it subscribes to `beadcause.monTabs`, which on that page never exists,
+   so nothing is listening to the row at all. The Mirror chip stops responding to a tap
+   and its pane can never be shown again.
+
+   The new monitor.html beside the old prs.js is the loud one, and it is loud in the wrong
+   place. The new HTML loads /prs.js, and a cached copy from before this is still the
+   standalone page: its first act is `getElementById('prs-refresh').addEventListener`,
+   against a top bar that now has one shared ⟳ and no such button. That throws on load,
+   so the board never draws at all — the pane sits on "Asking every repo…" — while the
+   two chips either side of it work perfectly, which is what makes it read as a slow
+   network rather than as a page that has half-loaded. It arrives on the one screen the
+   Ship button is on, which is the whole reason this bead existed. */
+/* v42: the repo rows on the space details card became controls — a three-state
+   `autoEndorse` per repo, outranking the space (bc-tnv8). No new path: monitor.js and
+   style.css are both already here, and it is the v32 pairing in both directions. The
+   harmless one is v41's monitor.js against v42's stylesheet: the panel as it was, with
+   three unused rules behind it. The other is not. v42's monitor.js beside v41's
+   style.css loses `.space-repo`'s switch to a column, so each repo becomes one wrapping
+   line of six tags followed by "Beads agents file here On Off Inherit (off)" — the
+   buttons full `.adv-btn` height, landing in a different place on every row because the
+   tags above them are different widths, with no rule between one repo and the next to
+   say which row a button belongs to. On a 393px screen that is four repos' worth of
+   pills in one block where the statements and the controls look identical, and pressing
+   the wrong repo's Off is a filing held in a repo you did not mean. It still writes the
+   right thing when pressed, which is exactly the "looks like a working page" failure a
+   cache version exists to prevent. */
+/* v43: the second trouble pane on the inbox — a tracker that reads perfectly and is no
+   longer the same tracker as the machine it shares one with (bc-hlu2, lib/sync.js). The
+   v32 pairing once more, and this time the harm is not that the control is unstyled but
+   that it is styled as *the wrong thing*. `syncTroubleHtml` emits `class="trouble
+   trouble-sync"`, so v43's app.js against v42's stylesheet finds no `.trouble-sync` and
+   falls back to `.trouble` exactly — the red box, no left rule — which is the pane
+   directly above it, drawn identically, immediately below it. Two identical red boxes
+   saying "A repo could not be read" and "A tracker is not syncing" read as one problem
+   restated, and the whole reason these are two panes rather than one list is that they
+   are opposite claims about the beads underneath: the red one says what you are looking
+   at is stale, and the orange one says it is *perfect about this Mac* and silently
+   missing what every other machine has written. Losing the colour is losing that
+   distinction, on a screen where both are true at once whenever Dolt is locked — and it
+   still lists the right repos with the right errors, which is exactly the "looks like a
+   working page" failure a cache version exists to prevent. */
+const CACHE = 'beadcause-v43';
 const SHELL = [
   '/',
   '/index.html',
@@ -243,8 +306,12 @@ const SHELL = [
   '/archive',
   '/beadsession.html',
   '/beadsession.js',
-  // The pull request board. Both paths, the same way the advocate console has five:
-  // /pulls is what you type when GitHub's own word for the tab is the one in your head.
+  // The pull request board — a pane on the advocates page now (bc-d4d5), so its three
+  // paths are three more ways of asking for monitor.html and are precached for the same
+  // reason that page's own five are: a redirect target left out of the shell is a
+  // home-screen shortcut that only works with a signal. /pulls is what you type when
+  // GitHub's own word for the tab is the one in your head; /prs.html is what a phone
+  // that bookmarked the page it used to be still asks for.
   '/prs',
   '/pulls',
   '/prs.html',
@@ -275,6 +342,10 @@ const SHELL = [
   '/work.html',
   '/monitor.html',
   '/monitor.js',
+  // The chip row on it, and which of its three panes is up. In the shell because that
+  // page is: without this file the chips are dead and two of the three panes — the board
+  // and the mirror — are unreachable from a cached advocates page.
+  '/montabs.js',
   // The ledger. In the shell because it is a tab: every tab has to open instantly from
   // the bar whatever the link is doing, and this is the one page in the app you might
   // reasonably open *because* you are somewhere with no signal and are trying to

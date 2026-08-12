@@ -1126,6 +1126,38 @@
   }
 
   /**
+   * The same three-state control, one level down: this repo's own answer to
+   * `autoEndorse`, which outranks the space's.
+   *
+   * Its own function rather than a fourth argument to `tri` because the two write to
+   * different things — `tri` posts `{ space, settings }` and this posts
+   * `{ space, workspace, settings }` — and the press handlers have to be able to tell
+   * them apart from the DOM alone. `data-repo-set` is that difference, and it also keeps
+   * these buttons out of the `[data-space-set]` handler, which would have sent a repo's
+   * press as the whole space's answer: the exact bug this feature exists to end.
+   *
+   * Inherit names what it resolves to *through the space*, not the global — `Inherit
+   * (on)` on a repo inside an endorsing space is the truth, and reading the global there
+   * would be a button promising the opposite of what pressing it does.
+   */
+  function repoTri(r) {
+    const btn = (v, text, title) =>
+      `<button class="adv-btn${r.autoEndorseOwn === v ? ' on' : ''}" data-repo-set="autoEndorse" data-repo="${esc(
+        r.name
+      )}" data-value="${esc(String(v))}" title="${esc(title)}">${esc(text)}</button>`;
+    return `<div class="space-repo-set">
+      <span class="space-repo-what">Beads agents file here</span>
+      ${btn(true, 'On', `${r.name} — files arrive endorsed, whatever the space says`)}
+      ${btn(false, 'Off', `${r.name} — files stay held for a tap, whatever the space says`)}
+      ${btn(
+        null,
+        `Inherit (${onOff(r.autoEndorseInherited)})`,
+        `Follow the space, which is currently ${onOff(r.autoEndorseInherited)}`
+      )}
+    </div>`;
+  }
+
+  /**
    * The whole settings card for the selected space.
    *
    * Drawn above the advocate cards because it is what the page is *about*, and because
@@ -1317,14 +1349,44 @@
     ].join('');
 
     // What each repo actually resolves to, which is not always what the space says:
-    // `ntfy.minimalWorkspaces` and `autoDispatchExclude` are per-repo lists that outrank
-    // it. A screen that showed only the space's answer would be quietly wrong about
-    // exactly the repo that had been singled out.
+    // `ntfy.minimalWorkspaces`, `slack.excludeWorkspaces` and `autoDispatchExclude` are
+    // per-repo lists that outrank it. A screen that showed only the space's answer would
+    // be quietly wrong about exactly the repo that had been singled out.
+    //
+    // A row is a workspace, and since lib/repos.js that is not always one checkout: a
+    // `checkouts` count means this row's single answer governs that many repos of an org
+    // sharing one tracker. Saying so is the whole of what the space-is-the-unit decision
+    // asks of the screen — one row reading as one repo understated the reach of every
+    // setting above it by fortyfold. See the block above `autoDispatchAllowed` in
+    // lib/spaces.js.
+    //
+    // And one of these rows is a *control*. `autoEndorse` is the setting a space is the
+    // wrong unit for — the reason to stop holding is "nobody but me reads this tracker",
+    // which is a fact about one workspace's graph and not about the five beside it in the
+    // same space — so it has a per-workspace override, and this row is where it is set.
+    // A row being a workspace is what makes that sound: the override is the same grain as
+    // the row and the same grain as the tracker, which is the grain the block above
+    // `autoDispatchAllowed` says these answers vary at. It belongs here rather than as a
+    // twelfth row above for the reason the panel already exists: the row states the
+    // answer for this repo, and until now there was nothing to press on the one line that
+    // knew what was wrong. The tag stays beside the buttons and is not made redundant by
+    // them: it is the *resolved* answer, and the buttons say which of the three levels
+    // gave it.
+    const many = d.repos.filter((r) => typeof r.checkouts === 'number');
+    const total = d.repos.reduce((n, r) => n + (typeof r.checkouts === 'number' ? r.checkouts : 1), 0);
     const repos = d.repos.length
       ? `<div class="space-repos">${d.repos
           .map(
             (r) => `<div class="space-repo">
+              <div class="space-repo-tags">
               <span class="pill id">${esc(r.name)}</span>
+              ${
+                typeof r.checkouts === 'number'
+                  ? `<span class="tag ${r.checkouts ? 'dim' : 'warn'}">${
+                      r.checkouts ? `${r.checkouts} checkout${r.checkouts === 1 ? '' : 's'}, one answer` : 'no checkout resolved'
+                    }</span>`
+                  : ''
+              }
               <span class="tag${r.ntfyDetail === 'minimal' ? ' warn' : ' dim'}">${esc(r.ntfyDetail)} push</span>
               <span class="tag ${r.autoDispatch ? 'ok' : 'dim'}">${r.autoDispatch ? 'agents may answer' : 'no agent replies'}</span>
               <span class="tag ${r.autoEndorse ? 'warn' : 'dim'}">${r.autoEndorse ? 'files endorsed' : 'files held'}</span>
@@ -1345,9 +1407,17 @@
                     }</span>`
                   : ''
               }
+              </div>
+              ${repoTri(r)}
             </div>`
           )
-          .join('')}</div>`
+          .join('')}</div>${
+          many.length
+            ? `<p class="subtitle">${esc(
+                many.map((r) => r.name).join(', ')
+              )} holds many checkouts sharing one tracker, so the settings above are one answer for all of them — which repo a bead is about does not change them.</p>`
+            : ''
+        }`
       : '<p class="subtitle">No configured repo is in this space.</p>';
 
     const missing = d.missing.length
@@ -1369,7 +1439,7 @@
       ${missing}
       ${state.spaceSaid ? `<div class="adv-note${state.spaceSaid.bad ? ' bad' : ''}">${esc(state.spaceSaid.text)}</div>` : ''}
       ${section(`space:${d.space}:cfg`, 'Settings', '', rows)}
-      ${section(`space:${d.space}:repos`, 'What each repo resolves to', String(d.repos.length), repos)}
+      ${section(`space:${d.space}:repos`, 'What each repo resolves to', String(total), repos)}
     </article>`;
   }
 
@@ -1465,7 +1535,7 @@
     // one kind of press an instance that "never acts" must not make.
     if (data.observing) {
       for (const el of out.querySelectorAll(
-        '[data-space-set],[data-space-day],[data-space-hours],[data-space-channel],#qh-from,#qh-to,#slack-channel,[data-step="global"],[data-apply="global"]'
+        '[data-space-set],[data-repo-set],[data-space-day],[data-space-hours],[data-space-channel],#qh-from,#qh-to,#slack-channel,[data-step="global"],[data-apply="global"]'
       )) {
         el.disabled = true;
         el.title = 'This instance only watches — the settings belong to the daemon that acts.';
@@ -1768,7 +1838,7 @@
    * field that was already inheriting changes nothing, and saying "nothing to change"
    * is more honest than a tick.
    */
-  async function saveSpace(patch, btn) {
+  async function saveSpace(patch, btn, workspace = null) {
     const name = spaceName();
     if (!name) return;
     const was = btn?.textContent;
@@ -1779,7 +1849,11 @@
     try {
       const r = await api('/api/space', {
         method: 'POST',
-        body: JSON.stringify({ space: name, settings: patch }),
+        // `workspace` is what turns this into the repo row's write — one setting, this
+        // repo only, outranking the space. Omitted entirely rather than sent as `null`
+        // for the ordinary case, so a body that never mentions a repo cannot be read as
+        // one that named an unusable one.
+        body: JSON.stringify(workspace ? { space: name, workspace, settings: patch } : { space: name, settings: patch }),
       });
       state.space = r;
       state.spaceError = null;
@@ -1892,6 +1966,18 @@
       // once, rather than being special-cased per field on the server.
       const value = raw === 'null' ? null : raw === 'true' ? true : raw === 'false' ? false : raw;
       saveSpace({ [set.dataset.spaceSet]: value }, set);
+      return;
+    }
+
+    // The same three buttons on a repo row, and they must be matched *before* nothing
+    // else claims them: they carry a workspace as well as a field, and the handler above
+    // would have written the whole space's answer from a press meant for one repo.
+    const repoSet = e.target.closest('[data-repo-set]');
+    if (repoSet) {
+      e.preventDefault();
+      const raw = repoSet.dataset.value;
+      const value = raw === 'null' ? null : raw === 'true' ? true : raw === 'false' ? false : raw;
+      saveSpace({ [repoSet.dataset.repoSet]: value }, repoSet, repoSet.dataset.repo);
       return;
     }
 
@@ -2027,7 +2113,13 @@
     state.slackDraft = { space: spaceName(), text: e.target.value };
   });
 
-  document.getElementById('refresh').addEventListener('click', load);
+  /* The ⟳ is the page's, and this page has three panes now — so it only means *this*
+     one while this one is up. Without the guard, pressing it on the board would sweep
+     `bd` for every tracker on the Mac to refresh a roster nobody is looking at, which is
+     the same bill `ready` below exists to stop the stream running up. */
+  document.getElementById('refresh').addEventListener('click', () => {
+    if (!out.hidden) load();
+  });
   /* The space picker moved. Which repos are drawn is decided at paint time off the
      /api/work payload already in hand — but *whose settings* the card at the top shows
      has changed, and that is a different space's config, so it is fetched. Painted
@@ -2112,21 +2204,23 @@
     logTimer = setTimeout(() => pumpLogs().finally(scheduleLogs), LOG_MS);
   }
 
-  // How the tab bar brings this pane back up to date when you return to it.
+  // Kept for anything that wants this pane refreshed from outside. The chip row does it
+  // through the subscription at the foot of this file now, rather than by name.
   window.beadcause = window.beadcause || {};
   window.beadcause.monitor = { refresh: load };
 
-  /* Where this device is, for a mirror on some other screen. There is no selection to
-     publish — being here is the whole report — and the id stays `sessions` because that
-     is what lib/presence.js whitelists and what the mirror already has a name for; this
-     page is simply what the name now points at.
+  /* Where this device is, for a mirror on some other screen, is published by
+     public/montabs.js rather than here — because on this page it is a fact about which
+     of the three chips is up, and there is no moment at which this file knows that and
+     that one does not. The ids are on the chips themselves in monitor.html: `sessions`
+     for this pane, because that is what lib/presence.js whitelists and what the mirror
+     already has a name for; `prs` for the board; and nothing at all for the Mirror.
 
-     This page can also *be* a mirror, and presence.js's own header was right that a
-     device which followed itself would be absurd — so `showTab` in mirror.js revises
-     this to `null` while the mirror pane is up, and mirror.js drops its own device from
-     the list it follows. Both halves are needed: the report is honest about which pane
-     you are on, and the list cannot circle back on this one even mid-switch. */
-  window.beadcause?.presence?.report({ view: 'sessions' });
+     That last one is not tidiness. This page can also *be* a mirror, and presence.js's
+     own header was right that a device which followed itself would be absurd — so the
+     report goes `null` while the mirror pane is up, and mirror.js drops its own device
+     from the list it follows. Both halves are needed: the report is honest about which
+     pane you are on, and the list cannot circle back on this one even mid-switch. */
 
   if (!token) {
     out.innerHTML = '<div class="empty"><strong>This device is not paired</strong>Open the inbox first.</div>';
@@ -2134,6 +2228,17 @@
     // Paint what this tab had, then go and ask. The order is the whole point: `load`
     // is not made faster by this, it is made invisible.
     warmBoot();
-    load();
+    /* And ask only while this is the pane you are on. The chip row calls back once at
+       boot with whichever chip is up — which is the boot `load()` that used to be
+       written here — and again every time you come back to this one, which is what
+       mirror.js used to do by calling `beadcause.monitor.refresh` by name. Arriving on
+       /prs, which is this same page with the board up, now costs no `bd` sweep at all.
+
+       The fallback is not dead code: a service worker holding a monitor.html from before
+       the chip row was a file would load this one beside no montabs.js, and a page that
+       then never asked for anything would be a blank roster with no way to fill it. */
+    const tabs = window.beadcause?.monTabs;
+    if (tabs) tabs.onChange((which) => which === 'advocates' && load());
+    else load();
   }
 })();

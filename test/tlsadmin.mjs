@@ -42,6 +42,7 @@ import path from 'node:path';
 import vm from 'node:vm';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { removeTreeSync } from './helpers/tmp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const LIB = (name) => path.join(HERE, '..', 'lib', name);
@@ -75,7 +76,7 @@ function skip(name) {
   console.log(`  skip ${name}`);
 }
 const done = (code) => {
-  fs.rmSync(tmp, { recursive: true, force: true });
+  removeTreeSync(tmp);
   console.log(failures ? `\n${failures} of ${ran} failed` : `\n${ran} passed`);
   process.exit(code ?? (failures ? 1 : 0));
 };

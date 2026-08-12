@@ -35,6 +35,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { cleanupTmp } from './helpers/tmp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const LIB = (name) => path.join(HERE, '..', 'lib', name);
@@ -287,7 +288,7 @@ await check('an empty queue costs no tracker call', async () => {
 
 console.log(`\n${failures ? `${failures} of ${ran} checks failed` : `all ${ran} checks passed`}`);
 try {
-  fs.rmSync(tmp, { recursive: true, force: true });
+  await cleanupTmp(tmp);
 } catch {
   /* a temp directory that will not go is not a failure of the thing under test */
 }
