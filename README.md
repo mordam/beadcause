@@ -10132,6 +10132,84 @@ still asking: one process can be made to agree with itself in memory, and the co
 that costs a session an hour is between two `npm test` runs. Filed as bc-dw47, which is
 also where the router half above came from — the same race, one layer down.
 
+### The other port two runs could both pick — `scripts/helpers/chrome.mjs`
+
+The section above is about the ports the suites *listen* on, and it left one out. Every
+browser check also opens a headless Chrome, and Chrome needs a DevTools port to be driven
+over. That one was typed — not as a literal, which somebody would have noticed, but as
+arithmetic on the process id, which reads like it was thought about:
+
+```js
+const port = 9700 + Math.floor(process.pid % 100);   // eleven checks
+const port = 9600 + Math.floor(process.pid % 100);   // six
+const port = 9800 + Math.floor(process.pid % 100);   // five
+const port = 9600 + (process.pid % 300);             // scripts/shot.mjs
+```
+
+A hundred addresses per base, shared by eight agent sessions and by `npm run checks`,
+which opens four Chromes at once on its own. Two pids congruent mod 100 collide, and that
+is not a tail risk — it is one in a hundred per pair, on every run, forever.
+
+**What made it expensive is that it does not fail like a port clash.** Chrome handed a
+port already in use does not exit and does not complain; it simply never publishes a
+target of its own. So the loser's `fetch('/json/list')` is answered by the *winner's*
+Chrome, and the check attaches to a page belonging to a different session's daemon and
+starts driving it. Every DOM assertion then fails and every assertion that reads
+`config.json` off disk still passes, because that half never went near a browser. There
+is no message anywhere saying a port was contended. What the reader sees is a check that
+was green an hour ago failing on the page they just touched, with the on-disk half still
+green — which is a very good imitation of "your change broke the page".
+
+It cost three consecutive false failures of `space-check.mjs` against a five-line, wholly
+innocent edit to `public/monitor.js`, and the thing that finally told them apart was
+copying the script to a second filename: different pid, therefore different port,
+identical code, green. Measured live at that moment, 9605, 9609, 9700, 9701, 9723, 9749,
+9758, 9798 and 9874 were all held by other sessions' Chromes at once (bc-ev11).
+
+**The fix is the one the fixture servers next door already made: ask for zero.**
+`--remote-debugging-port=0` hands the choice to the kernel, so there is nothing to
+collide with and nothing for anyone else to guess; Chrome writes the number it was given
+into `DevToolsActivePort` in its profile directory, which is a `mkdtemp` made milliseconds
+earlier and belongs to exactly one process. `lib/browse.js` has launched this way since it
+was written, and this is that argument applied to the other thirty-two callers. It also
+stops the repo publishing a predictable CDP endpoint on loopback — a debugging port will
+open a tab for anybody who can reach it, which is part of why `lib/lookup.js` refuses
+loopback in the first place.
+
+That could have been thirty-two one-line edits. It is one file instead, because the
+launcher was thirty-two copies of the same thirty-odd lines — a throwaway profile, the
+same nine flags, a poll for the page target, a websocket, and a `close()` that takes it
+all away again — and a bug that lives in thirty-two copies gets fixed thirty-two times or
+not at all. `scripts/helpers/chrome.mjs` is now the only place any of them opens a
+browser, `launchChrome('beadcause-warm-')` is the whole call site, and it hands back the
+same `{ s, close }` the local copies did plus the `port` it actually got, which is worth
+being able to print now that it is no longer derivable from the pid.
+
+**And a Chrome that cannot start now says so.** With the port guessed there was no way to
+tell "somebody has that port" from "Chrome is slow", so every failure took sixty polls and
+came out as `Chrome never exposed a page target`. There is no contended-port case left,
+but a moved install or a bad `CHROME_PATH` is still real: the spawn failure is caught and
+reported as `Chrome would not start`, an exit during startup is reported as that, and
+every path out — including the ones that throw — kills the process and deletes the
+profile. The old copies only cleaned up on success, which on a laptop that runs these all
+night is how a temp directory fills with headless Chromes nobody can account for.
+
+`node test/chromeport.mjs` is what keeps it. The fix is one line and reverting it is
+invisible — nothing about a guessed port looks wrong in review, the failure it causes is
+attributed to whatever else was in the diff, and a new check copied from an old sibling
+would reintroduce it in silence. So the rule is asserted statically over the whole of
+`scripts/` on every `npm test`: no file derives a port from its pid, no
+`--remote-debugging-port` is a number, and nothing that passes `--headless` opens a
+browser except through the shared launcher. Half of it is controls, for the reason
+`test/checks.mjs` has controls — an audit that can no longer fire reports exactly what a
+clean tree does — so the old line, a hardcoded port and the fixed shape are each fed to
+the scan and its answer checked in both directions, including that the old line *quoted in
+a comment* does not count, since the helper's own header quotes it at length. It launches
+no browser: `npm test` does not depend on Chrome and this was not the suite to make it
+one. The half that can be had without one is measured for real, by pointing the launcher
+at a binary that does not exist and asserting on both the message and the absent profile
+directory.
+
 ### `npm run checks` — the browser half, and why `npm test` can still see it rot
 
 The twenty-eight `scripts/*-check.mjs` are the only cover this repo has for layout, taps
@@ -10142,8 +10220,11 @@ name — which in practice meant run by whoever remembered that the page they to
 one.
 
 `npm run checks` runs all of them, four Chromes at a time, and ends with a list of which
-failed. Every check binds `127.0.0.1:0` and drives its own temp profile, so there is
-nothing shared to collide over; four minutes serially becomes about one. Their output
+failed. Every check binds `127.0.0.1:0`, drives its own temp profile and lets Chrome pick
+its own debugging port, so there is nothing shared to collide over — the last of those was
+only made true by [the section above](#the-other-port-two-runs-could-both-pick--scriptshelperschromemjs),
+and this sentence claimed it for a while before it was; four minutes serially becomes
+about one. Their output
 interleaves badly, so each child's is captured whole, only failures are replayed — the
 last 25 lines, which is where the three that matter are — and the full logs are left in a
 temp directory named in the summary. `--list` prints what would run, `--only tabbar,shade`
