@@ -4680,6 +4680,83 @@ and that is the one way this screen could actively mislead you. A repo the daemo
 does not run says so in words on the row, rather than showing a dark lamp that means
 something else everywhere else on the page.
 
+#### One granularity down: which *file* somebody is already editing
+
+The lock above answers "is anything happening in this tree". It cannot answer the question
+a session actually has when it opens a file, because the collision it is worried about is
+not in its tree at all: two sessions in two worktrees editing `lib/foo.js` never overwrite
+each other — separate checkouts — they collide at **downmerge**, as a semantic conflict
+nobody sees until the merge. With thirty live worktrees that is a daily cost, and nothing
+warned either side.
+
+So there is now a register of it, `lib/claims.js`, and its shape is lifted from
+`lib/presence.js` — a TTL'd map, pruned as it is read, bounded field by field because a
+report is a claim by a client rather than a fact. It is keyed by the **main checkout** and
+the repo-relative path, never by the worktree copy: the whole point is that two trees
+editing one logical file are one claim, and keying on the path each session actually wrote
+to would make them two.
+
+**The client is a hook, not a brief.** A register nothing writes to is shelfware, and a
+brief that asks an agent to remember to claim its files will be forgotten by the third
+turn. `scripts/claim-guard.sh` runs on `PreToolUse` for `Write|Edit`, exactly where
+`~/.claude/hooks/worktree-guard.sh` runs, and the file path is in the tool call — so the
+claim is taken at the moment of the edit with no agent cooperation at all, and `SessionEnd`
+releases the lot rather than leaving files looking busy for the length of the TTL.
+
+**Refused once, then it is yours.** A cross-worktree collision is ordinary; a register that
+forbade it would be one everybody turns off. So the first edit against a file somebody else
+holds is denied *naming the branch the holder is on* — which on this Mac ends in that work's
+bead tag, so it leads you to `bd show` — and the refusal records the intent —
+the session that has been told and means it anyway claims the file on its next attempt. One
+wasted tool call buys the warning. Two sessions in the **same** tree is the other case, and
+that one reads as a stop, because it is the bc-utyr shape rather than a merge-time
+disagreement: it is where two sessions genuinely overwrite each other's bytes.
+
+Four properties are the file, and three of them fail silently if they are wrong:
+
+- **the asking is the taking** — `claim()` decides and records in one synchronous call with
+  no `await` in it, so two requests a moment apart cannot both observe a free file. That is
+  the same property the resolver dedupe buys with a lock, got here by having nothing to
+  wait for;
+- **a tree that is gone holds nothing** — shipping removes the worktree, so a claim is
+  dropped when its directory is, and `ship` releases every file it held without knowing
+  this exists. A claim that outlived its tree would make a live session stand down for a
+  dead one, which is how a file becomes permanently un-editable;
+- **a restart forgets**, for the reason a phone's whereabouts is not on disk either;
+- **it fails open, always.** No daemon, no token, no `jq`, a timeout: the hook exits 0 and
+  says nothing. It sits in front of every edit in every session on this Mac, so the failure
+  mode has to be "the warning is missing", never "the edit is blocked".
+
+A claim carries a `bead` field and the hook deliberately does not fill it in. Turning a
+branch tail into a verified bead id needs the tracker prefix, and
+[the tier rules](#which-bead-a-pull-request-is-for) are clear that a guess must not pass as
+an answer — so doing it in the hook meant a 20KB transcript read and two more processes on
+every Write in every session, for a fact the daemon could resolve once per branch instead.
+The field stays in the API for whoever does that; the branch is what the refusal names
+today.
+
+That last one is why `node test/claims.mjs` runs the real script against a real server
+rather than testing the register alone: a fail-open client that has broken produces exactly
+the same output as one that found nothing to report, and nothing anywhere else would
+notice. (It also has to spawn it *asynchronously* — `spawnSync` blocks the event loop the
+server is on, so the hook's `curl` times out against a daemon that cannot answer until the
+hook has exited. That reads precisely like a hook that failed to claim anything.)
+
+**It is not `lib/lease.js`**, which answers a question that sounds like the same one. That is
+the **bead**-level claim, and it lives in the tracker because the tracker is the one thing two
+Macs share — it exists so two advocates on two machines do not open two windows on one bead.
+This is **file**-level, on one machine, and deliberately nowhere but memory. Neither makes the
+other redundant: a bead is legitimately held by one session while five others edit files that
+bead's work happens to touch.
+
+**Why not the harness's own agent-ref comms API**, which is the obvious reach:
+`SendMessage` cannot refuse, so two sessions announcing one file both proceed; it has no
+state, so it answers "let me tell everyone" rather than the question that matters, *is
+anyone on this*, which is asked at arrival by a session that did not exist when the
+broadcast went out; it costs a turn in a dozen other contexts per claim; and it sees only
+same-harness peers — where the incident behind the tree lock above was a window opened by
+hand. It is a fine courier and it is not a register. That is bc-q5c2.
+
 ### Which bead a pull request is for
 
 The list comes from `gh pr list --state all` per repo — so a pull request opened by
@@ -9903,6 +9980,9 @@ cookie says so), and `/auth/signout` ends the session.
 | POST | `/api/presence` | `{device, view, key}` | which view this device has open, so [the mirror](#the-mirror--whatever-the-phone-has-open-with-room-to-read-it) can follow it. Wakes `/api/poll` without costing a `bd` sweep — see `changed` there |
 | GET | `/api/presence` | — | `{devices[]}` — who is where |
 | DELETE | `/api/presence` | `{device}` | forget one device |
+| POST | `/api/claims` | `{session, repo, file, dir?, branch?, bead?}` | claim the file a session is about to edit, and be told in the same answer who else holds it — see [one granularity down](#one-granularity-down-which-file-somebody-is-already-editing). `decision` is `held` or `conflict`, and a `conflict` carries the `reason` `scripts/claim-guard.sh` prints as a denial. The asking *is* the taking: it decides and records in one synchronous call, so two edits a moment apart cannot both find the file free. On the bus deliberately never — an event per claim would hang a `bd` sweep off every keystroke |
+| GET | `/api/claims` | — | `{claims[], collisions[]}` — every live claim, and the files more than one session is holding |
+| DELETE | `/api/claims` | `{session, files?}` | let go of one file, or of everything that session held. Sent on `SessionEnd`, so a finished session stops holding files without waiting out the TTL |
 | POST | `/api/session-say` | `{pid, text}` | says one line into a live session's own iTerm window. `413` with the words left in the box if it is past `SAY_MAX` — the message rides to `osascript` as an argument, and past `ARG_MAX` the failure reads as "the session is gone", which is the one thing this must not lie about |
 | POST | `/api/session-focus` | `{pid, action}` | `focus` raises that session's iTerm window and doubles it in place; `restore` puts it back at the bounds it was read at. Focusing is gated on the same `reach` as the composer and on the pid still being live; restoring is gated on neither, because it arrives by `sendBeacon` from a page being torn down and must work for a window whose session has since exited |
 
