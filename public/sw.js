@@ -14,9 +14,9 @@
   script is not on the cached page, or — the case that actually bites — a stylesheet
   that lays out a control the cached page draws anyway. Merely older is a purely
   additive file nothing else reaches for: cached HTML without the new tag is the app as
-  it was, and that legitimately skips the bump. Every note in `docs/sw-cache/` argues
-  one of those two, and reading the two or three nearest yours is the quickest way to
-  decide which one you have.
+  it was, and that legitimately skips the bump. `test/swbump.mjs` reads your branch and
+  says which of the two it thinks you have; every note in `docs/sw-cache/` argues one of
+  them, and the two or three nearest yours are the quickest way to check its answer.
 
   **The argument for each version is its own file, `docs/sw-cache/vNN.md`.** It used to
   be a comment block right here, appended to by every branch that bumped — which made

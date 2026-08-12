@@ -3622,13 +3622,12 @@ and `activate` delete every cache that is not the new one, so the phone gets one
 generation of files or the coherent old one — never a mixture.
 
 **A change owes a bump when it leaves a mixed pair that is broken rather than merely
-older.** Broken is a new script calling a function its cached sibling does not have, a
-page whose script is not in the cache, or — the case that actually bites — a stylesheet
-that lays out a control the cached page draws anyway. Merely older is a purely additive
-file nothing else reaches for: cached HTML without the new tag is the app exactly as it
-was, and that legitimately skips the bump. The test is deliberately not "did I touch
-`public/`", because most of those changes are the second kind and a bump costs every
-installed phone a full re-download of the shell, mermaid bundle and all.
+older** — a new script calling a function its cached sibling does not have, a page whose
+script is not in the cache, or a stylesheet that lays out a control the cached page draws
+anyway. That judgement, and the suite that makes it on every branch, are [the cache
+version a branch forgot to move](#the-cache-version-a-branch-forgot-to-move); what is
+below is the other half — where the *record* of a bump lives once you have decided to
+make one.
 
 **Each version's argument is its own file in `docs/sw-cache/`,** because that argument
 is the only durable record of which two files must not be mixed — a version number on

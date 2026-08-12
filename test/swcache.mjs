@@ -22,10 +22,11 @@
 // note in the directory, so a bump that lost its renumber in a merge is a red suite
 // rather than a silence.
 //
-// Deliberately says nothing about *whether* a given change owed a bump — that is a
-// judgement about broken versus merely-older pairs of files, argued in the header of
-// public/sw.js, and no test can make it. This only checks that the number and the notes
-// tell one story.
+// Deliberately says nothing about *whether* a given change owed a bump. That is the
+// other half of the same subject and it has its own suite — test/swbump.mjs, over
+// lib/swbump.js, which reads the branch's diff and asks whether it leaves a broken mixed
+// pair. This file is downstream of that decision: once you have decided to bump, it
+// checks the number and the notes tell one story.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
