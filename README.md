@@ -6172,6 +6172,86 @@ bead can move. On top of that, two exclusions of our own:
 When that set is empty the advocate says **clear** and stops. That is the whole of
 "done".
 
+### An epic is planned, not worked — and each group gets its own window
+
+An epic is not a bead. Its children are the work, and an advocate that opened a session
+on one used to be opening a window whose only honest move was to write nothing, because
+a sibling window already held the first child. The first answer to that was to *hold* the
+epic and let each child take its own tick. The second was to hand one worker the epic and
+all its ready children at once, so that somebody could see which of them belonged in the
+same change. Both are still here, and neither is what happens now by default.
+
+The problem with handing one window five beads is the window. It has one context, one
+`workerTimeoutMinutes`, and no way to be resumed: it either runs out of room three beads
+in, or it holds a worker slot for the rest of the day. A session that watched an epic all
+the way from planning to a production deploy would be measured in days, and a daemon
+restarted in the middle of it forgets its workers entirely.
+
+So an epic gets an **epic worker**, and an epic worker plans:
+
+1. It reads the epic and everything under it, and **files the beads it decides should
+   exist** — through the same `beadcause-file` every other agent uses, so they arrive
+   `unendorsed` and nothing opens a window on one until you have looked at it. There is
+   deliberately no path by which a planner endorses its own subtree.
+2. It **groups** the beads. A group is one session, in one checkout, doing those beads as
+   one change. That is the judgement the window exists to make, and it is the one thing
+   here that a rule could not have produced.
+3. It writes **each group's prompt** — what the group is, what order the parts go in, and
+   whatever it worked out reading the code that the beads themselves do not say — along
+   with how many pull requests that group will open and in which repos.
+4. It runs `beadcause-plan`, which checks the whole thing, writes it onto the epic, and
+   hands the epic back to the queue. Then the window closes. It writes no code.
+
+From the next tick the advocate opens **one child-worker per group**, each briefed on its
+own beads and carrying the planner's paragraph as a quoted section *inside* the ordinary
+worker brief — the claim, the endings, the marker step and the delivery command are all
+still the generated ones. That matters more than it reads: the brief is the entire
+interface between this daemon and an unattended agent, and it is asserted line by line in
+`test/land.mjs` precisely because of that. A group's prompt is the only text in any brief
+here that another agent wrote, so it is quoted rather than spliced, it is capped, and
+`beadcause-plan` refuses outright a prompt containing the phrases that belong to the
+generated brief — the marker line, the delivery command, a label removal.
+
+**The plan is a document on the epic bead, not state in a window**, and that is the whole
+design. It is a comment carrying a fenced JSON block, so a revision cannot lose a write to
+whatever else touched the bead in the same minute and every earlier version is still
+there. Every tick reads it fresh, which is what makes the dispatch self-healing: the
+"lead" bead of a group — the one the window is opened on — is simply whichever of the
+group is first in this tick's queue, so a group whose window ended picks its remaining
+work back up on the next one, and a live window anywhere in a group holds all of it.
+
+**Nothing is supervised by a window that stays open.** There is exactly one event that
+re-opens a planner: a bead comes up ready under the epic that no group names — in
+practice, work a child-worker filed and you have since endorsed. The planner is re-entered
+to fold it in, is told it is revising so it leaves the groups already running alone, and
+everything under that epic waits for the one tick that takes, because dispatching a group
+against a plan being rewritten is a window briefed on a plan that will not exist by the
+time it opens a file.
+
+When every bead the plan named has closed — beads close on merge — the epic's work is in
+`main`, and what is left is not a window. beadcause files a **promotion bead**: one per
+epic, naming the repos whose merge build has to go to UAT, be tested, and be promoted to
+production and tested again. That is not the same thing as the [release
+queue](#the-release-queue--the-number-over-ship)'s bead, which is one per *merge* and
+closes when a `launchctl kickstart` makes it live on this Mac. One epic produces one
+promotion bead and, on the way, four or five ship beads. They differ in both of the two
+things a board sorts on — a `promote` label against `ship`, and a `chore` type against
+`task` — because two things called a release bead, settling on different evidence, is a
+board that lies.
+
+**And the mechanical grouping did not go away; it became the fallback.** Where planning is
+switched off (`planEpics: false`), and where an epic's planning has failed
+`maxAttemptsPerBead` times, the epic is handed to one worker as a batch exactly as it was
+before — because a window that will not open again must never be the reason its children
+are held forever. The two never both dispatch one subtree: a planned epic is a set the
+batching consults before it considers an epic at all, in either direction, so a nested
+epic cannot become a batch head inside a plan.
+
+`node test/epicplan.mjs` covers the document, the dispatch, the re-entry, the promotion
+bead and both fallbacks; `node test/planbrief.mjs` covers the two briefs — including that
+an epic worker is told not to implement and not to endorse, and that the whole standard
+brief is still present around a group's quoted section.
+
 ### One to three sessions, and never silently fewer
 
 `maxWorkers` is how many sessions one advocate may have open at once; it is clamped
@@ -10672,6 +10752,8 @@ Two consequences of that ordering worth knowing:
 | `advocates.proposeCooldownHours` | at most one ask per repo per this many hours (default 12) |
 | `advocates.settleSeconds` | how long a new bead sits before a session opens on it (default 60) |
 | `advocates.lapseMinutes`, `advocates.maxAttemptsPerBead` | when an unclaimed window is treated as gone, and how many times one bead may be retried |
+| `advocates.planEpics` | [open an **epic worker** on an epic rather than working it](#an-epic-is-planned-not-worked--and-each-group-gets-its-own-window) (default `true`) — a window that groups the epic's beads for N child-workers, writes each group's prompt, and does none of the work itself. `false` falls all the way back to handing one worker the epic and its ready children as a batch, which is what this did before plans existed and is still the right answer if a plan ever briefs badly. An epic whose planning has failed `maxAttemptsPerBead` times falls back to that on its own |
+| `advocates.filePromotions` | file a **promotion bead** when every bead an epic's plan named has closed (default `true`) — one per epic, for the release through UAT and production, and deliberately not the [release queue](#the-release-queue--the-number-over-ship)'s per-merge `ship` bead. It carries `promote` and `unendorsed`, and the epic is labelled `promoted` so exactly one is ever filed |
 | `advocates.respectQuietHours` | a quiet space's advocate watches without launching (default `true`) |
 | `advocates.tidyWorktrees` | retire merged, clean, unlocked worktrees after a session ends (default `true`) — moved to `.claude/worktrees-retired/`, never deleted |
 | `advocates.tidyIntervalMinutes` | how often it sweeps when nothing has just finished (default 15) |
