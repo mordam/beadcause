@@ -17,6 +17,7 @@
     "beadcause-ask": "bin/ask.js",
     "beadcause-deliver": "bin/deliver.js",
     "beadcause-checkin": "bin/checkin.js",
+    "beadcause-plan": "bin/plan.js",
     "beadcause-attic": "bin/attic.js"
   },
   "scripts": {

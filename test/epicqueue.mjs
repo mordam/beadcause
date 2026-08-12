@@ -102,6 +102,12 @@ async function tick({ ready = [], children = {}, listLabel = [], show = null, wo
       sessionLog: false,
       tidyWorktrees: false,
       respectQuietHours: false,
+      // Since bc-jk4m an epic that would be batched is *planned* instead: the same
+      // candidate test, a different brief, and one window per group afterwards rather than
+      // one window for the lot. Batching did not go away — it is what happens when there
+      // is no plan and no planner — so this suite turns planning off and asserts the
+      // fallback, exactly as it was written. test/epicplan.mjs owns the branch above it.
+      planEpics: false,
       ...overrides,
     },
   };
@@ -135,6 +141,12 @@ async function tick({ ready = [], children = {}, listLabel = [], show = null, wo
       opened.push(b.id);
       briefed.push({ id: b.id, batch: (b.batch || []).map((k) => k.id) });
       return { dir: REPO, mode: 'test', term: null };
+    },
+    // Injected for the reason `open` is, and it matters more: the default is the real
+    // `openPlanSession`, which drives iTerm. With planning off nothing should reach it, and
+    // "should" is not what a suite asserts on.
+    openPlan: async () => {
+      throw new Error('openPlan must not be reached with planEpics off');
     },
   });
   await advocates.tick();

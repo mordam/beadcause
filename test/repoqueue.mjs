@@ -152,6 +152,11 @@ async function tick({
       askSuperseded: false,
       flagInMain: false,
       sessionLog: false,
+      // Batching is the *fallback* since bc-jk4m — an epic nobody has planned goes to an
+      // epic worker first, and only an epic that cannot be planned is batched. This suite
+      // is about which checkout a batch opens in, so it turns planning off and tests the
+      // fallback directly; test/epicplan.mjs owns the other branch.
+      planEpics: false,
       holdOpenPrs: prs !== null,
       ...overrides,
     },
@@ -176,6 +181,12 @@ async function tick({
       const where = resolveSessionDir(c, ws, b);
       opened.push({ id: b.id, dir: where });
       return { dir: where, mode: 'test', term: null };
+    },
+    // Injected for the reason `open` is, and it is the more important of the two here:
+    // the default is the real `openPlanSession`, which drives iTerm. A suite must never be
+    // able to open a window by regressing.
+    openPlan: async () => {
+      throw new Error('openPlan must not be reached with planEpics off');
     },
     prs: async (_bd, _ws, where) => {
       const name = path.basename(where);
