@@ -35,17 +35,15 @@
 // `--fake-inset` restates the stylesheet's safe-area sums with 34px of home
 // indicator substituted in, for the Chromes that have no `Emulation.setSafeAreaInsets`.
 // `--out=DIR` writes a screenshot per page per scheme.
-import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import http from 'node:http';
-import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { toQuestion } from '../lib/decision.js';
+import { CHROME, launchChrome } from './helpers/chrome.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PUBLIC = path.join(ROOT, 'public');
-const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const VP = { width: 393, height: 852, dpr: 3 };
 const BOTTOM_INSET = 34; // the home indicator on a notched phone
 const outDir = (process.argv.find((a) => a.startsWith('--out=')) || '').slice(6);
@@ -357,7 +355,8 @@ function serve() {
     // because the bar has to mark Advocates as current on all four of its paths.
     let rel = p;
     if (rel === '/console') rel = '/console.html';
-    if (rel === '/prs' || rel === '/pulls') rel = '/prs.html';
+    // The board is a pane on the advocates page now (bc-d4d5), so these land there.
+    if (rel === '/prs' || rel === '/pulls' || rel === '/prs.html') rel = '/monitor.html';
     if (rel === '/monitor' || rel === '/advocates' || rel === '/sessions' || rel === '/work') rel = '/monitor.html';
     if (rel === '/admin') rel = '/admin.html';
     if (rel === '/history') rel = '/history.html';
@@ -370,78 +369,6 @@ function serve() {
     fs.createReadStream(file).pipe(res);
   });
   return new Promise((r) => server.listen(0, '127.0.0.1', () => r(server)));
-}
-
-/* ------------------------------------------------------------------ chrome */
-
-function connect(url) {
-  return new Promise((resolve, reject) => {
-    const ws = new WebSocket(url);
-    let id = 0;
-    const pending = new Map();
-    ws.onmessage = (m) => {
-      const msg = JSON.parse(m.data);
-      const pr = msg.id != null && pending.get(msg.id);
-      if (!pr) return;
-      pending.delete(msg.id);
-      msg.error ? pr.reject(new Error(msg.error.message)) : pr.resolve(msg.result);
-    };
-    ws.onerror = () => reject(new Error('could not attach to Chrome'));
-    ws.onopen = () =>
-      resolve({
-        send: (method, params = {}) =>
-          new Promise((res, rej) => {
-            const i = ++id;
-            pending.set(i, { resolve: res, reject: rej });
-            ws.send(JSON.stringify({ id: i, method, params }));
-          }),
-        close: () => ws.close(),
-      });
-  });
-}
-
-async function launch() {
-  const port = 9600 + Math.floor(process.pid % 100);
-  const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'beadcause-tabbar-'));
-  const proc = spawn(
-    CHROME,
-    [
-      '--headless=new',
-      `--remote-debugging-port=${port}`,
-      `--user-data-dir=${profile}`,
-      '--no-first-run',
-      '--no-default-browser-check',
-      '--disable-background-timer-throttling',
-      '--disable-backgrounding-occluded-windows',
-      '--disable-renderer-backgrounding',
-      '--hide-scrollbars',
-      'about:blank',
-    ],
-    { stdio: 'ignore' }
-  );
-  let target = null;
-  for (let i = 0; i < 60 && !target; i++) {
-    await sleep(250);
-    try {
-      target = (await (await fetch(`http://127.0.0.1:${port}/json/list`)).json()).find((t) => t.type === 'page');
-    } catch {
-      /* not up yet */
-    }
-  }
-  if (!target) throw new Error('Chrome never exposed a page target');
-  const s = await connect(target.webSocketDebuggerUrl);
-  return {
-    s,
-    close: () => {
-      s.close();
-      proc.kill();
-      try {
-        fs.rmSync(profile, { recursive: true, force: true, maxRetries: 3 });
-      } catch {
-        /* Chrome is still letting go of a temp dir */
-      }
-    },
-  };
 }
 
 const evalJs = async (s, expr) => {
@@ -571,9 +498,15 @@ const CLEAR = {
    Two of the five went in one afternoon and neither page went with it. Chat was the
    second tab (bc-l8jp.5) — the conversations are rows in the inbox now and ＋ starts a
    new one — and PRs was the fourth (bc-l8jp.6), whose pull requests are cards in the
-   same list. Both are still here under `PAGES` with `tab: null`, because a subordinate
-   view keeps the bar: the bar is how you leave it, and nothing on it is current since
-   you are not on one of these three.
+   same list. The chat session is still here under `PAGES` with `tab: null`, because a
+   subordinate view keeps the bar: the bar is how you leave it, and nothing on it is
+   current since you are not on one of these four.
+
+   The board is the one that did not stay that way. Losing its tab left it with nothing
+   pointing at it at all, so it is a pane on the advocates page now (bc-d4d5) — which
+   makes /prs one more path to a page that *does* have a tab, and it is in `PAGES` below
+   marked `advocates` rather than null. The bar is still four wide; what changed is which
+   of the four is lit on three more URLs.
 
    And one came back (bc-nib3.2). This list is in bar order and History is third, which
    is also the order the three read in: what is arriving, what is running, what is
@@ -589,12 +522,14 @@ const PAGES = [
   // to be where you are. A tab lighting up on a page it does not lead to would be the bar
   // lying about where you are — worse than no mark at all.
   { url: '/console', tab: null, name: 'console' },
-  // `tab: null` for the same reason (bc-l8jp.6): the board's pull requests are cards in
-  // the inbox, and every one of them links back here for the buttons. It keeps the bar,
-  // because the bar is the only way off it, and it is in this list precisely because a
-  // page with no tab pointing at it is the kind that quietly rots: the bar still has to
-  // be there, still has to clear the last row of buttons, and must light nothing.
-  { url: '/prs', tab: null, name: 'prs' },
+  // And this one lights Advocates, which is the whole of bc-d4d5 in one field. It was
+  // `tab: null` — no tab of its own since bc-l8jp.6, on the argument that the board is
+  // somewhere you glance rather than live — and "no tab" turned out to mean "no route in
+  // at all" on a day with no pull request card in the inbox. So the board is a pane on
+  // the advocates page, and /prs is that page: still four tabs, and the one that is
+  // current has to be the page you are actually on. A `tab: null` here now would be the
+  // bar failing to mark a page it plainly leads to.
+  { url: '/prs', tab: 'advocates', name: 'prs' },
   // The ledger. The one page here whose list is deliberately long — it pages as you
   // reach the end of it — so "the last row clears the bar" is a different claim than it
   // is on the four above: what must clear the bar is the control that loads the *next*
@@ -619,7 +554,7 @@ const ok = (pass, msg) => {
 
 const server = await serve();
 const BASE = `http://127.0.0.1:${server.address().port}`;
-const chrome = await launch();
+const chrome = await launchChrome('beadcause-tabbar-');
 const { s } = chrome;
 
 try {

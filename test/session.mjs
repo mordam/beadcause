@@ -27,7 +27,7 @@
 // 3. **`file` comes back even with no lines**, so an empty pane says where it looked.
 // 4. **`/session` is a page**, served like /doc and /graph — and it must not need a
 //    token in the URL, because it takes it from localStorage and asks the API itself.
-// 5. **The drawer owns `/session`.** One line in public/drawer.js decides whether a tap
+// 5. **The drawer owns `/session`.** One set in public/drawer.js decides whether a tap
 //    on a row navigates the tab away or opens a panel over it, and nothing about it is
 //    visible from the server.
 // 6. **One reader of the transcript endpoint, and one address for a session.** That is
@@ -52,6 +52,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { boundPort } from './helpers/net.mjs';
+import { cleanupTmp } from './helpers/tmp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(HERE, '..');
@@ -554,7 +555,7 @@ check(() => {
 /* --------------------------------------------------------------------- teardown */
 
 for (const s of servers) s.close();
-fs.rmSync(tmp, { recursive: true, force: true });
+await cleanupTmp(tmp);
 
 console.log('');
 console.log(failures ? `${failures} of ${ran} failed` : `${ran} checks passed`);

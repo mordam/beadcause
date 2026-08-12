@@ -39,6 +39,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { cleanupTmp } from './helpers/tmp.mjs';
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'beadcause-sessiondir-'));
 // Before anything under lib/ is imported: CONFIG_DIR resolves once, at module load.
@@ -310,7 +311,7 @@ console.log('\nthe reverse map (lib/deploy.js)');
 }
 
 forgetRepos();
-fs.rmSync(tmp, { recursive: true, force: true });
+await cleanupTmp(tmp);
 
 console.log(failures ? `\n${failures} failed` : '\nall good');
 process.exit(failures ? 1 : 0);

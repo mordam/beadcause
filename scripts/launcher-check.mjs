@@ -20,21 +20,26 @@
 // dismissed has to read as filtered rather than as empty, and the control that
 // unfilters it has to be findable at 393px beside four tabs and a ＋.
 //
+// The third thing here is a dot, and it is here because a browser is the only thing
+// that can see it. A conversation mid-turn draws a spark in its phase slot, and for
+// months it drew one that was 0px wide (bc-7vzr) — `.spark` is sized in px and
+// `.console-row` never made the slot a flex parent. Every test of that row read HTML,
+// and the HTML is identical either way.
+//
 // Same shape as console-check.mjs: the real public/console.{js,html} and
 // public/style.css in a headless Chrome the size of a phone, against a fixture
 // `/api/consoles` served from this process, so nothing here talks to a daemon or
 // touches a bead. `--baseline` serves the committed copies instead of the working
 // ones — baseline has no tabs at all, so it must fail.
-import { execFileSync, spawn } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import http from 'node:http';
-import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { CHROME, launchChrome } from './helpers/chrome.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PUBLIC = path.join(ROOT, 'public');
-const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const VP = { width: 393, height: 852, dpr: 3 };
 const TOKEN = 'launcher-check-token';
 const BASELINE = process.argv.includes('--baseline');
@@ -78,7 +83,10 @@ const row = (id, workspace, title, extra = {}) => ({
 });
 
 const CONSOLES = [
-  row('bc-1', 'beadcause', 'The launcher is one pile'),
+  // Mid-turn, so the phase slot draws a spark rather than 💬. It is a *live* row on a
+  // repo that has other live rows, which is the case the launcher actually has to draw:
+  // the whole point of the dot is telling this row apart from the ones beside it.
+  row('bc-1', 'beadcause', 'The launcher is one pile', { status: 'thinking' }),
   row('bc-2', 'beadcause', 'A finished one', { closedAt: at(5) }),
   // Started from /foundations, not from here — same record, same workspace, so it
   // lands under beadcause's tab looking exactly like the two above it unless the
@@ -192,78 +200,6 @@ function serve() {
   return new Promise((resolve) => server.listen(0, '127.0.0.1', () => resolve(server)));
 }
 
-/* ------------------------------------------------------------------ chrome */
-
-function connect(url) {
-  return new Promise((resolve, reject) => {
-    const ws = new WebSocket(url);
-    let id = 0;
-    const pending = new Map();
-    ws.onmessage = (m) => {
-      const msg = JSON.parse(m.data);
-      const q = msg.id != null && pending.get(msg.id);
-      if (!q) return;
-      pending.delete(msg.id);
-      msg.error ? q.reject(new Error(msg.error.message)) : q.resolve(msg.result);
-    };
-    ws.onerror = () => reject(new Error('could not attach to Chrome'));
-    ws.onopen = () =>
-      resolve({
-        send: (method, params = {}) =>
-          new Promise((res, rej) => {
-            const i = ++id;
-            pending.set(i, { resolve: res, reject: rej });
-            ws.send(JSON.stringify({ id: i, method, params }));
-          }),
-        close: () => ws.close(),
-      });
-  });
-}
-
-async function launch() {
-  const port = 9700 + Math.floor(process.pid % 100);
-  const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'beadcause-launcher-'));
-  const proc = spawn(
-    CHROME,
-    [
-      '--headless=new',
-      `--remote-debugging-port=${port}`,
-      `--user-data-dir=${profile}`,
-      '--no-first-run',
-      '--no-default-browser-check',
-      '--disable-background-timer-throttling',
-      '--disable-backgrounding-occluded-windows',
-      '--disable-renderer-backgrounding',
-      '--hide-scrollbars',
-      'about:blank',
-    ],
-    { stdio: 'ignore' }
-  );
-  let target = null;
-  for (let i = 0; i < 60 && !target; i++) {
-    await sleep(250);
-    try {
-      target = (await (await fetch(`http://127.0.0.1:${port}/json/list`)).json()).find((t) => t.type === 'page');
-    } catch {
-      /* not up yet */
-    }
-  }
-  if (!target) throw new Error('Chrome never exposed a page target');
-  const s = await connect(target.webSocketDebuggerUrl);
-  return {
-    s,
-    close: () => {
-      s.close();
-      proc.kill();
-      try {
-        fs.rmSync(profile, { recursive: true, force: true, maxRetries: 3 });
-      } catch {
-        /* Chrome is still letting go of a temp dir */
-      }
-    },
-  };
-}
-
 const evalJs = async (s, expr) => {
   const r = await s.send('Runtime.evaluate', { expression: expr, returnByValue: true, awaitPromise: true });
   if (r.exceptionDetails)
@@ -295,16 +231,43 @@ const ROWS = `[...document.querySelectorAll('#recent .console-row')].map(
 
 // What each row says about who it is with: the mark in the phase slot, and the
 // agent pill if it has one.
-const MARKS = `[...document.querySelectorAll('#recent .console-row')].map((r) => ({
-  id: (r.querySelector('[data-close]')?.dataset.close) || '',
-  title: r.querySelector('.work-title').textContent.trim(),
-  phase: r.querySelector('.work-phase').textContent.trim(),
-  agentPill: r.querySelector('.pill.agent')?.textContent.trim() || null,
-}))`;
+//
+// The spark is measured rather than found, because finding it proves nothing: the
+// markup carries `<span class="spark">` whether or not anything is drawn, so a check
+// that queried for it passed for months against a launcher with no visible dot at
+// all (bc-7vzr). `.spark` is sized in px, so with no flex parent it lays out as an
+// empty inline box — width 0 — and it defaults to `var(--muted)`, so even laid out it
+// can be the same dead grey as an idle row. Hence the rect, the paint and the
+// animation, one each for the three ways this goes wrong.
+const MARKS = `(() => {
+  // What \`var(--accent)\` actually resolves to under whichever theme Chrome is in —
+  // the token text off :root would be a string to compare against a painted rgb().
+  const probe = document.createElement('span');
+  probe.style.cssText = 'display:none;background:var(--accent)';
+  document.body.appendChild(probe);
+  const accent = getComputedStyle(probe).backgroundColor;
+  probe.remove();
+  return {
+    accent,
+    rows: [...document.querySelectorAll('#recent .console-row')].map((r) => {
+      const spark = r.querySelector('.spark');
+      const css = spark && getComputedStyle(spark);
+      return {
+        id: (r.querySelector('[data-close]')?.dataset.close) || '',
+        title: r.querySelector('.work-title').textContent.trim(),
+        phase: r.querySelector('.work-phase').textContent.trim(),
+        agentPill: r.querySelector('.pill.agent')?.textContent.trim() || null,
+        spark: spark ? Math.round(spark.getBoundingClientRect().width) : null,
+        sparkPaint: css ? css.backgroundColor : null,
+        sparkAnim: css ? css.animationName : null,
+      };
+    }),
+  };
+})()`;
 
 const server = await serve();
 const BASE = `http://127.0.0.1:${server.address().port}`;
-const { s, close } = await launch();
+const { s, close } = await launchChrome('beadcause-launcher-');
 
 // `--out=<dir>` writes what the assertions are describing. This is a layout
 // change on a phone, and a row of passing assertions says nothing about whether
@@ -496,7 +459,8 @@ try {
   await tapTab('all');
 
   /* ---- an agent chat is not a chat session ---- */
-  const marks = await evalJs(s, MARKS);
+  const seen = await evalJs(s, MARKS);
+  const marks = seen.rows;
   const agentRow = marks.find((m) => m.title === 'Chat with the critic');
   const plainRows = marks.filter((m) => m.title !== 'Chat with the critic');
   check(
@@ -513,6 +477,30 @@ try {
     'a chat session carries no agent pill — it is what the mark is read against',
     plainRows.every((m) => m.agentPill === null),
     JSON.stringify(plainRows.filter((m) => m.agentPill))
+  );
+
+  /* ---- and a conversation mid-turn says so, visibly ---- */
+  const busyRow = marks.find((m) => m.title === 'The launcher is one pile');
+  const idleRows = marks.filter((m) => m.title !== 'The launcher is one pile');
+  check(
+    'a conversation mid-turn draws a spark in the phase slot',
+    busyRow?.spark !== null,
+    JSON.stringify(busyRow)
+  );
+  check(
+    'and it is on the screen — a bare span with no flex parent lays out 0px wide',
+    (busyRow?.spark || 0) > 0,
+    `the dot is ${busyRow?.spark}px wide`
+  );
+  check(
+    'and it is the accent, breathing — not the dead grey of an idle row',
+    busyRow?.sparkPaint === seen.accent && busyRow?.sparkAnim === 'breathe',
+    `${busyRow?.sparkPaint} / ${busyRow?.sparkAnim} vs accent ${seen.accent}`
+  );
+  check(
+    'no other row draws one — it is the tell, not decoration',
+    idleRows.every((m) => m.spark === null),
+    JSON.stringify(idleRows.filter((m) => m.spark !== null).map((m) => m.title))
   );
 
   /* ---- selecting one filters the list to it ---- */

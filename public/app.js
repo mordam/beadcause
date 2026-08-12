@@ -4863,15 +4863,30 @@
       const opt = opts.find((o) => o.id === btn.dataset.opt);
       if (!opt) return;
 
+      // Whatever else on the list was armed, this tap is not its confirming tap —
+      // arming any control disarms the others, which is the rule paintArmed() exists
+      // to keep on screen. It reads as belt-and-braces here because an option arms
+      // nothing itself any more, and that is exactly how it went missing: this handler
+      // used to arm and then answer on the second tap, and when bc-l8jp.9 turned it
+      // into "fill the box", the unconditional disarm() went with the answering path
+      // and only the one guarding expand() survived. So on a card already open — the
+      // common case, because you have to see the options to tap one — the dismiss
+      // under it stayed armed and went on saying "Tap again — hides dm-1" while you
+      // picked. The next tap then means two things at once, and the two write to
+      // different endpoints: /api/answer and /api/dismiss.
+      disarm();
+
       // A closed card has no box to fill, so the tap opens it — the same move
       // `pr-changes` makes, and for the same reason: what happens next is typing.
       // Through expand() rather than openOnly(), so the brief and the thread arrive
       // with it: you are about to write an answer, and the card you write it on
       // should be the whole card.
       if (!state.open.has(key)) {
-        disarm();
         await expand(key);
       }
+      // After the expand, not before: it re-renders the list, and a repaint of the
+      // old buttons would be thrown away with them.
+      paintArmed();
       const box = listEl.querySelector(`.card[data-key="${CSS.escape(key)}"] [data-role="answer"]`);
       if (!box) return;
 
@@ -4944,8 +4959,14 @@
         // `endorsed` is the server saying this bead was being held back from every
         // agent until this tap (lib/endorse.js). Worth a word: it is a decision you
         // just made, and nothing else on this card says you made it.
+        // `repo` is the checkout the bead named, where its workspace holds several
+        // (lib/repos.js). It is usually the same word as the directory's basename and
+        // saying it outright is still worth the characters: the basename is where the
+        // window happens to be, the repo is the thing the bead said it was about.
         toast(
-          `${res.endorsed ? 'Endorsed it — session' : 'Session'} open in ${res.dir.split('/').pop()} — go to your Mac`
+          `${res.endorsed ? 'Endorsed it — session' : 'Session'} open in ${
+            res.repo?.name || res.dir.split('/').pop()
+          } — go to your Mac`
         );
       } catch (err) {
         toast(err.message, true);
@@ -5659,11 +5680,47 @@
     for (const spec of MAINTAINED) maintain(warm, spec, data, events, resync);
   }
 
+  /**
+   * A deep link that names a pull request the kind filter is hiding, made to land.
+   *
+   * Two ways it can be hidden and both are the ordinary state of the control rather than
+   * something anybody set. The **status** group's default is `unmerged`, so every merged
+   * row is out of the list by default — and a merged row that has not shipped is the
+   * whole subject of the board this link comes from (see the PRs pane on /monitor), so
+   * that is the common case and not the corner. The **kinds** group hides them whenever
+   * something else is picked and PRs is not among it.
+   *
+   * Widening rather than drawing it anyway, which is the same choice `focusHash` already
+   * makes for `scope`: a card that appeared in a list its own filter excludes would be a
+   * row you cannot explain and cannot get back to once you collapse it. The status group
+   * goes to *all* of its rungs rather than to the one this row is on, because narrowing
+   * to `merged` to show a merged pull request would take every unmerged one off the
+   * screen to make room for it — a link that hid four rows to reveal one. Both changes
+   * are visible in the control's own summary line, and both persist, exactly as the
+   * scope widening does.
+   */
+  function revealPr(row) {
+    const f = window.beadcause?.inboxFilter;
+    if (!row?.pr || !f) return;
+    if (!f.inSub(row)) {
+      const sub = (f.KINDS || []).find((k) => k.id === 'pr')?.sub;
+      if (sub) f.setSub('pr', sub.options().map((o) => o.id));
+    }
+    const kinds = f.selected();
+    // Empty is "all kinds" and is already wide enough — adding `pr` to it would *narrow*
+    // the list to pull requests alone, which is the opposite of what this is for.
+    if (kinds.length && !kinds.includes('pr')) f.set([...kinds, 'pr']);
+  }
+
   /** #workspace/id from an ntfy notification tap, or the Android shell's deep link. */
   let hashHandled = '';
   async function focusHash() {
     const key = decodeURIComponent(location.hash.replace(/^#/, ''));
     if (!key || key === hashHandled) return;
+    // Before `byKey`, which reads the board rather than the filtered list and so finds a
+    // pull request whether or not the chips would draw it. `expand` below is what would
+    // not: it opens a card `render` never made.
+    revealPr(byKey(key));
     if (!byKey(key)) {
       // A deep link always names a question, and `agent` is the one scope with no
       // questions in it — so the tap would land on a list that silently ignored it.

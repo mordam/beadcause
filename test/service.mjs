@@ -39,8 +39,25 @@ import {
   LABEL,
   LOADED_ENV,
 } from '../lib/service.js';
+import { removeTreeSync } from './helpers/tmp.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+
+// Nothing below asks anything of the machine this runs on: every case is a directory
+// this file writes and a value it passes, which is what lets the suite pass identically
+// on a Mac with no service installed at all. One ambient value broke that promise
+// (bc-nv25). An iTerm window the beadcause daemon opens is downstream of the router
+// launchd started — not through the command string, which starts a fresh login shell,
+// but through iTerm.app's own environment — so every shell in it carries
+// BEADCAUSE_LAUNCHD_PROGRAM naming the *main checkout's* bin/router.js — a true statement about that terminal's ancestry and no
+// statement whatever about the tree under test. serviceHealth() reads it whenever a
+// caller passes nothing, so the health checks below saw a running job disagreeing with
+// this checkout and reported the stale-plist bug this file exists to detect: red in
+// every session an agent opened, green in every terminal a person opened, which is the
+// split that guarantees nobody goes looking. So the suite drops it here and every case
+// says what it means. The one thing lost is the ability to notice a stale plist on this
+// machine, and no case here ever did that — they all read a fake home.
+delete process.env[LOADED_ENV];
 
 let failures = 0;
 const ok = (name) => console.log(`  \x1b[32m✓\x1b[0m ${name}`);
@@ -51,7 +68,7 @@ const bad = (name, detail) => {
 const check = (name, cond, detail = '') => (cond ? ok(name) : bad(name, detail));
 
 const tmpdir = fs.mkdtempSync(path.join(os.tmpdir(), 'beadcause-service-'));
-process.on('exit', () => fs.rmSync(tmpdir, { recursive: true, force: true }));
+process.on('exit', () => removeTreeSync(tmpdir));
 
 /** A fake home whose LaunchAgents folder holds exactly the plist a case needs. */
 function home(name, xml) {
@@ -218,6 +235,9 @@ check(
   launchdProgram({ env: {}, argv: [process.execPath, SERVER], ppid: 4242 }) === null
 );
 
+// With the inherited value dropped at the top of this file, this asks what it was
+// written to ask: a process nobody's launchd started claims nothing, whatever it happens
+// to have in its argv.
 check(
   'this very process is not pretending to be a launchd job',
   launchdProgram() === null || launchdProgram() === process.argv[1],
@@ -251,6 +271,27 @@ console.log('\nthe health line, good day and bad');
   check('short enough for a phone — relative to the checkout', !path.isAbsolute(good.label), String(good.label));
   check('with nothing to fix', good.fix === null && good.lines.length === 0, JSON.stringify(good));
   check('and where it looked, for the doubtful', good.plist.endsWith(`${LABEL}.plist`), good.plist);
+}
+
+{
+  // Why the good day above needs that scrub, as a case rather than as a comment.
+  // serviceHealth() asks the environment whenever its caller passes nothing, so a
+  // BEADCAUSE_LAUNCHD_PROGRAM inherited from another checkout's router turns a perfectly
+  // good install into `not-reloaded`. The default is right where it lives — the console
+  // has no other way to know what launchd started — and wrong for a test, which is the
+  // whole of bc-nv25.
+  const h = home('inherited', plistFor(ROUTER));
+  const elsewhere = '/Users/someone/else/beadcause/bin/router.js';
+  let ambient, asked;
+  process.env[LOADED_ENV] = elsewhere;
+  try {
+    ambient = serviceHealth({ root: ROOT, home: h });
+    asked = serviceHealth({ root: ROOT, home: h, loadedProgram: null });
+  } finally {
+    delete process.env[LOADED_ENV];
+  }
+  check('a caller that passes nothing gets the environment answer', ambient.code === 'not-reloaded', JSON.stringify(ambient.code));
+  check('and one that passes null gets the file answer, whatever the shell was carrying', asked.ok === true, JSON.stringify(asked.code));
 }
 
 {
