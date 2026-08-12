@@ -5076,12 +5076,13 @@ what a later report will be matched *on*. The lookup is one `bd list --all --lab
 per report: an OR over both keys in a single call, because this runs on the hot path of
 a page that may be reporting several times a second.
 
-Three outcomes, and the third is the interesting one:
+Four outcomes, and the last two are where the arguments are:
 
 | The fingerprint matches | What happens |
 |---|---|
 | nothing | a new **P0 bug**, titled from the message, with everything the report carried |
 | **an open bead** | a comment on it — occurrence number, timestamp, page. No second bead |
+| **an open bead with a window running** | nothing is written at all. The report is counted, and the count becomes one comment when the window closes — see [below](#a-burst-is-one-comment-not-a-comment-each) |
 | **a closed bead** | a **new** bead, with a `discovered-from` edge to the closed one |
 
 That last row is a decision, not an oversight. A bug that comes back after being fixed
@@ -5094,6 +5095,48 @@ whoever picks it up, and a reopened bead cannot carry it.
 the moment the drift is noticed, so the next report hits the primary key directly and
 the bead accumulates every line the bug has lived on — which turns out to be the fastest
 way to see that a bug has been moving around a file for three weeks.
+
+### A burst is one comment, not a comment each
+
+One bead was only half of the bargain. The dedupe above stops a view whose render throws
+filing forty beads, and then writes forty *comments* on the one it filed — which is the
+same tracker ruined by the same loop, arriving a little more slowly. A page reporting ten
+times a second is ten `bd` writes a second against an embedded single-writer Dolt that
+about eight worker sessions are also writing to, so the cost is not only that the bead
+becomes unreadable: it is a lock, held over and over, in front of everybody else's work.
+
+So the **second** occurrence comments — that is the useful one, the moment an error stops
+being a one-off — and opens a **coalescing window** on that fingerprint. Every report
+inside the window is counted and nothing is written. When the window closes, one comment
+says how many there were and between when:
+
+> **48 more occurrences** — between 2026-08-11T12:00:02.000Z and 2026-08-11T12:00:49.000Z,
+> on https://mac.tail1234.ts.net:4318/#bc-p38c from `app.js:3315`.
+
+**The count is checked before the lookup, not after it.** `bd list` takes the same
+single-writer lock `bd comment` does, so a window that skipped only the write would still
+be ten lock acquisitions a second. Inside a window a report costs the tracker nothing in
+either direction — no read and no write — which is the half of this that matters to a
+session that is not looking at the bead at all.
+
+**And the window doubles every time it closes with something in it**, up to an hour. A
+fixed minute would have been 1,440 comments a day for a page that has been looping since
+yesterday — the unreadable bead again, by a slower route. Doubling makes a ten-second
+burst cost one extra comment and a two-day loop cost about a dozen. A window that closes
+**empty** is dropped instead, so an error that happens twice a week is never made to wait
+an hour for its comment: it always gets one of its own, immediately.
+
+Two things it deliberately does not do. It does not survive a restart — the counts are in
+memory, and a deploy loses a pending summary line rather than delaying shutdown for a
+`bd` write that may not fit in the two seconds shutdown has. And it does not fire the
+`created` event that a new bead fires, which is why both callers now ask `isNewBead(action)`
+rather than `action !== 'commented'`: a coalesced report is the loudest thing that is not
+news, and waking every parked poller ten times a second is the storm this exists to stop.
+
+This is the tracker-side floor, and it is the only one that holds for reports the page's
+own ceiling cannot see — a phone on a stale cached bundle without the reporter, a second
+tab hitting the same bug independently, the daemon's own uncaught errors, anything at all
+that can POST to the endpoint.
 
 ### The reporter on the page, and the six beads it refuses to file
 
