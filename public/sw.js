@@ -172,7 +172,17 @@
    the description, reading as part of the bead's own prose rather than as the one thing
    on the sheet you can tap through to. It still works, which is exactly the "looks like
    a working page" failure a cache version exists to prevent. */
-const CACHE = 'beadcause-v38';
+/* v39: the space details card grew the two Slack rows — the channel a space posts to
+   and how much of the question goes in it (bc-ikj6). No new path: monitor.js and
+   style.css are both already here, and it is the v32 pairing again. The harmless
+   direction is v38's monitor.js against v39's stylesheet, which is the card as it was
+   with one unused rule behind it. The other is not: v39's monitor.js beside v38's
+   style.css draws the channel row's text field with no box, no height and no width rule
+   at all — a bare platform input in a row of pill buttons, in the platform's own form
+   font, sized to whatever the flex row leaves it, on a 393px screen where the three
+   buttons beside it then wrap around it. It still takes a channel id, which is exactly
+   the "looks like a working page" failure a cache version exists to prevent. */
+const CACHE = 'beadcause-v39';
 const SHELL = [
   '/',
   '/index.html',
