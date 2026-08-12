@@ -169,7 +169,7 @@
     if (!p.deployDeclared) {
       return 'Ship opens a session on the Mac — this repo declares no deploy beadcause can run.';
     }
-    return `Ship deploys ${esc(p.workspace)} from here${p.deployHint ? ` — ${esc(p.deployHint).replace(/`([^`]+)`/g, '<code>$1</code>')}` : ''}.`;
+    return `Ship deploys ${esc(whereOf(p))} from here${p.deployHint ? ` — ${esc(p.deployHint).replace(/`([^`]+)`/g, '<code>$1</code>')}` : ''}.`;
   }
 
   /**
@@ -300,6 +300,18 @@
   /** Is this repo in the selected space? See public/spacebar.js. */
   const inSpace = (r) => window.beadcause?.space?.matches?.(r.workspace) ?? true;
 
+  /* How a card, a row and a deploy record all say *which repo* — `beadcause`, or
+     `climative/athena-service`. Every one of them carries `key` since bc-l853.6, and the
+     fallback is not defensive padding: this page is served to a phone that may have the
+     previous bundle cached, and a board keyed on `undefined` would collapse forty cards
+     into one. See `repoKey` in lib/repos.js.
+
+     `whereOf` is the readable half — `climative · athena-service`, the workspace alone
+     where it is the one repo it has always been (`whereLanded`). A hint that said
+     "Ship deploys climative" over a card about one service would name the wrong thing. */
+  const keyOf = (x) => x?.key || x?.repoKey || x?.workspace || '';
+  const whereOf = (x) => (x?.repoName ? `${x.workspace} · ${x.repoName}` : x?.workspace || keyOf(x));
+
   /**
    * How many merges this repo owes a ship — the daemon's queue where it sent one, the
    * predicate above where it did not.
@@ -337,8 +349,11 @@
   function releaseHtml(c) {
     const r = c.release;
     if (!r?.count) return '';
-    const armed = isArmed(c.workspace, 'release');
-    const said = state.said?.key === c.workspace ? `<div class="board-said${state.said.bad ? ' bad' : ''}">${esc(state.said.text)}</div>` : '';
+    /* The repo's key and never its workspace: a Climative workspace draws one card per
+       approved repo, and two of them arming the same button would be one tap shipping the
+       wrong service. For every workspace that is one repo the two strings are identical. */
+    const armed = isArmed(keyOf(c), 'release');
+    const said = state.said?.key === keyOf(c) ? `<div class="board-said${state.said.bad ? ' bad' : ''}">${esc(state.said.text)}</div>` : '';
     const list = r.prs
       .slice(0, 6)
       .map(
@@ -352,7 +367,7 @@
 
     const button =
       r.can === 'deploy'
-        ? `<button class="board-btn ship release-ship${armed ? ' armed' : ''}" data-act="release" data-key="${esc(c.workspace)}">${
+        ? `<button class="board-btn ship release-ship${armed ? ' armed' : ''}" data-act="release" data-key="${esc(keyOf(c))}">${
             armed ? `Ship all ${r.count} — sure?` : 'Ship'
           }<span class="release-count" aria-hidden="true">${esc(r.count)}</span></button>`
         : '';
@@ -394,12 +409,12 @@
               : `<p class="board-foot">Deploy state is not tracked for this repo — beadcause only knows what it is running itself.</p>`)
           : '<p class="subtitle">No pull requests here.</p>';
 
-    const title = c.repo || c.workspace;
-    const live = liveDeploys().find((r) => r.workspace === c.workspace);
+    const title = c.repo || keyOf(c);
+    const live = liveDeploys().find((r) => keyOf(r) === keyOf(c));
     // A deploy of this repo outranks the counts: the card's own summary is about work
     // waiting to ship, and something is shipping right now.
     const head = live ? phaseOf(live) : summary || (c.prs.length ? 'all shipped' : 'none');
-    return cardHtml(c.workspace, title, head, Boolean(live || open || owed), body);
+    return cardHtml(keyOf(c), title, head, Boolean(live || open || owed), body);
   }
 
   /* ------------------------------------------------------------------- deploys */
@@ -508,7 +523,7 @@
     // row — which is the ordinary case, and a line that says "demo · demo" reads as a
     // bug rather than as a detail.
     const where = rec.dir?.replace(/^.*\//, '');
-    const dir = where && where !== rec.workspace ? `<code>${esc(where)}</code>` : '';
+    const dir = where && where !== rec.workspace && where !== rec.repo ? `<code>${esc(where)}</code>` : '';
 
     return `<div class="deploy-body">
       ${rec.error ? `<p class="deploy-why">${esc(rec.error)}</p>` : ''}
@@ -535,7 +550,7 @@
     return `<article class="deploy ${tone}${LIVE.has(r.status) ? ' live' : ''}">
       <button class="deploy-row" type="button" data-deploy="${esc(r.id)}" aria-expanded="${open}">
         <span class="deploy-main">
-          <span class="deploy-what"><span class="deploy-dot" aria-hidden="true"></span>${esc(r.workspace)}<span
+          <span class="deploy-what"><span class="deploy-dot" aria-hidden="true"></span>${esc(whereOf(r))}<span
             class="sr-only"> deploy: </span><span class="deploy-said">${esc(phaseOf(r))}</span></span>
           <span class="deploy-sub">${esc(
             LIVE.has(r.status) ? `${took} so far` : `${took} · ${ago(r.finishedAt || r.requestedAt)}`
@@ -653,8 +668,8 @@
    * /admin writes it into the button: these change what has happened to real work, and
    * "did that go through?" must not be a question you answer by opening GitHub.
    */
-  /** The card for a workspace — what the release strip's button acts on. */
-  const cardFor = (ws) => (state.data?.repos || []).find((r) => r.workspace === ws) || null;
+  /** The card for a repo key — what the release strip's button acts on. */
+  const cardFor = (key) => (state.data?.repos || []).find((r) => keyOf(r) === key) || null;
 
   /**
    * Ship the whole queue: one deploy, every merge on it.
@@ -664,18 +679,19 @@
    * outcome under it. This one has no row: its key is a workspace, and the outcome
    * belongs to the strip at the top of the card.
    */
-  async function shipQueue(ws) {
-    const card = cardFor(ws);
+  async function shipQueue(key) {
+    const card = cardFor(key);
     if (!card?.release?.count || state.busy) return;
-    if (!isArmed(ws, 'release')) {
-      state.armed = `release@${ws}`;
+    if (!isArmed(key, 'release')) {
+      state.armed = `release@${key}`;
       return render();
     }
 
+    const where = whereOf(card);
     const count = card.release.count;
     state.busy = true;
     state.armed = null;
-    state.said = { key: ws, text: `Deploying ${ws} — ${plural(count, 'merged pull request')}…`, bad: false };
+    state.said = { key, text: `Deploying ${where} — ${plural(count, 'merged pull request')}…`, bad: false };
     render();
 
     let started = false;
@@ -683,7 +699,10 @@
       const res = await fetch('/api/release/ship', {
         method: 'POST',
         headers: { 'content-type': 'application/json', 'x-beadcause-token': token },
-        body: JSON.stringify({ workspace: ws }),
+        /* The repo, as a key. `workspace` beside it is not belt and braces: the server
+           accepts either, and sending both is what lets an older daemon — one that has not
+           been deployed with this bundle yet — still answer a board that has. */
+        body: JSON.stringify({ key, workspace: card.workspace }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
@@ -692,12 +711,12 @@
       // on this repo the next thing that happens is the daemon being killed by its own
       // deploy, and the outcome arrives on the strip above and on the phone.
       state.said = {
-        key: ws,
-        text: `Deploying ${ws} — ${data.deploy?.id || 'started'}, carrying ${plural(count, 'merge')}. How it went lands on your phone.`,
+        key,
+        text: `Deploying ${where} — ${data.deploy?.id || 'started'}, carrying ${plural(count, 'merge')}. How it went lands on your phone.`,
         bad: false,
       };
     } catch (err) {
-      state.said = { key: ws, text: err.message, bad: true };
+      state.said = { key, text: err.message, bad: true };
     } finally {
       state.busy = false;
       render();
@@ -730,13 +749,17 @@
     state.armed = null;
     state.said = {
       key,
-      text: action === 'ship' ? (p.deployDeclared ? `Deploying ${p.workspace}…` : 'Opening a window on the Mac…') : 'Working…',
+      text: action === 'ship' ? (p.deployDeclared ? `Deploying ${whereOf(p)}…` : 'Opening a window on the Mac…') : 'Working…',
       bad: false,
     };
     render();
 
     const url = action === 'merge' ? '/api/pr/merge' : action === 'ship' ? '/api/pr/ship' : '/api/pr/comment';
-    const body = { workspace: p.workspace, number: p.number };
+    /* The repo, and the number *within* it — a pull request number is only unique inside a
+       repo, so a merge sent with a workspace where the workspace holds forty of them would
+       be a merge of whichever card the server happened to look at first. `workspace` rides
+       along for a daemon that predates the key; see `shipQueue`. */
+    const body = { key: p.repoKey || p.workspace, workspace: p.workspace, number: p.number };
     if (action === 'send') body.text = text;
 
     try {
@@ -781,7 +804,7 @@
               // runner owns it — for this repo the next thing that happens is the daemon
               // being killed by its own deploy, and the outcome arrives later, on the
               // strip at the top of this page and on this phone.
-              text: `Deploying ${p.workspace} — ${data.deploy?.id || 'started'}. How it went lands on your phone.`,
+              text: `Deploying ${whereOf(p)} — ${data.deploy?.id || 'started'}. How it went lands on your phone.`,
               bad: false,
             }
           : { key, text: `A session is opening in ${data.dir || 'the repo'} to deploy it.`, bad: false };
@@ -885,7 +908,7 @@
         // Unfold the repo with something to act on — arriving at a closed heading
         // would make the fold cost a tap on every visit for no reason. Inside the
         // selected space, or it would unfold a card this board is not drawing.
-        state.card = (state.data.repos || []).find((r) => r.prs.length && inSpace(r))?.workspace || null;
+        state.card = (state.data.repos || []).find((r) => r.prs.length && inSpace(r))?.key || null;
       }
       state.error = null;
       render();
@@ -1019,7 +1042,7 @@
      at paint time. An open card in a repo that has just been filtered away is closed
      with it, or reopening the space would leave a fold nobody remembers opening. */
   window.beadcause?.space?.onChange(() => {
-    if (state.card && !(state.data?.repos || []).some((r) => r.workspace === state.card && inSpace(r))) {
+    if (state.card && !(state.data?.repos || []).some((r) => keyOf(r) === state.card && inSpace(r))) {
       state.card = null;
     }
     render();
@@ -1153,7 +1176,7 @@
     observing.hidden = !state.data.observing;
     if (state.first) {
       state.first = false;
-      state.card = (state.data.repos || []).find((r) => r.prs.length && inSpace(r))?.workspace || null;
+      state.card = (state.data.repos || []).find((r) => r.prs.length && inSpace(r))?.key || null;
     }
     render();
     return true;

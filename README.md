@@ -4909,7 +4909,8 @@ pressing Ship on one row has always carried the four behind it. What the button 
 not say was how many, and with six sessions a day merging here that is the difference
 between a routine press and the day's work going out.
 
-So the top of each repo's card carries **the queue**: the merges that are on `origin`
+So the top of each repo's card carries **the queue** — one card per repo, which in a
+workspace with an approved list of checkouts is one per approved repo: the merges that are on `origin`
 and are not running, with the count drawn over a Ship that deploys the lot in one press
 (`POST /api/release/ship`). It is the same `startDeploy` the row's Ship calls, with the
 pull requests named in the record's reason so the deploy log afterwards says what it
@@ -4940,6 +4941,12 @@ because a tracker filling with chores is worse than no tracker at all —
   again from nothing, because starting again from nothing is exactly the flood.
 - **Only where a ship is visible.** A repo with no declared deploy and no build this
   daemon can see has no event that would ever close one of these, so none is filed there.
+- **A repo, never a workspace.** The watermark and the filed-bead record are keyed per
+  repo, as [the deploy is](#a-deploy-is-a-fact-about-a-repo-and-a-workspace-may-be-forty-of-them),
+  because forty Climative services all have a #7: one entry per workspace would have read
+  the seventh pull request of one service as already filed because another's was. The first
+  sweep after that change re-watermarks each repo of a multi-repo workspace and files
+  nothing, which is the safe direction and the whole reason the watermark exists.
 
 `release.beads: false` turns the filing off and leaves the number; `release.seconds`
 (300) is how often the queue is swept, which is slow on purpose — it is a `gh` call per
@@ -5044,7 +5051,7 @@ window that asked him to be. `lib/deploy.js` is the missing verb, and Ship now r
 wherever it has been written down.
 
 **A deploy is declared, never guessed.** `deploys` in `~/.config/beadcause/config.json`,
-keyed by workspace, empty by default and empty for most repos forever:
+keyed **per repo**, empty by default and empty for most repos forever:
 
 ```json
 "deploys": {
@@ -5053,14 +5060,23 @@ keyed by workspace, empty by default and empty for most repos forever:
     "restarts": true,
     "rebuild": [{ "label": "apk", "when": ["android"], "command": ["npm", "run", "android"] }]
   },
-  "sophab": { "command": ["fly", "deploy"] }
+  "sophab": { "command": ["fly", "deploy"] },
+  "climative/athena-service": { "command": ["fly", "deploy"] }
 }
 ```
+
+A workspace that is one repo is keyed by its own name, which is what every entry anybody
+has written already says; a workspace with
+[an approved list of checkouts](#many-repos-one-workspace--the-approved-list-and-the-token-that-names-each)
+is keyed `<workspace>/<repo>`, and the half after the slash names one the way
+`repos.<workspace>.default` does — its directory name, its service token, or its path. See
+[the argument for keying it that way](#a-deploy-is-a-fact-about-a-repo-and-a-workspace-may-be-forty-of-them),
+which is short: `deploys.climative` has no true answer.
 
 beadcause restarts under launchd, sophab runs `fly deploy`, the next repo will do
 something else — there is no shape those share that could be read off a checkout, and a
 daemon that guessed would guess at three in the morning in a repo nobody was watching. A
-workspace with no entry keeps the answer the board already gives it: **no deploy
+repo with no entry keeps the answer the board already gives it: **no deploy
 beadcause can see.**
 
 **Except its own, which it writes for you — once.** The rule above is about *other*
@@ -5074,9 +5090,10 @@ so on stdout when it does.
 It refuses in every case where it would not be true. The LaunchAgent has to be installed
 already and its plist has to name **this** checkout's `bin/router.js` (the same test
 [the refusal below](#restarting-a-label-is-not-the-same-as-deploying-a-tree) applies), so
-a clone that is not the one being served declares nothing. A workspace has to actually
-map to this checkout, since that is the key the entry hangs on. Anything already written
-there is left alone rather than merged into. And the whole thing happens **once, ever** —
+a clone that is not the one being served declares nothing. A configured **repo** has to
+actually map to this checkout, since that is the key the entry hangs on — the workspace is
+not enough where one holds forty of them. Anything already written there is left alone
+rather than merged into. And the whole thing happens **once, ever** —
 the receipt is in `state.json`, so an entry you delete on purpose stays deleted.
 
 The APK rebuild is declared only where `public/beadcause.apk` exists, which is the one
@@ -5154,6 +5171,55 @@ morning is a big hammer for a failure a sentence names perfectly well.
 `node test/launchagent.mjs` covers the verdicts against plists it writes in a temp home,
 so it never reads the real `~/Library/LaunchAgents`; `node test/deploy.mjs` covers the
 runner acting on one — the command never runs, the rebuild before it did.
+
+#### A deploy is a fact about a repo, and a workspace may be forty of them
+
+Everything above was written when a workspace *was* a repo: one tracker, one checkout, one
+remote, one deploy. Climative is the shape that breaks it — a GitHub org of forty-odd repos
+sharing the single `cl-` beads workspace, because only `architecture` has beads installed —
+and it breaks it in a way that reads as working. `deploys.climative` is a config line
+somebody can write, the Ship button on a merged Climative pull request draws itself, and
+what it deploys is `architecture`, whichever service the pull request was in. The reverse
+map was the same lie from the other side: `deployFor` resolved a key's directory through
+`resolveSessionDir`, which answers with the workspace's *default* repo, so one entry named
+one checkout out of forty and nothing on any screen said which.
+
+So a deploy, a board card and a release queue are keyed by **repo**, and the key is a
+workspace name where the workspace is one repo and `<workspace>/<repo>` where it is not.
+Three consequences worth knowing before you go looking for them:
+
+- **Nothing anybody has configured needs editing.** `beadcause`, `sophab`, `deluvia`: the
+  key of a one-repo workspace is its own name, character for character. The same is true on
+  the wire — every button still sends `workspace`, and sends `key` beside it — and true of
+  the deploy journal, where a record written before any of this carries only a `workspace`
+  and groups correctly because for those installs that string *is* the key.
+- **A bare `climative` key is refused, not resolved.** It names no checkout, so the button
+  that reads it says so, with the key that would have worked in the sentence. Resolving it
+  to the default repo is the one thing it will not do: an unattended deploy of the one
+  service nobody asked about is not improved by having been convenient.
+- **The board lists every approved repo, each row naming its own.** Which is what makes the
+  next paragraph necessary.
+
+**The cost is `gh`, and it is why the board has two caches.** A sweep asks each repo for its
+remote and its pull requests — two network calls — and forty repos at the board's own
+25-second cache is over eleven thousand calls an hour, reached by leaving /prs open on a
+phone. Against a limit of five thousand. So the `gh` half of a sweep is cached per checkout
+for two minutes and the git half is redone every time, which puts the staleness in exactly
+the right place: `pushed`, `local`, `deployed` and `shipped` are local reads and stay as
+fresh as they ever were, and what goes stale is "has a new pull request appeared" — the one
+fact on this screen nobody watches a second hand for. Three things drop it, which between them
+cover everything you would notice: the ⟳, every acting call (they all sweep forced), and any
+merge, close or comment from this daemon — those drop the cache **for the checkout they acted
+on**, so the repo you just touched is re-asked and the other thirty-nine are not. A sweep is
+also capped at six repos at a time, because `Promise.all` over forty is eighty concurrent `gh`
+processes and the ones that time out come back looking like real errors.
+
+**And a delivery card is now matched by its repo, not its workspace.** The card in the inbox
+names its pull request the way everything outside this Mac does — `Climative/athena-service`
+and a number — so answering **Ship it** resolves that slug against the board and refuses if
+no approved repo matches. It used to resolve the workspace's directory, which means
+`gh pr merge 123` running in `architecture`: a call that does not fail, because
+`architecture` has a #123 too, and merges the wrong pull request.
 
 #### The awkward part: a beadcause deploy kills beadcause
 
@@ -10096,14 +10162,14 @@ cookie says so), and `/auth/signout` ends the session.
 | GET | `/api/poll` | `?since=<seq>&wait=<s>` | long-poll: `{seq, resync, events[], advocates, presence, observing}` **plus the whole `/api/questions` screen** when something moved — the same `inboxPayload()` builds both, so a client can refresh itself from either and get the same inbox. `questions`, `requests` and `spaces` are `null` rather than `[]` when nothing moved: an empty array means the channel is empty, and a poll that timed out never asked. `want=presence` says the questions are not wanted, which is what makes a quiet poll cost no `bd` at all |
 | POST | `/api/respond` | `{workspace, id, response, create?, edits?}` | comments, then closes the bead. `create` is the 1-based indices of a proposal's beads to file; without it, `CREATE:` in the text means all and `CREATE: 1,3` means those. `edits` is `{n: {title, type, priority, description, acceptance}}` keyed by the same numbers, applied before creating. A `MERGE:` / `CHANGES:` / `DECLINE:` response on a delivery question acts on its pull request first — see [Landing work](#landing-work--a-branch-a-pull-request-and-the-workers-own-merge) |
 | GET | `/api/pr` | `?workspace=&id=` | `{delivery, pr, unavailable}` — the live diffstat, check rollup and mergeability of a delivery question's PR. Every failure is an answer rather than a 500: no `gh`, no remote, GitHub unreachable all come back with `pr: null` and a sentence in `unavailable` |
-| GET | `/api/prs` | `?refresh=1` | the PR board: every pull request in every repo with its Merged · Pushed · Deployed · Live lamps and its rung of [the ladder](#the-ladder-in-one-place), plus `observing`. Read by the board *and* by the inbox, which draws a card per row. Cached 25s on the daemon; `refresh=1` forces the `gh` sweep |
-| POST | `/api/pr/merge` | `{workspace, number, method?}` | merges it at GitHub, fast-forwards this Mac's `main`, and retires the inbox's own "Merge #N?" card if a worker filed one. Three halves report separately — `{pr, alreadyMerged, land, cards}` — because a merge that landed and a fast-forward refused over open files is a *good* outcome and one flat failure over both would send you to GitHub to find out which. The card is **closed**, never answered: merging a pull request is a fact, and the card is spent because of that fact rather than because anything wrote `MERGE:` under your name |
-| POST | `/api/pr/ship` | `{workspace, number}` | the declared deploy where the repo has one, an iTerm session where it does not. `409` if the PR is not merged — shipping an unmerged pull request has no meaning. Refused on an observer |
+| GET | `/api/prs` | `?refresh=1` | the PR board: every pull request in every repo with its Merged · Pushed · Deployed · Live lamps and its rung of [the ladder](#the-ladder-in-one-place), plus `observing`. One card per **repo** — `key` is `beadcause` or `climative/athena-service`, and it is what every row and every button below is addressed by, because a pull request number is only unique inside a repo. `workspace` is still accepted everywhere `key` is and means the same thing for a workspace that is one repo; see [why](#a-deploy-is-a-fact-about-a-repo-and-a-workspace-may-be-forty-of-them). Read by the board *and* by the inbox, which draws a card per row. Cached 25s on the daemon; `refresh=1` forces the `gh` sweep |
+| POST | `/api/pr/merge` | `{key, number, method?}` | merges it at GitHub, fast-forwards this Mac's `main`, and retires the inbox's own "Merge #N?" card if a worker filed one. Three halves report separately — `{pr, alreadyMerged, land, cards}` — because a merge that landed and a fast-forward refused over open files is a *good* outcome and one flat failure over both would send you to GitHub to find out which. The card is **closed**, never answered: merging a pull request is a fact, and the card is spent because of that fact rather than because anything wrote `MERGE:` under your name |
+| POST | `/api/pr/ship` | `{key, number}` | the declared deploy where the repo has one, an iTerm session where it does not. `409` if the PR is not merged — shipping an unmerged pull request has no meaning. Refused on an observer |
 | POST | `/api/release/ship` | `{workspace}` | ships the whole release queue — one deploy for every merge sitting on `origin` and not live, which is what a deploy has always done anyway. `409` on an empty queue (a restart for nothing), on a repo that declares no deploy (there is no window that means "and the other three"), and on one already deploying. Refused on an observer |
-| POST | `/api/pr/comment` | `{workspace, number, text}` | a note on the pull request at GitHub and nothing else. Not `/api/comment`, which writes on a *bead* and puts an agent onto answering it |
-| GET | `/api/pr/detail` | `?workspace=&number=&refresh=1` | `{row, pr, agent, unavailable}` — what [the full view](#tapping-one-opens-it-full-screen) is drawn from. `row` is the board's (the lamps and the rung, from the 25-second sweep, computed once in lib/prstage.js); `pr` is `gh` **now**, for the description the board strips, the datetimes and the mergeability the buttons are drawn from; `agent` is which session wrote it, from the archive in the repo's own refs. Every failure is an answer rather than a 500, exactly as `/api/pr` has it |
-| POST | `/api/pr/close` | `{workspace, number, reason?}` | closes it at GitHub without merging, with your reason as a comment on the pull request. **No bead moves** — `row.beads` is a *match* rather than the block a worker wrote, and reopening a bead is what puts an unattended session on it; putting the work back in the queue is *Decline* on its own card. `409` on one already merged: closing it now cannot un-merge it. The branch is kept |
-| POST | `/api/pr/conflicts` | `{workspace, number}` | opens an iTerm session on the branch whose job is to merge the base into it, resolve, run the repo's own gate and push — then stop. `409` unless GitHub reports it `CONFLICTING` right now, so a resolved conflict cannot leave a window somebody has to close. Refused on an observer, and on a daemon with `openSessions` off |
+| POST | `/api/pr/comment` | `{key, number, text}` | a note on the pull request at GitHub and nothing else. Not `/api/comment`, which writes on a *bead* and puts an agent onto answering it |
+| GET | `/api/pr/detail` | `?key=&number=&refresh=1` | `{row, pr, agent, unavailable}` — what [the full view](#tapping-one-opens-it-full-screen) is drawn from. `row` is the board's (the lamps and the rung, from the 25-second sweep, computed once in lib/prstage.js); `pr` is `gh` **now**, for the description the board strips, the datetimes and the mergeability the buttons are drawn from; `agent` is which session wrote it, from the archive in the repo's own refs. Every failure is an answer rather than a 500, exactly as `/api/pr` has it |
+| POST | `/api/pr/close` | `{key, number, reason?}` | closes it at GitHub without merging, with your reason as a comment on the pull request. **No bead moves** — `row.beads` is a *match* rather than the block a worker wrote, and reopening a bead is what puts an unattended session on it; putting the work back in the queue is *Decline* on its own card. `409` on one already merged: closing it now cannot un-merge it. The branch is kept |
+| POST | `/api/pr/conflicts` | `{key, number}` | opens an iTerm session on the branch whose job is to merge the base into it, resolve, run the repo's own gate and push — then stop. `409` unless GitHub reports it `CONFLICTING` right now, so a resolved conflict cannot leave a window somebody has to close. Refused on an observer, and on a daemon with `openSessions` off |
 | POST | `/api/comment` | `{workspace, id, text, agent?}` | comments, sets `human-replied`, dispatches that agent to reply (default when absent or unknown) |
 | POST | `/api/dismiss` | `{workspace, id, reason?}` | takes the card off the screen and **closes nothing**. Writes your note if you typed one, writes nothing at all if you did not, and never touches the status — "I am not dealing with this now" is not "this is decided" |
 | POST | `/api/filter` | `{space, workspace}` | which slice the inbox is, remembered server-side so every client agrees and the notifications match. Each is a name or `all`, bounded at 120 characters. Widening forgets what you had declined |
@@ -10172,7 +10238,7 @@ cookie says so), and `/auth/signout` ends the session.
 | GET | `/api/tls` | `?pairing=1` | what HTTPS is doing: the setting, the certificate on disk (name, days left), what the socket is actually serving (`serving`: name, days left, and `checkedAt` — when the renewal loop last looked, `null` from anything too old to say), the URL a phone would be handed, and whether a restart is owed. Cheap enough to poll — two file reads and a memoised MagicDNS name, and it never asks `tailscale cert` for anything. `?pairing=1` adds the link and a QR |
 | POST | `/api/tls` | `{enabled}` | turns HTTPS on or off: writes `tls.enabled`, fetches the certificate when it is on (asynchronously — the synchronous one would block every request for the length of a Let's Encrypt round trip), and moves `baseUrl`. Pressing it while it is already on is the retry. Binds nothing: TLS is decided when the listener is created, so the reply carries `restartNeeded`. Refused on an observer, which shares this config with the live daemon |
 | GET | `/api/deploys` | `?limit=` or `?id=` | the recent deploys, or one with its log. Four endings, not two: `ok`, `failed`, and the two that mean nobody knows — `unconfirmed` (the ordinary ending of a restart) and `lost` |
-| POST | `/api/deploy` | `{workspace, bead?, reason?}` | runs that repo's declared deploy. `409` with no declaration, or if one is already running. Means "written down and a process owns it", never "it worked". Refused on an observer |
+| POST | `/api/deploy` | `{key, bead?, reason?}` | runs that repo's declared deploy. `409` with no declaration, or if one is already running. Means "written down and a process owns it", never "it worked". Refused on an observer |
 | POST | `/api/presence` | `{device, view, key}` | which view this device has open, so [the mirror](#the-mirror--whatever-the-phone-has-open-with-room-to-read-it) can follow it. Wakes `/api/poll` without costing a `bd` sweep — see `changed` there |
 | GET | `/api/presence` | — | `{devices[]}` — who is where |
 | DELETE | `/api/presence` | `{device}` | forget one device |
@@ -10565,6 +10631,10 @@ Two consequences of that ordering worth knowing:
 | `workspaces` | auto-discovered from `~/beads/*/.beads`, and **reconciled on every start** — entries whose directory has gone are dropped and new ones picked up, both logged. Renaming a workspace directory used to leave a stale entry that failed on every poll tick, silently hiding that whole workspace from the phone |
 | `repos` | the checkouts **one workspace** may be worked in, keyed by workspace name — `{"climative": {"root": "~/climative.dev", "default": "architecture", "approved": ["architecture", "athena-service"]}}`. Empty by default, and a workspace not named here costs nothing: it is one repo, as every workspace was before this existed. `approved` is a list you write and nothing discovers — a directory under `root` that is not in it resolves to nothing; `npm run configure` prints the tree with each repo's token for you to tick, which is not the same thing as approving one. Each repo's identity is the **service token** it declares in its own `config/config.yaml`, read from the checkout rather than restated here; `default` is the repo a bead carrying no token belongs to, and `tokenPath` / `tokenKey` override where the token is read from. A bead says which repo it is about by carrying that token as a `repo:<token>` label. See [Many repos, one workspace](#many-repos-one-workspace--the-approved-list-and-the-token-that-names-each) and [how a bead names one](#how-a-bead-says-which-repo-it-is-about--repotoken) |
 | `openSessions` | allow `POST /api/session` to open a Claude session on the Mac (default `true`) |
+| `deploys` | what "deploy this repo" **is**, keyed per repo and empty by default — `{"beadcause": {"command": ["launchctl", "kickstart", "-k", "gui/{uid}/m4m.beadcause"], "restarts": true}}`. The one act after a merge that is never inferred: a repo with no entry is one beadcause cannot ship, said out loud, and its Ship opens a window on the Mac instead. `command` is **argv and never a shell line**, because this file is hand-edited and synced as a git repo. The key is a workspace name where the workspace is one repo and `<workspace>/<repo>` where it holds several — a bare multi-repo workspace names no checkout and is refused rather than resolved to the default one. Other keys: `restarts` (this deploy kills beadcause itself), `pull` (fast-forward first, default `true`), `rebuild` (artefacts, with `when` paths), `base`, `dir`, `launchAgent`, `graceMs`, `timeoutMs`. beadcause writes its own entry once, at startup. See [Deploying a repo](#deploying-a-repo-when-it-says-how) and [why it is keyed per repo](#a-deploy-is-a-fact-about-a-repo-and-a-workspace-may-be-forty-of-them) |
+| `release.beads` | file a bead per merged pull request and close it when a deploy makes it live (default `true`). Only ever in a repo whose deploy beadcause can see the outcome of — a bead nothing could close is a chore invented rather than found. See [The release queue](#the-release-queue--the-number-over-ship) |
+| `release.seconds` | how often the queue is swept (default 300, floor 60). Slow on purpose: it is a `gh pr list` per repo when nobody has looked at the board recently, and its news keeps for five minutes |
+| `release.settleSeconds` | how long an [auto-ship](#auto-ship--the-merge-that-does-not-wait-for-the-tap) waits before it fires, so four merges in ten minutes are one deploy (default 600) |
 | `sessionDirs` | override where a workspace's session opens. Normally unnecessary — see Discussing a question on the Mac |
 | `sessionPermissionMode` | `--permission-mode` for an opened session (default `auto`; `null` to omit the flag) |
 | `sessionWindows.layout` | deal session windows onto one screen as cards (default `true`; `false` leaves them wherever iTerm cascades them). See [The card table](#the-card-table--where-session-windows-go) |
@@ -10944,12 +11014,22 @@ asserted in `test/sessiondir.mjs` rather than believed, because "it still works 
 Climative" is not the claim that matters to the four workspaces that were working
 already.
 
-A caller with no bead in hand — the deploy board, a startup line — passes none and gets
-the `default` repo. That is the right answer to a question about the workspace rather
-than about one bead, and it is the same answer those callers used to get from the one
-directory a workspace had. A caller asking a question of *every* checkout is a different
-thing again, and the advocate's sweeps are all of them — see
+A caller with no bead in hand — a startup line — passes none and gets the `default` repo.
+That is the right answer to a question about the workspace rather than about one bead, and
+it is the same answer those callers used to get from the one directory a workspace had. A
+caller asking a question of *every* checkout is a different thing again, and the advocate's
+sweeps are all of them — see
 [One advocate, many checkouts](#one-advocate-many-checkouts--what-spans-repos-and-what-does-not).
+
+**The pull request board and the deploy are the other kind, and they took the default for
+longer than they should have.** Neither is a question about a bead *or* about the workspace:
+a board card lists one repo's pull requests, a deploy runs in one repo's checkout, and a
+release queue is what one deploy of one repo would make live. Asking `resolveSessionDir`
+with no bead gave all three `architecture` and nothing said so, which is a Ship button that
+deploys the wrong service. They are keyed per repo instead — `beadcause`, or
+`climative/athena-service` — and the argument is
+[with the deploy](#a-deploy-is-a-fact-about-a-repo-and-a-workspace-may-be-forty-of-them),
+including what it costs in `gh` traffic to put forty repos on one board.
 
 **Four ways a bead names no checkout, and all four refuse.** A token no approved repo
 declares, a token two of them both declare, a bead carrying two different `repo:` labels,
@@ -10969,12 +11049,16 @@ both ways says so in the startup log:
 [repos] sessionDirs.climative pins /Users/you/climative.dev/architecture, but climative has an approved repo list — the repo a bead names wins, so that override no longer decides anything. Take it out, or empty repos.climative.approved
 ```
 
-**One caller runs it backwards, and needs its own answer.** `ownWorkspace` in
-`lib/deploy.js` maps *this checkout* back to a workspace name, to decide which graph the
-daemon files its own crashes on. Forwards, a multi-repo workspace answers with one repo;
-backwards, every approved checkout **is** that workspace, so all of them are compared. A
-single comparison against the default would have filed a crash from a session running in
-`~/climative.dev/athena-service` onto whichever workspace came next in the list.
+**Two callers run it backwards, and they want different grains of the same answer.**
+`ownWorkspace` in `lib/deploy.js` maps *this checkout* back to a workspace name, to decide
+which graph the daemon files its own crashes on — a crash belongs on a tracker.
+`ownRepoKey` maps it back to a **repo key**, because that is what a deploy is declared for,
+and it is what writes the `deploys` entry beadcause makes for itself. Forwards, a multi-repo
+workspace answers with one repo; backwards, every approved checkout **is** that workspace, so
+all of them are compared. A single comparison against the default would have filed a crash
+from a session running in `~/climative.dev/athena-service` onto whichever workspace came next
+in the list — and, for the deploy, would have declared a kickstart of *this* daemon as the
+deploy of forty other checkouts.
 
 ### One advocate, many checkouts — what spans repos and what does not
 

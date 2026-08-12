@@ -1483,6 +1483,11 @@
           key: `pr:${p.key}`,
           pr: p,
           workspace: p.workspace,
+          // Which *repo* — `beadcause`, or `climative/athena-service`. Carried on the row
+          // rather than read off `row.pr` at each call site, because it is what every act on
+          // this pull request is addressed by and a number alone is only unique inside a repo.
+          // Falls back to the workspace, which is what it is for a workspace that is one repo.
+          repoKey: p.repoKey || p.workspace,
           space: spaceForWorkspace(p.workspace),
         }))
     );
@@ -1767,9 +1772,12 @@
     const before = state.prDetail.get(row.key);
     state.prDetail.set(row.key, { loading: true, pr: before?.pr || null, agent: before?.agent || null, unavailable: null });
     paintPrCard(row.key);
-    const q = `workspace=${encodeURIComponent(row.workspace)}&number=${encodeURIComponent(row.pr.number)}${
-      force ? '&refresh=1' : ''
-    }`;
+    /* `key` is the repo — `beadcause`, or `climative/athena-service` (bc-l853.6) — and it
+       is what makes the number mean something: two repos in one workspace both have a #1.
+       `workspace` rides along so a daemon that predates the key still answers. */
+    const q = `key=${encodeURIComponent(row.repoKey || row.pr?.repoKey || row.workspace)}&workspace=${encodeURIComponent(
+      row.workspace
+    )}&number=${encodeURIComponent(row.pr.number)}${force ? '&refresh=1' : ''}`;
     try {
       const res = await api(`/api/pr/detail?${q}`);
       state.prDetail.set(row.key, { loading: false, pr: res.pr, agent: res.agent, unavailable: res.unavailable || null });
@@ -1799,8 +1807,10 @@
    */
   function adoptBoardRow(fresh) {
     for (const repo of state.board?.repos || []) {
-      if (repo.workspace !== fresh.workspace) continue;
-      const at = (repo.prs || []).findIndex((p) => p.number === fresh.number);
+      // By the row's own key, which names the repo: matching on the workspace and the number
+      // would put a freshly-read `athena-service` #1 into `architecture`'s #1 as well, and
+      // both rows would then be drawn from the same read.
+      const at = (repo.prs || []).findIndex((p) => p.key === fresh.key);
       if (at !== -1) repo.prs[at] = fresh;
     }
   }
@@ -1896,7 +1906,14 @@
     try {
       const res = await api(path, {
         method: 'POST',
-        body: JSON.stringify({ workspace: row.workspace, number: row.pr.number, ...body }),
+        // The repo first, for the reason `ensurePrDetail` gives: a pull request number is
+        // only unique within one, and a workspace may now hold forty.
+        body: JSON.stringify({
+          key: row.repoKey || row.pr?.repoKey || row.workspace,
+          workspace: row.workspace,
+          number: row.pr.number,
+          ...body,
+        }),
       });
       state.prSaid.set(row.key, { kind: 'ok', text: said(res) });
     } catch (err) {
