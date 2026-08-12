@@ -396,6 +396,14 @@
    * pill more than any of the others, because the state it prevents — two sessions
    * editing one worktree — is invisible from every other view here, which is precisely
    * how it went unnoticed for an hour.
+   *
+   * `heldByLease` is the seventh (bc-bllw), and the first that is not about this laptop:
+   * a bead another engineer's Mac has claimed in the shared tracker. `stoodDown` is its
+   * other half — a window *this* Mac gave up because the other machine's claim won the
+   * tiebreak — and it is on this row rather than in the sessions list because a session
+   * that has already been withdrawn is not a session any more. Both are `p1` rather than
+   * muted: every other pill here names something on this screen, and these two name a
+   * window on somebody else's desk, which you can only settle by asking them.
    */
   function domainHtml(w, a) {
     const c = w?.counts || {};
@@ -403,6 +411,8 @@
     const twins = (a && a.heldByTwin) || [];
     const prs = (a && a.heldByPr) || [];
     const sitting = (a && a.heldByLive) || [];
+    const claimed = (a && a.heldByLease) || [];
+    const stood = (a && a.stoodDown) || [];
     const pills = [
       c.open != null ? `<span class="pill">${c.open} open</span>` : '',
       c.ready ? `<span class="pill">${c.ready} ready</span>` : '',
@@ -435,6 +445,20 @@
       // are reading, in the sessions list below.
       sitting.length
         ? `<span class="pill muted" title="${esc(sitting.map((h) => `${h.id} — ${h.why}`).join('\n'))}">${sitting.length} with a session already open</span>`
+        : '',
+      // And the seventh, which is the only pill here naming something you cannot see from
+      // this screen: another Mac's window, on another desk. Hence `p1` rather than
+      // `muted` — the other six are states you can settle by looking, and this one is a
+      // state you can only settle by asking somebody.
+      claimed.length
+        ? `<span class="pill p1" title="${esc(claimed.map((h) => `${h.id} — ${h.why}`).join('\n'))}">${claimed.length} claimed by another Mac</span>`
+        : '',
+      // Not a subtraction from the queue at all, but the same argument one step later: a
+      // window this advocate gave up because another Mac won the race. It clears itself
+      // after an hour (`standDown` in lib/advocate.js), so a pill that is here is about
+      // something that happened while you were not looking.
+      stood.length
+        ? `<span class="pill p1" title="${esc(stood.map((s) => `${s.id} — ${s.why}`).join('\n'))}">${stood.length} stood down for another Mac</span>`
         : '',
     ].filter(Boolean);
     return `<div class="mon-domain">${pills.join('')}</div>`;
