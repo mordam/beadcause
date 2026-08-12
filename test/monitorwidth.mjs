@@ -359,6 +359,29 @@ const server = http.createServer((req, res) => {
 await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
 const url = `http://127.0.0.1:${server.address().port}`;
 
+/*
+ * How long one `monitor --once` gets, and how many times a frame that ran out of it is
+ * worth asking for again. bc-uvhh: the budget used to be 30s with no retry, and one
+ * `monitor --once` costs 1.5–3s of node startup and module load on a laptop that is
+ * merely busy. Under a full 100-suite run — twenty agent sessions each doing the same —
+ * that multiplies, and the suite failed at 57/100 for want of wall clock alone.
+ *
+ * Three attempts at 60s rather than one at 180s on purpose. A monitor that is *slow*
+ * gets a fresh, uncontended-ish start each time and almost always lands on the second;
+ * a monitor that is genuinely *hung* — `--once` has no fetch timeout of its own — still
+ * ends the suite, just three minutes later with three lines saying why.
+ */
+const FRAME_BUDGET_MS = 60_000;
+const FRAME_ATTEMPTS = 3;
+
+/**
+ * Raised only by this suite's own guard, so the retry below can tell "the machine was
+ * busy" apart from every other way a frame can fail. Nothing else may be retried: a
+ * sheared border is exactly as real on the second run as on the first, and retrying it
+ * would turn the regression this suite exists for into a flake.
+ */
+class FrameTimeout extends Error {}
+
 /**
  * One frame from the real program, piped — which is what makes it monochrome and 100
  * columns wide, so the output is text to be measured rather than a screen.
@@ -367,22 +390,42 @@ const url = `http://127.0.0.1:${server.address().port}`;
  * process, and `spawnSync` blocks this event loop until the child exits. The child's
  * `--once` fetch has no timeout, so the two would wait for each other forever.
  */
-function frame(target) {
+function frameOnce(target) {
   return new Promise((resolve, reject) => {
+    const started = Date.now();
     const child = spawn(process.execPath, [path.join(ROOT, 'bin/monitor.js'), '--once', '--url', target], {
       cwd: ROOT,
       env: { ...process.env, HOME: tmp, BEADCAUSE_CONFIG_DIR: CONFIG_DIR, NO_COLOR: '1' },
     });
     let out = '';
     let err = '';
+    let killed = false;
     child.stdout.setEncoding('utf8').on('data', (d) => (out += d));
     child.stderr.setEncoding('utf8').on('data', (d) => (err += d));
-    const guard = setTimeout(() => child.kill('SIGKILL'), 30_000);
+    const guard = setTimeout(() => {
+      killed = true;
+      child.kill('SIGKILL');
+    }, FRAME_BUDGET_MS);
     child.on('error', reject);
-    child.on('close', (code) => {
+    child.on('close', (code, signal) => {
       clearTimeout(guard);
+      const secs = Math.round((Date.now() - started) / 1000);
       try {
-        assert.equal(code, 0, `monitor --once exited ${code}\n${err}`);
+        // A child that dies on a signal has no exit code at all — `code` is null, and
+        // `exited null` names the one thing that did not happen. Say what did.
+        if (killed) {
+          throw new FrameTimeout(
+            `monitor --once was killed by this suite's own ${FRAME_BUDGET_MS / 1000}s guard after ${secs}s ` +
+              `— the laptop was busy, not the frame${err ? `\n${err}` : ''}`
+          );
+        }
+        assert.equal(
+          code,
+          0,
+          signal
+            ? `monitor --once was killed by ${signal} after ${secs}s (not by this suite)\n${err}`
+            : `monitor --once exited ${code}\n${err}`
+        );
         const all = out.split('\n').filter((l) => l.length);
         // The frame starts at the top border. Anything above it is `loadConfig()`
         // narrating on stdout, which is not the box and is not this suite's business.
@@ -396,6 +439,18 @@ function frame(target) {
       }
     });
   });
+}
+
+/** `frameOnce`, plus the retry that only a timeout is allowed to take. */
+async function frame(target, what) {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await frameOnce(target);
+    } catch (e) {
+      if (!(e instanceof FrameTimeout) || attempt === FRAME_ATTEMPTS) throw e;
+      console.log(`      (attempt ${attempt} of ${what}: ${e.message.split('\n')[0]}; again)`);
+    }
+  }
 }
 
 const OPENS = new Set(['│', '┌', '├', '└']);
@@ -422,7 +477,7 @@ function assertSquare(lines, what) {
   }
 }
 
-const live = await frame(url);
+const live = await frame(url, 'a live frame');
 assertSquare(live, 'a live frame');
 
 // The hostile content really did reach the screen — a frame that quietly dropped the
@@ -439,7 +494,7 @@ assert.ok(text.includes('⦿ observing'), 'the observing badge never reached the
 // And the frame drawn when there is nothing to draw: no spaces, no questions, no
 // events, and an offline banner instead of a connection. Same box.
 server.close();
-assertSquare(await frame('http://127.0.0.1:1'), 'an offline frame');
+assertSquare(await frame('http://127.0.0.1:1', 'an offline frame'), 'an offline frame');
 
 fs.rmSync(tmp, { recursive: true, force: true });
 

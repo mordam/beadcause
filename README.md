@@ -10363,6 +10363,51 @@ one. The half that can be had without one is measured for real, by pointing the 
 at a binary that does not exist and asserting on both the message and the absent profile
 directory.
 
+### A guard that fires must say what it is — `test/monitorwidth.mjs`
+
+The width suite ends by running the real program: `node bin/monitor.js --once` against a
+fake daemon, twice, with every rendered line measured. Around each of those it arms a
+`setTimeout(… child.kill('SIGKILL') …)`, because `--once` does a cold `fetch` with no
+timeout of its own and a daemon that accepts without answering would otherwise hang the
+suite forever.
+
+The budget was 30 seconds and there was no retry, and what came out when it ran out was
+this:
+
+```
+  AssertionError: monitor --once exited null
+  null !== 0
+```
+
+**`null` is not an exit code.** A child that dies on a signal has no exit status at all,
+so `code` is null and `signal` holds what killed it — and the message named the one thing
+that had not happened, in the voice of the width assertion the suite is actually for. One
+`monitor --once` costs 1.5–3s of node startup and module load on a laptop that is merely
+busy; under a full 100-suite run, with twenty agent sessions each doing the same, that
+multiplies until 30s is not enough. bc-uvhh is the bead: the run died at suite 57 of 100
+and the 43 after it never ran, on a tree where nothing had touched the monitor.
+
+That last part is the cost, and it is the same one `test/helpers/tmp.mjs` above exists
+for. A red suite is how every session here decides whether its own diff is safe to
+deliver, so an unexplained one either buys a second four-minute run or — worse — gets
+talked past, and talking past it correctly requires knowing what `null` means. Both
+readings are the same sentence.
+
+So the guard now says which it was, and gets asked again before it gives up:
+
+| | |
+|---|---|
+| `FRAME_BUDGET_MS` | 60s, twice the old budget, per attempt. |
+| `FRAME_ATTEMPTS` | 3. Three at 60s rather than one at 180s: a *slow* monitor gets a fresh start and lands on the second, while a genuinely *hung* one still fails, three minutes later and explaining itself the whole way. |
+| `FrameTimeout` | Raised only by the guard, and the **only** thing the retry will accept. A sheared border is exactly as real on the second run as on the first, so retrying anything else would turn the regression this suite exists for into a flake. |
+
+A frame killed by something that is not this suite — a runner SIGTERM, the OOM killer —
+names that signal instead, and a monitor that really did exit non-zero still reports its
+code and is not retried. The failing message now reads `monitor --once was killed by this
+suite's own 60s guard after 61s — the laptop was busy, not the frame`, which is a
+diagnosis rather than a puzzle, and the retries announce themselves on stdout as they
+happen so a slow run does not look like a hung one.
+
 ### `npm run checks` — the browser half, and why `npm test` can still see it rot
 
 The twenty-eight `scripts/*-check.mjs` are the only cover this repo has for layout, taps
