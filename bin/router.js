@@ -406,6 +406,34 @@ function retire(be) {
 }
 
 /**
+ * Tell the error-reporting quiet window that the port has just changed hands.
+ *
+ * bc-kttd. `lib/deploy.js` holds `POST /api/error` off across a deploy by reading the
+ * deploy journal, and a swap writes nothing into it — so a hand-run `npm run swap`, and
+ * every automatic one this file does when `lib/` moves, produced exactly the storm that
+ * mechanism exists to stop: a handful of failures that happened a moment before the new
+ * backend became healthy, described to it afterwards, each one a P0 in front of the
+ * advocate. `markRestart` leaves the one fact that costs, and lib/deploy.js explains at
+ * length why it is a file of its own rather than a fake deploy.
+ *
+ * **Lazily imported and never fatal**, for the reason at the top of this file and the
+ * reason `armCrashHandlers` gives at more length: lib/deploy.js reaches lib/session.js
+ * and so an import cycle, and none of that may stand between this process and the port.
+ * By the time this is first called that module is already in the cache — `armCrashHandlers`
+ * awaits it before the first `bringUp` — so the write lands on the next microtask, well
+ * ahead of any phone noticing it was ever gone.
+ *
+ * **At the handover, not at the spawn.** A build that is merely slow is started, timed
+ * out and retried while the old backend serves perfectly; marking those would hush a
+ * daemon that never moved. Only the assignment to `active` is the service changing hands.
+ */
+function noteRestart(be, reason) {
+  import('../lib/deploy.js')
+    .then(({ markRestart }) => markRestart({ build: be.build, pid: be.pid, reason }))
+    .catch((err) => warn(`could not record the handover (${err.message}) — the reconnect after this swap may file beads`));
+}
+
+/**
  * A backend went away on its own: a crash, an OOM, or its own orphan guard.
  *
  * Only the active one is worth reacting to — a draining backend exiting is the
@@ -465,6 +493,10 @@ async function bringUp(reason) {
 
     const previous = active;
     active = next;
+    // Before the log line and before the old one is retired: from here the phone is
+    // talking to a process that was not there a moment ago, and the reconnect it is
+    // about to make must not be a dozen beads. See `noteRestart`.
+    noteRestart(next, reason);
     poisoned = null;
     deferred = null;
     deferrals = 0;
