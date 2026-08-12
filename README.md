@@ -10893,6 +10893,7 @@ session-log archive and the survey agent that proposes work all still run in the
 workspace's default repo. Those are housekeeping in a checkout rather than questions
 about the queue, and each wants its own answer about what "all of them" means for a
 worktree attic — filed rather than guessed at.
+
 ### Every window and every card says which checkout it came up in
 
 Resolving a bead to a directory is half of it. The other half is that the things which
@@ -11083,7 +11084,9 @@ the `12 checkouts, one answer` tag in the panel above the settings. The argument
 `lib/spaces.js`, above `autoDispatchAllowed`, where anybody about to add the override will
 read it; `node test/spacedetails.mjs` holds both halves, including a check that the five
 resolvers still take nothing finer than a workspace, so the decision has to be revisited
-deliberately rather than drifted through.### Environment
+deliberately rather than drifted through.
+
+### Environment
 
 | variable | meaning |
 |---|---|
