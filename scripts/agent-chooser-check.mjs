@@ -229,8 +229,9 @@ const BOX = `(() => {
   // The composer as a whole, and the brief above it. On a phone these are two
   // consecutive rows of the card, and the brief is its own scroller — so the thread
   // inside it has no fixed position to measure against, and the brief's own bottom
-  // edge is what stands in for "where the reading stops". The last `.comment` used
-  // to be read here; see the placement checks for why it no longer can be.
+  // edge is what stands in for "where the reading stops". The last .comment used to
+  // be read here; see the placement checks below for why it no longer can be. (No
+  // backticks in this comment: it lives inside a template literal.)
   const freeform = document.querySelector('.freeform');
   const brief = document.querySelector('.card.open > .brief');
   const r = (e) => { if (!e) return null; const b = e.getBoundingClientRect();
