@@ -36,6 +36,7 @@ import path from 'node:path';
 import { execFile, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
+import { removeTreeSync } from './helpers/tmp.mjs';
 
 const run = promisify(execFile);
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -86,7 +87,7 @@ const rejects = async (name, fn, match) => {
 const store = fs.mkdtempSync(path.join(os.tmpdir(), 'beadcause-memory-'));
 process.env.BEADCAUSE_CONFIG_DIR = store;
 process.env.BEADCAUSE_AGENT = 'advocate';
-process.on('exit', () => fs.rmSync(store, { recursive: true, force: true }));
+process.on('exit', () => removeTreeSync(store));
 
 const git = (...args) => execFileSync('git', ['-C', store, ...args], { encoding: 'utf8' }).trim();
 

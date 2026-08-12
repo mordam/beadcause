@@ -79,6 +79,7 @@ import {
   nextSlowness,
   outageRetryMs,
 } from '../lib/startup.js';
+import { removeTreeSync } from './helpers/tmp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(HERE, '..');
@@ -321,7 +322,7 @@ const env = { ...process.env, BEADCAUSE_CONFIG_DIR: dir };
 let router = null;
 const cleanup = () => {
   if (router && !router.killed) router.kill('SIGKILL');
-  fs.rmSync(dir, { recursive: true, force: true });
+  removeTreeSync(dir);
 };
 process.on('exit', cleanup);
 process.on('SIGINT', () => process.exit(130));

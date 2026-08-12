@@ -54,6 +54,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { cleanupTmp } from './helpers/tmp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const DELIVER = path.join(HERE, '..', 'bin', 'deliver.js');
@@ -547,6 +548,6 @@ console.log('\nre-delivering the same branch\n');
   check('and nothing was asked to merge', !/"merge"/.test(calls), calls.split('\n').filter(Boolean).join(' | '));
 }
 
-fs.rmSync(tmp, { recursive: true, force: true });
+await cleanupTmp(tmp);
 console.log(failures ? `\n${failures} of ${ran} failed\n` : `\nall ${ran} passed\n`);
 process.exit(failures ? 1 : 0);
