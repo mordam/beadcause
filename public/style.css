@@ -2646,10 +2646,10 @@ button.work-row {
 
 /* How a closed bead ended, straight under its pills. The pill says "closed" and stops;
    this is the sentence bin/deliver.js (or an answer, or a revoke) actually wrote, and
-   this sheet is the only place in the app that shows it whole — /history clamps its own
-   copy to two lines (`.hist-why`) on the understanding that tapping the row lands here.
-   So nothing here clamps: the worst reason in this tracker is 1664 characters and the
-   sheet body already scrolls.
+   this sheet is the only place in the app that shows it whole — /history clamps its copy
+   to two lines (`.hist-why`) and is no longer even sent more than 240 characters of it,
+   both on the understanding that tapping the row lands here. So nothing here clamps: the
+   worst reason in this tracker is 1664 characters and the sheet body already scrolls.
 
    Framed rather than headed, and the frame is why it can sit above the description
    without a `.section-label` — a label there would put a full-width rule between the
@@ -4928,7 +4928,10 @@ a.pill { text-decoration: none; }
 .hist-title { font-size: 14.5px; line-height: 1.35; overflow-wrap: anywhere; }
 /* The close reason, at prose weight and clamped to two lines. Clamped rather than
    ellipsised on one: these sentences carry a PR number and a sha at the *end*, which is
-   the half a single line would throw away. */
+   the half a single line would throw away. Two lines hold 94 characters at 393px and
+   226 at the widest this page gets, which is the measurement `CLOSE_REASON_MAX` in
+   lib/history.js sits above — the payload stops at 240 so this rule stays the only
+   clamp a reader ever sees. */
 .hist-why {
   font-size: 12.5px; line-height: 1.4; color: var(--muted);
   display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
