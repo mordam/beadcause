@@ -3048,7 +3048,9 @@ it last moved, its close reason when it has one, and a marker when a session was
 for it. The reason is clamped to two lines here rather than ellipsised on one — these
 sentences carry the PR number and the sha at the *end*, which is the half a single line
 throws away — and the rest of it is one tap down, on
-[the sheet's own outcome block](#how-it-ended--the-close-reason-and-when). Tapping one
+[the sheet's own outcome block](#how-it-ended--the-close-reason-and-when), which is also
+why [the payload stops at 240 characters](#the-ledger-behind-the-history-tab) rather than
+carrying a sentence this page could never show. Tapping one
 opens the bead detail sheet that already exists — `/graph?ws=…&id=…&open=1`, the deep
 link `&open=1` was built for — so this page needed no detail view of its own and does
 not have one. The `🗄` marker leads somewhere too, one hop further on: the sheet carries
@@ -9486,7 +9488,7 @@ cookie says so), and `/auth/signout` ends the session.
 | GET | `/api/graph` | `?workspace=&id=` | `{nodes, links}` — the whole workspace with no `id` |
 | GET | `/api/bead` | `?workspace=&id=` | one issue in full, plus `comments[]` — for the graph's detail sheet |
 | GET | `/api/bead-children` | `?workspace=&id=` | `{children[]}` — every child of that bead, closed ones included, open work first. Its own route because `bd show` does not carry children |
-| GET | `/api/history` | `?workspace=` **or** `?space=`, and `&status=&priority=&provenance=&id=&limit=&offset=&refresh=1` | `{rows[], total, limit, offset, more, workspaces[], errors[], workspace, space, query}` — [the ledger](#the-ledger-behind-the-history-tab): every bead a space has ever had, closed and deferred included, newest-**updated** first, paged. The four filters are optional and compose; each row carries `hasSession`, whether a session was archived for it. A bad `status` or `priority` is a 400 naming the word rather than an empty list, an unknown `workspace` a 400 and an unknown `space` a 404 — but a space with no beads is `{rows: [], total: 0, more: false}` and a 200. Cached ten seconds per workspace; `refresh=1` forces the sweep |
+| GET | `/api/history` | `?workspace=` **or** `?space=`, and `&status=&priority=&provenance=&id=&limit=&offset=&refresh=1` | `{rows[], total, limit, offset, more, workspaces[], errors[], workspace, space, query}` — [the ledger](#the-ledger-behind-the-history-tab): every bead a space has ever had, closed and deferred included, newest-**updated** first, paged. The four filters are optional and compose; each row carries `hasSession`, whether a session was archived for it, and a `closeReason` cut to 240 characters on a word boundary — two lines of the row hold 226 at the widest, and the whole sentence is on the sheet the row links to. A bad `status` or `priority` is a 400 naming the word rather than an empty list, an unknown `workspace` a 400 and an unknown `space` a 404 — but a space with no beads is `{rows: [], total: 0, more: false}` and a 200. Cached ten seconds per workspace; `refresh=1` forces the sweep |
 | GET | `/api/unendorsed` | `?refresh=1` | `{beads[], counts, truncated, errors[]}` — the endorsement queue: every held bead in every workspace, newest first, each carrying the whole card (description, acceptance, the agent's provenance note) and `from`, the bead it was discovered under. No `workspace` parameter — the space picker narrows it on the client. Cached for a few seconds; a verdict drops that cache |
 | POST | `/api/bead/endorse` | `{workspace, id}` or `{workspace, ids[]}` | takes the `unendorsed` marker off, so the bead becomes ordinary work an advocate will queue and a session can be opened on. **Idempotent** — two taps are one endorsement, no error, no second write — and the one verdict that may be aimed at a bead that is not held |
 | POST | `/api/bead/revoke` | `{workspace, ids[], reason?}` | closes it with your reason under a fixed prefix, and **leaves the marker on**: what an agent filed and what you thought of it both stay on the record. A bead already closed is `already: true` rather than an error; one already endorsed is a `409` |
@@ -9624,6 +9626,29 @@ one more for every page of the scroll. Swept once and filtered in process it is 
 row, not bd's payload: a `bd list --json` row carries description, acceptance, design and
 notes, which is 1.5MB for 503 beads and none of it drawn by a list. A page of five rows
 goes out as 3KB.
+
+**The close reason is cut to 240 characters, and that is a measurement rather than a
+round number.** It is the one piece of long prose a row does draw, and it used to go out
+whole — 1664 characters on the worst bead here. That was right at the time: the bead
+detail sheet rendered `close_reason` nowhere, so there was no "tap through for the rest"
+to clamp *towards*, and cutting it in the payload would have put the sentence nowhere in
+the app at all. [The sheet's outcome block](#how-it-ended--the-close-reason-and-when)
+removed that reason — a closed bead now shows its whole reason there, and every row of
+this ledger already links straight at it. So the row's copy became a preview of something
+one tap away, and a preview only has to be as long as the preview can show.
+`.hist-why` clamps to two lines in CSS, and two lines were measured in a headless Chrome
+at **94 characters** on a 393px phone and **226** at the widest this page can ever be
+(`main.work` caps at 780px, so that is a ceiling and not a wide-monitor figure). 240 sits
+just above the ceiling on purpose: the CSS clamp stays the only clamp anybody sees, at
+every width, and the payload one only ever drops text that was already undrawable. Over
+the 600 beads in this repo that takes a fifty-row page's close reasons from 5454 bytes to
+3321 — 39% off the field that dominates a ledger page, on a screen that pages fifty rows
+at a time over a phone link. It cuts on a word boundary and appends `…`, which matters
+for the reader that is not looking at pixels: `-webkit-line-clamp` hides text visually but
+a screen reader still reads all of it, so the ellipsis is the only thing that says the
+sentence continues. Nothing here filters or searches on the field — the id filter is the
+only text one — so a clamped copy costs no behaviour, and `/api/bead` still hands the
+sheet bd's issue verbatim.
 
 **That one sweep is the slow part, and it is slower than it looks.** ~1s for 503 beads on
 an idle Mac, and **28.6s** measured under a load average of 33 — twenty agent sessions and
