@@ -71,6 +71,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { ownAddresseeLabels } from '../lib/addressee.js';
 import { parseJson } from '../lib/bd.js';
 import { loadConfig } from '../lib/config.js';
 import { inspectBranch, report as conflictReport } from '../lib/conflicted.js';
@@ -773,6 +774,11 @@ const out = bd([
   'human',
   '--label',
   DELIVERY_LABEL,
+  // Whose merge this is, when a tracker is shared: the machine the worker ran on. A
+  // delivery is the clearest case there is — the branch is on this laptop and the
+  // session that wrote it was opened here. Nothing at all when `me` is unset, which is
+  // every single-person install; see lib/addressee.js.
+  ...ownAddresseeLabels(cfg).flatMap((l) => ['--label', l]),
   '--description',
   deliveryBody(delivery, {
     context: `**${request.files ?? 0} file${request.files === 1 ? '' : 's'}**, +${request.additions ?? 0} −${request.deletions ?? 0}, ${ahead} commit${ahead === 1 ? '' : 's'}.`,

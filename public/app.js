@@ -518,15 +518,18 @@
   }
 
   /**
-   * This card got here without making a noise — and which of the two kinds of quiet
+   * This card got here without making a noise — and which of the three kinds of quiet
    * it was.
    *
-   * **Two silences that read identically until you say which.** A bead outside the
-   * inbox filter and a bead in a muted space both arrive, both file, both count, and
-   * both leave the phone dark (see `quietReasonFor` on the server). The difference is
-   * the whole of what you can do about it: a mute ends on a clock and there is nothing
-   * to press, a filter ends when you press **All**. Before this the distinction lived
-   * only in the daemon's log, which is not a thing anyone reads from a phone at 2am.
+   * **Silences that read identically until you say which.** A bead outside the inbox
+   * filter, a bead in a muted space and a bead somebody else was asked all arrive, all
+   * file, all count, and all leave the phone dark (see `quietReasonFor` on the server).
+   * The difference is the whole of what you can do about it: a mute ends on a clock and
+   * there is nothing to press, a filter ends when you press **All**, and an addressed
+   * question is on another engineer's phone and is not yours to fix at all — which is
+   * exactly the sentence worth having, because it is the one that stops you widening a
+   * filter that was never hiding anything. Before this the distinction lived only in the
+   * daemon's log, which is not a thing anyone reads from a phone at 2am.
    *
    * **And it is what stops the pile reading as a rush.** Widen the filter and every
    * bead it was hiding appears at once, in a list ordered by priority — indistinguish-
@@ -548,12 +551,16 @@
     const a = q.arrivedQuiet;
     if (!a) return '';
     const when = relTime(a.at);
+    const who = (a.for || []).join(', ');
     const why =
-      a.reason === 'muted'
-        ? `${a.space ? esc(a.space) : 'that space'} was muted`
-        : `hidden by the inbox filter${a.filter && a.filter !== 'all' ? ` — ${esc(a.filter)}` : ''}`;
+      a.reason === 'addressed'
+        ? `asked of ${who ? esc(who) : 'somebody else'}`
+        : a.reason === 'muted'
+          ? `${a.space ? esc(a.space) : 'that space'} was muted`
+          : `hidden by the inbox filter${a.filter && a.filter !== 'all' ? ` — ${esc(a.filter)}` : ''}`;
+    const mark = { addressed: '📮', muted: '🔕' }[a.reason] || '🔇';
     return `<p class="quiet-note">
-      <span aria-hidden="true">${a.reason === 'muted' ? '🔕' : '🔇'}</span>
+      <span aria-hidden="true">${mark}</span>
       <span>Arrived quietly${when ? ` ${esc(when)}` : ''} · ${why}</span>
     </p>`;
   }
