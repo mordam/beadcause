@@ -427,7 +427,16 @@ await check('the same error forever stops at the cap', async () => {
     'and it says which guard stopped it'
   );
   assert.equal(issues().length, 1, 'still one bead');
-  assert.equal(issues()[0].comments.length, PER_ERROR_CAP - 1, 'with a bounded number of occurrence comments');
+  // One comment rather than `PER_ERROR_CAP - 1` of them: the first repeat is written and
+  // opens a coalescing window, and the occurrences inside it are counted rather than
+  // commented (bc-5f9b, lib/errors.js). This cap is the guard in front of that one, and
+  // it is the reason a *daemon* in a loop was never the worst case here.
+  assert.equal(issues()[0].comments.length, 1, 'with a bounded number of occurrence comments');
+  assert.deepEqual(
+    outcomes.slice(0, PER_ERROR_CAP).map((o) => o.action),
+    ['created', 'commented', ...Array(PER_ERROR_CAP - 2).fill('coalesced')],
+    'one bead, one comment, and a count for the rest'
+  );
 });
 
 /* ------------------------------------------------------------------- shutdown */
