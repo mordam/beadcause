@@ -7075,6 +7075,43 @@ covers the tiebreak and the expiry, and `node test/leasequeue.mjs` drives two ad
 over one faked tracker whose label store is per machine until a sync unions it, which is
 the only shape in which the race can be staged at all.
 
+#### …and the subtree under it
+
+A claim is written on **one** bead, and for most of a day that is all a window is
+responsible for. It is not always: an advocate can hand one worker an epic *and its ready
+children*, brief it on all of them and let it sequence them — and that window leases the
+epic, because the epic is what it was launched on. Every other machine then sees the
+children exactly as it would see unclaimed work. Nothing labels them, and the worker that
+would have held them back is in an `a.workers` on somebody else's laptop.
+
+So the second Mac holds the epic correctly, opens a window on the first child, and the
+subtree has two windows on two branches — which is the duplicate this whole section exists
+to prevent, one level down. **A live claim on any ancestor of a bead therefore holds that
+bead**, and both halves of the rule ask it:
+
+- **Before a window opens**, as part of the same filter. The bead's own labels are answered
+  from the `bd ready` rows that are already in hand; the ancestors' are read only when the
+  bead has one, which most do not, and once per ancestor per pass however many of its
+  children are in the queue. A leased ancestor is usually the bead somebody is *working*,
+  so it is out of `bd ready` and costs one `bd show` — an install with no `me` asks nothing
+  at all.
+- **And after one has**, because the pre-launch half cannot reach the race that matters:
+  the collision happens *before* either machine has synced. One Mac takes the epic, the
+  other takes a child, and neither could see the other when it launched. The sync makes it
+  visible, and the tick after it is where the machine inside the subtree stands its window
+  down — while the machine above stands nobody down, which is what keeps the answer at
+  exactly one and not zero.
+
+The asymmetry is the tiebreak here, and it is deliberately blunter than the local rule that
+holds a parent back while its children are the work. About a window
+on *this* laptop there is a whole worker record to consult; about a window on another there
+is one label, which says a machine and a moment and nothing about what that window took on.
+Given only that, holding the subtree is the cheaper mistake — and a self-cancelling one: the
+claim comes off when that worker ends, expires on `leaseMinutes` if the Mac went to sleep,
+and says whose it is on the card the entire time it lasts. The cases are in
+`node test/leasequeue.mjs`, including the read count, the sibling that is *not* held, and
+the two-machine race resolved after a sync.
+
 ### The session log, kept in the repo
 
 A session's window closes when it exits, the rendered log in `~/.config/beadcause/`
