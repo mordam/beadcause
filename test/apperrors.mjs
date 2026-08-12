@@ -41,6 +41,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { boundPort } from './helpers/net.mjs';
+import { cleanupTmp } from './helpers/tmp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const LIB = (name) => path.join(HERE, '..', 'lib', name);
@@ -321,7 +322,7 @@ await check('the first report files a P0 bug, endorsed, labelled as a class', as
   );
   assert.ok(bead.description.includes('app.js:3315'), 'the readable fingerprint is on the bead');
   assert.ok(bead.description.includes(REPORT.userAgent), 'along with everything the report carried');
-  assert.doesNotMatch(bead.notes, /auto-endorsement is on for this space/, 'and it does not blame a space setting');
+  assert.doesNotMatch(bead.notes, /auto-endorsement is on for this repo/, 'and it does not blame a policy setting');
   assert.match(bead.notes, /it is a program that failed/, 'it says why it arrived endorsed in its own words');
 });
 
@@ -694,7 +695,7 @@ await check('the endpoint is registered once, on POST', async () => {
 /* -------------------------------------------------------------------- the result */
 
 for (const s of servers) s.close();
-fs.rmSync(tmp, { recursive: true, force: true });
+await cleanupTmp(tmp);
 
 console.log(`\n${ran - failures}/${ran} checks passed\n`);
 process.exit(failures ? 1 : 0);

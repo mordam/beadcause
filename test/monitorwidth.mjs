@@ -40,6 +40,7 @@ import { fileURLToPath } from 'node:url';
 
 import { dw, cut, clusterWidth, graphemes, WIDE, ZERO } from '../lib/width.js';
 import { PHASES } from '../lib/activity.js';
+import { cleanupTmp } from './helpers/tmp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(HERE, '..');
@@ -496,7 +497,7 @@ assert.ok(text.includes('⦿ observing'), 'the observing badge never reached the
 server.close();
 assertSquare(await frame('http://127.0.0.1:1', 'an offline frame'), 'an offline frame');
 
-fs.rmSync(tmp, { recursive: true, force: true });
+await cleanupTmp(tmp);
 
 console.log(
   `✓ monitor width — ${printed.size} printed glyphs against Unicode, ${CORPUS.length} measured by hand, ` +

@@ -45,6 +45,7 @@ import path from 'node:path';
 import vm from 'node:vm';
 import { fileURLToPath } from 'node:url';
 import { boundPort } from './helpers/net.mjs';
+import { cleanupTmp } from './helpers/tmp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(HERE, '..');
@@ -343,7 +344,7 @@ check('a change made on the other device arrives through adopt and is announced 
 /* Which pages have the bar, and the one that deliberately does not: admin acts on every
    repo at once (see the header of public/admin.js), and a control it ignored would be a
    lie about what its buttons do. */
-const PAGES = ['index.html', 'prs.html', 'monitor.html', 'console.html', 'foundations.html'];
+const PAGES = ['index.html', 'monitor.html', 'console.html', 'foundations.html'];
 
 check('every page with a filterable list loads /spacebar.js', () => {
   const missing = PAGES.filter((p) => !read(`public/${p}`).includes('/spacebar.js'));
@@ -472,7 +473,7 @@ check('and the picker writes through the endpoint the chips always used', () => 
 });
 
 servers.forEach((s) => s.close());
-fs.rmSync(tmp, { recursive: true, force: true });
+await cleanupTmp(tmp);
 
 console.log(failures ? `\n\x1b[31m${failures} of ${ran} failed\x1b[0m\n` : `\n${ran} passed\n`);
 process.exit(failures ? 1 : 0);

@@ -41,6 +41,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { boundPort } from './helpers/net.mjs';
+import { cleanupTmp } from './helpers/tmp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const LIB = (name) => path.join(HERE, '..', 'lib', name);
@@ -583,5 +584,5 @@ await check('an unknown workspace is a 400, and one title cannot be given to a g
 
 console.log(`\n${ran - failures}/${ran} passed\n`);
 for (const s of servers || []) s.close?.();
-fs.rmSync(tmp, { recursive: true, force: true });
+await cleanupTmp(tmp);
 process.exit(failures ? 1 : 0);

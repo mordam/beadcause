@@ -35,12 +35,13 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { removeTreeSync } from './helpers/tmp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const LIB = (f) => path.join(HERE, '..', 'lib', f);
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'beadcause-inmain-'));
-process.on('exit', () => fs.rmSync(tmp, { recursive: true, force: true }));
+process.on('exit', () => removeTreeSync(tmp));
 
 // Before the first import that reaches lib/config.js, which fixes CONFIG_DIR at module
 // load: the advocate state file must land in the temp directory and not in the one this

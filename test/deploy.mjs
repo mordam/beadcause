@@ -29,6 +29,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync, spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { cleanupTmp } from './helpers/tmp.mjs';
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'beadcause-deploy-'));
 // Before anything under lib/ is imported: CONFIG_DIR resolves once, at module load.
@@ -532,6 +533,6 @@ await check('a deploy still running is not announced', async () => {
 
 /* --------------------------------------------------------------------- exit */
 
-fs.rmSync(tmp, { recursive: true, force: true });
+await cleanupTmp(tmp);
 console.log(`\n${ran - failures}/${ran} passed`);
 process.exit(failures ? 1 : 0);

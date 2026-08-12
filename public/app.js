@@ -35,6 +35,11 @@
     // is empty *because nobody could ask* is the one thing this app must never draw as
     // "nothing to decide".
     trouble: [],
+    // And the repos that read perfectly and are no longer the same tracker as the
+    // machine they share one with (lib/sync.js). Separate from `trouble` all the way to
+    // the screen, because the two are opposite claims about the list below them — see
+    // `syncTroubleHtml`.
+    syncTrouble: [],
     spaces: [],
     // Every configured workspace, which the inbox needs for one thing only: ＋ has to
     // know where to start a conversation, and "the repos in the selected space" is a
@@ -513,15 +518,18 @@
   }
 
   /**
-   * This card got here without making a noise — and which of the two kinds of quiet
+   * This card got here without making a noise — and which of the three kinds of quiet
    * it was.
    *
-   * **Two silences that read identically until you say which.** A bead outside the
-   * inbox filter and a bead in a muted space both arrive, both file, both count, and
-   * both leave the phone dark (see `quietReasonFor` on the server). The difference is
-   * the whole of what you can do about it: a mute ends on a clock and there is nothing
-   * to press, a filter ends when you press **All**. Before this the distinction lived
-   * only in the daemon's log, which is not a thing anyone reads from a phone at 2am.
+   * **Silences that read identically until you say which.** A bead outside the inbox
+   * filter, a bead in a muted space and a bead somebody else was asked all arrive, all
+   * file, all count, and all leave the phone dark (see `quietReasonFor` on the server).
+   * The difference is the whole of what you can do about it: a mute ends on a clock and
+   * there is nothing to press, a filter ends when you press **All**, and an addressed
+   * question is on another engineer's phone and is not yours to fix at all — which is
+   * exactly the sentence worth having, because it is the one that stops you widening a
+   * filter that was never hiding anything. Before this the distinction lived only in the
+   * daemon's log, which is not a thing anyone reads from a phone at 2am.
    *
    * **And it is what stops the pile reading as a rush.** Widen the filter and every
    * bead it was hiding appears at once, in a list ordered by priority — indistinguish-
@@ -543,12 +551,16 @@
     const a = q.arrivedQuiet;
     if (!a) return '';
     const when = relTime(a.at);
+    const who = (a.for || []).join(', ');
     const why =
-      a.reason === 'muted'
-        ? `${a.space ? esc(a.space) : 'that space'} was muted`
-        : `hidden by the inbox filter${a.filter && a.filter !== 'all' ? ` — ${esc(a.filter)}` : ''}`;
+      a.reason === 'addressed'
+        ? `asked of ${who ? esc(who) : 'somebody else'}`
+        : a.reason === 'muted'
+          ? `${a.space ? esc(a.space) : 'that space'} was muted`
+          : `hidden by the inbox filter${a.filter && a.filter !== 'all' ? ` — ${esc(a.filter)}` : ''}`;
+    const mark = { addressed: '📮', muted: '🔕' }[a.reason] || '🔇';
     return `<p class="quiet-note">
-      <span aria-hidden="true">${a.reason === 'muted' ? '🔕' : '🔇'}</span>
+      <span aria-hidden="true">${mark}</span>
       <span>Arrived quietly${when ? ` ${esc(when)}` : ''} · ${why}</span>
     </p>`;
   }
@@ -2022,6 +2034,46 @@
       <ul>${rows.map(line).join('')}</ul>
       <span class="trouble-note">Retried on every sweep. Counts on this screen are what
         was last read, not what is there now.</span>
+    </div>`;
+  }
+
+  /**
+   * The other kind of out-of-date: this repo reads perfectly and is no longer the same
+   * tracker as the machine it shares one with.
+   *
+   * Its own banner rather than a row in the one above, because the two say opposite
+   * things about the list underneath them. "Could not be read" means what you are
+   * looking at is stale, and it is honest about which repo. This one means what you are
+   * looking at is *exactly right about this Mac* — every count is real, nothing is
+   * standing in for anything — and silently missing whatever the other machines have
+   * written since it broke. There is nothing on the screen to notice, which is why it
+   * is drawn even though the list beneath it looks fine.
+   *
+   * A conflict is called out in its own words. Everything else here retries and very
+   * often fixes itself by the next interval; a conflict is two machines that wrote the
+   * same bead, and no number of retries has ever resolved one.
+   */
+  function syncTroubleHtml() {
+    const rows = (state.syncTrouble || []).filter((t) => t && t.workspace);
+    if (!rows.length) return '';
+    const conflicts = rows.filter((t) => t.conflict);
+    const line = (t) =>
+      `<li><b>${esc(t.workspace)}</b> — ${esc(t.error || 'the sync failed')}
+        <span class="trouble-held">${esc(
+          t.conflict ? 'needs somebody to say which version wins' : `retrying ${t.phase ? `the ${t.phase}` : ''}`.trim()
+        )}</span></li>`;
+    return `<div class="trouble trouble-sync" role="status">
+      <strong>${
+        conflicts.length
+          ? `${conflicts.length === 1 ? 'A tracker has' : `${conflicts.length} trackers have`} conflicted`
+          : `${rows.length === 1 ? 'A tracker is' : `${rows.length} trackers are`} not syncing`
+      }</strong>
+      <ul>${rows.map(line).join('')}</ul>
+      <span class="trouble-note">${
+        conflicts.length
+          ? 'Two machines wrote the same bead and Dolt cannot merge them. This will not clear on its own.'
+          : 'This list is right about this Mac. Anything written on another machine since it broke is not on it.'
+      }</span>
     </div>`;
   }
 
@@ -3632,6 +3684,12 @@
     // list because a caveat under forty cards is a caveat nobody reads.
     const missed = troubleHtml();
     if (missed) chunks.push({ key: '@trouble', html: missed });
+    // Directly beneath it, in the same place and for the same reason. Second of the two
+    // because it is the rarer one and because a repo can be in both at once — a locked
+    // Dolt fails the read and the sync in the same tick — and reading "could not be
+    // read" first is the order those two sentences make sense in.
+    const diverged = syncTroubleHtml();
+    if (diverged) chunks.push({ key: '@synctrouble', html: diverged });
 
     // `rows`, not `state.questions`: with no beads at all but a pull request open or a
     // conversation on the go, the list is not empty — and the first-run copy `emptyHtml`
@@ -4863,15 +4921,30 @@
       const opt = opts.find((o) => o.id === btn.dataset.opt);
       if (!opt) return;
 
+      // Whatever else on the list was armed, this tap is not its confirming tap —
+      // arming any control disarms the others, which is the rule paintArmed() exists
+      // to keep on screen. It reads as belt-and-braces here because an option arms
+      // nothing itself any more, and that is exactly how it went missing: this handler
+      // used to arm and then answer on the second tap, and when bc-l8jp.9 turned it
+      // into "fill the box", the unconditional disarm() went with the answering path
+      // and only the one guarding expand() survived. So on a card already open — the
+      // common case, because you have to see the options to tap one — the dismiss
+      // under it stayed armed and went on saying "Tap again — hides dm-1" while you
+      // picked. The next tap then means two things at once, and the two write to
+      // different endpoints: /api/answer and /api/dismiss.
+      disarm();
+
       // A closed card has no box to fill, so the tap opens it — the same move
       // `pr-changes` makes, and for the same reason: what happens next is typing.
       // Through expand() rather than openOnly(), so the brief and the thread arrive
       // with it: you are about to write an answer, and the card you write it on
       // should be the whole card.
       if (!state.open.has(key)) {
-        disarm();
         await expand(key);
       }
+      // After the expand, not before: it re-renders the list, and a repaint of the
+      // old buttons would be thrown away with them.
+      paintArmed();
       const box = listEl.querySelector(`.card[data-key="${CSS.escape(key)}"] [data-role="answer"]`);
       if (!box) return;
 
@@ -4944,8 +5017,14 @@
         // `endorsed` is the server saying this bead was being held back from every
         // agent until this tap (lib/endorse.js). Worth a word: it is a decision you
         // just made, and nothing else on this card says you made it.
+        // `repo` is the checkout the bead named, where its workspace holds several
+        // (lib/repos.js). It is usually the same word as the directory's basename and
+        // saying it outright is still worth the characters: the basename is where the
+        // window happens to be, the repo is the thing the bead said it was about.
         toast(
-          `${res.endorsed ? 'Endorsed it — session' : 'Session'} open in ${res.dir.split('/').pop()} — go to your Mac`
+          `${res.endorsed ? 'Endorsed it — session' : 'Session'} open in ${
+            res.repo?.name || res.dir.split('/').pop()
+          } — go to your Mac`
         );
       } catch (err) {
         toast(err.message, true);
@@ -5349,6 +5428,9 @@
     // each sweep rather than accumulated. Absent still means a server that predates the
     // field, and that keeps whatever is on screen.
     if (Array.isArray(data.trouble)) state.trouble = data.trouble;
+    // Same rule, same reasons: taken whole, taken when empty so it can clear itself,
+    // and absent leaves what is on screen alone for a server that predates the field.
+    if (Array.isArray(data.syncTrouble)) state.syncTrouble = data.syncTrouble;
     // What the ＋ offers when the space holds more than one repo. Kept here rather
     // than read off `data` at the tap, because the tap can happen between polls.
     if (Array.isArray(data.workspaces)) state.workspaces = data.workspaces;
@@ -5659,11 +5741,47 @@
     for (const spec of MAINTAINED) maintain(warm, spec, data, events, resync);
   }
 
+  /**
+   * A deep link that names a pull request the kind filter is hiding, made to land.
+   *
+   * Two ways it can be hidden and both are the ordinary state of the control rather than
+   * something anybody set. The **status** group's default is `unmerged`, so every merged
+   * row is out of the list by default — and a merged row that has not shipped is the
+   * whole subject of the board this link comes from (see the PRs pane on /monitor), so
+   * that is the common case and not the corner. The **kinds** group hides them whenever
+   * something else is picked and PRs is not among it.
+   *
+   * Widening rather than drawing it anyway, which is the same choice `focusHash` already
+   * makes for `scope`: a card that appeared in a list its own filter excludes would be a
+   * row you cannot explain and cannot get back to once you collapse it. The status group
+   * goes to *all* of its rungs rather than to the one this row is on, because narrowing
+   * to `merged` to show a merged pull request would take every unmerged one off the
+   * screen to make room for it — a link that hid four rows to reveal one. Both changes
+   * are visible in the control's own summary line, and both persist, exactly as the
+   * scope widening does.
+   */
+  function revealPr(row) {
+    const f = window.beadcause?.inboxFilter;
+    if (!row?.pr || !f) return;
+    if (!f.inSub(row)) {
+      const sub = (f.KINDS || []).find((k) => k.id === 'pr')?.sub;
+      if (sub) f.setSub('pr', sub.options().map((o) => o.id));
+    }
+    const kinds = f.selected();
+    // Empty is "all kinds" and is already wide enough — adding `pr` to it would *narrow*
+    // the list to pull requests alone, which is the opposite of what this is for.
+    if (kinds.length && !kinds.includes('pr')) f.set([...kinds, 'pr']);
+  }
+
   /** #workspace/id from an ntfy notification tap, or the Android shell's deep link. */
   let hashHandled = '';
   async function focusHash() {
     const key = decodeURIComponent(location.hash.replace(/^#/, ''));
     if (!key || key === hashHandled) return;
+    // Before `byKey`, which reads the board rather than the filtered list and so finds a
+    // pull request whether or not the chips would draw it. `expand` below is what would
+    // not: it opens a card `render` never made.
+    revealPr(byKey(key));
     if (!byKey(key)) {
       // A deep link always names a question, and `agent` is the one scope with no
       // questions in it — so the tap would land on a list that silently ignored it.

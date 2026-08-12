@@ -71,6 +71,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { ownAddresseeLabels } from '../lib/addressee.js';
 import { parseJson } from '../lib/bd.js';
 import { loadConfig } from '../lib/config.js';
 import { inspectBranch, report as conflictReport } from '../lib/conflicted.js';
@@ -80,7 +81,9 @@ import { deployFor, deployHint } from '../lib/deploy.js';
 import { landedReason } from '../lib/landed.js';
 import { pushLanded } from '../lib/notify.js';
 import { oweClose } from '../lib/owed.js';
+import { park, questionType } from '../lib/park.js';
 import * as pr from '../lib/pr.js';
+import { baseFor } from '../lib/prbase.js';
 import { landParent } from '../lib/prboard.js';
 import { prPolicyFor } from '../lib/spaces.js';
 
@@ -129,7 +132,7 @@ const owner = ownerName(cfg);
 const wsName = arg('--workspace', '-w');
 const beadId = arg('--bead', '-b');
 /**
- * Where it lands and how — the flag, then the config, then the built-in default.
+ * How it lands — the flag, then the config, then the built-in default.
  *
  * The config half was missing, and its absence was invisible because the literal here
  * happened to equal the default over there. `pr.mergeMethod` reached `lib/session.js`,
@@ -138,8 +141,19 @@ const beadId = arg('--bead', '-b');
  * changed the promise and not the act. Read here, the setting means what it says, and
  * the brief and the command cannot drift apart.
  */
-const base = arg('--base') || cfg.pr?.base || 'main';
 const method = mergeMethod(String(arg('--method') || cfg.pr?.mergeMethod || 'merge').toLowerCase());
+/**
+ * And *where* it lands, which is no longer one string for the whole install.
+ *
+ * `--base` still wins outright — a session delivering into something other than its
+ * repo's default branch says so on the command line. With no flag the answer comes from
+ * `baseFor` in lib/prbase.js: `pr.base` for a workspace that is one repo, and the repo's
+ * own default branch for a workspace that is forty of them. One setting cannot name
+ * forty bases, and whether they all happen to agree today is not something a delivery
+ * should be resting on — a pull request opened into the wrong base is a perfectly valid
+ * pull request, so being wrong here is silent.
+ */
+const baseFlag = arg('--base');
 const tests = arg('--tests') || '';
 const risk = arg('--risk') || '';
 const left = arg('--left') || '';
@@ -172,6 +186,8 @@ if (!ws || !beadId || has('--help') || has('-h')) {
   console.error(`workspaces: ${cfg.workspaces.map((w) => w.name).join(', ')}`);
   process.exit(1);
 }
+
+const base = baseFlag || (await baseFor(cfg, ws.name, dir));
 
 const git = (args) => execFileSync('git', args, { cwd: dir, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 }).trim();
 
@@ -281,6 +297,27 @@ const gh = await pr.available();
 if (!gh.ok) die(gh.reason, 4);
 
 /**
+ * And this particular checkout — because `gh` being installed says nothing about
+ * whether *this* repo has a GitHub remote any account here can see.
+ *
+ * It used to be found out two steps later, by `git push` failing on a missing
+ * `origin` or by `gh pr create` failing on a repo it cannot resolve. Both of those name
+ * the remote and neither names the repo, which was fine while a workspace was one
+ * checkout and the repo was never in doubt. In a workspace of forty it is exactly the
+ * half you need, so it is asked here — before the push, while a refusal is still free —
+ * and the slug is kept, because resolving it is a `gh` call and it is wanted twice more
+ * below.
+ */
+const slug = await pr.slugFor(dir);
+if (!slug) {
+  die(
+    `no GitHub repo is visible from ${dir} — nothing there opens pull requests. ` +
+      `The work is committed on ${branch}; say so on ${beadId} and leave it there.`,
+    4
+  );
+}
+
+/**
  * The pull request this delivery is about, and the repo it is in.
  *
  * Module-scope and assigned rather than declared where they are first used, because
@@ -326,7 +363,7 @@ if (nothingAhead) {
   const merged = await mergedPrFor(branch);
   if (!merged) die(`${branch} has no commits that ${upstream} does not — there is nothing to deliver`, 2);
   request = merged;
-  repoSlug = await pr.slugFor(dir);
+  repoSlug = slug;
   console.error(
     `beadcause-deliver: nothing to push — #${merged.number} was already merged into ${base}. Closing ${beadId} over it.`
   );
@@ -392,7 +429,7 @@ if (request) {
 
 /* ------------------------------------------------- the cards already open on it */
 
-repoSlug = await pr.slugFor(dir);
+repoSlug = slug;
 
 /**
  * Close every merge card already open for this pull request, before this delivery
@@ -719,18 +756,29 @@ const delivery = {
   left,
 };
 
+// Typed after the bead it is about to park, because bd will only let an epic be
+// blocked by another epic (lib/park.js) — and an epic is delivered like anything
+// else. Off the row `show` already returned rather than a second lookup. Nothing here
+// reads the card's type: every caller finds these by DELIVERY_LABEL.
+const cardType = questionType(bead.issue_type);
+
 const out = bd([
   'create',
   '--title',
   deliveryTitle(delivery),
   '--type',
-  'task',
+  cardType,
   '--priority',
   '1',
   '--label',
   'human',
   '--label',
   DELIVERY_LABEL,
+  // Whose merge this is, when a tracker is shared: the machine the worker ran on. A
+  // delivery is the clearest case there is — the branch is on this laptop and the
+  // session that wrote it was opened here. Nothing at all when `me` is unset, which is
+  // every single-person install; see lib/addressee.js.
+  ...ownAddresseeLabels(cfg).flatMap((l) => ['--label', l]),
   '--description',
   deliveryBody(delivery, {
     context: `**${request.files ?? 0} file${request.files === 1 ? '' : 's'}**, +${request.additions ?? 0} −${request.deletions ?? 0}, ${ahead} commit${ahead === 1 ? '' : 's'}.`,
@@ -755,10 +803,12 @@ const questionId = created.id || created.issue?.id;
 // The work bead waits behind the question. Without this the advocate's next tick sees
 // a bead that is open and unblocked, and opens a second session onto work that is
 // already sitting in a PR — the exact duplication the whole channel exists to stop.
-try {
-  bd(['dep', 'add', beadId, questionId]);
-} catch (err) {
-  console.error(`beadcause-deliver: filed ${questionId}, but could not park ${beadId} behind it — ${String(err.message).split('\n')[0]}`);
+// No `human` fallback here, unlike ask and propose: the work bead is about to be
+// closed by the merge, and a label nothing takes back off would leave it in the
+// inbox as a card with no question on it forever.
+{
+  const { parked, note } = park(bd, beadId, questionId, { label: false });
+  if (!parked) console.error(`beadcause-deliver: ${note}`);
 }
 
 try {

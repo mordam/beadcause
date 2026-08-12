@@ -41,6 +41,7 @@ import { fileURLToPath } from 'node:url';
 
 import { CLAIM_DIR, claimPort, freePort, releasePorts } from './helpers/net.mjs';
 import { EXITED, PORTLOST, PORT_ATTEMPTS, PORT_TAKEN_EXIT, exitKind, explain, poisonable } from '../lib/startup.js';
+import { cleanupTmp } from './helpers/tmp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(HERE, '..');
@@ -264,7 +265,7 @@ await check('a backend whose port is taken exits with PORT_TAKEN_EXIT', async ()
   });
 
   await new Promise((resolve) => squatter.close(resolve));
-  fs.rmSync(dir, { recursive: true, force: true });
+  await cleanupTmp(dir);
 
   const said = `${ran.stdout || ''}${ran.stderr || ''}`;
   assert.match(said, /EADDRINUSE/, `the log does not mention the bind at all:\n${said.slice(-2000)}`);

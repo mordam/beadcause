@@ -18,7 +18,7 @@
  * switches off is a safety property rather than a preference; what belongs here is that
  * it is a setting like the others, three-state and writable from the card.
  *
- * Five claims, and each is one nobody can make by reading the diff:
+ * Six claims, and each is one nobody can make by reading the diff:
  *
  * 1. **`null` means inherit, and it is not the same as `false`** — nor, on the Slack
  *    channel, the same as `""`. `prPolicyFor` is
@@ -44,7 +44,16 @@
  *    `ntfy.minimalWorkspaces` and `autoDispatchExclude` are per-workspace and beat a
  *    space's own answer, so a space set to `full` can contain a repo that pushes
  *    minimally. Showing the space's setting alone would be wrong about precisely the
- *    repo somebody had singled out.
+ *    repo somebody had singled out. One of those rows is now also a *control* —
+ *    `autoEndorse` has a per-repo override of its own — so the same endpoint takes a
+ *    `workspace`, and what it must not do is let a card drawn for one space write the
+ *    answer for a repo that space does not contain.
+ *
+ * 6. **A row is a workspace, and that is no longer always one repo.** Since lib/repos.js a
+ *    workspace can be forty checkouts of an org sharing one tracker. These answers stay
+ *    per space — bc-l853.7, argued above `autoDispatchAllowed` — so the card has to say
+ *    how many checkouts each single answer governs, or it understates the reach of every
+ *    setting on it by the size of the org.
  *
  * The server half runs against `createApp`, not a fake: the whole point of the endpoint
  * is that it mutates the live config object the rest of the process is holding, and a
@@ -58,6 +67,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { boundPort } from './helpers/net.mjs';
+import { cleanupTmp } from './helpers/tmp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(HERE, '..');
@@ -85,9 +95,9 @@ function check(name, fn) {
 
 console.log('\nspace details');
 
-const { readSettings, applySettings, spaceDetail, SETTINGS, prPolicyFor, isQuiet, slackChannelFor } = await import(
-  LIB('spaces.js')
-);
+const spacesMod = await import(LIB('spaces.js'));
+const { readSettings, applySettings, spaceDetail, SETTINGS, prPolicyFor, isQuiet, slackChannelFor, autoEndorseAllowed } =
+  spacesMod;
 
 /* ==================================================== 1. what a field can say */
 
@@ -286,6 +296,72 @@ check('and `Other` is not a space — it is a group the picker offers, with noth
   assert.equal(spaceDetail(RESOLVE, 'nope'), null);
 });
 
+/* ================================ 6. a workspace that is many repos, one answer */
+
+/* `lib/repos.js` made a workspace able to be forty checkouts of one org sharing a single
+   tracker, and bc-l853.7 asked whether these five answers should then differ per repo
+   inside it. The decision is that they should not — the argument is the block above
+   `autoDispatchAllowed`, and the tracker being the trust boundary is the short version.
+   What that decision *obliges* is here: one row labelled `climative`, in a panel titled
+   "what each repo resolves to", counted as one repo while the answer beside it governed
+   forty. The reach of every setting on the card was understated fortyfold on the one
+   screen where you decide whether a worker merges its own diff. */
+
+const ORG = path.join(tmp, 'org.dev');
+function checkout(name, token) {
+  const dir = path.join(ORG, name);
+  fs.mkdirSync(path.join(dir, 'config'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'config', 'config.yaml'), token === null ? `serviceName: ${name}\n` : `serviceToken: ${token}\n`);
+  return dir;
+}
+checkout('architecture', 'architecture');
+checkout('athena-service', 'as');
+// Cloned, approved, and it names no service — so no bead can reach it, and it is not a
+// checkout this answer governs.
+checkout('nameless', null);
+
+const MANY = {
+  workspaces: [{ name: 'org' }, { name: 'solo' }],
+  spaces: [{ name: 'Work', workspaces: ['org', 'solo'], autoMerge: false }],
+  repos: { org: { root: ORG, default: 'architecture', approved: ['architecture', 'athena-service', 'nameless'] } },
+};
+
+check('a row says how many checkouts its single answer governs', () => {
+  const byName = Object.fromEntries(spaceDetail(MANY, 'Work').repos.map((r) => [r.name, r]));
+  assert.equal(byName.org.checkouts, 2, 'two resolved; the one declaring no token can hold no bead and is not counted');
+  assert.equal(byName.org.autoMerge, false, 'and the answer itself is the space`s, for all of them at once');
+});
+
+check('and a workspace that is one repo says nothing new, so an old client reads what it always did', () => {
+  const solo = spaceDetail(MANY, 'Work').repos.find((r) => r.name === 'solo');
+  assert.ok(!('checkouts' in solo), 'absent, not 1 — the same payload every install has ever been sent');
+});
+
+check('an approved list that resolved to nothing says 0 rather than falling silent', () => {
+  const none = {
+    workspaces: [{ name: 'org' }],
+    spaces: [{ name: 'Work', workspaces: ['org'] }],
+    repos: { org: { root: ORG, approved: ['nameless'] } },
+  };
+  assert.equal(spaceDetail(none, 'Work').repos[0].checkouts, 0, 'a list where nothing resolved holds no work, and that is worth seeing');
+});
+
+check('the five policy answers still take a workspace and nothing finer — the decision, where it can be broken', () => {
+  // Not a style rule: an argument added here is a per-repo policy answer, and the moment
+  // one exists this panel, the README section and the space details card are all wrong
+  // about the unit. Whoever adds it should have to come through this line.
+  const { autoDispatchAllowed, autoEndorseAllowed, autoShipAllowed } = spacesMod;
+  for (const fn of [autoDispatchAllowed, autoEndorseAllowed, autoShipAllowed, prPolicyFor]) {
+    assert.equal(fn.length, 2, `${fn.name} takes (cfg, workspaceName)`);
+  }
+});
+
+check('and the card draws the count rather than leaving it in the payload', () => {
+  const js = read('public/monitor.js');
+  assert.match(js, /checkout\$\{r\.checkouts === 1 \? '' : 's'\}, one answer/, 'the row never says what it stands for');
+  assert.match(js, /'What each repo resolves to', String\(total\)/, 'the panel still counts one per row');
+});
+
 /* ================================================================ the wiring */
 
 check('the page carries the settings card and the gear to admin', () => {
@@ -456,6 +532,66 @@ check('a channel that is not a string is a 400 rather than a `true` in the confi
   assert.equal(live.spaces.find((s) => s.name === 'Work').slackChannel, 'C-TYPED', 'unchanged');
 });
 
+/* --------------------------------------------- and the same route, one level down */
+
+const repoOn = await call('/api/space', {
+  method: 'POST',
+  body: { space: 'Work', workspace: 'alpha', settings: { autoEndorse: true } },
+});
+check('a `workspace` in the body writes that repo`s own answer, not the space`s', () => {
+  assert.equal(repoOn.status, 200);
+  assert.deepEqual(repoOn.body.changed, ['autoEndorse']);
+  assert.equal(live.autoEndorsePerWorkspace.alpha, true, 'on the object the running daemon holds');
+  // The claim through the one resolver every caller uses — bin/file.js and lib/session.js
+  // included — rather than through the map it was written into.
+  assert.equal(autoEndorseAllowed(live, 'alpha'), true);
+  assert.equal(autoEndorseAllowed(live, 'beta'), false, 'and the repo beside it in the same space is untouched');
+  assert.ok(!('autoEndorse' in live.spaces.find((s) => s.name === 'Work')), 'the space itself said nothing');
+});
+
+check('the reply is the whole card, so the row that was pressed redraws with the rest', () => {
+  const byName = Object.fromEntries(repoOn.body.repos.map((r) => [r.name, r]));
+  assert.equal(byName.alpha.autoEndorseOwn, true);
+  assert.equal(byName.alpha.autoEndorse, true);
+  assert.equal(byName.beta.autoEndorseOwn, null, 'and Inherit is still the lit button on the other');
+  assert.equal(byName.beta.autoEndorseInherited, false);
+  const onDisk = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
+  assert.equal(onDisk.autoEndorsePerWorkspace.alpha, true, 'and it survives a restart');
+});
+
+const repoClear = await call('/api/space', {
+  method: 'POST',
+  body: { space: 'Work', workspace: 'alpha', settings: { autoEndorse: null } },
+});
+check('clearing a repo puts it back to following the space rather than to off', () => {
+  assert.deepEqual(repoClear.body.changed, ['autoEndorse']);
+  assert.ok(!('alpha' in live.autoEndorsePerWorkspace), 'the key is gone');
+  const onDisk = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
+  assert.ok(!('alpha' in (onDisk.autoEndorsePerWorkspace || {})), 'from the file too');
+});
+
+const foreign = await call('/api/space', {
+  method: 'POST',
+  body: { space: 'Personal', workspace: 'alpha', settings: { autoEndorse: true } },
+});
+check('a repo that is not in the space named is a 400, not a write nobody could see', () => {
+  // The card in front of one space would otherwise be able to change the answer for a
+  // repo it does not draw, and there would be nowhere the change showed up.
+  assert.equal(foreign.status, 400);
+  assert.match(foreign.body.error, /not a repo in Personal/);
+  assert.ok(!('alpha' in (live.autoEndorsePerWorkspace || {})));
+});
+
+const repoRefused = await call('/api/space', {
+  method: 'POST',
+  body: { space: 'Work', workspace: 'alpha', settings: { autoMerge: false } },
+});
+check('and a setting that does not resolve per repo is refused rather than stored somewhere odd', () => {
+  assert.equal(repoRefused.status, 400);
+  assert.match(repoRefused.body.error, /not a per-repo setting/);
+  assert.equal(prPolicyFor(live, 'alpha').autoMerge, true, 'and the space`s own answer is untouched');
+});
+
 const refused = await call('/api/space', { method: 'POST', body: { space: 'Work', settings: { name: 'Renamed' } } });
 check('a field that is not a setting is a 400 with the reason, and changes nothing', () => {
   assert.equal(refused.status, 400);
@@ -470,7 +606,7 @@ check('and a space nobody has is a 404 rather than a space quietly created', () 
 });
 
 servers.forEach((s) => s.close());
-fs.rmSync(tmp, { recursive: true, force: true });
+await cleanupTmp(tmp);
 
 console.log(failures ? `\n\x1b[31m${failures} of ${ran} failed\x1b[0m\n` : `\n${ran} passed\n`);
 process.exit(failures ? 1 : 0);

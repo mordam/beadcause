@@ -35,6 +35,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import http from 'node:http';
+import { removeTreeSync } from './helpers/tmp.mjs';
 
 /* ------------------------------------------------------- a scrubbed environment */
 
@@ -43,7 +44,7 @@ for (const k of ['BEADCAUSE_OBSERVE', 'BEADCAUSE_READONLY', 'BEADCAUSE_SLACK_BOT
 }
 const DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'beadcause-slack-'));
 process.env.BEADCAUSE_CONFIG_DIR = DIR;
-process.on('exit', () => fs.rmSync(DIR, { recursive: true, force: true }));
+process.on('exit', () => removeTreeSync(DIR));
 
 // After the env, never before: `CONFIG_DIR` resolves once, at module load.
 const { loadState, saveState } = await import('../lib/config.js');

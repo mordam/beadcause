@@ -35,6 +35,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { quiesce, removeTree } from './helpers/tmp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const LIB = (name) => path.join(HERE, '..', 'lib', name);
@@ -69,7 +70,14 @@ async function tick({ ready = [], children = {}, listLabel = [], show = null, wo
   const dir = process.env.BEADCAUSE_CONFIG_DIR;
   // A clean slate per case: state, the activity file the launch stamps, and the
   // worker markers. Otherwise case N's worker is still in case N+1's queue.
-  for (const f of fs.readdirSync(dir)) fs.rmSync(path.join(dir, f), { recursive: true, force: true });
+  //
+  // Quiesce first, and not only at the end of the suite: this runs between *every* case,
+  // so the previous case's write of advocates.json has a commit scheduled 2000ms out that
+  // would otherwise `git init` into `dir` while this loop is walking it. That is as many
+  // chances to lose the race as there are cases, and the case that loses one keeps going
+  // and then fails for a second, unrelated-looking reason.
+  await quiesce();
+  for (const f of fs.readdirSync(dir)) await removeTree(path.join(dir, f));
   if (workers.length) {
     fs.writeFileSync(path.join(dir, 'advocates.json'), JSON.stringify({ alpha: { workers, attempts: {} } }));
   }
