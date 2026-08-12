@@ -81,8 +81,17 @@ NODE_MAJOR="$(node -p 'process.versions.node.split(".")[0]')"
 BD="$(command -v bd || true)"
 [ -n "$BD" ] || die "the beads CLI (bd) is not on your PATH. Install it first — beadcause is a front-end for it."
 
+# Said as a warning rather than a failure, because the tracker step below may be about to
+# create one — a second engineer's Mac has no ~/beads at all, and on that machine this is
+# a note about what is coming rather than a problem with the install.
 if [ ! -d "$HOME/beads" ]; then
-  warn "no ~/beads directory: beadcause serves every ~/beads/*/.beads workspace and will find none."
+  if [ -f "$ROOT/team.json" ]; then
+    say "no ~/beads yet — the team's tracker is named in team.json and comes next"
+  else
+    warn "no ~/beads directory: beadcause serves every ~/beads/*/.beads workspace and will find none."
+    warn "make one (bd init in ~/beads/<name>), or name the team's tracker in team.json — see"
+    warn "\"Onboarding a second engineer\" in the README."
+  fi
 fi
 
 command -v tailscale >/dev/null 2>&1 || \
@@ -92,6 +101,33 @@ command -v tailscale >/dev/null 2>&1 || \
 
 say "installing dependencies"
 ( cd "$ROOT" && npm install --silent )
+
+# ------------------------------------------------------------- the team's tracker
+
+# Before the questions, deliberately: a second engineer's Mac has no workspace at all, so
+# `discoverWorkspaces()` finds nothing, `configure.js` prints "No beads workspaces found"
+# and exits, and the daemon comes up serving an empty inbox with nothing wrong with it.
+# This is what puts the tracker there — from `team.json`, which is committed so that six
+# engineers get one answer rather than six — and it needs node_modules, so it runs after
+# the install above and not with the other prerequisites.
+#
+# With no team.json it prints one line and does nothing, which is every solo install.
+#
+# The exit code is read rather than ignored, and 1 is fatal. `1` means a *decision* is
+# needed — most often a private tracker sitting where the team's goes, which `bd bootstrap`
+# will not clone over, so the first sync would ask Dolt to merge two unrelated histories
+# and conflict on every tick from then on. Better to stop here, where nothing has been
+# booted out and the running service is untouched, than to hand somebody that. `2` is a
+# step that failed and may work next time — no network, ssh locked — and the daemon's own
+# sync banner keeps saying so, so the install carries on.
+ONBOARD_RC=0
+( cd "$ROOT" && node scripts/onboard.mjs --yes ) || ONBOARD_RC=$?
+if [ "$ONBOARD_RC" = 1 ]; then
+  warn "the service was left exactly as it was; nothing has been loaded or unloaded."
+  die "the team's tracker needs a decision first — see above, then re-run this."
+elif [ "$ONBOARD_RC" != 0 ]; then
+  warn "the team's tracker is not set up yet (npm run onboard, exit $ONBOARD_RC) — carrying on."
+fi
 
 # ------------------------------------------------------------------- configure
 
@@ -433,6 +469,9 @@ bin/router.js, which cannot replace itself — it says so in the log when it cha
 
   npm run uninstall-service                      # remove it again
   npm run install-service -- --non-interactive   # re-run this without the questions
+  npm run onboard -- --dry-run                   # is this Mac pointed at the team's tracker?
 
-Config (token, ntfy topic, workspaces) lives in ~/.config/beadcause/config.json.
+Config (token, ntfy topic, workspaces) lives in ~/.config/beadcause/config.json. What is
+shared with the rest of the team — which trackers, and the policy that has to match on
+every Mac — lives in team.json in this checkout.
 NEXT
