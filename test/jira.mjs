@@ -82,7 +82,17 @@ function fakeBd(values = {}) {
   };
 }
 
-/** A fetch that answers from a script and records every request it was given. */
+/**
+ * A fetch that answers from a script and records every request it was given.
+ *
+ * The body is served as **text**, because that is what the client reads: lib/atlassian.js
+ * takes `res.text()` once and parses it itself, since a response body is a stream that
+ * cannot be read twice and the error path wants the same bytes the success path does. A
+ * fixture that only knew how to `json()` would be one no real response resembles.
+ *
+ * `notJson` is therefore what a captive proxy actually looks like from in here — a 200,
+ * and HTML — rather than a `json()` that throws, which is a shape nothing produces.
+ */
 function fakeFetch(reply) {
   const seen = [];
   const impl = async (url, init) => {
@@ -92,10 +102,7 @@ function fakeFetch(reply) {
     return {
       ok: r.status >= 200 && r.status < 300,
       status: r.status,
-      json: async () => {
-        if (r.notJson) throw new Error('Unexpected token < in JSON at position 0');
-        return r.body;
-      },
+      text: async () => (r.notJson ? '<!doctype html><title>Sign in to the proxy</title>' : JSON.stringify(r.body ?? null)),
     };
   };
   impl.seen = seen;
@@ -162,6 +169,38 @@ console.log('\nthe credential');
   check('the environment wins, because it leaves no copy on disk', jira.readToken('climative') === 'from-the-environment');
   delete process.env.JIRA_API_TOKEN;
   check('and putting it back restores the file', jira.readToken('climative') === 'secret-token');
+}
+
+/* The option lib/confluence.js has always had as `apiTokenFile`, and the hole it opens.
+   Until bc-jv4p the file was not nameable here at all, which read as "JIRA does not have
+   this problem" and was true only for as long as that stayed so. */
+{
+  const named = { jira: { climative: { enabled: true, tokenFile: 'work-jira.key' } } };
+  check(
+    'a relative tokenFile resolves INSIDE the config dir, not against the daemon’s cwd',
+    jira.credentialFile('climative', named) === path.join(process.env.BEADCAUSE_CONFIG_DIR, 'work-jira.key'),
+    jira.credentialFile('climative', named)
+  );
+  const absolute = { jira: { climative: { enabled: true, tokenFile: path.join(tmp, 'elsewhere', 'jira.key') } } };
+  check('an absolute one is taken as written', jira.credentialFile('climative', absolute) === path.join(tmp, 'elsewhere', 'jira.key'));
+
+  jira.writeToken('climative', 'the-other-token', named);
+  check('and the token is read from the file that was named', jira.readToken('climative', named) === 'the-other-token');
+  check('while the default file is untouched', jira.readToken('climative') === 'secret-token');
+}
+
+{
+  check('a workspace that never asked for JIRA is not told off about a file it has no opinion on', jira.tokenFileWarning({}, 'climative') === null);
+  check('the default name draws no warning — the config repo refuses it', jira.tokenFileWarning({ jira: { climative: { enabled: true } } }, 'climative') === null);
+  check(
+    'a tokenFile the config repo would COMMIT does — the hole lib/auth.js and lib/confluence.js already covered',
+    /WILL be committed/.test(jira.tokenFileWarning({ jira: { climative: { enabled: true, tokenFile: 'jira-token.txt' } } }, 'climative') || ''),
+    String(jira.tokenFileWarning({ jira: { climative: { enabled: true, tokenFile: 'jira-token.txt' } } }, 'climative'))
+  );
+  check(
+    'a file outside that directory is your business, not ours',
+    jira.tokenFileWarning({ jira: { climative: { enabled: true, tokenFile: '/tmp/elsewhere.txt' } } }, 'climative') === null
+  );
 }
 
 /* ------------------------------------------------------------------ reading bd's config */
@@ -286,6 +325,19 @@ const failed = async (status, extra = {}) => {
   check('anything else is reported as itself rather than guessed at', /answered 500/.test(q || ''), q);
   const r = await failed(200, { notJson: true });
   check('a 200 that is not JSON says so', /not JSON/.test(r || ''), r);
+  check('and quotes what arrived instead, which is usually recognisable in one glance', /Sign in to the proxy/.test(r || ''), r);
+}
+
+/* JIRA's own sentence about the request, which lib/atlassian.js reads out of a body
+   shaped nothing like Confluence's. Appended rather than substituted: it is precise
+   about the request and says nothing about which install asked. */
+{
+  const m = await failed(400, { body: { errorMessages: ["Field 'assigne' does not exist."], errors: {} } });
+  check('a 400 carries JIRA’s own words about it', /assigne/.test(m || '') && /answered 400/.test(m || ''), m);
+  const n = await failed(400, { body: { errorMessages: [], errors: { project: 'no project could be found' } } });
+  check('including the per-field object, which is a different "errors" entirely', /project: no project could be found/.test(n || ''), n);
+  const q = await failed(401, { body: { errorMessages: ['Client must be authenticated.'] } });
+  check('and a 401 still names the file first — the site’s words do not replace ours', /jira-climative\.key/.test(q || '') && /Client must be/.test(q || ''), q);
 }
 
 {
