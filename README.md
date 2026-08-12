@@ -147,8 +147,8 @@ otherwise its poller would keep firing notifications with no listener behind the
   says so rather than pretending to cover the rest. It runs against a throwaway config
   directory on an ephemeral port and never touches `bd`, so it is safe to run with the
   daemon up. The suite proper is `npm test`, and the browser checks it deliberately
-  leaves out — they want a Chrome — are `npm run checks`, all twenty-eight of them, four
-  at a time, with a list of which failed. See
+  leaves out — they want a Chrome — are `npm run checks`, all of them, four at a time,
+  with a list of which failed. See
   [`npm run checks`](#npm-run-checks--the-browser-half-and-why-npm-test-can-still-see-it-rot),
   including the static selector audit that runs inside `npm test` and is the reason a
   removed chip no longer breaks a check in silence.
@@ -10031,12 +10031,11 @@ profile and reports one still fails.
 
 ### `npm run checks` — the browser half, and why `npm test` can still see it rot
 
-The twenty-eight `scripts/*-check.mjs` are the only cover this repo has for layout, taps
-and anything that happens in a thumb, and none of them are in `npm test`: each wants a
-Chrome, a phone-sized viewport and ten to forty seconds, and that suite stays pure Node
-on purpose. Until `npm run checks` there was no way to run them but one at a time by
-name — which in practice meant run by whoever remembered that the page they touched had
-one.
+The `scripts/*-check.mjs` are the only cover this repo has for layout, taps and anything
+that happens in a thumb, and none of them are in `npm test`: each wants a Chrome, a
+phone-sized viewport and ten to forty seconds, and that suite stays pure Node on purpose.
+Until `npm run checks` there was no way to run them but one at a time by name — which in
+practice meant run by whoever remembered that the page they touched had one.
 
 `npm run checks` runs all of them, four Chromes at a time, and ends with a list of which
 failed. Every check binds `127.0.0.1:0` and drives its own temp profile, so there is
@@ -10052,7 +10051,7 @@ conflicts with nobody.
 **Every check is on a four-minute leash**, `--timeout N` to change it and `--timeout 0`
 to take it off. This is not a tidiness rule. A check that hangs is the one failure a
 runner like this newly introduces, and it is silent in the worst available way: the run
-never ends, so nothing is reported about the other twenty-seven either — strictly worse
+never ends, so nothing is reported about any of the rest either — strictly worse
 than the by-hand state it replaced, where at least a person gives up. On the first real
 run of all twenty-six, `agent-chooser-check.mjs` went quiet thirteen assertions in and
 was still sitting there five minutes later. SIGTERM first so a check with a cleanup
@@ -10073,8 +10072,8 @@ parallel pass. A check that fails both times is reported with `on its own — no
 scheduling accident` beside it, so a red line cannot be waved away as the scheduler's
 fault.
 
-**Three of the twenty-eight are red, and that is the bead in one paragraph.** Two were
-already failing the day this was written, with no mark against them anywhere:
+**Three of them are red, and that is the bead in one paragraph.** Two were already
+failing the day this was written, with no mark against them anywhere:
 `shot-check.mjs` has always asserted that the daemon token never reaches `shot.mjs`'s
 output, and the token is now appended to the URL that `shot.mjs` prints, so it does
 (bc-sqab); `dismiss-check.mjs` finds that arming an option no longer disarms the dismiss
@@ -10099,11 +10098,11 @@ because the next person to run it reads its failures as their own change breakin
 something.
 
 So the load-bearing part is static, and it *is* in `npm test`. `lib/checkaudit.js` reads
-every literal selector every check presses — 313 of them — takes each class, id and
-`data-` attribute apart, and asserts it still appears somewhere in `public/`. That is a
-text search, it costs milliseconds, and it fires on precisely the thing that used to be
-invisible. `npm run checks` prints it before a single Chrome starts, and does not stop on
-it: a stale selector in one check is no reason not to run the other twenty-seven.
+every literal selector every check presses — several hundred of them — takes each class,
+id and `data-` attribute apart, and asserts it still appears somewhere in `public/`. That
+is a text search, it costs milliseconds, and it fires on precisely the thing that used to
+be invisible. `npm run checks` prints it before a single Chrome starts, and does not stop
+on it: a stale selector in one check is no reason not to run the rest.
 
 It is tuned to have no false alarms, so that a finding is always real, and two things
 follow. An interpolated selector — `` `[data-key="${k}"]` `` — has no text to look for and
@@ -10129,8 +10128,35 @@ arrival before Chrome is even reached. And the runner's own endings are held aga
 temp tree of three checks that pass, fail and hang on purpose: exit 1, the failures
 counted and named, their own output replayed rather than just a code, the hang killed at
 the timeout, a passing check not listed among the failures, and an empty tree failing
-rather than passing vacuously. A tree of its own rather than the real twenty-eight, because
+rather than passing vacuously. A tree of its own rather than the real ones, because
 those are the thing under observation, not the instrument.
+
+**And the prose is not allowed to say how many there are.** The inventory is derived —
+`discover()` reads the directory, so adding a check is adding a file and conflicts with
+nobody — but the sentences *about* it were not. *There are twenty-eight of them* was
+written once and then sat in eleven places at the same time: four in `scripts/checks.mjs`,
+one in `test/checks.mjs`, six here, plus every phrasing spun off it carrying its own
+arithmetic — the set minus the one that hung, the set minus the one with the stale
+selector. Nobody ever swept all eleven. On 2026-08-11 `origin/main` claimed twenty-six with
+twenty-seven on disk; one session bumped the eleven twice in a single sitting, once for the
+check it added and once after merging a `main` that had added another and not swept; by the
+time this paragraph was written the prose was six behind (bc-7smi). A number that is
+reliably wrong is worse than no number, because it reads as measured.
+
+So the numbers came out of the present tense — "every `scripts/*-check.mjs`", "the rest of
+them" — and the live count is in `npm run checks -- --list` and in the audit line the
+runner prints before a single Chrome starts. What stops them coming back is an assertion in
+`test/checks.mjs`, because the instinct that wrote the first one is not going away: it
+reads the comments of `scripts/checks.mjs`, `test/checks.mjs` and `lib/checkaudit.js`, and
+the paragraphs here that name the checks, and fails on a number standing in for the set.
+It matches the shapes the claim was actually written in rather than any number near the
+word "check" — "ten to forty seconds" and "a four-minute leash" do not go stale, and a
+linter that fired on those would be off within a month. **The exemptions are the
+interesting half.** Two sentences are about the first end-to-end run and have to go on
+saying twenty-six, because bumping them would not be an update, it would make them false.
+So they are matched *literally*: reword one and it stops being exempt rather than quietly
+staying so, and an exemption that no longer matches anything fails in its own right. That
+is the difference between an allowlist and a hole.
 
 `test/observe.mjs` is about observer mode only, and it is the oldest of them —
 because this is the switch here that fails most quietly. Turn off the terminal
