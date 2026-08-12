@@ -4033,13 +4033,36 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
    the same object to a thumb — this page is opened on the Mac, but the phone
    reaches it through the same pairing and the same hands.
 
-   The last five declarations are inherited rather than chosen: they are what this
+   Most of these declarations are inherited rather than chosen: they are what this
    bar was already getting from the agents' block while both were a bare `.tabs`,
    and they are written out here so that scoping the two apart (bc-4aw) changes
-   nothing on the page. The negative margin in particular is the agents' page
-   pulling its bar out to the body's padding; this one keeps it only because it
-   always had it. `gap` beats `.chip-row`'s 8px by sitting later in the file, which
-   is exactly how it beat it before. */
+   nothing on the page. `gap` beats `.chip-row`'s 8px by sitting later in the file,
+   which is exactly how it beat it before.
+
+   The one it inherited and should not have was `margin: -18px -16px 14px`, which
+   is bc-3ui6. On the agents' page that is a bar cancelling its parent's padding:
+   `.agent-tabs` sits inside `.launcher`, which pads `18px 16px 40px`, so the two
+   negative values pull the strip back out to the edge of a box inset by exactly
+   that much. This bar's parent is `<body>` — `padding: 0 env(safe-area-inset-*)`,
+   which is 0 on a phone in portrait — so there was nothing to cancel and the
+   margins simply pushed the strip 16px past each edge and 18px up behind the top
+   bar. Two things followed, and both are the sort that read as somebody else's
+   bug. The nav laid out 392px wide inside a 360px body, so the *document* was
+   376px and Chrome shrink-fitted the whole page to 96% — every element on the
+   advocate console, including the bottom tab bar, drawn at a size nobody chose,
+   and the page draggable sideways by 16px. And the strip's own first chip started
+   at x -2 with its top 10px under the bar, so the tab you are on was clipped at
+   two edges at once.
+
+   Zero, then, not the body's padding — because the body has none, and a margin
+   here is a claim about a parent that has to be true. `scripts/topbar-check.mjs`
+   is what notices if it stops being: it fails any page laying out wider than the
+   screen it is being measured on.
+
+   What is *not* fixed here: `top: 0` sticks this strip at the viewport top, which
+   is behind a 104px `.topbar` at z-index 20, so it vanishes on scroll rather than
+   following the bar down. That is bc-ugd4 — it needs the bar's height, which the
+   picker changes, and it is a different question from how wide the page is. */
 .mon-tabs {
   position: sticky;
   top: 0;
@@ -4049,7 +4072,7 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
   border-bottom: 1px solid var(--line);
   display: flex;
   gap: 2px;
-  margin: -18px -16px 14px;
+  margin: 0 0 14px;
   overflow-x: auto;
   scrollbar-width: none;
 }
@@ -4633,6 +4656,24 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
   font-size: 13.5px;
 }
 .space-arrow { color: var(--muted); }
+
+/* The Slack channel — the one field on this card you type into rather than press.
+   Same box as the clocks above so the two typed controls on the page look like one
+   thing, and `flex: 1 1 12ch` because a channel id is eleven characters: it takes the
+   room it needs on a phone and the three buttons wrap under it rather than squeezing
+   the field down to something you cannot read what you typed in. */
+.space-channel input[type="text"] {
+  flex: 1 1 12ch;
+  min-width: 11ch;
+  min-height: 34px;
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  font-size: 13.5px;
+}
 
 /* Seven days across a 360px phone: square, so the row fits without wrapping and each
    is still a 40px target in the direction a thumb misses in. */
