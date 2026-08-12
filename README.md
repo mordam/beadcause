@@ -6846,6 +6846,72 @@ bead that waits, named on the advocate's card with the pid of the window holding
 that window closes. `holdLiveSessions: false` switches it off. `node test/livequeue.mjs`
 covers it.
 
+### The bead another Mac has claimed
+
+Every filter above reads something this laptop can see — a row in this tracker, a pull
+request on this repo's GitHub, a process in this process table. That is the whole of the
+world right up until the tracker is [shared between machines](#a-tracker-two-macs-share),
+and then it is a blind spot with a session in it: two engineers, two daemons, two
+advocates, **one `bd ready`**. The same bead comes up ready on both, `candidates()` on
+each filters against its own busy ids and its own attempt counts, and two windows open on
+two Macs to write the same feature twice on two branches. It is the same-job collision the
+twin filter above catches, with the one guard that catches it removed: `findDuplicate`
+compares against rows *this* daemon can see, and `a.workers` is *this* daemon's worker
+list.
+
+**`bd update --claim` is not the answer, and why it is not is the whole design.** It is
+atomic, it does set the assignee and the status, and it is atomic *against the local
+Dolt* — which is the wrong scope. Sync is discrete: a claim written on one Mac is
+invisible to the other until the first has pushed and the second has pulled, which is
+`sync.seconds` later, two minutes by default. Claim-then-check inside that window is not a
+lease at all. It is two local writes that both succeed, and whichever syncs second
+silently takes a bead the other already has a window open on.
+
+There is nowhere to move it to, either. beadcause solved the same problem in the other
+direction once — five sessions racing to merge into a local `main`, fixed by handing the
+merge to GitHub *because GitHub serialises it*, which is why [the merge does not happen in
+this checkout](#landing-work--a-branch-a-pull-request-and-the-workers-own-merge). Dolt
+offers nothing of the sort. So this is honestly eventually consistent, and it says so out
+loud:
+
+- **The claim is a label, and it names the machine and the moment.**
+  `held:20260812T094200Z:adam@example.com`. A label, because labels are *rows*: two
+  machines writing two different ones is not a conflict Dolt has to resolve, it is two
+  rows, and after a sync **both machines can see both claims**. That is the entire
+  mechanism. A cell — the assignee, the status — would have been a real write conflict,
+  and the loser's evidence would be gone.
+- **The collision is detected afterwards, and the tiebreak is a string sort.** Earliest
+  stamp wins and the handle breaks a tie — and because the stamp leads the label, that is
+  exactly `labels.sort()[0]`. Both machines compute it from the same strings with no
+  further communication and cannot disagree, which is what makes *exactly one session
+  survives* a fact rather than a hope. Two clocks can make the **fair** answer wrong; they
+  cannot make the two machines answer **differently**, and only the second matters.
+- **The loser stands down loudly.** A cap that is silent reads exactly like an advocate
+  that has decided there is nothing to do, so the stand-down is a log line, an event, a
+  pill on the advocate's card — and a message into the losing window, which is told before
+  anything is signalled at it. The window then joins [the reaper's
+  list](#closing-the-window--a-session-that-has-finished-should-not-still-be-on-screen)
+  and closes once it is idle, so a session mid-sentence finishes the sentence. The bead is
+  charged no attempt: losing a coin toss is not evidence about the work.
+- **A claim expires.** `leaseMinutes`, an hour by default, restamped at half that by any
+  advocate still holding the worker. This is not a detail — a Mac that sleeps mid-bead
+  would otherwise park that work permanently, and a bead nobody may ever open is strictly
+  worse than the duplicate window the whole thing exists to prevent. A duplicate costs an
+  hour; a park costs the bead.
+
+**A Mac that does not know who it is claims nothing.** The handle comes from
+[`me`](#who-a-question-is-for--me-and-the-for-label), which is null by default — and with it null no label is
+written, no bead is held, and nothing here has a branch to enter. That is the same
+guarantee the addressee makes, out of the same setting and for the same reason: a
+single-person install is byte-for-byte what it was.
+
+The cost of a wrong hold is one bead that waits, named on the card with the handle of the
+person to go and ask — the only pill on that row that names something you cannot settle by
+looking at your own screen. `holdLeases: false` switches it off. `node test/lease.mjs`
+covers the tiebreak and the expiry, and `node test/leasequeue.mjs` drives two advocates
+over one faked tracker whose label store is per machine until a sync unions it, which is
+the only shape in which the race can be staged at all.
+
 ### The session log, kept in the repo
 
 A session's window closes when it exits, the rendered log in `~/.config/beadcause/`
@@ -10339,6 +10405,8 @@ Two consequences of that ordering worth knowing:
 | `advocates.holdOpenPrs` | [hold a bead out of the queue while an open pull request already carries its work](#the-bead-whose-work-is-already-in-an-open-pull-request) (default `true`). It closes nothing — an open PR is not a merged one — it holds, with the number on the card. Without it a worker briefed to merge is opened beside a resolver briefed that the merge is not its to make |
 | `advocates.inflightIntervalMinutes` | how often that asks GitHub (default 5, shorter than the sweeps above because a delivery that could not merge opens a pull request and hands the bead back to `bd ready` in the same minute). It also asks *unconditionally* right before opening a session |
 | `advocates.holdLiveSessions` | [hold a bead out of the queue while a live session already names it](#the-bead-somebody-is-already-sitting-in) (default `true`). The claim is not the guard the brief says it is — "request changes" drops it, a timeout drops the slot, a restart forgets the worker — and without this a second window opens into a worktree somebody is still editing. No interval: the session records are files on this laptop, so it reads on every tick and again before a launch |
+| `advocates.holdLeases` | [hold a bead out of the queue while another Mac has claimed it in the shared tracker, and stand down when one claims it underneath us](#the-bead-another-mac-has-claimed) (default `true`). Inert until `me` is set, which is every one-Mac install — with no handle there is no label to write and nobody to lose to. The claim is a `held:<stamp>:<handle>` label rather than the assignee, because two labels are two rows Dolt merges rather than a cell it cannot, which is what lets both machines see both claims and agree on the winner without talking |
+| `advocates.leaseMinutes` | how long one of those claims is good for (default 60, restamped at half that by whichever advocate still holds the worker). Not a load knob: it is how long a bead stays parked when the Mac holding it goes to sleep, and a bead parked forever is worse than the duplicate window this prevents |
 | `advocates.sessionLog` | archive each finished session to `refs/beadcause/sessions/<bead>` and note its commits (default `true`) |
 | `advocates.sessionTranscripts` | also store the raw Claude Code transcript — megabytes, and it carries paths and tool output (default `false`; set per repo in `perWorkspace`) |
 | `advocates.closeFinishedSessions` | [close a work session's window once the session has finished](#closing-the-window--a-session-that-has-finished-should-not-still-be-on-screen) — the bead closed, a pull request delivered, or the bead handed back for a decision, and never an ending the daemon merely inferred (default `true`). `false` leaves every window open, which is what it did before |
