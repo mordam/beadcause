@@ -7663,6 +7663,19 @@ So an agent chat is marked twice:
   phase slot is *status* as well: a running turn draws a spark there and a finished one
   a tick, and both of those take the emoji away. The pill never moves.
 
+That spark spent months in the markup without ever being on the screen. `.spark` is a
+bare span sized in px, so the slot around it has to be a flex parent or the dot lays out
+as an empty inline box, and it defaults to `var(--muted)`, so even laid out it is the
+same dead grey as an idle one. Both lines existed twice — `.session-row .work-phase` and
+`.chat-card .work-phase`, each with a comment saying why — and `.console-row` had
+neither: `.work-phase` is a flex *item* of `.work-row`, which blockifies the slot but
+not its children. Nothing caught it because nothing could: every test of that row read
+HTML, and the HTML carries `<span class="spark">` either way. What tells the two apart is
+a browser measuring the rect, which is why `scripts/launcher-check.mjs` now has a
+mid-turn conversation in its fixture and asserts three separate things about its dot —
+that it is wider than 0px, that it is painted `var(--accent)` rather than `var(--muted)`,
+and that `breathe` is running on it. One per way this has gone wrong.
+
 Leaving agent chats out of the list entirely was the other option, and it is worse:
 they would then be reachable only from the agent they were started with, which is a
 place you go to *change* an agent, not a place you go to find a conversation you had.
