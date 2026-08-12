@@ -275,6 +275,75 @@ try {
   await press('[data-space-hours="clear"]');
   check('and Clear removes them outright', !('quietHours' in spaceOnDisk('Work')), JSON.stringify(spaceOnDisk('Work')));
 
+  /* ------------------------------------------------------------ slack channel */
+
+  /* The one control on the card you type into, and the only one with three answers
+     rather than two — so all three are pressed here, and the *file* is what says which
+     one landed. `""` and a missing key look identical on the screen and mean opposite
+     things to `slackChannelFor`, which is the whole reason this section exists.
+
+     `type` rather than `value =`: the field is drawn from a draft in the page's state
+     and the draft is filled by the `input` event, so setting the property alone would
+     test a path a thumb never takes — and would pass while a repaint quietly threw the
+     typed id away. */
+  const type = async (text) =>
+    evalJs(
+      s,
+      `(() => {
+        const el = document.querySelector('#slack-channel');
+        if (!el) return false;
+        el.value = ${JSON.stringify(text)};
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+        return true;
+      })()`
+    );
+
+  check('the channel field is on the card', await type('C0SPACECHECK'));
+  await press('[data-space-channel="set"]');
+  check(
+    'a typed channel reaches the daemon',
+    spaceOnDisk('Work').slackChannel === 'C0SPACECHECK',
+    JSON.stringify(spaceOnDisk('Work').slackChannel)
+  );
+
+  /* The claim no static read can make: this page repaints off a stream event rather
+     than off your thumb, so a poll landing mid-type must not take the id away. */
+  await type('C0HALFTYPED');
+  await evalJs(s, `window.beadcause.monitor.refresh()`);
+  await sleep(700);
+  check(
+    'and a repaint under your thumb does not take a half-typed one away',
+    (await evalJs(s, `document.querySelector('#slack-channel')?.value`)) === 'C0HALFTYPED',
+    await evalJs(s, `document.querySelector('#slack-channel')?.value`)
+  );
+
+  await press('[data-space-set="slackChannel"][data-value=""]');
+  check(
+    'Never stores an empty channel — the answer a missing key cannot give',
+    spaceOnDisk('Work').slackChannel === '',
+    JSON.stringify(spaceOnDisk('Work'))
+  );
+  check(
+    'and the field goes back to what the space says rather than keeping the draft',
+    (await evalJs(s, `document.querySelector('#slack-channel')?.value`)) === '',
+    await evalJs(s, `document.querySelector('#slack-channel')?.value`)
+  );
+
+  await press('[data-space-set="slackChannel"][data-value="null"]');
+  check(
+    'and Inherit takes the key away, which is the other nothing',
+    !('slackChannel' in spaceOnDisk('Work')),
+    JSON.stringify(spaceOnDisk('Work'))
+  );
+
+  await type('');
+  const blank = await press('[data-space-channel="set"]');
+  check(
+    'Set on a blank field is refused rather than guessed at',
+    blank && !('slackChannel' in spaceOnDisk('Work')) && /Type a channel id/.test((await card())?.text || ''),
+    JSON.stringify(spaceOnDisk('Work'))
+  );
+
   /* --------------------------------------------------------------- muting */
 
   await press('[data-space-set="muted"][data-value="true"]');

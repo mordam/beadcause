@@ -588,6 +588,8 @@ are on it:
 │      Quiet hours              18:00 → 09:00  │
 │      Quiet days                     sat, sun │
 │      Push detail             inherited · full│
+│      Slack channel                C0123456789│
+│      Slack detail            inherited · full│
 │      Agents may answer unasked          off  │
 │      Beads agents file arrive endorsed   on  │
 │      Workers merge their own PRs         on  │
@@ -607,17 +609,28 @@ pane](#the-mirror--whatever-the-phone-has-open-with-room-to-read-it). The settin
 sits above them because it is what the page is the details *of*, and a setting you scroll
 six advocate cards to reach is a setting you go back to editing the config file for.
 
-**Three shapes of control, and the shape is the shape of the answer.** `Muted` is
+**Four shapes of control, and the shape is the shape of the answer.** `Muted` is
 two-state, because there is no global mute behind it and a third button would be a
 lie. Quiet hours and quiet days are a pair of clocks and a row of days, each clearable,
-because "no quiet hours" is a state you have to be able to get back to. The six with a
-global default behind them — push detail, agents-may-answer, filings-arrive-endorsed,
-auto-merge, approval-first, ships-itself — are **three**-state: On, Off, and *Inherit*,
-which names what it currently resolves to. That third button is not a nicety:
-`prPolicyFor` is explicit
+because "no quiet hours" is a state you have to be able to get back to. The seven with a
+global default behind them — push detail, Slack detail, agents-may-answer,
+filings-arrive-endorsed, auto-merge, approval-first, ships-itself — are **three**-state:
+On, Off, and *Inherit*, which names what it currently resolves to. That third button is
+not a nicety: `prPolicyFor` is explicit
 that a space may override the global in *either* direction, so "off" and "following a
 default that is currently off" are different answers, and only one of them survives the
 default changing.
+
+**The Slack channel is the fourth shape, and the only one you type.** A channel id is
+free text rather than a choice, so the row is a field and three buttons: **Set** sends
+what you typed, **Never** stores an empty string — this space stays out of Slack however
+`slack.channel` is set — and **Inherit** deletes the key. Never and Inherit look
+identical on the day you press them and come apart the day the global channel changes,
+which is why both are there and why a blank field with *Set* pressed is refused rather
+than guessed at. What you have typed is held in the page's own state until the press,
+because this page repaints off a stream event rather than off your thumb and a
+half-typed channel id living in the DOM would be taken away by a poll nobody asked
+for.
 
 **"What each repo resolves to" is the panel that stops the screen lying.** The space is
 not the last word on two of these settings: `ntfy.minimalWorkspaces` and
@@ -736,7 +749,9 @@ midnight (`18:00` → `09:00` is the normal case) and is evaluated in local time
 because "after six" means your evening. A malformed time disables the rule rather
 than muting the space forever. `ntfyDetail` and `autoDispatch` set at space level
 keep applying as you add workspaces to that space — which is exactly the drift that
-otherwise leaks a work question onto a public relay.
+otherwise leaks a work question onto a public relay. `slackChannel` and `slackDetail`
+are the same answer for [the other delivery surface](#slack--the-same-decision-in-a-channel),
+and for the same reason.
 
 **A space also decides who merges.** `autoMerge` and `requireApproval` are the same
 kind of answer as the two above — one you give once for a group of repos rather than
@@ -2208,8 +2223,11 @@ this say before the advocate rewrote it" without anyone having remembered to ask
 
 Snapshots are debounced by two seconds and the reasons accumulate, because one
 advocate cycle rewrites `advocates.json` three or four times in a second and those
-are one event to whoever reads the history back. `status.json`, `logs/` and the
-check PNGs are ignored — churn, and not the thing you want a history of.
+are one event to whoever reads the history back. `status.json`, `restart.json`, `logs/`
+and the check PNGs are ignored — churn, and not the thing you want a history of.
+`deploys/` is not, and the difference is the point: a deploy record is something somebody
+pressed Ship on, and a restart marker is one line the router overwrites on every swap
+which means nothing thirty seconds later.
 
 ### Tier 3 — a repo one agent owns, and the experiment that is the point of it
 
@@ -5348,6 +5366,54 @@ and merely posts a few reports that are dropped, and the new file against an old
 finds no `quiet` in the answer and behaves as it did. Neither draws a control with nothing
 behind it, which is what that version exists to prevent.
 
+### A swap is not a deploy, so the router leaves a marker of its own
+
+Everything above reads the deploy journal, and the journal only knows about restarts
+somebody pressed Ship on. The restart that happens most often on this Mac is not one of
+those. `npm run swap` is what the ship skill runs, what you run by hand when the router
+has poisoned a build — and `bin/router.js` does the same thing unasked, on its own, every
+time `lib/` moves on disk. None of that writes a record anywhere, so `reportingQuiet` saw
+nothing and the reconnect after a swap filed exactly the storm the last section exists to
+stop: "GET /api/poll failed — HTTP 503" from four open screens, each one a P0 in front of
+the advocate. That is bc-kttd, and it was filed by the agent that built the quiet window,
+as the honest limit of what it could see.
+
+So every handover writes one fact to `restart.json` in the config directory — when, which
+build, which pid, and why — and `reportingQuiet` reads it when the journal has nothing to
+say. Three decisions in that sentence are worth the paragraph they take:
+
+**A file of its own, not a record in the journal.** A swap wearing a deploy record would
+turn up in `listDeploys`, and from there on the release board, in the deploy history, and
+— through `unannounced` — in a push to the phone announcing a deploy nobody asked for. The
+journal is a list of things somebody pressed Ship on and it has to stay one. This is a
+single fact that overwrites itself: the last time the port changed hands.
+
+**Written at the handover, not at the spawn.** A backend that is merely slow to start is
+spawned, health-checked, timed out and tried again while the old one goes on serving
+perfectly — see [the router](#the-router--why-you-never-restart-it).
+Marking those would hush a daemon that never moved, for as long as the retries went on,
+which is precisely the window in which you most want to hear that the app is broken. Only
+the moment `active` is reassigned is the service changing hands.
+
+**No ceiling, because it expires by arithmetic.** The journal needs `ORPHAN_QUIET_MS`
+because a `deploying` record that nothing sweeps would silence this Mac forever; a bare
+timestamp cannot, so a marker nobody ever cleans up goes quiet on its own one grace period
+later. A stamp *ahead* of now — a clock stepped back, a config directory copied off another
+machine — is read as no restart at all, which is the same direction: a false P0 is a bead
+you close, and silence is a bug nobody ever hears about.
+
+It is written from `bin/router.js` by lazy import, never fatally, for the reason that file
+gives about everything it depends on: a router that cannot write this is a router that
+swaps and files a few beads, which is what it did before, and it is never a reason to fail
+a swap. One gap left on purpose — `npm run start:bare` runs a backend with no router above
+it, so it has no handover to mark. That is not the installed configuration, and a restart
+of it is you at a keyboard rather than a deploy.
+
+`node test/deployquiet.mjs` holds the rule, including a marker from the future and four
+shapes of garbled one. The proof that a real router actually writes it is in
+`scripts/test-swap.js`, after the explicit `--swap` — a marker written by hand can only
+show what the rule does with one.
+
 ### Why these are the one thing filed without the hold
 
 Everything else an agent files arrives `unendorsed` and nothing may work it until you
@@ -8333,6 +8399,11 @@ The limits, stated plainly:
   deliberately absent: it is served from disk per request, so a CSS edit is live
   already and swapping for one would be churn. `touch lib/server.js` is enough to
   force a swap by hand.
+- **Every handover is written down, because a swap is a restart nothing else can see.**
+  The quiet window that stops a reconnect filing a P0 per open screen reads the deploy
+  journal, and a swap writes no deploy record — so the router leaves `restart.json`
+  instead, at the moment `active` is reassigned and not when the new backend was spawned.
+  See [a swap is not a deploy](#a-swap-is-not-a-deploy-so-the-router-leaves-a-marker-of-its-own).
 - **A backend nobody is steering shuts itself down.** If the router is `kill -9`'d,
   its children survive it — and a stranded backend still holds a poller while the
   replacement router starts a fresh one. So a backend that has heard nothing from a
@@ -9116,14 +9187,20 @@ private side project turning up in a channel other people read.
 | what | where | means |
 |---|---|---|
 | `slack.channel` | config | the default channel for every workspace |
-| `slackChannel` | on a space | that space's channel — **or `null`, meaning this space never posts**, however the global is set |
+| `slackChannel` | on a space | that space's channel — **or the key present and empty (`""`, or `null` if you are hand-editing), meaning this space never posts**, however the global is set. No key at all is the third answer: follow `slack.channel` |
 | `slack.excludeWorkspaces` | config | one repo that never posts, outranking its space. The same idea as `ntfy.minimalWorkspaces` |
 | `slackDetail` | on a space | `minimal` posts a nudge with a link and no question text |
 
 A channel id (`C…`) or a DM id (`D…`), not a `#name` — the API takes ids, and a name
 that has been renamed since you typed it fails at post time rather than at configure
-time. `slackChannel` and `slackDetail` are hand-edited in `config.json` today; the space
-details screen does not offer them yet.
+time. Both `slackChannel` and `slackDetail` are rows on the
+[space details screen](#space-details--the-page-the-advocate-console-became), so the
+per-space half of this is a thing you change from a phone rather than by opening
+`config.json` on the Mac; `npm run configure` asks for the global channel and the global
+detail alongside its ntfy question, which is how a fresh install finds out this exists at
+all. What the resolver goes by is whether the key is *there*, so the screen's **Never**
+writes `""` and its **Inherit** deletes the key — the two ways of saying nothing, kept
+apart because only one of them survives the global channel changing.
 
 Unlike ntfy, `detail` defaults to **full** on both levels. `minimal` exists because an
 ntfy.sh topic is readable by anybody who guesses its name, and a Slack channel you named
@@ -9655,9 +9732,9 @@ history.
 | `ntfy.detail` | `full` = question + option buttons in the notification; `minimal` = contentless nudge |
 | `ntfy.minimalWorkspaces` | forced to `minimal` regardless — put shared/work trackers here |
 | `slack.enabled` | post questions to a Slack channel with a button per option (default `false`). Off until this **and** a channel **and** a bot token all exist — see [Slack](#slack--the-same-decision-in-a-channel) |
-| `slack.channel` | the default channel, as an id (`C…`) or a DM id (`D…`), not a `#name` (default `null`). A [space](#spaces--keeping-work-out-of-your-evening) overrides it with `slackChannel`, in either direction — `null` there means that space never posts |
+| `slack.channel` | the default channel, as an id (`C…`) or a DM id (`D…`), not a `#name` (default `null`). Asked by `npm run configure`. A [space](#spaces--keeping-work-out-of-your-evening) overrides it with `slackChannel`, in either direction — `""` there means that space never posts — and that override is a row on the [space details screen](#space-details--the-page-the-advocate-console-became) |
 | `slack.excludeWorkspaces` | one repo that never posts, outranking its space. The same idea as `ntfy.minimalWorkspaces` |
-| `slack.detail` | `full` = question + option buttons; `minimal` = a nudge with a link. Defaults to `full`, unlike ntfy, because a channel you named is not a public relay. Per space with `slackDetail` |
+| `slack.detail` | `full` = question + option buttons; `minimal` = a nudge with a link. Defaults to `full`, unlike ntfy, because a channel you named is not a public relay. Per space with `slackDetail`, which is a three-state row on the [space details screen](#space-details--the-page-the-advocate-console-became) |
 | `slack.buttons`, `slack.maxButtons` | answer straight from the channel (default `true`), and how many options fit in the row (default 5; the rest stay in the app, and the message says how many) |
 | `slack.botTokenFile`, `slack.appTokenFile` | where the two tokens are read from. Default `null`, meaning `~/.config/beadcause/slack-bot.key` and `slack-app.key`. **There is deliberately no `botToken` or `appToken` field** — this file is committed to the git repo in that directory, and one typed in there aborts the next snapshot |
 
@@ -10430,6 +10507,70 @@ one. The half that can be had without one is measured for real, by pointing the 
 at a binary that does not exist and asserting on both the message and the absent profile
 directory.
 
+### A suite must not have a clock for a pass condition — `test/slowstart.mjs`
+
+The third of these, and the worst-reading one. `test/slowstart.mjs` proves that a backend
+which is merely *slow* is retried rather than condemned, and the only honest way to prove
+it is on a real router: give one a health window nothing can start inside, touch nothing,
+and see whether it comes back on its own. That much is right and has not changed. What was
+wrong is that the window was a **constant** — `healthTimeoutMs: 250` — and the wait for
+the recovery was another one, a flat two minutes.
+
+Neither number means anything on its own. The router widens its window by *doubling*, so
+the number of bring-ups it needs is the distance in doublings between 250ms and how long
+this laptop actually takes to start a backend — three when it is idle, seven when eight
+sessions are running `npm test` at once — and every one of those bring-ups costs an outage
+pause that doubles too (2s, 4s, 8s, 16s, 32s, 60s). The ladder to recovery is therefore
+~20s idle and ~170s loaded, against a deadline nailed to 120s. Same tree, same code, red
+or green depending on what else was on the Mac.
+
+And it did not fail like a flake. It failed as `timed out waiting for the router to bring
+a backend up on its own`, over a log full of `would not start in time` — which at a glance
+is indistinguishable from **the router can no longer start a backend**, in the suite that
+exists to catch exactly that. It is the last thing a session sees before deciding whether
+its own work is safe to deliver, and the only way to tell the two apart was to re-run the
+suite alone and see it pass. bc-pv7a hit it as three green full runs, a fourth red on this
+suite, and 36 of 36 a minute later on the same tree.
+
+So the machine is **measured** rather than assumed. Before the router is started at all, a
+backend is spawned by hand exactly as `spawnBackend` does it — same argv, same cwd, same
+config dir, same `/internal/state` poll with the same token — and timed. Everything else
+is derived from that one number:
+
+| | |
+|---|---|
+| the window | `MEASURED / 8`, floored at the old 250ms. Still far too short to start anything, so the experiment is the one it always was — but now a *fixed* number of doublings short instead of however many this laptop happens to be having, which is what makes the ladder the same length on every machine. |
+| the deadline | walked, not guessed. `ladder()` runs the same policy the router runs — `healthDeadline` per attempt, `nextSlowness` per bring-up, `outageRetryMs` between them — and returns when the window would first be wide enough, so the wait can never land in the middle of a rung. |
+| the verdict | settled by spawning one more backend by hand, if it does time out anyway. |
+
+That last row is the half that answers "was it this machine or was it the router", in the
+message, without going to the log. If the hand-spawned backend cannot start inside the
+widest window the router had already reached, then neither could the router and there was
+no chance here it failed to take: the run says **THIS MACHINE, NOT THE ROUTER**, names both
+numbers, and is *inconclusive rather than failed* — the checks that do not depend on a
+clock have all run and the exit code stays 0. If it starts promptly, the router had every
+chance and did not take it, and that is a regression: **THE ROUTER, NOT THIS MACHINE**,
+with the hand-measured start, the window it was up against, and the router's own last
+`still starting after Ns` line quoted at the point of failure rather than below it.
+
+Three smaller things fall out of it, and each is a way this could have gone quietly wrong:
+
+- A hand-spawned backend that **exits** is never read as a slow one. `timeOneStart`
+  returns `{ms}`, `{slow}` or `{exited}`, because a backend that dies at startup is a
+  broken build — the case the router is *right* to condemn — and folding it into "this
+  machine is struggling" would turn a real breakage into a green run.
+- The measurement is capped at 45s, under the **60s orphan guard** in bin/beadcause.js: a
+  backend given `--port` expects a router to touch `/internal/state` every ten seconds and
+  exits **0** when a minute passes without one. Nothing in the measurement is a router, so
+  a longer ceiling would collect that clean exit and report a broken backend.
+- If the window turns out *not* to have been too short — the machine got four times faster
+  in the seconds after proving it was not — the slow path never happened and there was
+  nothing to recover from. That is inconclusive too, and says so, rather than failing an
+  assertion about a router that is serving perfectly well.
+
+Filed as bc-9zv0. The sibling failure in the same file is bc-t69u, its `ENOTEMPTY` teardown
+race, which is the `test/helpers/tmp.mjs` story above and not this one.
+
 ### `npm run checks` — the browser half, and why `npm test` can still see it rot
 
 The twenty-eight `scripts/*-check.mjs` are the only cover this repo has for layout, taps
@@ -10660,6 +10801,23 @@ is the diagnosis and not merely a field being present. Plus the hop that makes i
 possible — the process serving the console is a grandchild of launchd, so passing down
 `BEADCAUSE_LAUNCHD_PROGRAM` is what stops a healthy install being reported as stale, and
 an *empty* value has to mean "not a launchd job" rather than "read your own argv".
+
+That variable is also the one thing the suite has to *drop* before its first case, and
+bc-nv25 is what it cost not to. An iTerm window the daemon opens is downstream of the
+router launchd started — not through the command string, which starts a fresh login
+shell that inherits nothing, but through iTerm.app's own environment — so every shell in
+it carries `BEADCAUSE_LAUNCHD_PROGRAM` naming the **main checkout's** `bin/router.js`,
+true about that terminal's ancestry and nothing at all about the tree under test. `serviceHealth()` reads the environment whenever its caller
+passes nothing, so the good-day checks in a worktree saw a running job disagreeing with
+the checkout and reported the stale-plist bug the file exists to detect: real logic, wrong
+input, red in every session an agent opened and green in every terminal a person opened —
+the split that guarantees nobody goes looking. It is the environment half of the rule
+[a suite must not assert about a directory it does not own](#a-suite-must-not-assert-about-a-directory-it-does-not-own--testbrowsemjs).
+So the file deletes the variable at the top and every case says what it means, and the
+two cases either side of
+the good day pin the difference the trap turns on: pass nothing and you get the
+environment's answer, pass `null` and you get the file's. Nothing is lost by it — no case
+here ever read the real LaunchAgents folder.
 
 `test/warm.mjs` covers [the warm layer](#loaded-once-and-kept--what-a-tab-tap-actually-costs),
 which is entirely made of things that fail without saying anything. A cache that hands
