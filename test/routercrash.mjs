@@ -49,6 +49,7 @@ import path from 'node:path';
 import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { freePort } from './helpers/net.mjs';
+import { removeTreeSync } from './helpers/tmp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(HERE, '..');
@@ -270,12 +271,17 @@ const ARMED = new RegExp(`own crashes file on ${OWN}`);
 /**
  * The first bring-up has finished, one way or the other.
  *
- * Not a nicety: `bin/router.js` registers its SIGTERM handler on the last line of the
- * file, *after* `await bringUp(...)` — so a router signalled before that point is killed
- * by node's default disposition and never runs `shutdown` at all. The suite did exactly
- * that at first, and the shutdown scenario failed by going quiet, which reads as the
- * exemption being broken rather than as the test being early. Either outcome of the
- * bring-up will do; what is being waited for is the line after it.
+ * What is wanted here is a router with something to tear down, so that the shutdown the
+ * scenario interrupts is the one a `launchctl kickstart` really interrupts — a backend to
+ * stop as well as a port to close. Either outcome of the bring-up will do; what is being
+ * waited for is the line after it.
+ *
+ * It used to carry the load of a second job as well: `bin/router.js` registered its
+ * SIGTERM handler on the last line of the file, *after* `await bringUp(...)`, so a router
+ * signalled before that point was killed by node's default disposition and never ran
+ * `shutdown` at all — and the suite failed by going quiet, which reads as the exemption
+ * being broken rather than as the test being early. That handler goes on immediately after
+ * `listen()` now (bc-1wf9), so `ARMED` already implies it and this line no longer has to.
  */
 const SUPERVISING = /serving build \S+ from pid \d+|nothing is being served yet/;
 
@@ -291,7 +297,7 @@ const cleanup = () => {
   } catch {
     /* nothing to kill is the good case */
   }
-  fs.rmSync(dir, { recursive: true, force: true });
+  removeTreeSync(dir);
 };
 process.on('exit', cleanup);
 process.on('SIGINT', () => process.exit(130));
@@ -354,50 +360,56 @@ try {
 
   // ------------------------------------------------ 3: not during its own shutdown
 
+  const restarting = startRouter('shutdown');
+  running.push(restarting);
+  await waitForLine(restarting, ARMED, 60000);
+  await waitForLine(restarting, SUPERVISING, 90000);
+
+  const before = beadsIn(OWN).length;
   /**
-   * Three attempts, and the retry is about the *precondition* rather than the claim.
+   * Both signals back to back, and no retry — bc-1wf9. What was flaky here was the *gap*.
    *
-   * `bin/router.js` registers `process.on('SIGTERM')` on its last line, after the first
-   * bring-up — so a router signalled a moment too early is killed by node's default
-   * disposition and never runs `shutdown` at all. Waiting for the bring-up line closes
-   * most of that window, and on a laptop running the other hundred suites it is still
-   * possible to lose: the router logged, and had not been scheduled again by the time the
-   * signal landed. That outcome is distinguishable from the failure this scenario is
-   * about — it exits *by signal* rather than by its own `exit(1)` — so it is retried
-   * rather than reported, and the assertions below are what a run that got its
-   * precondition is judged on. A genuinely missing `beginShutdown()` fails all three.
+   * A `launchctl kickstart -k` is exactly this: SIGTERM, and then whatever the teardown
+   * breaks on its way down. So the crash has to land *during* the shutdown, and a shutdown
+   * is far shorter than the 300ms it appears to give itself: that timer is `unref`ed, so
+   * once the port is closed and the backends are stopped the loop drains and the router is
+   * gone within a few milliseconds. This suite used to send the SIGTERM, wait up to 80ms
+   * for the shutdown line, and only then send the SIGUSR2 — and under a full-tree run that
+   * wait routinely lost. The crash landed on a router that had already gone: back came the
+   * shutdown's own `0`, or a bare `SIGUSR2` when it caught the process mid-teardown with
+   * that handler already restored to its default. Three attempts at the same race did not
+   * make it likelier, and the log announced "signalled before it was listening", which was
+   * the one thing it was not.
+   *
+   * Sent together there is no gap to lose, and both orderings agree on which arrives
+   * first: the kernel delivers the lower-numbered pending signal first (SIGTERM is 15,
+   * SIGUSR2 is 31), and libuv dispatches what it queued in the order it was posted. The
+   * ordering is then *asserted* below rather than assumed — the shutdown line has to be in
+   * the log ahead of the crash — so an inversion fails loudly here instead of quietly
+   * filing a bead and failing the count two checks later.
+   *
+   * The other half of what made this deterministic is in `bin/router.js`: the SIGTERM
+   * handler is registered on the line after `listen()` now, so the `ARMED` line above —
+   * which the arming logs later still — is proof that a signal will be *handled* rather
+   * than killing the process outright.
    */
-  let restarting = null;
-  let secondExit = null;
-  let before = 0;
-  for (let attempt = 1; attempt <= 3; attempt++) {
-    restarting = startRouter(`shutdown-${attempt}`);
-    running.push(restarting);
-    await waitForLine(restarting, ARMED, 60000);
-    await waitForLine(restarting, SUPERVISING, 90000);
-
-    before = beadsIn(OWN).length;
-    // A `launchctl kickstart -k` is exactly this: SIGTERM, and then whatever the teardown
-    // breaks on its way down. The second signal chases the first rather than being sent
-    // with it, because a SIGUSR2 that arrived first would file a bead and fail this for
-    // the wrong reason — but it does not *wait* for the shutdown to be observed either.
-    // The whole exchange has to fit inside the 300ms `shutdown` gives its children before
-    // it exits. Eighty milliseconds is the compromise: normally the shutdown line has
-    // landed and the ordering is exact, and when it has not, both signals are pending at
-    // once and the kernel delivers the lower-numbered one first anyway.
-    restarting.child.kill('SIGTERM');
-    await waitForLine(restarting, /shutting down — stopping backends/, 80, 5).catch(() => {});
-    restarting.child.kill('SIGUSR2');
-    secondExit = await Promise.race([restarting.exited, sleep(30000).then(() => null)]);
-
-    if (secondExit?.code === 1 || attempt === 3) break;
-    console.log(`      (attempt ${attempt}: exit ${JSON.stringify(secondExit)} — signalled before it was listening; again)`);
-  }
+  restarting.child.kill('SIGTERM');
+  restarting.child.kill('SIGUSR2');
+  const secondExit = await Promise.race([restarting.exited, sleep(30000).then(() => null)]);
 
   check(
     secondExit?.code === 1,
     'a router SIGTERMed and then broken on the way down still exits, by its own hand',
-    `exit ${JSON.stringify(secondExit)} — a signal here means it never ran shutdown at all`
+    `exit ${JSON.stringify(secondExit)} — a signal means it never ran shutdown at all, a 0 means the crash was too late\n${tail(
+      restarting
+    )}`
+  );
+  const shutdownLog = restarting.text();
+  check(
+    shutdownLog.indexOf('shutting down — stopping backends') >= 0 &&
+      shutdownLog.indexOf('shutting down — stopping backends') < shutdownLog.indexOf('uncaughtException — the daemon is going down'),
+    'and it was already shutting down when the crash arrived, which is the whole premise',
+    tail(restarting)
   );
   check(
     restarting.saw(/not filed \(shutting-down\)/),

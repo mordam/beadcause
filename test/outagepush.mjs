@@ -45,6 +45,7 @@ import http from 'node:http';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { boundPort, freePort } from './helpers/net.mjs';
+import { removeTree, removeTreeSync } from './helpers/tmp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(HERE, '..');
@@ -180,10 +181,67 @@ for (const stream of [router.stdout, router.stderr]) {
   });
 }
 
+/**
+ * Ending the router, and *waiting* until it is over.
+ *
+ * `kill()` is not a wait: it returns once the signal is queued, and the thing it is
+ * queued for is a supervisor with backends of its own — all of them holding this scratch
+ * directory as their `BEADCAUSE_CONFIG_DIR` and writing state into it. Removing the
+ * directory on the next line is therefore a race, and the tick it loses reads as
+ * `ENOTEMPTY: directory not empty, rmdir` out of the teardown: rmSync emptied a
+ * directory, something wrote into it while the walk carried on, and the `rmdir` at the
+ * end found it non-empty again (bc-94c6).
+ *
+ * SIGTERM rather than SIGKILL, because SIGTERM is the only one the router can act on —
+ * its handler stops the backends first (bin/router.js), so waiting on this one exit is
+ * most of the wait for theirs as well. `once('exit')` is the wait itself: it fires when
+ * the child has been reaped. The SIGKILL after five seconds is for a router that will
+ * not go, which is a hang rather than a race and should not also cost the suite a stall.
+ */
+async function stopRouter() {
+  if (router.exitCode !== null || router.signalCode) return;
+  const gone = new Promise((resolve) => router.once('exit', resolve));
+  router.kill('SIGTERM');
+  const hard = setTimeout(() => router.kill('SIGKILL'), 5000);
+  await gone;
+  clearTimeout(hard);
+}
+
+/**
+ * The teardown proper: reap, close, remove — each step finished before the next one
+ * assumes it.
+ *
+ * `removeTree` rather than `cleanupTmp` because there is nothing in *this* process to
+ * quiesce. The writer under `dir` is the router, in a process of its own, so importing
+ * lib/commonrepo.js here would flush a snapshot nobody scheduled — while resolving
+ * `CONFIG_DIR` against the real `~/.config/beadcause`, which a teardown has no business
+ * being the first thing to do. What is wanted is the other half, the retry loop, which
+ * is what covers a backend still on its way out after the router has gone.
+ */
+let tornDown = false;
+async function teardown() {
+  if (tornDown) return;
+  tornDown = true;
+  await stopRouter();
+  if (ntfy.listening) ntfy.close();
+  await removeTree(dir);
+}
+
+/**
+ * The backstop, for the exits that never reach `teardown` — a throw above the try block,
+ * or the SIGINT below. It cannot wait, so it does the only thing an exit handler can:
+ * signal, and retry the removal synchronously.
+ *
+ * A bare `rmSync` is at its worst here rather than at its most harmless: a throw inside
+ * an exit listener is an uncaught exception on the way out, printed *after* the suite has
+ * said all its checks passed and with the exit code already set — so twenty lines of red
+ * land under a green pass and the run stops reading as the thing it did.
+ */
 const cleanup = () => {
-  if (!router.killed) router.kill('SIGKILL');
-  ntfy.close();
-  fs.rmSync(dir, { recursive: true, force: true });
+  if (tornDown) return;
+  if (router.exitCode === null && !router.signalCode) router.kill('SIGKILL');
+  if (ntfy.listening) ntfy.close();
+  removeTreeSync(dir);
 };
 process.on('exit', cleanup);
 process.on('SIGINT', () => process.exit(130));
@@ -302,11 +360,14 @@ try {
   );
   check(back.at > push.at, 'and after it, which is the only order that makes either of them readable');
   check(pushes.length === 2, 'two pushes for one outage: it broke, and it came back', `${pushes.length} push(es)`);
-
-  router.kill('SIGTERM');
 } catch (err) {
   bad('the run itself', err.stack || err.message);
 }
+
+// After the catch rather than as the last line of the try, so a run that threw tears down
+// as completely as one that passed — and here, where awaiting is still possible, rather
+// than in the exit handler, where it is not.
+await teardown();
 
 if (failures) {
   console.log('\n--- router log ---');

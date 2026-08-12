@@ -15,7 +15,10 @@
  *    records, including the two states nobody guesses: a `deploying` record with no
  *    runner behind it (which is what a restart looks like from the process that came
  *    back, and *is* the storm), and one so old that going on trusting it would mean this
- *    Mac never reported an error again.
+ *    Mac never reported an error again. And its *other* source, added by bc-kttd: the
+ *    marker bin/router.js leaves on every handover, which is the only evidence a
+ *    blue/green swap ever happened — `npm run swap` writes nothing into the journal, so
+ *    without it the ship skill's own restart filed the exact storm this file is about.
  * 2. **`POST /api/error`** — the acceptance criterion, through the real route with a real
  *    stub tracker behind it: nothing is created while the window is open, and an error
  *    after it files normally. `bd create` is asserted to have been *unreached*, not
@@ -52,7 +55,7 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'beadcause-quiet-'));
 process.env.BEADCAUSE_CONFIG_DIR = path.join(tmp, 'config');
 fs.mkdirSync(process.env.BEADCAUSE_CONFIG_DIR, { recursive: true });
 
-const { reportingQuiet, REPORT_GRACE_MS, DEPLOY_DIR } = await import(LIB('deploy.js'));
+const { reportingQuiet, markRestart, REPORT_GRACE_MS, DEPLOY_DIR, RESTART_PATH } = await import(LIB('deploy.js'));
 const { createApp, listen } = await import(LIB('server.js'));
 
 /* ------------------------------------------------------------------- harness */
@@ -107,6 +110,10 @@ function record(fields) {
 
 const clearJournal = () => {
   for (const name of fs.readdirSync(DEPLOY_DIR)) fs.rmSync(path.join(DEPLOY_DIR, name), { force: true });
+  // The router's restart marker is the quiet window's *other* source and lives outside
+  // the journal on purpose (bc-kttd), so clearing one without the other would leave
+  // every check below asserting against whatever the previous one wrote.
+  fs.rmSync(RESTART_PATH, { force: true });
 };
 
 /* ----------------------------------------------------------------- the rule */
@@ -181,6 +188,77 @@ await check('the newest deploy is the one that answers', () => {
   record({ pid: DEAD_PID, status: 'ok', requestedAt: ago(600000), finishedAt: ago(590000) });
   const live = record({ pid: process.pid, status: 'deploying', requestedAt: ago(1000) });
   assert.equal(reportingQuiet()?.id, live.id);
+});
+
+/* ------------------------------------------------- a swap, which is no deploy */
+
+console.log('\nand a blue/green swap, which writes no deploy record at all');
+
+await check('a handover the router just made holds reporting off', () => {
+  clearJournal();
+  // What bin/router.js leaves on every `bringUp` — a hand-run `npm run swap`, and the
+  // automatic one it does the moment lib/ moves. Nothing goes in the deploy journal.
+  markRestart({ build: 'b12345', pid: DEAD_PID, reason: 'asked for by hand' });
+  const quiet = reportingQuiet();
+  assert.ok(quiet, 'the reconnect after a swap was not held off — this is bc-kttd');
+  assert.equal(quiet.status, 'restarted');
+  assert.equal(quiet.id, null, 'a swap is not a deploy and must not claim to be one');
+  assert.match(quiet.why, /replaced/);
+  assert.match(quiet.why, /b12345/, 'the build that took over is the useful half of the reason');
+  assert.match(quiet.why, /asked for by hand/);
+  const until = Date.parse(quiet.until);
+  assert.ok(until > Date.now(), 'the window is already over');
+  assert.ok(until <= Date.now() + REPORT_GRACE_MS + 1000, `${quiet.until} is further off than one grace period`);
+});
+
+await check('the window runs from the handover, not from the question', () => {
+  clearJournal();
+  // A swap has already happened by the time it is written down, unlike a deploy in
+  // flight — so this is a real end and not a floor that is asked for again.
+  markRestart({ build: 'b12345', at: ago(REPORT_GRACE_MS - 1500) });
+  const quiet = reportingQuiet();
+  assert.ok(quiet, 'a swap a second and a half ago was not held off');
+  assert.ok(Date.parse(quiet.until) <= Date.now() + 2000, `${quiet.until} was measured from now`);
+});
+
+await check('a swap long enough ago holds nothing off', () => {
+  clearJournal();
+  markRestart({ build: 'b12345', at: ago(REPORT_GRACE_MS + 5000) });
+  assert.equal(reportingQuiet(), null, 'an error after the grace period must file');
+});
+
+await check('a marker with no ceiling still expires: nothing cleans this file up', () => {
+  clearJournal();
+  // The point of a bare timestamp. Nobody sweeps this the way `sweepDeploys` settles a
+  // record, so a swap from last Tuesday must go quiet on arithmetic alone.
+  markRestart({ build: 'b12345', at: ago(9 * 86400000) });
+  assert.equal(reportingQuiet(), null);
+});
+
+await check('a marker from the future is no restart', () => {
+  clearJournal();
+  // A clock stepped backwards, or a config directory copied off another machine. The
+  // honest failure direction here is the one the stale-record ceiling chose: file.
+  markRestart({ build: 'b12345', at: new Date(Date.now() + 3600000).toISOString() });
+  assert.equal(reportingQuiet(), null);
+});
+
+await check('a garbled marker is no restart', () => {
+  for (const junk of ['{"at":"soon"}', '{"at":null}', '{}', 'not json at all', '[]']) {
+    clearJournal();
+    fs.writeFileSync(RESTART_PATH, junk);
+    assert.equal(reportingQuiet(), null, `${junk} hushed this Mac`);
+  }
+});
+
+await check('the deploy journal answers ahead of the marker, because it can say which deploy', () => {
+  clearJournal();
+  const rec = record({ pid: DEAD_PID, status: 'deploying' });
+  markRestart({ build: 'b12345', reason: 'the swap the deploy itself caused' });
+  // A deploy that restarts this daemon produces both — the journal record and, when the
+  // router brings the new build up, a marker. One answer, and the informative one.
+  const quiet = reportingQuiet();
+  assert.equal(quiet?.id, rec.id, 'the swap marker shadowed the deploy that caused it');
 });
 
 /* ------------------------------------------------------------- the endpoint */
@@ -300,6 +378,42 @@ await check('an error after the grace period files normally', async () => {
   record({ pid: DEAD_PID, status: 'unconfirmed', requestedAt: ago(600000), finishedAt: ago(REPORT_GRACE_MS + 5000) });
 
   const { status, body } = await postReport('GET /api/poll failed — Failed to fetch');
+  assert.equal(status, 200);
+  assert.equal(body.ok, true, `the report was refused: ${JSON.stringify(body)}`);
+  assert.equal(body.action, 'created');
+  assert.equal(created().length, 1);
+});
+
+await check('bc-kttd’s acceptance: a hand-run swap files no beads either', async () => {
+  clearJournal();
+  resetTracker();
+  // No deploy record anywhere — this is `npm run swap` at a terminal, which is what the
+  // ship skill runs and what the router-poisoning path runs. Before bc-kttd every one of
+  // these sixteen was a P0.
+  markRestart({ build: 'b12345', pid: DEAD_PID, reason: 'asked for by hand' });
+
+  const storm = await Promise.all(
+    ['/api/poll', '/api/questions', '/api/prs', '/api/sessions'].flatMap((p) =>
+      ['/', '/console', '/prs', '/monitor'].map((page) => postReport(`GET ${p} failed — HTTP 503`, { url: page, source: p }))
+    )
+  );
+  assert.equal(storm.length, 16);
+  for (const { status, body } of storm) {
+    assert.equal(status, 200);
+    assert.equal(body.ok, false);
+    assert.match(body.reason, /replaced/);
+    assert.ok(body.quiet?.until, 'the page was not told when it may report again');
+  }
+  assert.deepEqual(created(), [], `bd create was reached: ${JSON.stringify(created())}`);
+  assert.deepEqual(beads(), []);
+});
+
+await check('and an error after that swap files normally', async () => {
+  clearJournal();
+  resetTracker();
+  markRestart({ build: 'b12345', at: ago(REPORT_GRACE_MS + 5000) });
+
+  const { status, body } = await postReport('GET /api/poll failed — HTTP 503');
   assert.equal(status, 200);
   assert.equal(body.ok, true, `the report was refused: ${JSON.stringify(body)}`);
   assert.equal(body.action, 'created');

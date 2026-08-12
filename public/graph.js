@@ -1040,11 +1040,13 @@
    * prefix, "Superseded by bc-rk2o". Those are the endings, and the sheet is the
    * screen every bead link in the app opens.
    *
-   * Drawn in full, never clamped. The longest close reason in this tracker is 1664
-   * characters and the sheet body already scrolls, so there is nothing to gain by
-   * folding it and something real to lose: /history's row clamps its own copy to two
-   * lines (`.hist-why`) precisely because tapping the row lands here, and a clamp at
-   * both ends would put the sentence nowhere in the app at all.
+   * Drawn in full, never clamped, and this is now the *only* place that draws it whole.
+   * The longest close reason in this tracker is 1664 characters and the sheet body
+   * already scrolls, so there is nothing to gain by folding it and something real to
+   * lose: /history's row clamps its copy to two lines in CSS and `/api/history` no
+   * longer even sends more than 240 characters (`CLOSE_REASON_MAX` in lib/history.js),
+   * both of them on the understanding that tapping the row lands here. So a clamp added
+   * here would not shorten the sentence, it would delete it from the app.
    *
    * Only while the bead is actually closed. `bd` clears `closed_at` on reopen but
    * leaves `close_reason` sitting there, so a reopened bead would otherwise carry the

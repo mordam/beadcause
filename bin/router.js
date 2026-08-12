@@ -406,6 +406,34 @@ function retire(be) {
 }
 
 /**
+ * Tell the error-reporting quiet window that the port has just changed hands.
+ *
+ * bc-kttd. `lib/deploy.js` holds `POST /api/error` off across a deploy by reading the
+ * deploy journal, and a swap writes nothing into it — so a hand-run `npm run swap`, and
+ * every automatic one this file does when `lib/` moves, produced exactly the storm that
+ * mechanism exists to stop: a handful of failures that happened a moment before the new
+ * backend became healthy, described to it afterwards, each one a P0 in front of the
+ * advocate. `markRestart` leaves the one fact that costs, and lib/deploy.js explains at
+ * length why it is a file of its own rather than a fake deploy.
+ *
+ * **Lazily imported and never fatal**, for the reason at the top of this file and the
+ * reason `armCrashHandlers` gives at more length: lib/deploy.js reaches lib/session.js
+ * and so an import cycle, and none of that may stand between this process and the port.
+ * By the time this is first called that module is already in the cache — `armCrashHandlers`
+ * awaits it before the first `bringUp` — so the write lands on the next microtask, well
+ * ahead of any phone noticing it was ever gone.
+ *
+ * **At the handover, not at the spawn.** A build that is merely slow is started, timed
+ * out and retried while the old backend serves perfectly; marking those would hush a
+ * daemon that never moved. Only the assignment to `active` is the service changing hands.
+ */
+function noteRestart(be, reason) {
+  import('../lib/deploy.js')
+    .then(({ markRestart }) => markRestart({ build: be.build, pid: be.pid, reason }))
+    .catch((err) => warn(`could not record the handover (${err.message}) — the reconnect after this swap may file beads`));
+}
+
+/**
  * A backend went away on its own: a crash, an OOM, or its own orphan guard.
  *
  * Only the active one is worth reacting to — a draining backend exiting is the
@@ -465,6 +493,10 @@ async function bringUp(reason) {
 
     const previous = active;
     active = next;
+    // Before the log line and before the old one is retired: from here the phone is
+    // talking to a process that was not there a moment ago, and the reconnect it is
+    // about to make must not be a dozen beads. See `noteRestart`.
+    noteRestart(next, reason);
     poisoned = null;
     deferred = null;
     deferrals = 0;
@@ -1302,7 +1334,45 @@ async function armCrashHandlers() {
 
 const routerBuildAtStart = routerStamp();
 
+/**
+ * Put the port down and stop the backends, once.
+ *
+ * Declared above the socket it closes because it has to be *registered* the moment the
+ * socket exists — see the two `process.on` calls below `listen()`. Nothing can call it
+ * before then, so `servers` is always initialised by the time this body runs.
+ */
+const shutdown = () => {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  // Before anything is closed. A teardown makes things in flight reject, and the router
+  // tears down on every `launchctl kickstart` — so without this every restart would file a
+  // P0 about a router doing exactly as it was told. `crash` is null until `armCrashHandlers`
+  // has finished, which is why that function checks `shuttingDown` on its way out.
+  crash?.beginShutdown();
+  log('shutting down — stopping backends');
+  for (const be of [active, ...retiring].filter(Boolean)) stop(be);
+  // `closeServer`, because `listen()` now hands back the request server: on the tailnet
+  // address the port is held by the `net.Server` in front of it, and closing the HTTPS
+  // server alone would leave 4318 bound by a process on its way out.
+  servers.forEach(closeServer);
+  // Give SIGTERM a moment to land on the children before the router's own exit
+  // orphans them. Their own guard would catch it a minute later; this is tidier.
+  setTimeout(() => process.exit(0), 300).unref();
+};
+
 const servers = listen();
+// Armed here, on the line after the port is held, and not at the end of this file where
+// they used to be. `launchctl kickstart -k` is a SIGTERM, and until these are registered
+// node's default disposition is what answers one: the process is killed where it stands,
+// `shutdown` never runs, the backends are orphaned to their own minute-long guard and the
+// port goes without being closed. That window used to cover everything below — arming the
+// crash handlers, fetching a certificate, and the whole first bring-up, which is seconds
+// on a cold start and exactly the seconds a restart-loop lands in. `shutdown` is written
+// to be safe this early: `active` and `retiring` are simply empty, and `crash` is null
+// until `armCrashHandlers` has finished, which is what its optional call and the
+// `if (shuttingDown)` on that function's way out are between them for.
+process.on('SIGINT', shutdown);
+process.on('SIGTERM', shutdown);
 // In the installed configuration this process is what terminates TLS, so it is also
 // what may have just fetched the first certificate — and therefore what has to move
 // `baseUrl` onto the name. Its backends bind loopback and deliberately do not. Before
@@ -1339,24 +1409,3 @@ await bringUp('first start').catch((err) => {
 watchDisk();
 watchSelf();
 heartbeat();
-
-const shutdown = () => {
-  if (shuttingDown) return;
-  shuttingDown = true;
-  // Before anything is closed. A teardown makes things in flight reject, and the router
-  // tears down on every `launchctl kickstart` — so without this every restart would file a
-  // P0 about a router doing exactly as it was told. `crash` is null until `armCrashHandlers`
-  // has finished, which is why that function checks `shuttingDown` on its way out.
-  crash?.beginShutdown();
-  log('shutting down — stopping backends');
-  for (const be of [active, ...retiring].filter(Boolean)) stop(be);
-  // `closeServer`, because `listen()` now hands back the request server: on the tailnet
-  // address the port is held by the `net.Server` in front of it, and closing the HTTPS
-  // server alone would leave 4318 bound by a process on its way out.
-  servers.forEach(closeServer);
-  // Give SIGTERM a moment to land on the children before the router's own exit
-  // orphans them. Their own guard would catch it a minute later; this is tidier.
-  setTimeout(() => process.exit(0), 300).unref();
-};
-process.on('SIGINT', shutdown);
-process.on('SIGTERM', shutdown);

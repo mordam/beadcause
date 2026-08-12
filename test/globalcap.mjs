@@ -29,6 +29,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { boundPort } from './helpers/net.mjs';
+import { cleanupTmp } from './helpers/tmp.mjs';
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'beadcause-globalcap-'));
 // Before anything under lib/ is imported: CONFIG_DIR resolves once, at module load.
@@ -243,5 +244,5 @@ await (await import('../lib/commonrepo.js')).flush();
 await new Promise((r) => setTimeout(r, 500));
 
 console.log(`\n${ran - failures}/${ran} passed\n`);
-fs.rmSync(tmp, { recursive: true, force: true });
+await cleanupTmp(tmp);
 if (failures) process.exit(1);
