@@ -10123,6 +10123,60 @@ backwards, every approved checkout **is** that workspace, so all of them are com
 single comparison against the default would have filed a crash from a session running in
 `~/climative.dev/athena-service` onto whichever workspace came next in the list.
 
+### Every window and every card says which checkout it came up in
+
+Resolving a bead to a directory is half of it. The other half is that the things which
+*call* the resolver have to hand it the bead — and all four of them had one in hand
+already and were throwing it away, because for the whole of this program's life before
+Climative there was only ever one directory a workspace could mean.
+
+| surface | file | where the bead comes from |
+|---|---|---|
+| the iTerm session you tap *Discuss* on | `openSession`, `lib/session.js` | the row `POST /api/session` has just read to endorse it |
+| the unattended work session an advocate opens | `openWorkSession`, `lib/session.js` | the row `assertEndorsed` re-read from the tracker |
+| the terminal on your phone | `openTerminal`, `lib/terminal.js` | the seed, whose `repo:` labels are kept on the record |
+| the chat session | `createConsole`, `lib/console.js` | the seed, same |
+| the reply agent that answers a comment | `dispatchReply`, `lib/dispatch.js` | the row the route already fetched |
+
+`openWorkSession` is worth reading twice. It resolves from **the row the endorsement
+check just read**, not from the queue row the advocate handed it — the same reasoning
+that makes `assertEndorsed` ask the tracker rather than trust its caller. That check has
+already paid for a `bd show`, a caller-supplied object proves nothing about the bead, and
+a `repo:` label added or corrected since the survey ran is the difference between a repo
+and the wrong one. This is the only door into an hour of unattended agent, and the wrong
+side of it is a checkout nobody meant it to touch.
+
+**A record keeps the labels that decided it.** /admin replaces a terminal whose pty is
+gone from its record alone, so `{id, title}` was not enough: the replacement for an
+`athena-service` terminal would have come up in `architecture`. `repoLabelsOf` keeps the
+`repo:` labels and nothing else — the whole row would be a stale copy of a bead that has
+moved on since, and the labels are the only part of it that decides anything.
+
+Then they say so, on screen, because with N repos behind one workspace name "climative"
+no longer tells you where a window landed:
+
+- **the iTerm tab** — `▶ cl-9f2 · athena-service · Paging drops the last page`. The repo
+  sits *ahead* of the bead's own title on purpose: `windowTitle` clamps at sixty
+  characters and the title is what gets eaten, so a window opened in `athena-service` has
+  to still say so when the bead is called something long.
+- **the terminal card and the terminal's own title bar** — `climative · athena-service`,
+  and the phone-sized title bar is the only line on that screen that says it at all.
+- **the chat card** — a second pill beside the workspace's, and the opening context tells
+  the agent in words which checkout it is standing in rather than leaving it to infer one
+  from `~/climative.dev/…`.
+- **the toast on the phone**, the startup log lines, and the reply agent's own log.
+
+None of it appears for a workspace that is one repo. `repo` is `null` all the way
+through — no pill, no second half to the log line, and the tab title `sophab` had before.
+That is asserted in `test/openrepo.mjs`, beside the refusals: a seed naming a token
+nothing approved, or carrying two different `repo:` labels, **refuses** rather than
+opening in the default repo, and it refuses before a pty or a conversation exists.
+
+The two surfaces that are not on this list are the ship and conflict sessions
+(`openShipSession`, `openConflictSession`). They are opened from a pull request rather
+than from a bead, and which repo a *pull request* is in is the PR board's own question —
+see the epic's next child.
+
 ### Environment
 
 | variable | meaning |
