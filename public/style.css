@@ -829,6 +829,15 @@ body {
 .console-row .work-row { flex: 1; min-width: 0; }
 .console-row.closed { opacity: 0.55; }
 .console-row.closed .work-title { font-weight: 500; }
+/* `.spark` is a bare span sized in px, so the slot it sits in has to be a flex parent
+   or it is laid out as an empty inline box — which is to say, as nothing at all.
+   `.work-phase` is a flex *item* of `.work-row`, which blockifies the slot but not its
+   children, so this line is still owed. The same one `.session-row` and `.chat-card`
+   need, for the same reason. */
+.console-row .work-phase { display: flex; align-items: center; justify-content: center; }
+/* Breathing, not a dead grey dot: this list is where you find the conversation that is
+   still thinking, and against the ✓ and the 💬 beside it a muted dot reads as idle. */
+.console-row .spark { background: var(--accent); animation: breathe 1.3s ease-in-out infinite; }
 /* The pills sit flush against each other in the markup — the row is one line and a
    template that breaks would put whitespace inside the ellipsis. */
 .console-row .work-sub .pill { margin-right: 5px; }
@@ -4656,6 +4665,24 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
   font-size: 13.5px;
 }
 .space-arrow { color: var(--muted); }
+
+/* The Slack channel — the one field on this card you type into rather than press.
+   Same box as the clocks above so the two typed controls on the page look like one
+   thing, and `flex: 1 1 12ch` because a channel id is eleven characters: it takes the
+   room it needs on a phone and the three buttons wrap under it rather than squeezing
+   the field down to something you cannot read what you typed in. */
+.space-channel input[type="text"] {
+  flex: 1 1 12ch;
+  min-width: 11ch;
+  min-height: 34px;
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  font-size: 13.5px;
+}
 
 /* Seven days across a 360px phone: square, so the row fits without wrapping and each
    is still a 40px target in the direction a thumb misses in. */

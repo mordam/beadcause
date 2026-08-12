@@ -41,6 +41,10 @@ function summary(c) {
     if (s.quietHours?.from) bits.push(`quiet ${s.quietHours.from}-${s.quietHours.to}`);
     if (s.quietDays?.length) bits.push(s.quietDays.join('/'));
     if (s.ntfyDetail === 'minimal') bits.push('contentless push');
+    // Both ways of saying nothing, because they are different answers: no key follows
+    // the global channel, and a key set to nothing means this space never posts.
+    if (s.slackChannel === '') bits.push('no slack');
+    else if (s.slackChannel) bits.push(`slack ${s.slackChannel}${s.slackDetail === 'minimal' ? ' (minimal)' : ''}`);
     if (s.autoDispatch === false) bits.push('no agents');
     return bits.length ? ` [${bits.join(', ')}]` : '';
   };
@@ -62,6 +66,13 @@ function summary(c) {
     `  asset roots       : ${(c.assetRoots || []).join(', ')}`,
     `  session dirs      : ${c.projectRoot ? `${c.projectRoot}/<workspace>` : '~/beads/<workspace>'}`,
     `  ntfy              : ${c.ntfy?.enabled ? c.ntfy.topic : 'disabled'}`,
+    // Enabled *and* a channel: either alone posts nothing, and reporting one without
+    // the other is how a half-configured Slack reads as a working one.
+    `  slack             : ${
+      c.slack?.enabled && c.slack?.channel
+        ? `${c.slack.channel}${c.slack.detail === 'minimal' ? ' (minimal)' : ''}`
+        : 'disabled'
+    }`,
     `  auto-dispatch     : ${c.autoDispatch === false ? 'off' : 'on'}`,
     // Both numbers, always: "advocates: sophab" without the session count reads as
     // an unbounded thing, and that is the number people want to be sure of.
@@ -294,9 +305,48 @@ console.log(
 );
 cfg.ntfy = { ...cfg.ntfy, enabled: await yes('   use ntfy? (y/n)', cfg.ntfy?.enabled ? 'y' : 'n') };
 
+/* ----------------------------------------------------------------------- slack */
+
+/**
+ * Beside ntfy because it is the same kind of answer — where a question is allowed to
+ * arrive — and it asks for the *global* channel only, which is the half of this that has
+ * nowhere else to live. A space's own channel is a control on the space details screen
+ * now, so asking for one per space here would be asking, in the one place you cannot
+ * change your mind later, for something you can change from a phone.
+ *
+ * "none" rather than a blank line, which `ask` cannot hear: an empty answer becomes the
+ * default, so on a re-run over a configured install a blank would silently keep the
+ * channel it was meant to remove.
+ */
+console.log(`\n${bold('7. Post questions to a Slack channel as well?')}`);
+console.log(
+  dim(
+    '   The same question, in a channel, with a button per option — pressing one writes\n' +
+      '   the same answer on the same bead as tapping it in the app. Needs a bot token in\n' +
+      '   ~/.config/beadcause/slack-bot.key and an app-level token in slack-app.key; the\n' +
+      '   README has the two-minute version. Give a channel id (C… or D…, not a #name),\n' +
+      '   or "none". Per-space channels live on the space details screen, not here.'
+  )
+);
+const channelRaw = await ask('   slack channel:', cfg.slack?.channel || 'none');
+const slackChannel = /^none$/i.test(channelRaw) ? '' : channelRaw.trim();
+if (slackChannel) {
+  const nudge = await yes(
+    '   post a nudge with a link instead of the question text? (y/n)',
+    cfg.slack?.detail === 'minimal' ? 'y' : 'n'
+  );
+  cfg.slack = { ...cfg.slack, enabled: true, channel: slackChannel, detail: nudge ? 'minimal' : 'full' };
+} else {
+  // Both halves together. `slackChannelFor` answers nothing until `enabled` *and* a
+  // channel are set, so leaving `enabled: true` over a cleared channel would be a config
+  // that reads as "Slack is on" and posts nowhere — the exact half-configured state the
+  // daemon's startup line exists to warn about, arrived at by the setup wizard itself.
+  cfg.slack = { ...cfg.slack, enabled: false, channel: null };
+}
+
 /* --------------------------------------------------------------- unattended work */
 
-console.log(`\n${bold('7. Should commenting spawn an agent to answer you?')}`);
+console.log(`\n${bold('8. Should commenting spawn an agent to answer you?')}`);
 console.log(
   dim(
     '   Otherwise a comment just sets a label and waits for an agent session to come\n' +
@@ -308,7 +358,7 @@ cfg.autoDispatch = await yes('   auto-dispatch? (y/n)', cfg.autoDispatch === fal
 
 /* -------------------------------------------------------------------- monitor */
 
-console.log(`\n${bold('8. Open the advocate console at login?')}`);
+console.log(`\n${bold('9. Open the advocate console at login?')}`);
 console.log(
   dim(
     '   A browser window on /monitor: what each repo\'s advocate is working on, what it\n' +
@@ -325,7 +375,7 @@ cfg.monitor = {
 
 /* ------------------------------------------------------------------ advocates */
 
-console.log(`\n${bold('9. Which repos should have an advocate?')}`);
+console.log(`\n${bold('10. Which repos should have an advocate?')}`);
 console.log(
   dim(
     '   An advocate watches one repo\'s ready beads and opens a Claude session on each\n' +
@@ -385,7 +435,7 @@ cfg.advocates = { ...(cfg.advocates || {}), workspaces: advocated, maxWorkers, e
  */
 const repoTargets = scanTargets(cfg);
 if (repoTargets.length) {
-  console.log(`\n${bold('10. Which repos may be worked in?')}`);
+  console.log(`\n${bold('11. Which repos may be worked in?')}`);
   console.log(
     dim(
       `   ${repoTargets.map((t) => t.workspace).join(', ')} ${
