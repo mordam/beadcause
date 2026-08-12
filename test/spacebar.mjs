@@ -343,7 +343,7 @@ check('a change made on the other device arrives through adopt and is announced 
 /* Which pages have the bar, and the one that deliberately does not: admin acts on every
    repo at once (see the header of public/admin.js), and a control it ignored would be a
    lie about what its buttons do. */
-const PAGES = ['index.html', 'prs.html', 'monitor.html', 'console.html', 'foundations.html'];
+const PAGES = ['index.html', 'monitor.html', 'console.html', 'foundations.html'];
 
 check('every page with a filterable list loads /spacebar.js', () => {
   const missing = PAGES.filter((p) => !read(`public/${p}`).includes('/spacebar.js'));

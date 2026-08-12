@@ -2,12 +2,27 @@
  *
  * The inbox asks *may I merge this?* and the card is gone the moment you answer. It also
  * now carries a card per pull request (bc-l8jp.6), which is what took **PRs** off the
- * bottom bar — so this page is no longer a tab, and it is still the whole of the shipping
+ * bottom bar — so this is no longer a tab, and it is still the whole of the shipping
  * screen: the release queue, the deploy in flight, and the buttons that act on one row.
- * `/prs`, `/pulls` and `/prs.html` all still serve it, because they are on the phone's
- * home screen and in the notifications the ship path sends.
  *
- * Three things about the shape of the page.
+ * **And it is a pane on /monitor now, not a page (bc-d4d5).** Taking it off the bar left
+ * it with no route in at all except the link on a PR card in the inbox, which meant that
+ * on a day with no pull request in the inbox there was no way to reach **Ship** short of
+ * typing a URL — and a ship bead that says "press Ship on the board" is not answerable
+ * from a phone that cannot find the board. So it is the third chip on the advocates page
+ * (see public/montabs.js), by the same argument that makes the Mirror a pane rather than
+ * a tab: it is a mode of the page you already watch work from, and you glance at it and
+ * act on one row rather than living on it. `/prs`, `/pulls` and `/prs.html` all still
+ * work — they are on the phone's home screen and in the notifications the ship path
+ * sends — and all three now land on that page with this chip up.
+ *
+ * What that costs this file is small and worth naming: there is no `#prs-refresh` any
+ * more (the page's one ⟳ is shared, and each pane ignores it while it is hidden), no
+ * presence report of its own (the chip carries it), and nothing is fetched until the
+ * chip is up. The last of those is the one that matters — every wake this board acts on
+ * is a `gh` sweep per repo, and it now stands itself down behind the other two panes.
+ *
+ * Three things about the shape of the board.
  *
  * **The lamps are the page.** Merged · Pushed · Deployed · Live, on every row, always
  * visible — not behind the fold, because "which of these has not shipped" is a
@@ -132,8 +147,8 @@
   /* The row, the lamps, the ladder and the two time formats come from public/prcard.js —
      the inbox draws the same pull request from the same functions. Taken apart here rather
      than reached for through `window` at every call site, so this file reads as it did.
-     It is loaded before this one (see prs.html); a page without it has no board at all,
-     which is why both are in one `sw.js` cache version. */
+     It is loaded before this one (see monitor.html); a page without it has no board at
+     all, which is why both are in one `sw.js` cache version. */
   const card = window.beadcause.prCard;
   const { esc, plural, age, ago, graphUrl, lampsHtml, factsHtml, bodyHtml } = card;
 
@@ -196,6 +211,15 @@
       );
     }
     buttons.push(`<button class="board-btn" data-act="comment" data-key="${esc(p.key)}">Comment</button>`);
+    /* The whole screen for this one pull request — the description, the authoring agent,
+       the datetimes and GitHub's live word on whether it still merges. That view exists
+       once, in the inbox (bc-l8jp.7), and this is a link into it rather than a second
+       copy of it: `#pr:<workspace>#<number>` is the key the inbox's own deep links use,
+       so a tap here lands on the same sheet a notification does. `focusHash` in app.js
+       widens the status sub-filter if it has to, which is what makes this work for a
+       merged row — the board's whole subject — where the inbox's default shows only
+       what is unmerged. */
+    buttons.push(`<a class="board-btn link" href="/#${encodeURIComponent(`pr:${p.key}`)}">Full view</a>`);
     buttons.push(`<a class="board-btn link" href="${esc(p.url)}" target="_blank" rel="noopener">GitHub ↗</a>`);
 
     const said = state.said?.key === p.key ? `<div class="board-said${state.said.bad ? ' bad' : ''}">${esc(state.said.text)}</div>` : '';
@@ -974,6 +998,12 @@
   function scheduleDeploys() {
     clearTimeout(deployTimer);
     deployTimer = null;
+    // Not while the board is behind another chip. The strip is the one thing on this
+    // page with a clock of its own, so a hidden board that kept it would be a request
+    // every four seconds for a pane nobody is looking at — and at the *fast* cadence,
+    // because a live deploy is exactly when you are most likely to have swapped away to
+    // watch the sessions it is restarting.
+    if (out.hidden) return;
     // Unreachable *and* a restart in flight is the fastest cadence there is a reason
     // for: nothing on the page will change until the daemon is back, and that is the
     // moment worth catching.
@@ -983,8 +1013,6 @@
     }
     if (!stream?.following) deployTimer = setTimeout(loadDeploys, DEPLOY_IDLE_MS);
   }
-
-  window.beadcause?.presence?.report({ view: 'prs' });
 
   /* The space picker moved — on this device or on the other one. Nothing is refetched:
      the board already holds every repo, and which of them is drawn is a decision made
@@ -997,7 +1025,13 @@
     render();
   });
 
-  document.getElementById('prs-refresh').addEventListener('click', () => {
+  /* The ⟳ is the page's and this board is one of its three panes, so it only means the
+     board while the board is up. Shared with monitor.js, which guards its own the same
+     way: the alternative was a second ⟳ in the top bar, and two refresh buttons side by
+     side that refresh different halves of one screen is worse than one that refreshes
+     what you are looking at. */
+  document.getElementById('refresh').addEventListener('click', () => {
+    if (out.hidden) return;
     loadDeploys();
     load({ refresh: true });
   });
@@ -1036,6 +1070,12 @@
       api: warmApi,
       want: 'presence',
       cold: true,
+      /* Only while the board is the pane you are on. This costs more than the same guard
+         on the advocates pane does: every wake this board acts on is a `gh` sweep per
+         repo, and a hidden board following the log would spend one on every merge all
+         day for a screen nobody has open. Coming back calls `load`, which calls `follow`,
+         which restarts a stream that stood itself down. */
+      ready: () => !out.hidden,
       onWake({ events, resync }) {
         // Not while you are mid-sentence or holding an armed merge: a repaint would
         // throw the first away and disarm the second under your thumb. The ⟳ is still
@@ -1119,14 +1159,50 @@
     return true;
   }
 
+  /**
+   * Everything this page used to do at boot, now that it is a pane and boots when it is
+   * shown.
+   *
+   * `loadDeploys` runs alongside the board rather than after it: if a deploy is in flight
+   * the board's request is the one that is about to fail, and the strip is what says why.
+   * It schedules its own next tick — see `scheduleDeploys`.
+   */
+  function mount() {
+    warmBoot();
+    load();
+    loadDeploys();
+  }
+
   if (!token) {
     out.innerHTML = '<div class="empty"><strong>This device is not paired</strong>Open the inbox first.</div>';
   } else {
-    warmBoot();
-    load();
-    // Alongside the board rather than after it: if a deploy is in flight the board's
-    // request is the one that is about to fail, and the strip is what says why.
-    // It schedules its own next tick — see `scheduleDeploys`.
-    loadDeploys();
+    /* Nothing is asked for until the PRs chip is up, and asking again when you come back
+       to it is the same call. That is worth more here than on the pane beside it: this
+       board is a `gh` sweep per repo, so a page that swept for it on every visit to
+       /monitor would be paying GitHub for a screen most visits never look at. The chip
+       row calls back once at boot too, so arriving on /prs — which is this page with the
+       board already up — is the ordinary path through here and not a special case.
+
+       `mounted` rather than the callback's `prev`, which would be right only if the first
+       showing were always the boot one. It is not: arriving on /monitor and *then* tapping
+       PRs is the common way in, and the warm paint below belongs to the first time this
+       pane is drawn whenever that happens. The fallback is a service worker holding a
+       monitor.html from before the chip row was a file; see the same guard in monitor.js. */
+    const tabs = window.beadcause?.monTabs;
+    let mounted = false;
+    if (!tabs) mount();
+    else
+      tabs.onChange((which) => {
+        // Away: stand the strip's clock down. `scheduleDeploys` reads `out.hidden` and
+        // decides, so the rule lives in one place — and the stream stands itself down
+        // through the same attribute, see `ready` in `follow`.
+        if (which !== 'prs') return scheduleDeploys();
+        if (!mounted) {
+          mounted = true;
+          return mount();
+        }
+        loadDeploys();
+        load();
+      });
   }
 })();

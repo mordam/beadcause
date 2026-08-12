@@ -182,7 +182,26 @@
    font, sized to whatever the flex row leaves it, on a 393px screen where the three
    buttons beside it then wrap around it. It still takes a channel id, which is exactly
    the "looks like a working page" failure a cache version exists to prevent. */
-const CACHE = 'beadcause-v39';
+/* v40: the pull request board came back as a third chip on the advocates page (bc-d4d5),
+   which deletes prs.html, adds montabs.js, and points /prs, /pulls and /prs.html at
+   monitor.html. One new path and one deleted one — and unusually for this list, both
+   halves of the pairing break rather than one of them merely being the app as it was.
+
+   v39's monitor.html beside v40's mirror.js is the dead direction. That HTML has no
+   `<script src="/montabs.js">` and no `#prs` section, and v40's mirror.js has given the
+   chip row away — it subscribes to `beadcause.monTabs`, which on that page never exists,
+   so nothing is listening to the row at all. The Mirror chip stops responding to a tap
+   and its pane can never be shown again.
+
+   v40's monitor.html beside v39's mirror.js is the loud one, and it is loud in the wrong
+   place. The new HTML loads /prs.js, and v39's cached copy of that file is still the
+   standalone page: its first act is `getElementById('prs-refresh').addEventListener`,
+   against a top bar that now has one shared ⟳ and no such button. That throws on load,
+   so the board never draws at all — the pane sits on "Asking every repo…" — while the
+   two chips either side of it work perfectly, which is what makes it read as a slow
+   network rather than as a page that has half-loaded. It arrives on the one screen the
+   Ship button is on, which is the whole reason this bead existed. */
+const CACHE = 'beadcause-v40';
 const SHELL = [
   '/',
   '/index.html',
@@ -243,8 +262,12 @@ const SHELL = [
   '/archive',
   '/beadsession.html',
   '/beadsession.js',
-  // The pull request board. Both paths, the same way the advocate console has five:
-  // /pulls is what you type when GitHub's own word for the tab is the one in your head.
+  // The pull request board — a pane on the advocates page now (bc-d4d5), so its three
+  // paths are three more ways of asking for monitor.html and are precached for the same
+  // reason that page's own five are: a redirect target left out of the shell is a
+  // home-screen shortcut that only works with a signal. /pulls is what you type when
+  // GitHub's own word for the tab is the one in your head; /prs.html is what a phone
+  // that bookmarked the page it used to be still asks for.
   '/prs',
   '/pulls',
   '/prs.html',
@@ -275,6 +298,10 @@ const SHELL = [
   '/work.html',
   '/monitor.html',
   '/monitor.js',
+  // The chip row on it, and which of its three panes is up. In the shell because that
+  // page is: without this file the chips are dead and two of the three panes — the board
+  // and the mirror — are unreachable from a cached advocates page.
+  '/montabs.js',
   // The ledger. In the shell because it is a tab: every tab has to open instantly from
   // the bar whatever the link is doing, and this is the one page in the app you might
   // reasonably open *because* you are somewhere with no signal and are trying to
