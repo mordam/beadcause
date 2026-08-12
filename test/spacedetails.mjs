@@ -44,7 +44,10 @@
  *    `ntfy.minimalWorkspaces` and `autoDispatchExclude` are per-workspace and beat a
  *    space's own answer, so a space set to `full` can contain a repo that pushes
  *    minimally. Showing the space's setting alone would be wrong about precisely the
- *    repo somebody had singled out.
+ *    repo somebody had singled out. One of those rows is now also a *control* —
+ *    `autoEndorse` has a per-repo override of its own — so the same endpoint takes a
+ *    `workspace`, and what it must not do is let a card drawn for one space write the
+ *    answer for a repo that space does not contain.
  *
  * 6. **A row is a workspace, and that is no longer always one repo.** Since lib/repos.js a
  *    workspace can be forty checkouts of an org sharing one tracker. These answers stay
@@ -93,7 +96,8 @@ function check(name, fn) {
 console.log('\nspace details');
 
 const spacesMod = await import(LIB('spaces.js'));
-const { readSettings, applySettings, spaceDetail, SETTINGS, prPolicyFor, isQuiet, slackChannelFor } = spacesMod;
+const { readSettings, applySettings, spaceDetail, SETTINGS, prPolicyFor, isQuiet, slackChannelFor, autoEndorseAllowed } =
+  spacesMod;
 
 /* ==================================================== 1. what a field can say */
 
@@ -526,6 +530,66 @@ const badChannel = await call('/api/space', { method: 'POST', body: { space: 'Wo
 check('a channel that is not a string is a 400 rather than a `true` in the config file', () => {
   assert.equal(badChannel.status, 400);
   assert.equal(live.spaces.find((s) => s.name === 'Work').slackChannel, 'C-TYPED', 'unchanged');
+});
+
+/* --------------------------------------------- and the same route, one level down */
+
+const repoOn = await call('/api/space', {
+  method: 'POST',
+  body: { space: 'Work', workspace: 'alpha', settings: { autoEndorse: true } },
+});
+check('a `workspace` in the body writes that repo`s own answer, not the space`s', () => {
+  assert.equal(repoOn.status, 200);
+  assert.deepEqual(repoOn.body.changed, ['autoEndorse']);
+  assert.equal(live.autoEndorsePerWorkspace.alpha, true, 'on the object the running daemon holds');
+  // The claim through the one resolver every caller uses — bin/file.js and lib/session.js
+  // included — rather than through the map it was written into.
+  assert.equal(autoEndorseAllowed(live, 'alpha'), true);
+  assert.equal(autoEndorseAllowed(live, 'beta'), false, 'and the repo beside it in the same space is untouched');
+  assert.ok(!('autoEndorse' in live.spaces.find((s) => s.name === 'Work')), 'the space itself said nothing');
+});
+
+check('the reply is the whole card, so the row that was pressed redraws with the rest', () => {
+  const byName = Object.fromEntries(repoOn.body.repos.map((r) => [r.name, r]));
+  assert.equal(byName.alpha.autoEndorseOwn, true);
+  assert.equal(byName.alpha.autoEndorse, true);
+  assert.equal(byName.beta.autoEndorseOwn, null, 'and Inherit is still the lit button on the other');
+  assert.equal(byName.beta.autoEndorseInherited, false);
+  const onDisk = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
+  assert.equal(onDisk.autoEndorsePerWorkspace.alpha, true, 'and it survives a restart');
+});
+
+const repoClear = await call('/api/space', {
+  method: 'POST',
+  body: { space: 'Work', workspace: 'alpha', settings: { autoEndorse: null } },
+});
+check('clearing a repo puts it back to following the space rather than to off', () => {
+  assert.deepEqual(repoClear.body.changed, ['autoEndorse']);
+  assert.ok(!('alpha' in live.autoEndorsePerWorkspace), 'the key is gone');
+  const onDisk = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
+  assert.ok(!('alpha' in (onDisk.autoEndorsePerWorkspace || {})), 'from the file too');
+});
+
+const foreign = await call('/api/space', {
+  method: 'POST',
+  body: { space: 'Personal', workspace: 'alpha', settings: { autoEndorse: true } },
+});
+check('a repo that is not in the space named is a 400, not a write nobody could see', () => {
+  // The card in front of one space would otherwise be able to change the answer for a
+  // repo it does not draw, and there would be nowhere the change showed up.
+  assert.equal(foreign.status, 400);
+  assert.match(foreign.body.error, /not a repo in Personal/);
+  assert.ok(!('alpha' in (live.autoEndorsePerWorkspace || {})));
+});
+
+const repoRefused = await call('/api/space', {
+  method: 'POST',
+  body: { space: 'Work', workspace: 'alpha', settings: { autoMerge: false } },
+});
+check('and a setting that does not resolve per repo is refused rather than stored somewhere odd', () => {
+  assert.equal(repoRefused.status, 400);
+  assert.match(repoRefused.body.error, /not a per-repo setting/);
+  assert.equal(prPolicyFor(live, 'alpha').autoMerge, true, 'and the space`s own answer is untouched');
 });
 
 const refused = await call('/api/space', { method: 'POST', body: { space: 'Work', settings: { name: 'Renamed' } } });

@@ -216,7 +216,21 @@
    two chips either side of it work perfectly, which is what makes it read as a slow
    network rather than as a page that has half-loaded. It arrives on the one screen the
    Ship button is on, which is the whole reason this bead existed. */
-const CACHE = 'beadcause-v41';
+/* v42: the repo rows on the space details card became controls — a three-state
+   `autoEndorse` per repo, outranking the space (bc-tnv8). No new path: monitor.js and
+   style.css are both already here, and it is the v32 pairing in both directions. The
+   harmless one is v41's monitor.js against v42's stylesheet: the panel as it was, with
+   three unused rules behind it. The other is not. v42's monitor.js beside v41's
+   style.css loses `.space-repo`'s switch to a column, so each repo becomes one wrapping
+   line of six tags followed by "Beads agents file here On Off Inherit (off)" — the
+   buttons full `.adv-btn` height, landing in a different place on every row because the
+   tags above them are different widths, with no rule between one repo and the next to
+   say which row a button belongs to. On a 393px screen that is four repos' worth of
+   pills in one block where the statements and the controls look identical, and pressing
+   the wrong repo's Off is a filing held in a repo you did not mean. It still writes the
+   right thing when pressed, which is exactly the "looks like a working page" failure a
+   cache version exists to prevent. */
+const CACHE = 'beadcause-v42';
 const SHELL = [
   '/',
   '/index.html',

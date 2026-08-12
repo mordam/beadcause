@@ -370,6 +370,40 @@ try {
     repos.join(' | ')
   );
 
+  /* One row in that panel is a control, and it writes a *different body* from every
+     other press on this card — `{space, workspace, settings}` rather than `{space,
+     settings}`. That is exactly the shape a fixture would be free to get right while
+     the page got it wrong, so it is pressed here against the real daemon and read back
+     off the config file: the whole feature is that beadcause can stop holding while the
+     repo beside it in the same space goes on holding. */
+  const endorsed = await press('[data-repo-set="autoEndorse"][data-repo="alpha"][data-value="true"]');
+  check(
+    'a repo row`s On reaches the daemon as that repo`s own answer, not the space`s',
+    endorsed && onDisk().autoEndorsePerWorkspace?.alpha === true && !('autoEndorse' in spaceOnDisk('Work')),
+    JSON.stringify(onDisk().autoEndorsePerWorkspace || null)
+  );
+  check(
+    'and the repo beside it in the same space is untouched — the point of the whole row',
+    !('beta' in (onDisk().autoEndorsePerWorkspace || {})),
+    JSON.stringify(onDisk().autoEndorsePerWorkspace || null)
+  );
+  const afterRepo = await evalJs(
+    s,
+    `[...document.querySelectorAll('.space-repo')].map((r) => r.textContent.replace(/\\s+/g, ' ').trim())`
+  );
+  check(
+    'the row redraws with the resolved tag and the pressed button agreeing',
+    afterRepo.some((r) => r.startsWith('alpha') && r.includes('files endorsed')),
+    afterRepo.find((r) => r.startsWith('alpha'))
+  );
+
+  await press('[data-repo-set="autoEndorse"][data-repo="alpha"][data-value="null"]');
+  check(
+    'and Inherit takes the key out rather than storing a false the space cannot override',
+    !('alpha' in (onDisk().autoEndorsePerWorkspace || {})),
+    JSON.stringify(onDisk().autoEndorsePerWorkspace || null)
+  );
+
   /* ------------------------------------------------------------ the rest of it */
 
   check(

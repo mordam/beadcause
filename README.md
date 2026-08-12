@@ -599,7 +599,9 @@ are on it:
 │      Workers merge their own PRs         on  │
 │      An approving review first  inherited·off│
 │      Merges ship themselves              on  │
-│  ▸ WHAT EACH REPO RESOLVES TO            3   │
+│  ▾ WHAT EACH REPO RESOLVES TO            3   │
+│      beadcause  full push · files endorsed…  │
+│      Beads agents file here  On Off Inh(off) │
 ├──────────────────────────────────────────────┤
 │  beadcause      3 of 3 sessions              │
 │  …the advocate cards, exactly as before      │
@@ -637,13 +639,22 @@ half-typed channel id living in the DOM would be taken away by a poll nobody ask
 for.
 
 **"What each repo resolves to" is the panel that stops the screen lying.** The space is
-not the last word on two of these settings: `ntfy.minimalWorkspaces` and
-`autoDispatchExclude` are per-repo lists that outrank it, so a space set to `full` can
-contain one repo that pushes minimally. The panel runs every workspace in the space
-through the same resolvers the daemon itself uses and prints the answers, because
-a screen showing only the space's own setting would be quietly wrong about exactly the
-repo somebody had singled out — and wrong in the direction of promising more detail on
-your phone than you are going to get.
+not the last word on three of these settings: `ntfy.minimalWorkspaces`,
+`slack.excludeWorkspaces` and `autoDispatchExclude` are per-repo lists that outrank it,
+so a space set to `full` can contain one repo that pushes minimally. The panel runs every
+workspace in the space through the same resolvers the daemon itself uses and prints the
+answers, because a screen showing only the space's own setting would be quietly wrong
+about exactly the repo somebody had singled out — and wrong in the direction of promising
+more detail on your phone than you are going to get.
+
+**And one row in that panel is a control.** `autoEndorse` is the setting a space is the
+wrong unit for — see
+[One repo may answer for itself](#one-repo-may-answer-for-itself-and-this-is-the-only-setting-that-may)
+— so each repo carries its own three buttons under its tags: On, Off, and *Inherit*,
+which names what the space resolves to. They went here rather than into a twelfth row
+above because this is the line that already stated the answer for that repo and had
+nothing to press. The tag stays beside them and is not made redundant by them: the tag is
+the *resolved* answer, and the lit button says which of the three levels gave it.
 
 **And a row in it is a workspace, which stopped being the same thing as a repo.** A
 workspace with an [approved list of checkouts](#many-repos-one-workspace--the-approved-list-and-the-token-that-names-each)
@@ -806,6 +817,65 @@ agent-filed` is how you see what arrived while you were asleep.
 | `"autoEndorse": true` | discoveries filed there are ready work immediately, even where the global says no |
 | `"autoEndorse": false` | they are held for your tap, even where the global says yes |
 | unset | follows the global `autoEndorse`, which is `false` unless you changed it |
+
+### One repo may answer for itself, and this is the only setting that may
+
+Everything else on a space groups cleanly. "Don't buzz me about work at the weekend"
+and "don't land a diff other people read without eyes on it" are properties of a *set*
+of repos, and a space is that set — which is why the settings above are, as
+`lib/spaces.js` puts it, ones you give once for a group of repos rather than per repo.
+
+The hold is not like that, and the shape of a real config is what showed it. There are
+two spaces here: **Personal**, holding `beadcause`, `deluvia`, `ehatt`, `sophab` and two
+more, and **Climative**, holding one. The reason to stop holding in `beadcause` — I am
+the only reader of that tracker, so the tap is not a review, it is a delay with a
+notification attached — is a fact about *that tracker*. It is not true of the five repos
+sitting beside it, and none of them moved. With the space as the finest thing that could
+answer, saying yes to one meant saying yes to six.
+
+**One workspace, though, never one checkout inside one.** The override is keyed by
+workspace, and a workspace is a beads graph — which is exactly the grain
+[policy answers vary at](#policy-stays-per-space-even-when-a-workspace-is-forty-repos):
+who else reads this graph, and would they mind an agent working it unasked. So `climative`
+may answer for itself here like any other workspace, and still gives one answer for all
+forty of its checkouts; nothing on this page lets one of them out of it.
+
+So `autoEndorse` has a per-workspace override, and it **outranks the space**, exactly the way
+`ntfy.minimalWorkspaces` and `slack.excludeWorkspaces` already outrank it for
+notification detail:
+
+```json
+"autoEndorsePerWorkspace": { "beadcause": true, "sophab": false }
+```
+
+| for one workspace | what it does |
+|---|---|
+| `true` | its agents' discoveries are ready work immediately, even where its space holds |
+| `false` | they are held for your tap, even where its space endorses |
+| absent | follows the space, and then the global — which is the hold unless you changed it |
+
+A boolean per repo rather than a list of names, because both directions have to be
+sayable: a repo held inside a space that endorses is the same kind of exception as the
+other way round, and a list can only ever say one of them. Keyed by workspace name like
+`jira` and `advocates.perWorkspace`, and deliberately not a field on a `workspaces` entry
+— that array is rediscovered from `~/beads/*/.beads` on every start, so anything written
+onto it by hand is gone at the next restart.
+
+**Set it from the repo row**, on the space details card at
+[`/monitor`](#space-details--the-page-the-advocate-console-became): each row under
+*What each repo resolves to* already stated the answer for that repo and had nothing to
+press, so the three buttons went where the answer was. On / Off / **Inherit**, and
+Inherit names what it resolves to through the space — `Inherit (on)` inside an endorsing
+space — so the button never promises the opposite of what pressing it does. Repos in no
+space at all have no card, because `Other` is a group the picker offers rather than a
+space; the override still works for them, from the config file.
+
+Resolution is one path, in `autoEndorseAllowed`, and every caller goes through it — the
+card, `bin/file.js`, and the brief `lib/session.js` writes for a worker. Anything that is
+not a real boolean at a level is not an override and falls through to the next one, so a
+hand-typed `"true"` inherits rather than dropping a safety property. And a config from
+before this existed answers exactly as it did: the map is absent, so both remaining
+levels are the two that were always there.
 
 `npm run configure` walks you through it. Run it **in a terminal** — it needs one to
 ask questions. Anywhere else (a pipe, CI, an agent shell) it prints the current
@@ -4990,12 +5060,14 @@ That trade only holds up if the other end of it exists. Until this screen the he
 beads were a muted pill on the advocate console reading `3 held for endorsement` —
 a number with no door behind it, and no way at all to see which three from a phone.
 
-**A space can opt out of this screen entirely**, and it is worth knowing before you read
-the rest of it: `autoEndorse` on the space
-([above](#spaces--keeping-work-out-of-your-evening)) files without the hold, so those
-workspaces' discoveries never appear in this queue at all — they go straight to `bd ready`
-and the advocate picks them up. Off unless you ask for it, per space, and the bead still
-says on its face that nobody read it first. The queue below is what happens everywhere
+**A space — or a single repo — can opt out of this screen entirely**, and it is worth
+knowing before you read the rest of it: `autoEndorse` on the space
+([above](#spaces--keeping-work-out-of-your-evening)), or
+[`autoEndorsePerWorkspace` on one repo](#one-repo-may-answer-for-itself-and-this-is-the-only-setting-that-may)
+where the space is the wrong unit, files without the hold — so those workspaces'
+discoveries never appear in this queue at all: they go straight to `bd ready` and the
+advocate picks them up. Off unless you ask for it, and the bead still says on its face
+that nobody read it first. The queue below is what happens everywhere
 else, which is everywhere by default.
 
 **`/endorse` is the door** (`/queue` and `/endorsements` reach the same page). One
@@ -9764,7 +9836,7 @@ cookie says so), and `/auth/signout` ends the session.
 | POST | `/api/filter` | `{space, workspace}` | which slice the inbox is, remembered server-side so every client agrees and the notifications match. Each is a name or `all`, bounded at 120 characters. Widening forgets what you had declined |
 | GET | `/api/spaces` | — | what the [space picker](#one-space-at-a-time--the-picker-in-the-top-bar) draws: `{spaces, workspaces[], counts, filter, waiting}`. Costs no `bd` call — the counts are cached off the last sweep — because it is fetched on every page load of every standing view |
 | GET | `/api/space` | `?space=` | one space's own configuration, for the [space details](#space-details--the-page-the-advocate-console-became) screen: `{settings, effective, repos[], defaults, missing[]}`. `settings` is `null` per field for "inherit"; `repos[]` is what each workspace actually resolves to, which is not always what the space says. 404 for anything that is not a configured space, the synthetic `Other` group included |
-| POST | `/api/space` | `{space, settings}` | change that space's settings from the app. A patch — only the keys sent are touched, and `null` clears one back to the global default. `name` and `workspaces` are not settable: moving a repo between spaces decides which questions may reach you and stays a config-file act. Writes the live `cfg` *and* `config.json`, so the running daemon and the next restart agree. Refused on an observer |
+| POST | `/api/space` | `{space, workspace?, settings}` | change that space's settings from the app. A patch — only the keys sent are touched, and `null` clears one back to the global default. `name` and `workspaces` are not settable: moving a repo between spaces decides which questions may reach you and stays a config-file act. With a `workspace`, it writes that **repo's own** override instead — `autoEndorse` only, and a repo the named space does not contain is a 400. Either way the reply is the whole `spaceDetail`, and it writes the live `cfg` *and* `config.json`, so the running daemon and the next restart agree. Refused on an observer |
 | POST | `/api/notifications/dismiss` | `{keys[], confirm}` | clears the phone's notification rows for beads the filter excludes. `confirm: false` records the decline, which is what stops the next sweep asking again. The beads are untouched either way |
 | POST | `/api/ask` | `{workspace, title, body, priority}` | `{id, key}` — files a new `human` bead |
 | POST | `/api/error` | `{message, source?, line?, column?, stack?, url?, userAgent?, at?, kind?, workspace?}` | `{ok, action, id, key, fingerprint}` — an error the app hit, filed as a **P0 bug** or commented onto the bead that already covers it. `action` is `created` · `commented` · `regressed`. **`message` is the only required field**: a cross-origin `window.onerror` is handed `"Script error."` and nothing else, and that is still worth more than a red toast nobody saw. `workspace` defaults to the first configured one — the reporter is a page, which has no idea which repo it is looking at. **Never answers 5xx**, because it is called by error handling: a tracker that is down comes back `200 {ok: false, reason}`. See [an error the app hits files itself as a P0](#an-error-the-app-hits-files-itself-as-a-p0) |
@@ -10028,6 +10100,7 @@ history.
 | `autoDispatchExclude` | workspaces that never auto-dispatch — put shared trackers here |
 | `autoDispatchTimeoutMs` | kill a dispatched agent after this long (default 10 min) |
 | `autoEndorse` | beads an agent files itself arrive **endorsed** — workable, queued, launchable — instead of held for your tap (default `false`). The one policy default here that is the restrictive one, and the only one that needs a literal `true`: its worst case is an unattended session on work nobody has read. Set it **per [space](#spaces--keeping-work-out-of-your-evening)** rather than here; the P2 ceiling, `agent-filed` and the `discovered-from` edge all still go on either way |
+| `autoEndorsePerWorkspace` | the same answer for **one workspace**, keyed by workspace name — `{"beadcause": true, "sophab": false}` (default `{}`). Outranks the space, which outranks the global, and an absent name inherits. The one setting here a space is the wrong unit for: "nobody but me reads this tracker" is true of one graph and not of the five beside it in the same space — and not of one checkout inside a workspace, which [stays the space's answer](#policy-stays-per-space-even-when-a-workspace-is-forty-repos). Set from the repo row on the [space details screen](#one-repo-may-answer-for-itself-and-this-is-the-only-setting-that-may) |
 | `pr.enabled` | land finished work as [a pull request the worker merges](#landing-work--a-branch-a-pull-request-and-the-workers-own-merge) (default `true`). `false` puts every workspace back on the oldest ending — work the bead, close the bead. A workspace with no `gh` or no GitHub remote gets that ending anyway, without needing to be named |
 | `pr.base` | what a PR is opened against and merged into (default `main`). In a workspace with an [approved repo list](#and-which-branch-its-pull-request-is-opened-into) this is the *fallback*, and each repo's own default branch is the answer |
 | `pr.mergeMethod` | `merge` (default), `squash` or `rebase`. A merge commit because a squash-merged branch is never an ancestor of `main`, and the worktree cleanup will not remove a worktree that fails that test |
@@ -10556,6 +10629,13 @@ are the same workspace.
 
 **They stay per space, and Climative gets one answer.** Not by omission — four reasons,
 and the second is the one that settles it.
+
+One of the five does take a finer answer, and it is a different question: `autoEndorse`
+has a [per-workspace override](#one-repo-may-answer-for-itself-and-this-is-the-only-setting-that-may)
+that outranks the space, so one workspace in a space may answer for itself. That is the
+grain the second reason below is about — a graph and who reads it — and it leaves this
+section's question exactly where it is: no setting here answers per checkout *inside* a
+workspace, `autoEndorse` included.
 
 **What varies between repos is not what these ask.** Every one of them asks whether an
 agent may act while nobody is watching, and what makes that differ between two checkouts
