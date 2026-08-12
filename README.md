@@ -4227,8 +4227,27 @@ that response must not paint over a newer read.
 served from the script: that an idle session is read **once** and then parked on, that
 streamed words arrive through the park rather than through a second read, and — the case a
 timer never had to think about — that the request still in flight when the phone leaves the
-session neither repaints the pane nor starts another one. `--baseline` fails all three,
-since HEAD's mirror never asks `/api/console/poll` anything at all.
+session neither repaints the pane nor starts another one.
+
+**What is in the composer survives every one of those repaints, selection and all.** The
+draft itself lives in the pane's own map rather than in the DOM, so the words come back by
+being rebuilt — but where you were *in* them does not, and is carried across by hand.
+**Both ends of the selection are carried, not just the near one.** A caret is the case
+where the two are equal, so carrying only `selectionStart` quietly turned every selection
+into a caret at its left edge: you picked out the sentence you were about to type over and
+it was a caret in front of it by the next token — a repaint you did not ask for undoing
+something you did (bc-c3ve). The direction goes with them, because it is the end the next
+Shift-arrow extends from, and a backward selection restored as a forward one grows out of
+the wrong side. The check drives that rather than reading for it: it types through the
+real `input` listener, selects part of what it typed backwards, streams a turn, and asks
+the box afterwards where the selection is.
+
+`--baseline` serves the committed copy of `public/mirror.js` instead of the working one,
+which is how you tell a real failure here from a flaky one — the cases the branch in hand
+is about must fail there and pass on the working copy, and nothing else should move. It
+used to fail the parking cases for everybody, because HEAD's mirror asked
+`/api/console/poll` nothing at all; that stopped being true the day the parked loop
+landed, and a claim like it is worth re-reading rather than inheriting.
 
 ### Taking the wheel, and handing it back
 

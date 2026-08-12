@@ -551,8 +551,15 @@
   function render() {
     if (!state.active) return;
     const t = target();
-    const focus = document.activeElement?.dataset?.draft || '';
-    const caret = document.activeElement?.selectionStart ?? null;
+    // Both ends of the selection, not just the near one: a caret is the case where they
+    // are equal, so carrying only `selectionStart` silently turns every *selection* into
+    // one. The direction rides along because it is what the next Shift-arrow extends
+    // from — a backward selection restored as forward grows out of the wrong end.
+    const held = document.activeElement;
+    const focus = held?.dataset?.draft || '';
+    const caret = held?.selectionStart ?? null;
+    const upto = held?.selectionEnd ?? null;
+    const way = held?.selectionDirection || 'none';
 
     if (!state.devices.length) {
       pane.innerHTML = `<div class="empty"><strong>No device has said where it is</strong>Open the inbox on the
@@ -572,8 +579,9 @@
       const el = pane.querySelector(`[data-draft="${CSS.escape(focus)}"]`);
       if (el) {
         el.focus();
-        const at = caret == null ? el.value.length : caret;
-        el.setSelectionRange(at, at);
+        const from = caret == null ? el.value.length : caret;
+        const to = upto == null ? from : upto;
+        el.setSelectionRange(from, to, way);
       }
     }
     // A live chat session is read from the bottom, like every other terminal.
