@@ -1,15 +1,16 @@
 #!/usr/bin/env node
 /**
- * "Arrived quietly" on the card — and which of the two kinds of quiet it was.
+ * "Arrived quietly" on the card — and which kind of quiet it was.
  *
  *     npm test
  *     node test/quietcard.mjs
  *
- * `quietReasonFor` has answered `'filtered'` or `'muted'` for a while, and until now
- * only the daemon's log and the Android logcat line read the answer. On screen a card
- * the filter hid and a card a mute quietened were the same card, and both were the
- * same card as one that rang while you were asleep. Four things are worth a suite,
- * and none of them is visible by reading one function:
+ * `quietReasonFor` has answered `'filtered'` or `'muted'` for a while — and `'addressed'`
+ * since bc-cvwk, for a question somebody else was asked — and until now only the
+ * daemon's log and the Android logcat line read the answer. On screen a card the filter
+ * hid and a card a mute quietened were the same card, and both were the same card as one
+ * that rang while you were asleep. Four things are worth a suite, and none of them is
+ * visible by reading one function:
  *
  * 1. **The reason has to be recorded, not recomputed.** This is the whole design and
  *    it is the one part a reasonable refactor would undo — "why keep state when
@@ -45,6 +46,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { boundPort } from './helpers/net.mjs';
+import { cleanupTmp } from './helpers/tmp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(HERE, '..');
@@ -115,12 +117,26 @@ check('a record whose reason cannot be named reads as no record at all', () => {
 });
 
 check('a half-written record keeps the reason and loses only the fields it lacks', () => {
-  assert.deepEqual(arrivedQuiet({ 'bc/x': { reason: 'muted', at: 7, space: {}, filter: 3 } }, 'bc/x'), {
+  assert.deepEqual(arrivedQuiet({ 'bc/x': { reason: 'muted', at: 7, space: {}, filter: 3, for: 'bob' } }, 'bc/x'), {
     reason: 'muted',
     at: null,
     space: null,
     filter: null,
+    for: null,
   });
+});
+
+check('an addressed arrival names who was asked, and nothing else does', () => {
+  // The third reason (bc-cvwk). It is the only one whose explanation is a *person*, so
+  // it is the only one that keeps `for` — and a record written before it existed reads
+  // as null rather than as an empty list, so the card says the short sentence instead
+  // of a longer one with a hole in it.
+  const rec = quietArrival('addressed', { space: 'Work', addressees: ['carol@example.com'] }, { space: 'all', workspace: 'all' }, NOW);
+  assert.deepEqual(rec.for, ['carol@example.com']);
+  assert.equal(rec.filter, null, 'the filter is not what hid it');
+  assert.deepEqual(arrivedQuiet({ 'bc/x': rec }, 'bc/x').for, ['carol@example.com']);
+  assert.equal(quietArrival('muted', { space: 'Work', addressees: ['carol@example.com'] }, { space: 'all', workspace: 'all' }, NOW).for, null);
+  assert.equal(arrivedQuiet({ 'bc/x': { reason: 'addressed', at: NOW.toISOString() } }, 'bc/x').for, null);
 });
 
 check('a bead that has left the inbox has nothing left to tell', () => {
@@ -375,10 +391,15 @@ check('the card render reads the field the server now sends', () => {
   assert.match(appJs, /\$\{arrivedQuietHtml\(q\)\}/, 'the card template never calls arrivedQuietHtml');
 });
 
-check('and it says which of the two kinds it was, in words', () => {
+check('and it says which of the three kinds it was, in words', () => {
   assert.match(appJs, /'muted'/, "the render never branches on 'muted'");
   assert.match(appJs, /was muted/, 'no sentence naming the mute');
   assert.match(appJs, /hidden by the inbox filter/, 'no sentence naming the filter');
+  // The third (bc-cvwk), and the one whose sentence has to name a person: an addressed
+  // question is on somebody else's phone, and a card that said only "arrived quietly"
+  // would send you to widen a filter that was never hiding it.
+  assert.match(appJs, /'addressed'/, "the render never branches on 'addressed'");
+  assert.match(appJs, /asked of /, 'no sentence naming who the question was for');
   // The fact that stops a widened filter reading as a rush of new arrivals.
   assert.match(appJs, /Arrived quietly/, 'the line never says the arrival was quiet');
 });
@@ -388,5 +409,5 @@ check('the class it draws has a rule, so the line is not an unstyled paragraph',
 });
 
 console.log(failures ? `\n\x1b[31m${failures} of ${ran} failed\x1b[0m\n` : `\n${ran} passed\n`);
-fs.rmSync(tmp, { recursive: true, force: true });
+await cleanupTmp(tmp);
 process.exit(failures ? 1 : 0);

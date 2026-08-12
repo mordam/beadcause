@@ -18,6 +18,10 @@
   rows moved into the inbox and the board kept its URLs without keeping a fifth of the
   bar. A page can be reachable, load-bearing and not a tab — and several are.
 
+  Kept its URLs and lost its way in, as it turned out, which is bc-d4d5: the board is a
+  pane on the advocates page now. "Not a tab" was right and "reachable" was not, and the
+  fix for the second is not to undo the first.
+
   **Chat** went the same way in the same breath (bc-l8jp.5), for a second reason on top
   of that one: it was the one tab that was also the way to *create* something, and a bar
   drawn identically on every page cannot hold a create — whatever it did would have to
@@ -82,13 +86,17 @@
     // you *live*, and the pull request board is somewhere you glance — "did that ship?" —
     // and then act on twice a day. The rows themselves are incoming work like everything
     // else the inbox holds, so they are cards in the inbox now, under their own filter
-    // with a sub-filter over the status ladder. `/prs`, `/pulls` and `/prs.html` all still
-    // serve the board, which is still the whole of the shipping screen; what points at it
-    // is a link on every PR card rather than a fifth of this bar.
+    // with a sub-filter over the status ladder.
     //
-    // Which means the board, like the chat session, is a page the bar marks nothing as
-    // current on. That is deliberate and it is checked (scripts/tabbar-check.mjs): the
-    // bar is still there, because it is the only way off any of these pages.
+    // **That rule has not moved, and the board has (bc-d4d5).** Taking it off the bar
+    // left nothing at all pointing at it: the only route in was the link on a PR card in
+    // the inbox, so on a day with no pull request in the inbox there was no way to reach
+    // **Ship** short of typing a URL. It is a pane on the advocates page now — the third
+    // chip on the row above this bar — which is the Mirror's argument for the second
+    // time: a *mode* of the page you already watch work from, not a page you live on.
+    // So `/prs`, `/pulls` and `/prs.html` are in the Advocates `paths` below, and this
+    // bar marks Advocates as current on all three, which is exactly what the tab means.
+    //
     // The sessions view too. `/sessions`, `/work` and `/work.html` all serve this page
     // now, and they stay in `paths` so the bar marks the right tab for a phone opening
     // the shortcut it has had on its home screen for months.
@@ -97,7 +105,17 @@
       href: '/monitor',
       icon: '📣',
       label: 'Advocates',
-      paths: ['/monitor', '/advocates', '/monitor.html', '/sessions', '/work', '/work.html'],
+      paths: [
+        '/monitor',
+        '/advocates',
+        '/monitor.html',
+        '/sessions',
+        '/work',
+        '/work.html',
+        '/prs',
+        '/pulls',
+        '/prs.html',
+      ],
     },
     // The record (bc-nib3.2). It earns a tab by this file's own rule rather than in
     // spite of it: **the historical record is somewhere you live** — it is where you go

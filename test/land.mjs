@@ -40,6 +40,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { cleanupTmp } from './helpers/tmp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const LIB = path.join(HERE, '..', 'lib', 'session.js');
@@ -450,10 +451,67 @@ check('a squash set back afterwards is left alone', moveSquashDefault(again) ===
 check('and anything already on merge is not touched at all', moveSquashDefault({ pr: { mergeMethod: 'merge' } }) === '');
 check('nor is an explicit rebase', moveSquashDefault({ pr: { mergeMethod: 'rebase' } }) === '');
 
+/* -------------------------------------------------- the batch head's extra sentences */
+
+/**
+ * A batch brief (bc-bhp9). The advocate can now hand one window an epic plus its ready
+ * children, and two sentences in that brief are load-bearing in a way the rest are not.
+ *
+ * The delivery and close sections are written for a single-bead window: both interpolate
+ * one bead id, and in a batch that id is the *epic*. A worker that follows them literally
+ * closes the epic on its first phase — which reports every remaining child as done, and
+ * takes them out of the batch that would have carried them next tick. So the brief has to
+ * override its own later sections, and if that override ever goes missing the failure is
+ * silent: the work still happens, the board just lies about it.
+ */
+console.log('\na batch head is told it is not a single-bead window');
+
+const BATCH = {
+  id: 'bc-epic',
+  title: 'The epic',
+  batch: [
+    { id: 'bc-epic.1', title: 'first child' },
+    { id: 'bc-epic.2', title: 'second child' },
+  ],
+};
+const batched = workPromptFor('beadcause', BATCH, 1, MODE(), OWNER);
+
+check('the opening says it holds the epic and its children, not one bead', /epic \*\*beadcause\/bc-epic\*\* and the 2 beads under it/.test(batched), (batched.match(/^You are working.*/) || [])[0]);
+check('every bead in the batch is named, so it can read them all before planning', batched.includes('bd show bc-epic.1') && batched.includes('bd show bc-epic.2'));
+check('it is told to choose phases rather than work the list in order', /work them in phases you choose/.test(batched));
+check('and told the order it was given is not a plan', /it is pick order, not a plan/.test(batched));
+check(
+  'the epic must not be closed while a child is open — the sentence that stops a lying board',
+  /Do not close \\?`bc-epic\\?` itself until every bead under it is closed/.test(batched),
+  (batched.match(/.*until every bead under it.*/) || [])[0]
+);
+check('and the delivery step is re-pointed at the bead each phase completes', /name the bead that phase completed — not \\?`bc-epic\\?`/.test(batched), (batched.match(/.*name the bead that phase.*/) || [])[0]);
+check('stopping part-way is named as a correct ending, so it does not grind', /That is the correct ending, not a failure/.test(batched));
+
+/**
+ * The one command in the batch brief that is load-bearing across ticks. The worker claimed
+ * the epic to start, and `bd ready` skips a claimed bead — the same fact `bd.reopen` exists
+ * for. So an epic left claimed with children still open is a bead nothing will pick up
+ * again, and the remainder gets handed out one window at a time instead of as a batch. The
+ * flags have to match `reopen`'s, or the hand-back does not hand anything back.
+ */
+check(
+  'a part-done batch hands the epic back unclaimed, or the remainder never batches again',
+  batched.includes('bd update bc-epic --status open --assignee ""'),
+  (batched.match(/.*bd update bc-epic.*/) || [])[0]
+);
+check('and says why that line is there, since it reads like bookkeeping', /a claimed bead\s*\n?is skipped by the advocate's queue/.test(batched));
+
+// The other half of the contract, and the one a regression would reach first: a bead the
+// advocate never batched must get byte-identical prose to what it got before any of this
+// existed. `land` above is that bead, built from the same MODE.
+check('a single-bead brief is untouched by any of it', land === workPromptFor('beadcause', { id: BEAD.id, title: BEAD.title, batch: [] }, 1, MODE(), OWNER));
+check('and carries none of the batch sentences', !/in phases you choose/.test(land) && !/until every bead under it/.test(land));
+
 /* ------------------------------------------------------------------ verdict */
 
 console.log('');
-fs.rmSync(tmp, { recursive: true, force: true });
+await cleanupTmp(tmp);
 if (failures) {
   console.log(`\x1b[31m${failures} check${failures === 1 ? '' : 's'} failed\x1b[0m`);
   process.exit(1);

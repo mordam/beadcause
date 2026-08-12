@@ -1,178 +1,45 @@
 /* Cache the shell so the inbox opens instantly and the 3.5 MB mermaid bundle is
    fetched once. API traffic is never cached — an answered question must vanish. */
-/* v18: /session became a page of its own (v17), and then the sessions page it was
-   folded inside went away and `/sessions` began serving the advocate console. Both
-   changed this list, so both had to move the version — an installed worker would
-   otherwise go on handing the phone the cached /work.html shell, and a document
-   deleted from the repo would keep opening from the home screen for as long as the
-   cache lived. */
-/* v19: /session grew a composer. No new path — the code is in session.js and the styles
-   in style.css, both already here — but a phone holding v18 would cache a page that
-   offers no way to answer a session, and the one thing worse than not having the box is
-   having it on the laptop and not on the phone. */
-/* v20: the answer box grew a microphone. `/dictate.js` is a new path and app.js asks
-   it, at render time, whether to draw the mic at all — so a phone holding v18's cached
-   app.js beside v20's would draw an answer box with no way to dictate into it, and a
-   phone holding the new app.js without the new file would draw one every time and
-   never listen. They have to arrive together, which is what a cache version is for. */
-/* v21: Google sign-in. Nothing new in the shell — the login page is deliberately NOT
-   cached, see fetchAndStore — but a phone holding v20's cache has app.js from before
-   `needCredential` existed, which pops the token dialog at a browser that is signed in
-   perfectly well. The version is also what evicts anything a v20 worker cached while
-   the session had expired: it was network-first, so a redirect to /login could have
-   been stored under `/`. */
-/* v22: the space picker. `/spacebar.js` is a new path *and* every page's own script now
-   asks it what to draw — app.js, prs.js, monitor.js, console.js and foundations.js all
-   register on it — so a phone holding v21's cached app.js beside v22's picker would draw
-   a dropdown nothing obeyed, and a phone holding v22's app.js without the file would draw
-   the inbox with neither the picker nor the two chip rows it replaced: no way at all to
-   change which repo you are looking at. They have to arrive together, which is what a
-   cache version is for. */
-/* v23: the inbox filter collapsed into one hover-open line, and grew a chip per kind
-   of incoming thing. `/inboxfilter.js` is a new path *and* app.js now hands it the
-   scope group and asks it whether each row is in view — so a phone holding v22's cached
-   app.js beside v23's file would draw a panel nothing read, and a phone holding v23's
-   app.js without the file would draw an inbox with no scope switch at all: the chips
-   that used to be a permanent row are inside the new control, and nothing else draws
-   them. They have to arrive together, which is what a cache version is for. */
-/* v24: the endorsement queue. `/endorse` and its script are new paths, and index.html
-   grew the 🗳️ that opens it — so a phone holding an older cached inbox would have
-   neither the door nor the page behind it, and one holding the old `/` beside a v24
-   daemon would show a top-bar button that 404s out of the cache the moment the tailnet
-   is slow. The page they have to arrive with is the whole point of the version. */
-/* v25: /monitor became the space details screen — the selected space's own settings,
-   written from the page through `POST /api/space`, plus a gear to /admin. No new path:
-   monitor.html, monitor.js and style.css are all already in the shell. The version is
-   what makes the three arrive together, and they have to: a phone holding v24's cached
-   monitor.js beside v25's monitor.html would draw a gear over a page with no settings
-   card, and one holding v25's script against v24's stylesheet would draw seven controls
-   with no layout at all — a wall of unstyled buttons over the advocate cards. */
-/* v26: the warm layer. `/warm.js` is a new path *and* all five standing pages now
-   boot through it — app.js, prs.js, monitor.js, console.js and admin.js each ask it
-   for the payload they had last time before asking the daemon for a fresh one, and
-   the inbox draws its list through its reconciler. A phone holding v25's cached
-   app.js beside v26's would call a file that is not there on every repaint; one
-   holding v26's app.js without the file would fall back to the whole-list rebuild
-   and a cold fetch per tab, which is the entire thing being fixed. They have to
-   arrive together, which is what a cache version is for. */
-/* v27: two tabs left the bar in the same breath, and each put its rows in the inbox.
-   Pull requests became cards: `/prcard.js` is a new path *and* four cached files
-   disagree without it — tabbar.js no longer draws the PRs tab, app.js draws cards it
-   cannot render without prcard.js, inboxfilter.js builds its status sub-filter off the
-   ladder in it, and prs.js takes its own row renderer from it, so a board page cached at
-   v26 beside a v27 prs.js is a blank board. Chat went the same way with no new path at
-   all, which is the more dangerous half: index.html without app.js is a ＋ that does
-   nothing when tapped, app.js without index.html is an inbox whose rows say
-   `data.consoles` and whose create button is not on the page, and either without
-   style.css is a floating button with no shape sitting over the last card. Every one of
-   those is an old app that looks complete — a bar with both tabs still on it most of all
-   — which is the failure a version exists to prevent. */
-/* v28: you can talk about an unendorsed bead before deciding on it. No new path — the
-   discussion panel is part of endorse.js — which is exactly why the version has to
-   move: a phone holding v27's cached style.css beside v28's endorse.js draws the thread,
-   the agent chips and the ask box with none of the rules that make them a panel rather
-   than a run of unstyled paragraphs under the verdicts, and one holding v27's endorse.js
-   against the new daemon simply has no Discuss button and no 💬 count on a row that has
-   a thread on it — which is the state this feature exists to end. Two cached files that
-   have to arrive together is the whole job of a cache version. */
-/* v29: tapping a pull request opens it full screen, with merge, close, comment and the
-   conflict path (bc-l8jp.7). No new path — app.js and style.css are both already here —
-   and that is exactly why the version has to move: the two have to arrive together. A
-   phone holding v28's app.js beside v29's stylesheet draws a row whose tap still goes to
-   GitHub; one holding v29's app.js against v28's stylesheet opens the sheet with no facts
-   column, no pinned action bar and a comment box the buttons sit on top of. Both look like
-   a working app, which is the failure a cache version exists to prevent. */
-/* v30: every view moved onto the delta stream. `/stream.js` is a new path *and* all five
-   standing pages mount it in place of the `setInterval` they used to refresh on — so a
-   phone holding v29's cached admin.js, monitor.js or prs.js beside a v30 daemon still has
-   the ten-second sweep this removed, and one holding v30's scripts without the file has
-   four pages that never refresh at all: the timer is deleted in the same change that adds
-   the poll, and nothing else brings a row up to date. That is the strictest version of
-   what a cache version is for — the failure is not a broken page, it is a page that looks
-   right and is quietly hours out of date. */
-/* v31: the reader tab can publish a document to Confluence (bc-c6qp). No new path —
-   doc.html, doc.js and style.css are all already here — and the three have to arrive
-   together: a phone holding v30's doc.html beside v31's doc.js has nowhere to draw the
-   footer into, so the button silently never appears; one holding v31's doc.html against
-   v30's stylesheet draws an unstyled block of text under every document it opens, with
-   an accent-coloured button in the middle of it. app.js moves too, because the link that
-   opens a document from a card now carries the bead — and that is the only reason the
-   published URL can end up on the bead instead of only in the daemon's state. */
-/* v32: the session view grew a button that brings that session's iTerm window to the
-   front of the Mac and doubles it, and puts it back when you close the view (bc-fwsw).
-   No new path — session.js and style.css are both already here — and that is why the
-   version has to move: a phone holding v31's session.js beside v32's stylesheet draws
-   no button at all, and one holding v32's session.js against v31's stylesheet drops an
-   unstyled button into the middle of a label row and sizes the transcript as though it
-   were not there, pushing the log off the bottom of the phone. Both look like a working
-   page, which is the failure a cache version exists to prevent. */
-/* v33: the Advocates tab is preloaded and then *kept* warm off the delta stream rather
-   than left to age out of the warm layer (bc-xxzz). No new path — app.js, warm.js,
-   stream.js and monitor.js are all already here — and all four have to arrive together,
-   in both directions. monitor.js now asks `stream.workMoved(events)` instead of carrying
-   its own copy of that judgement, so a phone holding v33's monitor.js beside v32's
-   stream.js throws inside its wake handler and the advocates page stops refreshing
-   altogether; one holding v32's app.js beside v33's warm.js has the reordered background
-   warm but nothing that maintains what it fetched, which is the bug this change is about
-   still being there behind a version that says it is fixed. Only the other direction is
-   safe by construction: v32's warm.js under v33's app.js has no `refresh`, and app.js
-   looks for it and does nothing — that page is as cold as it was and no more expensive,
-   which is the fallback the warm layer promises everywhere else. */
-/* v34: the History tab (bc-nib3.2). `/history`, `/history.html` and `/history.js` are
-   new paths *and* `/tabbar.js` moves in the same change, which is the pairing that makes
-   this a version bump rather than three additions to the list. A phone holding v33's
-   cached tabbar.js has a three-tab bar with no History on it, so the page behind the new
-   paths is unreachable from every screen in the app; one holding v34's tabbar.js without
-   the three new entries has a tab that 404s out of the cache the moment the tailnet is
-   slow — a bar whose whole job is that you can always leave a page, with an entry that
-   goes nowhere. The bar and the page it points at have to arrive together, which is what
-   a cache version is for. */
-/* v35: the ✕ on the inbox's chat cards (bc-vau1). No new path — app.js and style.css are
-   both already here — and it is the v32 pairing again, in both directions. A phone
-   holding v34's app.js beside v35's stylesheet draws the row it always did and nothing
-   else, because there is no ✕ in that app.js to lay out; one holding v35's app.js
-   against v34's stylesheet drops a full-width ✕ *underneath* every chat row, since the
-   card only became a flex wrapper in the new stylesheet and the button is a sibling of
-   the link now rather than something inside it. The second is the one that matters:
-   every conversation in the inbox is suddenly two rows tall with a stray button between
-   them, and it still works, which is exactly the "looks like a working page" failure a
-   cache version exists to prevent. */
-/* v36: how a closed bead ended, on the bead detail sheet (bc-9cpg). No new path —
-   graph.js and style.css are both already here — and it is the v32/v35 pairing once
-   more, in both directions. A phone holding v35's graph.js beside v36's stylesheet
-   opens the sheet it always did: the status pill says "closed" and nothing on the
-   screen says why, which is the hole this closes. One holding v36's graph.js against
-   v35's stylesheet is the direction that matters — `.closed-note` has no rules there,
-   so a close reason that runs to 1664 characters lands as an unframed wall of prose
-   between the pills and the title's own description, with a bare date line above it
-   and nothing marking where the bead's own text starts. It reads as the description,
-   which is the "looks like a working page" failure a cache version exists to prevent.
-   */
-/* v37: a strip of handles over the chat session, one per chat you have open (bc-2tr).
-   No new path — console.html, console.js and style.css are all already here — and it is
-   the v32 pairing again, in both directions. A phone holding v36's console.html
-   beside v37's console.js has no `#chat-tabs` to draw into: the strip is guarded, so
-   that half is merely the page as it was, which is the direction this is allowed to
-   fail in. The other is not. v37's console.html against v36's stylesheet draws the nav
-   as a run of unstyled links and ✕s across the top of the page, above the launcher and
-   above every conversation — no pill, no truncation, and the horizontal scroll that
-   makes a strip a strip replaced by six chat titles wrapping onto four lines and
-   pushing the transcript off the bottom of the phone. It still works, which is exactly
-   the "looks like a working page" failure a cache version exists to prevent. */
-/* v38: what a session left behind, and the way in to it — `/bead-session?workspace=&id=`
-   (bc-nib3.5) plus the row on the bead detail sheet that opens it (bc-nib3.6). Three new
-   paths, and both halves of the pairing bite. A phone holding v37's style.css against
-   v38's beadsession.js draws the three "not available" sentences and the memory block
-   with no styling at all, which on the page that says nothing is there most of the time
-   is indistinguishable from a page that failed to load. And the sheet's own half is the
-   v32/v36 pairing once more: v37's graph.js beside v38's stylesheet opens the sheet it
-   always did, with no way through to the session — merely the app as it was, which is
-   the direction this is allowed to fail in — while v38's graph.js against v37's
-   stylesheet lands `.sheet-session` as an unframed line of text between the pills and
-   the description, reading as part of the bead's own prose rather than as the one thing
-   on the sheet you can tap through to. It still works, which is exactly the "looks like
-   a working page" failure a cache version exists to prevent. */
-const CACHE = 'beadcause-v38';
+
+/*
+  The version below is this app's one guarantee that the files a phone is holding agree
+  with each other. `activate` deletes every cache whose key is not this one, and
+  `install` re-fetches the whole of SHELL as a single all-or-nothing `addAll` — so
+  moving it hands the phone one generation of the shell, and leaving it lets the phone
+  go on serving whatever mixture of old and new files it happens to have.
+
+  **Whether a change owes a bump is not "did I touch public/".** It is: does this change
+  leave a mixed pair of my own files that is *broken* rather than merely *older*? Broken
+  is a new script calling a function its cached sibling does not have yet, markup whose
+  script is not on the cached page, or — the case that actually bites — a stylesheet
+  that lays out a control the cached page draws anyway. Merely older is a purely
+  additive file nothing else reaches for: cached HTML without the new tag is the app as
+  it was, and that legitimately skips the bump. `test/swbump.mjs` reads your branch and
+  says which of the two it thinks you have; every note in `docs/sw-cache/` argues one of
+  them, and the two or three nearest yours are the quickest way to check its answer.
+
+  **The argument for each version is its own file, `docs/sw-cache/vNN.md`.** It used to
+  be a comment block right here, appended to by every branch that bumped — which made
+  the top of this file the most conflict-prone region in the repo, with around eight
+  worker sessions live at once (bc-5ghk). One file per version is the fix
+  `scripts/test.mjs` already made for the suite list: bumping means *adding a file*, and
+  two branches that add different files do not conflict at all.
+
+  **The name is exactly `vNN.md`, and that is load-bearing.** Two branches that both
+  pick v39 then collide on one path, which git reports as an add/add conflict — and
+  being told is the entire point, because the `const` below will not tell you: two
+  branches that write the identical string to it merge clean and in silence, leaving two
+  changes under one cache key and a cache that never invalidates. A slug in the name
+  (`v39-chat-tabs.md`) would let both of them land quietly, so there is not one.
+
+  **When it does conflict, keep both notes and renumber yours** to the next free number
+  — `git mv docs/sw-cache/v39.md docs/sw-cache/v40.md` — moving the version pairs named
+  *inside* its prose up with it, because that prose is the only record of which two
+  files must not be mixed. Then set the `const` by hand, to the highest number in the
+  directory, and re-read the line: git may well have merged it silently. `node
+  test/swcache.mjs` checks precisely that, in about a second.
+*/
+const CACHE = 'beadcause-v43';
 const SHELL = [
   '/',
   '/index.html',
@@ -233,8 +100,12 @@ const SHELL = [
   '/archive',
   '/beadsession.html',
   '/beadsession.js',
-  // The pull request board. Both paths, the same way the advocate console has five:
-  // /pulls is what you type when GitHub's own word for the tab is the one in your head.
+  // The pull request board — a pane on the advocates page now (bc-d4d5), so its three
+  // paths are three more ways of asking for monitor.html and are precached for the same
+  // reason that page's own five are: a redirect target left out of the shell is a
+  // home-screen shortcut that only works with a signal. /pulls is what you type when
+  // GitHub's own word for the tab is the one in your head; /prs.html is what a phone
+  // that bookmarked the page it used to be still asks for.
   '/prs',
   '/pulls',
   '/prs.html',
@@ -265,6 +136,10 @@ const SHELL = [
   '/work.html',
   '/monitor.html',
   '/monitor.js',
+  // The chip row on it, and which of its three panes is up. In the shell because that
+  // page is: without this file the chips are dead and two of the three panes — the board
+  // and the mirror — are unreachable from a cached advocates page.
+  '/montabs.js',
   // The ledger. In the shell because it is a tab: every tab has to open instantly from
   // the bar whatever the link is doing, and this is the one page in the app you might
   // reasonably open *because* you are somewhere with no signal and are trying to

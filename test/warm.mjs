@@ -58,6 +58,7 @@ import path from 'node:path';
 import vm from 'node:vm';
 import { fileURLToPath } from 'node:url';
 import { boundPort } from './helpers/net.mjs';
+import { cleanupTmp } from './helpers/tmp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(HERE, '..');
@@ -489,7 +490,7 @@ await check('past its TTL there is nothing to refresh — an entry that old is g
 /* -------------------------------------------------------------- the wiring */
 
 await check('every standing page loads the file, or that page is the one cold tab', () => {
-  for (const page of ['index.html', 'console.html', 'prs.html', 'monitor.html', 'admin.html']) {
+  for (const page of ['index.html', 'console.html', 'monitor.html', 'admin.html']) {
     assert.ok(read(`public/${page}`).includes('/warm.js'), `${page} does not load warm.js`);
   }
 });
@@ -498,8 +499,11 @@ await check('and it is loaded before the page script that asks it for a list', (
   for (const [page, script] of [
     ['index.html', '/app.js'],
     ['console.html', '/console.js'],
-    ['prs.html', '/prs.js'],
     ['monitor.html', '/monitor.js'],
+    // The board is a pane on that same page now (bc-d4d5), and it reads the warm layer
+    // for its own payload — so it is the second script on the page here rather than a
+    // page of its own, exactly as mirror.js is in test/stream.mjs.
+    ['monitor.html', '/prs.js'],
     ['admin.html', '/admin.js'],
   ]) {
     const html = read(`public/${page}`);
@@ -686,7 +690,7 @@ await check('a sequence from the future is a resync carrying the whole screen, n
 /* ------------------------------------------------------------------------- done */
 
 for (const s of servers) s.close();
-fs.rmSync(tmp, { recursive: true, force: true });
+await cleanupTmp(tmp);
 
 console.log(`\n${ran - failures}/${ran} ok\n`);
 process.exit(failures ? 1 : 0);

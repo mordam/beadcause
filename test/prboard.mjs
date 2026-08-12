@@ -522,10 +522,33 @@ const heldOff = await landParent(WT, 'main');
 check('a main checkout with uncommitted work in it is left alone', heldOff.advanced === false, JSON.stringify(heldOff));
 check('  — and the note says why, so the bead can carry it', /uncommitted/.test(heldOff.note), heldOff.note);
 check(
+  '  — and it names the path, so nobody has to work out whose mess it is',
+  /file\.txt/.test(heldOff.note),
+  heldOff.note
+);
+check(
   '  — with the edit untouched',
   fs.readFileSync(path.join(REPO, 'file.txt'), 'utf8') === 'adam is mid-edit again\n'
 );
 git(REPO, 'checkout', '--quiet', '--', 'file.txt');
+
+// bc-s7fs, and the reason the note distinguishes the two: this is not an edit at all
+// but residue a tool left behind, and it holds the fast-forward exactly as hard. A
+// session reading the refusal has to be able to tell that nothing here is anybody's
+// unsaved work, or it leaves the blocker alone out of caution — which is how one
+// `.beads/` stopped every delivery in this repo for a day.
+fs.mkdirSync(path.join(REPO, '.beads'), { recursive: true });
+fs.writeFileSync(path.join(REPO, '.beads', 'metadata.json'), '{}\n');
+const strayOnly = await landParent(WT, 'main');
+check('a stray untracked directory holds the fast-forward just as hard', strayOnly.advanced === false, JSON.stringify(strayOnly));
+check('  — and the note names it', /\.beads/.test(strayOnly.note), strayOnly.note);
+check(
+  '  — and says none of it is edited work, which is what makes it safe to clear',
+  /all untracked/.test(strayOnly.note),
+  strayOnly.note
+);
+fs.rmSync(path.join(REPO, '.beads'), { recursive: true, force: true });
+
 git(REPO, 'worktree', 'remove', '--force', WT);
 
 /* ------------------------------------------------------------------ the build */

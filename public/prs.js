@@ -2,12 +2,27 @@
  *
  * The inbox asks *may I merge this?* and the card is gone the moment you answer. It also
  * now carries a card per pull request (bc-l8jp.6), which is what took **PRs** off the
- * bottom bar — so this page is no longer a tab, and it is still the whole of the shipping
+ * bottom bar — so this is no longer a tab, and it is still the whole of the shipping
  * screen: the release queue, the deploy in flight, and the buttons that act on one row.
- * `/prs`, `/pulls` and `/prs.html` all still serve it, because they are on the phone's
- * home screen and in the notifications the ship path sends.
  *
- * Three things about the shape of the page.
+ * **And it is a pane on /monitor now, not a page (bc-d4d5).** Taking it off the bar left
+ * it with no route in at all except the link on a PR card in the inbox, which meant that
+ * on a day with no pull request in the inbox there was no way to reach **Ship** short of
+ * typing a URL — and a ship bead that says "press Ship on the board" is not answerable
+ * from a phone that cannot find the board. So it is the third chip on the advocates page
+ * (see public/montabs.js), by the same argument that makes the Mirror a pane rather than
+ * a tab: it is a mode of the page you already watch work from, and you glance at it and
+ * act on one row rather than living on it. `/prs`, `/pulls` and `/prs.html` all still
+ * work — they are on the phone's home screen and in the notifications the ship path
+ * sends — and all three now land on that page with this chip up.
+ *
+ * What that costs this file is small and worth naming: there is no `#prs-refresh` any
+ * more (the page's one ⟳ is shared, and each pane ignores it while it is hidden), no
+ * presence report of its own (the chip carries it), and nothing is fetched until the
+ * chip is up. The last of those is the one that matters — every wake this board acts on
+ * is a `gh` sweep per repo, and it now stands itself down behind the other two panes.
+ *
+ * Three things about the shape of the board.
  *
  * **The lamps are the page.** Merged · Pushed · Deployed · Live, on every row, always
  * visible — not behind the fold, because "which of these has not shipped" is a
@@ -132,8 +147,8 @@
   /* The row, the lamps, the ladder and the two time formats come from public/prcard.js —
      the inbox draws the same pull request from the same functions. Taken apart here rather
      than reached for through `window` at every call site, so this file reads as it did.
-     It is loaded before this one (see prs.html); a page without it has no board at all,
-     which is why both are in one `sw.js` cache version. */
+     It is loaded before this one (see monitor.html); a page without it has no board at
+     all, which is why both are in one `sw.js` cache version. */
   const card = window.beadcause.prCard;
   const { esc, plural, age, ago, graphUrl, lampsHtml, factsHtml, bodyHtml } = card;
 
@@ -154,7 +169,7 @@
     if (!p.deployDeclared) {
       return 'Ship opens a session on the Mac — this repo declares no deploy beadcause can run.';
     }
-    return `Ship deploys ${esc(p.workspace)} from here${p.deployHint ? ` — ${esc(p.deployHint).replace(/`([^`]+)`/g, '<code>$1</code>')}` : ''}.`;
+    return `Ship deploys ${esc(whereOf(p))} from here${p.deployHint ? ` — ${esc(p.deployHint).replace(/`([^`]+)`/g, '<code>$1</code>')}` : ''}.`;
   }
 
   /**
@@ -196,6 +211,15 @@
       );
     }
     buttons.push(`<button class="board-btn" data-act="comment" data-key="${esc(p.key)}">Comment</button>`);
+    /* The whole screen for this one pull request — the description, the authoring agent,
+       the datetimes and GitHub's live word on whether it still merges. That view exists
+       once, in the inbox (bc-l8jp.7), and this is a link into it rather than a second
+       copy of it: `#pr:<workspace>#<number>` is the key the inbox's own deep links use,
+       so a tap here lands on the same sheet a notification does. `focusHash` in app.js
+       widens the status sub-filter if it has to, which is what makes this work for a
+       merged row — the board's whole subject — where the inbox's default shows only
+       what is unmerged. */
+    buttons.push(`<a class="board-btn link" href="/#${encodeURIComponent(`pr:${p.key}`)}">Full view</a>`);
     buttons.push(`<a class="board-btn link" href="${esc(p.url)}" target="_blank" rel="noopener">GitHub ↗</a>`);
 
     const said = state.said?.key === p.key ? `<div class="board-said${state.said.bad ? ' bad' : ''}">${esc(state.said.text)}</div>` : '';
@@ -276,6 +300,18 @@
   /** Is this repo in the selected space? See public/spacebar.js. */
   const inSpace = (r) => window.beadcause?.space?.matches?.(r.workspace) ?? true;
 
+  /* How a card, a row and a deploy record all say *which repo* — `beadcause`, or
+     `climative/athena-service`. Every one of them carries `key` since bc-l853.6, and the
+     fallback is not defensive padding: this page is served to a phone that may have the
+     previous bundle cached, and a board keyed on `undefined` would collapse forty cards
+     into one. See `repoKey` in lib/repos.js.
+
+     `whereOf` is the readable half — `climative · athena-service`, the workspace alone
+     where it is the one repo it has always been (`whereLanded`). A hint that said
+     "Ship deploys climative" over a card about one service would name the wrong thing. */
+  const keyOf = (x) => x?.key || x?.repoKey || x?.workspace || '';
+  const whereOf = (x) => (x?.repoName ? `${x.workspace} · ${x.repoName}` : x?.workspace || keyOf(x));
+
   /**
    * How many merges this repo owes a ship — the daemon's queue where it sent one, the
    * predicate above where it did not.
@@ -313,8 +349,11 @@
   function releaseHtml(c) {
     const r = c.release;
     if (!r?.count) return '';
-    const armed = isArmed(c.workspace, 'release');
-    const said = state.said?.key === c.workspace ? `<div class="board-said${state.said.bad ? ' bad' : ''}">${esc(state.said.text)}</div>` : '';
+    /* The repo's key and never its workspace: a Climative workspace draws one card per
+       approved repo, and two of them arming the same button would be one tap shipping the
+       wrong service. For every workspace that is one repo the two strings are identical. */
+    const armed = isArmed(keyOf(c), 'release');
+    const said = state.said?.key === keyOf(c) ? `<div class="board-said${state.said.bad ? ' bad' : ''}">${esc(state.said.text)}</div>` : '';
     const list = r.prs
       .slice(0, 6)
       .map(
@@ -328,7 +367,7 @@
 
     const button =
       r.can === 'deploy'
-        ? `<button class="board-btn ship release-ship${armed ? ' armed' : ''}" data-act="release" data-key="${esc(c.workspace)}">${
+        ? `<button class="board-btn ship release-ship${armed ? ' armed' : ''}" data-act="release" data-key="${esc(keyOf(c))}">${
             armed ? `Ship all ${r.count} — sure?` : 'Ship'
           }<span class="release-count" aria-hidden="true">${esc(r.count)}</span></button>`
         : '';
@@ -370,12 +409,12 @@
               : `<p class="board-foot">Deploy state is not tracked for this repo — beadcause only knows what it is running itself.</p>`)
           : '<p class="subtitle">No pull requests here.</p>';
 
-    const title = c.repo || c.workspace;
-    const live = liveDeploys().find((r) => r.workspace === c.workspace);
+    const title = c.repo || keyOf(c);
+    const live = liveDeploys().find((r) => keyOf(r) === keyOf(c));
     // A deploy of this repo outranks the counts: the card's own summary is about work
     // waiting to ship, and something is shipping right now.
     const head = live ? phaseOf(live) : summary || (c.prs.length ? 'all shipped' : 'none');
-    return cardHtml(c.workspace, title, head, Boolean(live || open || owed), body);
+    return cardHtml(keyOf(c), title, head, Boolean(live || open || owed), body);
   }
 
   /* ------------------------------------------------------------------- deploys */
@@ -484,7 +523,7 @@
     // row — which is the ordinary case, and a line that says "demo · demo" reads as a
     // bug rather than as a detail.
     const where = rec.dir?.replace(/^.*\//, '');
-    const dir = where && where !== rec.workspace ? `<code>${esc(where)}</code>` : '';
+    const dir = where && where !== rec.workspace && where !== rec.repo ? `<code>${esc(where)}</code>` : '';
 
     return `<div class="deploy-body">
       ${rec.error ? `<p class="deploy-why">${esc(rec.error)}</p>` : ''}
@@ -511,7 +550,7 @@
     return `<article class="deploy ${tone}${LIVE.has(r.status) ? ' live' : ''}">
       <button class="deploy-row" type="button" data-deploy="${esc(r.id)}" aria-expanded="${open}">
         <span class="deploy-main">
-          <span class="deploy-what"><span class="deploy-dot" aria-hidden="true"></span>${esc(r.workspace)}<span
+          <span class="deploy-what"><span class="deploy-dot" aria-hidden="true"></span>${esc(whereOf(r))}<span
             class="sr-only"> deploy: </span><span class="deploy-said">${esc(phaseOf(r))}</span></span>
           <span class="deploy-sub">${esc(
             LIVE.has(r.status) ? `${took} so far` : `${took} · ${ago(r.finishedAt || r.requestedAt)}`
@@ -629,8 +668,8 @@
    * /admin writes it into the button: these change what has happened to real work, and
    * "did that go through?" must not be a question you answer by opening GitHub.
    */
-  /** The card for a workspace — what the release strip's button acts on. */
-  const cardFor = (ws) => (state.data?.repos || []).find((r) => r.workspace === ws) || null;
+  /** The card for a repo key — what the release strip's button acts on. */
+  const cardFor = (key) => (state.data?.repos || []).find((r) => keyOf(r) === key) || null;
 
   /**
    * Ship the whole queue: one deploy, every merge on it.
@@ -640,18 +679,19 @@
    * outcome under it. This one has no row: its key is a workspace, and the outcome
    * belongs to the strip at the top of the card.
    */
-  async function shipQueue(ws) {
-    const card = cardFor(ws);
+  async function shipQueue(key) {
+    const card = cardFor(key);
     if (!card?.release?.count || state.busy) return;
-    if (!isArmed(ws, 'release')) {
-      state.armed = `release@${ws}`;
+    if (!isArmed(key, 'release')) {
+      state.armed = `release@${key}`;
       return render();
     }
 
+    const where = whereOf(card);
     const count = card.release.count;
     state.busy = true;
     state.armed = null;
-    state.said = { key: ws, text: `Deploying ${ws} — ${plural(count, 'merged pull request')}…`, bad: false };
+    state.said = { key, text: `Deploying ${where} — ${plural(count, 'merged pull request')}…`, bad: false };
     render();
 
     let started = false;
@@ -659,7 +699,10 @@
       const res = await fetch('/api/release/ship', {
         method: 'POST',
         headers: { 'content-type': 'application/json', 'x-beadcause-token': token },
-        body: JSON.stringify({ workspace: ws }),
+        /* The repo, as a key. `workspace` beside it is not belt and braces: the server
+           accepts either, and sending both is what lets an older daemon — one that has not
+           been deployed with this bundle yet — still answer a board that has. */
+        body: JSON.stringify({ key, workspace: card.workspace }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
@@ -668,12 +711,12 @@
       // on this repo the next thing that happens is the daemon being killed by its own
       // deploy, and the outcome arrives on the strip above and on the phone.
       state.said = {
-        key: ws,
-        text: `Deploying ${ws} — ${data.deploy?.id || 'started'}, carrying ${plural(count, 'merge')}. How it went lands on your phone.`,
+        key,
+        text: `Deploying ${where} — ${data.deploy?.id || 'started'}, carrying ${plural(count, 'merge')}. How it went lands on your phone.`,
         bad: false,
       };
     } catch (err) {
-      state.said = { key: ws, text: err.message, bad: true };
+      state.said = { key, text: err.message, bad: true };
     } finally {
       state.busy = false;
       render();
@@ -706,13 +749,17 @@
     state.armed = null;
     state.said = {
       key,
-      text: action === 'ship' ? (p.deployDeclared ? `Deploying ${p.workspace}…` : 'Opening a window on the Mac…') : 'Working…',
+      text: action === 'ship' ? (p.deployDeclared ? `Deploying ${whereOf(p)}…` : 'Opening a window on the Mac…') : 'Working…',
       bad: false,
     };
     render();
 
     const url = action === 'merge' ? '/api/pr/merge' : action === 'ship' ? '/api/pr/ship' : '/api/pr/comment';
-    const body = { workspace: p.workspace, number: p.number };
+    /* The repo, and the number *within* it — a pull request number is only unique inside a
+       repo, so a merge sent with a workspace where the workspace holds forty of them would
+       be a merge of whichever card the server happened to look at first. `workspace` rides
+       along for a daemon that predates the key; see `shipQueue`. */
+    const body = { key: p.repoKey || p.workspace, workspace: p.workspace, number: p.number };
     if (action === 'send') body.text = text;
 
     try {
@@ -757,7 +804,7 @@
               // runner owns it — for this repo the next thing that happens is the daemon
               // being killed by its own deploy, and the outcome arrives later, on the
               // strip at the top of this page and on this phone.
-              text: `Deploying ${p.workspace} — ${data.deploy?.id || 'started'}. How it went lands on your phone.`,
+              text: `Deploying ${whereOf(p)} — ${data.deploy?.id || 'started'}. How it went lands on your phone.`,
               bad: false,
             }
           : { key, text: `A session is opening in ${data.dir || 'the repo'} to deploy it.`, bad: false };
@@ -861,7 +908,7 @@
         // Unfold the repo with something to act on — arriving at a closed heading
         // would make the fold cost a tap on every visit for no reason. Inside the
         // selected space, or it would unfold a card this board is not drawing.
-        state.card = (state.data.repos || []).find((r) => r.prs.length && inSpace(r))?.workspace || null;
+        state.card = (state.data.repos || []).find((r) => r.prs.length && inSpace(r))?.key || null;
       }
       state.error = null;
       render();
@@ -974,6 +1021,12 @@
   function scheduleDeploys() {
     clearTimeout(deployTimer);
     deployTimer = null;
+    // Not while the board is behind another chip. The strip is the one thing on this
+    // page with a clock of its own, so a hidden board that kept it would be a request
+    // every four seconds for a pane nobody is looking at — and at the *fast* cadence,
+    // because a live deploy is exactly when you are most likely to have swapped away to
+    // watch the sessions it is restarting.
+    if (out.hidden) return;
     // Unreachable *and* a restart in flight is the fastest cadence there is a reason
     // for: nothing on the page will change until the daemon is back, and that is the
     // moment worth catching.
@@ -984,20 +1037,24 @@
     if (!stream?.following) deployTimer = setTimeout(loadDeploys, DEPLOY_IDLE_MS);
   }
 
-  window.beadcause?.presence?.report({ view: 'prs' });
-
   /* The space picker moved — on this device or on the other one. Nothing is refetched:
      the board already holds every repo, and which of them is drawn is a decision made
      at paint time. An open card in a repo that has just been filtered away is closed
      with it, or reopening the space would leave a fold nobody remembers opening. */
   window.beadcause?.space?.onChange(() => {
-    if (state.card && !(state.data?.repos || []).some((r) => r.workspace === state.card && inSpace(r))) {
+    if (state.card && !(state.data?.repos || []).some((r) => keyOf(r) === state.card && inSpace(r))) {
       state.card = null;
     }
     render();
   });
 
-  document.getElementById('prs-refresh').addEventListener('click', () => {
+  /* The ⟳ is the page's and this board is one of its three panes, so it only means the
+     board while the board is up. Shared with monitor.js, which guards its own the same
+     way: the alternative was a second ⟳ in the top bar, and two refresh buttons side by
+     side that refresh different halves of one screen is worse than one that refreshes
+     what you are looking at. */
+  document.getElementById('refresh').addEventListener('click', () => {
+    if (out.hidden) return;
     loadDeploys();
     load({ refresh: true });
   });
@@ -1036,6 +1093,12 @@
       api: warmApi,
       want: 'presence',
       cold: true,
+      /* Only while the board is the pane you are on. This costs more than the same guard
+         on the advocates pane does: every wake this board acts on is a `gh` sweep per
+         repo, and a hidden board following the log would spend one on every merge all
+         day for a screen nobody has open. Coming back calls `load`, which calls `follow`,
+         which restarts a stream that stood itself down. */
+      ready: () => !out.hidden,
       onWake({ events, resync }) {
         // Not while you are mid-sentence or holding an armed merge: a repaint would
         // throw the first away and disarm the second under your thumb. The ⟳ is still
@@ -1113,20 +1176,56 @@
     observing.hidden = !state.data.observing;
     if (state.first) {
       state.first = false;
-      state.card = (state.data.repos || []).find((r) => r.prs.length && inSpace(r))?.workspace || null;
+      state.card = (state.data.repos || []).find((r) => r.prs.length && inSpace(r))?.key || null;
     }
     render();
     return true;
   }
 
+  /**
+   * Everything this page used to do at boot, now that it is a pane and boots when it is
+   * shown.
+   *
+   * `loadDeploys` runs alongside the board rather than after it: if a deploy is in flight
+   * the board's request is the one that is about to fail, and the strip is what says why.
+   * It schedules its own next tick — see `scheduleDeploys`.
+   */
+  function mount() {
+    warmBoot();
+    load();
+    loadDeploys();
+  }
+
   if (!token) {
     out.innerHTML = '<div class="empty"><strong>This device is not paired</strong>Open the inbox first.</div>';
   } else {
-    warmBoot();
-    load();
-    // Alongside the board rather than after it: if a deploy is in flight the board's
-    // request is the one that is about to fail, and the strip is what says why.
-    // It schedules its own next tick — see `scheduleDeploys`.
-    loadDeploys();
+    /* Nothing is asked for until the PRs chip is up, and asking again when you come back
+       to it is the same call. That is worth more here than on the pane beside it: this
+       board is a `gh` sweep per repo, so a page that swept for it on every visit to
+       /monitor would be paying GitHub for a screen most visits never look at. The chip
+       row calls back once at boot too, so arriving on /prs — which is this page with the
+       board already up — is the ordinary path through here and not a special case.
+
+       `mounted` rather than the callback's `prev`, which would be right only if the first
+       showing were always the boot one. It is not: arriving on /monitor and *then* tapping
+       PRs is the common way in, and the warm paint below belongs to the first time this
+       pane is drawn whenever that happens. The fallback is a service worker holding a
+       monitor.html from before the chip row was a file; see the same guard in monitor.js. */
+    const tabs = window.beadcause?.monTabs;
+    let mounted = false;
+    if (!tabs) mount();
+    else
+      tabs.onChange((which) => {
+        // Away: stand the strip's clock down. `scheduleDeploys` reads `out.hidden` and
+        // decides, so the rule lives in one place — and the stream stands itself down
+        // through the same attribute, see `ready` in `follow`.
+        if (which !== 'prs') return scheduleDeploys();
+        if (!mounted) {
+          mounted = true;
+          return mount();
+        }
+        loadDeploys();
+        load();
+      });
   }
 })();

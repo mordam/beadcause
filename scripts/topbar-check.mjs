@@ -24,7 +24,13 @@
 //     to prevent;
 //   * the bar **plus the tab bar** stays inside a **170px** budget on a 640px screen.
 //     159px is what it costs today. A third row is +43px and fails this on the spot,
-//     which is the whole point of the number being written down.
+//     which is the whole point of the number being written down;
+//   * and the page **fits the screen at all** — that one is not about the bar, but this
+//     is the file that noticed. A page laying out wider than the viewport is shrink-
+//     fitted by the browser, so every measurement above it is in a different unit from
+//     the width it is being judged at. /monitor was 376px at a 360px screen until
+//     bc-3ui6, and the symptom is not a horizontal scrollbar — it is the whole console
+//     drawn at 96% and draggable sideways, which reads as a font being slightly off.
 //
 // It also prints the arithmetic that made the decision, per page, and says so when the
 // premise has expired: if *every* page's first row grows enough room to hold the picker
@@ -37,16 +43,14 @@
 // Not part of `npm test`: it wants Chrome. Run it when you have touched the top bar, the
 // picker, or the icon buttons on any page that has one. `--out=DIR` writes a picture per
 // page per width, which is the one thing a column of numbers cannot tell you.
-import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import http from 'node:http';
-import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { CHROME, launchChrome } from './helpers/chrome.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PUBLIC = path.join(ROOT, 'public');
-const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const outDir = (process.argv.find((a) => a.startsWith('--out=')) || '').slice(6);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -119,7 +123,8 @@ function serve() {
     if (p.startsWith('/api/')) return json({});
     let rel = p;
     if (rel === '/console') rel = '/console.html';
-    if (rel === '/prs' || rel === '/pulls') rel = '/prs.html';
+    // The board is a pane on the advocates page now (bc-d4d5), so these land there.
+    if (rel === '/prs' || rel === '/pulls' || rel === '/prs.html') rel = '/monitor.html';
     if (rel === '/monitor' || rel === '/advocates' || rel === '/sessions' || rel === '/work') rel = '/monitor.html';
     if (rel === '/endorse') rel = '/endorse.html';
     if (rel === '/foundations') rel = '/foundations.html';
@@ -132,76 +137,6 @@ function serve() {
     fs.createReadStream(file).pipe(res);
   });
   return new Promise((r) => server.listen(0, '127.0.0.1', () => r(server)));
-}
-
-/* ------------------------------------------------------------------ chrome */
-
-function connect(url) {
-  return new Promise((resolve, reject) => {
-    const ws = new WebSocket(url);
-    let id = 0;
-    const pending = new Map();
-    ws.onmessage = (m) => {
-      const msg = JSON.parse(m.data);
-      const pr = msg.id != null && pending.get(msg.id);
-      if (!pr) return;
-      pending.delete(msg.id);
-      msg.error ? pr.reject(new Error(msg.error.message)) : pr.resolve(msg.result);
-    };
-    ws.onerror = () => reject(new Error('could not attach to Chrome'));
-    ws.onopen = () =>
-      resolve({
-        send: (method, params = {}) =>
-          new Promise((res, rej) => {
-            const i = ++id;
-            pending.set(i, { resolve: res, reject: rej });
-            ws.send(JSON.stringify({ id: i, method, params }));
-          }),
-        close: () => ws.close(),
-      });
-  });
-}
-
-async function launch() {
-  const port = 9640 + Math.floor(process.pid % 100);
-  const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'beadcause-topbar-'));
-  const proc = spawn(
-    CHROME,
-    [
-      '--headless=new',
-      `--remote-debugging-port=${port}`,
-      `--user-data-dir=${profile}`,
-      '--no-first-run',
-      '--no-default-browser-check',
-      '--disable-background-timer-throttling',
-      '--hide-scrollbars',
-      'about:blank',
-    ],
-    { stdio: 'ignore' }
-  );
-  let target = null;
-  for (let i = 0; i < 60 && !target; i++) {
-    await sleep(250);
-    try {
-      target = (await (await fetch(`http://127.0.0.1:${port}/json/list`)).json()).find((t) => t.type === 'page');
-    } catch {
-      /* not up yet */
-    }
-  }
-  if (!target) throw new Error('Chrome never exposed a page target');
-  const s = await connect(target.webSocketDebuggerUrl);
-  return {
-    s,
-    close: () => {
-      s.close();
-      proc.kill();
-      try {
-        fs.rmSync(profile, { recursive: true, force: true, maxRetries: 3 });
-      } catch {
-        /* Chrome is still letting go of a temp dir */
-      }
-    },
-  };
 }
 
 const evalJs = async (s, expr) => {
@@ -305,6 +240,10 @@ const PROBE = `(() => {
 /* Every page with a picker. The admin page is deliberately not one (it acts on every
    repo at once) and the drawers — /graph, /doc, /session, /terminal — are not standing
    views, so neither carries a `.spacebar` to measure. */
+/* `/prs` is the advocates page with its board chip up (bc-d4d5) rather than a page of
+   its own, and it is still measured under its own path: the top bar is shared between
+   the three panes now, so what this check is really asking there is that arriving by the
+   board's URL does not change what the bar costs. */
 const PAGES = ['/', '/monitor', '/console', '/prs', '/endorse', '/foundations'];
 
 /* 360px is the cheap Android the app is for and the width the trade was argued at; 393
@@ -329,7 +268,7 @@ const bad = (name, detail) => {
 
 const server = await serve();
 const { port } = server.address();
-const { s, close } = await launch();
+const { s, close } = await launchChrome('beadcause-topbar-');
 try {
   await s.send('Page.enable');
   await s.send('Runtime.enable');
@@ -407,13 +346,18 @@ try {
       room.push({ at, page, width: size.width, spare: m.spare, need: m.need, brandW: m.brandW, actsW: m.actsW });
 
       /* Does the page fit the screen at all? A page laying out wider than the viewport
-         has been shrink-fitted by the browser, so it is not the size it was designed
-         at. /monitor is 376px at a 360px screen today — bc-3ui6 — and this is a notice
-         rather than an assertion so that this file does not ship red. When that bead
-         lands, the notice goes quiet and this can become one. */
-      if (m.layoutW > size.width)
-        notices.push(
-          `\x1b[33m!\x1b[0m ${at}: the page lays out at ${m.layoutW}px on a ${size.width}px screen, so the browser has scaled it to ${Math.round((size.width / m.layoutW) * 100)}% — known, bc-3ui6.`
+         has been shrink-fitted by the browser, so nothing on it is the size it was
+         designed at and every other number in this file is in a different unit from the
+         screen it is being compared to. This was a notice while /monitor was 376px at a
+         360px screen (bc-3ui6 — one negative margin against an unpadded `<body>`); that
+         landed, so it is an assertion, which is the only form that stops the next one
+         arriving. It costs one declaration to fail it and nobody would see it: the
+         browser scales the page silently and it reads as a font being slightly wrong. */
+      if (m.layoutW <= size.width) ok(`${at}: the page fits the screen (lays out at ${m.layoutW}px, unscaled)`);
+      else
+        bad(
+          `${at}: the page fits the screen`,
+          `it lays out at ${m.layoutW}px on a ${size.width}px screen, so the browser has scaled it to ${Math.round((size.width / m.layoutW) * 100)}% — something on it is wider than the body`
         );
 
       if (outDir) {
