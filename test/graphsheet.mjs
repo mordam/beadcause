@@ -280,9 +280,10 @@ check('and the reason it closed, through the same renderer as every other bd fie
 });
 
 check('a long reason is drawn whole rather than clipped', () => {
-  // 1664 characters is the worst one in this tracker, and /history clamps its own copy
-  // to two lines on the understanding that tapping the row lands here. Truncating at
-  // both ends would put the sentence nowhere in the app at all.
+  // 1664 characters is the worst one in this tracker, and this is the only place in the
+  // app that draws the whole of one: /history clamps its copy to two lines in CSS and
+  // `/api/history` stops sending at `CLOSE_REASON_MAX`, both on the understanding that
+  // tapping the row lands here. Truncating here too would put the sentence nowhere.
   const long = `Landed as #99. ${'This is why it happened. '.repeat(80)}Signed off.`;
   const html = sheetHtml({ ...landed, close_reason: long });
   assert.ok(html.includes(long), 'the close reason was cut short before it reached the DOM');
