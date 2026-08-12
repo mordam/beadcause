@@ -79,9 +79,9 @@ import { cardsForDelivery, deliveryBody, deliveryTitle, DELIVERY_LABEL } from '.
 import { deployFor, deployHint } from '../lib/deploy.js';
 import { landedReason } from '../lib/landed.js';
 import { pushLanded } from '../lib/notify.js';
-import { baseFor } from '../lib/prbase.js';
 import { oweClose } from '../lib/owed.js';
 import * as pr from '../lib/pr.js';
+import { baseFor } from '../lib/prbase.js';
 import { landParent } from '../lib/prboard.js';
 import { prPolicyFor } from '../lib/spaces.js';
 
@@ -296,7 +296,7 @@ if (!gh.ok) die(gh.reason, 4);
  * And this particular checkout — because `gh` being installed says nothing about
  * whether *this* repo has a GitHub remote any account here can see.
  *
- * It used to be found out three steps later, by `git push` failing on a missing
+ * It used to be found out two steps later, by `git push` failing on a missing
  * `origin` or by `gh pr create` failing on a repo it cannot resolve. Both of those name
  * the remote and neither names the repo, which was fine while a workspace was one
  * checkout and the repo was never in doubt. In a workspace of forty it is exactly the
