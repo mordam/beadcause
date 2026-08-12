@@ -35,6 +35,7 @@
     "conflicts": "node scripts/conflict-check.mjs",
     "demo": "node scripts/demo-question.js",
     "configure": "node scripts/configure.js",
+    "onboard": "node scripts/onboard.mjs",
     "install-service": "bash scripts/install.sh",
     "uninstall-service": "bash scripts/uninstall.sh",
     "android": "bash scripts/build-android.sh",

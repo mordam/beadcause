@@ -207,6 +207,11 @@ await check('two ready siblings go to one window, on the epic that explains them
   assert.deepEqual(calls.children, ['x-1'], 'one call, to prove no open child is hiding outside this queue');
 });
 
+// A batch must not span checkouts either, but `placeFor` is gated on `multiRepo` and this
+// suite is deliberately single-repo — every bead here resolves to `repo: null`, so the
+// guard cannot be reached from this fixture. That case lives in test/repoqueue.mjs, which
+// already has the approved-repo block and the real resolver behind it.
+
 /** The floor itself, asserted from the other side: turn it off and the lone child batches. */
 await check('minBatchBeads 1 batches a lone child too', async () => {
   const { opened, briefed } = await tick({
