@@ -4634,6 +4634,24 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
 }
 .space-arrow { color: var(--muted); }
 
+/* The Slack channel — the one field on this card you type into rather than press.
+   Same box as the clocks above so the two typed controls on the page look like one
+   thing, and `flex: 1 1 12ch` because a channel id is eleven characters: it takes the
+   room it needs on a phone and the three buttons wrap under it rather than squeezing
+   the field down to something you cannot read what you typed in. */
+.space-channel input[type="text"] {
+  flex: 1 1 12ch;
+  min-width: 11ch;
+  min-height: 34px;
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  font-size: 13.5px;
+}
+
 /* Seven days across a 360px phone: square, so the row fits without wrapping and each
    is still a 40px target in the direction a thumb misses in. */
 .space-day {
