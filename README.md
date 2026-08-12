@@ -657,6 +657,15 @@ above because this is the line that already stated the answer for that repo and 
 nothing to press. The tag stays beside them and is not made redundant by them: the tag is
 the *resolved* answer, and the lit button says which of the three levels gave it.
 
+**And a row in it is a workspace, which stopped being the same thing as a repo.** A
+workspace with an [approved list of checkouts](#many-repos-one-workspace--the-approved-list-and-the-token-that-names-each)
+is forty repos of one org, so its row carries `12 checkouts, one answer` — because the
+settings above it really are one answer for all of them
+([why](#policy-stays-per-space-even-when-a-workspace-is-forty-repos)), and a panel
+counting that row as one repo understated the reach of every control on the card by the
+size of the org. Only the checkouts that *resolved* are counted: one declaring no service
+token can hold no bead, and `no checkout resolved` is its own state rather than a silence.
+
 **A press changes the running daemon, not just the file.** `POST /api/space` patches
 the space object inside the live `cfg` — the same object every push decision reads
 through `quietReasonFor`, every delivery through `prPolicyFor`, every reply agent
@@ -821,11 +830,18 @@ The hold is not like that, and the shape of a real config is what showed it. The
 two spaces here: **Personal**, holding `beadcause`, `deluvia`, `ehatt`, `sophab` and two
 more, and **Climative**, holding one. The reason to stop holding in `beadcause` — I am
 the only reader of that tracker, so the tap is not a review, it is a delay with a
-notification attached — is a fact about *that checkout*. It is not true of the five repos
+notification attached — is a fact about *that tracker*. It is not true of the five repos
 sitting beside it, and none of them moved. With the space as the finest thing that could
 answer, saying yes to one meant saying yes to six.
 
-So `autoEndorse` has a per-repo override, and it **outranks the space**, exactly the way
+**One workspace, though, never one checkout inside one.** The override is keyed by
+workspace, and a workspace is a beads graph — which is exactly the grain
+[policy answers vary at](#policy-stays-per-space-even-when-a-workspace-is-forty-repos):
+who else reads this graph, and would they mind an agent working it unasked. So `climative`
+may answer for itself here like any other workspace, and still gives one answer for all
+forty of its checkouts; nothing on this page lets one of them out of it.
+
+So `autoEndorse` has a per-workspace override, and it **outranks the space**, exactly the way
 `ntfy.minimalWorkspaces` and `slack.excludeWorkspaces` already outrank it for
 notification detail:
 
@@ -833,7 +849,7 @@ notification detail:
 "autoEndorsePerWorkspace": { "beadcause": true, "sophab": false }
 ```
 
-| for one repo | what it does |
+| for one workspace | what it does |
 |---|---|
 | `true` | its agents' discoveries are ready work immediately, even where its space holds |
 | `false` | they are held for your tap, even where its space endorses |
@@ -3020,14 +3036,19 @@ That is what took **PRs** back out of the bar (bc-l8jp.6): the board is somewher
 glance — *did that ship?* — and then act on twice a day, and its rows are incoming work
 like everything else the inbox holds. So [the rows moved into the
 inbox](#where-you-read-it-an-inbox-card-and-the-board) and the board kept its URLs
-without keeping a fifth of the bar. `/prs`, `/pulls` and `/prs.html` all still serve it —
-they are on the phone's home screen and in the notification a ship sends — and what points
-at it now is a link on every PR card.
+without keeping a fifth of the bar. `/prs`, `/pulls` and `/prs.html` all still work —
+they are on the phone's home screen and in the notification a ship sends.
 
-Which makes the board a page the bar marks **nothing** as current on. That is deliberate,
-and it is checked: `scripts/tabbar-check.mjs` carries it with `tab: null`, asserting the
-bar is still there (it is the only way off the page) and that no tab lights for a page this
-is not. A page can be reachable, load-bearing, and not a tab.
+**Kept its URLs and lost its way in.** With no tab, the only route to the board was the
+link on a PR card in the inbox — so on a day when no pull request was showing there, there
+was no route at all, and **Ship** lives on that board. A ship bead that says *press Ship on
+the pull request board and this closes itself* was not answerable from a phone without
+typing a URL. That is bc-d4d5, and the fix is not to undo bc-l8jp.6: the board is [a pane
+on the advocates page](#the-board-is-a-pane-too) now, which is the Mirror's argument for
+the second time. `/prs`, `/pulls` and `/prs.html` land there with its chip up, the bar
+marks **Advocates** as current on all three, and `scripts/tabbar-check.mjs` asserts exactly
+that. The chat session is still the page the bar marks nothing on, still with `tab: null`
+in that check — a page can be reachable, load-bearing, and not a tab.
 
 Four tabs is 90px each at 360px. Three was 120px, five was 72px — which "Advocates" still
 fits — and six would be 60px, which it does not, so the stylesheet steps the type down when
@@ -3209,11 +3230,12 @@ more it asks which, because offering to start work in a repo the app is not show
 you is the one thing the space picker exists to stop. Either way it lands on
 `/console?id=<id>`, which is exactly where the launcher's own ＋ lands.
 
-**`/console` is still a live route with no tab pointing at it**, exactly as `/prs` is. The
-id and the href are in stored conversation records and on the phone's home screen, so both
-of its paths still serve the page — a bookmark that 404s is a worse outcome than a page
-with no tab. It keeps the bar, because that is how you leave it, and nothing on the bar is
-marked current there: you are not on one of the four.
+**`/console` is still a live route with no tab pointing at it** — the last one, now that
+`/prs` [is a pane on the advocates page](#the-board-is-a-pane-too). The id and the href are
+in stored conversation records and on the phone's home screen, so both of its paths still
+serve the page — a bookmark that 404s is a worse outcome than a page with no tab. It keeps
+the bar, because that is how you leave it, and nothing on the bar is marked current there:
+you are not on one of the four.
 
 ### The ✕ came with the row
 
@@ -3303,10 +3325,11 @@ about how much room the bar has:
   a tab is a claim that the page is somewhere you live, and nobody lives in a lens.
 - **It is the one surface in the app that is meaningless on a phone** — which is the
   device a bottom tab is tapped from. The Mirror follows *another* device and drops its
-  own (`notMe` in `public/mirror.js`, and `showTab` reports `view: null` while the pane is
-  up, so a mirror cannot circle back onto the page it is drawn on). A phone that tapped a
-  Mirror tab would therefore find nothing to follow and read "Looking for a device…"
-  forever. That is not a tab, it is a dead end with an icon.
+  own (`notMe` in `public/mirror.js`, and its chip declares no view at all — `data-view=""`
+  in `monitor.html`, so `public/montabs.js` publishes `view: null` while the pane is up and
+  a mirror cannot circle back onto the page it is drawn on). A phone that tapped a Mirror
+  tab would therefore find nothing to follow and read "Looking for a device…" forever.
+  That is not a tab, it is a dead end with an icon.
 
 There was a third reason when this was decided — *the bar is full at five, and
 `style.css`'s `:has(.tab-item:nth-child(6))` rule is the stylesheet quietly admitting
@@ -3314,6 +3337,50 @@ it* — and it has **since expired**: PRs left the bar in bc-l8jp.6 and there is
 place on it again. The decision does not move, and that is the point of writing the other
 two down: the next person to notice the empty slot should not have to re-derive why the
 Mirror is not what goes in it.
+
+### The board is a pane too
+
+The empty slot was tested a second time and the answer came out the same way. bc-l8jp.6
+took **PRs** off the bar on the rule at the top of this section; what nobody noticed for a
+week is that it left the board with no route in except a link on an inbox card, so on a day
+with no pull request in the inbox there was no way to reach it — and **Ship** is on it.
+bc-d4d5 put it back as the **third chip on this same row**, between Advocates and Mirror,
+on the Mirror's own two reasons: it is a mode of the advocates page (the same space's
+repos, seen as work waiting to ship rather than work running), and it is somewhere you
+glance and act on rather than somewhere you live. So the row reads **Advocates · PRs ·
+Mirror**, the bottom bar still has four tabs, and `/prs`, `/pulls` and `/prs.html` are
+three more paths to `monitor.html` with the middle chip up.
+
+What that cost, and what it did not:
+
+- **`public/prs.html` is gone; `public/prs.js` is not.** The board is the same renderer,
+  drawing into a `<section id="prs">` on the advocates page instead of a `<main>` of its
+  own — so there is still one PR card renderer (`public/prcard.js`) and one status ladder
+  (`lib/prstage.js`), which is the thing bc-l8jp.6 bought and this had no business
+  spending.
+- **The chip row grew a file.** A two-way swap can live in whichever pane owns it, which
+  is where it was (`mirror.js`); a three-way one cannot, because the pane going *away* has
+  to be told as much as the one arriving and "the other one" stops naming anything. So
+  `public/montabs.js` owns the row, the panes subscribe, and each of the three answers only
+  for itself. The mapping — which section a chip shows, and what `presence.js` should say
+  this device is looking at — is declared on the chips in the HTML.
+- **A hidden pane is stood down, not merely invisible.** Each of the three holds a parked
+  `/api/poll`, and the board's wakes are a `gh` call per repo; the subscription is what
+  stops all three running at once. Nothing is fetched for the board until its chip is up.
+- **The top bar is shared.** One ⟳ for the page, and each pane ignores it while it is
+  hidden — rather than a second refresh button that would mean a different half of the same
+  screen depending on where your thumb landed.
+
+`node test/montabs.mjs` runs the real chip row in a vm and holds what no single pane can
+see: exactly one pane up after every swap, every subscriber told on every change *and* once
+at boot, one pane throwing not stranding the two beside it, and the board's three URLs
+selecting the board whatever chip was stored. `node test/prstage.mjs` holds the pair of
+claims above it: the bar still has no PRs tab, and `monitor.html` still carries the chip,
+the shared renderer ahead of the board, and the bar that is the way off it. `node
+test/pagepaths.mjs` asks a running server for all three of the old paths and requires the
+page they land on to be one that draws a board — `/monitor.js` proves they reach the
+advocates page and only `/prs.js` proves the page can draw the Ship button, which is the
+failure that started this.
 
 So `public/mirror.js` stays a pane inside `monitor.html`, and what the other answer would
 have cost is not spent: no `/mirror` route, no `mirror.html`, and the pane-swap keeps the
@@ -4380,9 +4447,17 @@ be computed a second time by the inbox. One function, six rungs, and the sort or
 ### Where you read it: an inbox card, and the board
 
 **Pull requests are cards in the inbox** — [under their own filter, with a sub-filter over
-the ladder](#what-the-inbox-shows) — and the board at `/prs` is where you act on one. Both
-draw the row from the same renderer, `public/prcard.js`; there were two before that bead,
-and a fact added to one screen was a fact missing from the other.
+the ladder](#what-the-inbox-shows) — and the board, [the PRs chip on the advocates
+page](#the-board-is-a-pane-too), is where you act on one. Both draw the row from the same
+renderer, `public/prcard.js`; there were two before that bead, and a fact added to one
+screen was a fact missing from the other.
+
+A row on the board folds open to what you can *do* — Merge & push, Ship, Comment, and
+**Full view**, which is a link into the inbox's own full-screen sheet for that pull request
+rather than a second copy of it. The status sub-filter widens itself when that link names a
+rung it is hiding (`revealPr` in `public/app.js`): the board's whole subject is what has
+merged and not shipped, and the inbox's default is `unmerged`, so without that the link
+would silently land on a list the row is not in.
 
 ```
 #42  Turn the launcher's repo chips into tabs            2h ›
@@ -4635,7 +4710,7 @@ says **no bead named** rather than borrowing one.
   says which. GitHub's merge puts the commit on `origin/<base>` itself, so the work is
   off the laptop the moment it lands; the "& push" half is bringing this Mac's own
   `<base>` up with it, and it **will not touch a checkout with uncommitted work in
-  it** — it says so instead. Both halves are always reported separately: a merge that
+  it** — it says so instead, naming the paths in the way. Both halves are always reported separately: a merge that
   landed and a fast-forward refused because you have files open is a good outcome, and
   one flat word over the pair would send you to the Mac to find out which happened.
   It takes **two taps**, with the consequence written into the button between them —
@@ -5054,6 +5129,46 @@ arms; group *adjust* and group *ask for changes* are deliberately not, even thou
 API takes them, because one title cannot be given to six beads and one objection typed
 at six is an objection about none of them.
 
+### Endorse all — the tap that empties it
+
+A tick per bead is fine for six. It is not fine for a hundred, and a hundred is what
+this queue actually reaches: a hundred held beads is not a hundred decisions, it is one
+decision about a hundred beads, and a queue that can only be drained a tick at a time is
+one nobody drains — which quietly takes the meaning out of the hold, because a hold
+nobody lifts is indistinguishable from work nobody filed.
+
+So **Endorse all** sits in the header beside the count, reachable with nothing ticked —
+not in the selection bar, which does not exist until you have started ticking, and which
+is therefore the one place a control for "I have not ticked anything" cannot live. Three
+things about it:
+
+- **It acts on what is drawn, never on what merely exists.** The count is taken over the
+  rows the space picker is showing, exactly like the header line beside it, so a page
+  narrowed to one repo endorses that repo. What the picker is holding back is *named* in
+  the confirmation and left alone — "1 bead in another space stays held" — because a tap
+  you made while looking at one space silently reaching into another is the single thing
+  this control must never do. So is the cap: the sweep stops at sixty, and a queue of a
+  hundred and one endorsing sixty under the word *all* would be the truncation lying
+  twice, so the overflow is named too.
+- **It arms, where the single row and the group bar deliberately do not.** Those two are
+  one tap because endorsing is idempotent all the way down and the worst a stray tap does
+  is queue work you meant to queue eventually. That argument stops being true somewhere
+  around the hundredth bead, and releasing a hundred beads to the advocate at once is the
+  exact act [the hold](#the-endorsement-queue--a-group-tap-or-a-row-at-a-time) exists to
+  make deliberate. So the first tap writes nothing and only says what the second will do,
+  and it says it as a count and the repos it covers — the same rule the inbox's bulk
+  approve is under: the button names what it will act on before it acts.
+- **Moving the picker disarms it.** An armed *Endorse all 60 in beadcause* whose second
+  tap landed after the filter moved would endorse a different sixty in a different repo.
+  That is one line in the page's `onChange`, and it is the line the promise above rests
+  on.
+
+Underneath it is the same request the group bar makes — one POST per workspace carrying
+that workspace's ids, never one per bead — and it needs no new route, because the cap on
+a single verdict is a hundred ids and the cap on the queue is sixty. A partial failure is
+reported the way every other group reports one: *Endorsed 59 beads. cl-xyz did not: …*,
+with the bead that did not go through still sitting on the queue.
+
 What happened is never toasted away. An endorsed bead leaves the queue immediately, so
 its outcome is pinned to the top of the list where the rows used to be — the only
 evidence the tap worked, on a screen where "did that go through?" must not be a question
@@ -5139,10 +5254,11 @@ relabelled the default — and that a bead you have just asked about comes back 
 `/api/unendorsed` carrying its 💬 rather than reading as untouched.
 
 `node scripts/endorse-check.mjs [--out=DIR]` drives the real page in a headless Chrome
-the size of a phone, against a fixture that records every write. The two assertions it
+the size of a phone, against a fixture that records every write. The three assertions it
 exists for are the ones invisible from the server: that a group tap is **one request
-per workspace** carrying all of its ids, and that the first press of Revoke writes
-**nothing at all**.
+per workspace** carrying all of its ids, that the first press of Revoke — and of Endorse
+all — writes **nothing at all**, and that Endorse all under a narrowed picker leaves the
+bead in the space you were not looking at exactly where it was.
 
 ## An error the app hits files itself as a P0
 
@@ -6921,7 +7037,18 @@ Six things follow, and they are the whole of the change:
   ends by fast-forwarding the **main checkout** — not its own worktree, where the ref
   cannot move anyway — and it is the same `landLocally` the **Merge & push** button uses,
   refusal and all: *a checkout with uncommitted work in it is not touched*, it says so on
-  the bead instead, and Adam's open files are worth more than a tidy `main`.
+  the bead instead, and Adam's open files are worth more than a tidy `main`. **It names
+  the paths that stopped it**, and says outright when every one of them is untracked.
+  That reads as a detail and is not: the refusal is per-delivery but the checkout is
+  *shared*, so a single stray path holds up **every** session's fast-forward, silently,
+  until a person happens to look. A `.beads/` directory left behind by a reverted
+  `bd init` did precisely that for a day and 114 commits — nothing was lost, the merges
+  were all safely on `origin`, but nothing merged in that window was *live*, and
+  `--status` went on saying `disk … (matches what is running)` throughout, because the
+  checkout was simply old. Each session that hit it paid to work that out again. The
+  fix is that the sentence is now diagnostic; ignoring `.beads/` was the other option
+  and was declined, because it would have hidden the residue as well as the symptom,
+  and any *other* stray path reproduces the condition identically (bc-s7fs).
 - **It will not merge over a red check, and it will not wait forever for a green one.**
   Failing checks stop it and become a card in your inbox — the button there *does* let
   you merge over red, because a red check is sometimes a flake and judging that is what
@@ -9915,9 +10042,9 @@ history.
 | `autoDispatchExclude` | workspaces that never auto-dispatch — put shared trackers here |
 | `autoDispatchTimeoutMs` | kill a dispatched agent after this long (default 10 min) |
 | `autoEndorse` | beads an agent files itself arrive **endorsed** — workable, queued, launchable — instead of held for your tap (default `false`). The one policy default here that is the restrictive one, and the only one that needs a literal `true`: its worst case is an unattended session on work nobody has read. Set it **per [space](#spaces--keeping-work-out-of-your-evening)** rather than here; the P2 ceiling, `agent-filed` and the `discovered-from` edge all still go on either way |
-| `autoEndorsePerWorkspace` | the same answer for **one repo**, keyed by workspace name — `{"beadcause": true, "sophab": false}` (default `{}`). Outranks the space, which outranks the global, and an absent name inherits. The one setting here a space is the wrong unit for: "nobody but me reads this tracker" is true of one checkout and not of the five beside it in the same space. Set from the repo row on the [space details screen](#one-repo-may-answer-for-itself-and-this-is-the-only-setting-that-may) |
+| `autoEndorsePerWorkspace` | the same answer for **one workspace**, keyed by workspace name — `{"beadcause": true, "sophab": false}` (default `{}`). Outranks the space, which outranks the global, and an absent name inherits. The one setting here a space is the wrong unit for: "nobody but me reads this tracker" is true of one graph and not of the five beside it in the same space — and not of one checkout inside a workspace, which [stays the space's answer](#policy-stays-per-space-even-when-a-workspace-is-forty-repos). Set from the repo row on the [space details screen](#one-repo-may-answer-for-itself-and-this-is-the-only-setting-that-may) |
 | `pr.enabled` | land finished work as [a pull request the worker merges](#landing-work--a-branch-a-pull-request-and-the-workers-own-merge) (default `true`). `false` puts every workspace back on the oldest ending — work the bead, close the bead. A workspace with no `gh` or no GitHub remote gets that ending anyway, without needing to be named |
-| `pr.base` | what a PR is opened against and merged into (default `main`) |
+| `pr.base` | what a PR is opened against and merged into (default `main`). In a workspace with an [approved repo list](#and-which-branch-its-pull-request-is-opened-into) this is the *fallback*, and each repo's own default branch is the answer |
 | `pr.mergeMethod` | `merge` (default), `squash` or `rebase`. A merge commit because a squash-merged branch is never an ancestor of `main`, and the worktree cleanup will not remove a worktree that fails that test |
 | `pr.autoMerge` | the worker merges its own pull request once the checks report (default `true`). `false` stops it after opening the PR and makes the merge your tap, which is what every delivery used to do. A worker can choose the same for one delivery with `--review`. **A [space](#spaces--keeping-work-out-of-your-evening) overrides this either way**, so this is the default rather than the answer |
 | `pr.requireApproval` | a pull request needs an `APPROVED` review before a worker may merge it (default `false`). Green but unapproved becomes a merge card saying so, rather than a merge — the setting for a repo other people work in. Per space, like `autoMerge` |
@@ -10355,6 +10482,143 @@ The two surfaces that are not on this list are the ship and conflict sessions
 than from a bead, and which repo a *pull request* is in is the PR board's own question —
 see the epic's next child.
 
+### And which branch its pull request is opened into
+
+`resolveSessionDir` answers *where* a bead is worked, and once it does, most of what
+follows comes along for free — the worktree is cut in whatever directory the session
+opened in, the branch is committed there, `bin/deliver.js` runs `git` and `gh` in the
+same place, and the session log lands in that repo's refs because `archiveSession` walks
+up from the directory it was handed. None of those had to learn anything new.
+
+Three things did, because they are facts about a **repo** rather than about a workspace,
+and the resolver only ever answered the second question.
+
+**The base branch.** `pr.base` was one string for the whole install, and it was right for
+as long as a workspace was one repo, because one repo has one base. A workspace holding
+forty has forty, and no single setting can name them. So: *one repo, the setting; many
+repos, the repo.* A workspace with no approved list answers `pr.base` exactly as it
+always did and does not run `gh` even once — asserted in `test/prbase.mjs`, because a
+network round trip per delivery in `sophab` would be bought for a question the config had
+already answered. A multi-repo workspace asks GitHub what that repo's default branch is,
+and falls back to `pr.base` only when GitHub will not say: no `gh`, not authenticated, no
+remote, offline. Falling back rather than refusing is deliberate — a wrong base is caught
+immediately by `gh pr create`, which will not open a pull request into a branch that does
+not exist, while refusing would take a whole repo out of reach every time the wifi
+dropped. `--base` on `bin/deliver.js` still wins over both, which is how a session
+delivering somewhere other than its repo's default branch says so.
+
+**And it is asked of GitHub, never of the checkout** — which is the surprising half.
+The cheap local answer is `git symbolic-ref refs/remotes/origin/HEAD`, and it is wrong
+often enough to be dangerous: that ref is written once, by `clone`, and nothing ever
+refreshes it. Every one of the forty-seven Climative checkouts on this Mac was read, and
+three of them name an `origin/HEAD` GitHub disagrees with — `climative-api-service` and
+`synapse-repo` both say `origin/develop`, and `frontend-base` says
+`origin/TECH-5989-bootstrap-nginx`, a feature branch — while GitHub says `main` for all
+three. A delivery that trusted the local ref
+would open those pull requests into a branch nobody merges, silently, because a pull
+request into the wrong base is a perfectly valid pull request. The answer is cached per
+`owner/repo` for the life of the process, since a repo's default branch changes about
+once in its life; a *null* is not cached, because it means somebody is at a keyboard
+running `gh auth login`.
+
+**Whether the repo is on GitHub at all.** `gh` being installed and authenticated says
+nothing about whether *this* checkout is a repo any of your accounts can see, and in a
+list of forty approved directories one of them not being is an ordinary state rather than
+an error. `bin/deliver.js` asks before it pushes and refuses with the directory in the
+sentence:
+
+```
+beadcause-deliver: no GitHub repo is visible from ~/climative.dev/tools — nothing there
+opens pull requests. The work is committed on worktree-thing-4f2; say so on cl-9f2 and
+leave it there.
+```
+
+It used to be found out two steps later, by `git push` failing on a missing `origin` or
+by `gh pr create` failing on a repo it could not resolve. Both of those name the remote
+and neither names the repo, which was fine while a workspace was one checkout and the
+repo was never in doubt.
+
+**And the session log follows the session, not the workspace.** `refs/beadcause/sessions/<bead>`
+is stored inside the repo the work happened in — that is the whole point of keeping it in
+refs rather than in a directory, so the log travels with the commits it describes. The
+advocate used to resolve one directory for the whole batch of finished sessions, which
+said the same thing while a workspace was one checkout and would have written every
+Climative session's log into `architecture`: the ref would exist, in a repo whose commits
+it does not describe, and the repo the work is actually in would have none. It now
+archives into the directory each worker was launched in, which the worker record already
+carries, so the archive follows the session rather than re-deriving where it should have
+been.
+
+**Two sweeps still do not.** The worktree sweep and the landed-reconcile in
+`lib/advocate.js` both still resolve one directory per workspace, so in a multi-repo
+workspace they only ever see the default repo — worktrees cut elsewhere are never
+retired, and a bead whose pull request merged in another approved repo is not closed by
+the sweep. Both are the same shape of change and neither is done; they are on their own
+bead rather than assumed away here.
+
+### Policy stays per space, even when a workspace is forty repos
+
+Five settings decide what an unattended agent may do without you having looked at it:
+whether it may answer a comment (`autoDispatch`), whether a bead it filed is workable
+before you have read it (`autoEndorse`), whether it merges its own pull request
+(`autoMerge`, `requireApproval`), and whether that merge deploys itself (`autoShip`). They
+are answers a [space](#spaces--keeping-work-out-of-your-evening) gives, and a space is a
+set of *workspaces* — which was the same thing as a set of repos until the block above
+existed. Now one `autoMerge` governs forty checkouts of a company's org, and the settings
+were written arguing for a setup they can no longer express: **on everywhere except the
+shared repo**, which stops meaning anything the moment the shared repo and the private one
+are the same workspace.
+
+**They stay per space, and Climative gets one answer.** Not by omission — four reasons,
+and the second is the one that settles it.
+
+One of the five does take a finer answer, and it is a different question: `autoEndorse`
+has a [per-workspace override](#one-repo-may-answer-for-itself-and-this-is-the-only-setting-that-may)
+that outranks the space, so one workspace in a space may answer for itself. That is the
+grain the second reason below is about — a graph and who reads it — and it leaves this
+section's question exactly where it is: no setting here answers per checkout *inside* a
+workspace, `autoEndorse` included.
+
+**What varies between repos is not what these ask.** Every one of them asks whether an
+agent may act while nobody is watching, and what makes that differ between two checkouts
+is whether anybody else reads the repo. Inside an org it does not differ: all forty have
+colleagues on them, and `architecture` is not the shared one among private siblings — it
+is the *most* shared, because it also holds the workspace's Dolt remote.
+
+**The trust boundary is the tracker, and there is one of it.** `autoDispatchExclude` is
+per workspace because a workspace is a graph, and a graph other people read must never be
+auto-answered whatever space it lands in. Every Climative repo files into one `cl-` graph:
+a bead in it is visible, editable and answerable by everyone in the org, whichever checkout
+it is about. So "who else sees this, and would they mind an agent acting on it unasked" is
+a fact about the workspace rather than about the directory, and a per-repo answer would be
+a finer grain than the thing it is describing.
+
+**An override could only ever loosen, and there is nowhere safe to point it.** A space set
+conservatively for a shared org plus an exception for one repo is a mechanism whose only
+use is letting one checkout out of the answer the shared tracker earned — and that repo's
+beads are still in the shared graph, so an agent working one unasked is still acting on
+work a colleague filed. A conservative-only veto beside `autoDispatchExclude` buys nothing
+either, because the space is already *at* the conservative answer. A repo that genuinely
+wants a looser answer than the tracker's is a repo whose work does not belong in that
+tracker: take it out of `approved` and give it its own workspace, which is what every
+non-Climative repo already is.
+
+**And it could not be set from where these get set.** The
+[space details card](#space-details--the-page-the-advocate-console-became) exists because a
+policy you can only change by editing `config.json` at a keyboard stays wrong until you
+are next at one. A per-repo answer would live in the `repos` block — a config-file act,
+which is the failure that card ended — and making it phone-settable means forty rows of
+five toggles on a 393px screen, which is not a screen. It is not a field either: every
+resolver in `lib/spaces.js` takes a workspace *name*, and which repo a bead is about is a
+fact about the bead, so this is an argument threaded through eight call sites rather than a
+key.
+
+What the decision does oblige is that the screen stop implying one repo per row — hence
+the `12 checkouts, one answer` tag in the panel above the settings. The argument lives in
+`lib/spaces.js`, above `autoDispatchAllowed`, where anybody about to add the override will
+read it; `node test/spacedetails.mjs` holds both halves, including a check that the five
+resolvers still take nothing finer than a workspace, so the decision has to be revisited
+deliberately rather than drifted through.
 ### Environment
 
 | variable | meaning |

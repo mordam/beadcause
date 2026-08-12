@@ -210,6 +210,10 @@ const flag = (n) => { const i = args.indexOf(n); return i === -1 ? null : args[i
 const find = (ref) => Object.values(s.prs).find((p) => p.headRefName === ref || String(p.number) === String(ref));
 
 if (args[0] === 'auth') out('Logged in to github.com\\n');
+// Which repo this checkout is, which \`bin/deliver.js\` now asks before it pushes: a
+// checkout no account can see on GitHub has nowhere to open a pull request, and finding
+// that out from a failed \`gh pr create\` names the remote rather than the repo.
+if (args[0] === 'repo' && args[1] === 'view') out(JSON.stringify({ nameWithOwner: 'acme/widgets' }));
 if (args[0] === 'pr') {
   if (args[1] === 'create') {
     const head = flag('--head');

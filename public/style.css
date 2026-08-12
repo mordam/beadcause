@@ -4822,6 +4822,29 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
 .eq-count { margin: 0 0 4px; font-size: 16px; font-weight: 650; color: var(--text); }
 .eq-head .subtitle { margin-bottom: 0; }
 
+/* The count, and the one tap that answers all of it — on a line together, because they
+   are the same sentence: "3 beads waiting on you" and the button that makes that zero.
+   It sits here rather than in `.eq-bar` for the reason that bar has a rule of its own:
+   the bar does not exist until you have started ticking, and the whole point of Endorse
+   all is that it is reachable when you have ticked nothing. */
+.eq-head-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; }
+.eq-head-row .eq-count { flex: 1 1 auto; min-width: 0; }
+/* Beside the count and no wider than its own words. A full-width primary across the top
+   of a queue is a control you press before you have read anything, which is the exact
+   tap this one arms to prevent. `.board-btn.merge.armed` already turns it amber between
+   the two taps, the same as Revoke and Merge. */
+.eq-all { flex: 0 0 auto; }
+/* Onto its own line under both, where the armed hint can be a sentence — it has to name
+   a count and every repo it covers, which is not a thing that fits beside a button.
+
+   In the armed button's own amber rather than `.board-hint`'s muted grey, and that is
+   the load-bearing half of this rule: directly beneath it sits the page's subtitle, in
+   the same size and the same grey, and a muted hint there reads as the second line of
+   the page's own prose. The question and the button that asked it have to be the same
+   colour, or the sentence that says what the next tap does is the one sentence nobody
+   reads. */
+.eq-all-hint { flex: 1 1 100%; margin: 6px 0 2px; color: var(--warn); }
+
 /* Sticky, because what it acts on is the list you are scrolling: you tick the sixth
    row eight hundred pixels below the fifth, and a bar that had scrolled away would
    make the group tap two scrolls and a hunt. */

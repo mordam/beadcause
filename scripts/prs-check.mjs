@@ -277,7 +277,10 @@ function serve() {
     }
     if (p.startsWith('/api/')) return json({});
 
-    let rel = p === '/prs' || p === '/pulls' ? '/prs.html' : p;
+    // The board is a pane on the advocates page now (bc-d4d5). Everything below is
+    // unchanged by that: the pane keeps the `#prs` id it had as a `<main>`, and arriving
+    // by this path is what puts its chip up — see `initial` in public/montabs.js.
+    let rel = p === '/prs' || p === '/pulls' || p === '/prs.html' ? '/monitor.html' : p;
     const name = rel.replace(/^\/+/, '');
     if (BASE_FILES[name]) {
       res.writeHead(200, { 'content-type': TYPES[path.extname(name)] });
@@ -417,6 +420,34 @@ try {
   await s.send('Page.navigate', { url: `${BASE}/prs` });
   await sleep(1600);
 
+  /* --------------------------------------------------------------- the pane */
+
+  /* The board is a chip on the advocates page now (bc-d4d5), and two things about that
+     are only true in a browser. Arriving by its own URL has to select it — this whole
+     file would otherwise be measuring the advocates roster — and swapping away and back
+     has to leave it drawn, because nothing is fetched for it until its chip is up and a
+     pane that came back empty would look exactly like a board with nothing on it. */
+  console.log('the board as a pane');
+
+  const paneUp = `!document.getElementById('prs').hidden`;
+  ok(await evalJs(s, paneUp), 'arriving at /prs puts the board’s chip up');
+  ok(
+    (await evalJs(s, `document.querySelector('#mon-tabs [data-tab="prs"]').getAttribute('aria-pressed')`)) === 'true',
+    'and the chip says so'
+  );
+
+  await evalJs(s, `document.querySelector('#mon-tabs [data-tab="advocates"]').click()`);
+  await sleep(200);
+  ok(!(await evalJs(s, paneUp)), 'swapping to the advocates pane takes the board off screen');
+
+  await evalJs(s, `document.querySelector('#mon-tabs [data-tab="prs"]').click()`);
+  await sleep(900);
+  ok(await evalJs(s, paneUp), 'and coming back puts it up again');
+  ok(
+    (await evalJs(s, `document.querySelectorAll('#prs .board-pr').length`)) === 5,
+    `with the board still on it — ${await evalJs(s, `document.querySelectorAll('#prs .board-pr').length`)} rows`
+  );
+
   /* ------------------------------------------------------------- the lamps */
 
   console.log('what the lamps say');
@@ -483,6 +514,25 @@ try {
   ok(/Ship/.test(btns.join('|')), `a merged one offers the ship — ${btns.join(', ')}`);
   ok(!/Merge/.test(btns.join('|')), 'and no merge, because it is already merged');
   ok(/Comment/.test(btns.join('|')), 'and you can always say something');
+
+  /* And the way through to the whole screen for this one pull request. It is a link into
+     the inbox's own sheet (bc-l8jp.7) rather than a second copy of it, so what is worth a
+     browser here is the href it actually rendered: the key the inbox resolves is
+     `pr:<workspace>#<number>`, and the `#` in the middle of it has to survive being put
+     after the `#` that starts a fragment. A `%23` short of that lands on the inbox with
+     nothing open and looks like a link that does nothing. */
+  const full = await evalJs(
+    s,
+    `(() => {
+      const a = [...document.querySelectorAll('#prs .board-actions a')].find((el) => /Full view/.test(el.textContent));
+      return a ? { href: a.getAttribute('href'), hash: new URL(a.href, location.href).hash } : null;
+    })()`
+  );
+  ok(full && full.href === '/#pr%3Ademo%233', `the full view is one tap away — ${JSON.stringify(full)}`);
+  ok(
+    full && decodeURIComponent(full.hash.slice(1)) === 'pr:demo#3',
+    `and the key survives the round trip — ${full ? decodeURIComponent(full.hash.slice(1)) : 'no link'}`
+  );
 
   /* -------------------------------------------------------------- the arming */
 
@@ -656,7 +706,9 @@ try {
       }),
     ],
   };
-  await evalJs(s, `document.getElementById('prs-refresh').click()`);
+  // The page's one ⟳, shared with the two panes beside this one; each of them ignores it
+  // while it is hidden, so on this pane it means the board.
+  await evalJs(s, `document.getElementById('refresh').click()`);
   await sleep(900);
   let strip = await evalJs(s, STRIP);
   ok(strip.length === 1 && /live/.test(strip[0]), `a deploy in flight is on the screen — ${JSON.stringify(strip)}`);

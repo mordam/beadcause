@@ -233,7 +233,9 @@ function board({ stream = true, deploys = [] } = {}) {
     ['prs', node('prs')],
     ['pulse', node('pulse')],
     ['observing', node('observing')],
-    ['prs-refresh', node('prs-refresh')],
+    // The page's one ⟳, shared with the two panes beside the board since it became one
+    // (bc-d4d5) — it was `#prs-refresh` while the board was a page of its own.
+    ['refresh', node('refresh')],
   ]);
 
   const fetchStub = async (url) => {
