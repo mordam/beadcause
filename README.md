@@ -10670,10 +10670,31 @@ is a test and not a lint. So the narrow invariant is that the rule giving that h
 flex properties also gives it a `display: flex`, that the `.space-card` copy of it stays
 gone (the space card is a `.mon-card`, so one selector draws all four heads), and that
 every card the page draws wears both `mon-card` and `work-card` — the second being the
-padding, which the space card was the one card on the page without. The general form —
-no block sets a flex-container property unless something gives that element a flex display
-— needs the markup rather than the stylesheet, because five live rules here are modifier
-classes on a base class that supplies the display; that is bc-ah0v.
+padding, which the space card was the one card on the page without.
+
+The general form of that — **no block sets a flex-container property unless something
+gives that element a flex or grid display** — is bc-ah0v, and it sits beside the narrow
+one. It needs the markup as well as the stylesheet: fourteen live rules set
+`align-items`/`gap`/`flex-wrap`/… with no `display` of their own, which is the shape of
+the bug, and five of them are modifier classes whose base class supplies the display on
+the same element (`.svc-set` on `.svc`, `.agent-row` on `.chip-row`, `.board-row` and
+`.pr-card .pr-row` on `.work-row`, `.mon-times` on `.meta`) — a pairing only the markup
+knows about. So each rule is resolved in two stages: first against the stylesheet, where
+a rule the display rule already reaches is settled outright (`.chip-row.scopes` is fine
+because `.chip-row` is `display: flex`); then against every `class="…"` and `.className =`
+in `public/*.html` and `public/*.js`, where the rule is fine if every element that could
+wear its key compound is laid out as flex by *some* rule. Two limits are deliberate and
+both are permissive, because a layout guard that cries wolf gets deleted: ancestors are
+ignored when matching an element, and a `display` inside an `@media` counts at every
+width. What is left is still exactly the bug — an element that nothing anywhere lays out
+as a flex container, carrying properties only a flex container reads. A rule the markup
+cannot speak for at all, because its class is built at runtime (``row.className =
+`chip-row ${g.id}s` ``), is reported as a failure rather than skipped, since a check with
+a silent don't-know bucket is a check that empties into it; the way out is to write the
+class where a grep can see it, or to put the `display` in the same block. Run against the
+tree as it stood before bc-8l74 the check names both real bugs — `.mon-card .work-head`
+and its `.space-card` copy — and nothing else, and it is shown that failure on the live
+file, with the one `display: flex` taken back off.
 
 And a fourth, which is the second one wearing a disguise: **written twice with different
 quoting**, so that a grep for either spelling comes back looking conclusive.
