@@ -7075,6 +7075,50 @@ covers the tiebreak and the expiry, and `node test/leasequeue.mjs` drives two ad
 over one faked tracker whose label store is per machine until a sync unions it, which is
 the only shape in which the race can be staged at all.
 
+#### …and the subtree under it
+
+A claim is written on **one** bead, and for most of a day that is all a window is
+responsible for. It is not always: an advocate can hand one worker an epic *and its ready
+children*, brief it on all of them and let it sequence them — and that window leases the
+epic, because the epic is what it was launched on. Every other machine then sees the
+children exactly as it would see unclaimed work. Nothing labels them, and the worker that
+would have held them back is in an `a.workers` on somebody else's laptop.
+
+So the second Mac holds the epic correctly, opens a window on the first child, and the
+subtree has two windows on two branches — which is the duplicate this whole section exists
+to prevent, one level down. **A live claim on an epic above a bead therefore holds that
+bead**, and both halves of the rule ask it:
+
+- **Before a window opens**, as part of the same filter. The bead's own labels are answered
+  from the `bd ready` rows that are already in hand, and so is an ancestor's if it happens
+  to be ready too. Otherwise it is one `bd show` per ancestor per pass — cached, so an epic
+  with five children in the queue is one read, not five — and none at all for a bead with no
+  parent, which is most beads, or for an install with no `me`.
+- **And after one has**, because the pre-launch half cannot reach the race that matters:
+  the collision happens *before* either machine has synced. One Mac takes the epic, the
+  other takes a child, and neither could see the other when it launched. The sync makes it
+  visible, and the tick after it is where the machine inside the subtree stands its window
+  down — while the machine above stands nobody down, which is what keeps the answer at
+  exactly one and not zero.
+
+**Epics only**, and the qualifier is the whole of it. A batch head is always an epic, so the
+case this exists for is covered; a session on a *plain* parent was handed one bead and
+speaks for one bead, and holding its children behind it would leave nobody doing either.
+That is already the line the local rule draws — it fires its own upward check only against a
+worker carrying a batch — and the two must not disagree, because the same two beads must not
+resolve one way when the window is on this Mac and another way when it is on the next desk.
+Everything else about that window is unknowable from here and is not guessed at: a label
+says a machine and a moment, not what the session was briefed on.
+
+Which leaves the tiebreak, and it is the asymmetry rather than the stamp: the machine above
+wins, however recently it claimed. Earliest-stamp would have been the *fairer* answer and
+the wrong one — it can leave the ancestor's window and the child's window both standing,
+which is the bug. Holding is also the cheaper mistake and a self-cancelling one: the claim
+comes off when that worker ends, expires on `leaseMinutes` if the Mac went to sleep, and
+says whose it is on the card the entire time it lasts. The cases are in
+`node test/leasequeue.mjs`, including the read count, the sibling that is *not* held, the
+plain parent that holds nothing, and the two-machine race resolved after a sync.
+
 ### The session log, kept in the repo
 
 A session's window closes when it exits, the rendered log in `~/.config/beadcause/`
