@@ -19,6 +19,11 @@
  * 4. **Three at once** → still one bead. `window.onerror` fires, the render runs again,
  *    and three requests are in flight before the first `bd create` returns. bd's own
  *    lock retry does not help here, because those three creates do not conflict.
+ * 5. **Fifty in a row** → one bead and *two* comments, the second of which says there
+ *    were forty-eight more (bc-5f9b). One bead was only half of it: a comment per report
+ *    is a bd write per report on a tracker only one process can write at a time, and a
+ *    bead nobody can read. So the assertions are on both halves — the comments bounded,
+ *    the count inside them not.
  *
  * The `bd` is a stub binary over a JSON file, in the shape test/endorse.mjs established:
  * it implements `--label-any`, `--all` and the status filter the way bd implements them,
@@ -50,6 +55,10 @@ const { UNENDORSED } = await import(LIB('endorse.js'));
 const { FILED_LABEL, DISCOVERED_FROM } = await import(LIB('filing.js'));
 const {
   intake,
+  flushErrorWindows,
+  isNewBead,
+  WINDOW_MS,
+  WINDOW_MAX_MS,
   fingerprint,
   normalizeSource,
   normalizeMessage,
@@ -171,14 +180,19 @@ const issues = () =>
 const bead = (id) => JSON.parse(fs.readFileSync(path.join(BEADS, `${id}.json`), 'utf8'));
 const setBead = (i) => fs.writeFileSync(path.join(BEADS, `${i.id}.json`), JSON.stringify(i, null, 2));
 const FAIL_FLAG = path.join(tmp, 'fail-create');
-const reset = ({ failCreate = false } = {}) => {
+const reset = async ({ failCreate = false } = {}) => {
+  // A coalescing window is module state and outlives the check that opened it. Closed
+  // here, while the bead it belongs to still exists: a window left open would make the
+  // next check's first repeat vanish into a count, and the summary comment it writes
+  // would go to a bead id that has been deleted underneath it.
+  await flushErrorWindows();
   fs.rmSync(BEADS, { recursive: true, force: true });
   fs.mkdirSync(BEADS, { recursive: true });
   fs.rmSync(FAIL_FLAG, { force: true });
   if (failCreate) fs.writeFileSync(FAIL_FLAG, '1');
   clearCalls();
 };
-reset();
+await reset();
 
 const wsDir = path.join(tmp, 'ws', '.beads');
 fs.mkdirSync(wsDir, { recursive: true });
@@ -288,10 +302,10 @@ await check('the title leads with the symptom and is cut to fit a card', () => {
   assert.equal(titleFor({}, { at: '' }), 'an error with no message');
 });
 
-/* --------------------------------------------------------------- the three outcomes */
+/* ---------------------------------------------------------------- the four outcomes */
 
 await check('the first report files a P0 bug, endorsed, labelled as a class', async () => {
-  reset();
+  await reset();
   const out = await intake(bd, ws, REPORT);
   assert.equal(out.action, 'created');
   const rows = issues();
@@ -312,7 +326,7 @@ await check('the first report files a P0 bug, endorsed, labelled as a class', as
 });
 
 await check('posting the same error twice yields one bead and one comment', async () => {
-  reset();
+  await reset();
   const first = await intake(bd, ws, REPORT);
   const second = await intake(bd, ws, { ...REPORT, at: '2026-08-11T12:05:00.000Z' });
   assert.equal(second.action, 'commented');
@@ -326,7 +340,7 @@ await check('posting the same error twice yields one bead and one comment', asyn
 });
 
 await check('the lookup asks bd for either fingerprint, closed beads included, in one call', async () => {
-  reset();
+  await reset();
   await intake(bd, ws, REPORT);
   clearCalls();
   await intake(bd, ws, REPORT);
@@ -341,7 +355,7 @@ await check('the lookup asks bd for either fingerprint, closed beads included, i
 });
 
 await check('posting from a line that has moved still matches, on the message', async () => {
-  reset();
+  await reset();
   const first = await intake(bd, ws, REPORT);
   // An unrelated edit above the throw site. Without the message fingerprint every
   // subsequent report would file a fresh P0 whenever somebody added an import.
@@ -354,11 +368,15 @@ await check('posting from a line that has moved still matches, on the message', 
 });
 
 await check('and the bead learns the new line, so the next report matches directly', async () => {
-  reset();
+  await reset();
   await intake(bd, ws, REPORT);
   await intake(bd, ws, { ...REPORT, line: 3402 });
   const movedLabel = fingerprint({ ...REPORT, line: 3402 }).atLabel;
   assert.ok(issues()[0].labels.includes(movedLabel), 'the new file:line went on the bead');
+  // That second report opened a coalescing window, and a third inside it would be
+  // counted without ever reaching the lookup — which is the point of the window and
+  // useless for the claim under test here. Close it: the next report is a later one.
+  await flushErrorWindows();
   clearCalls();
   const third = await intake(bd, ws, { ...REPORT, line: 3402 });
   assert.equal(third.matchedOn, 'source', 'so the third report hits the primary key, not the backup');
@@ -367,7 +385,7 @@ await check('and the bead learns the new line, so the next report matches direct
 });
 
 await check('an error whose only match is closed files a new bead, linked to it', async () => {
-  reset();
+  await reset();
   const first = await intake(bd, ws, REPORT);
   // Somebody fixed it and closed the bead. Then it came back.
   const closed = bead(first.id);
@@ -390,7 +408,7 @@ await check('an error whose only match is closed files a new bead, linked to it'
 });
 
 await check('a live bead wins over a closed one carrying the same fingerprint', async () => {
-  reset();
+  await reset();
   const first = await intake(bd, ws, REPORT);
   const closed = bead(first.id);
   closed.status = 'closed';
@@ -421,7 +439,7 @@ await check('three reports of one error at once are still one bead', async () =>
   // The case this exists for: a page whose render throws reports, re-renders, and
   // reports again before the first `bd create` has returned. bd's own single-writer
   // retry does not help — these creates do not conflict, they succeed.
-  reset();
+  await reset();
   const outs = await Promise.all([
     intake(bd, ws, REPORT),
     intake(bd, ws, { ...REPORT, at: '2026-08-11T12:00:01.000Z' }),
@@ -429,11 +447,16 @@ await check('three reports of one error at once are still one bead', async () =>
   ]);
   assert.equal(issues().length, 1, `one bead, got ${issues().length}`);
   assert.equal(outs.filter((o) => o.action === 'created').length, 1, 'exactly one of the three filed it');
-  assert.equal(issues()[0].comments.length, 2, 'and the other two became comments');
+  assert.equal(issues()[0].comments.length, 1, 'the second of them became a comment');
+  assert.equal(
+    outs.filter((o) => o.action === 'coalesced').length,
+    1,
+    'and the third was counted into the window that comment opened, not written (bc-5f9b)'
+  );
 });
 
 await check('two different errors at once are not serialised behind each other', async () => {
-  reset();
+  await reset();
   const [a, b] = await Promise.all([
     intake(bd, ws, REPORT),
     intake(bd, ws, { ...REPORT, message: 'Failed to fetch', source: '/public/console.js', line: 155 }),
@@ -445,12 +468,114 @@ await check('two different errors at once are not serialised behind each other',
 await check('a failed report does not poison every later occurrence of it', async () => {
   // The chain the race test relies on must recover: if the first report's `bd create`
   // fails, the next report has to be filed rather than inheriting the rejection.
-  reset({ failCreate: true });
+  await reset({ failCreate: true });
   await assert.rejects(() => intake(bd, ws, REPORT));
   fs.rmSync(FAIL_FLAG, { force: true });
   const out = await intake(bd, ws, REPORT);
   assert.equal(out.action, 'created', 'the tracker came back, so the error is filed');
   assert.equal(issues().length, 1);
+});
+
+/* -------------------------------------------------------- the coalescing window */
+
+/**
+ * One bead was only half of it. The dedupe stops a render loop filing forty beads and
+ * then writes forty comments on the one it filed — a bead nobody can read, and a `bd`
+ * write per report against a tracker only one process can write at a time. So the
+ * assertions here are on both halves of the bargain: the comments are bounded, and the
+ * number inside them is not.
+ */
+
+await check('a burst is one comment, and the count inside it is every report', async () => {
+  await reset();
+  const N = 50;
+  const outs = [];
+  for (let i = 0; i < N; i += 1) {
+    // A ten-second window, driven by `flushErrorWindows` rather than slept through: the
+    // question is what a burst costs the tracker, and a test that waits out a real
+    // window is a test that measures setTimeout.
+    const at = `2026-08-11T12:00:${String(i).padStart(2, '0')}.000Z`;
+    outs.push(await intake(bd, ws, { ...REPORT, at }, { windowMs: 10_000 }));
+  }
+  assert.equal(issues().length, 1, 'one bead, as ever');
+  assert.equal(issues()[0].comments.length, 1, `${N} reports, ${issues()[0].comments.length} comments while it is open`);
+  assert.equal(outs.filter((o) => o.action === 'coalesced').length, N - 2, 'the first files, the second comments');
+  assert.equal(outs.at(-1).count, N - 2, 'and every one after that is counted');
+
+  await flushErrorWindows();
+  const comments = issues()[0].comments;
+  assert.equal(comments.length, 2, 'the window closing is the second comment and the last');
+  assert.match(comments[1], new RegExp(`\\*\\*${N - 2} more occurrences\\*\\*`), comments[1]);
+  assert.match(comments[1], /12:00:02/, 'from the first occurrence it counted');
+  assert.match(comments[1], /12:00:49/, 'to the last');
+  assert.match(comments[1], /app\.js:3315/, 'and it still says where');
+});
+
+await check('a coalesced report costs the tracker nothing — not even the lookup', async () => {
+  // The half of this that is not about readability. `bd list` takes the same
+  // single-writer lock `bd comment` does, so a window that skipped only the write would
+  // still be ten lock acquisitions a second in front of eight worker sessions.
+  await reset();
+  await intake(bd, ws, REPORT, { windowMs: 10_000 });
+  await intake(bd, ws, REPORT, { windowMs: 10_000 });
+  clearCalls();
+  for (let i = 0; i < 20; i += 1) await intake(bd, ws, REPORT, { windowMs: 10_000 });
+  assert.equal(bdCalls().length, 0, `20 reports and ${bdCalls().length} bd calls`);
+});
+
+await check('the window closes on its own, with nobody to ask it to', async () => {
+  // `flushErrorWindows` is the seam the checks above drive; the daemon has no such
+  // caller, so the timer is what actually has to work.
+  await reset();
+  await intake(bd, ws, REPORT, { windowMs: 40 });
+  await intake(bd, ws, REPORT, { windowMs: 40 });
+  await intake(bd, ws, { ...REPORT, at: '2026-08-11T12:00:09.000Z' }, { windowMs: 40 });
+  assert.equal(issues()[0].comments.length, 1, 'nothing written yet');
+  await new Promise((r) => setTimeout(r, 500));
+  const comments = issues()[0].comments;
+  assert.equal(comments.length, 2, 'the timer wrote the summary');
+  assert.match(comments[1], /\*\*1 more occurrence\*\*/, `singular, and no s: ${comments[1]}`);
+});
+
+await check('a window that closes empty is dropped, so a rare error still gets its own comment', async () => {
+  await reset();
+  await intake(bd, ws, REPORT, { windowMs: 40 });
+  await intake(bd, ws, REPORT, { windowMs: 40 });
+  await new Promise((r) => setTimeout(r, 300));
+  assert.equal(issues()[0].comments.length, 1, 'a window that counted nothing writes nothing');
+  const third = await intake(bd, ws, REPORT, { windowMs: 40 });
+  assert.equal(third.action, 'commented', 'an error that happens twice a week is not made to wait an hour');
+  assert.equal(issues()[0].comments.length, 2);
+});
+
+await check('and a window that keeps closing full gets wider each time', async () => {
+  // Otherwise a fixed minute is 1,440 comments a day, which is the unreadable bead
+  // again by a slower route. Driven by polling rather than by sleeping for a known
+  // window: the assertion is that it widens, and a loaded laptop is allowed to be late.
+  await reset();
+  await intake(bd, ws, REPORT, { windowMs: 40 });
+  await intake(bd, ws, REPORT, { windowMs: 40 });
+  let widened = null;
+  for (let i = 0; i < 60 && !widened; i += 1) {
+    await new Promise((r) => setTimeout(r, 25));
+    const out = await intake(bd, ws, REPORT, { windowMs: 40 });
+    if (out.action === 'coalesced' && out.windowMs > 40) widened = out;
+  }
+  assert.ok(widened, 'a window that closed non-empty opened a wider one');
+  assert.ok(widened.windowMs >= 80, `got ${widened?.windowMs}ms`);
+  assert.ok(WINDOW_MAX_MS >= WINDOW_MS, 'and the widening has a ceiling');
+  const comments = issues()[0].comments;
+  assert.ok(comments.length < 8, `bounded even while it never stops: ${comments.length} comments`);
+});
+
+await check('only a new bead is news, and a coalesced report is not', () => {
+  // Both callers push a `created` event for a new bead and stay quiet otherwise, so
+  // that a page in a render loop cannot wake every parked poller. They used to ask
+  // `action !== 'commented'`, which said yes to this one.
+  assert.equal(isNewBead('created'), true);
+  assert.equal(isNewBead('regressed'), true);
+  assert.equal(isNewBead('commented'), false);
+  assert.equal(isNewBead('coalesced'), false);
 });
 
 /* ------------------------------------------------------------------ the endpoint */
@@ -517,7 +642,7 @@ for (let i = 0; i < 100; i += 1) {
 }
 
 await check('POST /api/error files it, and a second post comments', async () => {
-  reset();
+  await reset();
   const first = await post('/api/error', REPORT);
   assert.equal(first.status, 200, JSON.stringify(first.json));
   assert.equal(first.json.ok, true);
@@ -530,7 +655,7 @@ await check('POST /api/error files it, and a second post comments', async () => 
 });
 
 await check('the workspace is optional — the reporter is a page, not a repo', async () => {
-  reset();
+  await reset();
   const res = await post('/api/error', { ...REPORT, workspace: undefined });
   assert.equal(res.json.ok, true, JSON.stringify(res.json));
   assert.equal(res.json.key, `demo/${res.json.id}`, 'and it defaults to the daemon’s own workspace');
@@ -539,7 +664,7 @@ await check('the workspace is optional — the reporter is a page, not a repo', 
 });
 
 await check('a message is required, and nothing else is', async () => {
-  reset();
+  await reset();
   const empty = await post('/api/error', { source: '/app.js', line: 1 });
   assert.equal(empty.status, 400);
   assert.match(String(empty.json.error), /message/);
@@ -552,7 +677,7 @@ await check('a message is required, and nothing else is', async () => {
 await check('a tracker that is down is an answer, never a 500', async () => {
   // This endpoint is called *by* error handling. A 5xx here is reported to it, and the
   // page reports its own reporting, forever.
-  reset({ failCreate: true });
+  await reset({ failCreate: true });
   const res = await post('/api/error', REPORT);
   assert.equal(res.status, 200, 'a 5xx would be reported back to this same endpoint');
   assert.equal(res.json.ok, false);

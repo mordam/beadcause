@@ -547,6 +547,19 @@ third row is +43px and fails it on the spot. It also prints the first-row arithm
 page and says so if *every* page ever has room for the picker inline, because that, and
 only that, is when collapsing would cost nothing and this is worth reopening.
 
+The fifth thing it asserts is not about the bar at all, and it is there because measuring
+the bar is what found it: **the page has to fit the screen**. Every number above is a
+width compared against 360 or 393, and if anything on the page lays out wider than the
+body then the browser has shrink-fitted the whole document and none of those numbers is
+in the same unit as the screen any more. `/monitor` was 376px at 360 — `nav#mon-tabs`
+carried `margin: -18px -16px 14px`, which on the agents' page cancels `.launcher`'s
+`18px 16px` padding but here has an unpadded `<body>` to cancel and so simply pushed the
+strip past both edges. The symptom was not a scrollbar. It was the advocate console drawn
+at **96%**, draggable sideways by 16px, with the strip's first chip starting 2px off the
+left of the screen and the bottom tab bar's last label cut in half — which reads as a
+font being slightly wrong rather than as a layout bug, and sat there unnoticed until a
+check printed the number (bc-3ui6).
+
 ### Space details — the page the advocate console became
 
 Every setting a space has is one you used to change by opening `~/.beadcause/config.json`
@@ -5076,12 +5089,13 @@ what a later report will be matched *on*. The lookup is one `bd list --all --lab
 per report: an OR over both keys in a single call, because this runs on the hot path of
 a page that may be reporting several times a second.
 
-Three outcomes, and the third is the interesting one:
+Four outcomes, and the last two are where the arguments are:
 
 | The fingerprint matches | What happens |
 |---|---|
 | nothing | a new **P0 bug**, titled from the message, with everything the report carried |
 | **an open bead** | a comment on it — occurrence number, timestamp, page. No second bead |
+| **an open bead with a window running** | nothing is written at all. The report is counted, and the count becomes one comment when the window closes — see [below](#a-burst-is-one-comment-not-a-comment-each) |
 | **a closed bead** | a **new** bead, with a `discovered-from` edge to the closed one |
 
 That last row is a decision, not an oversight. A bug that comes back after being fixed
@@ -5094,6 +5108,48 @@ whoever picks it up, and a reopened bead cannot carry it.
 the moment the drift is noticed, so the next report hits the primary key directly and
 the bead accumulates every line the bug has lived on — which turns out to be the fastest
 way to see that a bug has been moving around a file for three weeks.
+
+### A burst is one comment, not a comment each
+
+One bead was only half of the bargain. The dedupe above stops a view whose render throws
+filing forty beads, and then writes forty *comments* on the one it filed — which is the
+same tracker ruined by the same loop, arriving a little more slowly. A page reporting ten
+times a second is ten `bd` writes a second against an embedded single-writer Dolt that
+about eight worker sessions are also writing to, so the cost is not only that the bead
+becomes unreadable: it is a lock, held over and over, in front of everybody else's work.
+
+So the **second** occurrence comments — that is the useful one, the moment an error stops
+being a one-off — and opens a **coalescing window** on that fingerprint. Every report
+inside the window is counted and nothing is written. When the window closes, one comment
+says how many there were and between when:
+
+> **48 more occurrences** — between 2026-08-11T12:00:02.000Z and 2026-08-11T12:00:49.000Z,
+> on https://mac.tail1234.ts.net:4318/#bc-p38c from `app.js:3315`.
+
+**The count is checked before the lookup, not after it.** `bd list` takes the same
+single-writer lock `bd comment` does, so a window that skipped only the write would still
+be ten lock acquisitions a second. Inside a window a report costs the tracker nothing in
+either direction — no read and no write — which is the half of this that matters to a
+session that is not looking at the bead at all.
+
+**And the window doubles every time it closes with something in it**, up to an hour. A
+fixed minute would have been 1,440 comments a day for a page that has been looping since
+yesterday — the unreadable bead again, by a slower route. Doubling makes a ten-second
+burst cost one extra comment and a two-day loop cost about a dozen. A window that closes
+**empty** is dropped instead, so an error that happens twice a week is never made to wait
+an hour for its comment: it always gets one of its own, immediately.
+
+Two things it deliberately does not do. It does not survive a restart — the counts are in
+memory, and a deploy loses a pending summary line rather than delaying shutdown for a
+`bd` write that may not fit in the two seconds shutdown has. And it does not fire the
+`created` event that a new bead fires, which is why both callers now ask `isNewBead(action)`
+rather than `action !== 'commented'`: a coalesced report is the loudest thing that is not
+news, and waking every parked poller ten times a second is the storm this exists to stop.
+
+This is the tracker-side floor, and it is the only one that holds for reports the page's
+own ceiling cannot see — a phone on a stale cached bundle without the reporter, a second
+tab hitting the same bug independently, the daemon's own uncaught errors, anything at all
+that can POST to the endpoint.
 
 ### The reporter on the page, and the six beads it refuses to file
 
@@ -8967,6 +9023,16 @@ those rules match — `google-secret.txt`, say — the secret in it will be comm
 nothing stops it, because refusing would turn a working sign-in off over a filename. What
 happens instead is a line in the log every time sign-in is checked, and it names the file.
 
+That warning is `leakWarning` in `lib/commonrepo.js`, which is the module that owns the
+denylist, and the same three lines now cover the two Atlassian tokens
+([`confluence.apiTokenFile`](#publishing-a-document-to-confluence) and
+[`jira.<workspace>.tokenFile`](#jira-per-workspace--read-only-and-one-setting)). It is
+one function rather than three because the copies had already stopped agreeing: one asked
+the real `FORBIDDEN` list, another a hand-written `/\.(key|secret)$/` that had never heard
+of `.pem` or `google-client-secret`, so the *warning* and the *refusal* disagreed about
+which files are safe — in the direction where a file the repo would abort on was reported
+as a leak, and the next such pair might go the other way.
+
 ### What is checked, and what is not
 
 `test/auth.mjs` drives the whole dance over real HTTP with Google's token endpoint
@@ -9154,7 +9220,16 @@ that snapshots itself after every write, and `*.key` is both ignored there *and*
 file's `FORBIDDEN` list, so the token is protected by construction rather than by
 somebody choosing a good name. `BEADCAUSE_CONFLUENCE_TOKEN` works too and leaves no copy
 at all; `apiTokenFile` points somewhere else, and beadcause says so in the log if where
-you pointed it is a file that directory would commit.
+you pointed it is a file that directory would commit. A relative `apiTokenFile` resolves
+*inside* `~/.config/beadcause`, so `"confluence.key"` means the obvious thing — it used
+to be taken as written and resolved against whatever directory the daemon started in,
+which is a token that reads correctly by hand and is missing under launchd.
+
+The credential rule, the header and the request itself are `lib/atlassian.js`, shared
+with JIRA — see [one credential rule and one
+wire](#one-credential-rule-and-one-wire-shared-by-jira-and-confluence). What is *not*
+shared is every sentence this integration says, including the decision that a Confluence
+401 reaches the phone as a 502.
 
 ### Which spaces may publish, and to where
 
@@ -9570,8 +9645,9 @@ history.
 | `confluence.site` | your Atlassian Cloud site, e.g. `https://yourteam.atlassian.net`. Absent, [publishing](#publishing-a-document-to-confluence) is off and no credential is read |
 | `confluence.email` | the Atlassian account the API token belongs to — the two together are basic auth |
 | `confluence.space` | the Confluence space a document lands in by default. A beadcause space may name another with `confluenceSpace`, or refuse with `confluenceSpace: false` |
-| `confluence.apiTokenFile` | where the API token is read from, if not `~/.config/beadcause/confluence.key`. **The token itself is never a config field** — this file is committed after every write |
+| `confluence.apiTokenFile` | where the API token is read from, if not `~/.config/beadcause/confluence.key`. A relative name resolves inside that directory. **The token itself is never a config field** — this file is committed after every write |
 | `jira` | JIRA per workspace, keyed by workspace name — `{"climative": {"enabled": true, "email": "you@company.com"}}`. Empty by default, and a workspace not named here costs nothing: no call is made about it at all. The site URL and the project keys come from that workspace's own `bd config get jira.url` / `jira.projects`, so `enabled` and `email` are usually the whole setting; `url` / `projects` here override for a workspace whose `bd` was never pointed at JIRA. **There is deliberately no token field** — see [JIRA, per workspace](#jira-per-workspace--read-only-and-one-setting) |
+| `jira.<workspace>.tokenFile` | where that workspace's API token is read from, if not `~/.config/beadcause/jira-<workspace>.key`. A relative name resolves inside that directory. The same option `confluence.apiTokenFile` is, and it opens the same hole: point it at a name that directory does *not* refuse and the log says so on every check |
 | `pollSeconds` | how often new `human` beads are looked for (default 30) |
 | `monitor.enabled` | generate the LaunchAgent that opens the [activity monitor](#the-monitor--what-it-is-doing-right-now) at login (default `false`; `npm run monitor` works either way) |
 | `sharedServer` | leave `false` — see the note below |
@@ -9640,7 +9716,17 @@ every write, and `*.key` is both on `lib/commonrepo.js`'s `FORBIDDEN` list and i
 secret in `config.json` is not merely on disk in the clear, it is in a history that a
 rotation cannot reach back into. One file per workspace, because two workspaces may be
 two JIRA sites with two accounts, and a shared credential would quietly authenticate
-one of them as the wrong person.
+one of them as the wrong person. `tokenFile` in the block points somewhere else — a
+relative name resolves inside that directory — and pointing it at a name the repo does
+*not* refuse is the one way to put a JIRA token where it will be committed, which is
+why the log says so on every check.
+
+**A first configuration goes wrong in four ways** — no site, a site that is not a URL,
+no address, no credential — and each one is reported as the fix rather than as the
+symptom, because a 401 and a 404 are the same stack trace and completely different
+mornings. Whatever JIRA itself said about a request is appended to that, never
+substituted for it: `Field 'assigne' does not exist.` is precise about the query and
+says nothing about which install asked.
 
 **Nothing in this path ever writes to JIRA.** Not as a policy anybody has to remember:
 `lib/jira.js` has no function that names an HTTP method and no code path that
@@ -9648,12 +9734,46 @@ constructs a request body, which is the same way `lib/lookup.js` enforces "GET o
 for an agent's network grant — a caller cannot reach a write by passing a flag, because
 there is no flag. Making beadcause write to JIRA would mean *adding* the capability,
 which is the point at which somebody has to decide it, explicitly and with an
-allowlist. `node test/jira.mjs` asserts both halves against the module's own source.
+allowlist. `node test/jira.mjs` asserts both halves against the module's own source —
+which is why the `method: 'GET'` literal stayed in `lib/jira.js` when the request itself
+moved into `lib/atlassian.js`. A shared module that named the verb would have left that
+assertion green and vacuous, and a read-only guarantee that has stopped guaranteeing
+anything is worse than none.
 
-A first configuration goes wrong in four ways — no site, a site that is not a URL, no
-address, no credential — and each one is reported as the fix rather than as the
-symptom, because a 401 and a 404 are the same stack trace and completely different
-mornings.
+### One credential rule and one wire, shared by JIRA and Confluence
+
+The two Atlassian integrations landed within minutes of each other, independently, and
+arrived at the same answers about the two things underneath both — which was the good
+news. `lib/atlassian.js` is the bill (bc-jv4p). It holds exactly two things:
+
+- **The credential convention.** Where an Atlassian API token lives, that it is written
+  at 0600 and re-chmodded on a rewrite (`writeFileSync` applies `mode` only when it
+  *creates* the file, so a 0644 left by an earlier hand survives), that an environment
+  variable wins because it leaves no copy, and that it may never be a `config.json`
+  field. Both integrations let you name the file, and both therefore let you point it at
+  a name the config repo would commit — which is now one warning covering three
+  credentials, the third being the Google client secret.
+- **The wire.** One abortable request that turns a `fetch` rejection into something
+  carrying *which* failure it was, reads the body exactly once as text, and parses it
+  when it can. Confluence had no timeout at all before this, which is a publish that can
+  sit on a request handler until the socket gives up.
+
+**What it deliberately does not hold is a single sentence either integration says.** A
+401 from JIRA means *check the token in this file, and that it belongs to that address*,
+and it is thrown; the same 401 from Confluence becomes a **502**, because the phone that
+pressed publish is signed in perfectly well and must not be bounced to a login screen.
+Folding those together produces a message that is wrong for both and a status that is
+wrong for one. Nor is the *shape* of the two shared: JIRA is per workspace and read-only,
+Confluence is per space and writes outward, and that is the difference the two modules
+exist to express.
+
+One thing worth knowing if you touch the failure path: **the two products disagree about
+how a failure is shaped.** Confluence v2 answers `errors: [{title, detail}]` — an array.
+JIRA v3 answers `errorMessages: [...]` *and* an `errors` **object** keyed by field, which
+is not the same `errors` at all. `saidAboutFailure` knows both, which is the whole reason
+it is in one place: a reader that knew one shape would silently drop the other product's
+words. `node test/atlassian.mjs` covers the rules; the two suites beside it still own
+their own sentences.
 
 ### Many repos, one workspace — the approved list, and the token that names each
 
