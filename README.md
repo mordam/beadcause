@@ -9921,6 +9921,140 @@ Dolt directory should still show you the other five, and the one that did not an
 named, because a ledger that silently dropped a repo would be saying that repo has no
 history.
 
+## A tracker two Macs share
+
+Everything else in this README treats *the tracker* as one thing, and on one Mac it is
+one thing: `~/beads/<name>/.beads` is an embedded Dolt database on this laptop's disk,
+and a bead created here is a bead visible here. The whole app is arithmetic over that —
+the inbox, the counts, the advocate's ready queue, the endorsement drawer.
+
+Dolt can be pushed to a remote and pulled from one, and until this landed **nothing in
+beadcause had ever called either**. `grep -rn dolt lib/ bin/` found five comments about
+embedded versus `bd dolt start` mode and not one `bd dolt push`. Syncing was a thing a
+person typed, in a terminal, when they remembered — which means on the days nobody
+remembered, two engineers running beadcause had two private issue graphs that never met.
+Six engineers would have six. That is not a federation with a sync bug in it; it is six
+separate apps that happen to look the same.
+
+It is also the failure this app is least able to show you. A repo that could not be
+*read* draws a banner and a stale list, and you can see that it might be wrong. A
+tracker that is not *syncing* draws a list that is completely correct about this Mac and
+silently missing everything the others have written since it stopped. Every count is
+real. Nothing is stale. There is nothing on the screen to notice — which is the shape of
+every failure this app exists to prevent, arriving one machine removed.
+
+### Which workspaces sync: the ones that have a remote
+
+There is deliberately **no list in the config**. A workspace with a Dolt remote is a
+workspace that syncs; a workspace without one is silent, and costs one cheap
+`bd dolt remote list` per interval to establish there is nothing to do.
+
+That is not laziness about configuration. A list is a second place to be right, and both
+ways of being wrong are invisible: a shared workspace missing from the list never syncs
+and never says so, and a solo workspace named in it reports a failure every two minutes
+about a tracker working exactly as intended. `bd dolt remote list --json` already answers
+the question, from the workspace itself, and cannot disagree with itself. So the whole of
+turning this on, for a workspace you want shared, is:
+
+```sh
+cd <the workspace — the directory holding its .beads>
+bd dolt remote add origin git+ssh://git@github.com/<org>/<repo>.git
+bd dolt push
+```
+
+The next tick picks it up. Nothing is typed on this side, which is the point — the
+acceptance criterion for this was a bead created on one machine being visible on another
+*without anybody typing a sync command*.
+
+Note that a workspace is **not necessarily under `~/beads`**: Climative's lives inside
+the `architecture` checkout, because that is the repo the team already clones. So nothing
+here builds a path out of a workspace's name — the `cd` a failure notification prints
+comes off the workspace's own directory, and the one place that guess was made is the
+one place it would have been wrong first.
+
+### Where the remote goes, and why beadcause will not choose for you
+
+**beadcause never adds a remote.** It syncs one that exists and it never invents one, and
+that refusal is deliberate rather than unfinished: where a tracker is published is a
+decision with consequences no daemon should make on somebody's behalf, and it is the one
+kind of decision that cannot be taken back. A push to a public repo is on the internet
+whatever you do next.
+
+The pattern that works is the one the `climative` workspace here already uses: ride the
+repo the team already clones, as a `git+ssh://` Dolt remote. Issue data goes on
+`refs/dolt/data`, so it never touches the file tree, never appears as a branch or a tag,
+and `git pull` there never updates issues — which is precisely why co-locating them is
+safe. **The repo has to be one you are willing to have the whole issue graph in**, and
+"whole" is literal: every bead, every comment, every answer you have ever given from your
+phone, in a history no later deletion reaches back into. `Climative/architecture` is
+private and org-visible, which is what makes that instance fine. A public repo is not the
+same situation, and the fact that it is *your* public repo does not change it.
+
+Two consequences worth knowing before you do it:
+
+- **A plain `git clone` fetches no issues.** Dolt data on `refs/dolt/data` is not
+  something git pulls by default, so a new machine or a new teammate must run
+  `bd bootstrap` once. That belongs in the install story, not in a debugging session six
+  weeks later.
+- **Nothing here is a JIRA sync.** Pull-only, surgical, and unchanged — see
+  [JIRA, per workspace](#jira-per-workspace--read-only-and-one-setting).
+
+### When it syncs, and why the interval is not a performance knob
+
+Every `sync.seconds` — 120 by default, floored at 30 — the daemon runs `bd dolt pull` and
+then `bd dolt push` for each workspace that has a remote. Pull first, and not the other
+way round: a push against a remote that has moved is refused, so pushing first would
+report a failure on every tick of a tracker that is working perfectly. It is also the
+half that matters more. A machine that pulls and never pushes is merely behind; a machine
+that pushes and never pulls is the one writing over other people's work.
+
+The interval is a setting because it is the **width of the window in which two machines
+can act on stale information** — the same window two advocates opening a session on the
+same ready bead live in. It sits between the 30-second poll and the 5-minute release
+sweep on purpose: this is the only sweep that touches both the network *and* Dolt's
+single writer, so it is genuinely more expensive than the reads, while a five-minute
+window is long enough for two Macs to both start an hour of work on one bead. The floor
+is 30 rather than the poll's 5 because there is no such thing as a usefully faster sync —
+a `git push` per workspace every few seconds would spend more of the day holding the
+write lock than the agent sessions do.
+
+Workspaces sync in parallel, because they are separate databases with separate remotes
+and doing them in turn makes a tick cost the sum of the slow cases rather than the
+slowest one. A workspace still syncing when the next tick comes round is skipped rather
+than queued: two `bd dolt push` against one embedded Dolt would only fight each other for
+the write lock.
+
+### A sync that stopped is loud, and a conflict is louder
+
+A sync that works says **nothing**. No line, no event, no push. A tick reporting "synced
+4 workspaces" every two minutes is 720 lines a day nobody reads, and the 721st — the one
+that says it failed — is the one that scrolls past.
+
+So the *transitions* talk, and there are exactly two of them per incident:
+
+- **It broke.** One line on the daemon's log, one red row in the [monitor](#the-monitor--what-it-is-doing-right-now)'s event pane, one banner on the inbox naming the repo and printing what `bd` said, and one ntfy push. Then silence until something changes.
+- **It came back.** The banner clears itself the moment the next sync succeeds, and a second push says so — because a warning with no all-clear is one you keep checking.
+
+The banner is its own pane, directly under the "could not be read" one and in orange
+rather than red, and the two are **never merged into one list**. They stack on the same
+screen — a locked Dolt fails the read and the sync in the same tick — and they are
+opposite claims about the beads underneath: the red one says what you are looking at is
+stale, the orange one says it is *perfect about this Mac* and quietly missing everybody
+else's.
+
+**A conflict is called out separately from a failure**, and the distinction is the one
+thing here worth remembering. A failed sync is transient by nature — a dropped network,
+ssh not unlocked, Dolt holding its write lock — and the next interval very often fixes
+it, so it is a priority 3 that says it is retrying. A conflict means two machines wrote
+the same bead and Dolt cannot merge them; it will still be there in an hour and in a
+week, because nothing has ever retried its way out of one. It needs a person, so it says
+so in the title, at priority 4, in different words on the banner. Filing those two under
+one word is how a divergence sits for a fortnight under a label that says "retrying".
+
+The failure path is what `node test/sync.mjs` covers, and it is the half that is tested
+for a reason: a sync that works is provable by looking at a second Mac, and a sync that
+quietly stopped looks exactly like a quiet team.
+
 ## Config — `~/.config/beadcause/config.json`
 
 | key | meaning |
@@ -10012,6 +10146,8 @@ history.
 | `jira` | JIRA per workspace, keyed by workspace name — `{"climative": {"enabled": true, "email": "you@company.com"}}`. Empty by default, and a workspace not named here costs nothing: no call is made about it at all. The site URL and the project keys come from that workspace's own `bd config get jira.url` / `jira.projects`, so `enabled` and `email` are usually the whole setting; `url` / `projects` here override for a workspace whose `bd` was never pointed at JIRA. **There is deliberately no token field** — see [JIRA, per workspace](#jira-per-workspace--read-only-and-one-setting) |
 | `jira.<workspace>.tokenFile` | where that workspace's API token is read from, if not `~/.config/beadcause/jira-<workspace>.key`. A relative name resolves inside that directory. The same option `confluence.apiTokenFile` is, and it opens the same hole: point it at a name that directory does *not* refuse and the log says so on every check |
 | `pollSeconds` | how often new `human` beads are looked for (default 30) |
+| `sync.enabled` | keep a shared tracker shared — `bd dolt pull` then `bd dolt push`, per workspace, on a timer (default `true`). It is on for everybody and it does nothing at all on a workspace with no Dolt remote, which is every workspace until you add one. See [A tracker two Macs share](#a-tracker-two-macs-share) |
+| `sync.seconds` | how often (default 120, floor 30). **Not a performance knob** — it is the width of the window in which two machines can act on stale information, which is why it is a setting and not a constant. There is deliberately no list of *which* workspaces sync: a Dolt remote is that list |
 | `monitor.enabled` | generate the LaunchAgent that opens the [activity monitor](#the-monitor--what-it-is-doing-right-now) at login (default `false`; `npm run monitor` works either way) |
 | `sharedServer` | leave `false` — see the note below |
 | `mirrorStateToBeads` | write `agent:<phase>` state labels into beads too (off — see Progress) |
@@ -11483,6 +11619,16 @@ was unreadable), that the wash stays scoped, that the spelling is one spelling, 
   wall of flags, and a slow repo stops reading as a broken one. Blowing the 32MB
   `maxBuffer` kills the child as well and is deliberately *not* dressed up that way —
   that one really is bad output.
+- **The two `bd dolt` verbs disagree about what "no remote" is, so neither exit code
+  answers "is this workspace shared?"** Measured against bd 1.1.2: with no remote
+  configured, `bd dolt push` exits **0** and prints *"No remote is configured — skipping"*,
+  while `bd dolt pull` exits **1** with *"Error: fetch from origin/main: Error 1105: no
+  remote"*. Gating on either is a trap in both directions — trusting the push's zero says
+  a solo workspace synced, and trusting the pull's one reports a failure on every private
+  workspace, every interval, forever. `bd dolt remote list --json` is the question that
+  has an answer: `[]` on a solo workspace, `[{name, url, sql_url}]` on a shared one. Note
+  that the *non*-JSON form is the prose "No remotes configured." and exits 0 as well; see
+  `doltRemote` in lib/bd.js and [A tracker two Macs share](#a-tracker-two-macs-share).
 - **Don't set `sharedServer: true`** unless you've run `bd dolt start`. The
   workspaces pin `dolt_mode="embedded"`; forcing shared mode makes every command
   fail against a Dolt server that isn't listening. Writes retry through the

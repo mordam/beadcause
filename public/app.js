@@ -35,6 +35,11 @@
     // is empty *because nobody could ask* is the one thing this app must never draw as
     // "nothing to decide".
     trouble: [],
+    // And the repos that read perfectly and are no longer the same tracker as the
+    // machine they share one with (lib/sync.js). Separate from `trouble` all the way to
+    // the screen, because the two are opposite claims about the list below them — see
+    // `syncTroubleHtml`.
+    syncTrouble: [],
     spaces: [],
     // Every configured workspace, which the inbox needs for one thing only: ＋ has to
     // know where to start a conversation, and "the repos in the selected space" is a
@@ -2025,6 +2030,46 @@
     </div>`;
   }
 
+  /**
+   * The other kind of out-of-date: this repo reads perfectly and is no longer the same
+   * tracker as the machine it shares one with.
+   *
+   * Its own banner rather than a row in the one above, because the two say opposite
+   * things about the list underneath them. "Could not be read" means what you are
+   * looking at is stale, and it is honest about which repo. This one means what you are
+   * looking at is *exactly right about this Mac* — every count is real, nothing is
+   * standing in for anything — and silently missing whatever the other machines have
+   * written since it broke. There is nothing on the screen to notice, which is why it
+   * is drawn even though the list beneath it looks fine.
+   *
+   * A conflict is called out in its own words. Everything else here retries and very
+   * often fixes itself by the next interval; a conflict is two machines that wrote the
+   * same bead, and no number of retries has ever resolved one.
+   */
+  function syncTroubleHtml() {
+    const rows = (state.syncTrouble || []).filter((t) => t && t.workspace);
+    if (!rows.length) return '';
+    const conflicts = rows.filter((t) => t.conflict);
+    const line = (t) =>
+      `<li><b>${esc(t.workspace)}</b> — ${esc(t.error || 'the sync failed')}
+        <span class="trouble-held">${esc(
+          t.conflict ? 'needs somebody to say which version wins' : `retrying ${t.phase ? `the ${t.phase}` : ''}`.trim()
+        )}</span></li>`;
+    return `<div class="trouble trouble-sync" role="status">
+      <strong>${
+        conflicts.length
+          ? `${conflicts.length === 1 ? 'A tracker has' : `${conflicts.length} trackers have`} conflicted`
+          : `${rows.length === 1 ? 'A tracker is' : `${rows.length} trackers are`} not syncing`
+      }</strong>
+      <ul>${rows.map(line).join('')}</ul>
+      <span class="trouble-note">${
+        conflicts.length
+          ? 'Two machines wrote the same bead and Dolt cannot merge them. This will not clear on its own.'
+          : 'This list is right about this Mac. Anything written on another machine since it broke is not on it.'
+      }</span>
+    </div>`;
+  }
+
   /** The selected agent, falling back to the first one the server offered. */
   const currentAgent = () => state.agents.find((a) => a.id === state.agent) || state.agents[0] || null;
 
@@ -3632,6 +3677,12 @@
     // list because a caveat under forty cards is a caveat nobody reads.
     const missed = troubleHtml();
     if (missed) chunks.push({ key: '@trouble', html: missed });
+    // Directly beneath it, in the same place and for the same reason. Second of the two
+    // because it is the rarer one and because a repo can be in both at once — a locked
+    // Dolt fails the read and the sync in the same tick — and reading "could not be
+    // read" first is the order those two sentences make sense in.
+    const diverged = syncTroubleHtml();
+    if (diverged) chunks.push({ key: '@synctrouble', html: diverged });
 
     // `rows`, not `state.questions`: with no beads at all but a pull request open or a
     // conversation on the go, the list is not empty — and the first-run copy `emptyHtml`
@@ -5355,6 +5406,9 @@
     // each sweep rather than accumulated. Absent still means a server that predates the
     // field, and that keeps whatever is on screen.
     if (Array.isArray(data.trouble)) state.trouble = data.trouble;
+    // Same rule, same reasons: taken whole, taken when empty so it can clear itself,
+    // and absent leaves what is on screen alone for a server that predates the field.
+    if (Array.isArray(data.syncTrouble)) state.syncTrouble = data.syncTrouble;
     // What the ＋ offers when the space holds more than one repo. Kept here rather
     // than read off `data` at the tap, because the tap can happen between polls.
     if (Array.isArray(data.workspaces)) state.workspaces = data.workspaces;
