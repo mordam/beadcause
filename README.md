@@ -2195,8 +2195,11 @@ this say before the advocate rewrote it" without anyone having remembered to ask
 
 Snapshots are debounced by two seconds and the reasons accumulate, because one
 advocate cycle rewrites `advocates.json` three or four times in a second and those
-are one event to whoever reads the history back. `status.json`, `logs/` and the
-check PNGs are ignored — churn, and not the thing you want a history of.
+are one event to whoever reads the history back. `status.json`, `restart.json`, `logs/`
+and the check PNGs are ignored — churn, and not the thing you want a history of.
+`deploys/` is not, and the difference is the point: a deploy record is something somebody
+pressed Ship on, and a restart marker is one line the router overwrites on every swap
+which means nothing thirty seconds later.
 
 ### Tier 3 — a repo one agent owns, and the experiment that is the point of it
 
@@ -5292,6 +5295,54 @@ and merely posts a few reports that are dropped, and the new file against an old
 finds no `quiet` in the answer and behaves as it did. Neither draws a control with nothing
 behind it, which is what that version exists to prevent.
 
+### A swap is not a deploy, so the router leaves a marker of its own
+
+Everything above reads the deploy journal, and the journal only knows about restarts
+somebody pressed Ship on. The restart that happens most often on this Mac is not one of
+those. `npm run swap` is what the ship skill runs, what you run by hand when the router
+has poisoned a build — and `bin/router.js` does the same thing unasked, on its own, every
+time `lib/` moves on disk. None of that writes a record anywhere, so `reportingQuiet` saw
+nothing and the reconnect after a swap filed exactly the storm the last section exists to
+stop: "GET /api/poll failed — HTTP 503" from four open screens, each one a P0 in front of
+the advocate. That is bc-kttd, and it was filed by the agent that built the quiet window,
+as the honest limit of what it could see.
+
+So every handover writes one fact to `restart.json` in the config directory — when, which
+build, which pid, and why — and `reportingQuiet` reads it when the journal has nothing to
+say. Three decisions in that sentence are worth the paragraph they take:
+
+**A file of its own, not a record in the journal.** A swap wearing a deploy record would
+turn up in `listDeploys`, and from there on the release board, in the deploy history, and
+— through `unannounced` — in a push to the phone announcing a deploy nobody asked for. The
+journal is a list of things somebody pressed Ship on and it has to stay one. This is a
+single fact that overwrites itself: the last time the port changed hands.
+
+**Written at the handover, not at the spawn.** A backend that is merely slow to start is
+spawned, health-checked, timed out and tried again while the old one goes on serving
+perfectly — see [the router](#the-router--why-you-never-restart-it).
+Marking those would hush a daemon that never moved, for as long as the retries went on,
+which is precisely the window in which you most want to hear that the app is broken. Only
+the moment `active` is reassigned is the service changing hands.
+
+**No ceiling, because it expires by arithmetic.** The journal needs `ORPHAN_QUIET_MS`
+because a `deploying` record that nothing sweeps would silence this Mac forever; a bare
+timestamp cannot, so a marker nobody ever cleans up goes quiet on its own one grace period
+later. A stamp *ahead* of now — a clock stepped back, a config directory copied off another
+machine — is read as no restart at all, which is the same direction: a false P0 is a bead
+you close, and silence is a bug nobody ever hears about.
+
+It is written from `bin/router.js` by lazy import, never fatally, for the reason that file
+gives about everything it depends on: a router that cannot write this is a router that
+swaps and files a few beads, which is what it did before, and it is never a reason to fail
+a swap. One gap left on purpose — `npm run start:bare` runs a backend with no router above
+it, so it has no handover to mark. That is not the installed configuration, and a restart
+of it is you at a keyboard rather than a deploy.
+
+`node test/deployquiet.mjs` holds the rule, including a marker from the future and four
+shapes of garbled one. The proof that a real router actually writes it is in
+`scripts/test-swap.js`, after the explicit `--swap` — a marker written by hand can only
+show what the rule does with one.
+
 ### Why these are the one thing filed without the hold
 
 Everything else an agent files arrives `unendorsed` and nothing may work it until you
@@ -8277,6 +8328,11 @@ The limits, stated plainly:
   deliberately absent: it is served from disk per request, so a CSS edit is live
   already and swapping for one would be churn. `touch lib/server.js` is enough to
   force a swap by hand.
+- **Every handover is written down, because a swap is a restart nothing else can see.**
+  The quiet window that stops a reconnect filing a P0 per open screen reads the deploy
+  journal, and a swap writes no deploy record — so the router leaves `restart.json`
+  instead, at the moment `active` is reassigned and not when the new backend was spawned.
+  See [a swap is not a deploy](#a-swap-is-not-a-deploy-so-the-router-leaves-a-marker-of-its-own).
 - **A backend nobody is steering shuts itself down.** If the router is `kill -9`'d,
   its children survive it — and a stranded backend still holds a poller while the
   replacement router starts a fresh one. So a backend that has heard nothing from a
