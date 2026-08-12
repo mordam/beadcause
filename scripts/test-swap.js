@@ -8,6 +8,12 @@
  * is hammering it and another is parked on a long poll. If any of those requests
  * fails, the claim is false.
  *
+ * The other thing only a real swap can prove is the restart marker (bc-kttd): a swap is
+ * not a deploy, writes nothing into the deploy journal, and would otherwise leave the
+ * error-reporting quiet window blind to the one restart that happens most often here.
+ * test/deployquiet.mjs owns what the *rule* does with a marker; this file is the only
+ * place that shows a marker being written by the process that swapped.
+ *
  * Hermetic by construction: a scratch `BEADCAUSE_CONFIG_DIR`, an ephemeral port,
  * ntfy off, advocates off, and `bd` pointed at a stub that prints `[]`. Nothing here
  * reads a real workspace, opens a session, or sends a notification.
@@ -392,6 +398,37 @@ try {
   const pid3 = Number(afterSwap.headers['x-beadcause-pid']);
   spawned.add(pid3);
   check(pid3 !== pid2, 'even with nothing changed on disk', `${pid2} → ${pid3}`);
+
+  // bc-kttd. A swap restarts the thing every phone is talking to and writes nothing into
+  // the deploy journal, so the quiet window that stops the reconnect filing a P0 per
+  // screen per endpoint had no way to see one. This file is the router's whole answer,
+  // and it is asserted *here* — after `--swap`, the hand-run case the bead is named for —
+  // rather than in test/deployquiet.mjs, which can only prove what the rule does with a
+  // marker somebody wrote by hand.
+  //
+  // Waited for rather than read once: the router writes it off a lazily-imported module,
+  // so the write lands a microtask or two after `--swap` has already answered.
+  const marker = await waitFor(
+    'the router to write its restart marker',
+    async () => {
+      const rec = JSON.parse(fs.readFileSync(path.join(dir, 'restart.json'), 'utf8'));
+      return rec?.pid === pid3 ? rec : null;
+    },
+    10000
+  ).catch((err) => ({ error: err.message }));
+  const markedAt = Date.parse(marker.at || '');
+  check(Number.isFinite(markedAt), 'a hand-run swap writes the restart marker the quiet window reads', JSON.stringify(marker));
+  check(
+    Math.abs(Date.now() - markedAt) < 60000,
+    'stamped when the port changed hands, not at some earlier start',
+    `${marker.at} against ${new Date().toISOString()}`
+  );
+  check(marker.pid === pid3, 'naming the backend that took over', `marker says ${marker.pid}, serving ${pid3}`);
+  check(
+    typeof marker.reason === 'string' && marker.reason.length > 0,
+    'and why, so the dropped-report log line says which swap did it',
+    `reason: ${JSON.stringify(marker.reason)}`
+  );
 
   const statusOut = await run([path.join(ROOT, 'bin', 'router.js'), '--status'], env);
   check(statusOut.code === 0 && /active\s+pid/.test(statusOut.out), '`router.js --status` reports what is running', statusOut.out);
