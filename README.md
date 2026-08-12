@@ -4640,7 +4640,7 @@ says **no bead named** rather than borrowing one.
   says which. GitHub's merge puts the commit on `origin/<base>` itself, so the work is
   off the laptop the moment it lands; the "& push" half is bringing this Mac's own
   `<base>` up with it, and it **will not touch a checkout with uncommitted work in
-  it** — it says so instead. Both halves are always reported separately: a merge that
+  it** — it says so instead, naming the paths in the way. Both halves are always reported separately: a merge that
   landed and a fast-forward refused because you have files open is a good outcome, and
   one flat word over the pair would send you to the Mac to find out which happened.
   It takes **two taps**, with the consequence written into the button between them —
@@ -6965,7 +6965,18 @@ Six things follow, and they are the whole of the change:
   ends by fast-forwarding the **main checkout** — not its own worktree, where the ref
   cannot move anyway — and it is the same `landLocally` the **Merge & push** button uses,
   refusal and all: *a checkout with uncommitted work in it is not touched*, it says so on
-  the bead instead, and Adam's open files are worth more than a tidy `main`.
+  the bead instead, and Adam's open files are worth more than a tidy `main`. **It names
+  the paths that stopped it**, and says outright when every one of them is untracked.
+  That reads as a detail and is not: the refusal is per-delivery but the checkout is
+  *shared*, so a single stray path holds up **every** session's fast-forward, silently,
+  until a person happens to look. A `.beads/` directory left behind by a reverted
+  `bd init` did precisely that for a day and 114 commits — nothing was lost, the merges
+  were all safely on `origin`, but nothing merged in that window was *live*, and
+  `--status` went on saying `disk … (matches what is running)` throughout, because the
+  checkout was simply old. Each session that hit it paid to work that out again. The
+  fix is that the sentence is now diagnostic; ignoring `.beads/` was the other option
+  and was declined, because it would have hidden the residue as well as the symptom,
+  and any *other* stray path reproduces the condition identically (bc-s7fs).
 - **It will not merge over a red check, and it will not wait forever for a green one.**
   Failing checks stop it and become a card in your inbox — the button there *does* let
   you merge over red, because a red check is sometimes a flake and judging that is what
@@ -7246,6 +7257,65 @@ have no move except to pick one and carry on, which is how an unattended queue q
 does the wrong thing for a week. A conflict is filed at P1, and it **parks the bead
 that hit it behind the question**, so nothing reopens that work until you have settled
 it. Then the session stops.
+
+#### Parking an epic, which bd refused outright
+
+Three commands park work behind a question — `beadcause-ask --blocks`, the conflict
+above, and `beadcause-deliver` when the merge did not happen — and all three did it
+with one line, `bd dep add <the work> <the question>`. On an epic, bd refuses:
+
+```
+Error: epics can only block other epics, not tasks
+```
+
+**bd will not let an epic be blocked by anything that is not itself an epic.** Every
+other pair is fine — a bug blocked by a task, a chore blocked by a decision — so the
+rule is narrower than it reads and it is exactly one line: epic-ness has to match. The
+same sentence with the nouns swapped comes back for a task blocked by an epic.
+
+What made that expensive is the order. The question is created *first*, and
+`bin/ask.js` added the edge afterwards without catching anything, so a session asking
+about a P0 epic got a raw Node stack trace **having already filed the question**: it
+was on the phone, labelled `human`, and the caller had been told the command failed. A
+session that believed the error asked nothing. A session that retried asked twice. And
+the epic it was supposed to park went on being `bd ready`, so the next advocate tick
+opened a window on work that was explicitly waiting for an answer — which is the one
+thing `--blocks` exists to prevent.
+
+So the question is now **typed after the bead it is going to park** (`lib/park.js`):
+ask about an epic and the question is filed as an epic, and the edge goes in. Nothing
+else about it changes — still labelled `human`, still out of every queue because of
+that label, still drawn as an ordinary card, because the phone never renders a
+question's type. It costs one extra `bd list --parent` when the card is opened, since
+[the close gate](#when-bd-will-not-close-the-bead) asks an epic for its open children;
+a question has none, so the gate is null and the card behaves like any other.
+And closing it still un-parks the work the moment it is answered, which is the half the
+by-hand workaround below cannot do.
+
+Underneath that, a refused edge is no longer only about types — bd mid-write on the
+Dolt lock refuses too — so the fallback is what a session had to do by hand: label the
+work bead `human`, which takes it out of every queue so nothing opens a session on it.
+That is **not** the same thing and the caller is told so in one plain sentence, never a
+stack trace: the label does not come off when the answer lands, so somebody has to come
+back to that bead deliberately. `beadcause-deliver` opts out of the fallback, because
+its work bead is about to be closed by the merge and a label nothing removes would sit
+in the inbox as a card with no question on it.
+
+Two smaller rules fell out of the same bug, and both are about what exists afterwards:
+a `--blocks` id that is not in the workspace is refused **before** anything is created,
+which is the only moment refusing is free; and once the question exists the command
+prints its id and exits 0 whatever the parking did, because a caller told it failed over
+a question that is already on the phone either asks nothing or asks twice.
+
+`test/park.mjs` covers it, and covers it end to end for the two commands a session
+actually runs: a unit test of the type rule alone would pass just as happily against a
+`bin/ask.js` that still hardcoded `--type task`, so both are spawned as real
+subprocesses against a stub `bd` that enforces bd's epic rule — measured off the real
+binary rather than guessed — and the assertions are made against what landed in the
+tracker. Including the two states that are only visible from outside the process: a bad
+`--blocks` id leaving the tracker with nothing new in it, and a refused edge leaving a
+question whose id is still on stdout with one plain sentence, and no stack frame, on
+stderr.
 
 ### Approve, adjust, decline
 
@@ -11287,8 +11357,39 @@ bar (bc-0fi2), found within minutes of the downmerge rather than in a month. Two
 in that same range of `main` had already been fixed by hand for the same kind of drift;
 this one was missed, which is the argument for the command.
 
-They are left red on purpose. A green wall bought by deleting the assertions would be
+They were left red on purpose. A green wall bought by deleting the assertions would be
 the same silence in a better disguise.
+
+**All three are green now, and what they turned out to be is the argument for having
+left them red.** Two were real, and neither was small. `shot.mjs` now prints its URL
+with `t=redacted` while still navigating with the token, so the credential that guards
+the daemon over the tailnet stops being written into the transcript of every agent
+screenshot — the navigation is untouched, because the token on the URL is load-bearing
+and documented where it is set. And the disarm came back to the option handler: bc-l8jp.9
+turned that handler from *arm, then answer on the second tap* into *fill the box*, and
+the unconditional `disarm()` went out with the answering path it was attached to, leaving
+only the one guarding `expand()`. That one runs on a card that was **shut** — so on the
+common case, a card open far enough to read the options you are tapping, the dismiss
+underneath went on saying "Tap again — hides dm-1" while you picked, and the next tap
+meant two things that write to different endpoints.
+
+**The third was the check, and it had drifted for a reason worth writing down.** It
+measured the gap from the last comment to the textarea, which was the right measurement
+for seventy-four minutes: the fold landed at 14:32 and *Pin the answer box to the bottom
+while the bead details scroll* landed at 15:46 the same afternoon, from another branch.
+Before the pin, the brief and the box were consecutive blocks in one scroller and the
+last comment really did sit a strip above the box. After it, the brief is its own
+scroller with the composer pinned under it — so that distance stopped describing the
+layout and started describing **where the brief happens to be scrolled to**, which the
+fixture's own content decides. 134px against a 110px bar, with nothing wrong. It is now
+two measurements that no scroll position can move: the composer's chrome above the
+textarea is 60px against the same 110px bar, and the brief meets the composer at 0px
+with nothing in between. Forcing the panel open again puts the first at 268px, so the
+bar still has the teeth it was given.
+
+Which is the honest scoreboard for the stance above: two of the three were bugs a green
+wall would have hidden, and the third was a check that a downmerge had quietly made
+meaningless — a state that only ends when somebody is made to look at it.
 
 **But running them is not the problem this was written for.** These checks do not rot by
 failing. They rot by pressing something that is no longer there, and then not being run.

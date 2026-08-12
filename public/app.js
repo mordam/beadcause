@@ -4914,15 +4914,30 @@
       const opt = opts.find((o) => o.id === btn.dataset.opt);
       if (!opt) return;
 
+      // Whatever else on the list was armed, this tap is not its confirming tap —
+      // arming any control disarms the others, which is the rule paintArmed() exists
+      // to keep on screen. It reads as belt-and-braces here because an option arms
+      // nothing itself any more, and that is exactly how it went missing: this handler
+      // used to arm and then answer on the second tap, and when bc-l8jp.9 turned it
+      // into "fill the box", the unconditional disarm() went with the answering path
+      // and only the one guarding expand() survived. So on a card already open — the
+      // common case, because you have to see the options to tap one — the dismiss
+      // under it stayed armed and went on saying "Tap again — hides dm-1" while you
+      // picked. The next tap then means two things at once, and the two write to
+      // different endpoints: /api/answer and /api/dismiss.
+      disarm();
+
       // A closed card has no box to fill, so the tap opens it — the same move
       // `pr-changes` makes, and for the same reason: what happens next is typing.
       // Through expand() rather than openOnly(), so the brief and the thread arrive
       // with it: you are about to write an answer, and the card you write it on
       // should be the whole card.
       if (!state.open.has(key)) {
-        disarm();
         await expand(key);
       }
+      // After the expand, not before: it re-renders the list, and a repaint of the
+      // old buttons would be thrown away with them.
+      paintArmed();
       const box = listEl.querySelector(`.card[data-key="${CSS.escape(key)}"] [data-role="answer"]`);
       if (!box) return;
 
