@@ -151,9 +151,8 @@ otherwise its poller would keep firing notifications with no listener behind the
   pane?* in a fifth of a second. It is **also** inside `npm test`, as
   [`test/agentlog.mjs`](#the-session-log-contract-is-inside-the-gate--testagentlogmjs), so
   forgetting to type it is no longer the same as not having it. The suite proper is
-  `npm test`, and the browser checks it deliberately
-  leaves out — they want a Chrome — are `npm run checks`, all twenty-eight of them, four
-  at a time, with a list of which failed. See
+  `npm test`, and the browser checks it deliberately leaves out — they want a Chrome —
+  are `npm run checks`, all of them, four at a time, with a list of which failed. See
   [`npm run checks`](#npm-run-checks--the-browser-half-and-why-npm-test-can-still-see-it-rot),
   including the static selector audit that runs inside `npm test` and is the reason a
   removed chip no longer breaks a check in silence.
@@ -600,7 +599,9 @@ are on it:
 │      Workers merge their own PRs         on  │
 │      An approving review first  inherited·off│
 │      Merges ship themselves              on  │
-│  ▸ WHAT EACH REPO RESOLVES TO            3   │
+│  ▾ WHAT EACH REPO RESOLVES TO            3   │
+│      beadcause  full push · files endorsed…  │
+│      Beads agents file here  On Off Inh(off) │
 ├──────────────────────────────────────────────┤
 │  beadcause      3 of 3 sessions              │
 │  …the advocate cards, exactly as before      │
@@ -638,13 +639,22 @@ half-typed channel id living in the DOM would be taken away by a poll nobody ask
 for.
 
 **"What each repo resolves to" is the panel that stops the screen lying.** The space is
-not the last word on two of these settings: `ntfy.minimalWorkspaces` and
-`autoDispatchExclude` are per-repo lists that outrank it, so a space set to `full` can
-contain one repo that pushes minimally. The panel runs every workspace in the space
-through the same resolvers the daemon itself uses and prints the answers, because
-a screen showing only the space's own setting would be quietly wrong about exactly the
-repo somebody had singled out — and wrong in the direction of promising more detail on
-your phone than you are going to get.
+not the last word on three of these settings: `ntfy.minimalWorkspaces`,
+`slack.excludeWorkspaces` and `autoDispatchExclude` are per-repo lists that outrank it,
+so a space set to `full` can contain one repo that pushes minimally. The panel runs every
+workspace in the space through the same resolvers the daemon itself uses and prints the
+answers, because a screen showing only the space's own setting would be quietly wrong
+about exactly the repo somebody had singled out — and wrong in the direction of promising
+more detail on your phone than you are going to get.
+
+**And one row in that panel is a control.** `autoEndorse` is the setting a space is the
+wrong unit for — see
+[One repo may answer for itself](#one-repo-may-answer-for-itself-and-this-is-the-only-setting-that-may)
+— so each repo carries its own three buttons under its tags: On, Off, and *Inherit*,
+which names what the space resolves to. They went here rather than into a twelfth row
+above because this is the line that already stated the answer for that repo and had
+nothing to press. The tag stays beside them and is not made redundant by them: the tag is
+the *resolved* answer, and the lit button says which of the three levels gave it.
 
 **And a row in it is a workspace, which stopped being the same thing as a repo.** A
 workspace with an [approved list of checkouts](#many-repos-one-workspace--the-approved-list-and-the-token-that-names-each)
@@ -807,6 +817,65 @@ agent-filed` is how you see what arrived while you were asleep.
 | `"autoEndorse": true` | discoveries filed there are ready work immediately, even where the global says no |
 | `"autoEndorse": false` | they are held for your tap, even where the global says yes |
 | unset | follows the global `autoEndorse`, which is `false` unless you changed it |
+
+### One repo may answer for itself, and this is the only setting that may
+
+Everything else on a space groups cleanly. "Don't buzz me about work at the weekend"
+and "don't land a diff other people read without eyes on it" are properties of a *set*
+of repos, and a space is that set — which is why the settings above are, as
+`lib/spaces.js` puts it, ones you give once for a group of repos rather than per repo.
+
+The hold is not like that, and the shape of a real config is what showed it. There are
+two spaces here: **Personal**, holding `beadcause`, `deluvia`, `ehatt`, `sophab` and two
+more, and **Climative**, holding one. The reason to stop holding in `beadcause` — I am
+the only reader of that tracker, so the tap is not a review, it is a delay with a
+notification attached — is a fact about *that tracker*. It is not true of the five repos
+sitting beside it, and none of them moved. With the space as the finest thing that could
+answer, saying yes to one meant saying yes to six.
+
+**One workspace, though, never one checkout inside one.** The override is keyed by
+workspace, and a workspace is a beads graph — which is exactly the grain
+[policy answers vary at](#policy-stays-per-space-even-when-a-workspace-is-forty-repos):
+who else reads this graph, and would they mind an agent working it unasked. So `climative`
+may answer for itself here like any other workspace, and still gives one answer for all
+forty of its checkouts; nothing on this page lets one of them out of it.
+
+So `autoEndorse` has a per-workspace override, and it **outranks the space**, exactly the way
+`ntfy.minimalWorkspaces` and `slack.excludeWorkspaces` already outrank it for
+notification detail:
+
+```json
+"autoEndorsePerWorkspace": { "beadcause": true, "sophab": false }
+```
+
+| for one workspace | what it does |
+|---|---|
+| `true` | its agents' discoveries are ready work immediately, even where its space holds |
+| `false` | they are held for your tap, even where its space endorses |
+| absent | follows the space, and then the global — which is the hold unless you changed it |
+
+A boolean per repo rather than a list of names, because both directions have to be
+sayable: a repo held inside a space that endorses is the same kind of exception as the
+other way round, and a list can only ever say one of them. Keyed by workspace name like
+`jira` and `advocates.perWorkspace`, and deliberately not a field on a `workspaces` entry
+— that array is rediscovered from `~/beads/*/.beads` on every start, so anything written
+onto it by hand is gone at the next restart.
+
+**Set it from the repo row**, on the space details card at
+[`/monitor`](#space-details--the-page-the-advocate-console-became): each row under
+*What each repo resolves to* already stated the answer for that repo and had nothing to
+press, so the three buttons went where the answer was. On / Off / **Inherit**, and
+Inherit names what it resolves to through the space — `Inherit (on)` inside an endorsing
+space — so the button never promises the opposite of what pressing it does. Repos in no
+space at all have no card, because `Other` is a group the picker offers rather than a
+space; the override still works for them, from the config file.
+
+Resolution is one path, in `autoEndorseAllowed`, and every caller goes through it — the
+card, `bin/file.js`, and the brief `lib/session.js` writes for a worker. Anything that is
+not a real boolean at a level is not an override and falls through to the next one, so a
+hand-typed `"true"` inherits rather than dropping a safety property. And a config from
+before this existed answers exactly as it did: the map is absent, so both remaining
+levels are the two that were always there.
 
 `npm run configure` walks you through it. Run it **in a terminal** — it needs one to
 ask questions. Anywhere else (a pipe, CI, an agent shell) it prints the current
@@ -4685,7 +4754,7 @@ says **no bead named** rather than borrowing one.
   says which. GitHub's merge puts the commit on `origin/<base>` itself, so the work is
   off the laptop the moment it lands; the "& push" half is bringing this Mac's own
   `<base>` up with it, and it **will not touch a checkout with uncommitted work in
-  it** — it says so instead. Both halves are always reported separately: a merge that
+  it** — it says so instead, naming the paths in the way. Both halves are always reported separately: a merge that
   landed and a fast-forward refused because you have files open is a good outcome, and
   one flat word over the pair would send you to the Mac to find out which happened.
   It takes **two taps**, with the consequence written into the button between them —
@@ -5036,12 +5105,14 @@ That trade only holds up if the other end of it exists. Until this screen the he
 beads were a muted pill on the advocate console reading `3 held for endorsement` —
 a number with no door behind it, and no way at all to see which three from a phone.
 
-**A space can opt out of this screen entirely**, and it is worth knowing before you read
-the rest of it: `autoEndorse` on the space
-([above](#spaces--keeping-work-out-of-your-evening)) files without the hold, so those
-workspaces' discoveries never appear in this queue at all — they go straight to `bd ready`
-and the advocate picks them up. Off unless you ask for it, per space, and the bead still
-says on its face that nobody read it first. The queue below is what happens everywhere
+**A space — or a single repo — can opt out of this screen entirely**, and it is worth
+knowing before you read the rest of it: `autoEndorse` on the space
+([above](#spaces--keeping-work-out-of-your-evening)), or
+[`autoEndorsePerWorkspace` on one repo](#one-repo-may-answer-for-itself-and-this-is-the-only-setting-that-may)
+where the space is the wrong unit, files without the hold — so those workspaces'
+discoveries never appear in this queue at all: they go straight to `bd ready` and the
+advocate picks them up. Off unless you ask for it, and the bead still says on its face
+that nobody read it first. The queue below is what happens everywhere
 else, which is everywhere by default.
 
 **`/endorse` is the door** (`/queue` and `/endorsements` reach the same page). One
@@ -7010,7 +7081,18 @@ Six things follow, and they are the whole of the change:
   ends by fast-forwarding the **main checkout** — not its own worktree, where the ref
   cannot move anyway — and it is the same `landLocally` the **Merge & push** button uses,
   refusal and all: *a checkout with uncommitted work in it is not touched*, it says so on
-  the bead instead, and Adam's open files are worth more than a tidy `main`.
+  the bead instead, and Adam's open files are worth more than a tidy `main`. **It names
+  the paths that stopped it**, and says outright when every one of them is untracked.
+  That reads as a detail and is not: the refusal is per-delivery but the checkout is
+  *shared*, so a single stray path holds up **every** session's fast-forward, silently,
+  until a person happens to look. A `.beads/` directory left behind by a reverted
+  `bd init` did precisely that for a day and 114 commits — nothing was lost, the merges
+  were all safely on `origin`, but nothing merged in that window was *live*, and
+  `--status` went on saying `disk … (matches what is running)` throughout, because the
+  checkout was simply old. Each session that hit it paid to work that out again. The
+  fix is that the sentence is now diagnostic; ignoring `.beads/` was the other option
+  and was declined, because it would have hidden the residue as well as the symptom,
+  and any *other* stray path reproduces the condition identically (bc-s7fs).
 - **It will not merge over a red check, and it will not wait forever for a green one.**
   Failing checks stop it and become a card in your inbox — the button there *does* let
   you merge over red, because a red check is sometimes a flake and judging that is what
@@ -7291,6 +7373,65 @@ have no move except to pick one and carry on, which is how an unattended queue q
 does the wrong thing for a week. A conflict is filed at P1, and it **parks the bead
 that hit it behind the question**, so nothing reopens that work until you have settled
 it. Then the session stops.
+
+#### Parking an epic, which bd refused outright
+
+Three commands park work behind a question — `beadcause-ask --blocks`, the conflict
+above, and `beadcause-deliver` when the merge did not happen — and all three did it
+with one line, `bd dep add <the work> <the question>`. On an epic, bd refuses:
+
+```
+Error: epics can only block other epics, not tasks
+```
+
+**bd will not let an epic be blocked by anything that is not itself an epic.** Every
+other pair is fine — a bug blocked by a task, a chore blocked by a decision — so the
+rule is narrower than it reads and it is exactly one line: epic-ness has to match. The
+same sentence with the nouns swapped comes back for a task blocked by an epic.
+
+What made that expensive is the order. The question is created *first*, and
+`bin/ask.js` added the edge afterwards without catching anything, so a session asking
+about a P0 epic got a raw Node stack trace **having already filed the question**: it
+was on the phone, labelled `human`, and the caller had been told the command failed. A
+session that believed the error asked nothing. A session that retried asked twice. And
+the epic it was supposed to park went on being `bd ready`, so the next advocate tick
+opened a window on work that was explicitly waiting for an answer — which is the one
+thing `--blocks` exists to prevent.
+
+So the question is now **typed after the bead it is going to park** (`lib/park.js`):
+ask about an epic and the question is filed as an epic, and the edge goes in. Nothing
+else about it changes — still labelled `human`, still out of every queue because of
+that label, still drawn as an ordinary card, because the phone never renders a
+question's type. It costs one extra `bd list --parent` when the card is opened, since
+[the close gate](#when-bd-will-not-close-the-bead) asks an epic for its open children;
+a question has none, so the gate is null and the card behaves like any other.
+And closing it still un-parks the work the moment it is answered, which is the half the
+by-hand workaround below cannot do.
+
+Underneath that, a refused edge is no longer only about types — bd mid-write on the
+Dolt lock refuses too — so the fallback is what a session had to do by hand: label the
+work bead `human`, which takes it out of every queue so nothing opens a session on it.
+That is **not** the same thing and the caller is told so in one plain sentence, never a
+stack trace: the label does not come off when the answer lands, so somebody has to come
+back to that bead deliberately. `beadcause-deliver` opts out of the fallback, because
+its work bead is about to be closed by the merge and a label nothing removes would sit
+in the inbox as a card with no question on it.
+
+Two smaller rules fell out of the same bug, and both are about what exists afterwards:
+a `--blocks` id that is not in the workspace is refused **before** anything is created,
+which is the only moment refusing is free; and once the question exists the command
+prints its id and exits 0 whatever the parking did, because a caller told it failed over
+a question that is already on the phone either asks nothing or asks twice.
+
+`test/park.mjs` covers it, and covers it end to end for the two commands a session
+actually runs: a unit test of the type rule alone would pass just as happily against a
+`bin/ask.js` that still hardcoded `--type task`, so both are spawned as real
+subprocesses against a stub `bd` that enforces bd's epic rule — measured off the real
+binary rather than guessed — and the assertions are made against what landed in the
+tracker. Including the two states that are only visible from outside the process: a bad
+`--blocks` id leaving the tracker with nothing new in it, and a refused edge leaving a
+question whose id is still on stdout with one plain sentence, and no stack frame, on
+stderr.
 
 ### Approve, adjust, decline
 
@@ -9740,7 +9881,7 @@ cookie says so), and `/auth/signout` ends the session.
 | POST | `/api/filter` | `{space, workspace}` | which slice the inbox is, remembered server-side so every client agrees and the notifications match. Each is a name or `all`, bounded at 120 characters. Widening forgets what you had declined |
 | GET | `/api/spaces` | — | what the [space picker](#one-space-at-a-time--the-picker-in-the-top-bar) draws: `{spaces, workspaces[], counts, filter, waiting}`. Costs no `bd` call — the counts are cached off the last sweep — because it is fetched on every page load of every standing view |
 | GET | `/api/space` | `?space=` | one space's own configuration, for the [space details](#space-details--the-page-the-advocate-console-became) screen: `{settings, effective, repos[], defaults, missing[]}`. `settings` is `null` per field for "inherit"; `repos[]` is what each workspace actually resolves to, which is not always what the space says. 404 for anything that is not a configured space, the synthetic `Other` group included |
-| POST | `/api/space` | `{space, settings}` | change that space's settings from the app. A patch — only the keys sent are touched, and `null` clears one back to the global default. `name` and `workspaces` are not settable: moving a repo between spaces decides which questions may reach you and stays a config-file act. Writes the live `cfg` *and* `config.json`, so the running daemon and the next restart agree. Refused on an observer |
+| POST | `/api/space` | `{space, workspace?, settings}` | change that space's settings from the app. A patch — only the keys sent are touched, and `null` clears one back to the global default. `name` and `workspaces` are not settable: moving a repo between spaces decides which questions may reach you and stays a config-file act. With a `workspace`, it writes that **repo's own** override instead — `autoEndorse` only, and a repo the named space does not contain is a 400. Either way the reply is the whole `spaceDetail`, and it writes the live `cfg` *and* `config.json`, so the running daemon and the next restart agree. Refused on an observer |
 | POST | `/api/notifications/dismiss` | `{keys[], confirm}` | clears the phone's notification rows for beads the filter excludes. `confirm: false` records the decline, which is what stops the next sweep asking again. The beads are untouched either way |
 | POST | `/api/ask` | `{workspace, title, body, priority}` | `{id, key}` — files a new `human` bead |
 | POST | `/api/error` | `{message, source?, line?, column?, stack?, url?, userAgent?, at?, kind?, workspace?}` | `{ok, action, id, key, fingerprint}` — an error the app hit, filed as a **P0 bug** or commented onto the bead that already covers it. `action` is `created` · `commented` · `regressed`. **`message` is the only required field**: a cross-origin `window.onerror` is handed `"Script error."` and nothing else, and that is still worth more than a red toast nobody saw. `workspace` defaults to the first configured one — the reporter is a page, which has no idea which repo it is looking at. **Never answers 5xx**, because it is called by error handling: a tracker that is down comes back `200 {ok: false, reason}`. See [an error the app hits files itself as a P0](#an-error-the-app-hits-files-itself-as-a-p0) |
@@ -9966,6 +10107,140 @@ Dolt directory should still show you the other five, and the one that did not an
 named, because a ledger that silently dropped a repo would be saying that repo has no
 history.
 
+## A tracker two Macs share
+
+Everything else in this README treats *the tracker* as one thing, and on one Mac it is
+one thing: `~/beads/<name>/.beads` is an embedded Dolt database on this laptop's disk,
+and a bead created here is a bead visible here. The whole app is arithmetic over that —
+the inbox, the counts, the advocate's ready queue, the endorsement drawer.
+
+Dolt can be pushed to a remote and pulled from one, and until this landed **nothing in
+beadcause had ever called either**. `grep -rn dolt lib/ bin/` found five comments about
+embedded versus `bd dolt start` mode and not one `bd dolt push`. Syncing was a thing a
+person typed, in a terminal, when they remembered — which means on the days nobody
+remembered, two engineers running beadcause had two private issue graphs that never met.
+Six engineers would have six. That is not a federation with a sync bug in it; it is six
+separate apps that happen to look the same.
+
+It is also the failure this app is least able to show you. A repo that could not be
+*read* draws a banner and a stale list, and you can see that it might be wrong. A
+tracker that is not *syncing* draws a list that is completely correct about this Mac and
+silently missing everything the others have written since it stopped. Every count is
+real. Nothing is stale. There is nothing on the screen to notice — which is the shape of
+every failure this app exists to prevent, arriving one machine removed.
+
+### Which workspaces sync: the ones that have a remote
+
+There is deliberately **no list in the config**. A workspace with a Dolt remote is a
+workspace that syncs; a workspace without one is silent, and costs one cheap
+`bd dolt remote list` per interval to establish there is nothing to do.
+
+That is not laziness about configuration. A list is a second place to be right, and both
+ways of being wrong are invisible: a shared workspace missing from the list never syncs
+and never says so, and a solo workspace named in it reports a failure every two minutes
+about a tracker working exactly as intended. `bd dolt remote list --json` already answers
+the question, from the workspace itself, and cannot disagree with itself. So the whole of
+turning this on, for a workspace you want shared, is:
+
+```sh
+cd <the workspace — the directory holding its .beads>
+bd dolt remote add origin git+ssh://git@github.com/<org>/<repo>.git
+bd dolt push
+```
+
+The next tick picks it up. Nothing is typed on this side, which is the point — the
+acceptance criterion for this was a bead created on one machine being visible on another
+*without anybody typing a sync command*.
+
+Note that a workspace is **not necessarily under `~/beads`**: Climative's lives inside
+the `architecture` checkout, because that is the repo the team already clones. So nothing
+here builds a path out of a workspace's name — the `cd` a failure notification prints
+comes off the workspace's own directory, and the one place that guess was made is the
+one place it would have been wrong first.
+
+### Where the remote goes, and why beadcause will not choose for you
+
+**beadcause never adds a remote.** It syncs one that exists and it never invents one, and
+that refusal is deliberate rather than unfinished: where a tracker is published is a
+decision with consequences no daemon should make on somebody's behalf, and it is the one
+kind of decision that cannot be taken back. A push to a public repo is on the internet
+whatever you do next.
+
+The pattern that works is the one the `climative` workspace here already uses: ride the
+repo the team already clones, as a `git+ssh://` Dolt remote. Issue data goes on
+`refs/dolt/data`, so it never touches the file tree, never appears as a branch or a tag,
+and `git pull` there never updates issues — which is precisely why co-locating them is
+safe. **The repo has to be one you are willing to have the whole issue graph in**, and
+"whole" is literal: every bead, every comment, every answer you have ever given from your
+phone, in a history no later deletion reaches back into. `Climative/architecture` is
+private and org-visible, which is what makes that instance fine. A public repo is not the
+same situation, and the fact that it is *your* public repo does not change it.
+
+Two consequences worth knowing before you do it:
+
+- **A plain `git clone` fetches no issues.** Dolt data on `refs/dolt/data` is not
+  something git pulls by default, so a new machine or a new teammate must run
+  `bd bootstrap` once. That belongs in the install story, not in a debugging session six
+  weeks later.
+- **Nothing here is a JIRA sync.** Pull-only, surgical, and unchanged — see
+  [JIRA, per workspace](#jira-per-workspace--read-only-and-one-setting).
+
+### When it syncs, and why the interval is not a performance knob
+
+Every `sync.seconds` — 120 by default, floored at 30 — the daemon runs `bd dolt pull` and
+then `bd dolt push` for each workspace that has a remote. Pull first, and not the other
+way round: a push against a remote that has moved is refused, so pushing first would
+report a failure on every tick of a tracker that is working perfectly. It is also the
+half that matters more. A machine that pulls and never pushes is merely behind; a machine
+that pushes and never pulls is the one writing over other people's work.
+
+The interval is a setting because it is the **width of the window in which two machines
+can act on stale information** — the same window two advocates opening a session on the
+same ready bead live in. It sits between the 30-second poll and the 5-minute release
+sweep on purpose: this is the only sweep that touches both the network *and* Dolt's
+single writer, so it is genuinely more expensive than the reads, while a five-minute
+window is long enough for two Macs to both start an hour of work on one bead. The floor
+is 30 rather than the poll's 5 because there is no such thing as a usefully faster sync —
+a `git push` per workspace every few seconds would spend more of the day holding the
+write lock than the agent sessions do.
+
+Workspaces sync in parallel, because they are separate databases with separate remotes
+and doing them in turn makes a tick cost the sum of the slow cases rather than the
+slowest one. A workspace still syncing when the next tick comes round is skipped rather
+than queued: two `bd dolt push` against one embedded Dolt would only fight each other for
+the write lock.
+
+### A sync that stopped is loud, and a conflict is louder
+
+A sync that works says **nothing**. No line, no event, no push. A tick reporting "synced
+4 workspaces" every two minutes is 720 lines a day nobody reads, and the 721st — the one
+that says it failed — is the one that scrolls past.
+
+So the *transitions* talk, and there are exactly two of them per incident:
+
+- **It broke.** One line on the daemon's log, one red row in the [monitor](#the-monitor--what-it-is-doing-right-now)'s event pane, one banner on the inbox naming the repo and printing what `bd` said, and one ntfy push. Then silence until something changes.
+- **It came back.** The banner clears itself the moment the next sync succeeds, and a second push says so — because a warning with no all-clear is one you keep checking.
+
+The banner is its own pane, directly under the "could not be read" one and in orange
+rather than red, and the two are **never merged into one list**. They stack on the same
+screen — a locked Dolt fails the read and the sync in the same tick — and they are
+opposite claims about the beads underneath: the red one says what you are looking at is
+stale, the orange one says it is *perfect about this Mac* and quietly missing everybody
+else's.
+
+**A conflict is called out separately from a failure**, and the distinction is the one
+thing here worth remembering. A failed sync is transient by nature — a dropped network,
+ssh not unlocked, Dolt holding its write lock — and the next interval very often fixes
+it, so it is a priority 3 that says it is retrying. A conflict means two machines wrote
+the same bead and Dolt cannot merge them; it will still be there in an hour and in a
+week, because nothing has ever retried its way out of one. It needs a person, so it says
+so in the title, at priority 4, in different words on the banner. Filing those two under
+one word is how a divergence sits for a fortnight under a label that says "retrying".
+
+The failure path is what `node test/sync.mjs` covers, and it is the half that is tested
+for a reason: a sync that works is provable by looking at a second Mac, and a sync that
+quietly stopped looks exactly like a quiet team.
+
 ## Config — `~/.config/beadcause/config.json`
 
 | key | meaning |
@@ -10004,6 +10279,7 @@ history.
 | `autoDispatchExclude` | workspaces that never auto-dispatch — put shared trackers here |
 | `autoDispatchTimeoutMs` | kill a dispatched agent after this long (default 10 min) |
 | `autoEndorse` | beads an agent files itself arrive **endorsed** — workable, queued, launchable — instead of held for your tap (default `false`). The one policy default here that is the restrictive one, and the only one that needs a literal `true`: its worst case is an unattended session on work nobody has read. Set it **per [space](#spaces--keeping-work-out-of-your-evening)** rather than here; the P2 ceiling, `agent-filed` and the `discovered-from` edge all still go on either way |
+| `autoEndorsePerWorkspace` | the same answer for **one workspace**, keyed by workspace name — `{"beadcause": true, "sophab": false}` (default `{}`). Outranks the space, which outranks the global, and an absent name inherits. The one setting here a space is the wrong unit for: "nobody but me reads this tracker" is true of one graph and not of the five beside it in the same space — and not of one checkout inside a workspace, which [stays the space's answer](#policy-stays-per-space-even-when-a-workspace-is-forty-repos). Set from the repo row on the [space details screen](#one-repo-may-answer-for-itself-and-this-is-the-only-setting-that-may) |
 | `pr.enabled` | land finished work as [a pull request the worker merges](#landing-work--a-branch-a-pull-request-and-the-workers-own-merge) (default `true`). `false` puts every workspace back on the oldest ending — work the bead, close the bead. A workspace with no `gh` or no GitHub remote gets that ending anyway, without needing to be named |
 | `pr.base` | what a PR is opened against and merged into (default `main`). In a workspace with an [approved repo list](#and-which-branch-its-pull-request-is-opened-into) this is the *fallback*, and each repo's own default branch is the answer |
 | `pr.mergeMethod` | `merge` (default), `squash` or `rebase`. A merge commit because a squash-merged branch is never an ancestor of `main`, and the worktree cleanup will not remove a worktree that fails that test |
@@ -10057,6 +10333,8 @@ history.
 | `jira` | JIRA per workspace, keyed by workspace name — `{"climative": {"enabled": true, "email": "you@company.com"}}`. Empty by default, and a workspace not named here costs nothing: no call is made about it at all. The site URL and the project keys come from that workspace's own `bd config get jira.url` / `jira.projects`, so `enabled` and `email` are usually the whole setting; `url` / `projects` here override for a workspace whose `bd` was never pointed at JIRA. **There is deliberately no token field** — see [JIRA, per workspace](#jira-per-workspace--read-only-and-one-setting) |
 | `jira.<workspace>.tokenFile` | where that workspace's API token is read from, if not `~/.config/beadcause/jira-<workspace>.key`. A relative name resolves inside that directory. The same option `confluence.apiTokenFile` is, and it opens the same hole: point it at a name that directory does *not* refuse and the log says so on every check |
 | `pollSeconds` | how often new `human` beads are looked for (default 30) |
+| `sync.enabled` | keep a shared tracker shared — `bd dolt pull` then `bd dolt push`, per workspace, on a timer (default `true`). It is on for everybody and it does nothing at all on a workspace with no Dolt remote, which is every workspace until you add one. See [A tracker two Macs share](#a-tracker-two-macs-share) |
+| `sync.seconds` | how often (default 120, floor 30). **Not a performance knob** — it is the width of the window in which two machines can act on stale information, which is why it is a setting and not a constant. There is deliberately no list of *which* workspaces sync: a Dolt remote is that list |
 | `monitor.enabled` | generate the LaunchAgent that opens the [activity monitor](#the-monitor--what-it-is-doing-right-now) at login (default `false`; `npm run monitor` works either way) |
 | `sharedServer` | leave `false` — see the note below |
 | `mirrorStateToBeads` | write `agent:<phase>` state labels into beads too (off — see Progress) |
@@ -10532,6 +10810,13 @@ are the same workspace.
 
 **They stay per space, and Climative gets one answer.** Not by omission — four reasons,
 and the second is the one that settles it.
+
+One of the five does take a finer answer, and it is a different question: `autoEndorse`
+has a [per-workspace override](#one-repo-may-answer-for-itself-and-this-is-the-only-setting-that-may)
+that outranks the space, so one workspace in a space may answer for itself. That is the
+grain the second reason below is about — a graph and who reads it — and it leaves this
+section's question exactly where it is: no setting here answers per checkout *inside* a
+workspace, `autoEndorse` included.
 
 **What varies between repos is not what these ask.** Every one of them asks whether an
 agent may act while nobody is watching, and what makes that differ between two checkouts
@@ -11139,12 +11424,11 @@ race, which is the `test/helpers/tmp.mjs` story above and not this one.
 
 ### `npm run checks` — the browser half, and why `npm test` can still see it rot
 
-The twenty-eight `scripts/*-check.mjs` are the only cover this repo has for layout, taps
-and anything that happens in a thumb, and none of them are in `npm test`: each wants a
-Chrome, a phone-sized viewport and ten to forty seconds, and that suite stays pure Node
-on purpose. Until `npm run checks` there was no way to run them but one at a time by
-name — which in practice meant run by whoever remembered that the page they touched had
-one.
+The `scripts/*-check.mjs` are the only cover this repo has for layout, taps and anything
+that happens in a thumb, and none of them are in `npm test`: each wants a Chrome, a
+phone-sized viewport and ten to forty seconds, and that suite stays pure Node on purpose.
+Until `npm run checks` there was no way to run them but one at a time by name — which in
+practice meant run by whoever remembered that the page they touched had one.
 
 `npm run checks` runs all of them, four Chromes at a time, and ends with a list of which
 failed. Every check binds `127.0.0.1:0`, drives its own temp profile and lets Chrome pick
@@ -11163,7 +11447,7 @@ conflicts with nobody.
 **Every check is on a four-minute leash**, `--timeout N` to change it and `--timeout 0`
 to take it off. This is not a tidiness rule. A check that hangs is the one failure a
 runner like this newly introduces, and it is silent in the worst available way: the run
-never ends, so nothing is reported about the other twenty-seven either — strictly worse
+never ends, so nothing is reported about any of the rest either — strictly worse
 than the by-hand state it replaced, where at least a person gives up. On the first real
 run of all twenty-six, `agent-chooser-check.mjs` went quiet thirteen assertions in and
 was still sitting there five minutes later. SIGTERM first so a check with a cleanup
@@ -11184,8 +11468,8 @@ parallel pass. A check that fails both times is reported with `on its own — no
 scheduling accident` beside it, so a red line cannot be waved away as the scheduler's
 fault.
 
-**Three of the twenty-eight are red, and that is the bead in one paragraph.** Two were
-already failing the day this was written, with no mark against them anywhere:
+**Three of them are red, and that is the bead in one paragraph.** Two were already
+failing the day this was written, with no mark against them anywhere:
 `shot-check.mjs` has always asserted that the daemon token never reaches `shot.mjs`'s
 output, and the token is now appended to the URL that `shot.mjs` prints, so it does
 (bc-sqab); `dismiss-check.mjs` finds that arming an option no longer disarms the dismiss
@@ -11196,8 +11480,39 @@ bar (bc-0fi2), found within minutes of the downmerge rather than in a month. Two
 in that same range of `main` had already been fixed by hand for the same kind of drift;
 this one was missed, which is the argument for the command.
 
-They are left red on purpose. A green wall bought by deleting the assertions would be
+They were left red on purpose. A green wall bought by deleting the assertions would be
 the same silence in a better disguise.
+
+**All three are green now, and what they turned out to be is the argument for having
+left them red.** Two were real, and neither was small. `shot.mjs` now prints its URL
+with `t=redacted` while still navigating with the token, so the credential that guards
+the daemon over the tailnet stops being written into the transcript of every agent
+screenshot — the navigation is untouched, because the token on the URL is load-bearing
+and documented where it is set. And the disarm came back to the option handler: bc-l8jp.9
+turned that handler from *arm, then answer on the second tap* into *fill the box*, and
+the unconditional `disarm()` went out with the answering path it was attached to, leaving
+only the one guarding `expand()`. That one runs on a card that was **shut** — so on the
+common case, a card open far enough to read the options you are tapping, the dismiss
+underneath went on saying "Tap again — hides dm-1" while you picked, and the next tap
+meant two things that write to different endpoints.
+
+**The third was the check, and it had drifted for a reason worth writing down.** It
+measured the gap from the last comment to the textarea, which was the right measurement
+for seventy-four minutes: the fold landed at 14:32 and *Pin the answer box to the bottom
+while the bead details scroll* landed at 15:46 the same afternoon, from another branch.
+Before the pin, the brief and the box were consecutive blocks in one scroller and the
+last comment really did sit a strip above the box. After it, the brief is its own
+scroller with the composer pinned under it — so that distance stopped describing the
+layout and started describing **where the brief happens to be scrolled to**, which the
+fixture's own content decides. 134px against a 110px bar, with nothing wrong. It is now
+two measurements that no scroll position can move: the composer's chrome above the
+textarea is 60px against the same 110px bar, and the brief meets the composer at 0px
+with nothing in between. Forcing the panel open again puts the first at 268px, so the
+bar still has the teeth it was given.
+
+Which is the honest scoreboard for the stance above: two of the three were bugs a green
+wall would have hidden, and the third was a check that a downmerge had quietly made
+meaningless — a state that only ends when somebody is made to look at it.
 
 **But running them is not the problem this was written for.** These checks do not rot by
 failing. They rot by pressing something that is no longer there, and then not being run.
@@ -11210,11 +11525,11 @@ because the next person to run it reads its failures as their own change breakin
 something.
 
 So the load-bearing part is static, and it *is* in `npm test`. `lib/checkaudit.js` reads
-every literal selector every check presses — 313 of them — takes each class, id and
-`data-` attribute apart, and asserts it still appears somewhere in `public/`. That is a
-text search, it costs milliseconds, and it fires on precisely the thing that used to be
-invisible. `npm run checks` prints it before a single Chrome starts, and does not stop on
-it: a stale selector in one check is no reason not to run the other twenty-seven.
+every literal selector every check presses — several hundred of them — takes each class,
+id and `data-` attribute apart, and asserts it still appears somewhere in `public/`. That
+is a text search, it costs milliseconds, and it fires on precisely the thing that used to
+be invisible. `npm run checks` prints it before a single Chrome starts, and does not stop
+on it: a stale selector in one check is no reason not to run the rest.
 
 It is tuned to have no false alarms, so that a finding is always real, and two things
 follow. An interpolated selector — `` `[data-key="${k}"]` `` — has no text to look for and
@@ -11240,8 +11555,35 @@ arrival before Chrome is even reached. And the runner's own endings are held aga
 temp tree of three checks that pass, fail and hang on purpose: exit 1, the failures
 counted and named, their own output replayed rather than just a code, the hang killed at
 the timeout, a passing check not listed among the failures, and an empty tree failing
-rather than passing vacuously. A tree of its own rather than the real twenty-eight, because
+rather than passing vacuously. A tree of its own rather than the real ones, because
 those are the thing under observation, not the instrument.
+
+**And the prose is not allowed to say how many there are.** The inventory is derived —
+`discover()` reads the directory, so adding a check is adding a file and conflicts with
+nobody — but the sentences *about* it were not. *There are twenty-eight of them* was
+written once and then sat in eleven places at the same time: four in `scripts/checks.mjs`,
+one in `test/checks.mjs`, six here, plus every phrasing spun off it carrying its own
+arithmetic — the set minus the one that hung, the set minus the one with the stale
+selector. Nobody ever swept all eleven. On 2026-08-11 `origin/main` claimed twenty-six with
+twenty-seven on disk; one session bumped the eleven twice in a single sitting, once for the
+check it added and once after merging a `main` that had added another and not swept; by the
+time this paragraph was written the prose was six behind (bc-7smi). A number that is
+reliably wrong is worse than no number, because it reads as measured.
+
+So the numbers came out of the present tense — "every `scripts/*-check.mjs`", "the rest of
+them" — and the live count is in `npm run checks -- --list` and in the audit line the
+runner prints before a single Chrome starts. What stops them coming back is an assertion in
+`test/checks.mjs`, because the instinct that wrote the first one is not going away: it
+reads the comments of `scripts/checks.mjs`, `test/checks.mjs` and `lib/checkaudit.js`, and
+the paragraphs here that name the checks, and fails on a number standing in for the set.
+It matches the shapes the claim was actually written in rather than any number near the
+word "check" — "ten to forty seconds" and "a four-minute leash" do not go stale, and a
+linter that fired on those would be off within a month. **The exemptions are the
+interesting half.** Two sentences are about the first end-to-end run and have to go on
+saying twenty-six, because bumping them would not be an update, it would make them false.
+So they are matched *literally*: reword one and it stops being exempt rather than quietly
+staying so, and an exemption that no longer matches anything fails in its own right. That
+is the difference between an allowlist and a hole.
 
 `test/observe.mjs` is about observer mode only, and it is the oldest of them —
 because this is the switch here that fails most quietly. Turn off the terminal
@@ -11528,6 +11870,16 @@ was unreadable), that the wash stays scoped, that the spelling is one spelling, 
   wall of flags, and a slow repo stops reading as a broken one. Blowing the 32MB
   `maxBuffer` kills the child as well and is deliberately *not* dressed up that way —
   that one really is bad output.
+- **The two `bd dolt` verbs disagree about what "no remote" is, so neither exit code
+  answers "is this workspace shared?"** Measured against bd 1.1.2: with no remote
+  configured, `bd dolt push` exits **0** and prints *"No remote is configured — skipping"*,
+  while `bd dolt pull` exits **1** with *"Error: fetch from origin/main: Error 1105: no
+  remote"*. Gating on either is a trap in both directions — trusting the push's zero says
+  a solo workspace synced, and trusting the pull's one reports a failure on every private
+  workspace, every interval, forever. `bd dolt remote list --json` is the question that
+  has an answer: `[]` on a solo workspace, `[{name, url, sql_url}]` on a shared one. Note
+  that the *non*-JSON form is the prose "No remotes configured." and exits 0 as well; see
+  `doltRemote` in lib/bd.js and [A tracker two Macs share](#a-tracker-two-macs-share).
 - **Don't set `sharedServer: true`** unless you've run `bd dolt start`. The
   workspaces pin `dolt_mode="embedded"`; forcing shared mode makes every command
   fail against a Dolt server that isn't listening. Writes retry through the

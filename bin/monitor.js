@@ -205,6 +205,11 @@ const EVENT_COLOUR = {
   // word, and that is the point: nothing was decided here.
   dismissed: C.dim,
   resync: C.red,
+  // Red, with the rest of the "you are not being told something" family, because that
+  // is what a tracker out of sync is: this daemon is fine, and it is quietly the only
+  // one that knows what it knows. Emitted on the transition only — see lib/sync.js —
+  // so a red line here is always news rather than a state being restated every tick.
+  sync: C.red,
   monitor: C.dim,
 };
 
@@ -258,6 +263,12 @@ function eventDetail(e) {
       const what = [e.title, e.detail].filter(Boolean).join(' — ');
       return `${e.action || 'tick'}${what ? `  ${what}` : ''}`;
     }
+    case 'sync':
+      // `describeSync` already wrote the sentence on the daemon's side, and it is the
+      // same sentence the log line and the notification carry. Copied rather than
+      // rebuilt here on purpose: three renderings of one fact are three chances for the
+      // monitor to say something subtly different from the phone about the same tick.
+      return e.detail || (e.state === 'ok' ? 'syncing again' : 'not syncing');
     case 'monitor':
       return `watching ${BASE} — everything the daemon does appears here`;
     default:

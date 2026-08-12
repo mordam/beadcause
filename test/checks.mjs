@@ -40,7 +40,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { audit, auditSource, discover, selectorsIn, tokensOf } from '../lib/checkaudit.js';
+import { audit, auditSource, CHECK_SUFFIX, commentsOf, countClaims, discover, selectorsIn, tokensOf } from '../lib/checkaudit.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(HERE, '..');
@@ -231,10 +231,10 @@ else bad('--audit on this repo exits 0', auditRun.stdout.trim());
 /* -------------------------------------------------------- how the runner ends a run */
 
 /**
- * A tree of checks that pass, fail and hang on purpose. Running the real twenty-eight to
- * find out what the runner does with a failure would take four minutes and a Chrome,
- * and would depend on this repo's own checks — which are the thing under observation,
- * not the instrument.
+ * A tree of checks that pass, fail and hang on purpose. Running the real ones to find out
+ * what the runner does with a failure would take four minutes and a Chrome, and would
+ * depend on this repo's own checks — which are the thing under observation, not the
+ * instrument.
  *
  * The hang is the one that matters. Twenty-five checks were running fine on the day
  * `agent-chooser-check.mjs` stopped answering four minutes in; without a timeout the
@@ -349,6 +349,139 @@ if (barrenRun.status !== 0) ok('a tree with no checks at all fails rather than p
 else bad('a tree with no checks at all fails rather than passing vacuously', 'exit 0 on nothing');
 
 fs.rmSync(tmp, { recursive: true, force: true });
+
+/* --------------------------------------------- and the prose must not claim a count */
+
+/**
+ * The one fact about these checks that must not be written down is how many there are.
+ *
+ * The inventory is derived — `discover()` reads the directory — but the prose about it was
+ * not, and *there are twenty-eight of them* sat in eleven places at once: four in
+ * `scripts/checks.mjs`, one in this file, six in the README, plus every phrasing spun off
+ * it with its own arithmetic in it. Nobody swept all eleven. On 2026-08-11 `origin/main`
+ * claimed twenty-six with twenty-seven on disk, one session bumped the eleven twice in a
+ * sitting (once for its own check, once after merging a `main` that had added one and not
+ * swept), and by the time this assertion was written the prose was six behind (bc-7smi).
+ *
+ * So the numbers came out of the present tense — "every `scripts/*-check.mjs`", "the rest
+ * of them" — and this is what stops them coming back, because the instinct that wrote the
+ * first one is not going away. `countClaims` in `lib/checkaudit.js` is the detector and
+ * documents what it matches; the scope and the exemptions are here, because they are
+ * facts about this repo's own prose rather than about counting. Only the *comments* of a
+ * `.mjs` are read — see `commentsOf` for why reading the code as well fails this file.
+ *
+ * **`HISTORICAL` is the interesting half.** Two sentences are *about a past run* and have
+ * to go on saying twenty-six — bumping them would not be an update, it would make them
+ * false — so they are matched literally and only the claim inside one is excused. Reword
+ * one and it stops being exempt rather than silently staying so, and an entry that now
+ * matches nothing is a failure in its own right, which is what catches an exemption left
+ * behind by a rewrite. That is the difference between an allowlist and a hole.
+ */
+const PROSE_FILES = ['scripts/checks.mjs', 'test/checks.mjs', 'lib/checkaudit.js'];
+
+/** The README does not get scanned whole: `install.sh:29-48 checks Darwin` is not a count
+ *  of anything, and all twenty-five worktrees three thousand lines away is a different
+ *  tally again. The scope is the section that is *about* the checks, plus any paragraph
+ *  elsewhere that names them — which is how the one line in the overview is covered. */
+const readmeScope = (src) => {
+  const lines = src.split('\n');
+  const from = lines.findIndex((l) => /^#{2,4} .*npm run checks/.test(l));
+  const section = [];
+  if (from !== -1) {
+    for (let i = from + 1; i < lines.length && !/^#{1,3} /.test(lines[i]); i += 1) section.push(lines[i]);
+  }
+  const paragraphs = src.split(/\n\s*\n/).filter((p) => new RegExp(`${CHECK_SUFFIX}|npm run checks|checkaudit`).test(p));
+  return [section.join('\n'), ...paragraphs];
+};
+
+/** Sentences about a past run. These must keep their numbers; see the header above. */
+const HISTORICAL = [
+  'on the first end-to-end run two of the twenty-six were red at `--jobs 4` and green alone',
+  'and two of the twenty-six were red at `--jobs 4` and green on their own the first time this was run end to end',
+  'Twenty-five checks were running fine on the day `agent-chooser-check.mjs` stopped answering',
+  'On the first real run of all twenty-six, `agent-chooser-check.mjs` went quiet',
+];
+
+/** A set, because the README's section and one of its paragraphs overlap — one claim
+ *  inside both is still one claim, and reporting it twice reads as two problems. */
+const claimedSet = new Set();
+const usedExempt = new Set();
+const scan = (where, text) => {
+  const { claims, unused } = countClaims(text, HISTORICAL);
+  for (const c of claims) claimedSet.add(`${where}: “${c.claim}” — …${c.context}…`);
+  for (const h of HISTORICAL) if (!unused.includes(h)) usedExempt.add(h);
+};
+for (const rel of PROSE_FILES) scan(rel, commentsOf(fs.readFileSync(path.join(ROOT, rel), 'utf8')));
+for (const chunk of readmeScope(fs.readFileSync(path.join(ROOT, 'README.md'), 'utf8'))) scan('README.md', chunk);
+const claimed = [...claimedSet];
+
+if (!claimed.length) {
+  ok('no prose about the checks claims how many there are');
+} else {
+  bad(
+    'no prose about the checks claims how many there are',
+    `${claimed.length} claim(s) — the directory is the inventory, so say "every ` +
+      `scripts/*-check.mjs" or "the rest of them"; if the sentence is about a past run, ` +
+      `add it to HISTORICAL in test/checks.mjs:\n      ${claimed.join('\n      ')}`,
+  );
+}
+
+/** A dead exemption is the way this assertion would quietly stop meaning anything. */
+const dead = HISTORICAL.filter((h) => !usedExempt.has(h));
+if (!dead.length) ok('every historical sentence the scan excuses is still there, word for word');
+else bad('every historical sentence the scan excuses is still there, word for word', `no longer found: ${dead.join(' | ')}`);
+
+/**
+ * The controls, for the reason the audit above has controls: "no claims found" is the same
+ * output whether the prose is clean or the detector has stopped matching, and a detector
+ * that matches nothing is the more likely of the two to survive unnoticed, because it is
+ * green. So every shape is measured in both directions on strings written here.
+ */
+/* Assembled rather than written out, because `commentsOf` is a text scan and a literal
+   slash-star in a string opens a comment for it — the same blind spot `stripComments` has
+   always had. A fixture that tripped it would fail this file over its own examples. */
+const GLOB = ['scripts', `*${CHECK_SUFFIX}`].join('/');
+const shapes = [
+  [`There are twenty-eight \`${GLOB}\` and none of them are in npm test.`, 'the inventory named outright'],
+  ['Twenty-nine checks were green.', 'a number in front of the word'],
+  ['`npm run checks` runs all twenty-eight of them, four at a time.', 'all N of them'],
+  ['A run that never ends reports nothing about the other twenty-seven.', 'the other N'],
+  ['A tree of its own rather than the real twenty-eight.', 'the real N'],
+  ['Three of the twenty-eight are red.', 'N of the M'],
+  ['These twenty-eight are the only cover there is.', 'these N'],
+];
+const missed = shapes.filter(([text]) => countClaims(text).claims.length === 0);
+if (!missed.length) ok(`the detector finds a claim in all ${shapes.length} shapes this repo wrote one in`);
+else bad('the detector finds a claim in every shape this repo wrote one in', `missed: ${missed.map(([, why]) => why).join(', ')}`);
+
+/** And the other direction: a number that is not a count of checks must not be reported. */
+const innocent = [
+  ['These take ten to forty seconds; four minutes is a check that has stopped.', 'a span of time beside the word check'],
+  ['`node test/chattabs.mjs` covers the twenty-four behavioural halves of that.', "another suite's assertions"],
+  ['A hook written once is already running in all twenty-five worktrees.', 'a number with a noun of its own'],
+  ['install.sh:29-48 checks Darwin, node, bd and tailscale.', 'a line range in front of a verb'],
+  ['The audit looked up 395 selectors and found nothing.', 'a tally the runner prints for itself'],
+];
+const alarms = innocent.filter(([text]) => countClaims(text).claims.length > 0);
+if (!alarms.length) ok('and reports nothing for a number that is not a count of checks');
+else bad('and reports nothing for a number that is not a count of checks', `false alarms: ${alarms.map(([, why]) => why).join(', ')}`);
+
+/** An exemption excuses the claim inside it and not the one next to it. */
+const twoClaims = `On the first run two of the twenty-six were red. There are twenty-eight \`${GLOB}\` today.`;
+const excused = countClaims(twoClaims, ['On the first run two of the twenty-six were red']);
+if (excused.claims.length === 1 && /twenty-eight/.test(excused.claims[0].claim) && !excused.unused.length) {
+  ok('an exemption excuses the claim inside it and leaves the one beside it reported');
+} else {
+  bad(
+    'an exemption excuses the claim inside it and leaves the one beside it reported',
+    `${excused.claims.length} claim(s): ${excused.claims.map((c) => c.claim).join(', ')}`,
+  );
+}
+
+/** And an exemption that matches nothing is reported rather than ignored. */
+const stale = countClaims('There are twenty-eight of these checks.', ['a sentence that was rewritten']);
+if (stale.unused.length === 1) ok('an exemption that matches nothing is named as unused');
+else bad('an exemption that matches nothing is named as unused', `unused: ${stale.unused.length}`);
 
 console.log(failures ? `\n\x1b[31m${failures} of ${ran} failed\x1b[0m\n` : `\n\x1b[32mall ${ran} checks passed\x1b[0m\n`);
 process.exit(failures ? 1 : 0);

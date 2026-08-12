@@ -514,6 +514,23 @@ body {
 .trouble-held { display: block; color: var(--muted); font-size: 11.5px; }
 .trouble-note { display: block; margin-top: 7px; color: var(--muted); font-size: 11.5px; }
 
+/* A tracker that is no longer the same tracker as the machine it shares one with —
+   see `syncTroubleHtml`. The same box and deliberately not the same colour, because
+   the two panes stack and the claim underneath each is different: the red one says
+   the list is stale and it is honest about it, and this one says the list is
+   *perfect* about this Mac and quietly missing everybody else's. Two identical red
+   boxes would read as one problem said twice.
+
+   --warn here, unlike the pane above, and the reason is the sentence it is closer to:
+   this is something that has been left in a mess and will stay that way until
+   somebody deals with it, which is exactly what the orange means everywhere else in
+   this app. The left rule is what carries it at a glance when both are on screen. */
+.trouble-sync {
+  border-color: color-mix(in srgb, var(--warn) 60%, transparent);
+  background: color-mix(in srgb, var(--warn) 9%, var(--surface));
+  border-left-width: 3px;
+}
+
 /* How many are waiting, on the ⚖️ in the header — the channel's only presence in
    the chrome, since a request is never in the list below. */
 .icon-btn { position: relative; }
@@ -4693,10 +4710,25 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
   text-align: center;
 }
 
-/* What each repo actually resolves to — the space's answer after the two per-repo
-   lists that outrank it have had their say. One line per repo, wrapping. */
-.space-repos { display: flex; flex-direction: column; gap: 6px; padding: 2px 0 6px; }
-.space-repo { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+/* What each repo actually resolves to — the space's answer after the three per-repo
+   lists that outrank it have had their say. Two lines per repo: the tags it resolves to,
+   wrapping, and under them the one setting a repo may answer for itself.
+
+   A column rather than one wrapping row, and the reason is the phone. Six tags and three
+   buttons in a single `flex-wrap` line at 393px is a block of pills where a thumb cannot
+   tell a statement from a control — and the buttons would land in a different place on
+   every row, because the tags above them are different widths. On their own line they
+   are always in the same place, and the rows are separated by a rule instead of by the
+   gap they used to share with the tags inside them. The buttons are a size down from
+   `.adv-btn` for the same reason a repo row is not a settings row: this is the fine
+   adjustment under an answer, not the answer. */
+.space-repos { display: flex; flex-direction: column; gap: 2px; padding: 2px 0 6px; }
+.space-repo { display: flex; flex-direction: column; gap: 5px; padding: 7px 0; border-top: 1px solid var(--line); }
+.space-repo:first-child { border-top: 0; padding-top: 0; }
+.space-repo-tags { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.space-repo-set { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
+.space-repo-what { font-size: 12px; font-weight: 600; color: var(--muted); }
+.space-repo-set .adv-btn { min-height: 28px; padding: 2px 10px; font-size: 12px; }
 
 /* -------------------------------------------------------------------- admin
 

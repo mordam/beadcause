@@ -594,6 +594,10 @@ await check('every swallowed failure in the poll cycle reports', () => {
       'the poll',
       'the release sweep',
       'the reply push',
+      // lib/sync.js. `syncOnce` swallows every tracker failure into an outcome of its
+      // own, so anything reaching this catch is a bug by construction — which is
+      // precisely the bar `reportSweepFailure` sets.
+      'the tracker sync',
     ],
     `every catch in the cycle reports, got ${named.join(', ')}`
   );
