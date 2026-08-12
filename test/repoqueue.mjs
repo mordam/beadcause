@@ -419,6 +419,38 @@ await check('a single-repo workspace is untouched, stray label and all', async (
   assert.deepEqual([...new Set(opened.map((o) => o.dir))], [PLAIN], 'the sessionDirs answer, unchanged');
 });
 
+/**
+ * Where this block meets bc-bhp9's batching: an epic hands its ready children to one
+ * worker, and one worker opens in exactly one checkout — the epic's. So a child naming a
+ * *different* approved repo must not be in that brief, or it gets worked in the wrong tree
+ * while the brief reads perfectly reasonably.
+ *
+ * This case lives here rather than in test/epicqueue.mjs because `placeFor` is gated on
+ * `multiRepo`: in a single-repo fixture every bead resolves to `repo: null`, they all
+ * compare equal, and the guard is unreachable. The approved-repo block and the real
+ * resolver are what make the question askable at all.
+ */
+await check('a batch does not cross checkouts', async () => {
+  const { opened, card } = await tick({
+    ready: [
+      bead('cl-e', 'The epic', ['repo:architecture'], { issue_type: 'epic' }),
+      bead('cl-e.1', 'First child', ['repo:architecture']),
+      bead('cl-e.2', 'Second child', ['repo:architecture']),
+      bead('cl-e.3', 'A child in another repo', ['repo:athena-service']),
+    ],
+    overrides: { maxWorkers: 4 },
+  });
+
+  assert.deepEqual(
+    opened.map((o) => o.id),
+    ['cl-e'],
+    'one window, and it is the epic that carries the batch'
+  );
+  const batch = ((card.workers.find((w) => w.id === 'cl-e') || {}).batch || []).slice().sort();
+  assert.deepEqual(batch, ['cl-e.1', 'cl-e.2'], 'only the children in the epic’s own checkout');
+  assert.equal(repoOf(card, 'cl-e'), 'architecture', 'and the worker row names the checkout it opened in');
+});
+
 /* --------------------------------------------------------------------- report */
 
 console.log('');
