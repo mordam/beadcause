@@ -10607,6 +10607,23 @@ possible — the process serving the console is a grandchild of launchd, so pass
 `BEADCAUSE_LAUNCHD_PROGRAM` is what stops a healthy install being reported as stale, and
 an *empty* value has to mean "not a launchd job" rather than "read your own argv".
 
+That variable is also the one thing the suite has to *drop* before its first case, and
+bc-nv25 is what it cost not to. An iTerm window the daemon opens is downstream of the
+router launchd started — not through the command string, which starts a fresh login
+shell that inherits nothing, but through iTerm.app's own environment — so every shell in
+it carries `BEADCAUSE_LAUNCHD_PROGRAM` naming the **main checkout's** `bin/router.js`,
+true about that terminal's ancestry and nothing at all about the tree under test. `serviceHealth()` reads the environment whenever its caller
+passes nothing, so the good-day checks in a worktree saw a running job disagreeing with
+the checkout and reported the stale-plist bug the file exists to detect: real logic, wrong
+input, red in every session an agent opened and green in every terminal a person opened —
+the split that guarantees nobody goes looking. It is the environment half of the rule
+[a suite must not assert about a directory it does not own](#a-suite-must-not-assert-about-a-directory-it-does-not-own--testbrowsemjs).
+So the file deletes the variable at the top and every case says what it means, and the
+two cases either side of
+the good day pin the difference the trap turns on: pass nothing and you get the
+environment's answer, pass `null` and you get the file's. Nothing is lost by it — no case
+here ever read the real LaunchAgents folder.
+
 `test/warm.mjs` covers [the warm layer](#loaded-once-and-kept--what-a-tab-tap-actually-costs),
 which is entirely made of things that fail without saying anything. A cache that hands
 back a payload from before its TTL, or half of one, or one a previous version stored in
