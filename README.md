@@ -10196,11 +10196,85 @@ The failure path is what `node test/sync.mjs` covers, and it is the half that is
 for a reason: a sync that works is provable by looking at a second Mac, and a sync that
 quietly stopped looks exactly like a quiet team.
 
+### Who a question is for — `me` and the `for:` label
+
+Sharing the tracker hands every daemon the whole graph, which is the point, and it
+creates a problem the moment there is more than one of you. Every push in lib/notify.js
+goes to one ntfy topic and the inbox is one list. On one Mac that is correct — there is
+one person and every question is theirs. On six it is the same code doing something
+quite different: six daemons see the same new `human` bead and each buzzes its own
+phone about it. **One question rings six phones and five of those people cannot act on
+it.** The fan-out did not arrive with federation; it moved, from inside one process to
+across six.
+
+Space and workspace are not the fix, and it is worth being precise about why. Those two
+answer *which of my lives is this about*. This is *whose decision is this*, which is a
+different question with a different answer: two engineers on the same repo want the same
+space, the same workspace, and different questions out of it.
+
+So a question can name who it is for, as a `for:<handle>` label on the bead:
+
+```sh
+beadcause-ask -w acme -t 'Gross or net?' --for carol@example.com < brief.md
+beadcause-ask -w acme -t 'Which of these two?' --for everyone      < brief.md
+```
+
+**The addressee is on the bead, in the shared graph, and it could not be anywhere
+else.** Each Mac has to work out on its own that a question is not for the person
+holding it, and the tracker is the only thing all six machines agree about. A label
+also means `bd show` answers the question on any machine, with nothing beadcause-shaped
+in the loop.
+
+**It is stamped where the answer is actually known.** You will not normally type
+`--for`: a question filed on this Mac is addressed to this Mac's person automatically —
+by `beadcause-ask`, by a worker's [delivery card](#landing-work--a-branch-a-pull-request-and-the-workers-own-merge),
+by `beadcause-propose`, and by every question the daemon files itself. That is a write-time
+decision rather than a read-time one because `created_by` cannot answer it: it is
+`actor`, the literal string `beadcause`, identical on all six machines. The machine
+doing the asking is the only thing that knows.
+
+**Set `me` on each machine, to that machine's person.** It takes one handle or a list,
+for a person who answers to two addresses in the same graph:
+
+```json
+{ "me": ["carol@example.com", "carol@work.example"] }
+```
+
+**And with `me` unset — the default, and every install that has never heard of this —
+none of the above happens at all.** No label is stamped, no bead is anybody else's, and
+every question rings exactly as it did. That is not a default that happens to be quiet;
+it is a branch that cannot be entered, because a machine that cannot say who it is has
+no grounds to decide a question belongs to somebody else. It is deliberately not asked
+by `npm run configure`: on a one-Mac install the honest answer is that there is nobody
+to tell you apart from.
+
+**Nothing is ever hidden, and nothing is dropped.** An addressed question is the third
+answer `quietReasonFor` gives, beside `filtered` and `muted`, and it inherits their
+contract exactly — the event fires, the card files, the badge counts, the inbox shows it
+to everybody, and the *phone* stays dark. Every engineer can still read, answer and
+close a question addressed to somebody else; the label decides who is rung, and nothing
+more. A question that reached the wrong person is an annoyance. A question that reached
+nobody is the failure this whole app exists to prevent, which is why routing that could
+lose one would not be worth having.
+
+Two consequences of that ordering worth knowing:
+
+- **`addressed` outranks `filtered`.** A bead addressed to another engineer will not
+  ring here however far you widen the filter, so reporting it as filtered would be a
+  true sentence pointing at the wrong lever. The card says which: *Arrived quietly 3h
+  ago · asked of carol@example.com*, where a filtered one names the filter.
+- **Unlike the filter, it reaches the [foundation channel](#what-an-agent-is--and-how-it-asks-to-be-different).**
+  The filter is exempted there because its two levels are both answers to "which of my
+  lives is this about", and a constitutional request has no answer to that. It has a
+  perfectly good answer to "whose agent is this", which is the question being asked
+  here.
+
 ## Config — `~/.config/beadcause/config.json`
 
 | key | meaning |
 |---|---|
 | `owner` | what the agents call you. It goes into every agent prompt ("*<name>* is not at the keyboard", "*<name>* approves every bead before it exists"), the body of every pull request an agent opens, and the notes that land on a bead. Asked first by `npm run configure`; guessed from your git `user.name` (first word) when it has never been set |
+| `me` | who this Mac's person **is**, in the tracker — the handle a question is addressed to, or a list of them for somebody who answers to two addresses (default `null`). Not the same thing as `owner`, which is what agents call you in prose. `null` means this daemon is everybody and every question rings it, which is what a one-Mac install has always done; set it only on a tracker more than one person reads, and set it per machine. See [Who a question is for](#who-a-question-is-for--me-and-the-for-label) |
 | `port`, `host` | listens on `127.0.0.1` **and** the Tailscale IP only — never the LAN. The *address* is what gets bound; `baseUrl` is what gets handed out, and they differ on purpose |
 | `baseUrl` | the origin every generated link is built from — the pairing QR, the APK code, every notification's click target and action button, the terminal's `wss://`. Maintained for you: `https://<host>.<tailnet>.ts.net:<port>` when there is a certificate to serve it, the Tailscale address over plain http when there is not, and moved between the two on its own. Set it to something else — a real domain, a proxy — and it is never rewritten. See [the URL you are given](#the-url-you-are-given-and-what-happens-to-a-phone-that-already-has-one) |
 | `tls.enabled` | HTTPS on the tailnet address with a `tailscale cert` certificate and a TLS 1.2 floor (default `true`). Loopback is never TLS whatever this says, and a tailnet without *HTTPS Certificates* enabled falls back to plain http with the reason in the log. Set from the HTTPS card on `/admin` rather than by hand — see [the switch on the Admin screen](#the-switch-on-the-admin-screen) and [HTTPS on the tailnet name](#https-on-the-tailnet-name) |
