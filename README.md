@@ -7258,6 +7258,65 @@ does the wrong thing for a week. A conflict is filed at P1, and it **parks the b
 that hit it behind the question**, so nothing reopens that work until you have settled
 it. Then the session stops.
 
+#### Parking an epic, which bd refused outright
+
+Three commands park work behind a question — `beadcause-ask --blocks`, the conflict
+above, and `beadcause-deliver` when the merge did not happen — and all three did it
+with one line, `bd dep add <the work> <the question>`. On an epic, bd refuses:
+
+```
+Error: epics can only block other epics, not tasks
+```
+
+**bd will not let an epic be blocked by anything that is not itself an epic.** Every
+other pair is fine — a bug blocked by a task, a chore blocked by a decision — so the
+rule is narrower than it reads and it is exactly one line: epic-ness has to match. The
+same sentence with the nouns swapped comes back for a task blocked by an epic.
+
+What made that expensive is the order. The question is created *first*, and
+`bin/ask.js` added the edge afterwards without catching anything, so a session asking
+about a P0 epic got a raw Node stack trace **having already filed the question**: it
+was on the phone, labelled `human`, and the caller had been told the command failed. A
+session that believed the error asked nothing. A session that retried asked twice. And
+the epic it was supposed to park went on being `bd ready`, so the next advocate tick
+opened a window on work that was explicitly waiting for an answer — which is the one
+thing `--blocks` exists to prevent.
+
+So the question is now **typed after the bead it is going to park** (`lib/park.js`):
+ask about an epic and the question is filed as an epic, and the edge goes in. Nothing
+else about it changes — still labelled `human`, still out of every queue because of
+that label, still drawn as an ordinary card, because the phone never renders a
+question's type. It costs one extra `bd list --parent` when the card is opened, since
+[the close gate](#when-bd-will-not-close-the-bead) asks an epic for its open children;
+a question has none, so the gate is null and the card behaves like any other.
+And closing it still un-parks the work the moment it is answered, which is the half the
+by-hand workaround below cannot do.
+
+Underneath that, a refused edge is no longer only about types — bd mid-write on the
+Dolt lock refuses too — so the fallback is what a session had to do by hand: label the
+work bead `human`, which takes it out of every queue so nothing opens a session on it.
+That is **not** the same thing and the caller is told so in one plain sentence, never a
+stack trace: the label does not come off when the answer lands, so somebody has to come
+back to that bead deliberately. `beadcause-deliver` opts out of the fallback, because
+its work bead is about to be closed by the merge and a label nothing removes would sit
+in the inbox as a card with no question on it.
+
+Two smaller rules fell out of the same bug, and both are about what exists afterwards:
+a `--blocks` id that is not in the workspace is refused **before** anything is created,
+which is the only moment refusing is free; and once the question exists the command
+prints its id and exits 0 whatever the parking did, because a caller told it failed over
+a question that is already on the phone either asks nothing or asks twice.
+
+`test/park.mjs` covers it, and covers it end to end for the two commands a session
+actually runs: a unit test of the type rule alone would pass just as happily against a
+`bin/ask.js` that still hardcoded `--type task`, so both are spawned as real
+subprocesses against a stub `bd` that enforces bd's epic rule — measured off the real
+binary rather than guessed — and the assertions are made against what landed in the
+tracker. Including the two states that are only visible from outside the process: a bad
+`--blocks` id leaving the tracker with nothing new in it, and a refused edge leaving a
+question whose id is still on stdout with one plain sentence, and no stack frame, on
+stderr.
+
 ### Approve, adjust, decline
 
 Every proposal row has had ✓ and ✕ since proposals existed. The third control is new,
