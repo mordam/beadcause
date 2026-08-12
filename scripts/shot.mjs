@@ -38,12 +38,11 @@
 // the same way scroll-check.mjs and its siblings already do, so it adds no
 // dependency and no downloaded browser. Chrome is looked up in the usual places and
 // can be pointed at with CHROME_PATH.
-import { spawn } from 'node:child_process';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadConfig } from '../lib/config.js';
+import { launchChrome } from './helpers/chrome.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -163,95 +162,6 @@ const slug =
 const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\..*/, '').replace('T', '-');
 const OUT = path.resolve(opt('out') || path.join(SHOT_DIR, `${slug}-${stamp}.png`));
 
-/* ------------------------------------------------------------------ driver */
-
-function connect(url) {
-  return new Promise((resolve, reject) => {
-    const ws = new WebSocket(url);
-    let id = 0;
-    const pending = new Map();
-    const listeners = [];
-    ws.onmessage = (m) => {
-      const msg = JSON.parse(m.data);
-      if (msg.method) {
-        for (const fn of listeners) fn(msg.method, msg.params);
-        return;
-      }
-      const p = msg.id != null && pending.get(msg.id);
-      if (!p) return;
-      pending.delete(msg.id);
-      msg.error ? p.reject(new Error(msg.error.message)) : p.resolve(msg.result);
-    };
-    ws.onerror = () => reject(new Error('could not attach to Chrome'));
-    ws.onopen = () =>
-      resolve({
-        send: (method, params = {}) =>
-          new Promise((res, rej) => {
-            const i = ++id;
-            pending.set(i, { resolve: res, reject: rej });
-            ws.send(JSON.stringify({ id: i, method, params }));
-          }),
-        on: (fn) => listeners.push(fn),
-        close: () => ws.close(),
-      });
-  });
-}
-
-async function launch(chrome) {
-  // Derived from the pid so two agents shooting at the same moment do not fight over
-  // one debugging port — which they will, because concurrent agents are the point.
-  const port = 9600 + (process.pid % 300);
-  const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'beadcause-shot-'));
-  const proc = spawn(
-    chrome,
-    [
-      '--headless=new',
-      `--remote-debugging-port=${port}`,
-      `--user-data-dir=${profile}`,
-      '--no-first-run',
-      '--no-default-browser-check',
-      // Offscreen renderers are throttled to about a frame a second, which is plenty
-      // to photograph a half-drawn graph and file it as a layout bug.
-      '--disable-background-timer-throttling',
-      '--disable-backgrounding-occluded-windows',
-      '--disable-renderer-backgrounding',
-      '--hide-scrollbars',
-      'about:blank',
-    ],
-    { stdio: 'ignore' }
-  );
-  let target = null;
-  for (let i = 0; i < 60 && !target; i++) {
-    await sleep(250);
-    try {
-      target = (await (await fetch(`http://127.0.0.1:${port}/json/list`)).json()).find((t) => t.type === 'page');
-    } catch {
-      /* not up yet */
-    }
-  }
-  if (!target) {
-    proc.kill();
-    throw new Error('Chrome never exposed a page target');
-  }
-  const s = await connect(target.webSocketDebuggerUrl);
-  return {
-    s,
-    close: () => {
-      try {
-        s.close();
-      } catch {
-        /* already gone */
-      }
-      proc.kill();
-      try {
-        fs.rmSync(profile, { recursive: true, force: true, maxRetries: 3 });
-      } catch {
-        /* Chrome is still letting go of a temp dir */
-      }
-    },
-  };
-}
-
 /* --------------------------------------------------------- what went wrong */
 
 // Deduped by the text, because one broken fetch inside a render loop says the same
@@ -327,7 +237,7 @@ if (!chrome) {
   process.exit(1);
 }
 
-const { s, close } = await launch(chrome);
+const { s, close } = await launchChrome('beadcause-shot-', { chrome });
 let failure = null;
 
 try {

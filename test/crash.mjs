@@ -39,6 +39,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { cleanupTmp } from './helpers/tmp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const LIB = (name) => path.join(HERE, '..', 'lib', name);
@@ -427,7 +428,16 @@ await check('the same error forever stops at the cap', async () => {
     'and it says which guard stopped it'
   );
   assert.equal(issues().length, 1, 'still one bead');
-  assert.equal(issues()[0].comments.length, PER_ERROR_CAP - 1, 'with a bounded number of occurrence comments');
+  // One comment rather than `PER_ERROR_CAP - 1` of them: the first repeat is written and
+  // opens a coalescing window, and the occurrences inside it are counted rather than
+  // commented (bc-5f9b, lib/errors.js). This cap is the guard in front of that one, and
+  // it is the reason a *daemon* in a loop was never the worst case here.
+  assert.equal(issues()[0].comments.length, 1, 'with a bounded number of occurrence comments');
+  assert.deepEqual(
+    outcomes.slice(0, PER_ERROR_CAP).map((o) => o.action),
+    ['created', 'commented', ...Array(PER_ERROR_CAP - 2).fill('coalesced')],
+    'one bead, one comment, and a count for the rest'
+  );
 });
 
 /* ------------------------------------------------------------------- shutdown */
@@ -560,7 +570,7 @@ await check('bin/router.js arms them too — after the port is held, and never a
   // The whole of bc-ega4's risk, and the only part of it a diff can undo by accident.
   // A *static* import of lib/crash.js or lib/deploy.js would put five to thirteen modules
   // of app in front of the one process that must always be able to bind 4318 — lib/deploy.js
-  // reaches lib/session.js, and so the lib/foundation.js ↔ lib/agents.js cycle (bc-u4na).
+  // reaches lib/session.js, which reaches most of the roster and the foundations.
   // Loading them after listen() means the worst a broken module can do is cost the beads.
   const statics = [...src.matchAll(/^import[\s\S]*?from '(\.\.\/lib\/[a-z]+\.js)';$/gm)].map((m) => m[1]);
   for (const forbidden of ['../lib/crash.js', '../lib/deploy.js', '../lib/bd.js']) {
@@ -592,7 +602,7 @@ await check('every swallowed failure in the poll cycle reports', () => {
 });
 
 if (uninstall) uninstall();
-fs.rmSync(tmp, { recursive: true, force: true });
+await cleanupTmp(tmp);
 
 console.log(`\n${ran - failures}/${ran} checks passed\n`);
 process.exit(failures ? 1 : 0);

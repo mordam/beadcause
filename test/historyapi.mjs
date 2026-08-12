@@ -49,6 +49,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { cleanupTmp } from './helpers/tmp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(HERE, '..');
@@ -84,7 +85,8 @@ const acheck = async (name, fn) => {
 const history = await import(LIB('history.js'));
 const { Bd, BD_TIMEOUT } = await import(LIB('bd.js'));
 const { archivedBeads } = await import(LIB('sessionlog.js'));
-const { ledger, matches, newestUpdatedFirst, parseQuery, toRow, forget, PAGE_DEFAULT, PAGE_MAX } = history;
+const { ledger, matches, newestUpdatedFirst, parseQuery, toRow, forget, PAGE_DEFAULT, PAGE_MAX, CLOSE_REASON_MAX } =
+  history;
 
 const WS = { name: 'demo', dir: path.join(tmp, 'ws', '.beads') };
 const OTHER = { name: 'second', dir: path.join(tmp, 'ws2', '.beads') };
@@ -283,6 +285,66 @@ await (async () => {
 
   check('the byline still rides along, for display', () => {
     assert.equal(row.createdBy, 'neadamthal@gmail.com');
+  });
+})();
+
+/* =============================================== the close reason, clamped to what fits */
+
+console.log('\na close reason no row could draw is not sent');
+
+await (async () => {
+  const closed = (close_reason) => toRow('demo', { id: 'bc-long', status: 'closed', close_reason });
+  // Real prose, because the whole point of the boundary is where the *words* are.
+  const SENTENCE = `Landed as #113 as e8315969 — still owed: CAN BE DEPLOYED. ${'Verified against every path. '.repeat(40)}`;
+
+  check('a reason longer than the ceiling comes back cut, with an ellipsis saying so', () => {
+    const why = closed(SENTENCE).closeReason;
+    assert.ok(why.length <= CLOSE_REASON_MAX + 1, `${why.length} characters went out`);
+    assert.ok(why.endsWith('…'), why.slice(-20));
+    assert.ok(SENTENCE.startsWith(why.slice(0, -1)), 'the kept half is no longer a prefix of the reason');
+  });
+
+  check('and cut on a word, never through one', () => {
+    // The assertion is about the character the original has where we stopped: cutting
+    // cleanly means the next thing in the real sentence is whitespace. A mid-word cut
+    // passes every length check and still reads as a typo in the ledger.
+    const kept = closed(SENTENCE).closeReason.slice(0, -1);
+    assert.match(SENTENCE[kept.length], /\s/, `cut through "${SENTENCE.slice(kept.length - 8, kept.length + 8)}"`);
+    assert.doesNotMatch(kept, /\s$/, 'the space before the ellipsis was left on');
+  });
+
+  check('a reason that fits is passed through untouched, ellipsis and all', () => {
+    // Both ends of the boundary, because an off-by-one here is a `…` appended to a
+    // sentence that was already whole — which reads as truncation that did not happen.
+    const exact = 'x'.repeat(CLOSE_REASON_MAX);
+    assert.equal(closed(exact).closeReason, exact);
+    assert.equal(closed('Merged (224d5ab) and live').closeReason, 'Merged (224d5ab) and live');
+    assert.equal(closed('x'.repeat(CLOSE_REASON_MAX + 1)).closeReason.length, CLOSE_REASON_MAX + 1);
+  });
+
+  check('text with no word boundary to back off to is cut hard rather than emptied', () => {
+    // A pasted URL, or a sha with no spaces around it. Backing off to the last space
+    // would throw away the whole preview to honour a boundary that is not there.
+    const solid = `Superseded by https://github.com/x/${'y'.repeat(400)}`;
+    const why = closed(solid).closeReason;
+    assert.equal(why.length, CLOSE_REASON_MAX + 1);
+    assert.equal(why, `${solid.slice(0, CLOSE_REASON_MAX)}…`);
+  });
+
+  check('the ceiling is above what two lines of `.hist-why` can draw', () => {
+    // 226 characters, measured in a headless Chrome at the widest this page can ever be
+    // (`main.work` caps at 780px; a 393px phone holds 94). The clamp has to sit above
+    // that or it becomes the clamp a reader sees, and the CSS one stops being the truth.
+    assert.ok(CLOSE_REASON_MAX > 226, `${CLOSE_REASON_MAX} would cut text the row could have shown`);
+  });
+
+  check('and the whole sentence is still one tap away — nothing here filters on it', () => {
+    // The sheet gets `close_reason` straight off `/api/bead`, which hands bd's issue
+    // through verbatim, so clamping here costs nothing but bytes. It would cost
+    // *behaviour* if any filter read the field — `matches` looks at the id alone.
+    const row = closed(SENTENCE);
+    assert.equal(matches(row, { id: 'bc-long' }), true);
+    assert.equal(matches(row, { id: 'Verified against every path' }), false);
   });
 })();
 
@@ -838,9 +900,6 @@ const cfg = {
   advocates: { enabled: false, workspaces: [] },
 };
 
-// foundation.js first: it and agents.js import each other, and agents.js is not the end
-// of that cycle that can be pulled in cold. See test/routes.mjs.
-await import(LIB('foundation.js'));
 const { createApp, listen } = await import(LIB('server.js'));
 const { boundPort } = await import('./helpers/net.mjs');
 
@@ -1007,7 +1066,7 @@ await acheck('and it needs the token like everything else under /api', async () 
 });
 
 for (const s of servers) s.close();
-fs.rmSync(tmp, { recursive: true, force: true });
+await cleanupTmp(tmp);
 
 console.log(
   failures

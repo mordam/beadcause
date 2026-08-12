@@ -24,6 +24,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
 import { boundPort } from './helpers/net.mjs';
+import { cleanupTmp } from './helpers/tmp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const LIB = (name) => path.join(HERE, '..', 'lib', name);
@@ -291,7 +292,7 @@ if (only) {
       console.error(`  FAIL  ${name}\n${(err.stderr || err.message).toString().trim()}\n`);
     }
   }
-  fs.rmSync(tmp, { recursive: true, force: true });
+  await cleanupTmp(tmp);
   console.log(failed ? `\n${failed} of ${plan.length} failed` : `\n${plan.length} passed`);
   process.exit(failed ? 1 : 0);
 }

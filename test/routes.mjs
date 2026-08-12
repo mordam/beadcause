@@ -42,6 +42,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { boundPort } from './helpers/net.mjs';
+import { cleanupTmp } from './helpers/tmp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const LIB = (f) => path.join(HERE, '..', 'lib', f);
@@ -190,9 +191,6 @@ const cfg = {
   advocates: { enabled: false, workspaces: [] },
 };
 
-// foundation.js first: it and agents.js import each other, and agents.js is not the
-// end of that cycle that can be pulled in cold.
-await import(LIB('foundation.js'));
 const { createApp, listen, routeTable, assertRoutes } = await import(LIB('server.js'));
 
 const app = createApp(cfg);
@@ -308,7 +306,7 @@ check(
 /* ---------------------------------------------------------------------- done */
 
 for (const s of servers) s.close();
-fs.rmSync(tmp, { recursive: true, force: true });
+await cleanupTmp(tmp);
 
 console.log('');
 if (failures) {

@@ -44,6 +44,7 @@ import path from 'node:path';
 import vm from 'node:vm';
 import { fileURLToPath } from 'node:url';
 import { boundPort } from './helpers/net.mjs';
+import { cleanupTmp } from './helpers/tmp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(HERE, '..');
@@ -356,9 +357,6 @@ const cfg = {
   advocates: { enabled: false, workspaces: [] },
 };
 
-// foundation.js first: it and agents.js import each other, and agents.js is not the
-// end of that cycle that can be pulled in cold.
-await import(path.join(ROOT, 'lib', 'foundation.js'));
 const { createApp, listen } = await import(path.join(ROOT, 'lib', 'server.js'));
 
 const app = createApp(cfg);
@@ -410,7 +408,7 @@ check('an unknown workspace is refused rather than 500ing', () => {
 });
 
 for (const s of servers) s.close();
-fs.rmSync(tmp, { recursive: true, force: true });
+await cleanupTmp(tmp);
 
 console.log(failures ? `\n${failures} failed\n` : '\nall good\n');
 process.exit(failures ? 1 : 0);

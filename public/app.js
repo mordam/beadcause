@@ -4959,8 +4959,14 @@
         // `endorsed` is the server saying this bead was being held back from every
         // agent until this tap (lib/endorse.js). Worth a word: it is a decision you
         // just made, and nothing else on this card says you made it.
+        // `repo` is the checkout the bead named, where its workspace holds several
+        // (lib/repos.js). It is usually the same word as the directory's basename and
+        // saying it outright is still worth the characters: the basename is where the
+        // window happens to be, the repo is the thing the bead said it was about.
         toast(
-          `${res.endorsed ? 'Endorsed it — session' : 'Session'} open in ${res.dir.split('/').pop()} — go to your Mac`
+          `${res.endorsed ? 'Endorsed it — session' : 'Session'} open in ${
+            res.repo?.name || res.dir.split('/').pop()
+          } — go to your Mac`
         );
       } catch (err) {
         toast(err.message, true);
