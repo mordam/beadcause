@@ -588,6 +588,8 @@ are on it:
 │      Quiet hours              18:00 → 09:00  │
 │      Quiet days                     sat, sun │
 │      Push detail             inherited · full│
+│      Slack channel                C0123456789│
+│      Slack detail            inherited · full│
 │      Agents may answer unasked          off  │
 │      Beads agents file arrive endorsed   on  │
 │      Workers merge their own PRs         on  │
@@ -607,17 +609,28 @@ pane](#the-mirror--whatever-the-phone-has-open-with-room-to-read-it). The settin
 sits above them because it is what the page is the details *of*, and a setting you scroll
 six advocate cards to reach is a setting you go back to editing the config file for.
 
-**Three shapes of control, and the shape is the shape of the answer.** `Muted` is
+**Four shapes of control, and the shape is the shape of the answer.** `Muted` is
 two-state, because there is no global mute behind it and a third button would be a
 lie. Quiet hours and quiet days are a pair of clocks and a row of days, each clearable,
-because "no quiet hours" is a state you have to be able to get back to. The six with a
-global default behind them — push detail, agents-may-answer, filings-arrive-endorsed,
-auto-merge, approval-first, ships-itself — are **three**-state: On, Off, and *Inherit*,
-which names what it currently resolves to. That third button is not a nicety:
-`prPolicyFor` is explicit
+because "no quiet hours" is a state you have to be able to get back to. The seven with a
+global default behind them — push detail, Slack detail, agents-may-answer,
+filings-arrive-endorsed, auto-merge, approval-first, ships-itself — are **three**-state:
+On, Off, and *Inherit*, which names what it currently resolves to. That third button is
+not a nicety: `prPolicyFor` is explicit
 that a space may override the global in *either* direction, so "off" and "following a
 default that is currently off" are different answers, and only one of them survives the
 default changing.
+
+**The Slack channel is the fourth shape, and the only one you type.** A channel id is
+free text rather than a choice, so the row is a field and three buttons: **Set** sends
+what you typed, **Never** stores an empty string — this space stays out of Slack however
+`slack.channel` is set — and **Inherit** deletes the key. Never and Inherit look
+identical on the day you press them and come apart the day the global channel changes,
+which is why both are there and why a blank field with *Set* pressed is refused rather
+than guessed at. What you have typed is held in the page's own state until the press,
+because this page repaints off a stream event rather than off your thumb and a
+half-typed channel id living in the DOM would be taken away by a poll nobody asked
+for.
 
 **"What each repo resolves to" is the panel that stops the screen lying.** The space is
 not the last word on two of these settings: `ntfy.minimalWorkspaces` and
@@ -736,7 +749,9 @@ midnight (`18:00` → `09:00` is the normal case) and is evaluated in local time
 because "after six" means your evening. A malformed time disables the rule rather
 than muting the space forever. `ntfyDetail` and `autoDispatch` set at space level
 keep applying as you add workspaces to that space — which is exactly the drift that
-otherwise leaks a work question onto a public relay.
+otherwise leaks a work question onto a public relay. `slackChannel` and `slackDetail`
+are the same answer for [the other delivery surface](#slack--the-same-decision-in-a-channel),
+and for the same reason.
 
 **A space also decides who merges.** `autoMerge` and `requireApproval` are the same
 kind of answer as the two above — one you give once for a group of repos rather than
@@ -9116,14 +9131,20 @@ private side project turning up in a channel other people read.
 | what | where | means |
 |---|---|---|
 | `slack.channel` | config | the default channel for every workspace |
-| `slackChannel` | on a space | that space's channel — **or `null`, meaning this space never posts**, however the global is set |
+| `slackChannel` | on a space | that space's channel — **or the key present and empty (`""`, or `null` if you are hand-editing), meaning this space never posts**, however the global is set. No key at all is the third answer: follow `slack.channel` |
 | `slack.excludeWorkspaces` | config | one repo that never posts, outranking its space. The same idea as `ntfy.minimalWorkspaces` |
 | `slackDetail` | on a space | `minimal` posts a nudge with a link and no question text |
 
 A channel id (`C…`) or a DM id (`D…`), not a `#name` — the API takes ids, and a name
 that has been renamed since you typed it fails at post time rather than at configure
-time. `slackChannel` and `slackDetail` are hand-edited in `config.json` today; the space
-details screen does not offer them yet.
+time. Both `slackChannel` and `slackDetail` are rows on the
+[space details screen](#space-details--the-page-the-advocate-console-became), so the
+per-space half of this is a thing you change from a phone rather than by opening
+`config.json` on the Mac; `npm run configure` asks for the global channel and the global
+detail alongside its ntfy question, which is how a fresh install finds out this exists at
+all. What the resolver goes by is whether the key is *there*, so the screen's **Never**
+writes `""` and its **Inherit** deletes the key — the two ways of saying nothing, kept
+apart because only one of them survives the global channel changing.
 
 Unlike ntfy, `detail` defaults to **full** on both levels. `minimal` exists because an
 ntfy.sh topic is readable by anybody who guesses its name, and a Slack channel you named
@@ -9655,9 +9676,9 @@ history.
 | `ntfy.detail` | `full` = question + option buttons in the notification; `minimal` = contentless nudge |
 | `ntfy.minimalWorkspaces` | forced to `minimal` regardless — put shared/work trackers here |
 | `slack.enabled` | post questions to a Slack channel with a button per option (default `false`). Off until this **and** a channel **and** a bot token all exist — see [Slack](#slack--the-same-decision-in-a-channel) |
-| `slack.channel` | the default channel, as an id (`C…`) or a DM id (`D…`), not a `#name` (default `null`). A [space](#spaces--keeping-work-out-of-your-evening) overrides it with `slackChannel`, in either direction — `null` there means that space never posts |
+| `slack.channel` | the default channel, as an id (`C…`) or a DM id (`D…`), not a `#name` (default `null`). Asked by `npm run configure`. A [space](#spaces--keeping-work-out-of-your-evening) overrides it with `slackChannel`, in either direction — `""` there means that space never posts — and that override is a row on the [space details screen](#space-details--the-page-the-advocate-console-became) |
 | `slack.excludeWorkspaces` | one repo that never posts, outranking its space. The same idea as `ntfy.minimalWorkspaces` |
-| `slack.detail` | `full` = question + option buttons; `minimal` = a nudge with a link. Defaults to `full`, unlike ntfy, because a channel you named is not a public relay. Per space with `slackDetail` |
+| `slack.detail` | `full` = question + option buttons; `minimal` = a nudge with a link. Defaults to `full`, unlike ntfy, because a channel you named is not a public relay. Per space with `slackDetail`, which is a three-state row on the [space details screen](#space-details--the-page-the-advocate-console-became) |
 | `slack.buttons`, `slack.maxButtons` | answer straight from the channel (default `true`), and how many options fit in the row (default 5; the rest stay in the app, and the message says how many) |
 | `slack.botTokenFile`, `slack.appTokenFile` | where the two tokens are read from. Default `null`, meaning `~/.config/beadcause/slack-bot.key` and `slack-app.key`. **There is deliberately no `botToken` or `appToken` field** — this file is committed to the git repo in that directory, and one typed in there aborts the next snapshot |
 
