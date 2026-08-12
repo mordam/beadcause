@@ -514,6 +514,23 @@ body {
 .trouble-held { display: block; color: var(--muted); font-size: 11.5px; }
 .trouble-note { display: block; margin-top: 7px; color: var(--muted); font-size: 11.5px; }
 
+/* A tracker that is no longer the same tracker as the machine it shares one with —
+   see `syncTroubleHtml`. The same box and deliberately not the same colour, because
+   the two panes stack and the claim underneath each is different: the red one says
+   the list is stale and it is honest about it, and this one says the list is
+   *perfect* about this Mac and quietly missing everybody else's. Two identical red
+   boxes would read as one problem said twice.
+
+   --warn here, unlike the pane above, and the reason is the sentence it is closer to:
+   this is something that has been left in a mess and will stay that way until
+   somebody deals with it, which is exactly what the orange means everywhere else in
+   this app. The left rule is what carries it at a glance when both are on screen. */
+.trouble-sync {
+  border-color: color-mix(in srgb, var(--warn) 60%, transparent);
+  background: color-mix(in srgb, var(--warn) 9%, var(--surface));
+  border-left-width: 3px;
+}
+
 /* How many are waiting, on the ⚖️ in the header — the channel's only presence in
    the chrome, since a request is never in the list below. */
 .icon-btn { position: relative; }

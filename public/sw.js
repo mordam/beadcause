@@ -230,7 +230,22 @@
    the wrong repo's Off is a filing held in a repo you did not mean. It still writes the
    right thing when pressed, which is exactly the "looks like a working page" failure a
    cache version exists to prevent. */
-const CACHE = 'beadcause-v42';
+/* v43: the second trouble pane on the inbox — a tracker that reads perfectly and is no
+   longer the same tracker as the machine it shares one with (bc-hlu2, lib/sync.js). The
+   v32 pairing once more, and this time the harm is not that the control is unstyled but
+   that it is styled as *the wrong thing*. `syncTroubleHtml` emits `class="trouble
+   trouble-sync"`, so v43's app.js against v42's stylesheet finds no `.trouble-sync` and
+   falls back to `.trouble` exactly — the red box, no left rule — which is the pane
+   directly above it, drawn identically, immediately below it. Two identical red boxes
+   saying "A repo could not be read" and "A tracker is not syncing" read as one problem
+   restated, and the whole reason these are two panes rather than one list is that they
+   are opposite claims about the beads underneath: the red one says what you are looking
+   at is stale, and the orange one says it is *perfect about this Mac* and silently
+   missing what every other machine has written. Losing the colour is losing that
+   distinction, on a screen where both are true at once whenever Dolt is locked — and it
+   still lists the right repos with the right errors, which is exactly the "looks like a
+   working page" failure a cache version exists to prevent. */
+const CACHE = 'beadcause-v43';
 const SHELL = [
   '/',
   '/index.html',
