@@ -36,6 +36,7 @@ import path from 'node:path';
 import { execFile, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
+import { removeTreeSync } from './helpers/tmp.mjs';
 
 const run = promisify(execFile);
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -86,7 +87,7 @@ const rejects = async (name, fn, match) => {
 const store = fs.mkdtempSync(path.join(os.tmpdir(), 'beadcause-memory-'));
 process.env.BEADCAUSE_CONFIG_DIR = store;
 process.env.BEADCAUSE_AGENT = 'advocate';
-process.on('exit', () => fs.rmSync(store, { recursive: true, force: true }));
+process.on('exit', () => removeTreeSync(store));
 
 const git = (...args) => execFileSync('git', ['-C', store, ...args], { encoding: 'utf8' }).trim();
 
@@ -110,6 +111,7 @@ fs.writeFileSync(path.join(store, 'android-keystore.jks'), 'PRETEND SIGNING KEY'
 fs.writeFileSync(path.join(store, 'android-keystore.properties'), 'storePassword=hunter2');
 fs.writeFileSync(path.join(store, 'loupe-sophab.png'), 'PRETEND PNG');
 fs.writeFileSync(path.join(store, 'status.json'), '{}');
+fs.writeFileSync(path.join(store, 'restart.json'), '{"at":"2026-08-11T00:00:00.000Z"}');
 fs.mkdirSync(path.join(store, 'logs'), { recursive: true });
 fs.writeFileSync(path.join(store, 'logs', 'run.log'), 'noise');
 fs.writeFileSync(path.join(store, 'config.json'), JSON.stringify({ token: 'abc' }, null, 2) + '\n');
@@ -122,6 +124,9 @@ check('config.json is tracked', tracked.includes('config.json'), tracked.join(' 
 check('the signing key is NOT tracked', !tracked.some((f) => f.includes('keystore')), tracked.join(' '));
 check('the check PNG is not tracked', !tracked.includes('loupe-sophab.png'), tracked.join(' '));
 check('status.json churn is not tracked', !tracked.includes('status.json'), tracked.join(' '));
+// The same argument, one file along: the router rewrites restart.json on every handover
+// and it means nothing thirty seconds later, so its history is noise (bc-kttd).
+check('restart.json churn is not tracked', !tracked.includes('restart.json'), tracked.join(' '));
 check('logs/ is not tracked', !tracked.some((f) => f.startsWith('logs/')), tracked.join(' '));
 
 check('an unchanged directory produces no commit', (await commit('nothing')) === null);

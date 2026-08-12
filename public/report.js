@@ -63,8 +63,10 @@
 
   **A deploy hushes this page, and the daemon is the one that says so.** A restart makes
   every open page fail every fetch at once, and the reconnect would file one P0 per
-  screen per endpoint for the single fact that you pressed Ship. Only the deploy journal
-  knows that is what happened, so the *authority* is `reportingQuiet` in lib/deploy.js
+  screen per endpoint for the single fact that you pressed Ship. Nothing on this side can
+  know that is what happened — the deploy journal does, and for a blue/green swap, which
+  is a restart that writes no deploy record at all, the marker bin/router.js leaves on the
+  handover does (bc-kttd). So the *authority* is `reportingQuiet` in lib/deploy.js
   and `POST /api/error` refuses on its own — which is what makes it hold for a phone
   still running last week's cached copy of this file. What is here is the other half of
   that conversation: a refusal carries an `until`, and this page then stops asking. Not

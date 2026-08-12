@@ -32,9 +32,9 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { freePort } from '../test/helpers/net.mjs';
 import { SETTINGS } from '../lib/spaces.js';
+import { CHROME, launchChrome } from './helpers/chrome.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const VP = { width: 393, height: 852, dpr: 3 };
 const TOKEN = 'space-check-token';
 const KEEP = process.argv.includes('--keep');
@@ -121,76 +121,6 @@ for (let i = 0; i < 80; i += 1) {
 const onDisk = () => JSON.parse(fs.readFileSync(path.join(CONFIG_DIR, 'config.json'), 'utf8'));
 const spaceOnDisk = (name) => onDisk().spaces.find((s) => s.name === name) || {};
 
-/* ------------------------------------------------------------------ chrome */
-
-function connect(url) {
-  return new Promise((resolve, reject) => {
-    const ws = new WebSocket(url);
-    let id = 0;
-    const pending = new Map();
-    ws.onmessage = (m) => {
-      const msg = JSON.parse(m.data);
-      const q = msg.id != null && pending.get(msg.id);
-      if (!q) return;
-      pending.delete(msg.id);
-      msg.error ? q.reject(new Error(msg.error.message)) : q.resolve(msg.result);
-    };
-    ws.onerror = () => reject(new Error('could not attach to Chrome'));
-    ws.onopen = () =>
-      resolve({
-        send: (method, params = {}) =>
-          new Promise((res, rej) => {
-            const i = ++id;
-            pending.set(i, { resolve: res, reject: rej });
-            ws.send(JSON.stringify({ id: i, method, params }));
-          }),
-        close: () => ws.close(),
-      });
-  });
-}
-
-async function launch() {
-  const dbg = 9800 + Math.floor(process.pid % 100);
-  const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'beadcause-space-chrome-'));
-  const proc = spawn(
-    CHROME,
-    [
-      '--headless=new',
-      `--remote-debugging-port=${dbg}`,
-      `--user-data-dir=${profile}`,
-      '--no-first-run',
-      '--no-default-browser-check',
-      '--disable-background-timer-throttling',
-      '--hide-scrollbars',
-      'about:blank',
-    ],
-    { stdio: 'ignore' }
-  );
-  let target = null;
-  for (let i = 0; i < 60 && !target; i += 1) {
-    await sleep(250);
-    try {
-      target = (await (await fetch(`http://127.0.0.1:${dbg}/json/list`)).json()).find((t) => t.type === 'page');
-    } catch {
-      /* not up yet */
-    }
-  }
-  if (!target) throw new Error('Chrome never exposed a page target');
-  const s = await connect(target.webSocketDebuggerUrl);
-  return {
-    s,
-    close: () => {
-      s.close();
-      proc.kill();
-      try {
-        fs.rmSync(profile, { recursive: true, force: true, maxRetries: 3 });
-      } catch {
-        /* Chrome is still letting go of a temp dir */
-      }
-    },
-  };
-}
-
 const evalJs = async (s, expr) => {
   const r = await s.send('Runtime.evaluate', { expression: expr, returnByValue: true, awaitPromise: true });
   if (r.exceptionDetails)
@@ -208,7 +138,7 @@ const check = (name, ok, detail) => {
 
 console.log(`\nspace details — daemon on :${port}, config in ${CONFIG_DIR}\n`);
 
-const { s, close } = await launch();
+const { s, close } = await launchChrome('beadcause-space-chrome-');
 try {
   await s.send('Emulation.setDeviceMetricsOverride', { ...VP, mobile: true, deviceScaleFactor: VP.dpr });
 
@@ -344,6 +274,75 @@ try {
   );
   await press('[data-space-hours="clear"]');
   check('and Clear removes them outright', !('quietHours' in spaceOnDisk('Work')), JSON.stringify(spaceOnDisk('Work')));
+
+  /* ------------------------------------------------------------ slack channel */
+
+  /* The one control on the card you type into, and the only one with three answers
+     rather than two — so all three are pressed here, and the *file* is what says which
+     one landed. `""` and a missing key look identical on the screen and mean opposite
+     things to `slackChannelFor`, which is the whole reason this section exists.
+
+     `type` rather than `value =`: the field is drawn from a draft in the page's state
+     and the draft is filled by the `input` event, so setting the property alone would
+     test a path a thumb never takes — and would pass while a repaint quietly threw the
+     typed id away. */
+  const type = async (text) =>
+    evalJs(
+      s,
+      `(() => {
+        const el = document.querySelector('#slack-channel');
+        if (!el) return false;
+        el.value = ${JSON.stringify(text)};
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+        return true;
+      })()`
+    );
+
+  check('the channel field is on the card', await type('C0SPACECHECK'));
+  await press('[data-space-channel="set"]');
+  check(
+    'a typed channel reaches the daemon',
+    spaceOnDisk('Work').slackChannel === 'C0SPACECHECK',
+    JSON.stringify(spaceOnDisk('Work').slackChannel)
+  );
+
+  /* The claim no static read can make: this page repaints off a stream event rather
+     than off your thumb, so a poll landing mid-type must not take the id away. */
+  await type('C0HALFTYPED');
+  await evalJs(s, `window.beadcause.monitor.refresh()`);
+  await sleep(700);
+  check(
+    'and a repaint under your thumb does not take a half-typed one away',
+    (await evalJs(s, `document.querySelector('#slack-channel')?.value`)) === 'C0HALFTYPED',
+    await evalJs(s, `document.querySelector('#slack-channel')?.value`)
+  );
+
+  await press('[data-space-set="slackChannel"][data-value=""]');
+  check(
+    'Never stores an empty channel — the answer a missing key cannot give',
+    spaceOnDisk('Work').slackChannel === '',
+    JSON.stringify(spaceOnDisk('Work'))
+  );
+  check(
+    'and the field goes back to what the space says rather than keeping the draft',
+    (await evalJs(s, `document.querySelector('#slack-channel')?.value`)) === '',
+    await evalJs(s, `document.querySelector('#slack-channel')?.value`)
+  );
+
+  await press('[data-space-set="slackChannel"][data-value="null"]');
+  check(
+    'and Inherit takes the key away, which is the other nothing',
+    !('slackChannel' in spaceOnDisk('Work')),
+    JSON.stringify(spaceOnDisk('Work'))
+  );
+
+  await type('');
+  const blank = await press('[data-space-channel="set"]');
+  check(
+    'Set on a blank field is refused rather than guessed at',
+    blank && !('slackChannel' in spaceOnDisk('Work')) && /Type a channel id/.test((await card())?.text || ''),
+    JSON.stringify(spaceOnDisk('Work'))
+  );
 
   /* --------------------------------------------------------------- muting */
 
