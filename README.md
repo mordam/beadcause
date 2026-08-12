@@ -10592,6 +10592,54 @@ The teardown also moved out of the `process.on('exit')` handler and below the `c
 because an exit handler is precisely where waiting is impossible; what stays behind there
 is `removeTreeSync` for the exits that never reach it.
 
+#### Why the helper was the easy half — `test/tmpadoption.mjs`
+
+Writing `cleanupTmp` fixed one suite. Adoption then sat at two files for a day while
+sixty-eight others kept the line that loses, and this one bug was filed eight separate
+times: bc-5uy8 for `dedupe.mjs`, then bc-3qsw, bc-r87b, bc-t69u, bc-94c6, bc-qjsx, bc-mc4q
+and bc-b495 as it surfaced in `reap.mjs`, `superseded.mjs`, `slowstart.mjs`,
+`outagepush.mjs`, `twinqueue.mjs` and `epicqueue.mjs`. Each was diagnosed from the stack
+by somebody who could not tell, from anything in the tree, that sixty-odd other suites
+still carried the same two lines. **A fix nothing can see the absence of gets refiled
+rather than finished**, and each refiling cost a session the four minutes to re-run a
+gate plus the argument about whether the red was theirs.
+
+So the sweep went in as one change — sixty-eight suites mechanically, `epicqueue.mjs` by
+hand, because it clears the config dir between *every* case rather than once at the end —
+and `test/tmpadoption.mjs` keeps it swept: any suite naming `BEADCAUSE_CONFIG_DIR` that
+removes its scratch root with a bare recursive `fs.rmSync` fails the repo, with the file,
+the line and which helper it wants. The sixty-ninth suite is the one that matters, and it
+will be written next month by someone copying the suite next to it, which is precisely how
+every one of these got the line to begin with.
+
+Three details it takes care to get right, each of which flagged something wrong on the
+first run:
+
+- **A child's env counts.** Seven suites never set `BEADCAUSE_CONFIG_DIR` on themselves at
+  all — they hand it to a spawned process in `{ ...process.env, BEADCAUSE_CONFIG_DIR: dir }`.
+  The commit is scheduled in the child, the parent's `rmSync` races it just the same, and a
+  scan keyed on `process.env.` alone would have called those seven clean. `slowstart.mjs`
+  and `outagepush.mjs`, both already-filed instances, are in that group.
+- **Which helper is the parser's call, not a regex's.** Thirteen of the sixty-eight remove
+  their tree somewhere that cannot `await` — inside `process.on('exit', …)`, or the
+  synchronous `done(code)` that runs just before `process.exit`. Those get
+  `removeTreeSync`. The way to find them is not to pattern-match the enclosing function
+  but to write `await`, ask `node --check`, and take a `SyntaxError` as the answer:
+  *cannot await* is exactly the condition `removeTreeSync` exists for, so the compiler
+  sorts the two cases with no judgement required.
+- **A quotation is not a call site.** The scan's own header and `test/helpers/tmp.mjs`
+  both quote the losing line in order to explain it, and the first run duly failed the
+  repo for its documentation. Comment lines are skipped — `test/grepargs.mjs` skips them
+  for the same reason and for the same two files. The alternative is a check whose easiest
+  fix is deleting the explanation.
+
+What it deliberately leaves alone is as much of the rule as what it flags. Removing a
+single file cannot raise `ENOTEMPTY`; a fake-bin or spy directory holds no git repo; and
+fifteen suites never remove their scratch root at all, which leaks a directory the OS
+clears and, having no `rmdir` in it, cannot lose this race. Flagging any of those would be
+a rule that makes working lines look broken, and a lint people learn to work around is
+worse than none.
+
 ### A suite must not assert about a directory it does not own — `test/browse.mjs`
 
 The same shape as the teardown above, from the other side: not a suite whose cleanup

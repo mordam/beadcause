@@ -41,6 +41,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { boundPort } from './helpers/net.mjs';
+import { cleanupTmp } from './helpers/tmp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const LIB = (f) => path.join(HERE, '..', 'lib', f);
@@ -464,6 +465,6 @@ console.log('\nthe retry, unattended\n');
 
 for (const s of servers) s.close?.();
 if (servers[0]?.front) servers[0].front.close?.();
-fs.rmSync(tmp, { recursive: true, force: true });
+await cleanupTmp(tmp);
 console.log(failures ? `\n${failures} of ${ran} failed\n` : `\nall ${ran} passed\n`);
 process.exit(failures ? 1 : 0);

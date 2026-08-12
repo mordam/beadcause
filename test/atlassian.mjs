@@ -39,6 +39,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { cleanupTmp } from './helpers/tmp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const LIB = (name) => path.join(HERE, '..', 'lib', name);
@@ -257,6 +258,6 @@ console.log('\nunreachable, and which kind');
   check('a request that answered cleared its own deadline, rather than holding the loop open', timers() <= before, `${before} → ${timers()}`);
 }
 
-fs.rmSync(tmp, { recursive: true, force: true });
+await cleanupTmp(tmp);
 console.log(failures ? `\n\x1b[31m${failures} check${failures === 1 ? '' : 's'} failed\x1b[0m\n` : '\n\x1b[32mall good\x1b[0m\n');
 process.exit(failures ? 1 : 0);
