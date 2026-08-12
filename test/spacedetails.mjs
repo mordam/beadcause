@@ -18,7 +18,7 @@
  * switches off is a safety property rather than a preference; what belongs here is that
  * it is a setting like the others, three-state and writable from the card.
  *
- * Five claims, and each is one nobody can make by reading the diff:
+ * Six claims, and each is one nobody can make by reading the diff:
  *
  * 1. **`null` means inherit, and it is not the same as `false`** — nor, on the Slack
  *    channel, the same as `""`. `prPolicyFor` is
@@ -45,6 +45,12 @@
  *    space's own answer, so a space set to `full` can contain a repo that pushes
  *    minimally. Showing the space's setting alone would be wrong about precisely the
  *    repo somebody had singled out.
+ *
+ * 6. **A row is a workspace, and that is no longer always one repo.** Since lib/repos.js a
+ *    workspace can be forty checkouts of an org sharing one tracker. These answers stay
+ *    per space — bc-l853.7, argued above `autoDispatchAllowed` — so the card has to say
+ *    how many checkouts each single answer governs, or it understates the reach of every
+ *    setting on it by the size of the org.
  *
  * The server half runs against `createApp`, not a fake: the whole point of the endpoint
  * is that it mutates the live config object the rest of the process is holding, and a
@@ -86,9 +92,8 @@ function check(name, fn) {
 
 console.log('\nspace details');
 
-const { readSettings, applySettings, spaceDetail, SETTINGS, prPolicyFor, isQuiet, slackChannelFor } = await import(
-  LIB('spaces.js')
-);
+const spacesMod = await import(LIB('spaces.js'));
+const { readSettings, applySettings, spaceDetail, SETTINGS, prPolicyFor, isQuiet, slackChannelFor } = spacesMod;
 
 /* ==================================================== 1. what a field can say */
 
@@ -285,6 +290,72 @@ check('the defaults travel, so an Inherit button can say what it would inherit t
 check('and `Other` is not a space — it is a group the picker offers, with nothing to set', () => {
   assert.equal(spaceDetail(RESOLVE, 'Other'), null);
   assert.equal(spaceDetail(RESOLVE, 'nope'), null);
+});
+
+/* ================================ 6. a workspace that is many repos, one answer */
+
+/* `lib/repos.js` made a workspace able to be forty checkouts of one org sharing a single
+   tracker, and bc-l853.7 asked whether these five answers should then differ per repo
+   inside it. The decision is that they should not — the argument is the block above
+   `autoDispatchAllowed`, and the tracker being the trust boundary is the short version.
+   What that decision *obliges* is here: one row labelled `climative`, in a panel titled
+   "what each repo resolves to", counted as one repo while the answer beside it governed
+   forty. The reach of every setting on the card was understated fortyfold on the one
+   screen where you decide whether a worker merges its own diff. */
+
+const ORG = path.join(tmp, 'org.dev');
+function checkout(name, token) {
+  const dir = path.join(ORG, name);
+  fs.mkdirSync(path.join(dir, 'config'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'config', 'config.yaml'), token === null ? `serviceName: ${name}\n` : `serviceToken: ${token}\n`);
+  return dir;
+}
+checkout('architecture', 'architecture');
+checkout('athena-service', 'as');
+// Cloned, approved, and it names no service — so no bead can reach it, and it is not a
+// checkout this answer governs.
+checkout('nameless', null);
+
+const MANY = {
+  workspaces: [{ name: 'org' }, { name: 'solo' }],
+  spaces: [{ name: 'Work', workspaces: ['org', 'solo'], autoMerge: false }],
+  repos: { org: { root: ORG, default: 'architecture', approved: ['architecture', 'athena-service', 'nameless'] } },
+};
+
+check('a row says how many checkouts its single answer governs', () => {
+  const byName = Object.fromEntries(spaceDetail(MANY, 'Work').repos.map((r) => [r.name, r]));
+  assert.equal(byName.org.checkouts, 2, 'two resolved; the one declaring no token can hold no bead and is not counted');
+  assert.equal(byName.org.autoMerge, false, 'and the answer itself is the space`s, for all of them at once');
+});
+
+check('and a workspace that is one repo says nothing new, so an old client reads what it always did', () => {
+  const solo = spaceDetail(MANY, 'Work').repos.find((r) => r.name === 'solo');
+  assert.ok(!('checkouts' in solo), 'absent, not 1 — the same payload every install has ever been sent');
+});
+
+check('an approved list that resolved to nothing says 0 rather than falling silent', () => {
+  const none = {
+    workspaces: [{ name: 'org' }],
+    spaces: [{ name: 'Work', workspaces: ['org'] }],
+    repos: { org: { root: ORG, approved: ['nameless'] } },
+  };
+  assert.equal(spaceDetail(none, 'Work').repos[0].checkouts, 0, 'a list where nothing resolved holds no work, and that is worth seeing');
+});
+
+check('the five policy answers still take a workspace and nothing finer — the decision, where it can be broken', () => {
+  // Not a style rule: an argument added here is a per-repo policy answer, and the moment
+  // one exists this panel, the README section and the space details card are all wrong
+  // about the unit. Whoever adds it should have to come through this line.
+  const { autoDispatchAllowed, autoEndorseAllowed, autoShipAllowed } = spacesMod;
+  for (const fn of [autoDispatchAllowed, autoEndorseAllowed, autoShipAllowed, prPolicyFor]) {
+    assert.equal(fn.length, 2, `${fn.name} takes (cfg, workspaceName)`);
+  }
+});
+
+check('and the card draws the count rather than leaving it in the payload', () => {
+  const js = read('public/monitor.js');
+  assert.match(js, /checkout\$\{r\.checkouts === 1 \? '' : 's'\}, one answer/, 'the row never says what it stands for');
+  assert.match(js, /'What each repo resolves to', String\(total\)/, 'the panel still counts one per row');
 });
 
 /* ================================================================ the wiring */
