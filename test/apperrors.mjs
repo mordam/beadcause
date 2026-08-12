@@ -322,7 +322,7 @@ await check('the first report files a P0 bug, endorsed, labelled as a class', as
   );
   assert.ok(bead.description.includes('app.js:3315'), 'the readable fingerprint is on the bead');
   assert.ok(bead.description.includes(REPORT.userAgent), 'along with everything the report carried');
-  assert.doesNotMatch(bead.notes, /auto-endorsement is on for this space/, 'and it does not blame a space setting');
+  assert.doesNotMatch(bead.notes, /auto-endorsement is on for this repo/, 'and it does not blame a policy setting');
   assert.match(bead.notes, /it is a program that failed/, 'it says why it arrived endorsed in its own words');
 });
 
