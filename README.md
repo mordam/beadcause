@@ -10991,22 +10991,38 @@ says only "this browser has been paired", and it is deliberately **not** accepte
 
 ### The session, and how it ends
 
-An HMAC over `{sub, email, exp}` with a key in `~/.config/beadcause/session.key` —
+An HMAC over `{sub, email, sid, exp}` with a key in `~/.config/beadcause/session.key` —
 `httpOnly`, `SameSite=Lax`, and `Secure` whenever what is served is https. There is no
 session store, and that is deliberate: the daemon is
 [replaced under the port](#the-router--why-you-never-restart-it) several times an hour,
 and a store in memory would sign everybody out on every swap.
 
-What that costs is per-session revocation, so be clear about what each act does:
+`sid` is the session's own id, and it is what buys back the one thing a
+store-less cookie costs: **revoking one device.** It names a row in `state.json` — a
+file every backend already reads, so the list survives both a swap and a
+`launchctl kickstart` — and the gate refuses a cookie whose row has been deleted. So:
 
-- **Sign out** — on `/admin`, next to the pause-all controls, because that is the page
-  about what you may do to this Mac rather than about beads. It ends the browser you are
-  holding, and it is not drawn at all on an install with no sign-in configured. `/login`
-  offers it too, once you are already signed in.
-- **Delete `session.key`** — ends every session on every device, everywhere. The only
-  global revocation there is. It takes effect on the next backend swap or restart.
+- **Signed-in devices** — on `/admin`, under the sign-out line. One row per browser: a
+  label off its user-agent (*iPhone · Safari*), the address, when it was first signed in
+  and when it was last seen, and a **Revoke** button each. Revoking ends that session on
+  its next request — on this backend and on the one replacing it — and touches nothing
+  else. The phone left in a taxi costs one tap here rather than a key rotation.
+- **Sign out** — the same act aimed at the browser you are holding, which is why it is
+  the same list: the row is deleted, not merely the cookie cleared. That distinction was
+  not academic before this — clearing a cookie is a *request* to a browser, so the value
+  itself stayed good for its full thirty days anywhere it had been copied.
+- **Delete `session.key`** — ends every session on every device at once, and needs no
+  list to do it. It takes effect on the next backend swap or restart.
 - **Rotate the token** — a separate act entirely, and it does not touch sign-in. Delete
   `token` from `config.json` and re-pair every device.
+
+Two consequences worth knowing before they surprise you. **"Last seen" is written at
+most once every five minutes per device**, because `state.json` is rewritten atomically
+and snapshotted into a git repo on every write, and a browser polls every 25 seconds —
+five minutes is well inside the resolution the question has. And **a session issued
+before this list existed is refused**, once, because a live device the list cannot show
+is exactly what the list is for. The cost is one Google sign-in per browser; the shared
+token, which is every non-browser caller, is untouched.
 
 ### Whose answer it is
 
@@ -11123,6 +11139,18 @@ sign out → refused. The refusals get the same treatment, including the two tha
 easiest to get wrong — an address off the allowlist (turned away, logged, and *not*
 echoed back on the screen, because a login page that says which addresses exist is a
 directory) and a `state` that does not match the cookie.
+
+It signs in **twice** at the end, from two different user-agents, and revokes one: the
+revoked browser is refused and the other is still working, which is the whole claim the
+device list makes. `test/devices.mjs` holds the layer under that — the five-minute
+throttle on "last seen", the shapes a half-written `state.json` must read as *no*
+device, and the cache that re-reads the file when another backend writes it.
+
+`node scripts/devices-check.mjs` is the screen, headless at phone size against stubbed
+bodies: that a token-only install draws no card at all, that the browser reading the
+page is the one marked, and that the first tap on **Revoke** sends *nothing* — the
+assertion is against the stub's request log, not against the button's words, because
+arming is only a safeguard if it is one on the wire.
 
 `test/signinsetup.mjs` is the other end of the same thing: the `npm run configure`
 question, driven with scripted answers. It holds two properties that would otherwise rot
@@ -11624,6 +11652,8 @@ cookie says so), and `/auth/signout` ends the session.
 | POST | `/api/admin` | `{action, what, scope, mode}` | pause or resume everything, one space, or one half of it. `what` is `all` · `advocates` · `terminals`; `mode` is `drain` (default — no new launches, running workers finish untouched) or `kill`. Never run at boot: a `launchctl kickstart -k` behaves exactly as it did. Refused on an observer |
 | GET | `/api/tls` | `?pairing=1` | what HTTPS is doing: the setting, the certificate on disk (name, days left), what the socket is actually serving (`serving`: name, days left, and `checkedAt` — when the renewal loop last looked, `null` from anything too old to say), the URL a phone would be handed, and whether a restart is owed. Cheap enough to poll — two file reads and a memoised MagicDNS name, and it never asks `tailscale cert` for anything. `?pairing=1` adds the link and a QR |
 | POST | `/api/tls` | `{enabled}` | turns HTTPS on or off: writes `tls.enabled`, fetches the certificate when it is on (asynchronously — the synchronous one would block every request for the length of a Let's Encrypt round trip), and moves `baseUrl`. Pressing it while it is already on is the retry. Binds nothing: TLS is decided when the listener is created, so the reply carries `restartNeeded`. Refused on an observer, which shares this config with the live daemon |
+| GET | `/api/devices` | — | every browser signed in with Google — a label off its user-agent, the address, when it was first and last seen — and `current`, the id of the row asking. `google: false` and an empty list where sign-in is not configured. A token caller may read it and is never one of the rows |
+| POST | `/api/devices` | `{action: 'revoke', id}` | ends that one session and no other: the row is deleted, so the cookie naming it authorises nothing on its next request, on this backend and on the one replacing it. `self` when you have just revoked the browser you are holding, which also clears its cookie. **Not** refused on an observer — it shares this list with the live daemon, so the session it revokes is the same session |
 | GET | `/api/deploys` | `?limit=` or `?id=` | the recent deploys, or one with its log. Four endings, not two: `ok`, `failed`, and the two that mean nobody knows — `unconfirmed` (the ordinary ending of a restart) and `lost` |
 | POST | `/api/deploy` | `{key, bead?, reason?}` | runs that repo's declared deploy. `409` with no declaration, or if one is already running. Means "written down and a process owns it", never "it worked". Refused on an observer |
 | POST | `/api/presence` | `{device, view, key}` | which view this device has open, so [the mirror](#the-mirror--whatever-the-phone-has-open-with-room-to-read-it) can follow it. Wakes `/api/poll` without costing a `bd` sweep — see `changed` there |

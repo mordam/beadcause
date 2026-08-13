@@ -4802,10 +4802,14 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
 .admin-btns { display: flex; gap: 8px; flex-wrap: wrap; }
 .admin-btns .primary, .admin-btns .secondary { flex: 1 1 190px; }
 
-.admin-kill { width: 100%; margin-top: 10px; }
+/* Two buttons on this page arm before they act, and they share this because they are
+   the same promise: `.admin-kill` stops the running sessions, and `.admin-revoke` ends
+   a signed-in device — one of which may be a phone that is not in the room. Full width
+   so the second tap lands where the first one did. */
+.admin-kill, .admin-revoke { width: 100%; margin-top: 10px; }
 /* Armed: the second press is the one that acts, so it stops being an outline and
    becomes solid — the same change the eye reads as "this is live now". */
-.admin-kill.armed {
+.admin-kill.armed, .admin-revoke.armed {
   background: var(--danger);
   color: var(--accent-ink);
   border-color: var(--danger);

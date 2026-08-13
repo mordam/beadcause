@@ -468,12 +468,158 @@
         // The next event repaints; so does the ⟳.
         if (busy || armed) return;
         load();
+        // Beside `load` rather than behind `resync`, and unlike the certificate card:
+        // this list changes from *outside* this page — another browser signing in, or a
+        // revoke tapped on the phone in your other hand — so a page that only re-read it
+        // when it had lost its place in the log would offer a Revoke button for a session
+        // that ended an hour ago. It costs a `state.json` read and no `bd` sweep, which
+        // is the whole reason the ten-second timer this replaced was worth removing.
+        loadDevices();
         // Only when we have lost our place in the log, because the certificate card is
         // the one thing here that nothing but this page ever changes.
         if (resync) loadTls();
       },
     });
     stream.start();
+  }
+
+  /* ------------------------------------------------------------------ devices */
+
+  /*
+   * Every browser that is signed in, and the button that ends one of them.
+   *
+   * The sign-out link above ends the browser you are holding. This is the same act at
+   * the other range — the phone you left in a taxi — and before it existed the only
+   * way to reach that phone was deleting ~/.config/beadcause/session.key, which signs
+   * out every device everywhere and re-pairs nothing. See lib/devices.js.
+   *
+   * Two things this screen owes you, and they are the reasons it is a list rather than
+   * a single button. **Which row is which**: a label off the user-agent and when it was
+   * last seen, because "revoke" with nothing to aim it at is a control nobody presses.
+   * And **which row is you**: revoking your own session is signing out, it takes effect
+   * on the next request, and being surprised by that is how somebody locks themselves
+   * out of the screen they were about to use.
+   */
+  const devicesOut = document.getElementById('devices');
+
+  /** The last /api/devices body, and what the last press did. */
+  let devices = null;
+  let devicesSaid = '';
+
+  /** "4m", "3h", "2d" — the same shape the advocate console uses. */
+  function age(iso) {
+    if (!iso) return '';
+    const mins = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
+    if (!Number.isFinite(mins)) return '';
+    if (mins < 1) return 'just now';
+    if (mins < 60) return `${mins}m ago`;
+    const hrs = Math.round(mins / 60);
+    if (hrs < 24) return `${hrs}h ago`;
+    return `${Math.round(hrs / 24)}d ago`;
+  }
+
+  function deviceRow(d) {
+    const seen = age(d.last);
+    const since = age(d.first);
+    return `<div class="admin-row">
+      <div class="admin-row-head">
+        <span class="admin-what">${esc(d.label || 'a browser')}${
+          d.current ? ' <span class="pill id">this browser</span>' : ''
+        }</span>
+        <span class="admin-state ${d.current ? 'live' : 'dim'}">${esc(seen || 'last seen unknown')}</span>
+      </div>
+      <p class="admin-detail">${esc(d.email || 'signed in')}${since ? ` · first signed in ${esc(since)}` : ''}</p>
+      <div class="admin-btns">
+        <button class="${d.current ? 'secondary' : 'danger-btn'} admin-revoke" data-revoke="${esc(d.id)}" data-confirm="${
+          d.current ? 'Tap again — this signs this browser out' : 'Tap again to end that session'
+        }">${d.current ? 'Sign this browser out' : 'Revoke'}</button>
+      </div>
+    </div>`;
+  }
+
+  function renderDevices() {
+    // Nothing at all where sign-in is not configured: on a token-only install there
+    // are no sessions to list, and an empty list would read as "you are signed out
+    // everywhere" rather than "this does not apply here".
+    if (!devices?.google) {
+      devicesOut.innerHTML = '';
+      return;
+    }
+    disarm();
+    const rows = devices.devices || [];
+    devicesOut.innerHTML = `<section class="card admin-card">
+      <div class="admin-head">
+        <h2>Signed-in devices</h2>
+        <span class="admin-state ${rows.length ? 'live' : 'dim'}">${
+          rows.length ? `${plural(rows.length, 'device')}` : 'none'
+        }</span>
+      </div>
+      <p class="admin-detail">${
+        rows.length
+          ? 'Revoking ends that browser’s session on its next request, on this daemon and on the one replacing it. Nothing else is signed out, and the pairing token is untouched.'
+          : 'Nobody is signed in with Google. The shared token is a separate credential and is not listed here.'
+      }</p>
+      ${rows.map(deviceRow).join('')}
+      ${devicesSaid ? `<p class="admin-said">${esc(devicesSaid)}</p>` : ''}
+    </section>`;
+  }
+
+  /**
+   * Press revoke.
+   *
+   * Armed first, like the kill button, because both are irreversible in the only sense
+   * that matters on a phone: the sign-in you have to redo is at Google, on a device
+   * that may be in another room.
+   */
+  async function pressRevoke(btn) {
+    if (busy) return;
+    if (btn.dataset.confirm && btn.dataset.armed !== 'yes') {
+      const was = btn.textContent;
+      btn.dataset.armed = 'yes';
+      btn.classList.add('armed');
+      btn.textContent = btn.dataset.confirm;
+      armed = { btn, was, timer: setTimeout(() => disarm(), 6000) };
+      return;
+    }
+    disarm({ keep: btn });
+
+    busy = true;
+    const was = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = '…';
+    try {
+      const r = await api('/api/devices', { method: 'POST', body: JSON.stringify({ action: 'revoke', id: btn.dataset.revoke }) });
+      if (r.self) {
+        // Signing yourself out. Same ending as the sign-out link above, including
+        // dropping what the warm layer is holding — it stopped being yours.
+        window.beadcause?.warm?.forget?.();
+        location.assign('/login');
+        return;
+      }
+      devices = { ...devices, current: r.current, devices: r.devices };
+      devicesSaid = r.revoked ? 'That device is signed out.' : 'That device was already gone.';
+      renderDevices();
+    } catch (err) {
+      btn.textContent = `${was} — ${err.message}`;
+      btn.disabled = false;
+    } finally {
+      busy = false;
+    }
+  }
+
+  devicesOut.addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-revoke]');
+    if (btn) pressRevoke(btn);
+  });
+
+  async function loadDevices() {
+    try {
+      devices = await api('/api/devices');
+      renderDevices();
+    } catch {
+      /* A daemon older than this route draws no card, rather than an error where a
+         list has never been. */
+    }
   }
 
   /* ---------------------------------------------------------------------- TLS */
@@ -830,7 +976,9 @@
 
   refresh?.addEventListener('click', loadTls);
   refresh?.addEventListener('click', load);
+  refresh?.addEventListener('click', loadDevices);
   warmBoot();
   load();
   loadTls();
+  loadDevices();
 })();

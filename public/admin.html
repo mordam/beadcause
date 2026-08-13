@@ -54,6 +54,12 @@
       <div class="empty">Asking the daemon…</div>
     </div>
 
+    <!-- Every browser that is signed in, and a revoke button each. Beside the
+         sign-out above because they are the same act at different ranges: signing out
+         ends the one in your hand, and this ends the one you left somewhere. Drawn
+         only where Google sign-in is configured — see lib/devices.js. -->
+    <div id="devices"></div>
+
     <!--
       The way in to the in-app terminal, and now the only standing one: it used to be
       a ⌨️ in the inbox header, which spent the widest screen in the app on the thing
