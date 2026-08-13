@@ -119,6 +119,44 @@
     return res.json();
   }
 
+  /**
+   * The write half of `api`, for the one thing this page can change about a bead.
+   *
+   * A graph is a reading surface and this is deliberately the only `POST` on it: not a
+   * second endorsement queue, not an editor — one fact, `owner:<handle>`, which is the
+   * fact the P0 board is built out of and the one you most want to fix at the moment you
+   * are looking at the bead rather than three screens later.
+   */
+  async function post(path, body) {
+    const res = await fetch(path, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-beadcause-token': token },
+      body: JSON.stringify(body),
+    });
+    const out = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(out.error || `HTTP ${res.status}`);
+    return out;
+  }
+
+  /**
+   * The handles this browser may claim a bead for — whoever is signed in, and whoever
+   * this Mac says it is.
+   *
+   * Asked once and cached, including the failure: `/auth/whoami` is unauthenticated and
+   * cheap, but the sheet must not pay for it on every open, and a page that could not
+   * reach it should draw the owner it already has rather than retry per tap.
+   *
+   * Two suggestions rather than one guess, and never a default. A phone signed in as one
+   * person, held at a laptop configured as another, is an ordinary Tuesday here — and a
+   * P0 stamped with the wrong owner is worse than an unowned one, because the second is
+   * a state bc-rfnr.5's triage can see and the first reads as already decided.
+   */
+  let whoPromise = null;
+  const whoami = () =>
+    (whoPromise ||= fetch('/auth/whoami', { headers: { accept: 'application/json' } })
+      .then((r) => r.json())
+      .catch(() => ({})));
+
   function fail(msg) {
     stop();
     growth.hidden = true;
@@ -809,6 +847,116 @@
     // Same contract, same reason, and independent of it: whichever of the two answers
     // first lands first, and either failing leaves the other alone.
     loadSession(full, seq);
+    // And the third. The owner is already drawn from the labels `/api/bead` returned —
+    // this call only adds the buttons that change it, so a `/auth/whoami` that never
+    // answers costs the sheet a control and never the fact.
+    loadOwnerActions(full, seq);
+  }
+
+  /**
+   * Owner handles on a bead, off its labels — the client's copy of `ownersOf`.
+   *
+   * Duplicated rather than shared because there is no module boundary between a browser
+   * and `lib/` here, and the alternative is a field on `/api/bead` that every other
+   * reader of that route would then have to know about. The prefix is the contract; it
+   * is stated in lib/ownership.js and asserted against this copy in test/ownership.mjs,
+   * so the two cannot drift without the suite saying so.
+   */
+  const OWNER_PREFIX = 'owner:';
+  const ownersOn = (b) =>
+    (b?.labels || [])
+      .map((l) => String(l ?? '').trim())
+      .filter((l) => l.toLowerCase().startsWith(OWNER_PREFIX))
+      .map((l) => l.slice(OWNER_PREFIX.length).trim().toLowerCase())
+      .filter((h, i, all) => h && all.indexOf(h) === i);
+
+  /**
+   * Whose bead this is, and the one control on this page that changes it.
+   *
+   * **Drawn on a P0, and on anything that already has an owner.** Not on every bead: a
+   * P3 sheet looks exactly as it did before this existed, which is most sheets. P0 is
+   * where an *absent* owner is itself worth saying out loud — an unowned P0 is the state
+   * bc-rfnr.5's triage exists to clear, and a row that says "unowned" on the screen you
+   * are already looking at is how it gets cleared one bead at a time instead.
+   *
+   * Two owners is drawn as two, for `ownersOf`'s reason: it means two machines wrote
+   * before either synced, and picking one to display would hide the collision rather
+   * than resolve it.
+   */
+  function ownerRowHtml(b) {
+    const owners = ownersOn(b);
+    if (!owners.length && Number(b?.priority) !== 0) return '';
+    const who = owners.length
+      ? owners
+          .map((h) => `<span class="owner-who" title="${esc(h)}">${esc(h.split('@')[0])}</span>`)
+          .join('<span class="owner-and">·</span>')
+      : '<span class="owner-who is-none">unowned</span>';
+    // "Owned by" rather than "Owner", because the pills above already carry a word called
+    // owner and it is a different fact: `b.owner` is bd's own column, the git identity of
+    // the checkout the bead was filed from, which on this Mac is the same string on every
+    // row. This one is `owner:<handle>` — who is answerable — and two rows on one sheet
+    // both headed "Owner" would be read as one of them being wrong.
+    return `<div class="owner-row" id="sheet-owner" data-id="${esc(b.id)}">
+      <span class="owner-kind">Owned by</span>${who}<span class="owner-acts" id="sheet-owner-acts"></span>
+    </div>`;
+  }
+
+  /**
+   * The buttons, once we know what this browser may claim the bead *for*.
+   *
+   * Late and optional, exactly like `loadSession`: the row is already on screen saying
+   * who owns the bead, and this adds the way to change it. A failed or slow
+   * `/auth/whoami` therefore degrades to a sheet that reads correctly and cannot be
+   * edited, which is the right way round — the opposite (a button drawn before we know
+   * whose name is behind it) is how a P0 ends up owned by the wrong person.
+   *
+   * A handle that is already the owner gets no button. "Take it" on a bead you already
+   * own is a control that cannot do anything, and the whole point of the row is to make
+   * the difference between owned and unowned obvious at a glance.
+   */
+  async function loadOwnerActions(b, seq) {
+    const row = $('sheet-owner');
+    if (!row) return;
+    const who = await whoami();
+    if (seq !== sheetSeq) return;
+    const slot = $('sheet-owner-acts');
+    if (!slot) return;
+    const owners = ownersOn(b);
+    const suggestions = [who?.email, who?.me]
+      .map((h) => String(h ?? '').trim().toLowerCase())
+      .filter((h, i, all) => h && all.indexOf(h) === i && !owners.includes(h));
+    const buttons = suggestions.map(
+      (h) => `<button type="button" class="owner-btn" data-owner="${esc(h)}">${esc(h.split('@')[0])}</button>`
+    );
+    // Only when there is one to clear. A "nobody" button on an unowned bead is a button
+    // whose whole effect is already true.
+    if (owners.length) buttons.push('<button type="button" class="owner-btn is-clear" data-owner="">nobody</button>');
+    if (!buttons.length) return;
+    slot.innerHTML = buttons.join('');
+    slot.addEventListener('click', async (ev) => {
+      const btn = ev.target.closest('.owner-btn');
+      if (!btn || btn.disabled) return;
+      const wanted = btn.dataset.owner || '';
+      // Every button, not just this one: a save in flight and a second thumb on the
+      // neighbouring handle is two writes racing over one label, and the loser wins.
+      for (const el of slot.querySelectorAll('.owner-btn')) el.disabled = true;
+      try {
+        const out = await post('/api/bead/owner', { workspace, id: row.dataset.id, owner: wanted });
+        if (seq !== sheetSeq) return;
+        // Repaint from what the server says the bead now carries rather than from what
+        // was asked for — the two differ whenever somebody else moved it first.
+        b.labels = [
+          ...(b.labels || []).filter((l) => !String(l).toLowerCase().startsWith(OWNER_PREFIX)),
+          ...(out.owners || []).map((h) => `${OWNER_PREFIX}${h}`),
+        ];
+        row.outerHTML = ownerRowHtml(b);
+        loadOwnerActions(b, seq);
+      } catch (err) {
+        // On the row rather than as a toast: this is the one thing on the sheet you can
+        // change, so a failure to change it belongs where the change was attempted.
+        slot.innerHTML = `<span class="owner-err">${esc(err.message)}</span>`;
+      }
+    });
   }
 
   /**
@@ -1186,6 +1334,12 @@
     // meaningless once you have scrolled past the description looking for it.
     const closed = closedHtml(b);
     if (closed) parts.push(closed);
+    // Whose this is, under the outcome and above the session. The order is the order the
+    // three answer each other on a closed bead — it closed, here is why, here is who was
+    // answerable for it — and on an open P0 it puts the question the board is built
+    // around directly under the pills, where it cannot be scrolled past.
+    const owner = ownerRowHtml(b);
+    if (owner) parts.push(owner);
     // And under that, the way through to what actually ran. Above the relations rather
     // than below them because those are more of the tracker and this is the one row on
     // the sheet that leaves it — and because on a closed bead the three read in order:

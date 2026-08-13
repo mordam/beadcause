@@ -5011,3 +5011,45 @@ a.pill { text-decoration: none; }
   color: var(--text); font-size: 14px; font-weight: 600;
   cursor: pointer;
 }
+
+/* Whose P0 this is — the owner row on the bead sheet, and the one control on /graph that
+   writes anything (see `ownerRowHtml`). Shaped like `.sheet-session` and `.rel-row`
+   because it is the same furniture in the same place: one line, one border, 44px of it,
+   so resolving the buttons late never moves the description under a thumb. */
+.owner-row {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  min-height: 44px;
+  margin-bottom: 14px;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-2);
+  font-size: 14px;
+}
+.owner-kind {
+  flex: none;
+  font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--muted);
+}
+/* The local part is the readable half of an email address and the whole of what tells two
+   colleagues apart; the domain is the same on every row and would push the buttons off a
+   four-inch screen. The full handle stays in the title for anyone who needs it. */
+.owner-who { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Unowned is a state, not a fault — quiet, the same weight `.sheet-session.is-none` gives
+   "nothing ran on this bead", because both are the ordinary condition of most of a tracker. */
+.owner-who.is-none { color: var(--muted); font-style: italic; }
+.owner-and { color: var(--muted); }
+.owner-acts { margin-left: auto; display: flex; gap: 6px; flex-wrap: wrap; }
+.owner-btn {
+  min-height: 36px;
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit; font-size: 12.5px;
+  cursor: pointer;
+}
+.owner-btn:disabled { opacity: 0.5; cursor: default; }
+.owner-btn.is-clear { color: var(--muted); }
+.owner-err { font-size: 12px; color: var(--danger); }
