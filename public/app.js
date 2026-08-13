@@ -5006,6 +5006,20 @@
       const box = listEl.querySelector(`.card[data-key="${CSS.escape(key)}"] [data-role="answer"]`);
       if (!opt || !box) return;
 
+      // The same disarm the `option` branch above makes, for the same reason and with
+      // the same history: this branch fills the box and repaints in place, and it never
+      // took the arm off anything (bc-z4o4). So on a card with suggestions rather than
+      // decision options, arming the dismiss and then tapping a suggestion left the
+      // dismiss underneath still reading "Tap again — hides …", and the next tap meant
+      // two things at once — /api/answer or /api/dismiss, which is the ambiguity
+      // scripts/dismiss-check.mjs calls "one tap, one meaning".
+      //
+      // Painted rather than rendered, because render() would rebuild the card under the
+      // textarea and take the keyboard down with it — which is the whole reason this
+      // branch paints in place to begin with.
+      disarm();
+      paintArmed();
+
       const current = box.value.trim();
       const mine = current && !opts.some((o) => o.response.trim() === current);
       box.value = mine ? `${current}\n${opt.response}` : opt.response;

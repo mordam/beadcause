@@ -13060,6 +13060,41 @@ block (a background from one rule and a colour from another being precisely the 
 was unreadable), that the wash stays scoped, that the spelling is one spelling, and that
 `.show-dismissed` no longer needs its escape hatch.
 
+And finally the general form of *written twice*, which is bc-b4dk and which the file had
+been asking for since bc-4aw without being able to have it: the four bugs above are four
+instances of one property, and until the instances were resolved the general check could
+only have failed the build. They were `.tabs` (bc-4aw), the pressed chip's two spellings
+(bc-wx2e), the bare `.chip` (bc-297u, bc-syzm) and the drawer — nine blocks of it, the
+whole section written twice two hundred lines apart, near-identically, so that editing the
+copy a reader reaches first changed nothing at all (bc-5orx). Every one of them rendered
+perfectly, which is the entire difficulty: a duplicated selector is not a parse error and
+not a visual fault, it is a **later block quietly winning**, and the bill is paid by the
+next person to edit the copy that loses. The `.chip` pair had been drawing every filter
+chip, space chip and monitor tab in the composer's paint for as long as both blocks
+existed, while the block written beside the filter chips contributed `flex: 0 0 auto` and
+nothing else.
+
+The assertion is deliberately **not** "a selector appears once", because this stylesheet
+writes two of them twice on purpose and is right to: `:root { --tabbar-h: 54px }` sits with
+the tab bar rules that read it rather than eight hundred lines away with the rest of the
+palette, and `.icon-btn { position: relative }` sits with the badge it exists to position.
+Neither can silently win anything, because neither touches a property its other block sets.
+So what is asserted is the property that actually separates those from the four bugs — **no
+block may re-declare a property an earlier block with the same selector already
+declared** — and additive stays legal without an allowlist to maintain. Shorthands are
+resolved or the check would be trivially evaded, a second block setting `padding-left`
+against a first setting `padding` colliding just as silently as one setting `padding`
+twice: a shorthand covers its own dashed longhands, plus the few families whose names do
+not share a prefix (`gap`/`row-gap`, `inset`/`top`, `place-items`/`align-items`,
+`flex-flow`/`flex-wrap`). Custom properties compare by exact name, so `--tabbar-h` beside
+`--tabbar` is two variables rather than a collision. Run against the tree as it stood
+before this landed the check reports **45** silent overrides across ten selectors and
+neither of the two additive one-liners, and it is shown both shapes — a block that re-sets
+a property, and one that only adds — so a guard that cannot fail is not mistaken for a file
+that is fine. Bodies are read with comments blanked, which is not a detail: `.drawer` sets
+`padding-top` underneath two lines of comment about the notch, and reading the raw text
+hid that one declaration while reporting the other nine.
+
 ## Notes on bd
 
 - **`bd human respond` is broken in bd 1.1.2** — it dies with `storage is nil`.
