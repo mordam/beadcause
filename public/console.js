@@ -1419,11 +1419,40 @@
 
   const priorityLabel = (p) => ['critical', 'high', 'medium', 'low', 'backlog'][p] ?? 'medium';
 
+  /**
+   * "This looks like a bead you already filed", on the card that looks like it.
+   *
+   * The server decides it and writes the sentence (`flagDraftDuplicates` in
+   * lib/server.js), so a draft card and an advocate's proposal card say the same words
+   * about the same thing. Nothing here disables anything: **Create** still creates,
+   * because you are looking at both beads and re-filing on purpose is a real thing to
+   * want — the app states the fact and leaves the decision where it belongs.
+   *
+   * Drawn above the fold, on the collapsed row as well as the open one. The sheet
+   * opens with every card collapsed, so a warning that lived among the fields would be
+   * a warning nobody reads.
+   *
+   * The whole line is the link, because the only useful next move is to go and look at
+   * the bead it names — and `/graph?…&open=1` opens in the drawer over this screen
+   * (public/drawer.js), so looking costs neither the conversation nor the draft. A
+   * `#2` names another card in this same proposal, which is on screen already and has
+   * no address to link to.
+   */
+  function dupeHtml(dup) {
+    if (!dup?.id || !dup.note) return '';
+    const ws = cur()?.console?.workspace;
+    const text = `⚠︎ Possible duplicate: ${esc(dup.note)}`;
+    return ws && !dup.id.startsWith('#')
+      ? `<a class="bead-dupe" href="${beadUrl(ws, dup.id)}">${text}</a>`
+      : `<p class="bead-dupe">${text}</p>`;
+  }
+
   /** One bead: a summary row you tap to open, and the fields underneath it. */
   function beadHtml(b, i, all) {
     const isOpen = cur().open.has(b.ref);
     const others = all.filter((x) => x.ref !== b.ref);
     const externals = b.dependsOn.filter((d) => !all.some((x) => x.ref === d));
+    const dupe = dupeHtml(b.duplicate);
 
     const summary = `<button class="bead-head" data-toggle="${esc(b.ref)}" aria-expanded="${isOpen}">
       <span class="bead-title">${esc(b.title || 'Untitled bead')}</span>
@@ -1436,7 +1465,7 @@
       </span>
     </button>`;
 
-    if (!isOpen) return `<div class="bead card">${summary}</div>`;
+    if (!isOpen) return `<div class="bead card">${summary}${dupe}</div>`;
 
     const chips = (name, values, current, labelFor) =>
       values
@@ -1468,6 +1497,7 @@
 
     return `<div class="bead card open">
       ${summary}
+      ${dupe}
       <div class="bead-body">
         <label class="field">
           <span>Title</span>

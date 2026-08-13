@@ -8840,6 +8840,61 @@ bead that already exists (`dependsOn: [bc-7rx]`), which is how "this waits on th
 we started from" is written; those are checked against the tracker before anything is
 written, so a made-up id costs a warning rather than a half-created proposal.
 
+### A card that is already a bead says so — and still files
+
+**Create** is the only write in the whole chat session, and it was the only way into
+this tracker that never asked whether the thing it was about to file already existed.
+Everything else asks: an advocate [flags a proposal as it writes
+it](#what-counts-as-work), approving one [checks again and
+refuses](#approve-adjust-decline) a duplicate the card never mentioned, and
+`beadcause-propose` checks what a session finds mid-work. `lib/dupe.js` was simply
+never imported by `lib/draft.js`.
+
+What that cost is measured rather than imagined — three epics for one history page,
+filed from three chats inside 82 minutes:
+
+| filed | epic | what it was |
+|---|---|---|
+| 15:14:49 | `bc-qsj6` | independently worded, P2, three children |
+| 15:23:15 | `bc-nib3` | 8m26s later, P1, six children — the one that survived |
+| 16:37:13 | `bc-xpwh` | word for word the same as `bc-nib3`, all six children |
+
+The third would have been caught by comparing titles on any threshold at all. The
+first would not, and it is the expensive one: it reached a finished, tested,
+unmergeable branch writing the same two filenames as one of `bc-nib3`'s children.
+
+So each card now carries **⚠︎ Possible duplicate: already open as bc-nib3 — "…"** when
+its title is near-verbatim one that is open, in progress, blocked, or asked for by a
+proposal still waiting on you. Same threshold and the same sentence as the proposal
+card, written on the server so the two cannot drift. The whole line is a link into the
+bead it names, which opens in the drawer over the conversation — looking costs neither
+the chat nor the draft. It is drawn above the fold, on the collapsed card as well as
+the open one, because the review sheet opens with every card collapsed and a warning
+among the fields is a warning nobody reads.
+
+**It warns; it does not refuse, and that is deliberate.** A proposal card is a
+question answered by one tap, so a duplicate nobody was shown is not something that
+tap consented to and the create is refused. A chat session is the opposite: you are
+looking at the cards, you have edited them over several turns, and re-filing something
+on purpose is a real thing to want. Nothing is disabled — the app states the fact and
+leaves the decision where it belongs. What creating over a flag does leave is a line
+in the daemon log naming the bead you were told about, for the morning after, when the
+question is whether a duplicate was filed knowingly or by nobody noticing.
+
+Two things it does not do, both on purpose. It never re-checks at the moment you press
+the button, because that is the check that would have to *refuse* something to be
+worth anything. And it asks the tracker only when a **title** moves: `findDuplicate`
+reads nothing else, the phone saves the cards 700ms after you stop typing, and a sweep
+per save would be a `bd` subprocess for every sentence of a description. A lookup that
+fails is logged and dropped — an unflagged draft is exactly what every draft was
+before this — because losing a conversation's output to a `bd list` outage would cost
+far more than the warning is worth.
+
+`node test/consoledupe.mjs` (in `npm test`) covers all of it, including the honest
+negative: the `bc-qsj6`/`bc-nib3` pair is *not* caught, because catching two
+independently worded epics needs their children or their acceptance compared rather
+than their titles, and a green run must not read as "duplicates are impossible now".
+
 ### What you just filed, one tap away
 
 Creating leaves a **✓ Created N beads** note in the scrollback, one row per bead. That
