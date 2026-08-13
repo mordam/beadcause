@@ -4,9 +4,9 @@
   Today a change to this webapp starts by describing a screen, in words, to a chat that
   cannot see it — from the phone the screen is on. The screen is right there and is the
   best description of itself. Edit mode is the state that lets it be used that way, and
-  it is the foundation the rest of bc-p49x sits on: this file does not yet capture a
-  single edit. It does three things, and each one is a precondition for the ones that
-  come after it.
+  it is where the whole of bc-p49x lives except the filing. It does five things, and the
+  first three are the preconditions for the two that follow (bc-p49x.1 built those three,
+  bc-p49x.2 the two after them, and bc-p49x.3 turns the list at the end into beads).
 
   ## 1. It is a mode, and it says so
 
@@ -76,6 +76,30 @@
   source string data refuses an edit that was legitimate, and you retype it in a chat
   the way you always did. Calling a tracker string source files an edit against
   public/app.js that will never be applicable and may be applied to the wrong line.
+
+  ## 4. Three ways to say what should change
+
+  One press, told apart by time and then by movement, because a phone has one gesture
+  surface and this needs three meanings out of it. **Tap** to retype text in place, which
+  is the one edit in this epic that is literal. **Hold** to describe: the element is
+  picked up, and letting go without moving it asks for a sentence about what it should do
+  instead. **Hold and drag** to point: where you let go names another element, and what is
+  recorded is the relationship — above the title, inside this card, out of this row — plus
+  the sentence, which is the half an agent actually acts on.
+
+  Nothing a gesture does to the screen is a change to the app, and the mode says so at
+  every step. A dropped element snaps back before the note box has even opened; a retyped
+  word reverts the moment the mode ends; the panel's foot says outright that nothing here
+  has changed anything. A mode whose gestures *looked* like they had taken effect would be
+  read as a save that failed the next time the app was opened.
+
+  ## 5. The pass is a change list, and it is reviewable before it is anything else
+
+  All three land in one list, in the order they were made, and any one of them can be
+  dropped before Save — a point with no note is dropped for you, because it is a finger
+  that slipped rather than an edit. The list is what bc-p49x.3 files: `changes()` is JSON
+  and holds everything an agent needs cold, `clearChanges()` is what Save takes once the
+  beads are filed, and nothing in this file writes to `bd`.
 */
 (() => {
   const win = typeof window !== 'undefined' ? window : globalThis;
@@ -347,7 +371,25 @@
     return String(el?.textContent || '').replace(/\s+/g, ' ').trim();
   }
 
-  const classesOf = (el) => String(el?.getAttribute?.('class') || '').trim().split(/\s+/).filter(Boolean);
+  /**
+   * The classes this mode puts on an element itself — picked up, being retyped, spoken
+   * about — and the reason `classesOf` filters.
+   *
+   * They are on the element only while you are pointing at it, and an anchor is a record
+   * that outlives the pointing. One carrying `editsaid` would name a class this app never
+   * wrote, put it in the selector chain, and offer it to the source search as a grep key
+   * that can only ever resolve to this file. Found the second time an element was
+   * anchored: describe one, then retype it, and the second anchor's class attribute is
+   * `class="card-act editsaid"`, which appears nowhere in the source that drew it.
+   */
+  const MARKS = ['editpick', 'editdrag', 'editretype', 'editretyped', 'editsaid'];
+
+  const classesOf = (el) =>
+    String(el?.getAttribute?.('class') || '')
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean)
+      .filter((c) => !MARKS.includes(c));
 
   /**
    * One step of the chain: what this element is, said as compactly as it can be said
@@ -400,7 +442,9 @@
       const v = attr(name);
       if (v) keys.push({ kind: name, query: `${name}="${v}"` });
     }
-    const written = attr('class').trim();
+    // Written out in full, as one template literal writes it — but off `classesOf`, so a
+    // mark this mode put on the element is not part of the key. See `MARKS`.
+    const written = classesOf(el).join(' ');
     if (written) keys.push({ kind: 'class', query: `class="${written}"` });
     // The classes one at a time, rarest first: `p0-title` names one line where `card`
     // names forty, and asking for the rare one first is what turns "many" into "one".
@@ -583,7 +627,536 @@
     };
   }
 
+  /* ----------------------------------------------------------------- changes */
+
+  /**
+   * The pass.
+   *
+   * Every edit made since the mode was first entered, in the order they were made. One
+   * list for all three gestures, because they are three ways of saying the same kind of
+   * thing and an agent reading them back wants them in the order they were said — the
+   * second edit is very often a qualification of the first.
+   *
+   * It outlives leaving the mode, deliberately. The visuals do not: a retyped word
+   * reverts and a marked element goes plain the instant the mode ends, because none of
+   * it was ever real. But the *record* of what you asked for is the one thing in this
+   * epic that cannot be reconstructed from the screen afterwards, and a thumb that hits
+   * ✏️ twice is not a decision to throw a pass away. Save is what empties it (bc-p49x.3;
+   * this file holds the list and hands it over, and files nothing itself).
+   */
+  const changes = [];
+  let changeNo = 0;
+  /** id -> the function that puts the screen back. Not part of the record: these are
+   *  closures over live elements, where the record is JSON and outlives the page. */
+  const undos = new Map();
+  const changeListeners = [];
+
+  const esc = (s) =>
+    String(s ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+
+  /** Enough of an element to name it in a sentence a person would recognise. */
+  function labelFor(el) {
+    const text = visibleText(el);
+    if (text) return text.length > 44 ? `${text.slice(0, 42)}…` : text;
+    const s = el && el.nodeType === 1 ? step(el) : null;
+    return s ? s.sel : 'the screen';
+  }
+
+  function sayChanges() {
+    paintList();
+    paintCount();
+    for (const fn of changeListeners) {
+      try {
+        fn(changesOf());
+      } catch {
+        /* one listener's problem is not another's */
+      }
+    }
+  }
+
+  /**
+   * File one edit into the pass.
+   *
+   * `undo` is how the screen gets back to the truth — run when the entry is dropped and
+   * when the mode ends, and run at most once either way.
+   */
+  function record(rec, undo) {
+    changeNo += 1;
+    const entry = { id: `e${changeNo}`, ...rec };
+    changes.push(entry);
+    if (undo) undos.set(entry.id, undo);
+    sayChanges();
+    return entry;
+  }
+
+  function undoOne(id) {
+    const fn = undos.get(id);
+    undos.delete(id);
+    try {
+      fn?.();
+    } catch {
+      // A restore that throws is one against an element the page has since thrown away,
+      // which is exactly the case where there is nothing left to put back.
+    }
+  }
+
+  /** Drop one entry before it is saved, and put back whatever it did to the screen. */
+  function dropChange(id) {
+    const at = changes.findIndex((c) => c.id === id);
+    if (at === -1) return false;
+    changes.splice(at, 1);
+    undoOne(id);
+    sayChanges();
+    return true;
+  }
+
+  /** The whole pass, gone — and the screen back as it was. What Save takes once it has
+   *  filed it, and what a second thought about the whole pass takes without filing. */
+  function clearChanges() {
+    for (const c of [...changes]) undoOne(c.id);
+    changes.length = 0;
+    undos.clear();
+    sayChanges();
+  }
+
+  /** The pass as JSON, which is the only form anything outside this file should see. */
+  const changesOf = () => changes.map((c) => JSON.parse(JSON.stringify(c)));
+
+  /** Every visual this pass has put on the screen, off — the records stay. */
+  function restoreScreen() {
+    for (const c of changes) undoOne(c.id);
+  }
+
+  /* ---------------------------------------------------------------- the note */
+
+  /**
+   * The box that asks what you meant.
+   *
+   * Two of the three gestures end here and the third never does. A drag says *where* and
+   * a long-press says *which*, and neither of them says what should be different — the
+   * words do, and the words are what an agent acts on. Retyping is the exception, and
+   * the only literal edit in the epic: the new string is the whole of the intent.
+   *
+   * `Add` stays refused while the box is empty rather than filing a gesture with nothing
+   * on it. A point with no note is not an edit, it is a finger that slipped, and a
+   * tracker full of "something about this card" is worse than an empty one.
+   */
+  let note = null;
+
+  function closeNote(cancelled) {
+    const open = note;
+    note = null;
+    if (!open) return;
+    open.el?.remove?.();
+    if (cancelled) open.onCancel?.();
+  }
+
+  const ASK = {
+    point: 'It snapped back — nothing on this screen moved. Say what should be different about where it sits.',
+    describe: 'What should this do instead?',
+  };
+
+  function askNote(about, onAdd, onCancel) {
+    closeNote(true);
+    const box = doc.createElement('div');
+    box.className = 'editnote';
+    box.setAttribute('role', 'dialog');
+    box.innerHTML =
+      `<p class="editnote-what">${esc(about.said)}</p>` +
+      `<p class="editnote-ask">${esc(ASK[about.kind] || ASK.describe)}</p>` +
+      `<textarea class="editnote-box" rows="3" placeholder="say what you meant"></textarea>` +
+      `<div class="editnote-row">` +
+      `<button type="button" class="editnote-cancel" data-act="edit-note-cancel">Discard</button>` +
+      `<button type="button" class="editnote-add" data-act="edit-note-add" disabled>Add to the list</button>` +
+      `</div>`;
+    const field = box.querySelector('[class="editnote-box"]');
+    const add = box.querySelector('[data-act="edit-note-add"]');
+    const cancel = box.querySelector('[data-act="edit-note-cancel"]');
+    const words = () => String(field?.value || '').trim();
+    field?.addEventListener?.('input', () => {
+      if (words()) add?.removeAttribute?.('disabled');
+      else add?.setAttribute?.('disabled', 'disabled');
+    });
+    add?.addEventListener?.('click', () => {
+      const said = words();
+      if (!said) return;
+      closeNote(false);
+      onAdd(said);
+    });
+    cancel?.addEventListener?.('click', () => closeNote(true));
+    doc.body.appendChild(box);
+    note = { el: box, field, add, onCancel };
+    // The same mic the answer card carries, for the same reason: this mode is aimed at a
+    // phone and a sentence is a lot of thumb. A page served without dictate.js gets a box
+    // with no mic beside it rather than one that fails on tap.
+    try {
+      win.beadcause?.dictation?.attach?.(field, { label: 'Dictate this note' });
+    } catch {
+      /* a mic that will not attach is not a reason to lose the note */
+    }
+    field?.focus?.();
+    return note;
+  }
+
+  /* --------------------------------------------------------------- the panel */
+
+  const KIND = { point: '⤢', retype: '✎', describe: '💬' };
+
+  /** The list itself: what has been said so far, in order, each row with a way out. */
+  let panel = null;
+  let panelOpen = false;
+
+  function paintList() {
+    if (!panelOpen || !mode.on) {
+      panel?.remove?.();
+      panel = null;
+      return;
+    }
+    if (!panel) {
+      panel = doc.createElement('div');
+      panel.className = 'editlist';
+      panel.setAttribute('role', 'dialog');
+      // Delegated, because the rows are rebuilt on every change and a listener per ✕
+      // would have to be rewired every time — the same reconciler problem this whole
+      // mode exists to hold still, in miniature.
+      panel.addEventListener?.('click', (ev) => {
+        const drop = ev.target?.closest?.('[data-drop]');
+        if (drop) return void dropChange(drop.getAttribute('data-drop'));
+        if (ev.target?.closest?.('[data-act="edit-list-close"]')) toggleList(false);
+      });
+      doc.body.appendChild(panel);
+    }
+    const rows = changes
+      .map(
+        (c) =>
+          `<li class="editlist-row"><span class="editlist-kind">${KIND[c.kind] || '•'}</span>` +
+          `<span class="editlist-said">${esc(c.said)}${c.note ? `<em class="editlist-note">${esc(c.note)}</em>` : ''}</span>` +
+          `<button type="button" class="editlist-drop" data-drop="${esc(c.id)}" aria-label="Drop this change">✕</button></li>`
+      )
+      .join('');
+    panel.innerHTML =
+      `<div class="editlist-head"><span class="editlist-count">${changes.length} ${changes.length === 1 ? 'change' : 'changes'}</span>` +
+      `<button type="button" class="editlist-close" data-act="edit-list-close">Close</button></div>` +
+      `<ul class="editlist-rows">${rows || '<li class="editlist-none">Nothing yet. Tap to retype, hold to describe, hold and drag to point.</li>'}</ul>` +
+      `<p class="editlist-foot">Nothing here has changed the app. Filing them as beads is not wired up yet.</p>`;
+  }
+
+  function toggleList(open) {
+    panelOpen = open === undefined ? !panelOpen : Boolean(open);
+    paintList();
+  }
+
+  /* ------------------------------------------------------------- the gestures */
+
+  /**
+   * One press, three outcomes.
+   *
+   * A phone has one gesture surface and this mode needs three meanings out of it, so they
+   * are separated by *time* and then by *movement* — which is the idiom every phone
+   * already uses to pick something up:
+   *
+   *   - **Tap** — retype. The one literal edit, and the one that needs no prose.
+   *   - **Hold** — the element is picked up. Let go without moving it and what you are
+   *     doing is describing it: the words are the whole of the edit.
+   *   - **Hold, then drag** — a point. Where you let go names an element, and what gets
+   *     recorded is the relationship to it rather than the pixels.
+   *
+   * Why the hold is not skipped for the drag: this list scrolls, and a thumb moving down
+   * the screen is a scroll every other second of the day. Nothing is intercepted until
+   * the hold has fired, so the scroller keeps working in edit mode — and by the time it
+   * has fired, the browser has already decided this finger is not scrolling.
+   */
+  const HOLD_MS = 450;
+  /** How far a thumb may wander during the hold before it is a scroll instead. */
+  const SLOP = 10;
+  /** Our own furniture. A tap on any of it is a control, not a thing being pointed at. */
+  const OURS = '.editbar, .editnote, .editlist, #editmode, [data-mic]';
+
+  let press = null;
+  let armed = false;
+
+  const later = (fn, ms) => (win.setTimeout ? win.setTimeout(fn, ms) : null);
+  const unlater = (t) => {
+    if (t != null) win.clearTimeout?.(t);
+  };
+
+  const ours = (el) => Boolean(el?.closest?.(OURS));
+  const typing = (el) => Boolean(el?.closest?.('[contenteditable="true"]'));
+
+  /** Say something in the banner for a moment, then put the sentence back. */
+  let saying = null;
+  function say(words) {
+    const line = mode.banner?.querySelector?.('[class="editbar-say"]');
+    if (!line) return;
+    unlater(saying);
+    line.textContent = words;
+    saying = later(() => {
+      line.textContent = FROZEN;
+    }, 3200);
+  }
+
+  function putDown(el) {
+    el?.classList?.remove?.('editpick');
+    el?.classList?.remove?.('editdrag');
+    if (el?.style) el.style.transform = '';
+  }
+
+  function onDown(ev) {
+    if (!mode.on || ours(ev.target) || typing(ev.target)) return;
+    const el = ev.target;
+    if (!el || el.nodeType !== 1) return;
+    unlater(press?.timer);
+    press = { el, x0: ev.clientX, y0: ev.clientY, held: false, moved: false, timer: null };
+    press.timer = later(() => {
+      if (!press) return;
+      press.held = true;
+      press.el?.classList?.add?.('editpick');
+      // The picked-up element is transparent to hit-testing from here on, so the drop can
+      // ask what is *under* the thumb rather than being answered by the thing already in
+      // it. Its descendants go with it — pointer-events is inherited.
+      press.el?.classList?.add?.('editdrag');
+      say('Picked up — let go to describe it, or drag it where it belongs');
+    }, HOLD_MS);
+  }
+
+  function onMove(ev) {
+    if (!press) return;
+    const dx = ev.clientX - press.x0;
+    const dy = ev.clientY - press.y0;
+    const far = Math.abs(dx) > SLOP || Math.abs(dy) > SLOP;
+    if (!press.held) {
+      // Moved before the hold fired, so this was a scroll all along. Let go of it
+      // entirely rather than fighting the scroller for it.
+      if (far) {
+        unlater(press.timer);
+        press = null;
+      }
+      return;
+    }
+    if (far) press.moved = true;
+    if (press.el?.style) press.el.style.transform = `translate(${Math.round(dx)}px, ${Math.round(dy)}px)`;
+    ev.preventDefault?.();
+  }
+
+  function onUp(ev) {
+    const p = press;
+    press = null;
+    if (!p) return;
+    unlater(p.timer);
+    if (!p.held) return void retype(p.el);
+    if (!p.moved) {
+      putDown(p.el);
+      return void describe(p.el);
+    }
+    point(p, ev);
+  }
+
+  function onCancel() {
+    const p = press;
+    press = null;
+    if (!p) return;
+    unlater(p.timer);
+    putDown(p.el);
+  }
+
+  /* --------------------------------------------------------------- 1. retype */
+
+  /**
+   * A tap on text makes it editable in place, or says why it is not.
+   *
+   * The refusals are the point of this half. `editable.ok` is false for tracker text —
+   * retyping a bead title is editing `bd` while believing you are editing the app — and
+   * false for a string written in more than one place in source, where picking one of
+   * them would be a guess. Both come back with the reason `anchorFor` already worked out,
+   * said in the banner: a control that silently does nothing reads as a broken mode, and
+   * a person would tap it again rather than reach for the chat they can still use.
+   *
+   * Only a leaf. An element with children is a box around text, not the text, and making
+   * a card `contenteditable` hands a thumb the ability to delete half a screen.
+   */
+  function retype(el) {
+    if (!el || el.nodeType !== 1) return;
+    const anchor = anchorFor(el);
+    if (!anchor) return;
+    if (el.children?.length) return void say('Tap the words themselves, not the box around them');
+    if (!anchor.editable?.ok) return void say(anchor.editable?.why || 'that cannot be retyped here');
+    const was = anchor.text.value;
+    el.setAttribute('contenteditable', 'true');
+    el.classList?.add?.('editretype');
+    const onKey = (ev) => {
+      if (ev.key === 'Enter' && !ev.shiftKey) {
+        // The keyboard's own return key, which on a phone is the only way out of an edit
+        // that does not mean something else: every tap elsewhere is another gesture.
+        ev.preventDefault?.();
+        el.blur?.();
+      } else if (ev.key === 'Escape') {
+        el.textContent = was;
+        el.blur?.();
+      }
+    };
+    const finish = (keep) => {
+      el.removeAttribute?.('contenteditable');
+      el.removeEventListener?.('keydown', onKey);
+      el.classList?.remove?.('editretype');
+      const now = visibleText(el);
+      // Emptied counts as abandoned rather than as "delete this text". A thumb that
+      // selected everything and tapped away looks identical to one that meant it, and of
+      // the two readings only this one is recoverable — the words are back and you can
+      // say what you wanted in a note instead.
+      if (!keep || now === was || !now) {
+        el.textContent = was;
+        return;
+      }
+      el.classList?.add?.('editretyped');
+      record({ kind: 'retype', said: `“${was}” → “${now}”`, anchor, from: was, to: now }, () => {
+        if (el.isConnected === false) return;
+        el.textContent = was;
+        el.classList?.remove?.('editretyped');
+      });
+    };
+    el.addEventListener?.('blur', () => finish(true), { once: true });
+    el.addEventListener?.('keydown', onKey);
+    el.focus?.();
+    selectAll(el);
+    say('Retype it, then tap away');
+  }
+
+  /** Put the caret across the whole of it, so a thumb replaces rather than appends. */
+  function selectAll(el) {
+    try {
+      const range = doc.createRange?.();
+      const sel = win.getSelection?.();
+      if (!range || !sel) return;
+      range.selectNodeContents(el);
+      sel.removeAllRanges();
+      sel.addRange(range);
+    } catch {
+      /* a browser that will not place a caret still lets you type at the end */
+    }
+  }
+
+  /* ------------------------------------------------------------- 2. describe */
+
+  /** A held element with nothing else asked of it: the words are the whole of the edit,
+   *  and the gesture exists only to say which element they are about. */
+  function describe(el) {
+    const anchor = anchorFor(el);
+    if (!anchor) return;
+    const said = `About “${labelFor(el)}”`;
+    askNote({ kind: 'describe', said }, (words) => {
+      el.classList?.add?.('editsaid');
+      record({ kind: 'describe', said, anchor, note: words }, () => el.classList?.remove?.('editsaid'));
+    });
+  }
+
+  /* ---------------------------------------------------------------- 3. point */
+
+  /**
+   * Where a drop landed, said as a relationship rather than as a position.
+   *
+   * Two elements and one preposition, which is what a person would have said anyway:
+   * *above the title*, *inside this card*, *out of this row*. Pixels are deliberately not
+   * recorded, because nothing downstream could act on them — this app's layout is a
+   * stylesheet and a template, and "56 pixels left" is not a change anybody can make to
+   * either, where "out of the head and under the buttons" is.
+   *
+   * `elementFromPoint` answers with what is under the thumb, because the dragged element
+   * was made transparent to hit-testing when it was picked up. This mode's own furniture
+   * is skipped: dropping on the banner is dropping on nothing, and saying so is better
+   * than recording an edit about the banner.
+   */
+  function relationAt(el, x, y) {
+    const under = doc.elementFromPoint?.(x, y) || null;
+    const target = under && !ours(under) && under !== el && !el.contains?.(under) ? under : null;
+    const chunk = (n) => n?.closest?.('[data-key]') || null;
+    const mine = chunk(el);
+    const left = mine && chunk(target) !== mine ? labelFor(mine) : null;
+    if (!target || target === doc.body) {
+      return { rel: 'nowhere', target: null, left, said: `“${labelFor(el)}” — dropped where the app has nothing anchored` };
+    }
+    const box = target.getBoundingClientRect?.() || null;
+    // A drop well inside a container that holds other things is asking to be *in* it; one
+    // near an edge, or on a leaf, is asking to be above or below the thing it landed on.
+    const inside =
+      Boolean(target.contains?.(el)) ||
+      Boolean(target.children?.length && box && box.height > 40 && y > box.top + 12 && y < box.bottom - 12);
+    // `beside` is the answer when the target could not be measured at all. Every element
+    // in a browser has a rectangle, so it should never be reached — but a preposition
+    // guessed and filed as fact is the one failure this whole design is arranged against,
+    // and "below" is what an unmeasured element would otherwise be called.
+    const rel = inside ? 'inside' : !box ? 'beside' : y < box.top + box.height / 2 ? 'above' : 'below';
+    return {
+      rel,
+      target: anchorFor(target),
+      left,
+      said: `“${labelFor(el)}” ${left ? `out of “${left}”, ` : ''}${rel} “${labelFor(target)}”`,
+    };
+  }
+
+  function point(p, ev) {
+    const el = p.el;
+    const where = relationAt(el, ev.clientX, ev.clientY);
+    // Back where it was before the note is asked for and before anything is recorded. The
+    // drag was a way of showing what you meant; it was never a change to the screen, and
+    // an element left sitting where it was dropped would say otherwise — and would then
+    // vanish back on the mode's exit, which reads as a change that failed to save.
+    putDown(el);
+    const anchor = anchorFor(el);
+    askNote({ kind: 'point', said: where.said }, (words) => {
+      el.classList?.add?.('editsaid');
+      record({ kind: 'point', said: where.said, anchor, where, note: words }, () => el.classList?.remove?.('editsaid'));
+    });
+  }
+
+  /* -------------------------------------------------------------- the wiring */
+
+  /**
+   * Capture, and on the document, for one reason: in this mode a tap means something
+   * else, and the app's own handlers are still on every card underneath. A click that
+   * reached them would open the card you were pointing at.
+   *
+   * Added once and answering nothing while the mode is off, rather than being added and
+   * removed with it. A page that never enters edit mode pays for five listeners that
+   * return on their first line, and a mode left mid-gesture cannot strand one.
+   */
+  function armGestures() {
+    if (armed || !doc?.addEventListener) return;
+    armed = true;
+    doc.addEventListener('pointerdown', onDown, true);
+    doc.addEventListener('pointermove', onMove, true);
+    doc.addEventListener('pointerup', onUp, true);
+    doc.addEventListener('pointercancel', onCancel, true);
+    // The scroll, refused only once a drag is genuinely under way. Non-passive, because a
+    // passive listener cannot refuse anything, and this is the one place the browser has
+    // to be told that this finger is not scrolling the list.
+    doc.addEventListener(
+      'touchmove',
+      (ev) => {
+        if (press?.held) ev.preventDefault?.();
+      },
+      { passive: false, capture: true }
+    );
+    // And the click the app would otherwise act on, swallowed on the way down — after the
+    // pointer sequence above has already decided what the gesture was.
+    doc.addEventListener(
+      'click',
+      (ev) => {
+        if (!mode.on || ours(ev.target) || typing(ev.target)) return;
+        ev.preventDefault?.();
+        ev.stopPropagation?.();
+      },
+      true
+    );
+  }
+
   /* -------------------------------------------------------------------- mode */
+
+  /** What the banner says when it is not saying anything more urgent. See `say`. */
+  const FROZEN = 'Edit mode — the screen is frozen';
 
   /** The banner. It is the whole of "says so unmistakably", so it is not subtle. */
   function raiseBanner() {
@@ -594,11 +1167,43 @@
     bar.setAttribute('role', 'status');
     bar.innerHTML =
       '<span class="editbar-dot"></span>' +
-      '<span class="editbar-say">Edit mode — the screen is frozen</span>' +
+      `<span class="editbar-say">${FROZEN}</span>` +
+      // The way to the change list, and the only running count of the pass. In the banner
+      // rather than in a corner of its own because the banner is the one thing on this
+      // screen guaranteed to be visible and reachable in the mode — an open card covers
+      // everything else. Hidden at nothing changed: a 0 is a control with nothing behind
+      // it.
+      '<button type="button" class="editbar-count" data-act="edit-list" hidden>0</button>' +
       '<button type="button" class="editbar-done" data-act="edit-done">Done</button>';
     bar.querySelector('[data-act="edit-done"]').addEventListener('click', () => off());
+    bar.querySelector('[data-act="edit-list"]')?.addEventListener?.('click', () => toggleList());
     doc.body.appendChild(bar);
     mode.banner = bar;
+    paintCount();
+  }
+
+  /**
+   * How many edits the pass is holding — on the banner, and on the ✏️ underneath it.
+   *
+   * The button's badge is the one that matters, because it is the only thing that says so
+   * *after* the mode has ended. Leaving puts the whole screen back the way the app has it,
+   * which is the truth and is also exactly what a save that failed would look like; a
+   * count still sitting on the way back in is the difference between "nothing was applied,
+   * and here is what you said" and "it lost my edits".
+   */
+  function paintCount() {
+    const btn = doc?.getElementById?.('editmode');
+    if (btn) {
+      if (changes.length) btn.setAttribute?.('data-changes', String(changes.length));
+      else btn.removeAttribute?.('data-changes');
+      sayButton(btn);
+    }
+    const chip = mode.banner?.querySelector?.('[data-act="edit-list"]');
+    if (!chip) return;
+    chip.textContent = String(changes.length);
+    chip.setAttribute?.('aria-label', `${changes.length} unsaved ${changes.length === 1 ? 'change' : 'changes'}`);
+    if (changes.length) chip.removeAttribute?.('hidden');
+    else chip.setAttribute?.('hidden', 'hidden');
   }
 
   function dropBanner() {
@@ -632,16 +1237,29 @@
     snapshotData();
     doc?.body?.classList?.add('editing');
     raiseBanner();
+    armGestures();
     loading = loading || loadSources();
     tell(true);
     return loading;
   }
 
-  /** And off, which is where app.js takes the one repaint that catches the screen up. */
+  /**
+   * And off, which is where app.js takes the one repaint that catches the screen up.
+   *
+   * Everything this pass drew on the screen comes off first, and before the listeners are
+   * told — the repaint they take rebuilds the list, and a retyped word restored *after*
+   * it would be restored onto an element the reconciler had already thrown away. The
+   * records survive; see `changes`.
+   */
   function off() {
     if (!mode.on) return;
     mode.on = false;
     painted = undefined;
+    closeNote(true);
+    onCancel();
+    restoreScreen();
+    panelOpen = false;
+    paintList();
     doc?.body?.classList?.remove('editing');
     dropBanner();
     tell(false);
@@ -661,14 +1279,19 @@
   function wireButton() {
     const btn = doc?.getElementById?.('editmode');
     if (!btn) return;
-    const say = () => {
-      btn.setAttribute('aria-pressed', mode.on ? 'true' : 'false');
-      btn.classList.toggle('on', mode.on);
-      btn.setAttribute('aria-label', mode.on ? 'Leave edit mode' : 'Edit this screen');
-    };
     btn.addEventListener('click', () => toggle());
-    mode.listeners.push(say);
-    say();
+    mode.listeners.push(() => sayButton(btn));
+    sayButton(btn);
+  }
+
+  /** Which way the ✏️ is, and what it is holding. Said in both places a screen reader and
+   *  a thumb look: the pressed state, and the label. */
+  function sayButton(btn) {
+    if (!btn) return;
+    btn.setAttribute?.('aria-pressed', mode.on ? 'true' : 'false');
+    btn.classList?.toggle?.('on', mode.on);
+    const held = changes.length ? ` — ${changes.length} unsaved ${changes.length === 1 ? 'change' : 'changes'}` : '';
+    btn.setAttribute?.('aria-label', mode.on ? `Leave edit mode${held}` : `Edit this screen${held}`);
   }
 
   win.beadcause = win.beadcause || {};
@@ -687,6 +1310,26 @@
     onChange: (fn) => {
       if (typeof fn === 'function') mode.listeners.push(fn);
     },
+    /* --- the pass. What Save (bc-p49x.3) reads, files and then clears. --- */
+    /** Every edit made this pass, in the order they were made, as JSON. */
+    changes: changesOf,
+    /** Drop one before it is saved, putting back whatever it did to the screen. */
+    dropChange,
+    /** All of them, gone — after they have been filed, or instead of filing them. */
+    clearChanges,
+    /** Told on every change to the list, with the list. The panel and the count are two
+     *  of these, in this file; a Save button's enabled state is the obvious third. */
+    onChanges: (fn) => {
+      if (typeof fn === 'function') changeListeners.push(fn);
+    },
+    /** Open or close the change list. The banner's count is the way in by thumb. */
+    showChanges: toggleList,
+    /* --- the gestures, by their own names, so a check can drive one without
+       synthesising a touch. See scripts/editgesture-check.mjs for the one that does. --- */
+    retype,
+    describe,
+    /** Where a drop at this point would land, without dropping anything. */
+    relationAt,
     /** app.js hands over what it is drawing out of the payload. See the precedence rule. */
     provideText: (fn) => {
       if (typeof fn === 'function') mode.dataText = fn;
