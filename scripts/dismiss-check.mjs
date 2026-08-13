@@ -89,9 +89,39 @@ const ISSUE = {
   ].join('\n'),
 };
 
-const QUESTIONS = [{ ...toQuestion(WS, ISSUE), comments: [] }];
+// The other card the app draws chips on, and the other half of "one tap, one meaning".
+// A question with no `decision` block gets its options read out of the prose instead
+// (lib/suggest.js), and they arrive as `q.suggested` and render as chips rather than as
+// buttons. That is a different handler in public/app.js — `act === 'suggest'` — and it
+// went for a long time without the disarm the `option` branch beside it has, which is
+// bc-z4o4. Two shapes of the same rule need two cards, because a bead cannot carry both:
+// `suggested` is null the moment a decision block is present.
+const LOOSE = {
+  id: 'dm-2',
+  title: 'When should the terminals come back?',
+  issue_type: 'task',
+  status: 'open',
+  priority: 2,
+  created_at: '2026-08-01T09:00:00Z',
+  updated_at: '2026-08-01T09:00:00Z',
+  comment_count: 0,
+  dependent_count: 0,
+  description: [
+    'The report can be restored two ways and they trade off differently.',
+    '',
+    '- **Restore at promotion** — move restoreTerminals() into /internal/activate.',
+    '  Freshest list, costs a directory read during the swap. (recommended)',
+    '- **Restore at startup** — leave it where it is and rely on the reaper gating.',
+  ].join('\n'),
+};
+
+const QUESTIONS = [
+  { ...toQuestion(WS, ISSUE), comments: [] },
+  { ...toQuestion(WS, LOOSE), comments: [] },
+];
 const KEY = QUESTIONS[0].key;
 const ID = QUESTIONS[0].id;
+const LOOSE_KEY = QUESTIONS[1].key;
 
 // The note that has to reach the server as the reason, verbatim, and come back into
 // the box unharmed when the write is refused.
@@ -189,6 +219,9 @@ const waitFor = async (s, expr, tries = 60, gap = 120) => {
 const K = JSON.stringify(KEY);
 const CARD = `#list .card[data-key=${K}]`;
 const DISMISS = `${CARD} .dismiss`;
+const LK = JSON.stringify(LOOSE_KEY);
+const LOOSE_CARD = `#list .card[data-key=${LK}]`;
+const LOOSE_DISMISS = `${LOOSE_CARD} .dismiss`;
 const BOX = `${CARD} [data-role="answer"]`;
 const tap = (s, sel) => evalJs(s, `(document.querySelector(${JSON.stringify(sel)}) || { click(){} }).click(), true`);
 
@@ -421,6 +454,51 @@ try {
     /set aside/i.test(said) && /back when/i.test(said),
     said
   );
+
+  /* ====================================== 7. the same rule, on a card drawn from prose */
+
+  // Last, and on the other card, so nothing above has to know this card exists: the
+  // first one has been dismissed by now and the sequence up there is timing-sensitive.
+  //
+  // A suggestion chip is not a decision option. It fills the box out of prose rather
+  // than out of a block an agent wrote, it is drawn by a different branch of the same
+  // click handler, and for as long as that branch never called disarm() an armed
+  // dismiss survived underneath it (bc-z4o4) — the same two meanings for one tap that
+  // section 3 asserts for options, writing to the same two different endpoints.
+  console.log('\nand a suggestion chip steals the arm too');
+
+  write.calls.length = 0;
+  await tap(s, `${LOOSE_CARD} [data-act="toggle"]`);
+  const chip = `${LOOSE_CARD} .suggested .chip[data-opt="restore-at-promotion-1"]`;
+  const opened = await waitFor(s, `!!document.querySelector(${JSON.stringify(chip)})`);
+  check('the card read its options out of the prose and drew them as chips', opened, opened ? '' : 'no suggestion chips on the card');
+
+  const looseState = `(() => {
+    const b = document.querySelector(${JSON.stringify(LOOSE_DISMISS)});
+    const box = document.querySelector(${JSON.stringify(`${LOOSE_CARD} [data-role="answer"]`)});
+    if (!b) return null;
+    return { text: b.textContent.trim(), armed: b.classList.contains('confirm'), box: box ? box.value : null };
+  })()`;
+
+  await tap(s, LOOSE_DISMISS);
+  await sleep(120);
+  let ls = await evalJs(s, looseState);
+  check('its dismiss arms the same way', !!ls && ls.armed && /tap again/i.test(ls.text), ls ? `"${ls.text}"` : '');
+
+  await tap(s, chip);
+  await sleep(150);
+  ls = await evalJs(s, looseState);
+  check(
+    'tapping a suggestion disarms it — one tap, one meaning',
+    !!ls && !ls.armed && !/tap again/i.test(ls.text),
+    ls ? `"${ls.text}"` : ''
+  );
+  check(
+    'and the chip still did the thing it is for, so the disarm did not eat the tap',
+    !!ls && /Restore at promotion/.test(ls.box || ''),
+    ls ? JSON.stringify(ls.box) : ''
+  );
+  check('and no chip ever writes', write.calls.length === 0, `${write.calls.length} write(s)`);
 } finally {
   close();
   server.close();

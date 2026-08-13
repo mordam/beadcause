@@ -65,13 +65,16 @@ function blocks(src) {
     if (c === '\n') line++;
     if (c === '{') {
       const prelude = s.slice(preludeStart, i).trim().replace(/\s+/g, ' ');
-      const block = { line, prelude, atRule: prelude.startsWith('@'), parent: stack[stack.length - 1] || null };
+      // `opens`/`closes` are offsets of the braces themselves, so a block's body is
+      // src.slice(opens + 1, closes) — what the duplicate check below reads.
+      const block = { line, prelude, atRule: prelude.startsWith('@'), parent: stack[stack.length - 1] || null, opens: i, closes: -1 };
       found.push(block);
       stack.push(block);
       preludeStart = i + 1;
     } else if (c === '}') {
       const closed = stack.pop();
-      if (!closed) found.push({ line, prelude: '', stray: true, atRule: false, parent: null });
+      if (closed) closed.closes = i;
+      else found.push({ line, prelude: '', stray: true, atRule: false, parent: null, opens: i, closes: i });
       preludeStart = i + 1;
     } else if (c === ';') {
       preludeStart = i + 1;
@@ -501,6 +504,171 @@ function auditFlex(css, els) {
   check(
     'a rule for a class the markup never writes down is reported rather than skipped',
     auditFlex('.ghost { gap: 2px; }', el).mute.length === 1
+  );
+}
+
+/* ------------------------------------------- one selector, one block (bc-b4dk)
+ *
+ * The general form of "the tab bars" above, which this file has been asking for since
+ * bc-4aw and could not have without the duplicates being resolved first. Four selectors
+ * were written twice at top level: `.tabs` (bc-4aw), `.chip[aria-pressed]` with
+ * different quoting (bc-wx2e), the bare `.chip` (bc-297u/bc-syzm) and the entire drawer
+ * section, nine blocks of it, two hundred lines apart (bc-5orx).
+ *
+ * Every one of them rendered perfectly. That is the whole difficulty: a duplicated
+ * selector is not a parse error and not a visual fault, it is a *later block quietly
+ * winning*, and the cost is paid by the next person to edit the copy that loses. The
+ * `.chip` pair had been drawing every filter chip in the composer's paint for as long
+ * as both existed, and the block written beside the filter chips contributed one
+ * property out of nine.
+ *
+ * The assertion is not "a selector appears once", though, because this stylesheet
+ * deliberately writes some twice and is right to: `:root { --tabbar-h: 54px }` sits with
+ * the tab bar rules that read it rather than eight hundred lines away with the palette,
+ * and `.icon-btn { position: relative }` sits with the badge it positions. Neither can
+ * silently win anything, because neither touches a property the other block sets. So
+ * the property asserted is the one that actually distinguishes those from the four
+ * bugs: **no block may re-declare a property an earlier block with the same selector
+ * already declared.** Additive is fine and needs no allowlist to stay fine; overriding
+ * at the same specificity, from another part of the file, is the bug.
+ *
+ * "The same property" has to account for shorthands or the check is trivially evaded —
+ * a second block setting `padding-left` against a first setting `padding` collides just
+ * as silently. A shorthand is taken to cover its own dashed longhands (`padding` covers
+ * `padding-left`, `font` covers `font-size`), plus the handful of families whose names
+ * do not share a prefix (`gap`/`row-gap`, `inset`/`top`, `place-items`/`align-items`,
+ * `flex-flow`/`flex-wrap`). Custom properties compare by exact name only, so a
+ * `--tabbar-h` beside a `--tabbar` is two variables and not a collision.
+ *
+ * The known limit, in the permissive direction on purpose: an exotic shorthand not in
+ * that map is read as its own property, so a collision through it would go unreported.
+ * That is the hole this check already closed most of, not a new one — and a guard that
+ * failed the build on a legitimate additive block is a guard that gets an allowlist,
+ * then an ignored allowlist, then deleted.
+ */
+
+/** Longhand families whose members do not share the shorthand's own name. */
+const FAMILIES = {
+  gap: ['row-gap', 'column-gap'],
+  inset: ['top', 'right', 'bottom', 'left'],
+  'place-items': ['align-items', 'justify-items'],
+  'place-content': ['align-content', 'justify-content'],
+  'place-self': ['align-self', 'justify-self'],
+  'flex-flow': ['flex-direction', 'flex-wrap'],
+  overflow: ['overflow-x', 'overflow-y'],
+  'border-radius': ['border-top-left-radius', 'border-top-right-radius', 'border-bottom-right-radius', 'border-bottom-left-radius'],
+};
+
+/** Property names a declaration writes to, shorthands expanded to what they cover. */
+const covers = (prop) => new Set([prop, ...(FAMILIES[prop] || [])]);
+
+/** Two declarations touch the same thing: same name, one a dashed longhand of the other,
+ *  or one a named member of the other's family. Custom properties match exactly. */
+function collides(a, b) {
+  if (a === b) return true;
+  if (a.startsWith('--') || b.startsWith('--')) return false;
+  if (a.startsWith(`${b}-`) || b.startsWith(`${a}-`)) return true;
+  const [ca, cb] = [covers(a), covers(b)];
+  return [...ca].some((x) => cb.has(x));
+}
+
+/** The property names a block's body declares, in source order. */
+function declared(body) {
+  const out = [];
+  for (const part of body.split(';')) {
+    const m = part.match(/^\s*(--[A-Za-z0-9_-]+|[a-zA-Z-]+)\s*:/);
+    if (m) out.push(m[1].toLowerCase());
+  }
+  return out;
+}
+
+/**
+ * Every place a top-level block re-declares something an earlier block with the same
+ * selector already said. Returns one entry per colliding property, which is what makes
+ * the failure readable: the selector, both line numbers, and the property itself.
+ */
+function overrides(css) {
+  const top = blocks(css).found.filter((b) => !b.atRule && !b.parent && !b.stray);
+  // Bodies are read from the *blanked* source, which is the same length, so the offsets
+  // still line up. Reading the raw text instead loses any declaration a comment sits in
+  // front of — `.drawer`'s `padding-top` is preceded by two lines about the notch, and
+  // splitting the raw body on `;` leaves the comment glued to the property name.
+  const bare = blank(css);
+  const seen = new Map(); // prelude -> [{ prop, line }]
+  const out = [];
+  for (const b of top) {
+    const props = declared(bare.slice(b.opens + 1, b.closes));
+    const before = seen.get(b.prelude) || [];
+    for (const prop of props) {
+      const clash = before.find((p) => collides(p.prop, prop));
+      if (clash) out.push({ sel: b.prelude, prop, line: b.line, first: clash.line, firstProp: clash.prop });
+    }
+    seen.set(b.prelude, [...before, ...props.map((prop) => ({ prop, line: b.line }))]);
+  }
+  return out;
+}
+
+console.log('\none selector, one block');
+
+{
+  const css = fs.readFileSync(path.join(PUBLIC, 'style.css'), 'utf8');
+  const clashes = overrides(css);
+  check(
+    'no top-level block re-declares a property an earlier block with the same selector set',
+    clashes.length === 0,
+    clashes
+      .slice(0, 8)
+      .map((c) => `line ${c.line}: ${c.sel} sets ${c.prop} again — line ${c.first} already set ${c.firstProp}`)
+      .join('\n      ') + (clashes.length > 8 ? `\n      …and ${clashes.length - 8} more` : '')
+  );
+
+  // The two the stylesheet writes twice on purpose, named so that deleting either the
+  // rule or this check is a deliberate act rather than a silent one.
+  const top = blocks(css).found.filter((b) => !b.atRule && !b.parent && !b.stray);
+  const twice = [...new Set(top.map((b) => b.prelude))].filter((s) => top.filter((b) => b.prelude === s).length > 1);
+  check(
+    'and the only selectors written twice are the two additive one-liners',
+    twice.length === 2 && twice.includes(':root') && twice.includes('.icon-btn'),
+    twice.join(', ') || 'none at all'
+  );
+
+  // The four that were actually broken, each asserted by name: a fix nothing asserts is
+  // a fix waiting to be merged back over.
+  const linesOf = (sel) => top.filter((b) => b.prelude === sel).map((b) => b.line);
+  for (const sel of ['.chip', '.drawer', '.drawer-wrap', '.drawer-head']) {
+    check(`${sel} is declared exactly once`, linesOf(sel).length === 1, `at line ${linesOf(sel).join(', ') || '— nowhere'}`);
+  }
+  check(
+    'and the composer’s chip restyles itself under .suggested',
+    top.some((b) => b.prelude === '.suggested .chip'),
+    'the second bare .chip is gone but nothing replaced it — the suggestion chips are unstyled'
+  );
+}
+
+{
+  // The detector, shown both shapes. `.a` overriding its own padding is the bug;
+  // `.b` adding a property its earlier block never set is the deliberate case.
+  const bug = '.a { padding: 4px; color: red; }\n.a { padding: 8px; }\n';
+  check('a second block that re-sets a property is caught', overrides(bug).length === 1, JSON.stringify(overrides(bug)));
+  check('an additive second block is not', overrides('.b { color: red; }\n.b { position: relative; }\n').length === 0);
+  check('a longhand against a shorthand is caught', overrides('.a { padding: 4px; }\n.a { padding-left: 8px; }\n').length === 1);
+  check('and a family member whose name does not share the prefix', overrides('.a { gap: 4px; }\n.a { row-gap: 8px; }\n').length === 1);
+  check('two custom properties with a shared prefix are two properties', overrides(':root { --a-b: 1px; }\n:root { --a: 2px; }\n').length === 0);
+  check(
+    'a re-declaration inside an at-rule is a media override, not a collision',
+    overrides('.a { width: 10px; }\n@media (min-width: 700px) { .a { width: 20px; } }\n').length === 0
+  );
+  // The one this got wrong first time round, and the reason bodies are read blanked:
+  // `.drawer` sets `padding-top` under two lines of comment about the notch, and reading
+  // the raw body hid it — the check reported nine of `.drawer`'s ten collisions and
+  // called that a pass for the tenth.
+  check(
+    'a declaration a comment sits in front of is still seen',
+    overrides('.a { padding-top: 1px; }\n.a {\n  /* why */\n  padding-top: 2px;\n}\n').length === 1
+  );
+  check(
+    'and a property name inside a comment is not a declaration',
+    overrides('.a { color: red; }\n.a { /* color: red; */ position: relative; }\n').length === 0
   );
 }
 

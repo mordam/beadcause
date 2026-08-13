@@ -256,13 +256,34 @@ body {
 
 /* The space row is the coarser of the two that filter. */
 .chip-row.spaces .chip { font-weight: 620; }
+/*
+  Every chip in the app: the filter and scope chips, the space row, the repo tabs,
+  the monitor's tabs, the chips the console edits a bead with, and the composer's
+  suggestions — which restyle themselves at `.suggested .chip` and are the only ones
+  that do.
+
+  This block was two blocks until bc-297u/bc-syzm. A second bare `.chip`, written for
+  the composer's suggestions a thousand lines below, had the same specificity and so
+  won `padding`, `background`, `color`, `font-size` and `font-weight` for *every* chip
+  in the app — every filter chip was drawn in the suggestion chip's paint, and the
+  block written beside them here contributed `flex: 0 0 auto` and nothing else. The
+  layout half of that block was not a mistake and is kept here, because it is what the
+  rest of the stylesheet already assumes: `display: inline-flex` is why
+  `.show-dismissed[hidden]` and `.ws-pick[hidden]` have to say `display: none` out
+  loud, and the `gap` is what sets a chip's label off from its count and its bell.
+  What went with the composer is the paint and the metrics — see `.suggested .chip`.
+*/
 .chip {
   flex: 0 0 auto;
+  min-height: 34px;
+  max-width: 100%;
+  display: inline-flex; align-items: center; gap: 5px;
   border: 1px solid var(--line);
   background: var(--surface);
   color: var(--muted);
   border-radius: 999px;
   padding: 7px 14px;
+  font: inherit;
   font-size: 13px;
   font-weight: 550;
   cursor: pointer;
@@ -1502,16 +1523,23 @@ body {
   max-height: 92px; overflow-y: auto;
   overscroll-behavior: contain;
 }
-.chip {
-  min-height: 34px;
-  max-width: 100%;
-  display: inline-flex; align-items: center; gap: 5px;
+/*
+  A suggestion chip is quieter than a filter chip and holds a sentence rather than a
+  word, so it is the one place in the app a chip restyles itself: a lower-contrast
+  wash, tighter metrics, and text that sets left and wraps instead of centring.
+
+  Scoped, and that is the whole point of the rule. It was a bare `.chip` until
+  bc-297u/bc-syzm — same specificity as the app-wide block up at `.chip`, a thousand
+  lines above, so it silently won every property the two shared and drew every filter
+  chip, space chip and monitor tab in the composer's paint. Only what differs is left
+  here; the layout the two agreed on went up to the block that draws them all. The
+  same collision, one level down, is why the pressed rule below is scoped too.
+*/
+.suggested .chip {
   padding: 6px 12px;
-  border: 1px solid var(--line); border-radius: 999px;
   background: var(--surface-2); color: var(--text);
-  font: inherit; font-size: 13.5px; font-weight: 540;
+  font-size: 13.5px; font-weight: 540;
   text-align: left; line-height: 1.3;
-  cursor: pointer;
 }
 .chip:active { transform: scale(0.98); }
 .chip .star { color: var(--accent); font-size: 11px; }
@@ -4214,90 +4242,6 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
 .mir-links { margin-top: 14px; display: flex; flex-wrap: wrap; gap: 14px; }
 .mir-links a { color: var(--accent); font-size: 13.5px; font-weight: 600; text-decoration: none; }
 
-/* ------------------------------------------------------------------- drawer */
-
-/* Detail over the tab you were on: the dependency graph, or a document a question
-   told you to read. See public/drawer.js — the panel holds an iframe of the page
-   that already exists, which is why there is nothing here about its contents.
-
-   Above the tab bar (25), .card.open (40) and the toast (40), below the token
-   dialog (60 and a real <dialog>, which lives in the top layer anyway): a drawer
-   covers the brief you were reading — and the bar, since back is what dismisses it
-   — and is covered by anything that has to be answered first. */
-.drawer-wrap {
-  position: fixed;
-  inset: 0;
-  z-index: 70;
-}
-.drawer-wrap[hidden] { display: none; }
-
-.drawer-backdrop {
-  position: absolute;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.5);
-  opacity: 0;
-  transition: opacity 180ms ease;
-}
-.drawer-wrap.open .drawer-backdrop { opacity: 1; }
-
-.drawer {
-  position: absolute;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  background: var(--bg);
-  border-left: 1px solid var(--line);
-  box-shadow: -18px 0 44px rgba(0, 0, 0, 0.45);
-  /* The page inside an iframe is told nothing about the notch — insets resolve to
-     zero in there — so the panel holds it off the hardware itself. */
-  padding-top: env(safe-area-inset-top);
-  padding-bottom: env(safe-area-inset-bottom);
-  transform: translateX(100%);
-  transition: transform 220ms cubic-bezier(0.2, 0.7, 0.3, 1);
-}
-.drawer-wrap.open .drawer { transform: none; }
-.drawer:focus { outline: none; }
-
-.drawer-frame {
-  flex: 1;
-  width: 100%;
-  border: 0;
-  background: var(--bg);
-}
-
-/* The strip a swipe-to-dismiss starts from. Transparent and narrow, in front of the
-   iframe, because a touch that lands in an iframe is never seen out here. */
-.drawer-edge {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 0;
-  width: 18px;
-  z-index: 2;
-}
-
-/* Wide enough to have somewhere else to look: inset, so the tab underneath stays
-   visible and the drawer reads as detail rather than as a new page. */
-@media (min-width: 760px) {
-  .drawer {
-    top: 14px;
-    right: 14px;
-    bottom: 14px;
-    width: min(680px, 62vw);
-    border: 1px solid var(--line);
-    border-radius: var(--radius);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .drawer,
-  .drawer-backdrop { transition: none; }
-}
-
 /* ── The tab bar ──────────────────────────────────────────────────────────────
 
    The standing views, one bar, on every one of them — see public/tabbar.js for
@@ -4510,9 +4454,10 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
    that already exists, which is why there is almost nothing here about its contents:
    only the header the page hands its title to, and the page's own header going away.
 
-   Above .card.open (40) and the toast (40), below the token dialog (60 and a real
-   <dialog>, which lives in the top layer anyway): a drawer covers the brief you
-   were reading, and is covered by anything that has to be answered first. */
+   Above the tab bar (25), .card.open (40) and the toast (40), below the token
+   dialog (60 and a real <dialog>, which lives in the top layer anyway): a drawer
+   covers the brief you were reading — and the bar, since back is what dismisses it
+   — and is covered by anything that has to be answered first. */
 .drawer-wrap {
   position: fixed;
   inset: 0;
