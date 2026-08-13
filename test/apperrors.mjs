@@ -41,6 +41,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { boundPort } from './helpers/net.mjs';
+import { cleanupTmp } from './helpers/tmp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const LIB = (name) => path.join(HERE, '..', 'lib', name);
@@ -53,6 +54,8 @@ fs.mkdirSync(process.env.BEADCAUSE_CONFIG_DIR, { recursive: true });
 const { Bd } = await import(LIB('bd.js'));
 const { UNENDORSED } = await import(LIB('endorse.js'));
 const { FILED_LABEL, DISCOVERED_FROM } = await import(LIB('filing.js'));
+// bc-rfnr.4's other half: the crash P0 that must not get a planning agent.
+const { wantsAdvocate } = await import(LIB('epicadvocate.js'));
 const {
   intake,
   flushErrorWindows,
@@ -198,6 +201,14 @@ const wsDir = path.join(tmp, 'ws', '.beads');
 fs.mkdirSync(wsDir, { recursive: true });
 const ws = { name: 'demo', dir: wsDir };
 const bd = new Bd({ bin: FAKE_BD, actor: 'beadcause-test' });
+/**
+ * The same tracker, on a Mac that knows whose it is — for bc-rfnr.4 alone.
+ *
+ * `me` is what `Bd.create` stamps an owner off, and it is unset on `bd` above on
+ * purpose: every other assertion in this file is about a bead filed by an install that
+ * has never heard of ownership, which is what every existing install is.
+ */
+const ownedBd = new Bd({ bin: FAKE_BD, actor: 'beadcause-test', me: 'adam@example.com' });
 
 /** One realistic browser report, as `window.onerror` would hand it over. */
 const REPORT = {
@@ -321,8 +332,39 @@ await check('the first report files a P0 bug, endorsed, labelled as a class', as
   );
   assert.ok(bead.description.includes('app.js:3315'), 'the readable fingerprint is on the bead');
   assert.ok(bead.description.includes(REPORT.userAgent), 'along with everything the report carried');
-  assert.doesNotMatch(bead.notes, /auto-endorsement is on for this space/, 'and it does not blame a space setting');
+  assert.doesNotMatch(bead.notes, /auto-endorsement is on for this repo/, 'and it does not blame a policy setting');
   assert.match(bead.notes, /it is a program that failed/, 'it says why it arrived endorsed in its own words');
+});
+
+await check('A CRASH P0 CARRIES THE SERVICE OWNER — bc-rfnr.4', async () => {
+  // Nothing in lib/errors.js does this and nothing should: the stamp is `Bd.create`'s,
+  // on every P0 it files, so the crash path gets it by being P0 rather than by knowing
+  // about ownership. Asserted here anyway, because bc-rfnr.4's acceptance is about this
+  // bead and a change to that condition would be invisible from test/ownership.mjs —
+  // where nothing is a crash — and from here, where nothing knew who it was.
+  await reset();
+  const out = await intake(ownedBd, ws, REPORT);
+  assert.equal(out.action, 'created');
+  const filed = bead(out.id);
+  assert.ok(
+    filed.labels.includes('owner:adam@example.com'),
+    'the P0 that just broke has somebody answerable for it — ' + JSON.stringify(filed.labels)
+  );
+  // And the other half of the same bead: it is exempt from the planning agent. A crash
+  // P0 that opened an EpicAdvocate would be a window spun up to plan a stack trace.
+  assert.equal(wantsAdvocate({ ...filed, status: 'open' }), false, 'a stack trace is not an epic');
+});
+
+await check('and an install that does not know who it is files exactly what it always did', async () => {
+  // The guarantee the whole ownership feature rests on, asked on the crash path because
+  // that is the one path that files a P0 without anybody choosing to.
+  await reset();
+  const out = await intake(bd, ws, REPORT);
+  assert.deepEqual(
+    bead(out.id).labels.filter((l) => String(l).startsWith('owner:')),
+    [],
+    'no owner, no guess'
+  );
 });
 
 await check('posting the same error twice yields one bead and one comment', async () => {
@@ -694,7 +736,7 @@ await check('the endpoint is registered once, on POST', async () => {
 /* -------------------------------------------------------------------- the result */
 
 for (const s of servers) s.close();
-fs.rmSync(tmp, { recursive: true, force: true });
+await cleanupTmp(tmp);
 
 console.log(`\n${ran - failures}/${ran} checks passed\n`);
 process.exit(failures ? 1 : 0);

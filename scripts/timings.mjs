@@ -1,0 +1,124 @@
+#!/usr/bin/env node
+/**
+ * What every route has cost, as a table.
+ *
+ *   npm run timings                  # the running daemon, worst route first
+ *   npm run timings -- --json        # the raw snapshot
+ *   npm run timings -- --top 10      # just the worst ten
+ *   node scripts/timings.mjs --url http://127.0.0.1:4318
+ *
+ * A *consumer*, like bin/monitor.js: everything here comes off `GET /api/timings` and
+ * nothing was added to the server for it, so a wedged reader can never cost the daemon
+ * a request. The figures themselves live in memory in the daemon (lib/timing.js) and
+ * start over at every restart — which is what you want, because they are a claim about
+ * the build that is running.
+ *
+ * Three columns are the point of the whole thing. **`sub%`** is how much of the average
+ * request was spent waiting on a `bd`, `gh` or `git` child rather than in our own code: a
+ * slow route at 0.95 is a caching problem, and a slow route at 0.05 is a bug in the
+ * handler, and they are indistinguishable from a stopwatch. **`×`** is the fan-out — how
+ * much child *work* that wait covered, so `9×` is nine workspaces swept at once and says
+ * that the tenth workspace is nearly free while the first is not. And **cold against
+ * warm** is the same route on both sides of a cache; averaging them together produces a
+ * number that has never once happened.
+ */
+import { loadConfig } from '../lib/config.js';
+
+const argv = process.argv.slice(2);
+const opt = (name, fallback) => {
+  const i = argv.indexOf(name);
+  return i > -1 && argv[i + 1] ? argv[i + 1] : fallback;
+};
+
+if (argv.includes('--help') || argv.includes('-h')) {
+  console.log(`npm run timings — per-route request timings off the running daemon
+
+  --json        the whole snapshot as JSON
+  --top N       only the worst N routes (default all)
+  --url U       the daemon to ask (default http://127.0.0.1:<configured port>)
+  --parked      include the long-poll routes, which are slow on purpose`);
+  process.exit(0);
+}
+
+const cfg = loadConfig();
+const base = opt('--url', `http://127.0.0.1:${cfg.port || 4318}`).replace(/\/+$/, '');
+
+let snap;
+try {
+  const res = await fetch(`${base}/api/timings`, { headers: { 'x-beadcause-token': cfg.token } });
+  if (res.status === 401) {
+    console.error('token rejected — is this the same ~/.config/beadcause as the daemon?');
+    process.exit(1);
+  }
+  if (!res.ok) {
+    console.error(`${base}/api/timings answered ${res.status}`);
+    process.exit(1);
+  }
+  snap = await res.json();
+} catch (err) {
+  console.error(`cannot reach ${base} — ${err.message}`);
+  console.error('is the daemon running? `npm run swap:status` says.');
+  process.exit(1);
+}
+
+if (argv.includes('--json')) {
+  console.log(JSON.stringify(snap, null, 2));
+  process.exit(0);
+}
+
+const secs = (ms) => (ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${Math.round(ms)}ms`);
+const dim = (s) => `\x1b[2m${s}\x1b[0m`;
+const bold = (s) => `\x1b[1m${s}\x1b[0m`;
+const red = (s) => `\x1b[31m${s}\x1b[0m`;
+const amber = (s) => `\x1b[33m${s}\x1b[0m`;
+
+const mins = Math.round(snap.uptimeMs / 60000);
+console.log(
+  `\n${bold('beadcause request timings')} — ${snap.requests} requests over ${mins < 60 ? `${mins}m` : `${(mins / 60).toFixed(1)}h`}` +
+    dim(`  ·  budget ${snap.budgetMs}ms  ·  slow log at ${snap.slowMs || 'off'}\n`)
+);
+
+let rows = snap.routes.filter((r) => argv.includes('--parked') || !r.parked);
+const top = Number(opt('--top', 0));
+if (top > 0) rows = rows.slice(0, top);
+
+const w = Math.min(46, Math.max(20, ...rows.map((r) => r.route.length)));
+const head = `${'route'.padEnd(w)}  ${'n'.padStart(5)} ${'p50'.padStart(7)} ${'p95'.padStart(7)} ${'max'.padStart(7)} ${'sub%'.padStart(5)} ${'×'.padStart(5)}  ${'n'.padStart(5)} ${'p50'.padStart(7)} ${'p95'.padStart(7)}`;
+console.log(dim(`${''.padEnd(w)}  ${'—— cold ——'.padStart(41)}   ${'—— warm ——'.padStart(21)}`));
+console.log(dim(head));
+
+const cell = (s, n) => String(s).padStart(n);
+const blank = (n) => dim('·'.padStart(n));
+
+for (const r of rows) {
+  const c = r.cold;
+  const h = r.warm;
+  const over = c && c.p95Ms > snap.budgetMs;
+  const name = r.parked ? dim(`${r.route} (parked)`.padEnd(w)) : (over ? red : (s) => s)(r.route.padEnd(w));
+  const cold = c
+    ? `${cell(c.n, 5)} ${cell(secs(c.p50Ms), 7)} ${cell(secs(c.p95Ms), 7)} ${cell(secs(c.maxMs), 7)} ${cell(c.subShare.toFixed(2), 5)} ${cell(c.fanout ? `${c.fanout}×` : '·', 5)}`
+    : `${blank(5)} ${blank(7)} ${blank(7)} ${blank(7)} ${blank(5)} ${blank(5)}`;
+  const warm = h ? `${cell(h.n, 5)} ${cell(secs(h.p50Ms), 7)} ${cell(secs(h.p95Ms), 7)}` : `${blank(5)} ${blank(7)} ${blank(7)}`;
+  console.log(`${name}  ${cold}  ${warm}`);
+}
+
+if (!rows.length) console.log(dim('  nothing has been asked for yet'));
+
+if (snap.overBudget.length) {
+  console.log(`\n${red('over budget')} — cold p95 past ${snap.budgetMs}ms:`);
+  for (const route of snap.overBudget) console.log(`  ${route}`);
+} else if (snap.requests) {
+  console.log(`\nevery route inside the ${snap.budgetMs}ms budget.`);
+}
+
+const bg = Object.entries(snap.background.byKind || {})
+  .map(([kind, s]) => `${kind} ${secs(s.ms)} in ${s.calls}`)
+  .join(', ');
+if (bg) {
+  console.log(
+    `\n${amber('off the request path')} — ${bg}` +
+      dim('\n  the poll cycle, the advocate ticks and the sync timer. Not on any request, and not free\n  either: embedded Dolt is single-writer, so this is what a phone read queues behind.')
+  );
+}
+if (snap.overflow) console.log(dim(`\n${snap.overflow} route(s) folded into "other" — the table is full (404s from a scan will do that).`));
+console.log();

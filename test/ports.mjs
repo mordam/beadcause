@@ -40,7 +40,8 @@ import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 import { CLAIM_DIR, claimPort, freePort, releasePorts } from './helpers/net.mjs';
-import { EXITED, PORTLOST, PORT_ATTEMPTS, PORT_TAKEN_EXIT, exitKind, explain, poisonable } from '../lib/startup.js';
+import { EXITED, PORTLOST, PORT_ATTEMPTS, PORT_TAKEN_EXIT, STOPPED, exitKind, explain, poisonable } from '../lib/startup.js';
+import { cleanupTmp } from './helpers/tmp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(HERE, '..');
@@ -65,15 +66,40 @@ await check('a child that exited with the bind code lost its port', () => {
   assert.equal(exitKind(PORT_TAKEN_EXIT), PORTLOST);
 });
 
-await check('a child that exited any other way is the build', () => {
-  // 1 is every other failure a server can have, and `null` is a signalled child — which
-  // is not a port problem either, however it died.
-  for (const code of [0, 1, 2, 4, 137, null, undefined]) assert.equal(exitKind(code), EXITED, `exit ${code}`);
+await check('a child that failed on its own says so with a number', () => {
+  // Non-zero, and from a child that named it: that is the only evidence there is that
+  // the *build* is what went wrong. 1 is a throw at import, 2 is node's own bad-
+  // invocation code, 137 is a shell reporting a SIGKILL as 128+9.
+  for (const code of [1, 2, 4, 137]) assert.equal(exitKind(code), EXITED, `exit ${code}`);
+});
+
+await check('a child that was stopped is not the build — bc-r0tx', () => {
+  // A signal is somebody else's doing: memory pressure, a stray `pkill node`, a runner
+  // tearing a suite down. `null` is what an exit code is for one, which is why the
+  // signal has to be passed and why no code at all reads the same way.
+  assert.equal(exitKind(null, 'SIGKILL'), STOPPED, 'a signalled child');
+  assert.equal(exitKind(null, 'SIGTERM'), STOPPED, 'a signalled child');
+  assert.equal(exitKind(null), STOPPED, 'no code and no signal is still not an accusation');
+  assert.equal(exitKind(undefined), STOPPED);
+  // And zero is the surprising one. Nothing broken exits zero — a syntax error, a bad
+  // import and a bad config are all non-zero — so a zero is a child that chose to stop.
+  assert.equal(exitKind(0), STOPPED, 'a clean exit is not a broken build');
+  // The one path in this repo that produces it, pinned so the reading above cannot
+  // quietly stop covering the case it was written for.
+  const backend = fs.readFileSync(path.join(ROOT, 'bin', 'beadcause.js'), 'utf8');
+  const guard = backend.indexOf('no router contact in');
+  assert.ok(guard > 0, "the orphan guard's log line has moved");
+  assert.match(
+    backend.slice(guard, guard + 400),
+    /process\.exit\(0\)/,
+    'the orphan guard no longer exits 0, so the router is reading its exit as something else'
+  );
 });
 
 await check('only the build may condemn the build', () => {
   assert.equal(poisonable(EXITED), true);
   assert.equal(poisonable(PORTLOST), false, 'a lost port must never poison a build — that is the bead');
+  assert.equal(poisonable(STOPPED), false, 'a build that was stopped from outside must never be condemned — bc-r0tx');
   assert.equal(poisonable('timeout'), false);
 });
 
@@ -89,6 +115,10 @@ await check('the console says a port was lost, not that the build was slow', () 
     build: 'b2',
     attempts: PORT_ATTEMPTS,
     until: Date.now() + 30000,
+    // `kind` is what the summary reads, and `why` is what the lines read. It used to be
+    // `why` for both, which worked while there were only two answers; bc-r0tx added a
+    // third deferral that also carries a `why` and is not about a port at all.
+    kind: PORTLOST,
     why: 'build b2 lost the race for an internal port 3 times — something else on this Mac keeps taking it.',
   };
   const serving = explain({ active: { build: 'b1', pid: 42 }, disk: 'b2', deferred });
@@ -106,6 +136,35 @@ await check('the console says a port was lost, not that the build was slow', () 
   const nothing = explain({ active: null, disk: 'b2', deferred, retryAt: Date.now() + 2000 });
   assert.equal(nothing.code, 'no-backend');
   assert.match(nothing.lines[0], /lost the race for an internal port/);
+});
+
+await check('the console says a build was stopped, not that it lost a port', () => {
+  // The regression this guards: with the summary keyed off `why` rather than off `kind`,
+  // every deferral that carried a reason claimed a port problem — so bc-r0tx's would
+  // have sent whoever read it looking at port collisions for a backend the OOM killer
+  // took.
+  const deferred = {
+    build: 'b2',
+    attempts: 1,
+    until: Date.now() + 30000,
+    kind: STOPPED,
+    why:
+      'build b2 backend on :51000 stopped before it was healthy (signal SIGKILL) — something outside ' +
+      'the build ended it, so the build is not condemned for it.',
+  };
+  const serving = explain({ active: { build: 'b1', pid: 42 }, disk: 'b2', deferred });
+  assert.equal(serving.code, 'retrying');
+  assert.match(serving.summary, /was stopped before it was healthy/);
+  assert.ok(!/could not get a port/.test(serving.summary), 'nothing here was about a port');
+  assert.ok(!/too slow to start/.test(serving.summary), 'and nothing here was slow — it started and was killed');
+  assert.ok(
+    serving.lines.some((l) => /signal SIGKILL/.test(l)),
+    `the diagnosis has to survive into the lines: ${JSON.stringify(serving.lines)}`
+  );
+  // And it must not read as a condemnation on the surface that says one.
+  const nothing = explain({ active: null, disk: 'b2', deferred, retryAt: Date.now() + 2000 });
+  assert.equal(nothing.code, 'no-backend');
+  assert.match(nothing.lines[0], /something outside the build ended it/);
 });
 
 await check('a deferral with no reason still reads as a slow start', () => {
@@ -264,7 +323,7 @@ await check('a backend whose port is taken exits with PORT_TAKEN_EXIT', async ()
   });
 
   await new Promise((resolve) => squatter.close(resolve));
-  fs.rmSync(dir, { recursive: true, force: true });
+  await cleanupTmp(dir);
 
   const said = `${ran.stdout || ''}${ran.stderr || ''}`;
   assert.match(said, /EADDRINUSE/, `the log does not mention the bind at all:\n${said.slice(-2000)}`);
@@ -286,7 +345,15 @@ await check('the backend spawn classifies an exit by its code, and retries a los
   // here. The three lines that carry the fix are asserted instead, in the order that
   // makes them the fix — the same way test/crash.mjs pins the order of its two calls.
   const src = fs.readFileSync(path.join(ROOT, 'bin', 'router.js'), 'utf8');
-  assert.match(src, /exitKind\(child\.exitCode\)/, 'spawnBackend no longer asks why the child exited');
+  // Both arguments, and that is the whole of bc-r0tx at the call site: with the code
+  // alone, a signalled child arrives as `exitKind(null)` and the answer to a question
+  // about `null` condemned the build. There is no way to catch that from `exitKind`'s
+  // own tests, because from in there the call looks perfectly well formed.
+  assert.match(
+    src,
+    /exitKind\(child\.exitCode,\s*child\.signalCode\)/,
+    'spawnBackend is asking about the exit code without the signal beside it — a signalled child reads as a broken build'
+  );
   const branch = src.indexOf('if (err.kind === PORTLOST)');
   assert.ok(branch > 0, 'attemptStart no longer has a branch for a lost port');
   assert.ok(

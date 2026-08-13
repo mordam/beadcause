@@ -20,9 +20,15 @@
  * injecting a `notify` callback: that seam exists for renewal and does not exist for this,
  * and inventing one would test the seam rather than the push.
  *
- * The outage is produced the way test/slowstart.mjs produces it — `healthTimeoutMs: 250`,
- * a window no node process can start inside, so the first bring-ups must time out on a
- * machine of any speed. Then nothing is touched: the router retries on its own clock, and
+ * The outage is produced by a narrow window and a slow start together — `healthTimeoutMs:
+ * 250` and `BEADCAUSE_START_DELAY_MS=1200`. The window alone was the original arrangement
+ * and it was not a guarantee: it rested on "nothing starts in a quarter of a second",
+ * which is true of this laptop opening several real beads workspaces and false of a CI
+ * runner opening one empty one (bc-rcrt). The runner came up first time, the router never
+ * saw an outage, and a suite about what the phone is told when nothing is being served
+ * timed out having asserted none of it. A start held for 1200ms cannot fit in a 250ms
+ * window on any machine, and the window doubles per bring-up until it can — so the outage
+ * is guaranteed and so is the recovery, on hardware nobody has to reason about. Then nothing is touched: the router retries on its own clock, and
  * both pushes have to arrive on their own.
  *
  * Three claims, and the middle one is the one a phone cares about most:
@@ -45,6 +51,7 @@ import http from 'node:http';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { boundPort, freePort } from './helpers/net.mjs';
+import { removeTree, removeTreeSync } from './helpers/tmp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(HERE, '..');
@@ -143,8 +150,9 @@ fs.writeFileSync(
       token: TOKEN,
       bdBin: stubBd,
       actor: 'beadcause-test',
-      // Same window, and the same reason, as test/slowstart.mjs: nothing starts in a
-      // quarter of a second, so the outage is guaranteed rather than hoped for.
+      // Half of the guarantee: a window this narrow is missed by any start slower than
+      // it. The other half is `BEADCAUSE_START_DELAY_MS` below, which is what makes the
+      // start slower than it on a machine of any speed — see the header.
       healthTimeoutMs: 250,
       openSessions: false,
       autoDispatch: false,
@@ -163,7 +171,7 @@ fs.writeFileSync(
 // An observing instance skips every push by design (lib/notify.js), so a stray
 // BEADCAUSE_OBSERVE in the environment running `npm test` would turn this suite green
 // by silencing the thing it exists to check.
-const env = { ...process.env, BEADCAUSE_CONFIG_DIR: dir };
+const env = { ...process.env, BEADCAUSE_CONFIG_DIR: dir, BEADCAUSE_START_DELAY_MS: '1200' };
 delete env.BEADCAUSE_OBSERVE;
 delete env.BEADCAUSE_READONLY;
 
@@ -180,15 +188,84 @@ for (const stream of [router.stdout, router.stderr]) {
   });
 }
 
+/**
+ * Ending the router, and *waiting* until it is over.
+ *
+ * `kill()` is not a wait: it returns once the signal is queued, and the thing it is
+ * queued for is a supervisor with backends of its own — all of them holding this scratch
+ * directory as their `BEADCAUSE_CONFIG_DIR` and writing state into it. Removing the
+ * directory on the next line is therefore a race, and the tick it loses reads as
+ * `ENOTEMPTY: directory not empty, rmdir` out of the teardown: rmSync emptied a
+ * directory, something wrote into it while the walk carried on, and the `rmdir` at the
+ * end found it non-empty again (bc-94c6).
+ *
+ * SIGTERM rather than SIGKILL, because SIGTERM is the only one the router can act on —
+ * its handler stops the backends first (bin/router.js), so waiting on this one exit is
+ * most of the wait for theirs as well. `once('exit')` is the wait itself: it fires when
+ * the child has been reaped. The SIGKILL after five seconds is for a router that will
+ * not go, which is a hang rather than a race and should not also cost the suite a stall.
+ */
+async function stopRouter() {
+  if (router.exitCode !== null || router.signalCode) return;
+  const gone = new Promise((resolve) => router.once('exit', resolve));
+  router.kill('SIGTERM');
+  const hard = setTimeout(() => router.kill('SIGKILL'), 5000);
+  await gone;
+  clearTimeout(hard);
+}
+
+/**
+ * The teardown proper: reap, close, remove — each step finished before the next one
+ * assumes it.
+ *
+ * `removeTree` rather than `cleanupTmp` because there is nothing in *this* process to
+ * quiesce. The writer under `dir` is the router, in a process of its own, so importing
+ * lib/commonrepo.js here would flush a snapshot nobody scheduled — while resolving
+ * `CONFIG_DIR` against the real `~/.config/beadcause`, which a teardown has no business
+ * being the first thing to do. What is wanted is the other half, the retry loop, which
+ * is what covers a backend still on its way out after the router has gone.
+ */
+let tornDown = false;
+async function teardown() {
+  if (tornDown) return;
+  tornDown = true;
+  await stopRouter();
+  if (ntfy.listening) ntfy.close();
+  await removeTree(dir);
+}
+
+/**
+ * The backstop, for the exits that never reach `teardown` — a throw above the try block,
+ * or the SIGINT below. It cannot wait, so it does the only thing an exit handler can:
+ * signal, and retry the removal synchronously.
+ *
+ * A bare `rmSync` is at its worst here rather than at its most harmless: a throw inside
+ * an exit listener is an uncaught exception on the way out, printed *after* the suite has
+ * said all its checks passed and with the exit code already set — so twenty lines of red
+ * land under a green pass and the run stops reading as the thing it did.
+ */
 const cleanup = () => {
-  if (!router.killed) router.kill('SIGKILL');
-  ntfy.close();
-  fs.rmSync(dir, { recursive: true, force: true });
+  if (tornDown) return;
+  if (router.exitCode === null && !router.signalCode) router.kill('SIGKILL');
+  if (ntfy.listening) ntfy.close();
+  removeTreeSync(dir);
 };
 process.on('exit', cleanup);
 process.on('SIGINT', () => process.exit(130));
 
 const failedBringUps = () => routerLog.filter((l) => /would not start in time/.test(l)).length;
+
+/**
+ * How many times the recovery loop has *driven*, which is not the same as how many times
+ * it failed.
+ *
+ * `bringUp('nothing is being served — trying again')` (bin/router.js) logs its reason on
+ * every attempt, before there is an outcome. A failed bring-up — "would not start in time"
+ * — is that same attempt losing a 250ms race, and whether it loses is a fact about how
+ * loaded this Mac is rather than about the router. Counting the attempt is what makes the
+ * assertion below say the thing it means on a quiet laptop and on a busy one alike.
+ */
+const retryAttempts = () => routerLog.filter((l) => /nothing is being served — trying again/.test(l)).length;
 
 try {
   console.log(`\n  outage push — router on :${port}, fake ntfy on :${ntfyPort}, config in ${dir}\n`);
@@ -260,18 +337,33 @@ try {
   // --------------------------------------------- and it does not keep saying it
 
   // The retry loop runs every couple of seconds while nothing is being served. Wait for
-  // proof that it has run again since the push — a second failed bring-up — and check
-  // that the phone heard nothing about it.
-  const beforeRetries = failedBringUps();
+  // proof that it has run again since the push, and check that the phone heard nothing
+  // about it.
+  //
+  // *Run* again, not *failed* again, and that is the whole of bc-nqrr and bc-vwc9. This
+  // used to count "would not start in time" lines and require a second one before the
+  // router recovered. `healthTimeoutMs` here is 250ms — a window no node process starts
+  // inside — so on a busy Mac the next attempt loses that race too and there is a second
+  // failure to count, while on a quiet one the backend comes up on the very next attempt
+  // and the count stays where it was. The suite was measuring how loaded the machine is
+  // and calling the answer "the router gave up", against a router log that reads as a
+  // textbook recovery. It cost two deliveries a red full run that reproduced in none of
+  // the runs after it, and an intermittent red whose own subject is fine is how people
+  // learn to re-run a suite rather than read it.
+  //
+  // The retry *attempt* is logged before there is an outcome, so it is the same fact on
+  // either machine — and it is the fact the check is named after. A router that gave up
+  // logs no further attempt, the `waitFor` below times out, and the suite still fails.
+  const beforeRetries = retryAttempts();
   await waitFor(
-    'the router to fail another bring-up while still serving nothing',
-    async () => failedBringUps() > beforeRetries || (await get(port, '/api/health')).status === 200,
+    'the router to drive another bring-up while still serving nothing',
+    async () => retryAttempts() > beforeRetries,
     45000
   );
   check(
-    failedBringUps() > beforeRetries,
+    retryAttempts() > beforeRetries,
     'the router did keep trying while it was down',
-    `${failedBringUps()} failed bring-up(s)`
+    `${retryAttempts()} attempt(s), ${failedBringUps()} of them too slow`
   );
   check(
     outagePushes().length === 1,
@@ -302,11 +394,14 @@ try {
   );
   check(back.at > push.at, 'and after it, which is the only order that makes either of them readable');
   check(pushes.length === 2, 'two pushes for one outage: it broke, and it came back', `${pushes.length} push(es)`);
-
-  router.kill('SIGTERM');
 } catch (err) {
   bad('the run itself', err.stack || err.message);
 }
+
+// After the catch rather than as the last line of the try, so a run that threw tears down
+// as completely as one that passed — and here, where awaiting is still possible, rather
+// than in the exit handler, where it is not.
+await teardown();
 
 if (failures) {
   console.log('\n--- router log ---');

@@ -226,12 +226,19 @@ const BOX = `(() => {
   const ta = document.querySelector('.freeform textarea[data-role="answer"]');
   const dots = document.querySelector('.agent-dots');
   const bar = document.querySelector('.reply-bar');
-  const thread = [...document.querySelectorAll('.comments .comment')].pop();
+  // The composer as a whole, and the brief above it. On a phone these are two
+  // consecutive rows of the card, and the brief is its own scroller — so the thread
+  // inside it has no fixed position to measure against, and the brief's own bottom
+  // edge is what stands in for "where the reading stops". The last .comment used to
+  // be read here; see the placement checks below for why it no longer can be. (No
+  // backticks in this comment: it lives inside a template literal.)
+  const freeform = document.querySelector('.freeform');
+  const brief = document.querySelector('.card.open > .brief');
   const r = (e) => { if (!e) return null; const b = e.getBoundingClientRect();
     return { top: Math.round(b.top), bottom: Math.round(b.bottom), left: Math.round(b.left), right: Math.round(b.right), h: Math.round(b.height) }; };
   const shown = (e) => !!e && !!e.offsetParent;
   return {
-    ta: r(ta), dots: r(dots), bar: r(bar), thread: r(thread),
+    ta: r(ta), dots: r(dots), bar: r(bar), freeform: r(freeform), brief: r(brief),
     // A chooser is "in the way" if any of it is on screen with the panel shut.
     loudChips: [...document.querySelectorAll('.agent-chip')].filter(shown).length,
     loudDesc: [...document.querySelectorAll('.agent-desc')].filter(shown).length,
@@ -328,16 +335,37 @@ try {
 
   /* 1. the thread runs into the box, with no chooser in between */
   const shut = await evalJs(s, BOX);
-  const gap = shut.thread && shut.ta ? shut.ta.top - shut.thread.bottom : null;
+  // What the chooser costs the brief: everything the composer puts above the place
+  // you type. The reply strip, and the padding over it. Nothing else may live here.
+  //
+  // This used to be measured from the bottom of the last comment, and that was right
+  // for exactly 74 minutes: the fold (124b55f) and the pinned composer (23a0fa3)
+  // landed the same afternoon from different branches. Before the pin, the brief and
+  // the box were consecutive blocks in one scroller and the last comment really did
+  // sit a strip above the box. After it, the brief is its own scroller with the
+  // composer pinned under it — so that distance became "where the brief happens to be
+  // scrolled to", which the fixture's own content decides. It read 134px against a
+  // 110px bar with nothing wrong, and stayed red on main for two days.
+  const strip = shut.freeform && shut.ta ? shut.ta.top - shut.freeform.top : null;
+  const seam = shut.brief && shut.freeform ? shut.freeform.top - shut.brief.bottom : null;
   check(
     'no agent block between the thread and the answer box',
     shut.loudChips === 0 && shut.loudDesc === 0 && shut.loudAllow === 0,
     `${shut.loudChips} chip(s), ${shut.loudDesc} foundation(s), ${shut.loudAllow} tools box(es) on screen`
   );
   check(
-    'the thread ends within a strip of the box',
-    gap != null && gap <= 110,
-    gap == null ? 'no thread or no box' : `${gap}px from the last comment to the textarea`
+    'the chooser costs the box a strip, not a block',
+    strip != null && strip <= 110,
+    strip == null ? 'no box' : `${strip}px above the textarea`
+  );
+  check(
+    // The other half, and the one the old measurement was really reaching for: the
+    // brief runs right up to the composer, so nothing has been slipped in between.
+    // Scroll-position-proof, because it is two card rows meeting, not two pieces of
+    // content — and it still fails if a block is inserted there.
+    'and the thread runs right up to it, with nothing in between',
+    seam != null && seam <= 2,
+    seam == null ? 'no brief or no box' : `${seam}px between the brief and the composer`
   );
 
   /* 2. the ⋯ is the box's own top-right corner */

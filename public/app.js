@@ -28,6 +28,14 @@
     // array and is turned into rows at render time (see `chatRows`). What it *is*
     // part of is the list you look at, which is the whole point of bc-l8jp.5.
     consoles: [],
+    // The JIRA tickets assigned to you, and for the same reason again: a ticket is not
+    // a bead. It has no id in this tracker, nothing about it can be answered here, and
+    // every count in the chrome is about beads — so it rides its own array and is
+    // turned into rows at render time (see `jiraRows`). Filled from the `tickets` field
+    // of the inbox payload, which is where the poller in bc-0i27.2 puts what it holds;
+    // until that lands the field is simply absent and this stays empty, which is the
+    // same thing an install with no JIRA configured will always see.
+    tickets: [],
     // The repos the last sweep could not read, each with what `bd` said (lib/sweep.js).
     // Its own array for the same reason `requests` is one, and drawn as a pane above
     // the list rather than folded into the empty state: a failed sweep is a fact about
@@ -35,6 +43,22 @@
     // is empty *because nobody could ask* is the one thing this app must never draw as
     // "nothing to decide".
     trouble: [],
+    // And the repos that read perfectly and are no longer the same tracker as the
+    // machine they share one with (lib/sync.js). Separate from `trouble` all the way to
+    // the screen, because the two are opposite claims about the list below them — see
+    // `syncTroubleHtml`.
+    syncTrouble: [],
+    // The P0 board (bc-rfnr.2): `{ p0s[], under, owned }` — which P0s carry your
+    // `owner:<handle>`, and for every other row the id of the P0 it descends from.
+    // `owned: false` is what an install with no `me` answers, and it means the whole
+    // section and the whole filter are off: the inbox is the flat list it always was.
+    // **`p0board`, not `board`** — `state.board` is the *pull request* board (`prRows`
+    // reads `board.repos`), and two different things called board on one page is how a
+    // page starts drawing one of them from the other's data.
+    // Its own object rather than fields on the rows, because the *absence* of a row from
+    // `under` is the filter — and a row that arrived before the board did must not read
+    // as one with no P0 above it. See `p0Board` in lib/server.js.
+    p0board: { p0s: [], under: {}, owned: false },
     spaces: [],
     // Every configured workspace, which the inbox needs for one thing only: ＋ has to
     // know where to start a conversation, and "the repos in the selected space" is a
@@ -513,15 +537,18 @@
   }
 
   /**
-   * This card got here without making a noise — and which of the two kinds of quiet
+   * This card got here without making a noise — and which of the three kinds of quiet
    * it was.
    *
-   * **Two silences that read identically until you say which.** A bead outside the
-   * inbox filter and a bead in a muted space both arrive, both file, both count, and
-   * both leave the phone dark (see `quietReasonFor` on the server). The difference is
-   * the whole of what you can do about it: a mute ends on a clock and there is nothing
-   * to press, a filter ends when you press **All**. Before this the distinction lived
-   * only in the daemon's log, which is not a thing anyone reads from a phone at 2am.
+   * **Silences that read identically until you say which.** A bead outside the inbox
+   * filter, a bead in a muted space and a bead somebody else was asked all arrive, all
+   * file, all count, and all leave the phone dark (see `quietReasonFor` on the server).
+   * The difference is the whole of what you can do about it: a mute ends on a clock and
+   * there is nothing to press, a filter ends when you press **All**, and an addressed
+   * question is on another engineer's phone and is not yours to fix at all — which is
+   * exactly the sentence worth having, because it is the one that stops you widening a
+   * filter that was never hiding anything. Before this the distinction lived only in the
+   * daemon's log, which is not a thing anyone reads from a phone at 2am.
    *
    * **And it is what stops the pile reading as a rush.** Widen the filter and every
    * bead it was hiding appears at once, in a list ordered by priority — indistinguish-
@@ -543,12 +570,16 @@
     const a = q.arrivedQuiet;
     if (!a) return '';
     const when = relTime(a.at);
+    const who = (a.for || []).join(', ');
     const why =
-      a.reason === 'muted'
-        ? `${a.space ? esc(a.space) : 'that space'} was muted`
-        : `hidden by the inbox filter${a.filter && a.filter !== 'all' ? ` — ${esc(a.filter)}` : ''}`;
+      a.reason === 'addressed'
+        ? `asked of ${who ? esc(who) : 'somebody else'}`
+        : a.reason === 'muted'
+          ? `${a.space ? esc(a.space) : 'that space'} was muted`
+          : `hidden by the inbox filter${a.filter && a.filter !== 'all' ? ` — ${esc(a.filter)}` : ''}`;
+    const mark = { addressed: '📮', muted: '🔕' }[a.reason] || '🔇';
     return `<p class="quiet-note">
-      <span aria-hidden="true">${a.reason === 'muted' ? '🔕' : '🔇'}</span>
+      <span aria-hidden="true">${mark}</span>
       <span>Arrived quietly${when ? ` ${esc(when)}` : ''} · ${why}</span>
     </p>`;
   }
@@ -1471,6 +1502,11 @@
           key: `pr:${p.key}`,
           pr: p,
           workspace: p.workspace,
+          // Which *repo* — `beadcause`, or `climative/athena-service`. Carried on the row
+          // rather than read off `row.pr` at each call site, because it is what every act on
+          // this pull request is addressed by and a number alone is only unique inside a repo.
+          // Falls back to the workspace, which is what it is for a workspace that is one repo.
+          repoKey: p.repoKey || p.workspace,
           space: spaceForWorkspace(p.workspace),
         }))
     );
@@ -1755,9 +1791,12 @@
     const before = state.prDetail.get(row.key);
     state.prDetail.set(row.key, { loading: true, pr: before?.pr || null, agent: before?.agent || null, unavailable: null });
     paintPrCard(row.key);
-    const q = `workspace=${encodeURIComponent(row.workspace)}&number=${encodeURIComponent(row.pr.number)}${
-      force ? '&refresh=1' : ''
-    }`;
+    /* `key` is the repo — `beadcause`, or `climative/athena-service` (bc-l853.6) — and it
+       is what makes the number mean something: two repos in one workspace both have a #1.
+       `workspace` rides along so a daemon that predates the key still answers. */
+    const q = `key=${encodeURIComponent(row.repoKey || row.pr?.repoKey || row.workspace)}&workspace=${encodeURIComponent(
+      row.workspace
+    )}&number=${encodeURIComponent(row.pr.number)}${force ? '&refresh=1' : ''}`;
     try {
       const res = await api(`/api/pr/detail?${q}`);
       state.prDetail.set(row.key, { loading: false, pr: res.pr, agent: res.agent, unavailable: res.unavailable || null });
@@ -1787,8 +1826,10 @@
    */
   function adoptBoardRow(fresh) {
     for (const repo of state.board?.repos || []) {
-      if (repo.workspace !== fresh.workspace) continue;
-      const at = (repo.prs || []).findIndex((p) => p.number === fresh.number);
+      // By the row's own key, which names the repo: matching on the workspace and the number
+      // would put a freshly-read `athena-service` #1 into `architecture`'s #1 as well, and
+      // both rows would then be drawn from the same read.
+      const at = (repo.prs || []).findIndex((p) => p.key === fresh.key);
       if (at !== -1) repo.prs[at] = fresh;
     }
   }
@@ -1884,7 +1925,14 @@
     try {
       const res = await api(path, {
         method: 'POST',
-        body: JSON.stringify({ workspace: row.workspace, number: row.pr.number, ...body }),
+        // The repo first, for the reason `ensurePrDetail` gives: a pull request number is
+        // only unique within one, and a workspace may now hold forty.
+        body: JSON.stringify({
+          key: row.repoKey || row.pr?.repoKey || row.workspace,
+          workspace: row.workspace,
+          number: row.pr.number,
+          ...body,
+        }),
       });
       state.prSaid.set(row.key, { kind: 'ok', text: said(res) });
     } catch (err) {
@@ -2022,6 +2070,46 @@
       <ul>${rows.map(line).join('')}</ul>
       <span class="trouble-note">Retried on every sweep. Counts on this screen are what
         was last read, not what is there now.</span>
+    </div>`;
+  }
+
+  /**
+   * The other kind of out-of-date: this repo reads perfectly and is no longer the same
+   * tracker as the machine it shares one with.
+   *
+   * Its own banner rather than a row in the one above, because the two say opposite
+   * things about the list underneath them. "Could not be read" means what you are
+   * looking at is stale, and it is honest about which repo. This one means what you are
+   * looking at is *exactly right about this Mac* — every count is real, nothing is
+   * standing in for anything — and silently missing whatever the other machines have
+   * written since it broke. There is nothing on the screen to notice, which is why it
+   * is drawn even though the list beneath it looks fine.
+   *
+   * A conflict is called out in its own words. Everything else here retries and very
+   * often fixes itself by the next interval; a conflict is two machines that wrote the
+   * same bead, and no number of retries has ever resolved one.
+   */
+  function syncTroubleHtml() {
+    const rows = (state.syncTrouble || []).filter((t) => t && t.workspace);
+    if (!rows.length) return '';
+    const conflicts = rows.filter((t) => t.conflict);
+    const line = (t) =>
+      `<li><b>${esc(t.workspace)}</b> — ${esc(t.error || 'the sync failed')}
+        <span class="trouble-held">${esc(
+          t.conflict ? 'needs somebody to say which version wins' : `retrying ${t.phase ? `the ${t.phase}` : ''}`.trim()
+        )}</span></li>`;
+    return `<div class="trouble trouble-sync" role="status">
+      <strong>${
+        conflicts.length
+          ? `${conflicts.length === 1 ? 'A tracker has' : `${conflicts.length} trackers have`} conflicted`
+          : `${rows.length === 1 ? 'A tracker is' : `${rows.length} trackers are`} not syncing`
+      }</strong>
+      <ul>${rows.map(line).join('')}</ul>
+      <span class="trouble-note">${
+        conflicts.length
+          ? 'Two machines wrote the same bead and Dolt cannot merge them. This will not clear on its own.'
+          : 'This list is right about this Mac. Anything written on another machine since it broke is not on it.'
+      }</span>
     </div>`;
   }
 
@@ -2905,8 +2993,13 @@
     // about it, so a kind filter forces the local sweep — which is available for
     // exactly the scopes that can have questions in them.
     const narrowed = Boolean(window.beadcause?.inboxFilter?.selected?.().length);
-    const local = state.questions.filter((q) => !q.agent && (!narrowed || inKind(q))).length;
-    const waiting = swept || narrowed || !Number.isFinite(held) ? local : held;
+    // And the P0 board narrows it for the same reason the kind filter does — it sits
+    // above the same list and hides rows from it, so a count that ignored it would say
+    // forty over a list of six. `boarded` forces the local sweep the same way `narrowed`
+    // does: the server's held figure is a count of questions, not of descendants.
+    const boarded = isBoarded();
+    const local = underOwnedP0s(state.questions).filter((q) => !q.agent && (!narrowed || inKind(q))).length;
+    const waiting = swept || narrowed || boarded || !Number.isFinite(held) ? local : held;
 
     const el = $('#waiting');
     if (el) {
@@ -3127,6 +3220,82 @@
     </div>`;
   }
 
+  /* ----------------------------------------------------- the JIRA tickets */
+
+  /**
+   * The tickets assigned to you in JIRA, as rows this list can hold.
+   *
+   * The third thing in this file that is not a bead, and it follows the two above it
+   * exactly (bc-0i27.3). They ride the inbox payload (`tickets`), they are turned into
+   * rows here rather than merged into `state.questions`, and the reason is the one
+   * `chatRows` gives: nearly everything reading that array is about beads — the waiting
+   * count, the picker's per-repo numbers, `byKey`, the answer path, the flight an answer
+   * takes into the mark. A JIRA ticket would be counted by all of them and answered by
+   * none, and unlike a chat session it is not even a thing this app owns yet.
+   *
+   * **What a held ticket is**, and it is fixed by bc-0i27.2 rather than by this file:
+   * `key`, `summary`, `status`, `updated`, `url`, `assignee` — deliberately enough to
+   * draw the row with no second call, and deliberately no description body, which the
+   * view in bc-0i27.6 fetches when you open one. Two more fields come from *where* the
+   * ticket was found rather than from JIRA: `workspace`, because JIRA is configured per
+   * workspace, and `space`, because the inbox filters on `q.space` before anything else
+   * and a row without one collects under "Other" and vanishes the moment a space is
+   * picked. That is the same requirement the chat rows put on `inboxConsoles`.
+   *
+   * `key` is namespaced `jira:<workspace>/<ticket>` — a fourth namespace beside the `@`
+   * panes, `pr:` and `chat/`, and no bead's `workspace/id` can begin with it. Two
+   * workspaces pointed at the same JIRA project would otherwise hand this list one row
+   * twice under one key, and a reconcile keyed on that would draw one of them.
+   */
+  const jiraRows = () =>
+    (state.tickets || []).map((t) => ({
+      jira: t,
+      key: `jira:${t.workspace || ''}/${t.key}`,
+      workspace: t.workspace,
+      space: t.space || null,
+    }));
+
+  /**
+   * What a ticket row says while you are scrolling past it.
+   *
+   * The requirement is which ticket, and what state it is in, without opening it — so
+   * the key and the status are on the row rather than behind a tap, and the summary is
+   * the title because that is the only part anybody reads. `assignee` is not drawn: the
+   * whole query is *assigned to you*, so a name on every row would be the same name on
+   * every row. It is carried on the ticket for the view (bc-0i27.6) and for the day the
+   * query grows a second slice.
+   *
+   * It borrows `.work-row` from the chat rows and the launcher for the reason they
+   * borrow it from each other — a fourth shape of row is a fourth thing to recognise in
+   * a list you scan — and the `.card` around it is what makes it one item in a stack.
+   *
+   * **The link goes to JIRA, and that is the interim.** bc-0i27.6 replaces it with the
+   * ticket view opened over the tab, which is where the decision actually gets made;
+   * until then a row you cannot do anything with would be a row that is only a
+   * notification. `openLinksInNewTab` does not reach it (it sweeps `.md`, `.links` and
+   * `.docs` only), so the attributes are written here.
+   */
+  function jiraRowHtml(row) {
+    const t = row.jira;
+    const bits = [];
+    if (t.status) bits.push(String(t.status));
+    // Which workspace's JIRA this came off. Drawn for the same reason a chat row draws
+    // its repo: with two workspaces configured, the ticket key alone does not say which
+    // project you are looking at.
+    return `<div class="card jira-card" data-key="${esc(row.key)}">
+      <a class="work-row" href="${esc(t.url || '#')}" target="_blank" rel="noopener noreferrer">
+        <span class="work-phase">🎫</span>
+        <span class="work-main">
+          <span class="work-title">${esc(t.summary || t.key || 'Untitled')}</span>
+          <span class="work-sub"><span class="pill id">${esc(t.key || '')}</span>${
+            row.workspace ? `<span class="pill">${esc(row.workspace)}</span>` : ''
+          }${esc(bits.join(' · '))}</span>
+        </span>
+        <time>${esc(relTime(t.updated))}</time>
+      </a>
+    </div>`;
+  }
+
   /**
    * The scope chips. The third column is what the settings panel used to spell out
    * under the switch; it rides along as the chip's `title` and its accessible name,
@@ -3172,9 +3341,9 @@
    * see `survey` in public/inboxfilter.js.
    *
    * `any` is the exception and it is not a special case so much as the absence of
-   * one: a pull request comes off `gh` and a chat session off no sweep at all, so for
-   * neither is there a scope that could have failed to fetch it, and neither has a
-   * scope in which its chip would be dead.
+   * one: a pull request comes off `gh`, a chat session off no sweep at all and a JIRA
+   * ticket off JIRA, so for none of them is there a scope that could have failed to
+   * fetch it, and none of them has a scope in which its chip would be dead.
    */
   const kindsForScope = () =>
     (window.beadcause?.inboxFilter?.KINDS || [])
@@ -3232,7 +3401,10 @@
     // Over the kind filter as well as the scope, for the same reason: a picker saying
     // 5 above a list showing 1 is the two halves of one screen disagreeing about the
     // same beads.
-    for (const q of state.questions) {
+    // …and over the P0 board, third of the three for the same reason: every filter
+    // between the sweep and the screen has to be applied here or the picker is counting
+    // a list nobody is looking at.
+    for (const q of underOwnedP0s(state.questions)) {
       if (!inKind(q)) continue;
       counts[q.workspace] = (counts[q.workspace] || 0) + 1;
     }
@@ -3580,6 +3752,97 @@
     else listEl.innerHTML = chunks.map((c) => c.html).join('');
   }
 
+  /**
+   * The list, narrowed to what descends from a P0 you own. bc-rfnr.2.
+   *
+   * **Three ways this is a no-op, and all three are on purpose.** `owned: false` is an
+   * install with no `cfg.me` — the feature has never been switched on and the inbox is
+   * the flat list it always was. An empty `p0s` is a machine that knows who it is and
+   * owns nothing yet, which is the state before bc-rfnr.5's triage has run: narrowing
+   * there would hide the entire tracker behind a section with nothing in it, and an empty
+   * screen is indistinguishable from a quiet afternoon. And a payload from a server that
+   * predates the board leaves `state.p0board` at its default, which is the first case.
+   *
+   * **Descendants only.** `under` is built from `parent-child` edges alone (lib/ancestry.js);
+   * a `discovered-from` trail or a blocking edge does not pull a bead in, which matters
+   * because lib/filing.js puts a `discovered-from` on everything an agent ever filed.
+   *
+   * **A chat is always shown.** It has no bead, so no P0 can be above it — and it is where
+   * a new P0 gets filed, so hiding it would make the filter the one thing on this screen
+   * you could not get out of.
+   *
+   * **A pull request follows its beads.** Its own key is `pr:<repo>#<n>` and will never be
+   * in `under`; what decides it is whether any bead it names is. A pull request that names
+   * no bead stays visible, deliberately: it is a decision somebody is waiting on, and the
+   * failure mode of hiding one is worse than the failure mode of showing one too many.
+   */
+  /** Is the board actually narrowing anything? The three no-op cases, asked once. */
+  function isBoarded() {
+    const board = state.p0board;
+    return Boolean(board?.owned && (board.p0s || []).length);
+  }
+
+  function underOwnedP0s(rows) {
+    const board = state.p0board;
+    if (!isBoarded()) return rows;
+    const under = board.under || {};
+    return rows.filter((q) => {
+      if (q.session) return true;
+      // And a JIRA ticket, on the same rule and for a stronger reason: it has no bead
+      // at all until bc-0i27.4 files one, so there is nothing for `under` to hold and
+      // filtering on it would hide every ticket the moment you owned a P0. Once the
+      // epic exists this is the line that has to start following it — which is
+      // bc-0i27.5's to write, because it is bc-0i27.5 that puts the id on the row.
+      if (q.jira) return true;
+      if (q.pr) {
+        const named = q.pr.beads || [];
+        return !named.length || named.some((b) => under[`${q.workspace}/${b.id || b}`]);
+      }
+      return Boolean(under[q.key]);
+    });
+  }
+
+  /**
+   * The P0s you own, as their own section at the top — not sorted to the top.
+   *
+   * The difference is the whole bead. `byUrgency` would put a P0 first *today*, and on the
+   * day six crashes file themselves (lib/errors.js files every daemon crash at P0) it would
+   * put your epics below the fold with nothing to say they had moved. A section cannot be
+   * pushed down by the list underneath it.
+   *
+   * Drawn as one chunk rather than a card each, because `warm.paint` reconciles by key and
+   * the board moves as a unit: the counts on every card come from one sweep, so rebuilding
+   * them one at a time would be four DOM writes where the data arrived as one.
+   *
+   * `waitingOn` is drawn only when it is there. It is the EpicAdvocate's sentence to write
+   * (bc-rfnr.3) and is null until that lands — a placeholder saying "nothing" would be a
+   * claim, where an absent line is honestly nothing yet.
+   */
+  function p0SectionHtml() {
+    const board = state.p0board;
+    if (!board?.owned) return '';
+    const mine = (board.p0s || []).filter(
+      (c) => (state.space === 'all' || spaceForWorkspace(c.workspace) === state.space) &&
+        (state.workspace === 'all' || c.workspace === state.workspace)
+    );
+    if (!mine.length) return '';
+    const cards = mine
+      .map(
+        (c) => `<div class="p0-card">
+          <div class="p0-head"><a class="pill id" href="${esc(`${graphUrl(c)}&open=1`)}">${esc(c.id)}</a>${
+            c.inFlight ? `<span class="p0-flight">${c.inFlight} in flight</span>` : ''
+          }<span class="p0-open">${c.open === 1 ? '1 open' : `${c.open} open`}</span></div>
+          <a class="p0-title" href="${esc(`${graphUrl(c)}&open=1`)}">${esc(c.title || '')}</a>
+          ${c.waitingOn ? `<div class="p0-waiting">${esc(c.waitingOn)}</div>` : ''}
+          <button type="button" class="p0-advocate" data-act="advocate" data-ws="${esc(c.workspace)}" data-bead="${esc(
+            c.id
+          )}">🧭 Put an advocate on it</button>
+        </div>`
+      )
+      .join('');
+    return `<section class="p0-board" aria-label="Your P0s"><div class="p0-kind">Your P0s</div>${cards}</section>`;
+  }
+
   function render(force = false) {
     if (!force && isAnswering()) {
       pendingRender = true;
@@ -3591,19 +3854,27 @@
     // Two levels of filter: space (work vs personal), then workspace within it.
     // With no spaces configured the first level is skipped entirely and this
     // behaves exactly as it did before.
-    // The pull requests and the chat sessions go through both filters too — they are
-    // rows in this list, and a filter that some of the list ignored would be worse than
-    // no filter. Concatenated before the space test rather than after it, so all three
-    // kinds of row are narrowed by the same predicate rather than by a copy of it.
-    const rows = [...state.questions, ...prRows(), ...chatRows()];
+    // The pull requests, the chat sessions and the JIRA tickets go through both filters
+    // too — they are rows in this list, and a filter that some of the list ignored would
+    // be worse than no filter. Concatenated before the space test rather than after it,
+    // so all four kinds of row are narrowed by the same predicate rather than by a copy
+    // of it. That is also the whole of what makes a quiet space's tickets as quiet as
+    // its questions: quiet is per space (lib/spaces.js), a workspace belongs to a space,
+    // and a ticket carries the space of the workspace whose JIRA held it.
+    const rows = [...state.questions, ...prRows(), ...chatRows(), ...jiraRows()];
     const inSpace = state.space === 'all' ? rows : rows.filter((q) => spaceOf(q) === state.space);
     const inRepo =
       state.workspace === 'all' ? inSpace : inSpace.filter((q) => q.workspace === state.workspace);
     // Then the third, which is this page's own and lives in the collapsed control
     // above the list: which *kinds* of incoming thing to show. Surveyed first so the
     // chips can carry counts of what they would leave you with, then applied.
-    surveyKinds(inRepo);
-    const visible = inRepo.filter(inKind);
+    // And the fourth, which is not a chip and not yours to switch off: with P0s owned,
+    // the list below the board is their descendants and nothing else. Applied *before*
+    // `surveyKinds` so the kind chips count what you can actually get to — a chip
+    // offering six merges when the filter leaves you one is a control that lies.
+    const inBoard = underOwnedP0s(inRepo);
+    surveyKinds(inBoard);
+    const visible = inBoard.filter(inKind);
 
     // The other channel, always first and never filtered. It is rare enough that
     // putting it at the top costs nothing on the days there is nothing in it, and on
@@ -3630,8 +3901,19 @@
     // empty state — see `troubleHtml`. Below the requests because a request is a
     // decision somebody is waiting on and this is a caveat about the list; above the
     // list because a caveat under forty cards is a caveat nobody reads.
+    // Above the sweep's own caveats and above the list: this is the thing the screen is
+    // for. Below the shade and the foundation requests, which are decisions waiting on a
+    // tap rather than a standing picture of the week.
+    const p0s = p0SectionHtml();
+    if (p0s) chunks.push({ key: '@p0', html: p0s });
     const missed = troubleHtml();
     if (missed) chunks.push({ key: '@trouble', html: missed });
+    // Directly beneath it, in the same place and for the same reason. Second of the two
+    // because it is the rarer one and because a repo can be in both at once — a locked
+    // Dolt fails the read and the sync in the same tick — and reading "could not be
+    // read" first is the order those two sentences make sense in.
+    const diverged = syncTroubleHtml();
+    if (diverged) chunks.push({ key: '@synctrouble', html: diverged });
 
     // `rows`, not `state.questions`: with no beads at all but a pull request open or a
     // conversation on the go, the list is not empty — and the first-run copy `emptyHtml`
@@ -3670,7 +3952,7 @@
       // either and no pane key can, so a reconcile cannot mistake one for another. Which
       // is what lets a row be left alone on every poll where its own HTML did not change
       // — the spark starting or a count moving is the whole of what rebuilds a chat row.
-      const beads = visible.filter((q) => !q.pr && !q.session);
+      const beads = visible.filter((q) => !q.pr && !q.session && !q.jira);
       const prs = visible
         .filter((q) => q.pr)
         .sort(
@@ -3680,11 +3962,22 @@
       const chats = visible
         .filter((q) => q.session)
         .sort((a, b) => String(b.session.updatedAt).localeCompare(String(a.session.updatedAt)));
+      // And the tickets, newest first alone, for the reason the chats are: a JIRA ticket
+      // has no rung to sort by, only a last-touched. Below both of them and above the
+      // replied beads, which is where it belongs on the same rule the comment above
+      // uses — a pull request is a decision somebody is waiting on, a conversation is
+      // yours to pick up whenever, and a ticket is work that has not started. None of
+      // the three outranks a bead asking you something, and all three outrank a bead an
+      // agent already has back.
+      const tickets = visible
+        .filter((q) => q.jira)
+        .sort((a, b) => String(b.jira.updated || '').localeCompare(String(a.jira.updated || '')));
       const waiting = beads.filter((q) => !q.awaitingAgent);
       const replied = beads.filter((q) => q.awaitingAgent);
       for (const q of waiting) chunks.push({ key: q.key, html: cardHtml(q) });
       for (const q of prs) chunks.push({ key: q.key, html: prCardHtml(q) });
       for (const q of chats) chunks.push({ key: q.key, html: chatRowHtml(q) });
+      for (const q of tickets) chunks.push({ key: q.key, html: jiraRowHtml(q) });
       for (const q of replied) chunks.push({ key: q.key, html: cardHtml(q) });
     }
     paintList(chunks);
@@ -3722,9 +4015,10 @@
     // 25s poll must not make it flash on screen at someone who isn't scrolling.
     paintScrollPos(false);
     // Beads only. The monitor draws this as "N waiting", which is a claim about work
-    // asking you something — and neither a pull request sitting on origin nor a
-    // conversation you left open is one of those.
-    publishView(visible.filter((q) => !q.pr && !q.session));
+    // asking you something — and none of a pull request sitting on origin, a
+    // conversation you left open, or a JIRA ticket nobody has decided about yet is one
+    // of those.
+    publishView(visible.filter((q) => !q.pr && !q.session && !q.jira));
   }
 
   /**
@@ -4222,6 +4516,41 @@
     if (!btn) return;
     const key = btn.dataset.key;
     const act = btn.dataset.act;
+
+    /**
+     * Put a P0 advocate on this P0 — the one button on the board's cards.
+     *
+     * First, and keyed on its own `data-bead` rather than on `data-key`: the P0 cards are
+     * not inbox rows and have no bead key, so every branch below this one would read
+     * `undefined` and act on nothing.
+     *
+     * The button is disabled for the round trip and left saying what happened either way.
+     * It opens an iTerm window on the Mac that files beads — that is not something to fire
+     * twice because a train swallowed the first tap, and the 409 the server gives a second
+     * one is a sentence worth reading rather than a silent no-op.
+     */
+    if (act === 'advocate') {
+      const bead = btn.dataset.bead;
+      const was = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = 'Opening…';
+      try {
+        await api('/api/bead/advocate', {
+          method: 'POST',
+          body: JSON.stringify({ workspace: btn.dataset.ws, id: bead }),
+        });
+        btn.textContent = '🧭 Advocate opened';
+        toast(`A P0 advocate is planning ${bead}`);
+      } catch (err) {
+        // Back to a button you can press again, with the reason on screen. Every refusal
+        // this route gives is a fixable state — unowned, closed, already running — so a
+        // dead control saying nothing would be the wrong end of it.
+        btn.disabled = false;
+        btn.textContent = was;
+        toast(err.message, 'refused');
+      }
+      return;
+    }
 
     /**
      * Both answers to the notification prompt — see dismissAskHtml().
@@ -4810,15 +5139,19 @@
       const row = byKey(key);
       if (!row?.pr) return;
       if (armFirst(key, 'conflicts')) return;
-      // Two sentences, because the daemon now answers two different things. A second
+      // Three sentences, because the daemon answers three different things. A second
       // press does not open a second window — it speaks to the session that already has
       // the pull request (lib/resolvers.js, bc-utyr) — and a press that reads back
       // "Session open" over a session somebody opened ten minutes ago is exactly the
-      // report that made two of them look like one.
+      // report that made two of them look like one. The third is the Mac being full:
+      // two resolvers at a time, the rest in line, and the note the daemon sends back
+      // is the one that knows how many are ahead of this one.
       await actOnPr(row, '/api/pr/conflicts', {}, (res) =>
-        res.reused
-          ? `Already being resolved on ${res.branch} — told that session you pressed again.`
-          : `Session open on ${res.branch} — it pushes the branch and stops.`
+        res.queued
+          ? `${res.note}.`
+          : res.reused
+            ? `Already being resolved on ${res.branch} — told that session you pressed again.`
+            : `Session open on ${res.branch} — it pushes the branch and stops.`
       );
       return;
     }
@@ -4863,15 +5196,30 @@
       const opt = opts.find((o) => o.id === btn.dataset.opt);
       if (!opt) return;
 
+      // Whatever else on the list was armed, this tap is not its confirming tap —
+      // arming any control disarms the others, which is the rule paintArmed() exists
+      // to keep on screen. It reads as belt-and-braces here because an option arms
+      // nothing itself any more, and that is exactly how it went missing: this handler
+      // used to arm and then answer on the second tap, and when bc-l8jp.9 turned it
+      // into "fill the box", the unconditional disarm() went with the answering path
+      // and only the one guarding expand() survived. So on a card already open — the
+      // common case, because you have to see the options to tap one — the dismiss
+      // under it stayed armed and went on saying "Tap again — hides dm-1" while you
+      // picked. The next tap then means two things at once, and the two write to
+      // different endpoints: /api/answer and /api/dismiss.
+      disarm();
+
       // A closed card has no box to fill, so the tap opens it — the same move
       // `pr-changes` makes, and for the same reason: what happens next is typing.
       // Through expand() rather than openOnly(), so the brief and the thread arrive
       // with it: you are about to write an answer, and the card you write it on
       // should be the whole card.
       if (!state.open.has(key)) {
-        disarm();
         await expand(key);
       }
+      // After the expand, not before: it re-renders the list, and a repaint of the
+      // old buttons would be thrown away with them.
+      paintArmed();
       const box = listEl.querySelector(`.card[data-key="${CSS.escape(key)}"] [data-role="answer"]`);
       if (!box) return;
 
@@ -4915,6 +5263,20 @@
       const opt = opts.find((o) => o.id === btn.dataset.opt);
       const box = listEl.querySelector(`.card[data-key="${CSS.escape(key)}"] [data-role="answer"]`);
       if (!opt || !box) return;
+
+      // The same disarm the `option` branch above makes, for the same reason and with
+      // the same history: this branch fills the box and repaints in place, and it never
+      // took the arm off anything (bc-z4o4). So on a card with suggestions rather than
+      // decision options, arming the dismiss and then tapping a suggestion left the
+      // dismiss underneath still reading "Tap again — hides …", and the next tap meant
+      // two things at once — /api/answer or /api/dismiss, which is the ambiguity
+      // scripts/dismiss-check.mjs calls "one tap, one meaning".
+      //
+      // Painted rather than rendered, because render() would rebuild the card under the
+      // textarea and take the keyboard down with it — which is the whole reason this
+      // branch paints in place to begin with.
+      disarm();
+      paintArmed();
 
       const current = box.value.trim();
       const mine = current && !opts.some((o) => o.response.trim() === current);
@@ -5349,12 +5711,27 @@
       state.consoles = data.consoles.filter((c) => !dismissedChats.has(c.id));
       for (const id of dismissedChats) if (!data.consoles.some((c) => c.id === id)) dismissedChats.delete(id);
     }
+    // Taken whole, on the same terms as `consoles` and for the same reason: a ticket has
+    // no local state on this page — no draft, no open card, nothing half-answered — so
+    // the server's copy is always the better one. Absent means a server whose poller
+    // (bc-0i27.2) has not landed yet, or an install with no JIRA configured at all, and
+    // in both cases leaving the last list alone is what stops a mixed fleet from
+    // flickering the section off and on between two daemons.
+    if (Array.isArray(data.tickets)) state.tickets = data.tickets;
     // Taken whole, and taken even when empty — unlike `requests` and `consoles` above.
     // An empty list here is the good news ("every repo answered this time") and it has
     // to be able to clear the pane, which is the whole reason the record is rebuilt on
     // each sweep rather than accumulated. Absent still means a server that predates the
     // field, and that keeps whatever is on screen.
+    // Taken whole and only when it is there. Absent means a server that predates the
+    // board, and keeping the last one is what stops a mixed fleet — a phone talking to
+    // an old daemon through a cached service worker — from drawing an inbox with every
+    // card filtered out and nothing on screen to say why.
+    if (data.p0board && typeof data.p0board === 'object') state.p0board = data.p0board;
     if (Array.isArray(data.trouble)) state.trouble = data.trouble;
+    // Same rule, same reasons: taken whole, taken when empty so it can clear itself,
+    // and absent leaves what is on screen alone for a server that predates the field.
+    if (Array.isArray(data.syncTrouble)) state.syncTrouble = data.syncTrouble;
     // What the ＋ offers when the space holds more than one repo. Kept here rather
     // than read off `data` at the tap, because the tap can happen between polls.
     if (Array.isArray(data.workspaces)) state.workspaces = data.workspaces;
@@ -5665,11 +6042,47 @@
     for (const spec of MAINTAINED) maintain(warm, spec, data, events, resync);
   }
 
+  /**
+   * A deep link that names a pull request the kind filter is hiding, made to land.
+   *
+   * Two ways it can be hidden and both are the ordinary state of the control rather than
+   * something anybody set. The **status** group's default is `unmerged`, so every merged
+   * row is out of the list by default — and a merged row that has not shipped is the
+   * whole subject of the board this link comes from (see the PRs pane on /monitor), so
+   * that is the common case and not the corner. The **kinds** group hides them whenever
+   * something else is picked and PRs is not among it.
+   *
+   * Widening rather than drawing it anyway, which is the same choice `focusHash` already
+   * makes for `scope`: a card that appeared in a list its own filter excludes would be a
+   * row you cannot explain and cannot get back to once you collapse it. The status group
+   * goes to *all* of its rungs rather than to the one this row is on, because narrowing
+   * to `merged` to show a merged pull request would take every unmerged one off the
+   * screen to make room for it — a link that hid four rows to reveal one. Both changes
+   * are visible in the control's own summary line, and both persist, exactly as the
+   * scope widening does.
+   */
+  function revealPr(row) {
+    const f = window.beadcause?.inboxFilter;
+    if (!row?.pr || !f) return;
+    if (!f.inSub(row)) {
+      const sub = (f.KINDS || []).find((k) => k.id === 'pr')?.sub;
+      if (sub) f.setSub('pr', sub.options().map((o) => o.id));
+    }
+    const kinds = f.selected();
+    // Empty is "all kinds" and is already wide enough — adding `pr` to it would *narrow*
+    // the list to pull requests alone, which is the opposite of what this is for.
+    if (kinds.length && !kinds.includes('pr')) f.set([...kinds, 'pr']);
+  }
+
   /** #workspace/id from an ntfy notification tap, or the Android shell's deep link. */
   let hashHandled = '';
   async function focusHash() {
     const key = decodeURIComponent(location.hash.replace(/^#/, ''));
     if (!key || key === hashHandled) return;
+    // Before `byKey`, which reads the board rather than the filtered list and so finds a
+    // pull request whether or not the chips would draw it. `expand` below is what would
+    // not: it opens a card `render` never made.
+    revealPr(byKey(key));
     if (!byKey(key)) {
       // A deep link always names a question, and `agent` is the one scope with no
       // questions in it — so the tap would land on a list that silently ignored it.

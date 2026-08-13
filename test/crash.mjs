@@ -39,6 +39,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { cleanupTmp } from './helpers/tmp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const LIB = (name) => path.join(HERE, '..', 'lib', name);
@@ -587,12 +588,26 @@ await check('every swallowed failure in the poll cycle reports', () => {
   assert.deepEqual(
     named.sort(),
     [
+      // Sorted, and a capital letter sorts before every lower-case one — lib/jirapoll.js.
+      // Its `sweep` records each JIRA failure against the workspace it belongs to and
+      // returns rather than throwing, so what reaches this catch is the cycle's own
+      // bookkeeping: the same bar `the tracker sync` below is held to.
+      'the JIRA poll',
       'the advocate tick',
+      // The beat's own guard. Everything inside the cycle already catches; what reaches
+      // this one is the cycle's bookkeeping failing, which is a bug by construction —
+      // and an unhandled rejection out of a `setInterval` callback would take the
+      // daemon with it.
+      'the cycle',
       'the deploy sweep',
       'the owed-close sweep',
       'the poll',
       'the release sweep',
       'the reply push',
+      // lib/sync.js. `syncOnce` swallows every tracker failure into an outcome of its
+      // own, so anything reaching this catch is a bug by construction — which is
+      // precisely the bar `reportSweepFailure` sets.
+      'the tracker sync',
     ],
     `every catch in the cycle reports, got ${named.join(', ')}`
   );
@@ -601,7 +616,7 @@ await check('every swallowed failure in the poll cycle reports', () => {
 });
 
 if (uninstall) uninstall();
-fs.rmSync(tmp, { recursive: true, force: true });
+await cleanupTmp(tmp);
 
 console.log(`\n${ran - failures}/${ran} checks passed\n`);
 process.exit(failures ? 1 : 0);

@@ -42,6 +42,7 @@ import path from 'node:path';
 import vm from 'node:vm';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { removeTreeSync } from './helpers/tmp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const LIB = (name) => path.join(HERE, '..', 'lib', name);
@@ -51,6 +52,18 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'beadcause-tlsadmin-'));
 // Before lib/config.js is imported: CONFIG_DIR resolves once, at module load.
 process.env.BEADCAUSE_CONFIG_DIR = path.join(tmp, 'config');
 fs.mkdirSync(process.env.BEADCAUSE_CONFIG_DIR, { recursive: true });
+/**
+ * The tailnet address this suite pretends the machine has.
+ *
+ * Switching HTTPS off moves the origin back to whatever `publicBaseUrl` says the daemon
+ * is actually serving, which is `http://<this machine's tailscale ip>:4318` — so until
+ * bc-rcrt these assertions named Adam's own address as a literal and were green on
+ * precisely one Mac in the world. A CI runner has no tailnet, answered `127.0.0.1`, and
+ * failed. Pinning it makes the check about *the origin moving back*, which is the promise,
+ * rather than about who is running it.
+ */
+const TAILNET_IP = '100.64.0.7';
+process.env.BEADCAUSE_TAILSCALE_IP = TAILNET_IP;
 
 const { certificateState, certFailureReason } = await import(LIB('tls.js'));
 const { setTls, tlsView, wouldServe, pairing } = await import(LIB('tlsswitch.js'));
@@ -75,7 +88,7 @@ function skip(name) {
   console.log(`  skip ${name}`);
 }
 const done = (code) => {
-  fs.rmSync(tmp, { recursive: true, force: true });
+  removeTreeSync(tmp);
   console.log(failures ? `\n${failures} of ${ran} failed` : `\n${ran} passed`);
   process.exit(code ?? (failures ? 1 : 0));
 };
@@ -152,9 +165,9 @@ function plant({ have = true, pair = material } = {}) {
 }
 
 /** A config as `loadConfig` would have left it, with the name pinned so no `tailscale` is asked. */
-const config = ({ enabled = false, baseUrl = 'http://100.96.105.106:4318' } = {}) => ({
+const config = ({ enabled = false, baseUrl = `http://${TAILNET_IP}:4318` } = {}) => ({
   port: 4318,
-  host: '100.96.105.106',
+  host: TAILNET_IP,
   token: 'tok-en',
   baseUrl,
   tls: { enabled, name: NAME },
@@ -214,7 +227,7 @@ async function drawTlsCard(over = {}) {
     alarming: false,
     renewing: false,
     wouldServe: `https://${NAME}:4318`,
-    ifFlipped: 'http://100.96.105.106:4318',
+    ifFlipped: `http://${TAILNET_IP}:4318`,
     originWillChange: true,
     restartNeeded: false,
     restartCommand: 'launchctl kickstart -k gui/501/m4m.beadcause',
@@ -337,7 +350,7 @@ if (!dead) {
 await check('the switch says what it will cost before it is pressed', () => {
   plant({ have: true });
   const view = tlsView(config({ enabled: false }));
-  assert.equal(view.wouldServe, 'http://100.96.105.106:4318');
+  assert.equal(view.wouldServe, `http://${TAILNET_IP}:4318`);
   assert.equal(view.ifFlipped, `https://${NAME}:4318`);
   assert.equal(view.originWillChange, true, 'this is the sign-out warning — it must be true here');
 });
@@ -435,7 +448,7 @@ await check('and moves the URL a phone is handed onto the name', async () => {
   const { did, view } = await quietly(() =>
     setTls(cfg, { enabled: true, obtain: obtainOk, log: () => {}, warn: () => {} })
   );
-  assert.equal(did.from, 'http://100.96.105.106:4318');
+  assert.equal(did.from, `http://${TAILNET_IP}:4318`);
   assert.equal(did.to, `https://${NAME}:4318`);
   assert.equal(did.originMoved, true);
   assert.equal(cfg.baseUrl, `https://${NAME}:4318`, 'and it is persisted, so `npm run qr` prints the same one');
@@ -463,7 +476,7 @@ await check('a refusal from Tailscale leaves the intent recorded, and says which
   assert.equal(did.asked.reason, 'tailnet-https-off', 'the one failure with a two-tap fix on a web page');
   assert.equal(stored().tls.enabled, true, 'so the next restart after that setting is turned on gets a certificate');
   assert.equal(view.have, false);
-  assert.equal(view.wouldServe, 'http://100.96.105.106:4318', 'and no https URL is handed out without a certificate');
+  assert.equal(view.wouldServe, `http://${TAILNET_IP}:4318`, 'and no https URL is handed out without a certificate');
   assert.equal(view.tailnetHttpsUrl, 'https://login.tailscale.com/admin/dns');
 });
 
@@ -486,7 +499,7 @@ await check('turning it off asks Tailscale for nothing and keeps the certificate
   assert.equal(did.asked, null);
   assert.equal(stored().tls.enabled, false);
   assert.equal(did.originMoved, true);
-  assert.equal(cfg.baseUrl, 'http://100.96.105.106:4318');
+  assert.equal(cfg.baseUrl, `http://${TAILNET_IP}:4318`);
   assert.ok(fs.existsSync(path.join(tlsCache, `${NAME}.crt`)), 'the certificate stays — coming back must be instant');
   assert.equal(view.have, true, 'and is still reported, because it is still there');
 });
@@ -583,7 +596,7 @@ await check('pairing() and wouldServe() agree about the origin', () => {
 // the rule out for itself — see `pairing()`.
 await check('and the pairing code says when it is a browser-only one', () => {
   plant({ have: false });
-  const cfg = config({ enabled: true, baseUrl: 'http://100.96.105.106:4318' });
+  const cfg = config({ enabled: true, baseUrl: `http://${TAILNET_IP}:4318` });
   assert.equal(pairing(cfg, wouldServe(cfg, certificateState(cfg))).appRefuses, true);
 });
 

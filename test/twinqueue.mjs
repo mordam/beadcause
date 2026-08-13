@@ -35,6 +35,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { cleanupTmp } from './helpers/tmp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const LIB = (name) => path.join(HERE, '..', 'lib', name);
@@ -257,19 +258,49 @@ await check('a bd that will not answer holds nothing back', async () => {
 
 /**
  * Where this filter must give way to the other one. A subtask routinely restates its
- * parent's title almost word for word, so the comparison would fire on a pair
- * `heldByChildren` has already ruled on in the opposite direction: an epic is not the
- * work, its children are, and holding the child because a session is on the parent
- * would leave nobody doing either.
+ * parent's title almost word for word, so the comparison would fire on a pair the
+ * hierarchy rule has an opinion about — and hierarchy is `heldByChildren`'s business,
+ * which runs ahead of this and answers first.
+ *
+ * The verdict on this pair changed with bc-zgfo and the *ownership* did not, which is
+ * what this case is really pinning. It used to be launched: `heldByChildren` fired its
+ * upward check only against a batch head, so a session on a plain parent held nothing and
+ * the child went out. Now any live ancestor holds it. Either way the reason must be the
+ * hierarchy and not the shared title — a bead held as a duplicate of its own parent is a
+ * wrong sentence on the card and, if the pair ever came apart, a wrong decision.
  */
-await check('a child is not its parent all over again', async () => {
+await check('a child held under its parent is held by the hierarchy, not by the shared title', async () => {
   const { opened, card } = await tick({
     ready: [bead('x-1.1', TITLE)],
     workers: [{ id: 'x-1', title: TITLE, at: new Date().toISOString(), attempt: 1 }],
   });
 
-  assert.deepEqual(opened, ['x-1.1'], 'the child is the work, whatever it is called');
-  assert.deepEqual(heldIds(card), [], 'and nothing was held on the strength of a shared title');
+  assert.deepEqual(opened, [], 'a live session above it holds it, since bc-zgfo');
+  assert.deepEqual(heldIds(card), [], 'and not on the strength of a shared title — this filter said nothing');
+  assert.deepEqual(
+    card.heldByChildren.map((h) => h.id),
+    ['x-1.1'],
+    'the hierarchy owns this pair, and is what the card says'
+  );
+  assert.match(card.heldByChildren[0].why, /working x-1 above it/, card.heldByChildren[0].why);
+});
+
+/**
+ * And the give-way itself, which the case above can no longer demonstrate now that the
+ * hierarchy holds that pair before this filter is reached. Same shared title, no ancestry:
+ * `x-2` is a sibling of the live worker's bead, not underneath it, so `heldByChildren`
+ * passes it through and the twin comparison is what actually rules — which is the whole
+ * point of keeping a case where this filter is the one doing the work.
+ */
+await check('and a twin that is nobody’s child is still this filter’s to hold', async () => {
+  const { opened, card } = await tick({
+    ready: [bead('x-2', TITLE)],
+    workers: [{ id: 'x-1', title: TITLE, at: new Date().toISOString(), attempt: 1 }],
+  });
+
+  assert.deepEqual(opened, [], 'the same job by another id does not get a second window');
+  assert.deepEqual(heldIds(card), ['x-2'], 'and this time it is the title that held it');
+  assert.deepEqual(card.heldByChildren, [], 'the hierarchy had nothing to say about a sibling');
 });
 
 /**
@@ -287,7 +318,7 @@ await check('an empty queue costs no tracker call', async () => {
 
 console.log(`\n${failures ? `${failures} of ${ran} checks failed` : `all ${ran} checks passed`}`);
 try {
-  fs.rmSync(tmp, { recursive: true, force: true });
+  await cleanupTmp(tmp);
 } catch {
   /* a temp directory that will not go is not a failure of the thing under test */
 }

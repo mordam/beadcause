@@ -119,6 +119,44 @@
     return res.json();
   }
 
+  /**
+   * The write half of `api`, for the one thing this page can change about a bead.
+   *
+   * A graph is a reading surface and this is deliberately the only `POST` on it: not a
+   * second endorsement queue, not an editor — one fact, `owner:<handle>`, which is the
+   * fact the P0 board is built out of and the one you most want to fix at the moment you
+   * are looking at the bead rather than three screens later.
+   */
+  async function post(path, body) {
+    const res = await fetch(path, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-beadcause-token': token },
+      body: JSON.stringify(body),
+    });
+    const out = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(out.error || `HTTP ${res.status}`);
+    return out;
+  }
+
+  /**
+   * The handles this browser may claim a bead for — whoever is signed in, and whoever
+   * this Mac says it is.
+   *
+   * Asked once and cached, including the failure: `/auth/whoami` is unauthenticated and
+   * cheap, but the sheet must not pay for it on every open, and a page that could not
+   * reach it should draw the owner it already has rather than retry per tap.
+   *
+   * Two suggestions rather than one guess, and never a default. A phone signed in as one
+   * person, held at a laptop configured as another, is an ordinary Tuesday here — and a
+   * P0 stamped with the wrong owner is worse than an unowned one, because the second is
+   * a state bc-rfnr.5's triage can see and the first reads as already decided.
+   */
+  let whoPromise = null;
+  const whoami = () =>
+    (whoPromise ||= fetch('/auth/whoami', { headers: { accept: 'application/json' } })
+      .then((r) => r.json())
+      .catch(() => ({})));
+
   function fail(msg) {
     stop();
     growth.hidden = true;
@@ -809,6 +847,70 @@
     // Same contract, same reason, and independent of it: whichever of the two answers
     // first lands first, and either failing leaves the other alone.
     loadSession(full, seq);
+    // And the third. The owner is already drawn from the labels `/api/bead` returned —
+    // this call only adds the buttons that change it, so a `/auth/whoami` that never
+    // answers costs the sheet a control and never the fact.
+    loadOwnerActions(full, seq);
+    // And the fourth, on the beads that carry the row at all — see `adoptRowHtml`.
+    loadAdoptActions(full, seq);
+  }
+
+  /**
+   * The buttons, once we know what this browser may claim the bead *for*.
+   *
+   * Late and optional, exactly like `loadSession`: the row is already on screen saying
+   * who owns the bead, and this adds the way to change it. A failed or slow
+   * `/auth/whoami` therefore degrades to a sheet that reads correctly and cannot be
+   * edited, which is the right way round — the opposite (a button drawn before we know
+   * whose name is behind it) is how a P0 ends up owned by the wrong person.
+   *
+   * A handle that is already the owner gets no button. "Take it" on a bead you already
+   * own is a control that cannot do anything, and the whole point of the row is to make
+   * the difference between owned and unowned obvious at a glance.
+   */
+  async function loadOwnerActions(b, seq) {
+    const row = $('sheet-owner');
+    if (!row) return;
+    const who = await whoami();
+    if (seq !== sheetSeq) return;
+    const slot = $('sheet-owner-acts');
+    if (!slot) return;
+    const owners = ownersOn(b);
+    const suggestions = [who?.email, who?.me]
+      .map((h) => String(h ?? '').trim().toLowerCase())
+      .filter((h, i, all) => h && all.indexOf(h) === i && !owners.includes(h));
+    const buttons = suggestions.map(
+      (h) => `<button type="button" class="owner-btn" data-owner="${esc(h)}">${esc(h.split('@')[0])}</button>`
+    );
+    // Only when there is one to clear. A "nobody" button on an unowned bead is a button
+    // whose whole effect is already true.
+    if (owners.length) buttons.push('<button type="button" class="owner-btn is-clear" data-owner="">nobody</button>');
+    if (!buttons.length) return;
+    slot.innerHTML = buttons.join('');
+    slot.addEventListener('click', async (ev) => {
+      const btn = ev.target.closest('.owner-btn');
+      if (!btn || btn.disabled) return;
+      const wanted = btn.dataset.owner || '';
+      // Every button, not just this one: a save in flight and a second thumb on the
+      // neighbouring handle is two writes racing over one label, and the loser wins.
+      for (const el of slot.querySelectorAll('.owner-btn')) el.disabled = true;
+      try {
+        const out = await post('/api/bead/owner', { workspace, id: row.dataset.id, owner: wanted });
+        if (seq !== sheetSeq) return;
+        // Repaint from what the server says the bead now carries rather than from what
+        // was asked for — the two differ whenever somebody else moved it first.
+        b.labels = [
+          ...(b.labels || []).filter((l) => !String(l).toLowerCase().startsWith(OWNER_PREFIX)),
+          ...(out.owners || []).map((h) => `${OWNER_PREFIX}${h}`),
+        ];
+        row.outerHTML = ownerRowHtml(b);
+        loadOwnerActions(b, seq);
+      } catch (err) {
+        // On the row rather than as a toast: this is the one thing on the sheet you can
+        // change, so a failure to change it belongs where the change was attempted.
+        slot.innerHTML = `<span class="owner-err">${esc(err.message)}</span>`;
+      }
+    });
   }
 
   /**
@@ -1162,6 +1264,140 @@
     return box('', 'What its session did', when ? `${count} · newest ${when}` : count, sessionUrl(id));
   }
 
+  /**
+   * Owner handles on a bead, off its labels — the client's copy of `ownersOf`.
+   *
+   * Duplicated rather than shared because there is no module boundary between a browser
+   * and `lib/` here, and the alternative is a field on `/api/bead` that every other
+   * reader of that route would then have to know about. The prefix is the contract; it
+   * is stated in lib/ownership.js and asserted against this copy in test/ownership.mjs,
+   * so the two cannot drift without the suite saying so.
+   */
+  const OWNER_PREFIX = 'owner:';
+  const ownersOn = (b) =>
+    (b?.labels || [])
+      .map((l) => String(l ?? '').trim())
+      .filter((l) => l.toLowerCase().startsWith(OWNER_PREFIX))
+      .map((l) => l.slice(OWNER_PREFIX.length).trim().toLowerCase())
+      .filter((h, i, all) => h && all.indexOf(h) === i);
+
+  /**
+   * Whose bead this is, and the one control on this page that changes it.
+   *
+   * **Drawn on a P0, and on anything that already has an owner.** Not on every bead: a
+   * P3 sheet looks exactly as it did before this existed, which is most sheets. P0 is
+   * where an *absent* owner is itself worth saying out loud — an unowned P0 is the state
+   * bc-rfnr.5's triage exists to clear, and a row that says "unowned" on the screen you
+   * are already looking at is how it gets cleared one bead at a time instead.
+   *
+   * Two owners is drawn as two, for `ownersOf`'s reason: it means two machines wrote
+   * before either synced, and picking one to display would hide the collision rather
+   * than resolve it.
+   */
+  function ownerRowHtml(b) {
+    const owners = ownersOn(b);
+    if (!owners.length && Number(b?.priority) !== 0) return '';
+    const who = owners.length
+      ? owners
+          .map((h) => `<span class="owner-who" title="${esc(h)}">${esc(h.split('@')[0])}</span>`)
+          .join('<span class="owner-and">·</span>')
+      : '<span class="owner-who is-none">unowned</span>';
+    // "Owned by" rather than "Owner", because the pills above already carry a word called
+    // owner and it is a different fact: `b.owner` is bd's own column, the git identity of
+    // the checkout the bead was filed from, which on this Mac is the same string on every
+    // row. This one is `owner:<handle>` — who is answerable — and two rows on one sheet
+    // both headed "Owner" would be read as one of them being wrong.
+    return `<div class="owner-row" id="sheet-owner" data-id="${esc(b.id)}">
+      <span class="owner-kind">Owned by</span>${who}<span class="owner-acts" id="sheet-owner-acts"></span>
+    </div>`;
+  }
+
+  /**
+   * The one refusal that never clears itself, and the fix for it. bc-rfnr.7.
+   *
+   * A bead that is not a P0 and has no P0 above it is not workable: no advocate queues
+   * it, and the launcher refuses it at the door (lib/underp0.js). Every other hold in
+   * this app resolves on its own — a window closes, a pull request merges — so every
+   * other one is reported and left alone. This one waits on somebody deciding where the
+   * work belongs, which is a decision and therefore a control.
+   *
+   * Drawn from `noP0`, which `/api/bead` answers off the cached graph. A server that has
+   * never heard of the field leaves it undefined and this draws nothing, which is the
+   * same sheet as last week rather than a row claiming a bead is orphaned because an old
+   * daemon did not say otherwise.
+   *
+   * The picker itself arrives late, like `loadOwnerActions` — the sentence is the half
+   * that is true regardless, and a `/api/p0s` that never answers costs the control and
+   * never the explanation.
+   */
+  function adoptRowHtml(b) {
+    if (!b?.noP0) return '';
+    return `<div class="adopt-row" id="sheet-adopt" data-id="${esc(b.id)}">
+      <span class="adopt-kind">No P0 above this</span>
+      <span class="adopt-why">Nothing has decided it, so nothing will open a session on it.</span>
+      <span class="adopt-acts" id="sheet-adopt-acts"></span>
+    </div>`;
+  }
+
+  /**
+   * Fill the picker, once we know what there is to adopt it under.
+   *
+   * `loadOwnerActions`' contract to the letter: not awaited, sequence-checked, and a
+   * failure that changes the row rather than the sheet. A `<select>` rather than a button
+   * each, unlike the owner row — that one offers at most two handles and this one offers
+   * every open P0 in the workspace, which is a dozen on this tracker and will be more.
+   *
+   * On success the row is *removed* rather than rewritten, because the thing it exists to
+   * report is no longer true: the bead is workable, and a row still saying "no P0 above
+   * this" beside a confirmation that there now is one is the sheet contradicting itself.
+   * The server's own answer decides that, not the fact that the write returned — adopting
+   * under a P0 makes the bead workable, and the check is what proves it did.
+   */
+  async function loadAdoptActions(b, seq) {
+    const row = $('sheet-adopt');
+    const slot = $('sheet-adopt-acts');
+    if (!row || !slot) return;
+    let out;
+    try {
+      out = await api(`/api/p0s?workspace=${encodeURIComponent(workspace)}`);
+    } catch {
+      // Silent, and the only silent failure on this sheet: the sentence above is already
+      // on screen and is the part that matters. A picker that could not be built is one
+      // tap on the graph away from being done by hand.
+      return;
+    }
+    if (seq !== sheetSeq) return;
+    const p0s = (out?.p0s || []).filter((c) => c.id !== b.id);
+    if (!p0s.length) {
+      // Said out loud rather than left empty: a workspace with no open P0 at all is why
+      // this bead is held, and "adopt it under one" with nothing in the list would read
+      // as a broken control instead of as the thing to go and do.
+      slot.innerHTML = '<span class="adopt-none">no open P0 in this space yet</span>';
+      return;
+    }
+    const options = p0s
+      .map((c) => `<option value="${esc(c.id)}">${esc(c.id)} — ${esc(String(c.title || '').slice(0, 60))}</option>`)
+      .join('');
+    slot.innerHTML =
+      `<select class="adopt-pick" id="sheet-adopt-pick" aria-label="Adopt under">${options}</select>` +
+      '<button type="button" class="adopt-btn">Adopt</button>';
+    slot.addEventListener('click', async (ev) => {
+      const btn = ev.target.closest('.adopt-btn');
+      if (!btn || btn.disabled) return;
+      const parent = $('sheet-adopt-pick')?.value || '';
+      if (!parent) return;
+      btn.disabled = true;
+      try {
+        const done = await post('/api/bead/adopt', { workspace, id: row.dataset.id, parent });
+        if (seq !== sheetSeq) return;
+        if (done.workable) row.remove();
+        else slot.innerHTML = '<span class="adopt-err">adopted, but still nothing decides it</span>';
+      } catch (err) {
+        slot.innerHTML = `<span class="adopt-err">${esc(err.message)}</span>`;
+      }
+    });
+  }
+
   function sheetHtml(b) {
     const parts = [`<h2 class="sheet-title">${esc(b.title || '')}</h2>`];
     const rel = relations(b);
@@ -1186,6 +1422,19 @@
     // meaningless once you have scrolled past the description looking for it.
     const closed = closedHtml(b);
     if (closed) parts.push(closed);
+    // Whose this is, under the outcome and above the session. The order is the order the
+    // three answer each other on a closed bead — it closed, here is why, here is who was
+    // answerable for it — and on an open P0 it puts the question the board is built
+    // around directly under the pills, where it cannot be scrolled past.
+    const owner = ownerRowHtml(b);
+    if (owner) parts.push(owner);
+    // And directly under it, on the beads that are held: nothing has decided this one, so
+    // nothing will work it. Here rather than lower down because it is the reason the bead
+    // is not moving, and a sheet that explained that below the description would be
+    // answering the question after you had given up asking it. Absent on every bead with
+    // a P0 above it, which is almost all of them once the tracker is in shape.
+    const adopt = adoptRowHtml(b);
+    if (adopt) parts.push(adopt);
     // And under that, the way through to what actually ran. Above the relations rather
     // than below them because those are more of the tracker and this is the one row on
     // the sheet that leaves it — and because on a closed bead the three read in order:

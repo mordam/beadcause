@@ -370,6 +370,17 @@
    * floor), and `deferredByPriority` is the part of `ready` it is deliberately leaving
    * alone. The difference between "4 ready" and "4 ready, 3 of them below the floor" is
    * the difference between an advocate that is idle and one that is behaving as told.
+   * `closed` comes last of all and is the exception to the whole row: every other number
+   * here is work that is not done, so it is the one that had to go after the holds
+   * rather than beside `open` where the tracker itself puts it.
+   *
+   * `heldByRepo` is the newest of them and the odd one out: every other hold on this
+   * row resolves itself in time — a window closes, a pull request merges, an epic's
+   * children get done — and this one never will. A bead naming a `repo:` token nothing
+   * approved declares, or one two approved repos both declare, waits on somebody
+   * editing a label or an approved list, and until then it is out of the queue with
+   * nothing else on screen accounting for it. Its tooltip carries lib/repos.js's own
+   * sentence, which names the fix.
    *
    * `heldByChildren` is the third such subtraction, and it earns a pill for the same
    * reason: an epic whose children are the work is ready by bd's reckoning and not by
@@ -396,13 +407,40 @@
    * pill more than any of the others, because the state it prevents — two sessions
    * editing one worktree — is invisible from every other view here, which is precisely
    * how it went unnoticed for an hour.
+   *
+   * `heldByClaim` is the eighth (bc-mp8c), and the first that names a *file* rather than a
+   * bead: another session on this Mac is editing what this bead would touch, so the window
+   * was not opened. `filesBusy` beside it is the same collision over a surface guessed from
+   * the bead's prose rather than declared on it — dispatched anyway, because a guess may not
+   * withhold work (bc-hrno), and shown anyway, because whether that gate should ever be
+   * turned on is a question only the pattern on this row can answer.
+   *
+   * `heldByNoP0` is the ninth (bc-rfnr.7), and the only one that is not about contention
+   * at all: every other pill on this row names two things wanting one bead, and this one
+   * names a bead nothing has asked for. It is `p1` for `heldByRepo`'s reason — those two
+   * are the holds that never clear on their own — and its tooltip names the beads,
+   * because the fix is one tap into each sheet and there is nowhere else to start.
+   *
+   * `heldByLease` is the seventh (bc-bllw), and the first that is not about this laptop:
+   * a bead another engineer's Mac has claimed in the shared tracker. `stoodDown` is its
+   * other half — a window *this* Mac gave up because the other machine's claim won the
+   * tiebreak — and it is on this row rather than in the sessions list because a session
+   * that has already been withdrawn is not a session any more. Both are `p1` rather than
+   * muted: every other pill here names something on this screen, and these two name a
+   * window on somebody else's desk, which you can only settle by asking them.
    */
   function domainHtml(w, a) {
     const c = w?.counts || {};
+    const unplaced = (a && a.heldByRepo) || [];
     const waiting = (a && a.heldByChildren) || [];
     const twins = (a && a.heldByTwin) || [];
     const prs = (a && a.heldByPr) || [];
     const sitting = (a && a.heldByLive) || [];
+    const claimed = (a && a.heldByLease) || [];
+    const onFiles = (a && a.heldByClaim) || [];
+    const busyFiles = (a && a.filesBusy) || [];
+    const stood = (a && a.stoodDown) || [];
+    const orphans = (a && a.heldByNoP0) || [];
     const pills = [
       c.open != null ? `<span class="pill">${c.open} open</span>` : '',
       c.ready ? `<span class="pill">${c.ready} ready</span>` : '',
@@ -419,11 +457,32 @@
       c.inProgress ? `<span class="pill on">${c.inProgress} in progress</span>` : '',
       c.blocked ? `<span class="pill p1">${c.blocked} blocked</span>` : '',
       a && a.queue ? `<span class="pill mine">${a.queue} for the advocate</span>` : '',
+      // How many checkouts one workspace name is standing for. Absent for every
+      // single-repo workspace, which is almost all of them — and the tooltip is the
+      // approved list, because "climative" on its own no longer says what is in scope.
+      a && a.repos?.length
+        ? `<span class="pill muted" title="${esc(a.repos.join('\n'))}">${a.repos.length} checkout${
+            a.repos.length === 1 ? '' : 's'
+          }</span>`
+        : '',
       a && a.deferredByPriority
         ? `<span class="pill muted">${a.deferredByPriority} below the priority floor</span>`
         : '',
+      // Toned `p1` rather than `muted`, unlike every other hold on this row: the others
+      // clear themselves when a window closes or a pull request merges, and this one
+      // never does. It is waiting on an edit, and the tooltip is where the edit is named.
+      unplaced.length
+        ? `<span class="pill p1" title="${esc(unplaced.map((h) => `${h.id} — ${h.why}`).join('\n'))}">${unplaced.length} naming no checkout</span>`
+        : '',
       waiting.length
         ? `<span class="pill muted" title="${esc(waiting.map((h) => `${h.id} — ${h.why}`).join('\n'))}">${waiting.length} waiting on ${waiting.length === 1 ? 'its children' : 'their children'}</span>`
+        : '',
+      // `p1` rather than `muted`, with `heldByRepo`: those are the two holds on this row
+      // that no amount of waiting resolves. This one is waiting on somebody deciding
+      // where the work belongs, and the tooltip names each bead so the decision can be
+      // made from the sheet the id takes you to. See lib/underp0.js.
+      orphans.length
+        ? `<span class="pill p1" title="${esc(orphans.map((h) => `${h.id} — ${h.why}`).join('\n'))}">${orphans.length} with no P0 above ${orphans.length === 1 ? 'it' : 'them'}</span>`
         : '',
       twins.length
         ? `<span class="pill muted" title="${esc(twins.map((h) => `${h.id} — ${h.why}`).join('\n'))}">${twins.length} the same job under another id</span>`
@@ -435,6 +494,55 @@
       // are reading, in the sessions list below.
       sitting.length
         ? `<span class="pill muted" title="${esc(sitting.map((h) => `${h.id} — ${h.why}`).join('\n'))}">${sitting.length} with a session already open</span>`
+        : '',
+      // And the seventh, which is the only pill here naming something you cannot see from
+      // this screen: another Mac's window, on another desk. Hence `p1` rather than
+      // `muted` — the other six are states you can settle by looking, and this one is a
+      // state you can only settle by asking somebody.
+      claimed.length
+        ? `<span class="pill p1" title="${esc(claimed.map((h) => `${h.id} — ${h.why}`).join('\n'))}">${claimed.length} claimed by another Mac</span>`
+        : '',
+      // Not a subtraction from the queue at all, but the same argument one step later: a
+      // window this advocate gave up because another Mac won the race. It clears itself
+      // after an hour (`standDown` in lib/advocate.js), so a pill that is here is about
+      // something that happened while you were not looking.
+      stood.length
+        ? `<span class="pill p1" title="${esc(stood.map((s) => `${s.id} — ${s.why}`).join('\n'))}">${stood.length} stood down for another Mac</span>`
+        : '',
+      // The eighth, and the first that names a *file*: a bead held because another session
+      // on this laptop already has its hands on what it would touch (bc-mp8c). `muted`,
+      // like the other holds you can settle by looking — the tooltip names the file and the
+      // worktree, and both are on this Mac.
+      onFiles.length
+        ? `<span class="pill muted" title="${esc(onFiles.map((h) => `${h.id} — ${h.why}`).join('\n'))}">${onFiles.length} whose files are being edited</span>`
+        : '',
+      // And the near miss, which is not a hold and must not read as one: the same collision
+      // over a surface guessed from the bead's text, dispatched anyway because a guess may
+      // not withhold work (bc-hrno). It is here so that the question "would holding on a
+      // guess have helped?" can be answered from the screen rather than from a hunch.
+      busyFiles.length
+        ? `<span class="pill muted" title="${esc(busyFiles.map((h) => `${h.id} — ${h.why}`).join('\n'))}">${busyFiles.length} opened onto a busy file</span>`
+        : '',
+      // Last, because it is the only pill on this row that is not work outstanding.
+      // Everything above it is something still to do — open, ready, blocked, held one of
+      // nine ways — and this is what is finished, which is why it reads oddly anywhere
+      // but the end.
+      //
+      // A link for the same reason `held` above it is one: the count was already being
+      // computed and there was nowhere to go from it. It goes to the ledger rather than
+      // to a closed-only list, because there is no closed-only list — the tooltip says
+      // so out loud, so a pill reading `586 closed` cannot be taken as a promise that
+      // 586 rows are on the other side of it. Narrowing it is bc-nib3.7's, and it waits
+      // on the filters (bc-nib3.3) existing at all.
+      //
+      // No `?ws=` on the link, exactly as `/endorse` and `/prs` above have none. Every
+      // page in the app is scoped by the one space picker, which lives on the server —
+      // a link that narrowed the list without moving the picker would hand you a page
+      // whose own control disagreed with what it was showing, and one that moved the
+      // picker would change what every other client is looking at because you tapped a
+      // count.
+      c.closed
+        ? `<a class="pill muted" href="/history" title="Every bead this space has ever had, newest first — the closed ones among them">${c.closed} closed</a>`
         : '',
     ].filter(Boolean);
     return `<div class="mon-domain">${pills.join('')}</div>`;
@@ -465,6 +573,10 @@
    */
   function workerRow(a, w) {
     const chips = [
+      // A batch head stands for several beads and the row shows one title. Without this
+      // the others are invisible: they left the queue, one window went up, and nothing on
+      // screen says the two facts are the same fact.
+      w.batch?.length ? `<span class="tag">carrying ${esc(w.batch.length)} more under it</span>` : '',
       w.claimed ? '<span class="tag ok">claimed</span>' : '<span class="tag">not claimed yet</span>',
       w.ended ? '<span class="tag warn">the window has exited</span>' : '',
       // Where a reclaim got to. Asked and unanswered is the state worth seeing: the
@@ -476,6 +588,10 @@
           }</span>`
         : '',
       w.sessionStatus ? `<span class="tag">${esc(w.sessionStatus)}</span>` : '',
+      // Which checkout the window is actually open in. Only ever present where the
+      // workspace holds more than one, which is why there is no chip on a sophab row
+      // saying "sophab" — see `repoNameFor` in lib/advocate.js.
+      w.repo ? `<span class="tag">${esc(w.repo)}</span>` : '',
       w.pid ? `<span class="tag dim">pid ${esc(w.pid)}</span>` : '',
       w.attempt > 1 ? `<span class="tag warn">attempt ${esc(w.attempt)}</span>` : '',
       // Nothing to address, so Reclaim cannot ask about this one — it will free the
@@ -544,7 +660,9 @@
             <span class="work-title">${esc(b.title)}</span>
             <span class="work-sub"><span class="pill id">${esc(b.id)}</span><span class="tag">${esc(
               P_LABEL[b.priority] ?? `P${b.priority}`
-            )}</span><span class="tag dim">${esc(b.type)}</span></span>
+            )}</span><span class="tag dim">${esc(b.type)}</span>${
+              b.repo ? `<span class="tag">${esc(b.repo)}</span>` : ''
+            }</span>
           </span>
           <time>${esc(age(b.createdAt))}</time>
         </a>`
@@ -1097,6 +1215,38 @@
   }
 
   /**
+   * The same three-state control, one level down: this repo's own answer to
+   * `autoEndorse`, which outranks the space's.
+   *
+   * Its own function rather than a fourth argument to `tri` because the two write to
+   * different things — `tri` posts `{ space, settings }` and this posts
+   * `{ space, workspace, settings }` — and the press handlers have to be able to tell
+   * them apart from the DOM alone. `data-repo-set` is that difference, and it also keeps
+   * these buttons out of the `[data-space-set]` handler, which would have sent a repo's
+   * press as the whole space's answer: the exact bug this feature exists to end.
+   *
+   * Inherit names what it resolves to *through the space*, not the global — `Inherit
+   * (on)` on a repo inside an endorsing space is the truth, and reading the global there
+   * would be a button promising the opposite of what pressing it does.
+   */
+  function repoTri(r) {
+    const btn = (v, text, title) =>
+      `<button class="adv-btn${r.autoEndorseOwn === v ? ' on' : ''}" data-repo-set="autoEndorse" data-repo="${esc(
+        r.name
+      )}" data-value="${esc(String(v))}" title="${esc(title)}">${esc(text)}</button>`;
+    return `<div class="space-repo-set">
+      <span class="space-repo-what">Beads agents file here</span>
+      ${btn(true, 'On', `${r.name} — files arrive endorsed, whatever the space says`)}
+      ${btn(false, 'Off', `${r.name} — files stay held for a tap, whatever the space says`)}
+      ${btn(
+        null,
+        `Inherit (${onOff(r.autoEndorseInherited)})`,
+        `Follow the space, which is currently ${onOff(r.autoEndorseInherited)}`
+      )}
+    </div>`;
+  }
+
+  /**
    * The whole settings card for the selected space.
    *
    * Drawn above the advocate cards because it is what the page is *about*, and because
@@ -1288,14 +1438,44 @@
     ].join('');
 
     // What each repo actually resolves to, which is not always what the space says:
-    // `ntfy.minimalWorkspaces` and `autoDispatchExclude` are per-repo lists that outrank
-    // it. A screen that showed only the space's answer would be quietly wrong about
-    // exactly the repo that had been singled out.
+    // `ntfy.minimalWorkspaces`, `slack.excludeWorkspaces` and `autoDispatchExclude` are
+    // per-repo lists that outrank it. A screen that showed only the space's answer would
+    // be quietly wrong about exactly the repo that had been singled out.
+    //
+    // A row is a workspace, and since lib/repos.js that is not always one checkout: a
+    // `checkouts` count means this row's single answer governs that many repos of an org
+    // sharing one tracker. Saying so is the whole of what the space-is-the-unit decision
+    // asks of the screen — one row reading as one repo understated the reach of every
+    // setting above it by fortyfold. See the block above `autoDispatchAllowed` in
+    // lib/spaces.js.
+    //
+    // And one of these rows is a *control*. `autoEndorse` is the setting a space is the
+    // wrong unit for — the reason to stop holding is "nobody but me reads this tracker",
+    // which is a fact about one workspace's graph and not about the five beside it in the
+    // same space — so it has a per-workspace override, and this row is where it is set.
+    // A row being a workspace is what makes that sound: the override is the same grain as
+    // the row and the same grain as the tracker, which is the grain the block above
+    // `autoDispatchAllowed` says these answers vary at. It belongs here rather than as a
+    // twelfth row above for the reason the panel already exists: the row states the
+    // answer for this repo, and until now there was nothing to press on the one line that
+    // knew what was wrong. The tag stays beside the buttons and is not made redundant by
+    // them: it is the *resolved* answer, and the buttons say which of the three levels
+    // gave it.
+    const many = d.repos.filter((r) => typeof r.checkouts === 'number');
+    const total = d.repos.reduce((n, r) => n + (typeof r.checkouts === 'number' ? r.checkouts : 1), 0);
     const repos = d.repos.length
       ? `<div class="space-repos">${d.repos
           .map(
             (r) => `<div class="space-repo">
+              <div class="space-repo-tags">
               <span class="pill id">${esc(r.name)}</span>
+              ${
+                typeof r.checkouts === 'number'
+                  ? `<span class="tag ${r.checkouts ? 'dim' : 'warn'}">${
+                      r.checkouts ? `${r.checkouts} checkout${r.checkouts === 1 ? '' : 's'}, one answer` : 'no checkout resolved'
+                    }</span>`
+                  : ''
+              }
               <span class="tag${r.ntfyDetail === 'minimal' ? ' warn' : ' dim'}">${esc(r.ntfyDetail)} push</span>
               <span class="tag ${r.autoDispatch ? 'ok' : 'dim'}">${r.autoDispatch ? 'agents may answer' : 'no agent replies'}</span>
               <span class="tag ${r.autoEndorse ? 'warn' : 'dim'}">${r.autoEndorse ? 'files endorsed' : 'files held'}</span>
@@ -1316,9 +1496,17 @@
                     }</span>`
                   : ''
               }
+              </div>
+              ${repoTri(r)}
             </div>`
           )
-          .join('')}</div>`
+          .join('')}</div>${
+          many.length
+            ? `<p class="subtitle">${esc(
+                many.map((r) => r.name).join(', ')
+              )} holds many checkouts sharing one tracker, so the settings above are one answer for all of them — which repo a bead is about does not change them.</p>`
+            : ''
+        }`
       : '<p class="subtitle">No configured repo is in this space.</p>';
 
     const missing = d.missing.length
@@ -1340,7 +1528,7 @@
       ${missing}
       ${state.spaceSaid ? `<div class="adv-note${state.spaceSaid.bad ? ' bad' : ''}">${esc(state.spaceSaid.text)}</div>` : ''}
       ${section(`space:${d.space}:cfg`, 'Settings', '', rows)}
-      ${section(`space:${d.space}:repos`, 'What each repo resolves to', String(d.repos.length), repos)}
+      ${section(`space:${d.space}:repos`, 'What each repo resolves to', String(total), repos)}
     </article>`;
   }
 
@@ -1436,7 +1624,7 @@
     // one kind of press an instance that "never acts" must not make.
     if (data.observing) {
       for (const el of out.querySelectorAll(
-        '[data-space-set],[data-space-day],[data-space-hours],[data-space-channel],#qh-from,#qh-to,#slack-channel,[data-step="global"],[data-apply="global"]'
+        '[data-space-set],[data-repo-set],[data-space-day],[data-space-hours],[data-space-channel],#qh-from,#qh-to,#slack-channel,[data-step="global"],[data-apply="global"]'
       )) {
         el.disabled = true;
         el.title = 'This instance only watches — the settings belong to the daemon that acts.';
@@ -1739,7 +1927,7 @@
    * field that was already inheriting changes nothing, and saying "nothing to change"
    * is more honest than a tick.
    */
-  async function saveSpace(patch, btn) {
+  async function saveSpace(patch, btn, workspace = null) {
     const name = spaceName();
     if (!name) return;
     const was = btn?.textContent;
@@ -1750,7 +1938,11 @@
     try {
       const r = await api('/api/space', {
         method: 'POST',
-        body: JSON.stringify({ space: name, settings: patch }),
+        // `workspace` is what turns this into the repo row's write — one setting, this
+        // repo only, outranking the space. Omitted entirely rather than sent as `null`
+        // for the ordinary case, so a body that never mentions a repo cannot be read as
+        // one that named an unusable one.
+        body: JSON.stringify(workspace ? { space: name, workspace, settings: patch } : { space: name, settings: patch }),
       });
       state.space = r;
       state.spaceError = null;
@@ -1863,6 +2055,18 @@
       // once, rather than being special-cased per field on the server.
       const value = raw === 'null' ? null : raw === 'true' ? true : raw === 'false' ? false : raw;
       saveSpace({ [set.dataset.spaceSet]: value }, set);
+      return;
+    }
+
+    // The same three buttons on a repo row, and they must be matched *before* nothing
+    // else claims them: they carry a workspace as well as a field, and the handler above
+    // would have written the whole space's answer from a press meant for one repo.
+    const repoSet = e.target.closest('[data-repo-set]');
+    if (repoSet) {
+      e.preventDefault();
+      const raw = repoSet.dataset.value;
+      const value = raw === 'null' ? null : raw === 'true' ? true : raw === 'false' ? false : raw;
+      saveSpace({ [repoSet.dataset.repoSet]: value }, repoSet, repoSet.dataset.repo);
       return;
     }
 
@@ -1998,7 +2202,13 @@
     state.slackDraft = { space: spaceName(), text: e.target.value };
   });
 
-  document.getElementById('refresh').addEventListener('click', load);
+  /* The ⟳ is the page's, and this page has three panes now — so it only means *this*
+     one while this one is up. Without the guard, pressing it on the board would sweep
+     `bd` for every tracker on the Mac to refresh a roster nobody is looking at, which is
+     the same bill `ready` below exists to stop the stream running up. */
+  document.getElementById('refresh').addEventListener('click', () => {
+    if (!out.hidden) load();
+  });
   /* The space picker moved. Which repos are drawn is decided at paint time off the
      /api/work payload already in hand — but *whose settings* the card at the top shows
      has changed, and that is a different space's config, so it is fetched. Painted
@@ -2083,21 +2293,23 @@
     logTimer = setTimeout(() => pumpLogs().finally(scheduleLogs), LOG_MS);
   }
 
-  // How the tab bar brings this pane back up to date when you return to it.
+  // Kept for anything that wants this pane refreshed from outside. The chip row does it
+  // through the subscription at the foot of this file now, rather than by name.
   window.beadcause = window.beadcause || {};
   window.beadcause.monitor = { refresh: load };
 
-  /* Where this device is, for a mirror on some other screen. There is no selection to
-     publish — being here is the whole report — and the id stays `sessions` because that
-     is what lib/presence.js whitelists and what the mirror already has a name for; this
-     page is simply what the name now points at.
+  /* Where this device is, for a mirror on some other screen, is published by
+     public/montabs.js rather than here — because on this page it is a fact about which
+     of the three chips is up, and there is no moment at which this file knows that and
+     that one does not. The ids are on the chips themselves in monitor.html: `sessions`
+     for this pane, because that is what lib/presence.js whitelists and what the mirror
+     already has a name for; `prs` for the board; and nothing at all for the Mirror.
 
-     This page can also *be* a mirror, and presence.js's own header was right that a
-     device which followed itself would be absurd — so `showTab` in mirror.js revises
-     this to `null` while the mirror pane is up, and mirror.js drops its own device from
-     the list it follows. Both halves are needed: the report is honest about which pane
-     you are on, and the list cannot circle back on this one even mid-switch. */
-  window.beadcause?.presence?.report({ view: 'sessions' });
+     That last one is not tidiness. This page can also *be* a mirror, and presence.js's
+     own header was right that a device which followed itself would be absurd — so the
+     report goes `null` while the mirror pane is up, and mirror.js drops its own device
+     from the list it follows. Both halves are needed: the report is honest about which
+     pane you are on, and the list cannot circle back on this one even mid-switch. */
 
   if (!token) {
     out.innerHTML = '<div class="empty"><strong>This device is not paired</strong>Open the inbox first.</div>';
@@ -2105,6 +2317,17 @@
     // Paint what this tab had, then go and ask. The order is the whole point: `load`
     // is not made faster by this, it is made invisible.
     warmBoot();
-    load();
+    /* And ask only while this is the pane you are on. The chip row calls back once at
+       boot with whichever chip is up — which is the boot `load()` that used to be
+       written here — and again every time you come back to this one, which is what
+       mirror.js used to do by calling `beadcause.monitor.refresh` by name. Arriving on
+       /prs, which is this same page with the board up, now costs no `bd` sweep at all.
+
+       The fallback is not dead code: a service worker holding a monitor.html from before
+       the chip row was a file would load this one beside no montabs.js, and a page that
+       then never asked for anything would be a blank roster with no way to fill it. */
+    const tabs = window.beadcause?.monTabs;
+    if (tabs) tabs.onChange((which) => which === 'advocates' && load());
+    else load();
   }
 })();

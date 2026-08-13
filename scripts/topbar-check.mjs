@@ -123,7 +123,8 @@ function serve() {
     if (p.startsWith('/api/')) return json({});
     let rel = p;
     if (rel === '/console') rel = '/console.html';
-    if (rel === '/prs' || rel === '/pulls') rel = '/prs.html';
+    // The board is a pane on the advocates page now (bc-d4d5), so these land there.
+    if (rel === '/prs' || rel === '/pulls' || rel === '/prs.html') rel = '/monitor.html';
     if (rel === '/monitor' || rel === '/advocates' || rel === '/sessions' || rel === '/work') rel = '/monitor.html';
     if (rel === '/endorse') rel = '/endorse.html';
     if (rel === '/foundations') rel = '/foundations.html';
@@ -239,6 +240,10 @@ const PROBE = `(() => {
 /* Every page with a picker. The admin page is deliberately not one (it acts on every
    repo at once) and the drawers — /graph, /doc, /session, /terminal — are not standing
    views, so neither carries a `.spacebar` to measure. */
+/* `/prs` is the advocates page with its board chip up (bc-d4d5) rather than a page of
+   its own, and it is still measured under its own path: the top bar is shared between
+   the three panes now, so what this check is really asking there is that arriving by the
+   board's URL does not change what the bar costs. */
 const PAGES = ['/', '/monitor', '/console', '/prs', '/endorse', '/foundations'];
 
 /* 360px is the cheap Android the app is for and the width the trade was argued at; 393
