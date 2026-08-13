@@ -8868,6 +8868,21 @@ binary blob, a deleted file, and a `.txt` that would not parse as JavaScript and
 asked to. A guard that refuses a delivery it should not is worse than no guard, because
 the answer to it is to take it out.
 
+**And it runs inside `npm test`**, via a wrapper at `test/landcheck.mjs` — which is the whole
+of what that file is for. It used to be outside, on the same reasoning as the
+browser checks below, and that reasoning does not hold for it: those need headless Chrome and
+in two cases a vendored `public/vendor`, while land-check needs only `bd`, which is the tool
+this project is a client of. The cost of it being outside was measured rather than guessed:
+bc-4fq was a bug in `bin/deliver.js`'s argument handling and every other suite in the gate
+passed over it, before the fix and after. Without `bd` the wrapper **skips loudly and exits 0** — a
+machine that cannot run beadcause should not fail a gate over it — and it reads land-check's
+own exit 2 (*"cannot build a scratch workspace"*) as the same kind of skip, which is the
+distinction that code was already drawing. A *missing* `scripts/land-check.mjs`, on the
+other hand, fails: coverage
+quietly ceasing to exist is the failure being fixed, not a thing to shrug at. It is the
+slowest suite bar `scripts/test-swap.js` — 70s on its own, 90s from inside a full run —
+and nearly all of that is `bd`.
+
 `node scripts/delivery-check.mjs` is the other half: the real `public/app.js` in a
 headless Chrome the size of a phone, against a fixture built by `lib/delivery.js` and
 parsed back by `lib/decision.js`, with `/api/pr` stubbed through its four states. It
