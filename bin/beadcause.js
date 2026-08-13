@@ -8,6 +8,7 @@ import { declareOwnDeploy, ownWorkspace } from '../lib/deploy.js';
 import { hotSwapProblem, problemBanner } from '../lib/service.js';
 import { attachTerminalSocket, releaseSockets } from '../lib/termsocket.js';
 import { cleartextWarning, closeServer, startRenewal } from '../lib/tls.js';
+import { describeTailnet, tailnetState } from '../lib/tailnet.js';
 import { pushCertificate } from '../lib/notify.js';
 import { startSlack, slackStatusLine, slackTokenWarnings } from '../lib/slack.js';
 import { repoStatusLine, repoWarnings } from '../lib/repos.js';
@@ -395,6 +396,15 @@ console.log(`[beadcause] slack       ${slackStatusLine(cfg)}`);
 // is not readable by every account on this Mac. `console.warn` so it is not read as part
 // of the tidy startup block above it.
 for (const w of slackTokenWarnings(cfg)) console.warn(`[slack] ${w}`);
+// Whether the address in that URL is on this Mac at all — said in the startup block
+// and in `--status`, next to the URL it decides the fate of, because it is the one fact
+// neither of them used to carry. A phone that cannot load the app is indistinguishable,
+// from up here, from a daemon that is perfectly healthy; this is the line that tells
+// them apart. `console.warn` when it is a problem, so it does not read as part of the
+// tidy block. bc-b4fs, and lib/tailnet.js says what the states mean.
+const tailnet = internalPort ? null : tailnetState(cfg.host);
+if (!tailnet) console.log('[beadcause] tailnet     behind the router — it holds the tailnet address, this process binds loopback');
+else (tailnet.ok ? console.log : console.warn)(`[beadcause] tailnet     ${describeTailnet(tailnet)}`);
 console.log(`[beadcause] phone URL   ${cfg.baseUrl}/?t=${cfg.token}`);
 console.log(`[beadcause] build       ${build} (${role}${internalPort ? `, internal :${internalPort}` : ', standalone'})`);
 
