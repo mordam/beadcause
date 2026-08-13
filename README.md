@@ -6584,9 +6584,38 @@ and at most one every `proposeCooldownHours`.
   `[advocate] <repo>: …` lines, and the startup banner names every repo that has one
   with the number of sessions it may open.
 
+### How a session starts — and the 1024 bytes a tty will take
+
+A window opened, echoed its command cut off mid-argument, and sat at a prompt. Nothing
+had crashed and nothing was logged, because nothing had run.
+
+`scripts/open-session.applescript` types the command in with iTerm's `write text`, and
+what it types into is a fresh login shell **still working through `~/.zshrc`** — nvm,
+pnpm, a second or two of nothing in particular. Until zsh's line editor takes over that
+tty is in canonical mode, and a canonical-mode tty on macOS holds exactly `MAX_CANON` =
+**1024 bytes** of unread input. Byte 1025 onward is discarded, and what is discarded
+includes the newline — so the line is never submitted at all.
+
+The command had simply grown past it. On the day it was reported every session was over
+the line: worker 1047 bytes, advocate 1541, epic-advocate 1622. The two furthest over
+are the two with the longest allowlists, and an allowlist only ever gets longer — every
+tool an agent is granted is another ~20 bytes of a line the tty will not read. So a
+shorter command is not the fix; a command that is not typed is.
+
+What gets typed now is `source '<path>'` — a constant ~60 bytes however large the real
+command grows. `source` rather than running the file as a script, because everything
+below the first line needs to be in *this* shell: `cd` fires the interactive `chpwd`
+hook that points `BEADS_DIR` at the right tree, and the closing `exit` is what ends the
+window. The file deletes itself on the way out through the same cleanup the system
+prompt uses — after the exit status is captured, never before, since every `rm` sets
+`$?` too.
+
+`test/canonline.mjs` pins all of it, and measures the limit against a real pty rather
+than quoting it: 1500 characters sent, 1024 echoed, nothing delivered.
+
 ### How a session ends, and the parts that stay guesses
 
-The command is typed into an interactive shell, so when `claude` exits you get a
+The command runs in an interactive shell, so when `claude` exits you get a
 prompt back and the window sits there forever — fine for the one you opened to talk
 something through, useless for an advocate that will open dozens. So a **work**
 session's command ends with two extra things: its exit status written to
