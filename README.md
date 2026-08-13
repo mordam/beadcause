@@ -11829,6 +11829,7 @@ Two consequences of that ordering worth knowing:
 | `confluence.readSpaces` | the space keys an unattended agent may [read a page out of](#reading-a-page-in--and-why-the-allowlist-is-empty-to-begin-with), e.g. `["ENG"]`. **Empty by default and does not inherit `space`** — the token that publishes can read the whole site, so an install that publishes still reads nothing until this names a space |
 | `jira` | JIRA per workspace, keyed by workspace name — `{"climative": {"enabled": true, "email": "you@company.com"}}`. Empty by default, and a workspace not named here costs nothing: no call is made about it at all. The site URL and the project keys come from that workspace's own `bd config get jira.url` / `jira.projects`, so `enabled` and `email` are usually the whole setting; `url` / `projects` here override for a workspace whose `bd` was never pointed at JIRA. **There is deliberately no token field** — see [JIRA, per workspace](#jira-per-workspace--read-only-and-one-setting) |
 | `jira.<workspace>.tokenFile` | where that workspace's API token is read from, if not `~/.config/beadcause/jira-<workspace>.key`. A relative name resolves inside that directory. The same option `confluence.apiTokenFile` is, and it opens the same hole: point it at a name that directory does *not* refuse and the log says so on every check |
+| `jiraSeconds` | how often the daemon asks JIRA what is assigned to you (default 60, floor 15) — one HTTP call per workspace whose `jira` block is switched on, and **nothing at all** for the rest. Beside `pollSeconds` rather than inside `jira`, because that block is keyed by workspace name and a number in it would be a setting for a workspace called "seconds". See [the tickets, on a clock](#the-tickets-on-a-clock--and-a-failure-that-is-never-an-empty-list) |
 | `pollSeconds` | how often the daemon *sweeps* — one `bd human list` per workspace, plus a `bd comments` per conversation you are waiting on (default 30). A cost, not a latency: `detectSeconds` is what decides how quickly a change is noticed, and this is the backstop under it |
 | `detectSeconds` | how often it asks *whether anything moved*, which is a ~150-byte read per workspace and spawns nothing (default 5). Setting it equal to `pollSeconds` turns the mechanism off and restores the single-clock cycle — see [noticing in five seconds](#noticing-in-five-seconds--and-not-sweeping-to-find-out) |
 | `slowRequestMs` | a request past this is named in the log with where its time went (default `1000` — the page-load budget itself, so a line means "this missed the budget" rather than "this was slower than its neighbours"). `0` turns **the log** off and nothing else: the per-route figures behind `/api/timings` are always collected. See [timing every request](#timing-every-request--which-routes-are-actually-slow) |
@@ -11924,6 +11925,83 @@ which is why the `method: 'GET'` literal stayed in `lib/jira.js` when the reques
 moved into `lib/atlassian.js`. A shared module that named the verb would have left that
 assertion green and vacuous, and a read-only guarantee that has stopped guaranteeing
 anything is worse than none.
+
+### The tickets, on a clock — and a failure that is never an empty list
+
+Switching JIRA on for a workspace is the setting above; `lib/jirapoll.js` is the thing
+that then actually asks, every `jiraSeconds`, and holds the answer where the inbox, the
+epic filed per ticket and the ticket view can all read it without a second call.
+
+**One query, and it is not a parameter.**
+
+```
+assignee = "you@company.com" AND resolution = EMPTY AND project in ("TECH") ORDER BY updated DESC
+```
+
+The project clause appears only for a workspace that has projects. `resolution = EMPTY`
+rather than `status != Done` because every JIRA site renames its statuses and none of
+them renames the resolution field — a status-name query is one that works on your site
+and silently returns nothing at the next company. And the JQL is written in that module
+rather than accepted from a caller: `search()` will issue whatever string it is given,
+so the defence against beadcause growing a general JIRA query surface is that there is
+nobody who can name one. Something that wants a different slice adds a named query
+there, where it can be read and argued about.
+
+**The second named query, for a site that will not search by an address.** Atlassian
+Cloud hides user emails on GDPR-strict sites, and on those the query above is refused
+with a 400 rather than matched against nobody — so the whole feature would read as a
+permanent configuration failure on a site that is working exactly as intended. The
+fallback is `assignee = currentUser()`, which asks the same question of the account the
+token belongs to, and it is used **only after `/rest/api/3/myself` has confirmed that
+account is the address the block names**. Without that confirmation it would quietly
+answer with a different person's tickets the day somebody points the block at a
+colleague, and an epic gets filed from every row this returns. It costs one extra call
+once per site, and the answer is remembered.
+
+**What a held ticket is:** key, summary, status, updated, url, assignee, and the
+workspace it came from — carried to the inbox as `tickets`, each row stamped with the
+space its workspace belongs to (the inbox filters on that before it looks at anything
+else, and it is how a quiet space's tickets are as quiet as its questions). Deliberately
+enough to draw a row without a second call, and
+deliberately no description body — the ticket view fetches that when it is opened, which
+is the one place it is read and the only place its size is worth paying for. The `url`
+is `/browse/<key>`, not the REST URL the payload carries, which is a link that lands a
+phone on a page of JSON.
+
+**A workspace with no `jira` block costs nothing at all** — not a network call, not a
+`bd` spawn, not a cache entry. Most workspaces on any machine are that workspace, so a
+poller that costs "almost nothing" for one costs the size of your `~/beads`. What the
+configured ones cost is bounded too: `settingsFor` is up to three `bd config get`
+processes, which on a one-minute timer would be three spawns a minute forever for a URL
+that changes never, so the **`bd` half** of the resolution is held for ten minutes. The
+token is re-read every sweep, because writing that file is how JIRA gets switched on and
+a cached "no credential" is a problem reported ten minutes after it was fixed.
+
+**And a failure is never an empty section.** This is [the sweep
+record](#a-repo-that-could-not-be-read-says-so-instead-of-looking-empty)'s argument applied
+to a third kind of read: the tracker can be perfectly readable while the token is
+expired, the site has been renamed or the wifi is down. So the JIRA read gets a
+`createSweep` channel of its own — the last good answer stands in for a missing one, and
+the workspace is named, with JIRA's own reason, in the trouble list the inbox already
+draws. A workspace that is switched *on* but not configured is trouble too, not silence,
+because the alternative is a section drawing nothing while somebody waits for tickets
+nobody was ever going to ask for. A workspace that is switched *off* is silent, which is
+what off means. The record rides two fields: merged into `trouble`, so the banner that
+exists draws it with no client change, and unmerged in `jiraTrouble`, because
+`mergeTrouble` keeps one row per workspace and a Dolt lock arriving a second later would
+otherwise hide an expired token behind a failure that clears itself.
+
+**A sweep that moved emits, and a sweep that did not says nothing.** A phone parks on
+`/api/poll` until the event log advances, so a ticket arriving without an event is a
+ticket nobody is told about until something else happens to move — on a quiet evening,
+hours. The other half of that is why it is filtered: every wake rebuilds the inbox with a
+`bd` sweep across every workspace, so an event per workspace per minute would make the
+cheapest thing in the system the most expensive one. What counts as moved is the set of
+keys and the `updated` on each, which is a status change and not a typo in a field
+nothing here draws.
+
+`node test/jira-poll.mjs` covers the JQL, the clock, the zero-cost path, both halves of
+the cache, the change signal and the failure record.
 
 ### The tickets, as a section of the inbox
 
