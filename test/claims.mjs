@@ -405,6 +405,19 @@ const MAIN_CHECKOUT = path.dirname(
   execFileSync('git', ['-C', REPO_DIR, 'rev-parse', '--path-format=absolute', '--git-common-dir'], { encoding: 'utf8' }).trim()
 );
 
+/**
+ * How the refusal will name the tree the holder is holding from — derived, not assumed.
+ *
+ * `refusalFor` says "on <branch>", falling back to the directory's own name when git has
+ * no branch to give. This used to be asserted as the literal `worktree-`, which is true of
+ * every checkout on Adam's Mac and of nothing else: bc-rcrt ran the suite on a CI runner,
+ * where the tree is a detached-HEAD clone in `/Users/runner/work/...`, and the assertion
+ * failed over a refusal that had named the holder perfectly well. The promise is that the
+ * reason says *where*, so ask git the same question the hook asks and look for that.
+ */
+const BRANCH = execFileSync('git', ['-C', REPO_DIR, 'rev-parse', '--abbrev-ref', 'HEAD'], { encoding: 'utf8' }).trim();
+const WHERE_RE = new RegExp(`on ${(BRANCH || path.basename(REPO_DIR)).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`);
+
 // The config the hook reads to find the daemon. Same CONFIG_DIR the server is using.
 fs.writeFileSync(path.join(process.env.BEADCAUSE_CONFIG_DIR, 'config.json'), JSON.stringify({ token: cfg.token, port }));
 
@@ -463,7 +476,7 @@ verify('a second session editing that file is denied once, with the holder named
   assert.equal(out.hookSpecificOutput.hookEventName, 'PreToolUse');
   assert.equal(out.hookSpecificOutput.permissionDecision, 'deny');
   assert.match(out.hookSpecificOutput.permissionDecisionReason, /lib\/hooked\.js/);
-  assert.match(out.hookSpecificOutput.permissionDecisionReason, /worktree-/, 'where the holder is');
+  assert.match(out.hookSpecificOutput.permissionDecisionReason, WHERE_RE, 'where the holder is');
 });
 
 const insistedEdit = await hook(edit('hook-b'));

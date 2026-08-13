@@ -245,6 +245,29 @@ const handler = (req, res) => {
   return app.handler(req, res);
 };
 
+/**
+ * `BEADCAUSE_START_DELAY_MS` — wait this long before binding. Test-only, and the mirror
+ * image of `healthTimeoutMs` in bin/router.js, which exists "for one reason that is not
+ * tuning — a test needs a window it can guarantee will expire".
+ *
+ * It turns out the window was only half of that guarantee. `test/outagepush.mjs` set the
+ * window to 250ms on the reasoning that nothing starts in a quarter of a second, and on
+ * this laptop, with several real beads workspaces to open, nothing does. A CI runner with
+ * one empty workspace came up well inside it (bc-rcrt), the router never saw an outage,
+ * and a suite about what the phone is told when nothing is being served asserted nothing
+ * at all. A missed window needs a slow *start* as well as a short window, and only one of
+ * those was under the test's control.
+ *
+ * Named on the environment rather than in config.json because it is the backend the
+ * router spawns — it inherits this, and a knob in the config file would be one more line
+ * for a person reading their own settings to wonder about.
+ */
+const startDelayMs = Number(process.env.BEADCAUSE_START_DELAY_MS) || 0;
+if (startDelayMs > 0) {
+  console.error(`[beadcause] holding the bind for ${startDelayMs}ms — BEADCAUSE_START_DELAY_MS`);
+  await new Promise((resolve) => setTimeout(resolve, startDelayMs));
+}
+
 const servers = listen(
   // Behind the router this binds loopback only. The tailnet reaches the router; an
   // internal backend that also bound the tailnet IP would be answerable directly,
