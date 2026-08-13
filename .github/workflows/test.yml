@@ -1,0 +1,87 @@
+# `npm test`, run by GitHub, on the merge that is actually about to happen.
+#
+# This repo lands ~20 concurrent worktrees through pull requests, and until this file
+# existed nothing on GitHub's side ran the suite: `bin/deliver.js` ran it locally, on the
+# branch, against the `main` the branch was *cut from*. Two branches that each pass alone
+# can still break `main` together — the merge is a third thing neither of them tested.
+# That is bc-rcrt, and this workflow is the half of it GitHub can enforce.
+#
+# ## Why three triggers
+#
+# - `pull_request` — the ordinary signal, so a red suite is visible on the PR page before
+#   anyone (or `bin/deliver.js`) merges it.
+# - `merge_group` — **the load-bearing one.** A merge queue builds a temporary ref of
+#   `main` + the entries ahead of yours + yours, and runs the required checks against
+#   *that*. Without this trigger the queue has nothing to wait for and every entry stalls.
+#   It is here before the queue is switched on, deliberately: a required check that does
+#   not answer for `merge_group` events blocks the queue rather than gating it.
+# - `push` on `main` — so the history of `main` itself has a verdict, which is what makes
+#   "was main already broken when I branched?" answerable after the fact.
+#
+# ## Why the job is named `test` and must stay named `test`
+#
+# Branch protection and the merge queue name a required check by its **job** name. Rename
+# this job and the protection rule silently stops matching — GitHub does not complain, it
+# waits forever for a check that will never report. If you rename it, change the rule in
+# the same commit (`gh api repos/:owner/:repo/branches/main/protection`).
+#
+# ## Why the git identity step
+#
+# ~28 suites build a throwaway repo in a temp dir and commit into it. Most set
+# `user.email` themselves; the ones that do not inherit the machine's global config, which
+# every developer here has and a fresh runner does not — `git commit` there fails with
+# "Please tell me who you are", and the suite goes red for a reason that has nothing to do
+# with the change under test. Setting it globally on the runner is the cheap fix; making
+# every suite set its own is the right one, and is not this file's job.
+name: test
+
+on:
+  pull_request:
+  merge_group:
+  push:
+    branches: [main]
+
+# One run per pull request: a branch pushed three times in a minute should not hold three
+# runners. Merge-group runs are never cancelled — cancelling one drops the entry from the
+# queue, which is the opposite of what the queue is for.
+concurrency:
+  group: test-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: macos-latest
+    # The suite is a few minutes locally. 20 is generous enough that a slow runner is not
+    # a false red, and short enough that a suite hanging on a port or a lock is killed
+    # rather than sitting in the queue ahead of everybody else.
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Give the runner a git identity
+        run: |
+          git config --global user.name "beadcause ci"
+          git config --global user.email "ci@beadcause.invalid"
+
+      # `discoverWorkspaces` scans `~/beads/*/.beads`, and `bin/beadcause.js` exits 1 with
+      # "nothing to serve" when it finds none — correctly. But four suites spawn the real
+      # daemon to test the *router* (ports, slow starts, the outage push, the blue/green
+      # swap), and on a machine with no workspaces every one of them reads as a backend
+      # that died at startup. An empty directory is all the scan requires; no `bd`, no
+      # database, and nothing here asks the tracker anything.
+      - name: Give the runner a beads workspace to serve
+        run: mkdir -p "$HOME/beads/ci/.beads"
+
+      # `postinstall` runs scripts/vendor.js, which copies the browser builds into
+      # public/vendor — it needs node_modules, which after this step it has.
+      - run: npm ci
+
+      - run: npm test

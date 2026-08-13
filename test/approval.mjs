@@ -43,6 +43,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { cleanupTmp } from './helpers/tmp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const DELIVER = path.join(HERE, '..', 'bin', 'deliver.js');
@@ -549,7 +550,7 @@ console.log('\nthe brief and the command, reading one answer\n');
   );
 }
 
-fs.rmSync(tmp, { recursive: true, force: true });
+await cleanupTmp(tmp);
 
 console.log(failures ? `\n\x1b[31m${failures} failed\x1b[0m\n` : '\n\x1b[32mall checks passed\x1b[0m\n');
 process.exit(failures ? 1 : 0);

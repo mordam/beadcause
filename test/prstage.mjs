@@ -232,10 +232,40 @@ await check('the board is still served, and still has the bar on it', () => {
   // the pair that makes a *shortcut* still work — the aliases and the page's own bar.
   const server = read('lib/server.js');
   assert.ok(/'\/pulls'/.test(server), 'the /pulls alias is gone');
-  const html = read('public/prs.html');
+  // The board is a pane on the advocates page now (bc-d4d5), so what used to be checked
+  // of prs.html is checked of the page that absorbed it — and one thing more, that the
+  // three old paths land on that page rather than on nothing.
+  assert.ok(
+    /urlPath === '\/prs' \|\| urlPath === '\/pulls' \|\| urlPath === '\/prs\.html'/.test(server),
+    'the board’s three paths no longer land together'
+  );
+  const html = read('public/monitor.html');
   assert.ok(html.includes('/tabbar.js'), 'the board lost the bar, which is the only way off it');
   assert.ok(html.includes('/prcard.js'), 'the board does not load the shared renderer');
   assert.ok(html.indexOf('/prcard.js') < html.indexOf('/prs.js'), 'prs.js runs before the renderer it uses');
+  assert.ok(/data-tab="prs"/.test(html), 'there is no PRs chip, so nothing points at the board again');
+});
+
+/* One full-screen view of a pull request, reached from both screens that draw its row.
+   The sheet is the inbox's (bc-l8jp.7) and the board links into it rather than growing a
+   second one — which is only true while the two halves of that link agree, and neither
+   half can be read from the other file. */
+await check('the board reaches the inbox’s full view rather than drawing its own', () => {
+  const board = read('public/prs.js');
+  assert.ok(
+    /href="\/#\$\{encodeURIComponent\(`pr:\$\{p\.key\}`\)\}"/.test(board),
+    'the board no longer links into the inbox by the key its deep links use'
+  );
+  assert.ok(!/class="card pr-card open"/.test(board), 'the board has grown a full-screen sheet of its own');
+  const app = read('public/app.js');
+  // `pr:` + the board's own `<workspace>#<number>` is what byKey resolves; the board
+  // writes that string and the inbox reads it, and there is nothing between them.
+  assert.ok(/startsWith\('pr:'\)/.test(app), 'the inbox no longer resolves a pr: key at all');
+  // And the widening, which is what makes the link land on the rows the board is *about*:
+  // the inbox's status default is `unmerged` and every merged-not-shipped row is hidden
+  // under it, so without this a Full view on the board's whole subject opens nothing.
+  assert.ok(/function revealPr\(row\)/.test(app), 'the inbox cannot widen for a hidden pull request');
+  assert.ok(/revealPr\(byKey\(key\)\)/.test(app), 'and nothing calls it from the deep-link path');
 });
 
 await check('the inbox loads the renderer before the filter that reads its ladder', () => {

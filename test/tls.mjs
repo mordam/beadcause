@@ -16,7 +16,9 @@
  *   name, path and query kept, because every URL already in a notification, a QR and
  *   an installed PWA is `http://100.x.y.z:4318/...` and none of them may break;
  * - the terminal WebSocket over `wss`, still authenticated by the token subprotocol
- *   and still refusing a bad one before the socket exists.
+ *   and still refusing a bad one before the socket exists — and named in the boot log
+ *   by the scheme the phone will actually dial, which under the router is not the one
+ *   the process doing the printing can see on its own sockets.
  *
  * Nothing here touches the tailnet. The certificate is self-signed by `openssl` into a
  * temp directory, which is enough for every question above: whether a phone *trusts*
@@ -32,8 +34,9 @@ import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import tls from 'node:tls';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { removeTreeSync } from './helpers/tmp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const LIB = (name) => path.join(HERE, '..', 'lib', name);
@@ -42,8 +45,18 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'beadcause-tls-'));
 // Before lib/config.js is imported: CONFIG_DIR resolves once, at module load.
 process.env.BEADCAUSE_CONFIG_DIR = path.join(tmp, 'config');
 
-const { MIN_VERSION, certificate, certificateName, closeServer, isSecure, publicBaseUrl, tailnetServer, serverOptions } =
-  await import(LIB('tls.js'));
+const {
+  APP_CLEARTEXT_HOSTS,
+  MIN_VERSION,
+  certificate,
+  certificateName,
+  cleartextWarning,
+  closeServer,
+  isSecure,
+  publicBaseUrl,
+  tailnetServer,
+  serverOptions,
+} = await import(LIB('tls.js'));
 const { reconcileBaseUrl } = await import(LIB('config.js'));
 
 /* ------------------------------------------------------------------- harness */
@@ -65,12 +78,40 @@ function skip(name) {
   console.log(`  skip ${name}`);
 }
 const done = (code) => {
-  fs.rmSync(tmp, { recursive: true, force: true });
+  removeTreeSync(tmp);
   console.log(failures ? `\n${failures} of ${ran} failed` : `\n${ran} passed`);
   process.exit(code ?? (failures ? 1 : 0));
 };
 
 /* ------------------------------------------------------------------ fixtures */
+
+/**
+ * A throwaway certificate that is genuinely past its date, for the one question no
+ * `-days` can ask: `-days` will not go backwards, so the two dates are given outright.
+ * `-not_before`/`-not_after` arrived in OpenSSL 3.5 and are absent from LibreSSL, so
+ * this returns null there and the checks that need it skip out loud.
+ */
+const stamp = (msFromNow) => new Date(Date.now() + msFromNow).toISOString().replace(/[-:T]/g, '').replace(/\.\d+Z$/, 'Z');
+function expiredPair(agoDays) {
+  const certFile = path.join(tmp, 'old-c.pem');
+  const keyFile = path.join(tmp, 'old-k.pem');
+  try {
+    execFileSync(
+      'openssl',
+      [
+        'req', '-x509', '-newkey', 'rsa:2048', '-nodes',
+        '-keyout', keyFile, '-out', certFile,
+        '-not_before', stamp(-(agoDays + 90) * 86400000),
+        '-not_after', stamp(-agoDays * 86400000),
+        '-subj', '/CN=localhost',
+      ],
+      { stdio: ['ignore', 'ignore', 'ignore'], timeout: 60000 }
+    );
+  } catch {
+    return null;
+  }
+  return { cert: fs.readFileSync(certFile), key: fs.readFileSync(keyFile) };
+}
 
 /** A throwaway certificate. Self-signed: nothing here is asking anyone to trust it. */
 function selfSigned() {
@@ -248,6 +289,63 @@ if (!ws) {
   });
 
   wss.close();
+
+  /* ------------------------------------------- and the URL the boot log names it by */
+
+  /**
+   * What `[beadcause] terminal` says, for a given config and set of listeners.
+   *
+   * Servers stood in for rather than bound: all `attachTerminalSocket` asks of one is
+   * `on('upgrade')`, and whether it terminates TLS — which is `setSecureContext`
+   * being there, exactly as `isSecure` decides it. A real pair of ports would prove
+   * nothing more and would have to be closed.
+   */
+  const announced = async (c, srv) => {
+    const said = [];
+    const was = console.log;
+    console.log = (...a) => said.push(a.join(' '));
+    let attached = null;
+    try {
+      attached = await attachTerminalSocket(c, srv);
+    } finally {
+      console.log = was;
+    }
+    attached?.close();
+    return said.find((line) => line.includes('] terminal')) || '';
+  };
+  const loopbackOnly = [{ on() {} }];
+  const terminatesTls = [{ on() {}, setSecureContext() {} }];
+
+  await check('the boot log names the terminal with the scheme the phone will dial', async () => {
+    // The configuration launchd actually runs, and the one that was wrong: TLS is
+    // terminated in bin/router.js, which owns the tailnet port, and the backend that
+    // prints this line binds loopback only. So `isSecure` is false in the process
+    // doing the printing while `baseUrl` is the https name — and the scheme has to
+    // come off the origin, or the line names a `ws://` that cannot connect.
+    const line = await announced(
+      { terminal: true, token: 'x', host: '127.0.0.1', port: 4318, baseUrl: 'https://m4.tail0.ts.net:4318' },
+      loopbackOnly,
+    );
+    assert.match(line, /wss:\/\/m4\.tail0\.ts\.net:4318\/ws\/terminal$/, `got: ${line}`);
+  });
+
+  await check('and still says ws:// for a loopback server on an http baseUrl', async () => {
+    const line = await announced(
+      { terminal: true, token: 'x', host: '127.0.0.1', port: 4318, baseUrl: 'http://100.96.105.106:4318' },
+      loopbackOnly,
+    );
+    assert.match(line, /ws:\/\/100\.96\.105\.106:4318\/ws\/terminal$/, `got: ${line}`);
+    assert.doesNotMatch(line, /wss:/, `got: ${line}`);
+  });
+
+  await check('with no baseUrl at all the bound listener is the only evidence there is', async () => {
+    // Every test that attaches a socket to a bare server, including the two above this
+    // section — there is no origin to go off, so the listener answers for itself, and
+    // the address it prints has to carry the same scheme.
+    const cfgless = { terminal: true, token: 'x', host: '127.0.0.1', port: 4318 };
+    assert.match(await announced(cfgless, loopbackOnly), /ws:\/\/127\.0\.0\.1:4318\/ws\/terminal$/);
+    assert.match(await announced(cfgless, terminatesTls), /wss:\/\/127\.0\.0\.1:4318\/ws\/terminal$/);
+  });
 }
 
 /* --------------------------------------------------- the rules around the switch */
@@ -338,6 +436,32 @@ await check('a cached pair moves the URL onto the name it is for, on the configu
   assert.equal(publicBaseUrl({ ...CFG, port: 4444 }), `https://${NAME}:4444`);
 });
 
+// bc-jv86: past the expiry date the socket still carries the certificate and the front
+// still 307s plain http to the name — so the URL has to keep saying the same thing. It
+// did not: `certificateName` wanted a day left, `publicBaseUrl` fell back to
+// `http://100.x.y.z:4318`, `reconcileBaseUrl` persisted that on the next `loadConfig()`,
+// and the priority-5 "certificate has EXPIRED" push — whose tap target is `cfg.baseUrl`
+// — then opened the one URL the running daemon bounces straight back to https. The
+// certificate being expired is an outage with an alarm on it, not a reason for the two
+// halves of the daemon to describe themselves differently.
+const expired = expiredPair(3);
+if (!expired) {
+  skip('an expired certificate still names the URL it is served on — this openssl cannot mint one');
+} else {
+  await check('an expired certificate still names the URL it is served on', () => {
+    plant(expired);
+    assert.equal(certificateName(CFG), NAME, 'the socket keeps serving it, so the URL must keep pointing at it');
+    assert.equal(publicBaseUrl(CFG), `https://${NAME}:4318`);
+  });
+
+  await check('and the saved baseUrl is not quietly downgraded to http when the date passes', () => {
+    plant(expired);
+    const cfg = { ...CFG, baseUrl: `https://${NAME}:4318` };
+    quietly(() => reconcileBaseUrl(cfg));
+    assert.equal(cfg.baseUrl, `https://${NAME}:4318`, 'the EXPIRED push taps this URL — it must be one the daemon serves');
+  });
+}
+
 await check('and tls.enabled false is never an https URL, certificate or no certificate', () => {
   plant(material);
   assert.equal(certificateName({ ...CFG, tls: { enabled: false, name: NAME } }), null);
@@ -378,6 +502,83 @@ await check('reconciling persists nothing unless it is asked to', () => {
   const cfg = { ...CFG, baseUrl: 'http://100.96.105.106:4318' };
   quietly(() => reconcileBaseUrl(cfg));
   assert.equal(fs.existsSync(written), false, 'a CLI that only wanted to print a URL must not rewrite the config');
+});
+
+/* ------------------------------------- what the Mac says about the link it prints */
+
+// bc-affn. The http fallback above is right for a browser and unusable by the APK — it
+// has had cleartext off since bc-14s — so the moment a link is printed is the moment to
+// say so, while the person is still standing at the Mac that can fix it.
+
+await check('an http link is called out as one the Android app will refuse', () => {
+  const said = cleartextWarning('http://100.96.105.106:4318');
+  assert.ok(said, 'the address the QR falls back to is exactly the one the app cannot pair with');
+  const all = said.join(' ');
+  assert.match(all, /Android app will refuse/i, 'it has to name what refuses it');
+  assert.match(all, /login\.tailscale\.com\/admin\/dns/, 'and where the fix is, which is not on this Mac');
+});
+
+await check('and an https link says nothing at all', () => {
+  // Silence is the load-bearing half: a line printed on every run is a line nobody reads
+  // on the run that matters.
+  for (const url of [`https://${NAME}:4318`, 'https://beads.example.com', 'https://beads.example.com:8443']) {
+    assert.equal(cleartextWarning(url), null, `${url} is pairable and must be silent`);
+  }
+});
+
+await check('nor does loopback, which the app still permits and an emulator lives on', () => {
+  for (const host of APP_CLEARTEXT_HOSTS) {
+    assert.equal(cleartextWarning(`http://${host}:4318`), null, `${host} is in the APK's cleartext exceptions`);
+  }
+});
+
+await check('an http address that is not the tailnet is warned about too', () => {
+  // A LAN address or a bare hostname set by hand: the app refuses those for the same
+  // reason and with the same sentence, so the rule is the scheme rather than the shape.
+  for (const url of ['http://192.168.1.10:4318', 'http://mac.local:4318', 'http://beads.example.com']) {
+    assert.ok(cleartextWarning(url), `${url} is cleartext and the app will not send its token to it`);
+  }
+});
+
+await check('and a URL that is not a URL is not a warning', () => {
+  for (const junk of ['', null, undefined, 'not a url', '100.96.105.106:4318']) {
+    assert.equal(cleartextWarning(junk), null, `${JSON.stringify(junk)} must not throw or invent a warning`);
+  }
+});
+
+/** `bin/beadcause.js <flag>` against a config of our own, as a real process. */
+function cli(flag, baseUrl) {
+  const dir = fs.mkdtempSync(path.join(tmp, 'cli-'));
+  fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ baseUrl, token: 'tok' }));
+  const run = spawnSync(process.execPath, [path.join(HERE, '..', 'bin', 'beadcause.js'), flag], {
+    encoding: 'utf8',
+    env: { ...process.env, BEADCAUSE_CONFIG_DIR: dir },
+  });
+  return { out: run.stdout, err: run.stderr, code: run.status };
+}
+
+await check('`--url` keeps the warning off stdout, because scripts pipe that', () => {
+  // The acceptance criterion, as the thing it protects: `beadcause --url` is read into
+  // shell variables, and a sentence in there is an address nothing can dial.
+  const r = cli('--url', 'http://192.168.1.10:4318');
+  assert.equal(r.code, 0);
+  assert.equal(r.out.trim(), 'http://192.168.1.10:4318/?t=tok', 'stdout is the URL and nothing else');
+  assert.match(r.err, /Android app will refuse/, 'and the warning still gets said, on stderr');
+});
+
+await check('and says nothing on either stream when the link is already https', () => {
+  const r = cli('--url', 'https://beads.example.com');
+  assert.equal(r.code, 0);
+  assert.equal(r.out.trim(), 'https://beads.example.com/?t=tok');
+  assert.equal(r.err.trim(), '', 'a pairable link is not worth a word');
+});
+
+await check('`--qr` still prints its code, with the warning last on stderr', () => {
+  const r = cli('--qr', 'http://192.168.1.10:4318');
+  assert.equal(r.code, 0);
+  assert.match(r.out, /Pair the app/, 'the QR itself is untouched');
+  assert.match(r.out, /http:\/\/192\.168\.1\.10:4318\/\?t=tok/);
+  assert.match(r.err, /login\.tailscale\.com\/admin\/dns/);
 });
 
 // The one thing on the bead that no test on this machine can answer: whether a phone

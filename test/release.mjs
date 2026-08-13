@@ -41,11 +41,12 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import http from 'node:http';
-import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { boundPort } from './helpers/net.mjs';
+import { cleanupTmp } from './helpers/tmp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const LIB = (f) => path.join(HERE, '..', 'lib', f);
@@ -496,17 +497,8 @@ const beadsDir = (name) => {
 const { createApp, listen } = await import(LIB('server.js'));
 const { listDeploys } = await import(LIB('deploy.js'));
 
-const port = await new Promise((resolve, reject) => {
-  const probe = net.createServer();
-  probe.on('error', reject);
-  probe.listen(0, '127.0.0.1', () => {
-    const { port: p } = probe.address();
-    probe.close(() => resolve(p));
-  });
-});
-
 const cfg = {
-  port,
+  port: 0,
   host: '127.0.0.1',
   baseUrl: 'http://127.0.0.1',
   token: 'release-token',
@@ -531,6 +523,8 @@ const cfg = {
 
 const app = createApp(cfg);
 const servers = listen(cfg, app.handler);
+const port = await boundPort(servers);
+cfg.port = port;
 
 const request = (method, pathname, body) =>
   new Promise((resolve, reject) => {
@@ -561,15 +555,6 @@ const request = (method, pathname, body) =>
 
 const post = (p, body) => request('POST', p, body);
 const get = (p) => request('GET', p);
-
-for (let i = 0; i < 100; i += 1) {
-  try {
-    await post('/api/nothing', {});
-    break;
-  } catch {
-    await sleep(20);
-  }
-}
 
 const board = await get('/api/prs?refresh=1');
 const cardOf = (name) => (board.json.repos || []).find((r) => r.workspace === name);
@@ -612,5 +597,5 @@ for (const s of servers) s.close(s.front ? () => s.front.close() : undefined);
 app.close?.();
 
 console.log(`\n${failures ? `\x1b[31m${failures} of ${ran} failed\x1b[0m` : `\x1b[32mall ${ran} passed\x1b[0m`}\n`);
-fs.rmSync(tmp, { recursive: true, force: true });
+await cleanupTmp(tmp);
 process.exit(failures ? 1 : 0);

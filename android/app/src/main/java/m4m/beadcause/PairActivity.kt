@@ -28,12 +28,23 @@ import java.util.concurrent.atomic.AtomicBoolean
 /**
  * Pairing.
  *
- * `npm run qr` prints a QR of `http://<tailscale-ip>:4318/?t=<token>` — the same URL
- * the PWA is added to the home screen from. Scanning it here is the whole setup:
- * host and token come out of one string. Typing it is the fallback, and accepts
+ * `npm run qr` prints a QR of `https://<host>.<tailnet>.ts.net:4318/?t=<token>` — the
+ * same URL the PWA is added to the home screen from. Scanning it here is the whole
+ * setup: host and token come out of one string. Typing it is the fallback, and accepts
  * either that full URL pasted whole or an address and token separately.
+ *
+ * Where that token is allowed to go is [Address], not this class.
  */
 class PairActivity : AppCompatActivity() {
+
+    companion object {
+        /**
+         * Set when the app sent you here rather than you asking: the saved pairing is
+         * an address this build will no longer talk to. Without it the QR screen just
+         * appears, looking like the pairing was lost — see [Address] and MainActivity.
+         */
+        const val EXTRA_STALE = "stale"
+    }
 
     private lateinit var binding: ActivityPairBinding
     private val analysisExecutor = Executors.newSingleThreadExecutor()
@@ -55,6 +66,10 @@ class PairActivity : AppCompatActivity() {
         setContentView(binding.root)
 
         binding.connect.setOnClickListener { pairFromForm() }
+
+        if (intent.getBooleanExtra(EXTRA_STALE, false)) {
+            status(getString(R.string.pair_stale, Prefs.baseUrl(this).orEmpty()), error = true)
+        }
 
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
             startCamera()
@@ -133,13 +148,16 @@ class PairActivity : AppCompatActivity() {
         if (address.isBlank() || typedToken.isBlank()) {
             return status(getString(R.string.pair_need_both), error = true)
         }
-        val normalized = if (address.startsWith("http")) address else "http://$address"
+        // https, because that is what the server is: typing the MagicDNS name and a
+        // token by hand should pair, and defaulting to http would refuse it for being
+        // cleartext — a refusal about a scheme the person never typed.
+        val normalized = if (address.startsWith("http")) address else "https://$address"
         val base = normalized.toHttpUrlOrNull()?.let { "${it.scheme}://${it.host}:${it.port}" }
             ?: return status(getString(R.string.pair_bad_address), error = true)
         verifyAndSave(base, typedToken)
     }
 
-    /** `http://100.96.105.106:4318/?t=<token>` → base URL and token. */
+    /** `https://mac.tailnet.ts.net:4318/?t=<token>` → base URL and token. */
     private fun parsePairingUrl(raw: String): Pair<String, String>? {
         val url = raw.trim().toHttpUrlOrNull() ?: return null
         val token = url.queryParameter("t")?.takeIf { it.isNotBlank() } ?: return null
@@ -154,13 +172,22 @@ class PairActivity : AppCompatActivity() {
      * the tailnet), a wrong token means it is there and said no.
      */
     private fun verifyAndSave(baseUrl: String, token: String) {
-        // The token is a bearer credential for every workspace at once. Sending it in
-        // the clear to anything but the tailnet — a typo, a stale LAN address, a QR
-        // photographed from someone else's screen — is the one mistake here with
-        // consequences, so refuse before the first request rather than after.
-        if (!isPrivateAddress(baseUrl)) {
+        // The token is a bearer credential for every workspace at once. Sending it
+        // somewhere it should not go — a typo, a stale LAN address, a QR photographed
+        // from someone else's screen — is the one mistake here with consequences, so
+        // refuse before the first request rather than after. See [Address].
+        val reach = Address.reach(baseUrl)
+        if (reach != Address.Reach.OK) {
             claimed.set(false)
-            return status(getString(R.string.pair_not_private), error = true)
+            return status(
+                when (reach) {
+                    // The QR is right and the Mac is wrong, so say which — this is the
+                    // one refusal with a fix at the other end.
+                    Address.Reach.NO_CERTIFICATE -> getString(R.string.pair_no_certificate, baseUrl)
+                    else -> getString(R.string.pair_not_private)
+                },
+                error = true,
+            )
         }
 
         binding.connect.isEnabled = false
@@ -195,24 +222,6 @@ class PairActivity : AppCompatActivity() {
                 )
             }
         }
-    }
-
-    /**
-     * HTTPS anywhere is fine. Cleartext is only allowed to Tailscale's CGNAT range
-     * (100.64.0.0/10) and loopback — including 10.0.2.2, which is how an emulator
-     * reaches the Mac it's running on.
-     *
-     * This is the check `network_security_config.xml` cannot express: that file
-     * matches hostnames by DNS suffix, so no entry in it can describe an IP range.
-     */
-    private fun isPrivateAddress(baseUrl: String): Boolean {
-        val url = baseUrl.toHttpUrlOrNull() ?: return false
-        if (url.scheme == "https") return true
-        val host = url.host
-        if (host == "localhost" || host == "127.0.0.1" || host == "10.0.2.2") return true
-        val octets = host.split('.').mapNotNull { it.toIntOrNull() }
-        if (octets.size != 4 || octets.any { it !in 0..255 }) return false
-        return octets[0] == 100 && octets[1] in 64..127
     }
 
     private fun status(text: String, error: Boolean) {

@@ -182,10 +182,12 @@
   /**
    * The inside of a pull request row: what it is, what it is for, and where it got to.
    *
-   * `title` is a link when the caller has nowhere else to put one — the inbox card,
-   * where the row is not a button — and plain text when it is inside one, because an
-   * `<a>` inside a `<button>` is a nested interactive element and a phone will pick
-   * whichever it likes.
+   * `title` is a link when the caller has somewhere to put one and plain text when the
+   * row itself is a button, because an `<a>` inside a `<button>` is a nested interactive
+   * element and a phone will pick whichever it likes. Both callers now use both halves:
+   * a shut row is a button on either screen — the board's folds, the inbox's opens full
+   * screen (bc-l8jp.7) — and the open view puts the title back as the link out to GitHub,
+   * where it is no longer competing with a tap that means something else.
    *
    * `repo` names the workspace, which the board does not need (its cards are one repo
    * each) and the inbox does: a flat list of pull requests from six repos with no repo on

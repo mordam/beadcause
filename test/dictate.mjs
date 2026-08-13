@@ -415,7 +415,8 @@ check('the microphone is let go when the app goes to the background', () => {
 /* ------------------------------------------------------------------- wired in */
 
 check('every composer that takes prose loads it', () => {
-  for (const page of ['index.html', 'console.html', 'session.html', 'prs.html', 'monitor.html', 'foundations.html']) {
+  // The board's composer is on monitor.html now (bc-d4d5), which is already in the list.
+  for (const page of ['index.html', 'console.html', 'session.html', 'monitor.html', 'foundations.html']) {
     assert.match(read(`public/${page}`), /<script src="\/dictate\.js">/, `public/${page} does not load dictate.js`);
   }
 });

@@ -28,6 +28,12 @@
  *    costs the block and nothing else.
  * 4. **The fold is the point, and its default is *shown*.** An epic whose finished work
  *    is invisible reads as though it never started.
+ * 5. **The call is `/api/bead-links`, and its two halves do not overlap.** The children
+ *    ride the same `bd dep list --direction=up` that answers what the bead blocks — one
+ *    round trip for both — so the route has to lift the `parent-child` rows out of the
+ *    dependents rather than leaving the same beads in both lists. `Bd.children` is still
+ *    `bd list --parent` and still tested here, because the close gate and the advocate
+ *    read it. What the Blocks half then *draws* is test/sheetblocks.mjs.
  *
  * **How it runs the real client code.** public/graph.js is one IIFE over a live DOM, so
  * it cannot be imported. The region from `beadUrl` to the end of `sheetHtml` is pure
@@ -39,11 +45,12 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import http from 'node:http';
-import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import vm from 'node:vm';
 import { fileURLToPath } from 'node:url';
+import { boundPort } from './helpers/net.mjs';
+import { cleanupTmp } from './helpers/tmp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(HERE, '..');
@@ -169,8 +176,8 @@ const ctx = vm.createContext({
   FROM_BD: { breaks: false },
   workspace: 'beadcause',
 });
-const { childrenHtml, mightHaveChildren, sheetHtml } = vm.runInContext(
-  `${region}\n;({ childrenHtml, mightHaveChildren, sheetHtml })`,
+const { childrenHtml, hasDependents, sheetHtml } = vm.runInContext(
+  `${region}\n;({ childrenHtml, hasDependents, sheetHtml })`,
   ctx,
   { filename: 'graph.js#children' }
 );
@@ -278,29 +285,29 @@ console.log('\nwhat the sheet pays for it');
 const epic = { id: 'bc-goo', title: 'An epic', status: 'in_progress', description: 'Some prose.', dependent_count: 7 };
 const leaf = { id: 'bc-7w1l', title: 'On its own', status: 'open', description: 'Some prose.' };
 
-check('a bead with no dependents is never asked about — it cannot have children', () => {
-  assert.equal(mightHaveChildren(leaf), false);
-  assert.equal(mightHaveChildren({ dependent_count: 0 }), false);
-  assert.equal(mightHaveChildren(null), false);
+check('a bead with nothing pointing at it is never asked about', () => {
+  assert.equal(hasDependents(leaf), false);
+  assert.equal(hasDependents({ dependent_count: 0 }), false);
+  assert.equal(hasDependents(null), false);
 });
 
-check('a bead with dependents is, because one of them may be a child', () => {
-  assert.equal(mightHaveChildren(epic), true);
+check('a bead with dependents is — one of them may be a child, and the rest are Blocks', () => {
+  assert.equal(hasDependents(epic), true);
 });
 
 check('the slot is empty at first paint — the sheet never waits on the call', () => {
   const html = sheetHtml(epic);
-  assert.ok(html.includes('<div id="sheet-kids"></div>'), 'no slot for the children to land in');
+  assert.ok(html.includes('<div id="sheet-links"></div>'), 'no slot for the children to land in');
   assert.ok(!html.includes('Children'), 'a heading was drawn before the children arrived');
 });
 
 check('it sits below the description, where landing late shifts nothing above it', () => {
   const html = sheetHtml(epic);
-  assert.ok(html.indexOf('Some prose.') < html.indexOf('sheet-kids'), 'the slot is above the description');
+  assert.ok(html.indexOf('Some prose.') < html.indexOf('sheet-links'), 'the slot is above the description');
 });
 
 check('and a bead that cannot have children draws no slot at all', () => {
-  assert.ok(!sheetHtml(leaf).includes('sheet-kids'), 'a leaf bead carries a children slot');
+  assert.ok(!sheetHtml(leaf).includes('sheet-links'), 'a leaf bead carries a children slot');
 });
 
 /* ------------------------------------------------------- the style it wears */
@@ -325,16 +332,31 @@ fs.mkdirSync(process.env.BEADCAUSE_CONFIG_DIR, { recursive: true });
 const ws = path.join(tmp, 'ws');
 fs.mkdirSync(path.join(ws, '.beads'), { recursive: true });
 
-// A `bd` that answers `list --parent` with bc-goo's seven and everything else with an
-// empty list — so the shape the sheet reads is proved end to end, through the real
-// handler and the real adapter, without a tracker to seed.
+// A `bd` that answers `dep list --direction=up` with bc-goo's seven children and one
+// bead that is not a child, and everything else with an empty list — so the shape the
+// sheet reads is proved end to end, through the real handler and the real adapter,
+// without a tracker to seed. The route is the thing that has to keep those two apart.
+const UP = [
+  ...GOO.map((r) => ({ ...r, dependency_type: 'parent-child' })),
+  { id: 'bc-2ocm', title: 'Something waiting on the epic', status: 'open', dependency_type: 'blocks' },
+];
 const FAKE = path.join(tmp, 'bd');
 fs.writeFileSync(
   FAKE,
   `#!/usr/bin/env node
 const argv = process.argv.slice(2);
-const rows = ${JSON.stringify(JSON.stringify(GOO))};
-process.stdout.write(argv[0] === 'list' && argv.includes('--parent') ? rows : '[]');
+const rows = ${JSON.stringify(JSON.stringify(UP))};
+if (argv[0] !== 'dep' || argv[1] !== 'list' || !argv.includes('--direction=up')) {
+  process.stdout.write('[]');
+} else if (argv[2] !== 'bc-goo') {
+  // What the real bd says for an id it cannot resolve — it exits non-zero rather than
+  // answering with an empty list, which is the one thing \`dep list\` does differently
+  // from \`list --parent\`.
+  process.stderr.write('resolving ' + argv[2] + ': no issue found matching "' + argv[2] + '"');
+  process.exit(1);
+} else {
+  process.stdout.write(rows);
+}
 `,
   { mode: 0o755 }
 );
@@ -356,22 +378,11 @@ const cfg = {
   advocates: { enabled: false, workspaces: [] },
 };
 
-// foundation.js first: it and agents.js import each other, and agents.js is not the
-// end of that cycle that can be pulled in cold.
-await import(path.join(ROOT, 'lib', 'foundation.js'));
 const { createApp, listen } = await import(path.join(ROOT, 'lib', 'server.js'));
 
-const port = await new Promise((resolve, reject) => {
-  const probe = net.createServer();
-  probe.on('error', reject);
-  probe.listen(0, '127.0.0.1', () => {
-    const { port: p } = probe.address();
-    probe.close(() => resolve(p));
-  });
-});
-
-const app = createApp({ ...cfg, port });
-const servers = listen({ ...cfg, port }, app.handler);
+const app = createApp(cfg);
+const servers = listen(cfg, app.handler);
+const port = await boundPort(servers);
 
 const get = (pathname) =>
   new Promise((resolve, reject) => {
@@ -397,9 +408,9 @@ for (let i = 0; i < 100; i += 1) {
   }
 }
 
-const answer = await get('/api/bead-children?workspace=demo&id=bc-goo');
+const answer = await get('/api/bead-links?workspace=demo&id=bc-goo');
 
-check('GET /api/bead-children answers 200', () => {
+check('GET /api/bead-links answers 200', () => {
   assert.equal(answer.status, 200, JSON.stringify(answer.json).slice(0, 160));
 });
 
@@ -416,18 +427,32 @@ check('and the rows the sheet reads, without the descriptions it does not', () =
   assert.ok(!('description' in first), 'the full description was sent to the phone');
 });
 
-const nonsense = await get('/api/bead-children?workspace=demo&id=../../etc/passwd');
+check('the beads that are not children come back separately, off the same call', () => {
+  assert.deepEqual((answer.json.dependents || []).map((d) => d.id), ['bc-2ocm']);
+});
+
+check('and no child is among them — the same bead twice is what the split is for', () => {
+  const both = (answer.json.dependents || []).filter((d) => (answer.json.children || []).some((c) => c.id === d.id));
+  assert.deepEqual(both, [], 'a child was also listed as a dependent');
+});
+
+const gone = await get('/api/bead-links?workspace=demo&id=bc-gone');
+check('a bead deleted since the sheet opened is a 404, not a 500', () => {
+  assert.equal(gone.status, 404, JSON.stringify(gone.json).slice(0, 160));
+});
+
+const nonsense = await get('/api/bead-links?workspace=demo&id=../../etc/passwd');
 check('an id that is not a bead id is a 400, not a lookup', () => {
   assert.equal(nonsense.status, 400, JSON.stringify(nonsense.json).slice(0, 160));
 });
 
-const nowhere = await get('/api/bead-children?workspace=nosuchworkspace&id=bc-goo');
+const nowhere = await get('/api/bead-links?workspace=nosuchworkspace&id=bc-goo');
 check('an unknown workspace is refused rather than 500ing', () => {
   assert.ok(nowhere.status >= 400 && nowhere.status < 500, `got ${nowhere.status}`);
 });
 
 for (const s of servers) s.close();
-fs.rmSync(tmp, { recursive: true, force: true });
+await cleanupTmp(tmp);
 
 console.log(failures ? `\n${failures} failed\n` : '\nall good\n');
 process.exit(failures ? 1 : 0);

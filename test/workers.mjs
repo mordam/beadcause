@@ -24,6 +24,11 @@
  * 5. **A cap that is not the binding one.** `globalMaxWorkers` is a total across every
  *    advocate. A repo stepped to 5 under a global 3 will get 3, and a card that says
  *    only "5" reads as broken. The snapshot has to carry which number is winning.
+ * 6. **The binding cap with no control on it.** That same global number is now a
+ *    stepper of its own at the top of the console, and it can fail in all of the ways
+ *    above one level up — live but not saved, saved but not live, or written into one
+ *    repo's `perWorkspace` entry, which would move a cap that is supposed to belong to
+ *    no repo at all.
  *
  * No iTerm, no `bd`, no daemon: `createAdvocates` is called directly, and the config it
  * writes is read back off disk the way a restart reads it. `npm test`.
@@ -33,6 +38,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { cleanupTmp } from './helpers/tmp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const LIB = (name) => path.join(HERE, '..', 'lib', name);
@@ -45,7 +51,15 @@ fs.mkdirSync(process.env.BEADCAUSE_CONFIG_DIR, { recursive: true });
 const CONFIG = path.join(process.env.BEADCAUSE_CONFIG_DIR, 'config.json');
 const STATE = path.join(process.env.BEADCAUSE_CONFIG_DIR, 'advocates.json');
 
-const { createAdvocates, workerLimit, saveWorkerLimit, MAX_WORKERS_CEILING } = await import(LIB('advocate.js'));
+const {
+  createAdvocates,
+  workerLimit,
+  saveWorkerLimit,
+  saveGlobalWorkerLimit,
+  globalWorkerCap,
+  MAX_WORKERS_CEILING,
+  GLOBAL_WORKERS_CEILING,
+} = await import(LIB('advocate.js'));
 
 /* ------------------------------------------------------------------ fixtures */
 
@@ -254,8 +268,100 @@ await check('an unknown action is still refused, with the number-carrying one in
   assert.equal(card(advocates, 'alpha').limit, 2);
 });
 
+/* ------------------------------------------------- and the cap above all of them */
+
+await check('the global cap changes on the running daemon, and is written down', async () => {
+  const { advocates, events } = harness();
+  assert.equal(advocates.globals().maxWorkers, 3, 'the config said 3');
+  advocates.setGlobalLimit(8);
+  assert.equal(advocates.globals().maxWorkers, 8, 'failure mode 6, the live half');
+  assert.equal(onDisk().advocates.globalMaxWorkers, 8, 'failure mode 6, the saved half');
+  assert.ok(
+    events.some((e) => e.action === 'globalLimit' && /8 session/.test(e.detail)),
+    'and each advocate says in its own transcript why its note just changed'
+  );
+  const { advocates: restarted } = afterRestart();
+  assert.equal(restarted.globals().maxWorkers, 8, 'a kickstart must not put 3 back');
+});
+
+await check('it is the total, not one repo\'s entry', async () => {
+  const { advocates } = harness();
+  advocates.setGlobalLimit(6);
+  const saved = onDisk();
+  assert.equal(saved.advocates.perWorkspace?.alpha, undefined, 'no repo gains an entry it did not ask for');
+  assert.equal(saved.advocates.maxWorkers, 2, 'nor is the per-advocate fallback touched');
+  assert.equal(saved.advocates.maxWorkersLimit, 3, 'nor the per-repo ceiling');
+  assert.equal(card(advocates, 'alpha').limit, 2, 'and no advocate is stepped by it');
+});
+
+await check('every card is told the new cap, and stops being held by the old one', async () => {
+  const { advocates } = harness();
+  await advocates.control('alpha', 'limit', 5);
+  assert.equal(card(advocates, 'alpha').globalHeld, true, '5 under a global 3');
+  advocates.setGlobalLimit(9);
+  assert.equal(card(advocates, 'alpha').globalMax, 9, 'the tooltip quotes this');
+  assert.equal(card(advocates, 'beta').globalMax, 9, 'on every card, not just the one pressed');
+  assert.equal(card(advocates, 'alpha').globalHeld, false, 'and the amber note goes with it');
+});
+
+await check('the note quoting the old cap is dropped from every advocate', async () => {
+  const { advocates } = harness();
+  advocates.setGlobalLimit(5);
+  for (const a of advocates.snapshot()) assert.equal(a.note, '', `${a.workspace} would otherwise contradict it`);
+});
+
+await check('it cannot go past 36, or below 1', async () => {
+  const { advocates } = harness();
+  advocates.setGlobalLimit(500);
+  assert.equal(advocates.globals().maxWorkers, GLOBAL_WORKERS_CEILING);
+  assert.equal(GLOBAL_WORKERS_CEILING, 36, 'the stepper offers this number — it is part of the contract');
+  assert.equal(onDisk().advocates.globalMaxWorkers, 36, 'and 500 is never written');
+  advocates.setGlobalLimit(0);
+  assert.equal(advocates.globals().maxWorkers, 1, 'zero would be every advocate paused, wearing the wrong control');
+  advocates.setGlobalLimit(-4);
+  assert.equal(advocates.globals().maxWorkers, 1);
+});
+
+await check('a global value that is not a number is refused, and changes nothing', () => {
+  const { advocates } = harness();
+  advocates.setGlobalLimit(7);
+  // Same reasoning as the per-repo stepper: `Number(null)` is 0, which clamps to 1, so
+  // a request that forgot its value would read as "one session on this whole Mac".
+  for (const junk of [undefined, null, '', '   ', 'lots', NaN, {}]) {
+    assert.throws(
+      () => advocates.setGlobalLimit(junk),
+      (err) => err.status === 400 && /needs a number/.test(err.message),
+      `${JSON.stringify(junk) ?? String(junk)} is not a cap`
+    );
+    assert.equal(advocates.globals().maxWorkers, 7, 'and the cap it already had stands');
+  }
+  assert.equal(onDisk().advocates.globalMaxWorkers, 7, 'nothing was written either');
+  // A numeric string is what an HTML dataset hands you, and it does have to work.
+  advocates.setGlobalLimit('4');
+  assert.equal(advocates.globals().maxWorkers, 4);
+});
+
+await check('the row is told what is in use, across every advocate', () => {
+  const { advocates } = harness();
+  const g = advocates.globals();
+  assert.equal(g.live, 0, 'nothing is open in this harness');
+  assert.equal(g.ceiling, GLOBAL_WORKERS_CEILING, 'the range travels, so the page need not guess it');
+  assert.equal(g.maxWorkers, 3);
+});
+
+await check('the global helper survives a config with no advocates block at all', () => {
+  const bare = {};
+  saveGlobalWorkerLimit(bare, 12);
+  assert.equal(bare.advocates.globalMaxWorkers, 12);
+  // And the reader that replaced three copies of `?? 10` answers the default rather
+  // than undefined — this is the number the startup line and `npm run configure` print.
+  assert.equal(globalWorkerCap({}), 20, 'the new default, in one place, for every caller');
+  assert.equal(globalWorkerCap({ advocates: { globalMaxWorkers: 99 } }), GLOBAL_WORKERS_CEILING, 'clamped');
+  assert.equal(globalWorkerCap({ advocates: { globalMaxWorkers: 'lots' } }), 20, 'and nonsense falls back');
+});
+
 /* -------------------------------------------------------------------- result */
 
 console.log(`\n${ran - failures}/${ran} passed\n`);
-fs.rmSync(tmp, { recursive: true, force: true });
+await cleanupTmp(tmp);
 process.exit(failures ? 1 : 0);

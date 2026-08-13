@@ -42,9 +42,17 @@
   arrive at the same address. `KINDS` is the table that names them, and it is
   deliberately the only place that knows: bc-l8jp.5 (chat sessions in the inbox) and
   bc-l8jp.6 (pull requests as cards) each add one row to it and get a filter, a chip,
-  a count and a place in the summary line for free. The second of those two has landed
-  — `pr` below — and it cost that one row plus the word `!q.pr` in the predicate it would
-  otherwise have fallen into.
+  a count and a place in the summary line for free. Both of them have landed — `pr` and
+  `session` below — and between them they cost two rows plus two words, `!q.pr` and
+  `!q.session`, in the predicate they would otherwise have fallen into. That is the
+  table paying for itself: two features that each removed a tab, and neither of them
+  had to touch the chips, the counts or the summary line to get a category of its own.
+
+  `jira` is the third to take that deal (bc-0i27.3), and the first that was never a tab:
+  the tickets assigned to you arrive off JIRA rather than off a `bd` sweep, and one row
+  here is the whole of what makes them a section — a chip, a count, a word in the summary
+  line, and the space picker and the P0 board narrowing them exactly as they narrow
+  everything else. Its price was the same one word, `!q.jira`, in the predicate below.
 
   Each kind carries a `side`, because a scope that never fetched a row cannot show a
   chip for it: `human` sweeps questions, `agent` sweeps live beads, `both` does both,
@@ -52,8 +60,9 @@
   nothing. `usable()` is what applies that, and `set()` drops selections the new scope
   cannot produce — otherwise switching to `Agent` with `Merges` selected is an empty
   screen with nothing on it to say why. `any` is the third value and it means what it
-  says: a pull request comes off `gh` rather than off a `bd` sweep, so there is no scope
-  that could have failed to fetch it and none in which its chip would be dead.
+  says: a pull request comes off `gh`, a chat session off no sweep at all, and a JIRA
+  ticket off JIRA, so for none of the three is there a scope that could have failed to
+  fetch it, and none of them has a scope in which its chip would be dead.
 
   ## The one sub-filter
 
@@ -73,7 +82,6 @@
   - **It applies whether or not its parent chip is pressed.** The default above is about
     what the inbox *is*, not about what you last tapped, so it holds under `All kinds`
     too. The panel only stops offering you the choice.
-
 
   ## What this does *not* touch
 
@@ -105,11 +113,15 @@
       side: 'question',
       label: 'Questions',
       note: 'Beads asking you something in words — the app’s original inbox.',
-      // `!q.pr` for the same reason `!q.proposal` is spelled out under Merges: a pull
-      // request is not a bead and answers none of the other tests, so without this it
-      // would land here — the one kind whose predicate is "none of the above" and
-      // therefore the one that silently absorbs anything new.
-      test: (q) => !q.agent && !q.proposal && !q.delivery && !q.pr,
+      // `!q.pr`, `!q.session` and `!q.jira` for the same reason `!q.proposal` is spelled
+      // out under Merges: none of a pull request, a chat session or a JIRA ticket is a
+      // bead, and none of them answers any of the other tests, so without these three
+      // they would land here — the one kind whose predicate is "none of the above" and
+      // therefore the one that silently absorbs anything new. Nothing else in the
+      // codebase would catch a ticket drawn as a question — it looks exactly like an
+      // inbox with more questions in it — so `!q.jira` here is the whole of the guard,
+      // and test/jirarow.mjs reads this line rather than the comment above it.
+      test: (q) => !q.agent && !q.proposal && !q.delivery && !q.pr && !q.session && !q.jira,
     },
     {
       id: 'proposal',
@@ -159,6 +171,33 @@
             .map((s) => ({ id: s.id, label: s.label, note: s.note })),
         of: (q) => q?.pr?.stage || '',
       },
+    },
+    {
+      id: 'session',
+      // The second kind on neither side, and between them the reason `side` has a third
+      // value at all: a chat session is not in the tracker, so no scope fetches it and
+      // no scope can fail to. It is here under `Human` because it is a thing waiting on
+      // you, and under `Agent` because it is not a bead the sweep could have missed —
+      // it is simply always true, which is what `any` says. Next to `pr` because the two
+      // are the same shape of row: something outside `bd` that the inbox nonetheless
+      // holds, and the pair of them are what emptied two tabs off the bar.
+      side: 'any',
+      label: 'Chats',
+      note: 'Conversations you have open about what to file next. Tap one to pick it up.',
+      test: (q) => Boolean(q.session),
+    },
+    {
+      id: 'jira',
+      // The third on neither side, and the clearest case for the value: a JIRA ticket
+      // comes off JIRA, so there is no `bd` scope that could have failed to fetch one
+      // and therefore no scope in which this chip would be dead. Under `Human` because
+      // an assigned ticket is a thing waiting on you; under `Agent` because it is not a
+      // bead the sweep could have missed — it is not a bead at all yet, which is the
+      // whole of what bc-0i27.4 exists to change.
+      side: 'any',
+      label: 'JIRA',
+      note: 'Tickets assigned to you in JIRA, before anything here has made them work.',
+      test: (q) => Boolean(q.jira),
     },
     {
       id: 'claimed',

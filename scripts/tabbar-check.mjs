@@ -35,17 +35,15 @@
 // `--fake-inset` restates the stylesheet's safe-area sums with 34px of home
 // indicator substituted in, for the Chromes that have no `Emulation.setSafeAreaInsets`.
 // `--out=DIR` writes a screenshot per page per scheme.
-import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import http from 'node:http';
-import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { toQuestion } from '../lib/decision.js';
+import { CHROME, launchChrome } from './helpers/chrome.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PUBLIC = path.join(ROOT, 'public');
-const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const VP = { width: 393, height: 852, dpr: 3 };
 const BOTTOM_INSET = 34; // the home indicator on a notched phone
 const outDir = (process.argv.find((a) => a.startsWith('--out=')) || '').slice(6);
@@ -71,6 +69,42 @@ const issue = (n) => ({
   description: `Short brief ${n}.\n\nA paragraph that has to wrap on a phone. `.repeat(3),
 });
 const QUESTIONS = Array.from({ length: 8 }, (_, i) => ({ ...toQuestion('demo', issue(i + 1)), comments: [] }));
+
+/* Two open conversations — one waiting on you, one mid-turn — because since
+   bc-l8jp.5 these are rows in the inbox and the last row of that list is what this
+   file measures against the bar. */
+const CONSOLES = [
+  {
+    id: 'c0ffee01',
+    agent: 'console',
+    workspace: 'demo',
+    space: null,
+    title: 'What the next bead should be',
+    seed: null,
+    status: 'idle',
+    closedAt: null,
+    messageCount: 4,
+    beadCount: 2,
+    created: [],
+    createdAt: '2026-08-09T08:00:00Z',
+    updatedAt: '2026-08-09T08:40:00Z',
+  },
+  {
+    id: 'c0ffee02',
+    agent: 'console',
+    workspace: 'demo',
+    space: null,
+    title: 'Something being thought about',
+    seed: { id: 'd-1', title: 'A question waiting (1)' },
+    status: 'thinking',
+    closedAt: null,
+    messageCount: 2,
+    beadCount: 0,
+    created: [],
+    createdAt: '2026-08-09T09:00:00Z',
+    updatedAt: '2026-08-09T09:10:00Z',
+  },
+];
 
 const WORK = {
   workspaces: [
@@ -194,6 +228,31 @@ const PRS = {
   ],
 };
 
+/* The ledger, deep enough to page. 46 beads over two repos so the History tab has more
+   than one screenful, `more` is true after the first page, and the Load more button that
+   must clear the bar is actually on the screen. Half of them carry a session marker and
+   the closed ones carry a close reason, because those are the two things that make a row
+   taller than a single line — and a fixture of bare one-line rows is how a list that
+   overflows its own card would go unnoticed here. */
+const LEDGER = Array.from({ length: 46 }, (_, i) => {
+  const closed = i % 3 !== 0;
+  return {
+    id: `de-${String(i + 1).padStart(3, '0')}`,
+    workspace: i % 4 === 3 ? 'other' : 'demo',
+    title: `Something that was done about the thing (${i + 1})`,
+    type: ['task', 'bug', 'feature', 'decision'][i % 4],
+    status: closed ? 'closed' : i % 6 === 0 ? 'in_progress' : 'open',
+    priority: i % 5,
+    updated: new Date(Date.UTC(2026, 6, 1) + (46 - i) * 3600e3).toISOString(),
+    created: new Date(Date.UTC(2026, 5, 1)).toISOString(),
+    closeReason: closed ? `Landed as #${i + 1} as ${'ab12cd3'} — still owed: DEPLOYED` : null,
+    hasSession: i % 2 === 0,
+    createdBy: 'someone',
+    provenance: i % 7 === 0 ? 'agent' : 'human',
+    labels: [],
+  };
+});
+
 const TYPES = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
@@ -216,13 +275,19 @@ function serve() {
     if (p === '/api/questions')
       return json({
         questions: QUESTIONS,
-        workspaces: ['demo'],
+        // The conversations, which are rows in this list since Chat stopped being a
+        // tab. One of them is mid-turn, so the row with the spark in it is drawn and
+        // measured like any other card.
+        consoles: CONSOLES,
+        // Two, so ＋ has to ask which repo to start in rather than starting in the
+        // only one there is — the branch of it that has a panel to draw.
+        workspaces: ['demo', 'other'],
         spaces: [],
         scope: 'human',
         summary: { sessions: 2, proposals: 1, questions: QUESTIONS.length },
       });
     if (p === '/api/work') return json(WORK);
-    if (p === '/api/consoles') return json({ consoles: [], workspaces: ['demo', 'other'] });
+    if (p === '/api/consoles') return json({ consoles: CONSOLES, workspaces: ['demo', 'other'] });
     if (p === '/api/admin') return json(ADMIN);
     if (p === '/api/prs') return json(PRS);
     // The advocate console carries the mirror pane, which parks a long-poll here and
@@ -236,15 +301,65 @@ function serve() {
       res.on('close', () => clearTimeout(timer));
       return;
     }
+    // What ＋ calls, answering the way lib/server.js does: the id of the conversation
+    // it just made. The page's next move is the one being checked — it has to land on
+    // that conversation and not on the launcher.
+    if (p === '/api/console' && req.method === 'POST') return json({ ok: true, id: 'newone01' });
+    if (p === '/api/console' && req.method === 'GET') return json({ ...CONSOLES[0], id: 'newone01', messages: [] });
+    // What the space picker in the top bar boots from, on every page below except the
+    // inbox — which is handed the same thing on `/api/questions` above. Stubbed rather
+    // than left to the `{}` fallback because the History tab's request *is* its
+    // selection: with no workspaces the picker resolves to nothing and that page has
+    // nothing to be the ledger of, so it would draw an empty state on a check about
+    // whether its list clears the bar.
+    if (p === '/api/spaces')
+      return json({
+        spaces: [],
+        workspaces: ['demo', 'other'],
+        counts: { demo: 1 },
+        trouble: [],
+        filter: { space: 'all', workspace: 'all' },
+        waiting: 1,
+      });
+    // The ledger, resolved and paged the way lib/history.js does it. All three of the
+    // picker's states are honoured — one repo is `workspace=`, a space is `space=`, and
+    // everything is neither — because the page sends whichever the picker is on, and a
+    // stub that only understood `workspace=` would answer the default selection with an
+    // empty list and quietly turn this into a check of the empty state. `offset` is
+    // honoured for the same reason: the button being measured is the one that asks for
+    // the next page.
+    if (p === '/api/history') {
+      const q = new URL(req.url, 'http://x').searchParams;
+      const ws = q.get('workspace');
+      const space = q.get('space');
+      const rows = LEDGER.filter(
+        (r) => (!ws || r.workspace === ws) && (!space || space === 'all' || r.workspace === 'demo')
+      );
+      const offset = Number(q.get('offset')) || 0;
+      const limit = Number(q.get('limit')) || 40;
+      const page = rows.slice(offset, offset + limit);
+      return json({
+        workspace: ws || '',
+        space: space || 'all',
+        rows: page,
+        total: rows.length,
+        limit,
+        offset,
+        more: offset + page.length < rows.length,
+        errors: [],
+      });
+    }
     if (p.startsWith('/api/')) return json({});
     // The same aliases the real server maps onto one page. `/sessions` and `/work` are
     // the advocate console now — see serveStatic in lib/server.js — and they are here
     // because the bar has to mark Advocates as current on all four of its paths.
     let rel = p;
     if (rel === '/console') rel = '/console.html';
-    if (rel === '/prs' || rel === '/pulls') rel = '/prs.html';
+    // The board is a pane on the advocates page now (bc-d4d5), so these land there.
+    if (rel === '/prs' || rel === '/pulls' || rel === '/prs.html') rel = '/monitor.html';
     if (rel === '/monitor' || rel === '/advocates' || rel === '/sessions' || rel === '/work') rel = '/monitor.html';
     if (rel === '/admin') rel = '/admin.html';
+    if (rel === '/history') rel = '/history.html';
     const file = path.join(PUBLIC, rel === '/' ? 'index.html' : rel.replace(/^\/+/, ''));
     if (!file.startsWith(PUBLIC) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) {
       res.writeHead(404).end('no');
@@ -254,78 +369,6 @@ function serve() {
     fs.createReadStream(file).pipe(res);
   });
   return new Promise((r) => server.listen(0, '127.0.0.1', () => r(server)));
-}
-
-/* ------------------------------------------------------------------ chrome */
-
-function connect(url) {
-  return new Promise((resolve, reject) => {
-    const ws = new WebSocket(url);
-    let id = 0;
-    const pending = new Map();
-    ws.onmessage = (m) => {
-      const msg = JSON.parse(m.data);
-      const pr = msg.id != null && pending.get(msg.id);
-      if (!pr) return;
-      pending.delete(msg.id);
-      msg.error ? pr.reject(new Error(msg.error.message)) : pr.resolve(msg.result);
-    };
-    ws.onerror = () => reject(new Error('could not attach to Chrome'));
-    ws.onopen = () =>
-      resolve({
-        send: (method, params = {}) =>
-          new Promise((res, rej) => {
-            const i = ++id;
-            pending.set(i, { resolve: res, reject: rej });
-            ws.send(JSON.stringify({ id: i, method, params }));
-          }),
-        close: () => ws.close(),
-      });
-  });
-}
-
-async function launch() {
-  const port = 9600 + Math.floor(process.pid % 100);
-  const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'beadcause-tabbar-'));
-  const proc = spawn(
-    CHROME,
-    [
-      '--headless=new',
-      `--remote-debugging-port=${port}`,
-      `--user-data-dir=${profile}`,
-      '--no-first-run',
-      '--no-default-browser-check',
-      '--disable-background-timer-throttling',
-      '--disable-backgrounding-occluded-windows',
-      '--disable-renderer-backgrounding',
-      '--hide-scrollbars',
-      'about:blank',
-    ],
-    { stdio: 'ignore' }
-  );
-  let target = null;
-  for (let i = 0; i < 60 && !target; i++) {
-    await sleep(250);
-    try {
-      target = (await (await fetch(`http://127.0.0.1:${port}/json/list`)).json()).find((t) => t.type === 'page');
-    } catch {
-      /* not up yet */
-    }
-  }
-  if (!target) throw new Error('Chrome never exposed a page target');
-  const s = await connect(target.webSocketDebuggerUrl);
-  return {
-    s,
-    close: () => {
-      s.close();
-      proc.kill();
-      try {
-        fs.rmSync(profile, { recursive: true, force: true, maxRetries: 3 });
-      } catch {
-        /* Chrome is still letting go of a temp dir */
-      }
-    },
-  };
 }
 
 const evalJs = async (s, expr) => {
@@ -388,7 +431,12 @@ const CLEAR = {
     document.scrollingElement.scrollTop = document.scrollingElement.scrollHeight;
     const r = last.getBoundingClientRect();
     const bar = document.querySelector('.tabbar').getBoundingClientRect();
-    return { what: 'last card', bottom: Math.round(r.bottom), barTop: Math.round(bar.top), n: cards.length };
+    // ＋ floats over this list, above the bar, and is the lower edge that matters here:
+    // it is the thing the last card can end up underneath. Whichever is higher is what
+    // the card has to clear, so the same assertion covers both.
+    const plus = document.querySelector('#compose');
+    const top = plus ? Math.min(bar.top, plus.getBoundingClientRect().top) : bar.top;
+    return { what: 'last card', bottom: Math.round(r.bottom), barTop: Math.round(top), n: cards.length };
   })()`,
   '/console': `(() => {
     const c = document.querySelector('#composer');
@@ -415,6 +463,19 @@ const CLEAR = {
   '/monitor': MON_CLEAR,
   // The same page, reached by the path the phone's home screen still holds.
   '/sessions': MON_CLEAR,
+  // The ledger's own foot. Not the last row — the button under it, which is how the
+  // rest of the list is asked for. A bar over that is a record that ends at whatever
+  // the first page happened to hold, and it would look exactly like a repo with sixty
+  // beads in it.
+  '/history': `(() => {
+    const btn = document.querySelector('#hist-more');
+    if (!btn) return { what: 'the load-more button', missing: true };
+    document.scrollingElement.scrollTop = document.scrollingElement.scrollHeight;
+    const r = btn.getBoundingClientRect();
+    const bar = document.querySelector('.tabbar').getBoundingClientRect();
+    return { what: 'the load-more button', bottom: Math.round(r.bottom), barTop: Math.round(bar.top),
+             n: document.querySelectorAll('.hist-row').length };
+  })()`,
   // The kill button is the last thing on the last scope's card, and it is the one
   // control on this page you must never press by accident. A bar sitting over it
   // would put "stop every running session" exactly where a thumb reaches for the
@@ -432,19 +493,48 @@ const CLEAR = {
 
 /* Every standing view, in bar order. The count is asserted from this list rather
    than written out as a number, so adding or dropping a tab is one line here and not
-   a test that fails with "five tabs: <four of them>". */
-const TABS = ['inbox', 'console', 'advocates', 'admin'];
+   a test that fails with "five tabs: <four of them>".
+
+   Two of the five went in one afternoon and neither page went with it. Chat was the
+   second tab (bc-l8jp.5) — the conversations are rows in the inbox now and ＋ starts a
+   new one — and PRs was the fourth (bc-l8jp.6), whose pull requests are cards in the
+   same list. The chat session is still here under `PAGES` with `tab: null`, because a
+   subordinate view keeps the bar: the bar is how you leave it, and nothing on it is
+   current since you are not on one of these four.
+
+   The board is the one that did not stay that way. Losing its tab left it with nothing
+   pointing at it at all, so it is a pane on the advocates page now (bc-d4d5) — which
+   makes /prs one more path to a page that *does* have a tab, and it is in `PAGES` below
+   marked `advocates` rather than null. The bar is still four wide; what changed is which
+   of the four is lit on three more URLs.
+
+   And one came back (bc-nib3.2). This list is in bar order and History is third, which
+   is also the order the three read in: what is arriving, what is running, what is
+   finished. Inbox stays leftmost because it is home and Admin stays rightmost because it
+   is the tab you least want under a stray thumb, so the bar grew in the middle and
+   neither position anybody has learned moved. */
+const TABS = ['inbox', 'advocates', 'history', 'admin'];
 
 const PAGES = [
   { url: '/', tab: 'inbox', name: 'inbox' },
-  { url: '/console', tab: 'console', name: 'console' },
-  // `tab: null` — the board is not a tab any more (bc-l8jp.6): its pull requests are
-  // cards in the inbox, and every one of them links back here for the buttons. It keeps
-  // the bar, because the bar is the only way off it, and it is in this list precisely
-  // because a page with no tab pointing at it is the kind that quietly rots: the bar
-  // still has to be there, still has to clear the last row of buttons, and must light
-  // nothing.
-  { url: '/prs', tab: null, name: 'prs' },
+  // No tab of its own any more, and that is the thing being checked here: the bar is
+  // still on it (this is how you get back), every tab is a link, and none of them claims
+  // to be where you are. A tab lighting up on a page it does not lead to would be the bar
+  // lying about where you are — worse than no mark at all.
+  { url: '/console', tab: null, name: 'console' },
+  // And this one lights Advocates, which is the whole of bc-d4d5 in one field. It was
+  // `tab: null` — no tab of its own since bc-l8jp.6, on the argument that the board is
+  // somewhere you glance rather than live — and "no tab" turned out to mean "no route in
+  // at all" on a day with no pull request card in the inbox. So the board is a pane on
+  // the advocates page, and /prs is that page: still four tabs, and the one that is
+  // current has to be the page you are actually on. A `tab: null` here now would be the
+  // bar failing to mark a page it plainly leads to.
+  { url: '/prs', tab: 'advocates', name: 'prs' },
+  // The ledger. The one page here whose list is deliberately long — it pages as you
+  // reach the end of it — so "the last row clears the bar" is a different claim than it
+  // is on the four above: what must clear the bar is the control that loads the *next*
+  // page, because a Load more sitting under the tab bar is a list that silently stops.
+  { url: '/history', tab: 'history', name: 'history' },
   { url: '/monitor', tab: 'advocates', name: 'advocates' },
   // The same page under the path the sessions view left behind. The tab it lights has
   // to be Advocates: a shortcut that lands somewhere the bar calls nothing is a page
@@ -464,7 +554,7 @@ const ok = (pass, msg) => {
 
 const server = await serve();
 const BASE = `http://127.0.0.1:${server.address().port}`;
-const chrome = await launch();
+const chrome = await launchChrome('beadcause-tabbar-');
 const { s } = chrome;
 
 try {
@@ -497,7 +587,10 @@ try {
           .has-tabbar { padding-bottom: calc(${BOTTOM_INSET}px + var(--tabbar-h) + 16px); }
           .console-body.has-tabbar { padding-bottom: 0; }
           .has-tabbar .toast { bottom: calc(${BOTTOM_INSET}px + var(--tabbar-h) + 18px); }
-          .console-body.has-tabbar .toast { bottom: calc(${BOTTOM_INSET}px + var(--tabbar-h) + 84px); }\`;
+          .console-body.has-tabbar .toast { bottom: calc(${BOTTOM_INSET}px + var(--tabbar-h) + 84px); }
+          .compose-wrap { bottom: calc(${BOTTOM_INSET}px + var(--tabbar-h) + 14px); }
+          .has-compose.has-tabbar { padding-bottom: calc(${BOTTOM_INSET}px + var(--tabbar-h) + 76px); }
+          .has-compose.has-tabbar .toast { bottom: calc(${BOTTOM_INSET}px + var(--tabbar-h) + 78px); }\`;
         document.head.append(st);
       });`,
     });
@@ -529,10 +622,11 @@ try {
       if (insets) ok(p.inner === BOTTOM_INSET, `clears the home indicator — ${p.inner}px of safe-area padding`);
       const cur = p.items.filter((i) => i.current);
       if (page.tab === null) {
-        // A page the bar deliberately marks nothing on: the pull request board, which
-        // stopped being a tab in bc-l8jp.6 and is still the only place a merge can be
-        // shipped from. The bar has to be *there* — it is the way off the page — and it
-        // must not light a tab this is not, which is what a stale `paths` entry would do.
+        // A page the bar deliberately marks nothing on — the chat session (bc-l8jp.5) and
+        // the pull request board (bc-l8jp.6), both of them still the only place their own
+        // work can be done from. The bar has to be *there*, because it is the way off the
+        // page, and it must not light a tab this is not, which is what a stale `paths`
+        // entry would do.
         ok(cur.length === 0, `no tab is current, and that is right here (${cur.map((i) => i.tab).join(',') || 'none'})`);
       } else {
         ok(cur.length === 1, `exactly one tab is current (${cur.length})`);
@@ -566,7 +660,7 @@ try {
               return { text: el.hidden ? null : el.textContent, label: item.getAttribute('aria-label'),
                        inside: r.left >= box.left && r.right <= box.right };
             };
-            return { sessions: of('sessions'), advocates: of('advocates'), inbox: of('inbox'), console: of('console') };
+            return { sessions: of('sessions'), advocates: of('advocates'), inbox: of('inbox'), prs: of('prs'), console: of('console') };
           })()`
         );
         ok(b.advocates.text === '1', `the count is on its tab — ${b.advocates.text}`);
@@ -576,7 +670,35 @@ try {
         );
         ok(b.advocates.inside, 'a badge stays inside its own tab');
         ok(b.sessions === null, 'there is no Sessions tab left to badge');
-        ok(b.inbox.text === null && b.console.text === null, 'a tab with nothing behind it has no badge');
+        ok(b.console === null, 'there is no Chat tab left either — ＋ replaced it');
+        ok(b.prs === null, 'nor a PRs tab — its pull requests are cards in this list');
+        ok(b.inbox.text === null, 'a tab with nothing behind it has no badge');
+      }
+
+      // ＋ — what the Chat tab became. It is the primary action of the app and it
+      // floats, so the two ways it can be wrong are being missing and being under
+      // something: both are asked here rather than assumed from the CSS.
+      if (page.url === '/') {
+        const plus = await evalJs(
+          s,
+          `(() => {
+            const el = document.querySelector('#compose');
+            if (!el) return { there: false };
+            const r = el.getBoundingClientRect();
+            const bar = document.querySelector('.tabbar').getBoundingClientRect();
+            const at = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+            return { there: true, w: Math.round(r.width), h: Math.round(r.height),
+                     aboveBar: r.bottom <= bar.top + 1, takesTaps: !!at && !!at.closest('#compose'),
+                     label: el.getAttribute('aria-label') || '' };
+          })()`
+        );
+        ok(plus.there, '＋ is on the inbox');
+        if (plus.there) {
+          ok(plus.w >= 44 && plus.h >= 44, `＋ is a real tap target — ${plus.w}x${plus.h}`);
+          ok(plus.aboveBar, '＋ sits above the tab bar rather than over it');
+          ok(plus.takesTaps, '＋ takes its own taps');
+          ok(/chat|bead/i.test(plus.label), `＋ says what it does: "${plus.label}"`);
+        }
       }
 
       const c = await evalJs(s, CLEAR[page.url]);
@@ -626,6 +748,32 @@ try {
         const shot = await s.send('Page.captureScreenshot', { format: 'png' });
         fs.writeFileSync(path.join(outDir, `${page.name}-${scheme}.png`), Buffer.from(shot.data, 'base64'));
       }
+
+      // What ＋ *does*, driven rather than read: the Chat tab's whole job was getting
+      // you into a conversation, and a button that looks right and goes nowhere would
+      // pass every check above. Last on this page because it navigates away, and the
+      // next page navigates anyway.
+      if (page.url === '/') {
+        await evalJs(s, `document.querySelector('#compose').click()`);
+        await sleep(250);
+        const asked = await evalJs(
+          s,
+          `(() => {
+            const el = document.querySelector('#compose-pick');
+            const r = el.getBoundingClientRect();
+            return { open: !el.hidden, chips: [...el.querySelectorAll('[data-ws]')].map((c) => c.dataset.ws),
+                     onScreen: r.left >= 0 && r.right <= innerWidth && r.top >= 0 };
+          })()`
+        );
+        ok(asked.open, 'more than one repo in scope, so ＋ asks which rather than guessing');
+        ok(asked.chips.join(',') === 'demo,other', `a chip per repo in the space — ${asked.chips.join(', ')}`);
+        ok(asked.onScreen, 'the panel it opens is fully on screen');
+        await evalJs(s, `document.querySelector('#compose-pick [data-ws="other"]').click()`);
+        await sleep(1200);
+        const landed = await evalJs(s, `location.pathname + location.search`);
+        ok(landed === '/console?id=newone01', `and picking one lands on the conversation — ${landed}`);
+      }
+
       console.log('');
     }
   }
