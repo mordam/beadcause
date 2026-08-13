@@ -3534,39 +3534,50 @@
   }
 
   /**
-   * Hand the picker the numbers this page has just fetched.
+   * Hand the picker the shape of what this page has just fetched.
    *
-   * The inbox is the one page that sweeps the tracker, so its counts are fresher than
-   * /api/spaces can be — and they are counted over the *scope* on screen, which is what
-   * makes the picker agree with the list under it when you are looking at `Both`. The
-   * filter is handed over too, because this payload is also how a change made on the
-   * laptop reaches the phone.
+   * The spaces, the configured repos and the stored filter — the last of them because
+   * this payload is also how a change made on the laptop reaches the phone.
+   *
+   * **The counts are not here**, and used to be: they were counted off the payload, and
+   * the payload is not what is on screen. A kind-filter tap changes the list without
+   * fetching anything, pull requests arrive on a clock of their own, and a render can be
+   * deferred behind a half-written answer — so counting here put a number on the bar that
+   * the list under it had not agreed with since the last poll. `publishCounts` counts
+   * what render() actually drew, which is the only figure that cannot drift from it.
    */
   function publishSpaces(data) {
-    const counts = {};
-    // Over the kind filter as well as the scope, for the same reason: a picker saying
-    // 5 above a list showing 1 is the two halves of one screen disagreeing about the
-    // same beads.
-    // …and over the P0 board, third of the three for the same reason: every filter
-    // between the sweep and the screen has to be applied here or the picker is counting
-    // a list nobody is looking at.
-    for (const q of underOwnedP0s(state.questions)) {
-      if (!inKind(q)) continue;
-      counts[q.workspace] = (counts[q.workspace] || 0) + 1;
-    }
     window.beadcause?.space?.adopt({
       spaces: state.spaces,
       // Configured workspaces, not the ones with something in them: the picker is how
       // you reach a quiet repo.
       workspaces: Array.isArray(data.workspaces) ? data.workspaces : undefined,
-      counts,
       // So the picker's own numbers carry the same caveat the pane above the list
       // does. `state.trouble` rather than `data.trouble`: this is called with a
       // reconciled filter and one payload behind it, and the two must not be able to
-      // disagree about which repos answered.
+      // disagree about which repos answered. The numbers themselves are not here: the
+      // render that drew the list is what sends those, at the end of render().
       trouble: state.trouble,
       filter: data.filter,
     });
+  }
+
+  /**
+   * Tell the picker what the list is showing, per repo.
+   *
+   * Called from render() with the rows that survived everything except the picker itself
+   * — the scope, the kind filter, the pull requests as rows in the list — because the
+   * picker's own narrowing is what these numbers exist to let you undo: `beadcause · 3`
+   * is a promise that picking it leaves you three things, so it has to be counted before
+   * that pick is applied and after everything else is.
+   *
+   * Which makes the invariant structural rather than remembered: the bar cannot count a
+   * bead the list will not show you, in any scope, under any filter, warm boot included.
+   */
+  function publishCounts(rows) {
+    const counts = {};
+    for (const q of rows) counts[q.workspace] = (counts[q.workspace] || 0) + 1;
+    window.beadcause?.space?.adopt({ counts });
   }
 
   let pendingRender = false;
@@ -4165,6 +4176,16 @@
     // conversation you left open, or a JIRA ticket nobody has decided about yet is one
     // of those.
     publishView(visible.filter((q) => !q.pr && !q.session && !q.jira));
+    // Last, and deliberately: the picker's numbers are a statement about the list that
+    // has just been drawn, and adopting them can announce a filter to this same listener
+    // on the very first paint of a cold page. Nothing below it to leave half-done.
+    //
+    // Every filter between the sweep and the screen is applied here except the picker's
+    // own — `underOwnedP0s` because the list below an owned board is its descendants and
+    // nothing else, `inKind` because the chips above the list are a filter too. The
+    // space and repo narrowing is deliberately *not*: these are per-workspace counts for
+    // every workspace, which is what the dropdown draws a row of.
+    publishCounts(underOwnedP0s(rows).filter(inKind));
   }
 
   /**
