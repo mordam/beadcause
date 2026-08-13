@@ -9131,6 +9131,143 @@ shows up.
 Your own writes get progress too: submitting shows "Recording your answer…" while
 `bd` retries through the Dolt lock, instead of a dimmed card and no explanation.
 
+## Timing every request — which routes are actually slow
+
+Nothing here used to measure a request. "The app feels slow, some screens worse than
+others" was the whole of what could be said about it — which is not a target, and not
+something a cache can be judged against either: a caching change with no before-figure is
+indistinguishable from a placebo, and so is one that made a screen faster by making the
+screen beside it slower.
+
+Every request is timed now, always, and three numbers come off each one because with any
+of them missing you cannot tell what to do next:
+
+- **How long it took.** The budget is a page load under a second, and a page load is a
+  dozen of these, so a per-route figure is the unit a budget gets spent against.
+- **How much of that was a child process.** Nearly everything slow here is a `bd` sweep
+  or a `gh pr list` rather than our own code — `bd list --all` over five hundred beads
+  answers in about a second idle and took **28 seconds** under a load average of 33, which
+  is what a Tuesday looks like on this laptop. A route that is 95% `bd` is a caching
+  problem; a route that is 95% ours is a different bug entirely, and from a stopwatch the
+  two are identical. **Two numbers, not one**: these routes fan out — one `/api/questions`
+  is nine `bd` processes at once, one per workspace — so the *sum* of the children runs
+  past the request's own clock and `total − sum` goes negative. It did, on the first real
+  run: a 10.3-second `/api/questions` reporting 16.7 seconds of `bd`. So the sum is kept
+  as *what the request cost the machine* and the **union of the intervals** — the wall time
+  with at least one child running — is what "the subprocess share" means. Their ratio is
+  the fan-out, and it is why the ninth workspace is nearly free while the first is not.
+- **Whether it was warm or cold.** The five hand-rolled route caches mean the *same*
+  route has two completely different costs, and averaging them produces a number that has
+  never once happened: the mean of a 30ms cache hit and a 3-second sweep.
+
+**Warm and cold are derived rather than declared.** A request that spawned no child was
+answered out of memory; one that spawned something paid for it. That needs no edit at any
+cache's call site, and it is honest about the case that matters — a miss is a miss whether
+the code around it thinks of itself as cached or not. A route that knows better can say so
+(the stale-while-revalidate layer answers from memory *and* refreshes behind it, and filed
+as cold it would make the fastest kind of request there is look like the slowest).
+
+**Nothing had to be threaded through for the subprocess half**, which is why it is an
+`AsyncLocalStorage` and not a parameter. `bd` is called from a few hundred places and they
+all go through `Bd.run`; `gh` goes through lib/pr.js and `git` through lib/gitref.js. Each
+of those three asks "which request am I inside?" without any of its callers knowing the
+question exists. A child spawned with no request in scope — the poll cycle, an advocate
+tick, the sync timer — is charged to `background` instead, which is worth having on its
+own: it is not on anybody's request path and it is not free either, because embedded Dolt
+is single-writer and it is what a phone's read queues behind.
+
+### Where you read it
+
+Three surfaces, and they answer different questions.
+
+| | for | |
+|---|---|---|
+| `Server-Timing` on every response | one request, in isolation | `curl -sD- …` prints `total;dur=10264.0, bd;dur=16701.4, children;dur=10243.4, cache;desc=cold` — the per-binary sums, then the union under `children`, which is the one that can be subtracted from `total`. Browser devtools draws it in the waterfall |
+| a line in the log | the slow one you did not go looking for | `[beadcause] slow GET /api/questions 10264ms cold — 10243ms of it waiting on 9 child process(es) (bd 16701ms of work), ours 21ms`, at `slowRequestMs` (default 1000, the budget itself) |
+| `GET /api/timings` | every route, warm and cold, since the daemon started | what `npm run timings` prints as a table, and the only one of the three the **phone** can be measured through — a phone cannot show you a response header |
+
+```
+$ npm run timings
+
+beadcause request timings — 412 requests over 26m  ·  budget 1000ms  ·  slow log at 1000
+
+                                            —— cold ——                  —— warm ——
+route                        n     p50     p95     max  sub%     ×      n     p50     p95
+GET /api/prs                 3   26.8s   37.5s   37.5s  1.00  13.0×    41    12ms    22ms
+GET /api/questions          14   875ms    2.7s    4.5s  0.99   9.1×   126     9ms    18ms
+
+over budget — cold p95 past 1000ms:
+  GET /api/prs
+  GET /api/questions
+```
+
+That last block is the point of the whole thing: **the routes that miss the budget are
+named**, rather than left to be read off a table. `--json` gives the snapshot as it comes
+off the route, `--top N` the worst few, and `--parked` includes the long-polls.
+
+### What it found the first time it ran
+
+Dated, because it is a measurement and not a claim about how the app behaves today —
+2026-08-12, nine workspaces, load average 17/32/47 on a 12-core Mac, which is twenty agent
+sessions and a test run, i.e. an ordinary afternoon here. Every `/api` route driven cold
+and then again a second time.
+
+| | cold | children | child work |
+|---|---|---|---|
+| `GET /api/prs` | **74s** | 83 | 665s |
+| `GET /api/unendorsed` | **48s** | 49 | 167s |
+| `GET /api/graph` | **21s** | 2 | 21s |
+| `GET /api/work` | **7.0s** | 27 | 55s |
+| `GET /api/questions` | **4.5s** | 15 | 22s |
+| `GET /api/foundation` | **2.2s** | 9 | 9.9s |
+| `GET /api/bead`, `/api/bead-children` | **1.1–1.9s** | 1–2 | ~1s |
+| every route that spawns nothing | **0–1ms** | 0 | — |
+
+Three things fall out of that, and none of them was knowable before:
+
+- **The split is total.** A route that touches `bd` misses the budget by an order of
+  magnitude; a route that does not is free. There is no middle group, and "ours" is
+  single-digit **milliseconds** on every row — so there is no handler here worth optimising
+  and nothing to be gained anywhere except in not spawning.
+- **The second pass was not warm.** Not one `bd`-touching route came back warm, which is
+  what the empty warm column means: the hand-rolled caches either do not cover these routes
+  or expire faster than the sweep they cache takes to run. The PR board's 25-second cache
+  cannot ever be warm when its own sweep costs 27–75 seconds.
+- **The fan-out is doing a lot of work already.** `/api/prs` spent 665 seconds of child
+  time inside a 74-second request — 13 processes deep on average. Sweeping *less*, not
+  sweeping *wider*, is the only direction left.
+
+### The long-polls are counted apart, and the reason is not tidiness
+
+`/api/poll` parks for twenty-five seconds **on purpose**, and answering it sooner would be
+the bug. Left in the same bucket as a page load it does not merely look bad, it destroys
+every aggregate it touches: one parked poll outweighs a hundred real requests, and a p95
+computed over both is a number about nothing. So the two poll routes are flagged `parked`,
+kept out of the slow log and out of the over-budget list, and still measured — the
+subprocess share of a poll that *did* return is a real fact about what the stream costs
+the tracker.
+
+### What it costs, and what it does not keep
+
+Per request: two `hrtime` reads, one object. Per route: two fixed-size buckets and a ring
+of the last forty durations, so the map cannot grow with traffic — and it cannot grow with
+*paths* either, because past four hundred distinct routes the rest fold into one `other`
+key and the snapshot says how many did, rather than looking complete.
+
+It is in memory and **deliberately not persisted**. The figures are a claim about the build
+that is running, and a deploy restarts the daemon anyway; a table that outlived the code it
+measured would be worse than no table. Turning the slow log off (`slowRequestMs: 0`) turns
+off *the log* and nothing else: instrumentation you have to switch on is instrumentation
+that was off for every complaint nobody anticipated.
+
+`test/timing.mjs` covers it, and two of its checks are the ones that matter. A
+`bd`-sweeping route and a cheap one are fired **at the same time**, and the cheap one has
+to come back warm having been charged nothing — `enterWith` on the wrong async resource
+would leave every figure in the table plausible and untrue. And a real static file is
+fetched, because a static file is handed to the socket as a read stream and never returns
+through the dispatch at all: a `try`/`finally` around the handler would have missed every
+page load in the app.
+
 ## The monitor — what it is doing right now
 
 The daemon works invisibly: polling five workspaces, deciding whether a space is
@@ -10498,6 +10635,7 @@ cookie says so), and `/auth/signout` ends the session.
 | POST | `/api/terminal/close` | `{id}` | ends it (SIGTERM, then SIGKILL after 5s) |
 | WS | `/ws/terminal` | `?id=`, subprotocols `beadcause.term.v1` + `tok.<token>` | binary frames both ways are pty bytes; JSON carries `hello` · `ready` · `exit` in, `input` · `resize` · `close` out |
 | GET | `/terminal` | `?id=` or `?ws=&seed=` | the terminal page |
+| GET | `/api/timings` | — | `{since, uptimeMs, budgetMs, slowMs, requests, routes[], overBudget[], background, overflow}` — what every route has cost, worst first, **warm and cold counted apart** and the `bd`/`gh`/`git` share broken out of each. `overBudget` names the routes whose cold p95 misses `budgetMs`, which is the question the whole thing exists to answer; `background` is the subprocess time the daemon spent on nobody's request. The long-polls carry `parked: true` and are in neither list. Read as a table by `npm run timings`, and cheap enough to poll — two fixed-size buckets per route, in memory, nothing persisted. See [timing every request](#timing-every-request--which-routes-are-actually-slow) |
 | GET | `/api/admin` | — | every scope and what pausing it would cost. Read-only and cheap — no `bd` call, no spawn — because `/admin` polls it and the counts on the buttons have to be current when you press one |
 | POST | `/api/admin` | `{action, what, scope, mode}` | pause or resume everything, one space, or one half of it. `what` is `all` · `advocates` · `terminals`; `mode` is `drain` (default — no new launches, running workers finish untouched) or `kill`. Never run at boot: a `launchctl kickstart -k` behaves exactly as it did. Refused on an observer |
 | GET | `/api/tls` | `?pairing=1` | what HTTPS is doing: the setting, the certificate on disk (name, days left), what the socket is actually serving (`serving`: name, days left, and `checkedAt` — when the renewal loop last looked, `null` from anything too old to say), the URL a phone would be handed, and whether a restart is owed. Cheap enough to poll — two file reads and a memoised MagicDNS name, and it never asks `tailscale cert` for anything. `?pairing=1` adds the link and a QR |
@@ -10981,6 +11119,7 @@ Two consequences of that ordering worth knowing:
 | `jira` | JIRA per workspace, keyed by workspace name — `{"climative": {"enabled": true, "email": "you@company.com"}}`. Empty by default, and a workspace not named here costs nothing: no call is made about it at all. The site URL and the project keys come from that workspace's own `bd config get jira.url` / `jira.projects`, so `enabled` and `email` are usually the whole setting; `url` / `projects` here override for a workspace whose `bd` was never pointed at JIRA. **There is deliberately no token field** — see [JIRA, per workspace](#jira-per-workspace--read-only-and-one-setting) |
 | `jira.<workspace>.tokenFile` | where that workspace's API token is read from, if not `~/.config/beadcause/jira-<workspace>.key`. A relative name resolves inside that directory. The same option `confluence.apiTokenFile` is, and it opens the same hole: point it at a name that directory does *not* refuse and the log says so on every check |
 | `pollSeconds` | how often new `human` beads are looked for (default 30) |
+| `slowRequestMs` | a request past this is named in the log with where its time went (default `1000` — the page-load budget itself, so a line means "this missed the budget" rather than "this was slower than its neighbours"). `0` turns **the log** off and nothing else: the per-route figures behind `/api/timings` are always collected. See [timing every request](#timing-every-request--which-routes-are-actually-slow) |
 | `sync.enabled` | keep a shared tracker shared — `bd dolt pull` then `bd dolt push`, per workspace, on a timer (default `true`). It is on for everybody and it does nothing at all on a workspace with no Dolt remote, which is every workspace until you add one. See [A tracker two Macs share](#a-tracker-two-macs-share) |
 | `sync.seconds` | how often (default 120, floor 30). **Not a performance knob** — it is the width of the window in which two machines can act on stale information, which is why it is a setting and not a constant. There is deliberately no list of *which* workspaces sync: a Dolt remote is that list |
 | `monitor.enabled` | generate the LaunchAgent that opens the [activity monitor](#the-monitor--what-it-is-doing-right-now) at login (default `false`; `npm run monitor` works either way) |
