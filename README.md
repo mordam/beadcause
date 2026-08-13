@@ -11838,7 +11838,10 @@ colleague, and an epic gets filed from every row this returns. It costs one extr
 once per site, and the answer is remembered.
 
 **What a held ticket is:** key, summary, status, updated, url, assignee, and the
-workspace it came from. Deliberately enough to draw a row without a second call, and
+workspace it came from — carried to the inbox as `tickets`, each row stamped with the
+space its workspace belongs to (the inbox filters on that before it looks at anything
+else, and it is how a quiet space's tickets are as quiet as its questions). Deliberately
+enough to draw a row without a second call, and
 deliberately no description body — the ticket view fetches that when it is opened, which
 is the one place it is read and the only place its size is worth paying for. The `url`
 is `/browse/<key>`, not the REST URL the payload carries, which is a link that lands a
