@@ -119,7 +119,15 @@ function lift(src, opener) {
   throw new Error(`no statement end after ${opener}`);
 }
 
-/** The row renderer, run for real, with the helpers it borrows from around it. */
+/**
+ * The row renderer, run for real, with the helpers it borrows from around it.
+ *
+ * Both halves under the row come along because the row *calls* them — what they draw is
+ * test/jiraingest.mjs's and test/jiragate.mjs's business, and what is needed here is
+ * only that lifting the row still produces a row. The three pieces of page state
+ * `jiraActsHtml` reads are given their empty values: nothing armed, nothing in flight,
+ * nothing said.
+ */
 function renderRow(row) {
   const context = vm.createContext({ Date, String, Math, JSON, Number, encodeURIComponent });
   vm.runInContext(
@@ -131,10 +139,14 @@ function renderRow(row) {
       // test/jiraingest.mjs owns what it says; it is lifted here because without it the
       // row does not render at all, and this suite is about the row.
       lift(APP, 'function jiraIngestHtml(row)'),
+      // And the third since bc-0i27.7 — approve, discuss, cancel. Same reason again:
+      // test/jiragate.mjs owns what it draws.
+      lift(APP, 'const jiraCancelLabel = ('),
+      lift(APP, 'function jiraActsHtml(row)'),
       lift(APP, 'function jiraRowHtml(row)'),
       'globalThis.out = jiraRowHtml(ROW);',
     ].join('\n'),
-    Object.assign(context, { ROW: row })
+    Object.assign(context, { ROW: row, state: { armed: null }, jiraSaid: new Map(), jiraBusy: new Set() })
   );
   return context.out;
 }

@@ -631,8 +631,16 @@ console.log('\nthe wiring, which is the half no unit test reaches');
   const join = server.slice(server.indexOf('const pending = []'), server.indexOf('jiraIngest?.sweep'));
   check(
     'it is handed every ticket whose epic is known, not only this tick’s',
-    join.length > 0 && /out\.results/.test(join) && /knownFor\(/.test(join) && !/epics\.filed/.test(join),
+    // `live` is `liveResults(out.results)` — the poller's own answer with the tickets you
+    // cancelled taken out of it (bc-0i27.7), which the epic filer one line above is given
+    // too. What this is guarding against is the join being made from `epics.filed`.
+    join.length > 0 && /for \(const r of live \|\| \[\]\)/.test(join) && /knownFor\(/.test(join) && !/epics\.filed/.test(join),
     'the pending list is built from something other than the poller’s own results'
+  );
+  check(
+    'and `live` really is that answer, filtered rather than replaced',
+    /const live = liveResults\(out\.results\)/.test(server),
+    'a cancelled ticket would still be read by an agent and given children under a closed epic'
   );
   check(
     'the state reaches the row through the poll payload',

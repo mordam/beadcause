@@ -3099,6 +3099,15 @@
       btn.textContent = propBulkLabel(btn.dataset.key, beads, btn.dataset.pick);
       btn.classList.toggle('confirm', state.armed === `${btn.dataset.key}|prop-${btn.dataset.pick}`);
     }
+    // And a JIRA ticket's Cancel, for the reason in the note above rather than because
+    // it arms here — its own tap goes through render(). What this catches is the other
+    // direction: arming something *else* steals the arm, and a cancel left reading "Tap
+    // again" over a tap that would now only arm it is the same lie.
+    for (const btn of listEl.querySelectorAll('.jira-cancel')) {
+      const armed = state.armed === `${btn.dataset.key}|jira-cancel`;
+      btn.classList.toggle('confirm', armed);
+      btn.textContent = jiraCancelLabel(armed);
+    }
   }
 
   /**
@@ -3248,12 +3257,35 @@
    * twice under one key, and a reconcile keyed on that would draw one of them.
    */
   const jiraRows = () =>
-    (state.tickets || []).map((t) => ({
-      jira: t,
-      key: `jira:${t.workspace || ''}/${t.key}`,
-      workspace: t.workspace,
-      space: t.space || null,
-    }));
+    (state.tickets || [])
+      // Minus anything cancelled from this device and still on the wire — the same
+      // guard `dismissedChats` puts on the conversations, for the same reason: the poll
+      // that was in flight when you tapped was assembled before the write landed, and
+      // adopting it would slide the row back under the thumb that removed it.
+      .filter((t) => !cancelledTickets.has(`jira:${t.workspace || ''}/${t.key}`))
+      .map((t) => ({
+        jira: t,
+        key: `jira:${t.workspace || ''}/${t.key}`,
+        workspace: t.workspace,
+        space: t.space || null,
+      }));
+
+  /** Tickets cancelled here that the server has not yet been seen to agree are gone. */
+  const cancelledTickets = new Set();
+
+  /**
+   * What happened to a ticket row, pinned under its buttons: row key → `{ text, bad }`.
+   *
+   * Pinned rather than toasted, unlike the ✕ on a chat row, and the difference is what
+   * the two calls do: dismissing a conversation moves nothing, where approving a ticket
+   * makes an epic and everything under it workable by an unattended agent. "Did that go
+   * through?" must not be a question you answer by opening a laptop — the same rule the
+   * endorsement queue is written to, since it is the same decision.
+   */
+  const jiraSaid = new Map();
+
+  /** Ticket rows with a request in flight. Their buttons are dead for the round trip. */
+  const jiraBusy = new Set();
 
   /**
    * What a ticket row says while you are scrolling past it.
@@ -3269,11 +3301,12 @@
    * borrow it from each other — a fourth shape of row is a fourth thing to recognise in
    * a list you scan — and the `.card` around it is what makes it one item in a stack.
    *
-   * **The link goes to JIRA, and that is the interim.** bc-0i27.6 replaces it with the
-   * ticket view opened over the tab, which is where the decision actually gets made;
-   * until then a row you cannot do anything with would be a row that is only a
-   * notification. `openLinksInNewTab` does not reach it (it sweeps `.md`, `.links` and
-   * `.docs` only), so the attributes are written here.
+   * **The link goes to JIRA, and that is still the interim.** bc-0i27.6 replaces it with
+   * the ticket view opened over the tab, which is where the ticket itself gets read; the
+   * *decision* is no longer waiting on that, because `jiraActsHtml` below puts approve,
+   * discuss and cancel on the row under it (bc-0i27.7). `openLinksInNewTab` does not
+   * reach the anchor (it sweeps `.md`, `.links` and `.docs` only), so the attributes are
+   * written here.
    */
   function jiraRowHtml(row) {
     const t = row.jira;
@@ -3294,8 +3327,76 @@
         <time>${esc(relTime(t.updated))}</time>
       </a>
       ${jiraIngestHtml(row)}
+      ${jiraActsHtml(row)}
     </div>`;
   }
+
+  /**
+   * The three things you can say about a ticket, on the row itself (bc-0i27.7).
+   *
+   * **Approve, discuss, cancel — and two of the three are not new.** The epic behind a
+   * ticket arrives `unendorsed` and nothing may open a session on it (lib/endorse.js);
+   * approve is the endorsement queue's own verdict aimed at the whole ticket, epic and
+   * children together, and discuss is the thread that page already draws. Building a
+   * second approval surface beside those is the failure this row is written to avoid,
+   * so Discuss is a *link* into the queue with this bead's discussion open rather than
+   * a conversation squeezed onto an inbox row — a thread has a poll timer, an agent
+   * picker and bubbles, and none of that belongs in a list you scroll past.
+   *
+   * **What the row draws depends on what the server knows about the bead**, and all
+   * three states are real rather than defensive:
+   *
+   *  - **no bead yet** — the epic is filed within a minute of the ticket arriving, and
+   *    a phone that opened during that minute must not offer a button that 409s. It
+   *    says the bead is on its way; the ticket itself is readable either way.
+   *  - **held** — the ordinary case. Approve and Discuss.
+   *  - **endorsed already** — approve is spent, and the row says which bead it became
+   *    rather than offering a second tap on work that is already being done.
+   *
+   * Cancel is offered in all three, including after an approve: "stop showing me this
+   * ticket" stays meaningful once the work has started, and the server leaves an
+   * endorsed epic completely alone precisely so that it can be (lib/jiragate.js).
+   *
+   * **Cancel arms first.** It closes a bead and writes the one record in this app with
+   * no expiry on it, and a decision a stray thumb can take is not one a sweep should
+   * honour forever. Two taps with the consequence in the label between them, exactly as
+   * the dismissal below and the board's Merge.
+   */
+  function jiraActsHtml(row) {
+    const t = row.jira;
+    const said = jiraSaid.get(row.key);
+    const busy = jiraBusy.has(row.key);
+    const armed = state.armed === `${row.key}|jira-cancel`;
+    const at = `data-key="${esc(row.key)}" data-ws="${esc(row.workspace || '')}" data-tkt="${esc(t.key || '')}"`;
+    const acts = [];
+    if (!t.bead) {
+      acts.push('<span class="jira-wait">its bead is still being filed…</span>');
+    } else if (t.held === false) {
+      // The id only when the line above is not already carrying it: `jiraIngestHtml`
+      // draws the epic as a link the moment ingestion has finished, and the same bead id
+      // twice on one card reads as two beads.
+      const named = t.ingest?.epic ? '' : ` as <span class="pill id">${esc(t.bead)}</span>`;
+      acts.push(`<span class="jira-wait">✓ approved${named}</span>`);
+    } else {
+      acts.push(`<button class="secondary" data-act="jira-approve" ${at} ${busy ? 'disabled' : ''}>Approve</button>`);
+      acts.push(
+        `<a class="secondary" href="/endorse?bead=${encodeURIComponent(
+          `${row.workspace}/${t.bead}`
+        )}&amp;talk=1">Discuss</a>`
+      );
+    }
+    acts.push(
+      `<button class="linkish danger jira-cancel${armed ? ' confirm' : ''}" data-act="jira-cancel" ${at} ${
+        busy ? 'disabled' : ''
+      }>${esc(jiraCancelLabel(armed))}</button>`
+    );
+    return `<div class="jira-acts">${acts.join('')}${
+      said ? `<p class="jira-said${said.bad ? ' bad' : ''}">${esc(said.text)}</p>` : ''
+    }</div>`;
+  }
+
+  /** What the cancel button says. The second tap has to say what it will not take back. */
+  const jiraCancelLabel = (armed) => (armed ? 'Tap again — it stops coming back' : 'Cancel');
 
   /**
    * What became of the ticket — step 5 of bc-0i27, and the only part of a ticket row
@@ -4687,6 +4788,111 @@
       return;
     }
 
+    /**
+     * Approve a JIRA ticket — the epic and everything ingested under it, in one tap.
+     *
+     * Aimed at the *ticket key*, not at a bead id, and the server resolves which beads
+     * that means (lib/jiragate.js). The phone could not: which beads make up a ticket is
+     * a `bd list --parent` at the other end of the wire, and an approve that endorsed
+     * the epic and left its children held would put a container in the ready queue with
+     * nothing to do in it.
+     *
+     * One tap, no arming, for the endorsement queue's reason: endorsing is idempotent
+     * all the way down, so the worst a stray tap does is queue work you meant to queue
+     * eventually. `held` is flipped on the row from the answer rather than waited for —
+     * the next payload agrees, but twenty-five seconds of a button that still says
+     * Approve reads as a tap that missed.
+     */
+    if (act === 'jira-approve') {
+      if (jiraBusy.has(key)) return;
+      jiraBusy.add(key);
+      jiraSaid.delete(key);
+      render(true);
+      try {
+        const res = await api('/api/jira/approve', {
+          method: 'POST',
+          body: JSON.stringify({ workspace: btn.dataset.ws, key: btn.dataset.tkt }),
+        });
+        const t = (state.tickets || []).find((x) => `jira:${x.workspace || ''}/${x.key}` === key);
+        if (t) {
+          t.held = false;
+          t.bead = res.epic || t.bead;
+        }
+        const n = (res.applied || []).length;
+        // The count is the point: "approved" over an epic whose six children stayed
+        // held is the one outcome this button exists to make impossible, and a number
+        // is the only way to see that it did not happen.
+        jiraSaid.set(key, {
+          text: `Approved — ${n} bead${n === 1 ? '' : 's'} workable${
+            res.failed?.length ? `, ${res.failed.length} refused` : ''
+          }${res.truncated ? `, ${res.truncated} left held (too many for one tap)` : ''}`,
+          bad: Boolean(res.failed?.length || res.truncated),
+        });
+      } catch (err) {
+        if (err.message !== 'token rejected') jiraSaid.set(key, { text: err.message, bad: true });
+      } finally {
+        jiraBusy.delete(key);
+        render(true);
+      }
+      return;
+    }
+
+    /**
+     * Cancel a JIRA ticket: it stops being proposed, and it does not come back.
+     *
+     * Two taps, unlike approve, because this is the one record in the app with no
+     * expiry — a cancelled ticket stays cancelled through a restart and through the
+     * ticket leaving and re-entering the inbox, which is the whole of what makes it
+     * work (lib/jiracancel.js). It is reversible, but only from the ticket's own view,
+     * so a thumb must not be able to take it from a list you are scrolling.
+     *
+     * The row goes on the tap. The server's answer decides only what the toast says:
+     * an epic closed with it, an endorsed one left exactly where it was, or no bead at
+     * all because the ticket was cancelled before one had been filed.
+     */
+    if (act === 'jira-cancel') {
+      const token = `${key}|jira-cancel`;
+      if (state.armed !== token) {
+        state.armed = token;
+        clearTimeout(state.armedTimer);
+        state.armedTimer = setTimeout(() => {
+          disarm();
+          render(true);
+        }, 6000);
+        render(true);
+        return;
+      }
+      disarm();
+      if (jiraBusy.has(key)) return;
+      jiraBusy.add(key);
+      cancelledTickets.add(key);
+      render(true);
+      try {
+        const res = await api('/api/jira/cancel', {
+          method: 'POST',
+          body: JSON.stringify({ workspace: btn.dataset.ws, key: btn.dataset.tkt }),
+        });
+        const fate = {
+          closed: `${res.epic} closed with it`,
+          endorsed: `${res.epic} left alone — it was already approved`,
+          'already-closed': `${res.epic} was closed already`,
+          failed: `its bead could not be closed — ${res.error || 'no reason given'}`,
+          none: 'it never got as far as a bead',
+        };
+        toast(`${btn.dataset.tkt} cancelled — ${fate[res.bead] || res.bead}. Beadify puts it back.`);
+      } catch (err) {
+        // Nothing was written, so the row comes back rather than being left hidden by a
+        // tap that failed — the wrong way round would be a ticket silently gone.
+        cancelledTickets.delete(key);
+        jiraSaid.set(key, { text: err.message, bad: true });
+        if (err.message !== 'token rejected') toast(err.message, true);
+      } finally {
+        jiraBusy.delete(key);
+        render(true);
+      }
+      return;
+    }
+
     if (act === 'agent-menu') {
       const wasOpen = state.agentMenu === key;
       closeMenu();
@@ -5762,7 +5968,14 @@
     // (bc-0i27.2) has not landed yet, or an install with no JIRA configured at all, and
     // in both cases leaving the last list alone is what stops a mixed fleet from
     // flickering the section off and on between two daemons.
-    if (Array.isArray(data.tickets)) state.tickets = data.tickets;
+    // — and each cancelled key stops being suppressed on the first payload that agrees
+    // it is gone, which is also what lets a beadified ticket come back as a row.
+    if (Array.isArray(data.tickets)) {
+      state.tickets = data.tickets;
+      for (const key of cancelledTickets) {
+        if (!data.tickets.some((t) => `jira:${t.workspace || ''}/${t.key}` === key)) cancelledTickets.delete(key);
+      }
+    }
     // Taken whole, and taken even when empty — unlike `requests` and `consoles` above.
     // An empty list here is the good news ("every repo answered this time") and it has
     // to be able to clear the pane, which is the whole reason the record is rebuilt on

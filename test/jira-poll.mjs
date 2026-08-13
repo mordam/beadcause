@@ -402,14 +402,18 @@ console.log('\nwired into the poll cycle');
   check('the poller exists in the daemon', /createJiraPoller\(\{ bd \}\)/.test(src));
   check('on a clock of its own, not on pollSeconds', /jiraEveryMs\(cfg\)/.test(src));
   check('and its failure is reported like every other sweep', /sweepFailed\('the JIRA poll'/.test(src));
-  check('the tickets ride the inbox payload as `tickets`, which is what the row reads', /tickets: jira\.tickets\(\)/.test(src));
+  check(
+    'the tickets ride the inbox payload as `tickets`, which is what the row reads',
+    /tickets: liveTickets\(jira\.tickets\(\)\)/.test(src)
+  );
   check(
     'each one stamped with its space, or the inbox filter files it under Other',
     // The `space:` line rather than the whole expression around it: bc-0i27.5 added a
     // second stamped field (`ingest`) and broke this row apart across several lines, and
-    // a pattern anchored to `.map((t) => ({ ...t, space:` read that as the space having
-    // been taken off.
-    /tickets: jira\.tickets\(\)\.map\(/.test(src) && /space: spaceFor\(cfg, t\.workspace\)/.test(src),
+    // bc-0i27.7 then wrapped the list in the cancel filter — a pattern anchored to
+    // `tickets: jira.tickets().map((t) => ({ ...t, space:` read either of those as the
+    // space having been taken off.
+    /space: spaceFor\(cfg, t\.workspace\)\?\.name \|\| null/.test(src),
     'no space on a ticket row'
   );
   check(

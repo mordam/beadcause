@@ -1045,6 +1045,49 @@
 
   /* ----------------------------------------------------------------- the fetch */
 
+  /**
+   * A row named in the query string — `?bead=<workspace>/<id>&talk=1`.
+   *
+   * This is where the **Discuss** button on a JIRA ticket row lands (bc-0i27.7). The
+   * ticket's epic is another held bead, discussing one is what this page already does,
+   * and the alternative was a second thread panel — poll timer, agent picker, bubbles —
+   * grafted onto an inbox row. So the row hands you here with the conversation already
+   * open on the right bead, which is the difference between reusing the discuss path
+   * and merely linking at the screen it lives on.
+   *
+   * Read once, acted on once, and deliberately not kept: coming back to this page later
+   * in the same tab should give you the queue, not re-open a discussion you closed.
+   */
+  const WANTED = (() => {
+    const q = new URLSearchParams(location.search);
+    const key = String(q.get('bead') || '').trim();
+    return key ? { key, talk: q.get('talk') === '1' } : null;
+  })();
+  let deepLinked = false;
+
+  /**
+   * Open the row the query named, once the queue holding it has arrived.
+   *
+   * A bead that is not in the queue is said out loud rather than silently ignored: the
+   * commonest reason is the honest one — it was endorsed or revoked between the ticket
+   * row being drawn and the link being followed — and a page that just showed the whole
+   * queue would leave you hunting for a bead that is not on it.
+   */
+  function followDeepLink() {
+    if (!WANTED || deepLinked) return;
+    deepLinked = true;
+    // `rows()` and not `state.data.beads`: the space picker is shared with the page the
+    // link came from, so a bead outside the current space is one this screen genuinely
+    // cannot show — and `openTalk` would return silently, leaving a row unfolded that is
+    // not drawn.
+    if (!rows().some((b) => b.key === WANTED.key)) {
+      state.error = `${WANTED.key} is not in this queue — it has been endorsed or revoked, or it is outside the space you are looking at.`;
+      return;
+    }
+    state.row = WANTED.key;
+    if (WANTED.talk) openTalk(WANTED.key);
+  }
+
   async function load({ refresh = false } = {}) {
     pulse.classList.add('busy');
     try {
@@ -1067,6 +1110,8 @@
       }
       if (state.first) state.first = false;
       state.error = null;
+      // After `state.error` is cleared, because a deep link that found nothing sets one.
+      followDeepLink();
       render();
     } catch (err) {
       // Kept in state rather than written over the page: `listHtml` decides what a

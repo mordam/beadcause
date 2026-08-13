@@ -515,8 +515,20 @@ console.log('\nwired into the poll cycle, and into bd');
   );
   check(
     'and swept off the read that just happened',
-    /await app\.jiraEpics\?\.sweep\(cfg, cfg\.workspaces, out\.results\)/.test(server),
+    /const live = liveResults\(out\.results\)[\s\S]{0,200}await app\.jiraEpics\?\.sweep\(cfg, cfg\.workspaces, live\)/.test(
+      server
+    ),
     'the filing is not in sweepJira'
+  );
+  check(
+    'through the cancel filter, so a cancelled ticket is never filed a second epic',
+    /import \{ liveResults[^}]*\} from '\.\/jiracancel\.js'/.test(server),
+    'a cancel that filtered only the rows on the screen would file a fresh bead on every restart'
+  );
+  check(
+    'and the ingester is handed the same filtered list, not the raw one',
+    /for \(const r of live \|\| \[\]\)/.test(server),
+    'a cancelled ticket would still be read by an agent and given children under a closed epic'
   );
   check(
     'off `results` rather than `changed`, so a create that failed is retried',
