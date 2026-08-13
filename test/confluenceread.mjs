@@ -42,6 +42,7 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { cleanupTmp } from './helpers/tmp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(HERE, '..');
@@ -302,6 +303,6 @@ check('nothing is said when the site is missing either', conf.confluenceBrief({ 
 /* ------------------------------------------------------------------------- the end */
 
 fake.close();
-fs.rmSync(tmp, { recursive: true, force: true });
+await cleanupTmp(tmp);
 console.log(failures ? `\n${failures} failed\n` : '\nall checks passed\n');
 process.exit(failures ? 1 : 0);

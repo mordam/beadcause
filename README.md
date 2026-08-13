@@ -2058,9 +2058,35 @@ code work here — is not one of them. `launch` in `lib/session.js` writes a *co
 string*, hands it to `osascript`, and iTerm types it into a **fresh login shell**:
 nothing in the daemon's own environment crosses that gap, so an env object passed to
 `osascript` reaches osascript and stops. The exports have to be **in the line**, which
-is what `agentExports` renders — the same three decisions as `agentEnv`, written for a
+is what `agentExports` renders — the same four decisions as `agentEnv`, written for a
 shell instead of for `execve`, with `BEADCAUSE_AGENT` emitted last because a later
 `export` wins exactly the way a later key in an object literal does.
+
+**"Nothing crosses that gap" is true of the daemon and false of iTerm, and one variable
+has to be taken away rather than given.** `BEADCAUSE_LAUNCHD_PROGRAM` is how a backend
+that is a *grandchild* of launchd knows what launchd actually started (see
+[the three-day bug](#the-router--why-you-never-restart-it)), and `launchdProgram()`
+treats a non-empty value as authoritative — safely, because the router writes it on every
+spawn and an inherited value therefore cannot survive into anything the router owns. But
+iTerm.app was itself started downstream of the router launchd runs, so the variable sits
+in the *application's* environment, and every window it opens carries it: days later, in
+a different checkout, for work that has nothing to do with that router. The fresh login
+shell inherits nothing from the daemon and rather a lot from the app the daemon is
+talking to.
+
+So both spawners empty it. A `beadcause` server run by hand from a worktree used to
+report its own code not-reloaded and draw HOT-SWAP IS NOT LIVE over a perfectly good
+install, because the worktree's router path is not the main checkout's — a true statement
+about that terminal's ancestry, read as a statement about the tree under it (bc-6sst).
+Empty is not the same as unset and is the point: `launchdProgram()` reads `''` as *the
+spawner says nobody's launchd job*, which is exactly true of a shell in a terminal window
+and of an agent the daemon spawned. Neither is a backend serving the app, which is the
+only thing the variable was ever about. It is emitted *first*, unlike `BEADCAUSE_AGENT` —
+this is a scrub of something inherited rather than a claim an agent must not be able to
+make, so an amendment that deliberately sets it still wins. `test/memory.mjs` asserts it
+through the real login shell, with the variable deliberately set on the way in, because
+on a laptop where nobody's daemon is running an unscrubbed session and a scrubbed one
+look identical.
 
 It is worth saying what the missing half looked like, because it was invisible from
 every direction. For one release the worker's launch read its foundation and took two
@@ -9291,7 +9317,21 @@ The limits, stated plainly:
   http server inside the test and asserts that exactly one outage push arrives however
   many bring-ups fail after it, that it names the build, and that the recovery push
   arrives too. The push was the one surface with no test for a while, which is the wrong
-  way round — it is also the only one that works when nobody is at the Mac.
+  way round — it is also the only one that works when nobody is at the Mac. **"However
+  many" is load-bearing in that sentence, and the suite got it wrong for a while.** It
+  proved the router kept trying by counting `would not start in time` lines and requiring
+  a second one before the recovery — but `healthTimeoutMs` there is 250ms, a window no
+  node process starts inside, so whether there *is* a second failure to count is a fact
+  about how loaded the Mac is rather than about the router: busy and the next attempt
+  loses that race too, quiet and the backend simply comes up. Two sessions gated a
+  delivery on a full run and got a red that reproduced in none of the runs after it,
+  over a router log that reads as a textbook recovery (bc-nqrr, bc-vwc9). It counts the
+  retry *attempt* now — `bin/router.js` logs that before there is an outcome, so it is
+  the same fact on either machine, and it is the fact the check is named after. The teeth
+  did not move: a router that gives up logs no further attempt and the wait still times
+  out. This is the general shape worth recognising in a flaky suite — an assertion whose
+  subject is fine and whose *threshold* is whatever the machine did, which
+  [teaches people to re-run rather than read](#a-teardown-must-not-be-able-to-fail-a-run--testhelperstmpmjs).
 - **And the degraded half of that is on the advocate console.** `/api/work` carries
   `router` beside `service`: one dim line naming the build being served on a good day,
   and an amber block when the phone is on an older build than the disk — because the
@@ -11928,6 +11968,13 @@ the line and which helper it wants. The sixty-ninth suite is the one that matter
 will be written next month by someone copying the suite next to it, which is precisely how
 every one of these got the line to begin with.
 
+It took nine days rather than a month. `test/confluenceread.mjs` landed with the bare
+`rmSync` beside it, `main` went red on the check, and the whole of the diagnosis was the
+first line of output: the file, the line number, and which of the three helpers that site
+wants. The value of the check is not that it caught something — a ninth bead would have
+caught it too, eventually, from a stack trace, in somebody's four-minute gate. It is that
+the ninth bead never had to be written.
+
 Three details it takes care to get right, each of which flagged something wrong on the
 first run:
 
@@ -12517,7 +12564,10 @@ So the file deletes the variable at the top and every case says what it means, a
 two cases either side of
 the good day pin the difference the trap turns on: pass nothing and you get the
 environment's answer, pass `null` and you get the file's. Nothing is lost by it — no case
-here ever read the real LaunchAgents folder.
+here ever read the real LaunchAgents folder. The leak itself is closed one level up as
+well — [the spawner empties it](#the-one-agent-nobody-spawns) for every agent beadcause
+opens — but the suite keeps its own `delete`, because a suite that passes only when its
+parent was well-behaved will go red in the first shell somebody starts by hand.
 
 `test/warm.mjs` covers [the warm layer](#loaded-once-and-kept--what-a-tab-tap-actually-costs),
 which is entirely made of things that fail without saying anything. A cache that hands
