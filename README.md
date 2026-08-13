@@ -4789,6 +4789,58 @@ exactly as long as the iTerm holding it, and a record that survived a restart wo
 ever be a claim about a window nobody can address. `node test/resolvers.mjs` asserts all of
 it — including ten simultaneous presses producing one window and nine nudges.
 
+#### Two windows at a time, and the rest in line
+
+Everything above caps resolvers **per pull request**, and for as long as the only way to
+open one was a tap that was the whole of the problem: a thumb presses one button at a
+time, so five conflicting branches meant five deliberate presses spread over an
+afternoon. A merge landing does not work that way. One merge into `main` can leave five
+open pull requests measured against a base they have never seen, and the sweep that
+reacts to it hands all five here in the same tick. Every lock in the section above is
+*satisfied* by that — five different pull requests are five different keys — and what
+comes out is five iTerm windows each running this repo's own gate, which is every suite
+in `test/` and a good twelve minutes of node, simultaneously, on one laptop.
+
+So there is a global cap of **two live resolvers**, and the ones that do not fit **queue**
+rather than being refused. Refusing would hand the work back to whoever asked, and the
+sweep has nowhere to put it: it reacts to a merge that has already happened and does not
+come round again until the next one. Two rather than one because the common case is a
+merge that conflicts a *pair* of branches, and serialising those costs a whole gate run
+of wall-clock for nothing. The phone is told the same thing the queue knows — *"#117 is
+3rd in line — 2 resolvers are already running on this Mac, and a window opens for it as
+soon as one of them is done"* — because a tap during a busy sweep has to read as a place
+in a queue rather than as a dead button.
+
+Two things make that a queue rather than a list:
+
+- **A slot frees when a window closes, and that has to be learned.** Every question this
+  file used to ask arrived with a sentence to deliver, so liveness came free with the
+  nudge; nothing presses a button on a queued entry's behalf. The drain asks instead, and
+  asks *silently* — `sessionAlive` runs the focus script in the mode that sets no bounds
+  and raises nothing, so it reads whether the window is there without typing into it. A
+  nudge per drain into an agent that is mid-merge would be worse than having no queue.
+  It runs every twenty seconds while anything is waiting, and not at all when nothing is:
+  a daemon nobody has swept on never asks. macOS refusing to answer **holds** the slot,
+  and so does a record with no handle to ask through — the same rule the whole file is
+  built on, arrived at from the other side. Freeing a slot on "I cannot tell" takes a
+  window away from an agent in the middle of a merge, which is bc-utyr's damage again.
+- **A queued pull request is asked about again before its window opens.** An hour can
+  pass in the line, and everything that clears a conflict is *more* likely to have
+  happened during that hour than before it: another resolver pushed, `main` moved again,
+  Adam merged it from his phone. So the two refusals the press itself makes — open, and
+  conflicting *right now* — are made again at the moment the window would open, and an
+  entry whose conflict has gone is dropped with the reason rather than opened. A
+  pointless window is worse than a sentence, and it is worse still an hour later when
+  nobody remembers asking for it.
+
+An entry nobody reached in four hours is dropped too, for the reason the record has a TTL:
+past that, nothing here describes the present, and the next merge's sweep will ask GitHub,
+which is a better source than a closure this daemon has been holding since breakfast. The
+queue is in memory like the rest of the file, and more so — an entry carries the closure
+that opens its window, and there is no way to write that down. `node test/resolverqueue.mjs`
+asserts it: five handed over at once open two, the third opens only once one of the first
+two is gone, and one whose conflict cleared while it waited is dropped instead.
+
 #### An occupied worktree that reads as idle
 
 The de-duplication above stops the *second window*, and it is worth being honest about what
@@ -11072,7 +11124,7 @@ cookie says so), and `/auth/signout` ends the session.
 | POST | `/api/pr/comment` | `{key, number, text}` | a note on the pull request at GitHub and nothing else. Not `/api/comment`, which writes on a *bead* and puts an agent onto answering it |
 | GET | `/api/pr/detail` | `?key=&number=&refresh=1` | `{row, pr, agent, unavailable}` — what [the full view](#tapping-one-opens-it-full-screen) is drawn from. `row` is the board's (the lamps and the rung, from the 25-second sweep, computed once in lib/prstage.js); `pr` is `gh` **now**, for the description the board strips, the datetimes and the mergeability the buttons are drawn from; `agent` is which session wrote it, from the archive in the repo's own refs. Every failure is an answer rather than a 500, exactly as `/api/pr` has it |
 | POST | `/api/pr/close` | `{key, number, reason?}` | closes it at GitHub without merging, with your reason as a comment on the pull request. **No bead moves** — `row.beads` is a *match* rather than the block a worker wrote, and reopening a bead is what puts an unattended session on it; putting the work back in the queue is *Decline* on its own card. `409` on one already merged: closing it now cannot un-merge it. The branch is kept |
-| POST | `/api/pr/conflicts` | `{key, number}` | opens an iTerm session on the branch whose job is to merge the base into it, resolve, run the repo's own gate and push — then stop. `409` unless GitHub reports it `CONFLICTING` right now, so a resolved conflict cannot leave a window somebody has to close. Refused on an observer, and on a daemon with `openSessions` off |
+| POST | `/api/pr/conflicts` | `{key, number}` | opens an iTerm session on the branch whose job is to merge the base into it, resolve, run the repo's own gate and push — then stop. `409` unless GitHub reports it `CONFLICTING` right now, so a resolved conflict cannot leave a window somebody has to close. Refused on an observer, and on a daemon with `openSessions` off. Two resolvers run at a time: past that it answers `{queued, place}` and the window opens when one frees, with GitHub asked again first — [the cap](#two-windows-at-a-time-and-the-rest-in-line) |
 | POST | `/api/comment` | `{workspace, id, text, agent?}` | comments, sets `human-replied`, dispatches that agent to reply (default when absent or unknown) |
 | POST | `/api/dismiss` | `{workspace, id, reason?}` | takes the card off the screen and **closes nothing**. Writes your note if you typed one, writes nothing at all if you did not, and never touches the status — "I am not dealing with this now" is not "this is decided" |
 | POST | `/api/filter` | `{space, workspace}` | which slice the inbox is, remembered server-side so every client agrees and the notifications match. Each is a name or `all`, bounded at 120 characters. Widening forgets what you had declined |
