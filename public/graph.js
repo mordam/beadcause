@@ -806,7 +806,7 @@
   /**
    * Which sheet is on screen, as a number that goes up on every open.
    *
-   * The children fetch below outlives the sheet that asked for it — tap a bead, read a
+   * The links fetch below outlives the sheet that asked for it — tap a bead, read a
    * line, tap through to another, and the first answer is still in the air. Every async
    * append checks this before touching the DOM, so a slow reply lands nowhere rather
    * than under a bead it is not about.
@@ -842,8 +842,8 @@
     if (seq !== sheetSeq) return;
     $('sheet-body').innerHTML = sheetHtml(full);
     // Deliberately not awaited. The sheet is on screen and readable at this line, and
-    // the children are an addition to it — see loadChildren for what that buys.
-    loadChildren(full, seq);
+    // what points at the bead is an addition to it — see loadLinks for what that buys.
+    loadLinks(full, seq);
     // Same contract, same reason, and independent of it: whichever of the two answers
     // first lands first, and either failing leaves the other alone.
     loadSession(full, seq);
@@ -916,7 +916,7 @@
   /**
    * Resolve the session row, once the sheet is already up — see `sessionRowHtml`.
    *
-   * `loadChildren`'s contract, to the letter: not awaited by the caller, a failure that
+   * `loadLinks`'s contract, to the letter: not awaited by the caller, a failure that
    * changes the row rather than the sheet, and the sequence check that drops an answer
    * for a bead you have since navigated away from. The one difference is that a failure
    * here is *reported to the renderer* instead of being swallowed, because the row has
@@ -944,37 +944,49 @@
   }
 
   /**
-   * The children, asked for after the sheet is already up and appended when they land.
+   * What points at the bead, asked for after the sheet is up and appended when it lands.
    *
-   * Everything here is arranged so the sheet never waits on this call and never breaks
-   * over it. The caller does not await it, so a slow `bd` costs the block and not the
+   * One call, two blocks: the children under it, and the beads waiting on it that are not
+   * children. Both were the same hole in `bd show --json` — a `dependent_count` with no
+   * rows behind it — so `/api/bead-links` answers both off one `bd dep list` and the
+   * sheet's second round trip is still its only one.
+   *
+   * Everything here is arranged so the sheet never waits on that call and never breaks
+   * over it. The caller does not await it, so a slow `bd` costs the blocks and not the
    * first screen. A failure is swallowed rather than shown, because replacing a sheet
    * you can already read with an error message would take the bead away over the part
    * of it that did not arrive. And an answer for a bead you have since navigated away
    * from is dropped on the sequence check.
    *
-   * The toggle re-renders from the rows already in hand — folding the closed ones away
-   * is a question about what is on screen, not a new question for bd.
+   * The `blocks N` pill goes when the rows arrive, and only then — the same rule the
+   * `waits on N` pill follows, for the same reason. The count is what can be said before
+   * the edges are in hand and a worse version of what they say afterwards: on an epic
+   * every one of those dependents is a child, so "blocks 11" over a Children block
+   * listing eleven beads is the sheet counting them twice under two names. A call that
+   * fails leaves the pill alone, because then the count really is all there is.
+   *
+   * The toggle re-renders from the rows already in hand — folding the closed children
+   * away is a question about what is on screen, not a new question for bd.
    */
-  async function loadChildren(b, seq) {
-    if (!mightHaveChildren(b)) return;
+  async function loadLinks(b, seq) {
+    if (!hasDependents(b)) return;
     let data;
     try {
-      data = await api(
-        `/api/bead-children?workspace=${encodeURIComponent(workspace)}&id=${encodeURIComponent(b.id)}`
-      );
+      data = await api(`/api/bead-links?workspace=${encodeURIComponent(workspace)}&id=${encodeURIComponent(b.id)}`);
     } catch {
       return;
     }
     if (seq !== sheetSeq) return;
     const kids = (data.children || []).filter(Boolean);
-    const slot = $('sheet-kids');
-    // No children after all — `dependent_count` counts the beads this one blocks as
-    // well, so a bead that blocks something and parents nothing gets here. It draws
-    // nothing, and the empty slot it leaves has no height.
-    if (!slot || !kids.length) return;
+    const deps = (data.dependents || []).filter(Boolean);
+    $('pill-blocks')?.remove();
+    const slot = $('sheet-links');
+    // Nothing to draw after all. Rare now that both halves land here — it takes a
+    // payload whose only edges are ones this does not list — and it costs an empty slot,
+    // which has no height.
+    if (!slot || !(kids.length || deps.length)) return;
     const paint = () => {
-      slot.innerHTML = childrenHtml(kids, hideClosed);
+      slot.innerHTML = dependentsHtml(deps) + childrenHtml(kids, hideClosed);
     };
     paint();
     slot.addEventListener('click', (ev) => {
@@ -1051,20 +1063,20 @@
   }
 
   /**
-   * Is it worth asking bd what is under this bead?
+   * Is there anything pointing at this bead to ask bd about?
    *
-   * There is no child count in the payload to read. What there is is `dependent_count`
-   * — every edge pointing *at* this bead — and a child's `parent-child` edge is one of
-   * them, so a bead with no dependents has no children and the call can be skipped
-   * outright. That is the direction that has to be exact, and it is: this never skips a
-   * bead that has children.
+   * `dependent_count` is every edge pointing *at* it — a child's `parent-child` edge, a
+   * blocked bead's `blocks` edge, a discovery's `discovered-from` edge. Zero of them
+   * means there is nothing for either block below to draw, so the call is skipped
+   * outright; anything else means at least one row, and it is now exactly one row per
+   * edge that comes back.
    *
-   * It is deliberately not tight the other way. A bead that blocks something and parents
-   * nothing — bc-7w1l, one dependent, no children — costs one call that comes back
-   * empty and draws nothing. bd offers nothing better to gate on, and the alternative is
-   * asking on every sheet, which is the leaf beads that are most of what you tap.
+   * It used to gate the children alone, where it was only ever a *maybe*: bc-7w1l has
+   * one dependent and no children, so it paid for a call that drew nothing. That case is
+   * the Blocks list now, which is what makes this gate tight in both directions — the
+   * only bead that asks and gets nothing back is one whose count and edges disagree.
    */
-  const mightHaveChildren = (b) => Boolean(b && b.dependent_count);
+  const hasDependents = (b) => Boolean(b && b.dependent_count);
 
   /**
    * Every child of a bead, with the closed ones foldable.
@@ -1109,6 +1121,44 @@
         )
         .join('')}
     </div>`;
+  }
+
+  /**
+   * What waits on a bead — the rows behind `blocks N`, minus the ones that are children.
+   *
+   * `dependent_count` was one number over four kinds of edge, and it called all of them
+   * "blocks". Three of the four are not that:
+   *
+   *  - **`parent-child`** is a child, listed under Children by `childrenHtml` and dropped
+   *    here. The server has already split them out; this drops them again rather than
+   *    trusting that, because the one thing this block must never do is print the same
+   *    seven beads a second time under a heading that says they are blocked.
+   *  - **`discovered-from`** is work that came *out* of this bead. It waits on nothing —
+   *    "Discovered here" is what it is, and calling it blocked would be a queue that
+   *    does not exist.
+   *  - **`related`** is the same word from either end; bd stores that edge once, on
+   *    whichever bead it was created from, so it shows up above the description on one of
+   *    the pair and down here on the other. Same label both ways, because it means the
+   *    same thing both ways.
+   *
+   * Everything left blocks — including an edge with no type at all, which is the same
+   * benefit of the doubt `relations` gives a typeless dependency going the other way.
+   *
+   * Rows and grouping are `relGroupHtml`'s, unchanged: what waits on this bead is the
+   * same kind of thing as what it waits on, and drawing it differently would say it was
+   * not. Pure, like `childrenHtml`, so the whole block can be rendered in a test.
+   */
+  function dependentsHtml(dependents) {
+    const rows = (dependents || []).filter(Boolean).filter((r) => r.dependency_type !== 'parent-child');
+    if (!rows.length) return '';
+    const of = (type) => rows.filter((r) => r.dependency_type === type);
+    const groups = [
+      relGroupHtml('Blocks', rows.filter((r) => !RELATED.has(r.dependency_type))),
+      relGroupHtml('Discovered here', of('discovered-from')),
+      relGroupHtml('Related', of('related')),
+    ].filter(Boolean);
+    if (!groups.length) return '';
+    return `<div class="rel">${groups.join('')}</div>`;
   }
 
   /**
@@ -1197,7 +1247,7 @@
    *
    * The row is drawn by `sheetHtml` at first paint, before the answer is in, because the
    * answer costs a second request and the sheet must not wait on one — the same trade
-   * `loadChildren` makes. So it starts as **looking**, and `loadSession` replaces it with
+   * `loadLinks` makes. So it starts as **looking**, and `loadSession` replaces it with
    * one of the other two.
    *
    * - **looking** is deliberately not tappable. A row that is a link and then stops being
@@ -1222,7 +1272,7 @@
    * ## Why this asks `/api/session-archive`
    *
    * Not a field on `/api/bead`: that response is what the sheet paints from, so anything
-   * added to it is a `git` call every sheet open waits on — the argument `/api/bead-children`
+   * added to it is a `git` call every sheet open waits on — the argument `/api/bead-links`
    * is already a separate route for. Not `/api/bead-session` either, though it is the
    * endpoint the page itself uses: it reads the archived tree, `meta.json` and the state of
    * the worktree, which is several `git` invocations to answer a question that is really
@@ -1408,7 +1458,11 @@
       // Just the local part: owners are email addresses and the pill uppercases
       // them, so the domain is two thirds of a very shouty pill saying nothing.
       b.owner ? `<span class="pill">${esc(String(b.owner).split('@')[0])}</span>` : '',
-      b.dependent_count ? `<span class="pill">blocks ${esc(b.dependent_count)}</span>` : '',
+      // Carries an id because it does not survive the rows: `loadLinks` takes it off the
+      // moment the edges land, the same way `waits on` is not drawn once they have. It is
+      // here at all because the count is what can be said at first paint — and it is only
+      // ever a count of edges, so on an epic every one of them is a child.
+      b.dependent_count ? `<span class="pill" id="pill-blocks">blocks ${esc(b.dependent_count)}</span>` : '',
       // Only when the rows are not there to say it better. A count and the list it
       // counts, one above the other, is the sheet saying the same thing twice — and
       // the count is the half you cannot tap. Worse, on a subtask the count is not
@@ -1442,7 +1496,7 @@
     //
     // Drawn on every bead, in its unresolved state, and replaced when `loadSession`
     // answers. Unconditional so the sheet's height does not jump under whatever you
-    // started reading, which is the cost `loadChildren` accepts and this one need not:
+    // started reading, which is the cost `loadLinks` accepts and this one need not:
     // one row is a known height, where a list of children is not.
     parts.push(sessionRowHtml(b.id, null));
     // Above the description, because "what is this under, and what is it stuck
@@ -1455,15 +1509,18 @@
     ].filter(Boolean);
     if (groups.length) parts.push(`<div class="rel">${groups.join('')}</div>`);
     if (b.description) parts.push(`<div class="md">${md(b.description, FROM_BD)}</div>`);
-    // Where the children land, once the second call has been made for them — empty at
-    // first paint, and absent entirely on a bead that cannot have any.
+    // Where what points at the bead lands, once the second call has been made for it —
+    // empty at first paint, and absent entirely on a bead nothing points at. What blocks
+    // comes first inside it and the children after, because Blocks is a handful of rows
+    // and Children can be thirty.
     //
-    // Below the description because that is the question children answer: you read what
-    // the epic is *for*, and then what it is made of. And because the sheet opens at the
-    // top, the block arrives in the space under what you are reading rather than pushing
-    // it — the one position where landing late costs nothing. An empty div has no height,
-    // so a call that comes back with nothing leaves no gap and no heading behind it.
-    if (mightHaveChildren(b)) parts.push('<div id="sheet-kids"></div>');
+    // Below the description because that is the question both blocks answer: you read
+    // what the bead is *for*, and then what it is made of and who is behind it. And
+    // because the sheet opens at the top, they arrive in the space under what you are
+    // reading rather than pushing it — the one position where landing late costs nothing.
+    // An empty div has no height, so a call that comes back with nothing leaves no gap
+    // and no heading behind it.
+    if (hasDependents(b)) parts.push('<div id="sheet-links"></div>');
     // The rest of the row, in the order bd itself prints it. `/api/bead` has always
     // returned all of it; the sheet just stopped reading after `description`, so the
     // acceptance criteria — the one part you close a bead against — were readable
