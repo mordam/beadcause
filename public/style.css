@@ -4470,10 +4470,15 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
    of the way, which is the one place it differs from `.chat-card` above.
 
    The ticket key is `.pill.id`, monospaced with the bead ids for the same reason those
-   are: `TECH-1204` and `TECH-1240` are a glance apart in a proportional face. */
-.jira-card { display: flex; align-items: center; padding: 10px 12px; }
+   are: `TECH-1204` and `TECH-1240` are a glance apart in a proportional face.
+
+   **A column rather than a row, since bc-0i27.7 put three controls on it.** The link and
+   the decision are two different lines: approve, discuss and cancel beside a summary on
+   a 360px phone leaves neither of them a readable width, and the summary is what you
+   read *before* deciding. */
+.jira-card { display: flex; flex-direction: column; align-items: stretch; gap: 6px; padding: 10px 12px; }
 .jira-card .work-row {
-  flex: 1; min-width: 0;
+  min-width: 0;
   padding: 0;
   /* The card's own border is the divider in this context — the note on `.chat-card`
      above is the whole of why. */
@@ -4484,6 +4489,29 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
 /* The slot holds one emoji rather than a spark, so this is not the flex-parent line
    `.chat-card` needs — it is the centring every other row of this shape has. */
 .jira-card .work-phase { display: flex; align-items: center; justify-content: center; }
+
+/* Approve, discuss, cancel (bc-0i27.7).
+
+   `flex-wrap` rather than three fixed widths: the row grows a fourth thing to say — a
+   bead id, a count, an ingestion that failed — and a bar that could not wrap would push
+   the cancel off the edge of a narrow phone rather than under the other two.
+
+   Cancel is pushed to the far end by the auto margin, which is the same ranking every
+   destructive control on this page gets: never where a thumb lands on the way to the
+   one you meant. */
+.jira-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding-left: 30px; }
+.jira-acts .jira-cancel { margin-left: auto; }
+/* The link is styled as a button so Discuss and Approve read as one pair of choices —
+   it goes to a page rather than posting anything, and that is not a distinction worth
+   making with a different shape. */
+.jira-acts a.secondary { display: inline-flex; align-items: center; text-decoration: none; }
+/* What there is to say when there is no button: a bead still being filed, or the id of
+   one already approved. Muted, because neither is an instruction. */
+.jira-wait { font-size: 12px; color: var(--muted); }
+/* What just happened, pinned under the row rather than toasted away — see the note on
+   `jiraSaid` in public/app.js. Full width so it never shares a line with a button. */
+.jira-said { flex-basis: 100%; margin: 0; font-size: 12px; color: var(--muted); }
+.jira-said.bad { color: var(--danger); }
 
 /* ------------------------------------------------------------------- drawer */
 

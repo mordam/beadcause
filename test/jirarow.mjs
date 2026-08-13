@@ -119,17 +119,26 @@ function lift(src, opener) {
   throw new Error(`no statement end after ${opener}`);
 }
 
-/** The row renderer, run for real, with the two helpers it borrows from around it. */
+/**
+ * The row renderer, run for real, with the helpers it borrows from around it.
+ *
+ * `jiraActsHtml` comes along because the row *calls* it (bc-0i27.7) — what the three
+ * controls draw is test/jiragate.mjs's business, and what is needed here is only that
+ * lifting the row still produces a row. The three pieces of page state it reads are
+ * given their empty values: nothing armed, nothing in flight, nothing said.
+ */
 function renderRow(row) {
   const context = vm.createContext({ Date, String, Math, JSON });
   vm.runInContext(
     [
       lift(APP, 'const esc = ('),
       lift(APP, 'function relTime(iso)'),
+      lift(APP, 'const jiraCancelLabel = ('),
+      lift(APP, 'function jiraActsHtml(row)'),
       lift(APP, 'function jiraRowHtml(row)'),
       'globalThis.out = jiraRowHtml(ROW);',
     ].join('\n'),
-    Object.assign(context, { ROW: row })
+    Object.assign(context, { ROW: row, state: { armed: null }, jiraSaid: new Map(), jiraBusy: new Set() })
   );
   return context.out;
 }

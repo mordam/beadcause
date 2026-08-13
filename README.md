@@ -11306,6 +11306,9 @@ cookie says so), and `/auth/signout` ends the session.
 | POST | `/api/bead/changes` | `{workspace, ids[], note}` | your objection on the thread and nothing else — the bead stays held, so the next session that touches it reads what is wrong instead of re-filing it next week. The note is required, because a changes-requested with nothing said is indistinguishable from having done nothing |
 | POST | `/api/bead/discuss` | `{workspace, id, text, agent?}` | your question on the thread, and a reply agent sent to answer it — the one thing you can do to a held bead that is **not** a verdict. The comment is the only write: no label moves, the `unendorsed` marker stays, and a bead endorsed since the queue was drawn is a `409`. One id only, never a list. Answers `{thread[], dispatched, agent, reason}`, and `reason` is why nobody was sent when nobody was |
 | GET | `/api/bead/thread` | `?workspace=&id=` | `{thread[], running, activity}` — the comments on one bead with each author resolved against the roster, plus whether an agent is still writing. What the discussion panel polls, because nothing pushes a reply on a bead that is not a `human` question |
+| POST | `/api/jira/approve` | `{workspace, key}` | endorses the epic behind a JIRA ticket **and its open children**, in one act — see [approve, discuss, cancel](#approve-discuss-and-cancel-on-the-row--and-a-cancel-that-never-expires). Aimed at the *ticket key*, because which beads make up a ticket is a `bd list --parent` at this end of the wire. Answers the verdict shape (`applied[]`, `failed[]`) plus `{epic, children, truncated}`. A ticket whose epic has not been filed yet is a `409`; a closed child is left closed |
+| POST | `/api/jira/cancel` | `{workspace, key}` | earmarks the ticket so it is never proposed again — a keyed record in `state.json` that **nothing prunes** — and closes its epic with a reason that names the ticket, marker left on. An epic that has already been approved is left completely alone (`bead: 'endorsed'`), because by then it is real work. The earmark is written even if `bd` will not answer, since letting the ticket come back next sweep is the failure this prevents. Nothing is written to JIRA |
+| POST | `/api/jira/beadify` | `{workspace, key}` | the reverse: lifts the earmark, **reopens** the epic that was closed with it, and drops the filer's memory of the workspace so the next sweep re-reads. Reopening rather than re-filing is what makes it one epic and not two — the `external_ref` survives a close, so a fresh sweep would find the closed bead and raise nothing. A ticket that was never cancelled is `restored: false`, not an error |
 | GET | `/api/work` | — | `{workspaces[], elsewhere[], advocates[], service, router}` — per workspace: claimed beads, live `claude` sessions, counts, errors. `service` is what launchd is running; `router` is whether that program is actually serving anything, or is on an older build than the disk — see the router section. `router` is `null` under `npm run start:bare`, where there is no router |
 | GET | `/api/agents` | — | `{agents[], default}` — the roster you can address a comment to |
 | POST | `/api/agents` | `{name, description}` | creates one and returns the new roster. `tools` is never accepted here |
@@ -12017,6 +12020,8 @@ decide whether to open it while scrolling past, which is the whole requirement �
 carries the workspace it came off, because JIRA is configured per workspace and a key
 alone does not say which project you are looking at. The assignee is *not* drawn: the
 query is "assigned to you", so a name on every row would be the same name on every row.
+Under that line sit the three things you can say about it —
+[approve, discuss and cancel](#approve-discuss-and-cancel-on-the-row--and-a-cancel-that-never-expires).
 
 **They are rows, not beads.** Synthesised at render time and never merged into
 `state.questions`, exactly as the pull requests and the chat sessions are, for the reason
@@ -12121,6 +12126,83 @@ one question a fake cannot answer: that a ref written on the way in comes back o
 way past, on create, on update, and on a bead that has since been closed. If it did not,
 every sweep would look up a ticket, find nothing, and file another perfectly well-formed
 epic a minute later.
+
+### Approve, discuss and cancel on the row — and a cancel that never expires
+
+Three controls on a JIRA ticket's row, and the load-bearing property is the negative
+one: **until approve is tapped, nothing may work any of it.** The epic arrives
+`unendorsed` and so does everything ingested under it, which means no advocate queues
+them and `openWorkSession` refuses one handed straight to it. That is the gate, and it is
+the existing one rather than a new one.
+
+**Approve and discuss are the endorsement queue, aimed at a ticket.** The queue already
+holds beads behind an approval, already offers a verdict per row, and
+[already lets you talk about one before deciding](#talking-about-one-before-you-decide).
+A JIRA epic is another unendorsed thing, so building a second approval system beside that
+one is the failure this step exists to avoid. What is genuinely new is *which beads*:
+approve endorses the epic **and its open children**, because an approve that took the
+marker off the container alone would put a bead in the ready queue with nothing workable
+under it. That is why it is `POST /api/jira/approve` taking a **ticket key** rather than
+`/api/bead/endorse` taking an id the phone already has — the family is a `bd list
+--parent` at the server's end, and the phone cannot assemble it. `autoEndorse` is the
+existing per-space switch for a space that wants to skip the gate entirely.
+
+**Discuss is a link, not a second conversation.** It opens the endorsement queue on this
+ticket's epic with the thread already open (`/endorse?bead=<workspace>/<id>&talk=1`). A
+discussion is a poll timer, an agent picker and a column of bubbles; grafting a second
+copy of that onto a row you scroll past would be exactly the parallel system the
+paragraph above refuses. A bead that has left the queue since the row was drawn says so
+rather than dropping you into a list to hunt through.
+
+**Cancel is a keyed local record, and the one that must not expire.** It says *this ticket
+does not need a bead id*, and it lives in `state.json` beside `quiet`, `ringing` and
+`answered` — with one rule that separates it from all three. Those are pruned when the
+thing they are about leaves the inbox, which is right for them and a **loop** here: JIRA
+goes on saying the ticket is assigned to you, so a record dropped when the row went away
+is un-cancelled by the very next sweep, and the ticket comes back with a fresh epic every
+minute, forever. So nothing prunes it, nothing here takes a clock, and there is
+deliberately no ttl to tune. `lib/owed.js`
+is the nearest existing shape and says the same about itself.
+
+It is **keyed by the ticket** — `<workspace>/<KEY>` — and never by the bead, because the
+bead may never have existed: a ticket can be cancelled in the minute between arriving and
+its epic being filed, or on a machine whose `bd create` has been failing all morning.
+Beadify has to find the record with nothing in hand but the ticket, which is the one
+thing that is always there. The bead id is *carried* on the record, because that is what
+beadify reopens; it is a field, never the key.
+
+**Both halves are filtered, and only one of them is visible.** The cancelled ticket is
+dropped from the inbox payload *and* from the list the epic filer acts on. Filtering only
+the rows would leave a cancel that hid a ticket while quietly filing it a fresh bead on
+every restart — which reads as working right up until somebody looks at the tracker.
+
+**What cancel does to the bead**, and the one case where it does nothing: the epic is
+closed, with a reason naming the ticket, and the `unendorsed` marker is left on it exactly
+as a revoke leaves it — the history of what was proposed and turned down is worth having
+in three weeks. **Unless it has already been approved**, and then it is left completely
+alone: by that point it is real work, possibly with a branch, and this is
+[bc-uz6e's answer](#an-epic-per-ticket--filed-once-forever-and-held) applied to the other
+end of the same problem. The earmark is written either way, and written *first*, because
+"stop proposing this ticket" and "throw the work away" are two claims and only the first
+is what cancel means. A `bd` that will not answer costs the record its bead id and nothing
+else.
+
+**Beadify reopens rather than re-files**, and that is not tidiness. The `external_ref`
+survives a close, so a sweep over a beadified ticket finds the closed epic by ref and
+raises nothing — which means without the reopen the ticket would come back with a dead
+bead that no sweep would ever replace. The button belongs to the ticket view
+(bc-0i27.6); the act is `POST /api/jira/beadify` and it is the other half of this record.
+
+**No request in this whole path is anything but a GET against JIRA.** The earmark is local
+for that reason and not as a shortcut: no label, no transition, no comment. Making
+beadcause write to JIRA would mean *adding* the capability, which is the point at which
+somebody decides it explicitly and with an allowlist.
+
+`node test/jiracancel.mjs` covers the record — keyed by the ticket, on disk, unpruned
+across a ticket leaving and re-entering the inbox, both filters, and the reversal.
+`node test/jiragate.mjs` covers the three acts, the three routes, and the row: that it
+never offers a button that would be refused, and that the second tap on cancel says what
+it will not take back.
 
 ### One credential rule and one wire, shared by JIRA and Confluence
 
