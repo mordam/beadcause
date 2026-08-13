@@ -3506,6 +3506,20 @@ button.work-row {
 .bead.open .bead-head { border-bottom: 1px solid var(--line); }
 .bead-body { padding: 14px; display: flex; flex-direction: column; gap: 14px; }
 
+/* "This looks like a bead you already filed", on the card it looks like. Above the
+   fold and outside .bead-body on purpose: the sheet opens with every card collapsed,
+   and a warning only the open card carries is one nobody reads. A link, because the
+   only useful next move is to go and look at the bead it names — the underline is
+   left off so a run of them does not read as a paragraph of links, and the whole
+   block is tappable rather than the id alone. */
+.bead-dupe {
+  display: block; padding: 0 14px 12px;
+  font-size: 12.5px; line-height: 1.4; color: var(--warn);
+  text-decoration: none;
+}
+.bead.open .bead-dupe { padding: 12px 14px 0; }
+a.bead-dupe:active { opacity: 0.6; }
+
 .field { display: flex; flex-direction: column; gap: 7px; }
 .field > span {
   font-size: 11.5px; font-weight: 640; letter-spacing: 0.05em;

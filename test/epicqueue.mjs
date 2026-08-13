@@ -351,19 +351,43 @@ await check('a session holding an ancestor holds the beads underneath it', async
   assert.deepEqual(heldIds(card).sort(), ['x-1.1', 'x-1.2'], 'both held');
   assert.match(card.heldByChildren[0].why, /working x-1 above it/, `got: ${card.heldByChildren[0].why}`);
 
-  // And the line this must not cross, which test/twinqueue.mjs owns from the other side:
-  // the same shape with a worker that is *not* a batch head. A session on a plain parent
-  // has been handed one bead, not the subtree — an epic is not the work, its children are
-  // — so the child is still launched. `batch` is the entire difference between the two,
-  // and asking the ancestor question unqualified broke this case.
+  // And the same shape with a worker that is **not** a batch head, which since bc-zgfo
+  // holds the subtree too. This assertion used to run the other way: `batch` was the whole
+  // difference, on the argument that a session handed one bead speaks for one bead and
+  // holding its children behind it leaves nobody doing either.
+  //
+  // What that missed is that a hold behind a *live* window is a wait and not a stall — the
+  // worker ends, `reconcile` drops it, and the child launches on the next tick. The two
+  // cases it left open are both reachable without a batch ever existing: a non-epic parent
+  // whose only child was blocked at launch and unblocks an hour later, and an epic that
+  // launched with no open children (`heldByChildren` says outright that such an epic is
+  // workable) and gains one while its window runs — which is what an agent filing a bead
+  // under the epic it is working does. Either way it is bc-3zo9 with the order reversed:
+  // two windows in one subtree, the parent's brief a superset of the child's.
   const plain = await tick({
     ready: [bead('x-1.1'), bead('x-1.2')],
     workers: [{ id: 'x-1', title: 'a plain parent', at: new Date().toISOString(), attempt: 1 }],
     show: () => ({ id: 'x-1', status: 'in_progress' }),
     overrides: { maxWorkers: 4 },
   });
-  assert.deepEqual(plain.opened.sort(), ['x-1.1', 'x-1.2'], 'a plain parent holds nothing underneath it');
-  assert.deepEqual(heldIds(plain.card), [], 'and nothing was held on the strength of a session above them');
+  assert.deepEqual(plain.opened, [], 'a plain parent holds the beads underneath it too, since bc-zgfo');
+  assert.deepEqual(heldIds(plain.card).sort(), ['x-1.1', 'x-1.2'], 'both held on the strength of the session above them');
+  assert.match(plain.card.heldByChildren[0].why, /working x-1 above it/, `got: ${plain.card.heldByChildren[0].why}`);
+
+  // The floor underneath it, and the reason the unqualified check is not simply "hold
+  // everything": a worker on a bead that is *not* an ancestor of anything in the queue
+  // matches nothing, so an ordinary busy advocate is untouched. `x-2` is a sibling, not a
+  // parent, and `isDescendantOf` is prefix matching on the id — `x-1.1` does not start
+  // with `x-2.`, and it does not start with `x-11.` either, which is the off-by-one a
+  // bare `startsWith` without the dot would have.
+  const sibling = await tick({
+    ready: [bead('x-1.1'), bead('x-1.2')],
+    workers: [{ id: 'x-2', title: 'somewhere else entirely', at: new Date().toISOString(), attempt: 1 }],
+    show: () => ({ id: 'x-2', status: 'in_progress' }),
+    overrides: { maxWorkers: 4 },
+  });
+  assert.deepEqual(sibling.opened.sort(), ['x-1.1', 'x-1.2'], 'a session outside the subtree holds nothing in it');
+  assert.deepEqual(heldIds(sibling.card), [], 'and nothing was held');
 });
 
 /**

@@ -369,8 +369,14 @@ const url = `http://127.0.0.1:${server.address().port}`;
  *
  * Three attempts at 60s rather than one at 180s on purpose. A monitor that is *slow*
  * gets a fresh, uncontended-ish start each time and almost always lands on the second;
- * a monitor that is genuinely *hung* — `--once` has no fetch timeout of its own — still
- * ends the suite, just three minutes later with three lines saying why.
+ * a monitor that is genuinely *hung* still ends the suite, just three minutes later with
+ * three lines saying why.
+ *
+ * Since bc-34ku the child has a bound of its own — `ONCE_TIMEOUT_MS`, ten seconds — so
+ * "hung" now means hung on something other than the fetch. This guard stays anyway: it
+ * is the only thing that covers a child wedged before it ever reaches the fetch, and it
+ * is what turned a `null` exit code into a sentence. `test/monitoronce.mjs` is where the
+ * child's own bound is asserted.
  */
 const FRAME_BUDGET_MS = 60_000;
 const FRAME_ATTEMPTS = 3;
@@ -388,8 +394,10 @@ class FrameTimeout extends Error {}
  * columns wide, so the output is text to be measured rather than a screen.
  *
  * `spawn` and not `spawnSync`, deliberately: the fake daemon above is served by *this*
- * process, and `spawnSync` blocks this event loop until the child exits. The child's
- * `--once` fetch has no timeout, so the two would wait for each other forever.
+ * process, and `spawnSync` blocks this event loop until the child exits. The two would
+ * then wait for each other — forever before bc-34ku, and now for `ONCE_TIMEOUT_MS`,
+ * after which the child draws an *offline* frame and this suite measures the wrong box.
+ * A bound made the deadlock survivable; it did not make it correct.
  */
 function frameOnce(target) {
   return new Promise((resolve, reject) => {

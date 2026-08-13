@@ -306,16 +306,27 @@ if (await yes('   set up spaces? (y/n)', (cfg.spaces || []).length ? 'y' : 'n'))
 
 /* ---------------------------------------------------------------- asset roots */
 
+/**
+ * "none" rather than a blank line, for the reason question 7 gives below: `ask`
+ * substitutes the default on an empty answer, and the default here is a *guess* — the
+ * first of ~/code, ~/src, ~/dev, ~/projects, ~/Projects, ~/work, ~/repos that exists. So
+ * on any machine that has one of those, pressing Enter accepted the guess and the prompt
+ * that said "Blank to skip" was offering something it could not do. That was bc-4zhv, and
+ * it is the same defect question 10 was fixed for: the only way out was to type a path
+ * that does not exist and let the "does not exist — skipping" branch catch it, which is a
+ * wrong answer that happens to fail.
+ */
 console.log(`\n${bold('4. Where does your code live?')}`);
 console.log(
   dim(
     '   A question can only show you an image or open a document that sits under one\n' +
-      '   of these directories. ~/beads is always included. Blank to skip.'
+      '   of these directories. ~/beads is always included. A path, or "none".'
   )
 );
 const guesses = ['code', 'src', 'dev', 'projects', 'Projects', 'work', 'repos'].map((d) => path.join(HOME, d));
-const guess = guesses.find((d) => fs.existsSync(d)) || '';
-const codeRoot = await ask('   path:', guess);
+const guess = guesses.find((d) => fs.existsSync(d)) || 'none';
+const codeRootRaw = await ask('   path:', guess);
+const codeRoot = /^(none|skip|-)$/i.test(codeRootRaw.trim()) ? '' : codeRootRaw.trim();
 
 const assetRoots = new Set([path.join(HOME, 'beads'), ...(cfg.assetRoots || [])]);
 if (codeRoot) {
