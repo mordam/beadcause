@@ -10,10 +10,26 @@
  *   beadcause-memory recall [<key>] [--of=<agent>]
  *   beadcause-memory note <key> <value...>
  *   beadcause-memory notes [<key>] [--of=<agent>]
+ *   beadcause-memory debrief <text...>
+ *   beadcause-memory debriefs [<bead>]
  *   beadcause-memory post <topic> <message...>
  *   beadcause-memory read <topic> [--since=N]
  *   beadcause-memory topics
  *   beadcause-memory agents
+ *
+ * **`debrief` takes no key and `debriefs` takes no agent**, and both absences are the
+ * tier they belong to showing through. There is no key because a report on a run is not a
+ * belief that can be superseded by a later one — two calls are two things that happened,
+ * so writes append. There is no `--of` because a debrief is filed against a *bead*: the
+ * question "how did the last run at this go" has one answer whoever asks it, and an
+ * agent-scoped read would be answering a question nobody has. `--of` is therefore refused
+ * on `debriefs` by the same default-refuse guard that covers every command that writes.
+ *
+ * **Which bead is not an argument either**, for exactly the reason the agent's identity is
+ * not: `BEADCAUSE_BEAD` is stamped into the session by the daemon that opened it, and an
+ * agent that could pass its own would be able to file a report against somebody else's
+ * work — indistinguishable, afterwards, from their having written it. `--bead` exists for
+ * a human at a terminal, the way `--agent` does, and for nobody else.
  *
  * **`note` and `notes` are the same two verbs against the other store** — what this
  * agent knows about the repo the command was run in, rather than what it knows
@@ -46,7 +62,24 @@
  * knowledge you have, and a run from the wrong directory should be fixed by `cd`,
  * which is checkable, rather than by an argument, which is not.
  */
-import { remember, recall, recallDetail, note, notes, notesDetail, post, read, topics, agents } from '../lib/memory.js';
+import {
+  remember,
+  recall,
+  recallDetail,
+  note,
+  notes,
+  notesDetail,
+  debrief,
+  debriefFamily,
+  post,
+  read,
+  topics,
+  agents,
+} from '../lib/memory.js';
+// The read half of tier 4 lives with the archive that holds it, not with the store that
+// stages it — see `readDebriefs`. lib/memory.js cannot import it back without a cycle,
+// so this is the one command that reaches two modules.
+import { archivedBeads, readDebriefs } from '../lib/sessionlog.js';
 
 const argv = process.argv.slice(2);
 const flags = new Map();
@@ -68,12 +101,15 @@ const USAGE = `beadcause-memory — what an agent knows, and what agents tell ea
   note <key> <value...>         store something about the repo you are in
   notes [<key>]                 read that back; no key lists everything
   notes --of=<agent> [<key>]    read another agent's notes on this repo (read-only)
+  debrief <text...>             report on the run you are in, filed against your bead
+  debriefs [<bead>]             how earlier runs at that bead and its siblings went
   post <topic> <message...>     say something to whoever is listening
   read <topic> [--since=N]      what has been said since message N
   topics                        which topics exist
   agents                        which agents have remembered anything
 
   --agent=<id>   whose memory (default: $BEADCAUSE_AGENT)
+  --bead=<id>    which bead a debrief is about (default: $BEADCAUSE_BEAD)
   --of=<agent>   read that agent's memory instead of your own; recall/notes only
   --since=<n>    the seq of the last message you saw, or an ISO timestamp
   --limit=<n>    how many messages at most (default 50)
@@ -81,7 +117,8 @@ const USAGE = `beadcause-memory — what an agent knows, and what agents tell ea
 
 There is no flag for which store or which repo. \`remember\`/\`recall\` follow you
 anywhere; \`note\`/\`notes\` belong to the repo this was run in, and a worktree of it
-sees the same notes as its main checkout.`;
+sees the same notes as its main checkout. \`debrief\`/\`debriefs\` belong to a bead in
+that repo, and are about one run rather than about anything that outlives it.`;
 
 /** Identity is required for the halves that write in someone's name. */
 function me() {
@@ -89,6 +126,25 @@ function me() {
     throw new Error('no agent — set BEADCAUSE_AGENT or pass --agent=<id>');
   }
   return who;
+}
+
+/**
+ * Which bead a debrief is about — required for the same reason identity is.
+ *
+ * `$BEADCAUSE_BEAD` is stamped by whatever opened the session, so an agent never passes
+ * this and cannot get it wrong. A shell with no bead in it is not an error worth guessing
+ * around: there is no work item for the report to hang off, and a debrief filed against a
+ * guess is worse than one that was refused, because nobody finds out.
+ */
+function whichBead() {
+  const bead = String(flags.get('bead') || process.env.BEADCAUSE_BEAD || '');
+  if (!bead) {
+    throw new Error(
+      'no bead — a debrief is filed against the work it is about, and this shell is not in a session; ' +
+        'set BEADCAUSE_BEAD or pass --bead=<id>. For something that outlives this run, use note or remember'
+    );
+  }
+  return bead;
 }
 
 /**
@@ -211,6 +267,35 @@ async function main() {
         // and "nothing yet" without the where reads like the store is empty.
         empty: (target) => `${target} has noted nothing about this repo yet`,
       });
+
+    case 'debrief': {
+      const text = rest.join(' ');
+      if (!text.trim()) throw new Error('usage: debrief <text...>');
+      const r = await debrief(me(), whichBead(), text);
+      return out(`debriefed ${r.bead} (${r.entries} this run) in ${r.repo}`, r);
+    }
+
+    case 'debriefs': {
+      // The bead is positional here and nowhere else, because this is the one command
+      // whose subject is a bead somebody may genuinely want to ask about — "how did the
+      // work on the epic go" is a fair question from a session that is not on it. The
+      // write half has no such argument; see the note at the top about why.
+      const bead = rest[0] || whichBead();
+      const dir = process.cwd();
+      // Every bead that has an archive, narrowed to this one's family. Two git calls to
+      // decide the candidate list, rather than one per bead in the tracker.
+      const family = debriefFamily(await archivedBeads(dir), { id: bead });
+      const found = await readDebriefs(dir, family, {
+        perBead: Number(flags.get('limit')) || 3,
+      });
+      if (!found.length) {
+        return out(`no run at ${bead} or its siblings has left a report yet`, []);
+      }
+      return out(
+        found.map((d) => `── ${d.bead}  ${d.at}\n${d.text}`).join('\n\n'),
+        found
+      );
+    }
 
     case 'post': {
       const [topic, ...message] = rest;

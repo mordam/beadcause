@@ -2108,7 +2108,10 @@ that tells it it has a memory at all.
 ### Which of the two, and the one question that decides it
 
 **Would this still be true in a different repo?** That is the whole test, and the
-brief puts it to the agent in those words.
+brief puts it to the agent in those words. (There is a question *before* it now — is this
+a belief that outlives the run at all, or a report on the run itself? — which is
+[`debrief`](#the-report-a-run-leaves-behind-debrief-and-why-neither-other-store-could-hold-it)
+further down. The two below are what is left once that one is answered.)
 
 - **Yes → `remember`.** How Adam likes a thing shaped, an approach that worked
   anywhere, a dead end not worth walking again, something about how the agent itself
@@ -2362,6 +2365,102 @@ the caller it exists for: it opens sessions in four repos from one process and i
 standing in none of them. Every read an *agent* can reach still resolves from
 `process.cwd()`, which is the whole point of the indirection — `lib/foundation.js` draws
 the same line in the same place with `effective(dir, agent)`.
+
+### The report a run leaves behind: `debrief`, and why neither other store could hold it
+
+Both stores above answer one question — **would this still be true next week?** — and
+that question rules out the single most valuable thing a session knows at the moment it
+ends: *what happened this time*. The dead end that was not obvious. The file that turned
+out to be the real one. The check that already passes, so the next run need not spend
+forty minutes deriving it. Where you stopped, and why the bead is still open.
+
+None of that is a lesson about the codebase and none of it follows an agent into another
+repo, so it had nowhere to go. What it did instead is the familiar failure in its third
+form: it was written as a `note` that was false a fortnight later, or — far more often —
+it was not written at all, and the next session at that bead started from zero on work
+somebody had already done half of.
+
+```
+beadcause-memory debrief "<what happened>"     file it against the bead you are on
+beadcause-memory debriefs [<bead>]             what earlier runs at it and its siblings hit
+```
+
+**It ends up in the session archive, not in a store of its own.** `refs/beadcause/sessions/<bead>`
+already keeps one tree per finished session — `meta.json`, `session.log`, sometimes
+`transcript.jsonl` — and a debrief is the fourth file in exactly that tree, `memory.md`.
+That was not a coincidence to be exploited afterwards: the reader shipped first (`bc-nib3.5`),
+so `memory.md` was already on the `/api/session-archive` allowlist, already listed by
+`/api/bead-session`, and already drawn at the top of the archived-session page, with a
+fixture in `test/beadsession.mjs` asserting it round-trips. The write half landed against a
+consumer that was waiting for it, which is the opposite of the usual order and is why it
+needed no client change at all.
+
+**So why a staging ref exists.** The archive commit cannot be written while the session is
+running, because it records the outcome, the commits and the transcript — none of which is
+known until the window is gone. But the agent has to write at the one moment it knows the
+most, which is before that. `refs/beadcause/debrief/<bead>` is the few minutes in between:
+`archiveSession` reads it, folds it into the tree, and deletes it. A repo whose daemon is
+keeping up has none of these refs at all, and `git for-each-ref refs/beadcause/debrief` is
+therefore a list of what is stuck mid-flight.
+
+**Keyed by bead, because that is the one name both sides know.** The agent cannot key by
+session — it does not know its own Claude session uuid, and asking it to find one out
+would be asking it to name a path, which is the thing `lib/memory.js` refuses on every
+other call. The bead is in its window title, its branch, its brief and the daemon's worker
+record. So `sessionCommand` stamps `BEADCAUSE_BEAD` into the session's exports, beside
+`BEADCAUSE_AGENT` and for the same reason: an agent that could pass its own bead could
+file a report against somebody else's work, and afterwards that is indistinguishable from
+their having written it. A window with no bead — a ship window, a rebase window — is
+stamped with nothing, and `debrief` refuses there rather than guessing.
+
+**Writes append rather than replace, and there is no key to replace by.** Two calls in one
+run are two things that happened, not a correction of the first. That is the difference
+from the other two stores and it falls out of what this one is: `note` and `remember` hold
+a current belief, and a belief gets edited; a debrief holds an event, and an event does
+not. Each entry carries who wrote it and when, which also makes the one honest failure
+mode visible — if the daemon was down when a window closed there is no archive to fold the
+report into, so it stays staged and rides along with the *next* run at that bead, stamped
+with a time that is plainly older than the session it arrived with. The alternative was
+deleting an agent's writing to keep a record tidy, which nothing here does.
+
+**Silence is the expected answer for the other two and emphatically not for this one**,
+and the closing step in the work brief now says both things in two paragraphs that
+contradict each other on purpose. The "most runs should write nothing" bar is correct for
+`note` and `remember` — a store full of *worked on lib/session.js* is a store nobody opens
+— and it is wrong here, because a debrief is not competing for room in a shared store: a
+bead's archive holds one file per session, and a session that says nothing simply has
+none. Left under the old sentence the new store would have inherited a bar written for a
+different problem and gone unused, which is exactly the shape of `bc-sgu4`, where the chat
+session read the store constantly and in three days wrote to it not once.
+
+**What the next session is handed, and why the selection is narrower than tier 1's.**
+`workPromptFor` pushes debriefs the way it pushes notes, but it picks them by the *graph*
+rather than by vocabulary: this bead, its epic, and its siblings, ranked in that order,
+newest run per bead, capped at three and 4000 characters. There is no cosine, and the
+absence is the argument. A note is a lesson about the codebase, so the right one may be
+filed nowhere near this subtree and similarity is the only way to find it. A debrief is a
+report on an attempt at a bead, and its worth to another bead falls off with the graph:
+the run that already fought this epic's build, or the sibling that touched the same file
+yesterday, is the one to read, while a textually similar debrief from an unrelated corner
+of the tracker is a story about somebody else's afternoon. The generalisable half of a run
+is supposed to leave via `note` or `remember` — both of which *are* pushed by similarity —
+so staying narrow here is the boundary that keeps four stores from becoming four copies of
+one. `beadcause-memory debriefs <bead>` is the pull for everything else, and the section
+names it, the way the notes section names its own.
+
+The epic planner gets the same section, and is arguably the reader it serves best: the
+reports its children's runs left are the only first-hand account of which parts of an epic
+turned out to be entangled, which is the exact question a plan answers.
+
+`test/debrief.mjs` covers the seam, because the store is written by one module and
+consumed by another and every interesting failure is invisible from either side alone: a
+session that wrote nothing must archive with **no** `memory.md` rather than an empty one
+(the page says different things about those two, and the better sentence becomes unsayable
+if every archive carries the name); a fourth entry in a `mktree` must not silently drop a
+third; the clear must be a compare-and-swap, so a report written between the archive's read
+and its delete survives instead of being thrown away by a consumer that never saw it; and
+four processes appending to one bead must all land, which is the blackboard's argument
+again in a store where a lost write leaves no missing key to notice it by.
 
 ### Where the rest lives: `~/.config/beadcause` is a git repo
 
