@@ -5011,3 +5011,99 @@ a.pill { text-decoration: none; }
   color: var(--text); font-size: 14px; font-weight: 600;
   cursor: pointer;
 }
+
+/* Whose P0 this is — the owner row on the bead sheet, and the one control on /graph that
+   writes anything (see `ownerRowHtml`). Shaped like `.sheet-session` and `.rel-row`
+   because it is the same furniture in the same place: one line, one border, 44px of it,
+   so resolving the buttons late never moves the description under a thumb. */
+.owner-row {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  min-height: 44px;
+  margin-bottom: 14px;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-2);
+  font-size: 14px;
+}
+.owner-kind {
+  flex: none;
+  font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--muted);
+}
+/* The local part is the readable half of an email address and the whole of what tells two
+   colleagues apart; the domain is the same on every row and would push the buttons off a
+   four-inch screen. The full handle stays in the title for anyone who needs it. */
+.owner-who { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Unowned is a state, not a fault — quiet, the same weight `.sheet-session.is-none` gives
+   "nothing ran on this bead", because both are the ordinary condition of most of a tracker. */
+.owner-who.is-none { color: var(--muted); font-style: italic; }
+.owner-and { color: var(--muted); }
+.owner-acts { margin-left: auto; display: flex; gap: 6px; flex-wrap: wrap; }
+.owner-btn {
+  min-height: 36px;
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit; font-size: 12.5px;
+  cursor: pointer;
+}
+.owner-btn:disabled { opacity: 0.5; cursor: default; }
+.owner-btn.is-clear { color: var(--muted); }
+.owner-err { font-size: 12px; color: var(--danger); }
+
+/* Your P0s, as a section rather than as the top of the list — see `p0SectionHtml`. The
+   distinction is the point of bc-rfnr.2: sorted to the top, six self-filed crash P0s
+   (lib/errors.js files every daemon crash at P0) push your epics below the fold with
+   nothing on screen to say they moved. A section cannot be pushed down by its own list. */
+.p0-board { display: flex; flex-direction: column; gap: 8px; margin: 0 0 14px; }
+.p0-kind {
+  font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--muted);
+}
+/* A card, not a row: these are the four or five things the week is about and they are
+   worth the vertical space the rest of the list is rationed out of. Bordered on the
+   leading edge in the warn colour the P0 pill already uses, so the section reads as
+   urgent without a word spent saying so. */
+.p0-card {
+  display: flex; flex-direction: column; gap: 4px;
+  min-height: 44px;
+  padding: 9px 12px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--warn);
+  border-radius: 10px;
+  background: var(--surface-2);
+  color: var(--text);
+  text-decoration: none;
+}
+.p0-head { display: flex; align-items: center; gap: 8px; }
+.p0-head .pill.id { flex: none; }
+/* Pushed to the far end, and the two counts in a fixed order — how much is left is the
+   number you scan for, so it sits where the eye lands last and stays put between polls. */
+.p0-open { margin-left: auto; font-size: 11.5px; color: var(--muted); }
+.p0-flight { font-size: 11.5px; color: var(--accent); }
+/* A link now that the card itself is not one — the card holds a button, and a button
+   inside an anchor is not valid. Undecorated so it does not read as a second control
+   competing with the one below it. */
+.p0-title { font-size: 14px; line-height: 1.35; color: var(--text); text-decoration: none; }
+/* Only drawn when the advocate has written one (bc-rfnr.3). Quiet, because it is a
+   status line under a title rather than a second title. */
+.p0-waiting { font-size: 12px; color: var(--muted); }
+
+/* The one control on a P0 card: put an advocate on it. Full width under the title rather
+   than tucked into the head row, because it is the only thing on this card you can *do*
+   and a 36px target hidden between two counts is a target you miss. */
+.p0-advocate {
+  margin-top: 4px;
+  min-height: 40px;
+  padding: 6px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit; font-size: 13px;
+  cursor: pointer;
+}
+.p0-advocate:disabled { opacity: 0.6; cursor: default; }

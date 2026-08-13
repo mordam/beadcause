@@ -40,6 +40,17 @@
     // the screen, because the two are opposite claims about the list below them — see
     // `syncTroubleHtml`.
     syncTrouble: [],
+    // The P0 board (bc-rfnr.2): `{ p0s[], under, owned }` — which P0s carry your
+    // `owner:<handle>`, and for every other row the id of the P0 it descends from.
+    // `owned: false` is what an install with no `me` answers, and it means the whole
+    // section and the whole filter are off: the inbox is the flat list it always was.
+    // **`p0board`, not `board`** — `state.board` is the *pull request* board (`prRows`
+    // reads `board.repos`), and two different things called board on one page is how a
+    // page starts drawing one of them from the other's data.
+    // Its own object rather than fields on the rows, because the *absence* of a row from
+    // `under` is the filter — and a row that arrived before the board did must not read
+    // as one with no P0 above it. See `p0Board` in lib/server.js.
+    p0board: { p0s: [], under: {}, owned: false },
     spaces: [],
     // Every configured workspace, which the inbox needs for one thing only: ＋ has to
     // know where to start a conversation, and "the repos in the selected space" is a
@@ -2974,8 +2985,13 @@
     // about it, so a kind filter forces the local sweep — which is available for
     // exactly the scopes that can have questions in them.
     const narrowed = Boolean(window.beadcause?.inboxFilter?.selected?.().length);
-    const local = state.questions.filter((q) => !q.agent && (!narrowed || inKind(q))).length;
-    const waiting = swept || narrowed || !Number.isFinite(held) ? local : held;
+    // And the P0 board narrows it for the same reason the kind filter does — it sits
+    // above the same list and hides rows from it, so a count that ignored it would say
+    // forty over a list of six. `boarded` forces the local sweep the same way `narrowed`
+    // does: the server's held figure is a count of questions, not of descendants.
+    const boarded = isBoarded();
+    const local = underOwnedP0s(state.questions).filter((q) => !q.agent && (!narrowed || inKind(q))).length;
+    const waiting = swept || narrowed || boarded || !Number.isFinite(held) ? local : held;
 
     const el = $('#waiting');
     if (el) {
@@ -3301,7 +3317,10 @@
     // Over the kind filter as well as the scope, for the same reason: a picker saying
     // 5 above a list showing 1 is the two halves of one screen disagreeing about the
     // same beads.
-    for (const q of state.questions) {
+    // …and over the P0 board, third of the three for the same reason: every filter
+    // between the sweep and the screen has to be applied here or the picker is counting
+    // a list nobody is looking at.
+    for (const q of underOwnedP0s(state.questions)) {
       if (!inKind(q)) continue;
       counts[q.workspace] = (counts[q.workspace] || 0) + 1;
     }
@@ -3649,6 +3668,91 @@
     else listEl.innerHTML = chunks.map((c) => c.html).join('');
   }
 
+  /**
+   * The list, narrowed to what descends from a P0 you own. bc-rfnr.2.
+   *
+   * **Three ways this is a no-op, and all three are on purpose.** `owned: false` is an
+   * install with no `cfg.me` — the feature has never been switched on and the inbox is
+   * the flat list it always was. An empty `p0s` is a machine that knows who it is and
+   * owns nothing yet, which is the state before bc-rfnr.5's triage has run: narrowing
+   * there would hide the entire tracker behind a section with nothing in it, and an empty
+   * screen is indistinguishable from a quiet afternoon. And a payload from a server that
+   * predates the board leaves `state.p0board` at its default, which is the first case.
+   *
+   * **Descendants only.** `under` is built from `parent-child` edges alone (lib/ancestry.js);
+   * a `discovered-from` trail or a blocking edge does not pull a bead in, which matters
+   * because lib/filing.js puts a `discovered-from` on everything an agent ever filed.
+   *
+   * **A chat is always shown.** It has no bead, so no P0 can be above it — and it is where
+   * a new P0 gets filed, so hiding it would make the filter the one thing on this screen
+   * you could not get out of.
+   *
+   * **A pull request follows its beads.** Its own key is `pr:<repo>#<n>` and will never be
+   * in `under`; what decides it is whether any bead it names is. A pull request that names
+   * no bead stays visible, deliberately: it is a decision somebody is waiting on, and the
+   * failure mode of hiding one is worse than the failure mode of showing one too many.
+   */
+  /** Is the board actually narrowing anything? The three no-op cases, asked once. */
+  function isBoarded() {
+    const board = state.p0board;
+    return Boolean(board?.owned && (board.p0s || []).length);
+  }
+
+  function underOwnedP0s(rows) {
+    const board = state.p0board;
+    if (!isBoarded()) return rows;
+    const under = board.under || {};
+    return rows.filter((q) => {
+      if (q.session) return true;
+      if (q.pr) {
+        const named = q.pr.beads || [];
+        return !named.length || named.some((b) => under[`${q.workspace}/${b.id || b}`]);
+      }
+      return Boolean(under[q.key]);
+    });
+  }
+
+  /**
+   * The P0s you own, as their own section at the top — not sorted to the top.
+   *
+   * The difference is the whole bead. `byUrgency` would put a P0 first *today*, and on the
+   * day six crashes file themselves (lib/errors.js files every daemon crash at P0) it would
+   * put your epics below the fold with nothing to say they had moved. A section cannot be
+   * pushed down by the list underneath it.
+   *
+   * Drawn as one chunk rather than a card each, because `warm.paint` reconciles by key and
+   * the board moves as a unit: the counts on every card come from one sweep, so rebuilding
+   * them one at a time would be four DOM writes where the data arrived as one.
+   *
+   * `waitingOn` is drawn only when it is there. It is the EpicAdvocate's sentence to write
+   * (bc-rfnr.3) and is null until that lands — a placeholder saying "nothing" would be a
+   * claim, where an absent line is honestly nothing yet.
+   */
+  function p0SectionHtml() {
+    const board = state.p0board;
+    if (!board?.owned) return '';
+    const mine = (board.p0s || []).filter(
+      (c) => (state.space === 'all' || spaceForWorkspace(c.workspace) === state.space) &&
+        (state.workspace === 'all' || c.workspace === state.workspace)
+    );
+    if (!mine.length) return '';
+    const cards = mine
+      .map(
+        (c) => `<div class="p0-card">
+          <div class="p0-head"><a class="pill id" href="${esc(`${graphUrl(c)}&open=1`)}">${esc(c.id)}</a>${
+            c.inFlight ? `<span class="p0-flight">${c.inFlight} in flight</span>` : ''
+          }<span class="p0-open">${c.open === 1 ? '1 open' : `${c.open} open`}</span></div>
+          <a class="p0-title" href="${esc(`${graphUrl(c)}&open=1`)}">${esc(c.title || '')}</a>
+          ${c.waitingOn ? `<div class="p0-waiting">${esc(c.waitingOn)}</div>` : ''}
+          <button type="button" class="p0-advocate" data-act="advocate" data-ws="${esc(c.workspace)}" data-bead="${esc(
+            c.id
+          )}">🧭 Put an advocate on it</button>
+        </div>`
+      )
+      .join('');
+    return `<section class="p0-board" aria-label="Your P0s"><div class="p0-kind">Your P0s</div>${cards}</section>`;
+  }
+
   function render(force = false) {
     if (!force && isAnswering()) {
       pendingRender = true;
@@ -3671,8 +3775,13 @@
     // Then the third, which is this page's own and lives in the collapsed control
     // above the list: which *kinds* of incoming thing to show. Surveyed first so the
     // chips can carry counts of what they would leave you with, then applied.
-    surveyKinds(inRepo);
-    const visible = inRepo.filter(inKind);
+    // And the fourth, which is not a chip and not yours to switch off: with P0s owned,
+    // the list below the board is their descendants and nothing else. Applied *before*
+    // `surveyKinds` so the kind chips count what you can actually get to — a chip
+    // offering six merges when the filter leaves you one is a control that lies.
+    const inBoard = underOwnedP0s(inRepo);
+    surveyKinds(inBoard);
+    const visible = inBoard.filter(inKind);
 
     // The other channel, always first and never filtered. It is rare enough that
     // putting it at the top costs nothing on the days there is nothing in it, and on
@@ -3699,6 +3808,11 @@
     // empty state — see `troubleHtml`. Below the requests because a request is a
     // decision somebody is waiting on and this is a caveat about the list; above the
     // list because a caveat under forty cards is a caveat nobody reads.
+    // Above the sweep's own caveats and above the list: this is the thing the screen is
+    // for. Below the shade and the foundation requests, which are decisions waiting on a
+    // tap rather than a standing picture of the week.
+    const p0s = p0SectionHtml();
+    if (p0s) chunks.push({ key: '@p0', html: p0s });
     const missed = troubleHtml();
     if (missed) chunks.push({ key: '@trouble', html: missed });
     // Directly beneath it, in the same place and for the same reason. Second of the two
@@ -4297,6 +4411,41 @@
     if (!btn) return;
     const key = btn.dataset.key;
     const act = btn.dataset.act;
+
+    /**
+     * Put a P0 advocate on this P0 — the one button on the board's cards.
+     *
+     * First, and keyed on its own `data-bead` rather than on `data-key`: the P0 cards are
+     * not inbox rows and have no bead key, so every branch below this one would read
+     * `undefined` and act on nothing.
+     *
+     * The button is disabled for the round trip and left saying what happened either way.
+     * It opens an iTerm window on the Mac that files beads — that is not something to fire
+     * twice because a train swallowed the first tap, and the 409 the server gives a second
+     * one is a sentence worth reading rather than a silent no-op.
+     */
+    if (act === 'advocate') {
+      const bead = btn.dataset.bead;
+      const was = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = 'Opening…';
+      try {
+        await api('/api/bead/advocate', {
+          method: 'POST',
+          body: JSON.stringify({ workspace: btn.dataset.ws, id: bead }),
+        });
+        btn.textContent = '🧭 Advocate opened';
+        toast(`A P0 advocate is planning ${bead}`);
+      } catch (err) {
+        // Back to a button you can press again, with the reason on screen. Every refusal
+        // this route gives is a fixable state — unowned, closed, already running — so a
+        // dead control saying nothing would be the wrong end of it.
+        btn.disabled = false;
+        btn.textContent = was;
+        toast(err.message, 'refused');
+      }
+      return;
+    }
 
     /**
      * Both answers to the notification prompt — see dismissAskHtml().
@@ -5458,6 +5607,11 @@
     // to be able to clear the pane, which is the whole reason the record is rebuilt on
     // each sweep rather than accumulated. Absent still means a server that predates the
     // field, and that keeps whatever is on screen.
+    // Taken whole and only when it is there. Absent means a server that predates the
+    // board, and keeping the last one is what stops a mixed fleet — a phone talking to
+    // an old daemon through a cached service worker — from drawing an inbox with every
+    // card filtered out and nothing on screen to say why.
+    if (data.p0board && typeof data.p0board === 'object') state.p0board = data.p0board;
     if (Array.isArray(data.trouble)) state.trouble = data.trouble;
     // Same rule, same reasons: taken whole, taken when empty so it can clear itself,
     // and absent leaves what is on screen alone for a server that predates the field.

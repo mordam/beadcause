@@ -721,7 +721,12 @@ await check('the service worker ships it, on a version a cached phone will notic
 await check('app.js filters the list through it, rather than only drawing it', () => {
   const app = read('public/app.js');
   assert.ok(app.includes('inboxFilter'), 'app.js never asks the control anything');
-  assert.ok(/inRepo\.filter\(inKind\)/.test(app), 'the list is not filtered by kind');
+  // `inBoard`, not `inRepo`: bc-rfnr.2 put the P0 board's descendant filter between the
+  // two, and the kind filter is deliberately last so the chips count what you can
+  // actually get to. What this check is about is that `inKind` still narrows the list
+  // rather than only colouring the chips — whichever variable it is handed.
+  assert.ok(/inBoard\.filter\(inKind\)/.test(app), 'the list is not filtered by kind');
+  assert.ok(/const inBoard = underOwnedP0s\(inRepo\)/.test(app), 'the P0 board no longer narrows the list');
   assert.ok(app.includes('surveyKinds('), 'the chips are never told what is on screen');
 });
 
