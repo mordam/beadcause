@@ -233,12 +233,13 @@ console.log('\nand the doors that need a harness to press');
 
 const server = fs.readFileSync(LIB('server.js'), 'utf8');
 const deliver = fs.readFileSync(path.join(HERE, '..', 'bin', 'deliver.js'), 'utf8');
-// The two taps are asserted where they can be pressed: test/mergeclose.mjs answers a
-// delivery card and test/boardmerge.mjs posts to `/api/pr/merge`, both against a real
-// server and a fake `gh`, and both then read the record back off disk. A worker's own
-// delivery has no such harness — it is a process that merges and exits — so what is
-// checked for that door is the call and the shape of it.
-check('a worker that merges its own pull request asks for a sweep', /requestSweep\(\{ workspace: ws\.name/.test(deliver), 'nothing in bin/deliver.js');
+// Every door is asserted where it can be pressed: test/mergeclose.mjs answers a delivery
+// card, test/boardmerge.mjs posts to `/api/pr/merge`, test/landed.mjs sweeps a merge made
+// on github.com, and `scripts/land-check.mjs` runs the real bin/deliver.js against a real
+// git and a fake `gh` — all four then read the record back. The reads below are the two
+// things none of those can see: that land-check's door is still there on a machine with no
+// `bd` (where it skips), and that nothing has moved the sweep itself into the worker.
+check('a worker that merges its own pull request asks for a sweep', /requestSweep\(/.test(deliver), 'nothing in bin/deliver.js');
 check(
   'and nothing in bin/deliver.js sweeps in its own process',
   !/sweepConflicts/.test(deliver),
