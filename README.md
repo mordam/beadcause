@@ -6964,6 +6964,18 @@ than a sweep. And **a close bd would refuse writes nothing at all** — the comm
 that guard reads, so a comment left over a close that failed would blind this to that
 bead permanently. `reconcileLanded: false` switches the whole thing off.
 
+**And a sweep that closed something brings this Mac's `main` up.** A worker's delivery
+fast-forwards the main checkout after its own merge, and the tap on the pull request board
+has always done it — which left this one door into `main` not doing it, and it is the door
+this sweep exists for. So the bead closed, the board drew merged, and local `main` stayed
+behind until something else happened to fetch: every worktree cut afterwards branched from
+before the merge, which is [the staleness the delivery path already fixed](#landing-work--a-branch-a-pull-request-and-the-workers-own-merge) arriving by the one route it did not cover. It is the same
+`landLocally`, including its refusal to touch a checkout with uncommitted work in it — one
+line naming the paths, and `main` left exactly where it was. Only when the sweep actually
+closed a bead or a card, because that is the moment the answer is known to be worth a
+fetch; a workspace of forty checkouts asking every ten minutes for a question that is
+nearly always "no" is forty fetches for nothing.
+
 #### The fortnight that was really forty rows
 
 The sweep says it looks back fourteen days, and for its first weeks it did not. It asked
@@ -7019,6 +7031,17 @@ bead over work that had landed, and the worker was left choosing between disobey
 brief and leaving the bead open for attempt 3. It now recognises that state, closes the
 bead exactly as its own merge would, and prints `landed #42` — having pushed nothing,
 because a card merge deletes the remote branch and pushing would recreate it.
+
+**And it asks GitHub about the branch rather than for the newest forty pull requests**,
+which is the same cap one command along. `gh pr view <branch>` resolves a *ref*, so it
+misses the moment a merge deletes the branch — and deleting the branch is precisely what a
+merge from a card does, which makes the fallback the part that actually runs on the case
+that matters. That fallback listed forty merges and matched the head ref here, so a branch
+merged from a card yesterday was already off the end of the list and the delivery died
+with `no commits that origin/main does not` over work that had landed (bc-kbr6). The match
+moved into the query, as `--head`, which GitHub answers from the `headRefName` it keeps on
+the pull request for good. There is no window to get wrong now, and no dependence on how
+much else merged in between.
 
 ### The duplicate that comes ready the moment its original lands
 
@@ -7132,6 +7155,68 @@ dozen sessions land through GitHub and pull at their own pace, so local `main` r
 carries what nobody else has. It asks once per bead per branch, recognising its own work by
 a marker in the notes — the `human` label cannot be the guard, because answering "keep it
 open" takes that label off. `flagInMain: false` switches it off.
+
+### The bead that is closed over a branch that never reached main
+
+The same question upside down, and the only one in the family where the cost of missing
+one is **the work itself** rather than a wasted window.
+
+bc-nib3.5 built `/bead-session`, ran the whole suite green, and closed itself with a close
+reason ending "On worktree-bead-session-nib35, not merged". The branch was never pushed
+and no pull request was ever opened. From every screen there is, that bead reads as
+finished — a closed bead with a detailed close reason is the least suspicious thing in the
+tracker — so `bd ready` handed out the child bead that *links to* the page, and an
+unattended session was opened against a page that does not exist. bc-5lcc and bc-0nq8 are
+two more, each found the same way: weeks later, by somebody going to reuse something that
+turned out not to be there. Left alone, the worktree is retired and the only trace is a
+local branch nobody is looking at.
+
+So every `notInMainIntervalMinutes` the advocate reads its **closed** beads of the last
+fortnight, works out which `worktree-*` branch each one owns, and asks git and GitHub
+whether that work landed. It owns the branch whose trailing tag is its own id —
+`worktree-squash-proof-5lcc` for bc-5lcc — and deliberately **not** a branch it merely
+mentions in its prose, which is what the sweep above matches on. The two are asking
+different questions: "is the branch this bead asked for already in?" can be answered by
+any branch the bead names, but "was this bead closed over work that never landed?" is a
+claim about its own delivery, and bc-5lcc's description names *another* bead's branch.
+
+Three facts have to hold before it says anything. The branch still **exists**; it has
+**commits the base does not**; and **GitHub has no pull request for it**, merged or open.
+That last one is not optional and is why the sweep refuses to run without `gh`: a squash
+merge leaves no ancestry at all, so git alone reports every deliberate squash as lost work
+for ever, and a sweep that cries wolf daily is one nobody reads. An open pull request is
+not a merge either, but somebody is already looking at it.
+
+There is no ancestry walk here, which is the one difference from the sweep above worth
+knowing. That one has to tell a merged branch apart from an unstarted worktree, and both
+are ancestors of `main`. This one never does: a branch with nothing of its own is not
+stranded work whichever of the two it is, so one `rev-list --count` answers the whole
+question.
+
+**It does not close, reopen, merge or push anything, and it especially does not reopen the
+bead** — that would put it straight back in `bd ready`, where a session would be opened on
+work you have not been told about yet. The finding is filed as its own bead, and it has to
+be: `bd human list` returns open issues, so a card appended to a closed bead is a question
+nothing would ever render. That new bead carries the branch, the commits and the id of the
+bead it is about, and its two options are **Land it** — a `closes: false` commission, so
+one tap hands it to `bd ready` as ordinary work with everything a session needs already on
+it — and **Let it go**, which closes it and leaves the original closed with the finding on
+its thread. Neither is recommended: that a bead was closed over unlanded work says nothing
+about whether the work is still worth having.
+
+It asks once. The fingerprint goes in the *closed* bead's notes rather than on the card,
+because the card gets answered and closed and a guard that read its existence would refile
+it for ever. The card is written first all the same, and the fingerprint second: a creation
+that fails has written nothing and simply comes back next interval, where a fingerprint
+written over a card that was never filed would be a finding lost in silence.
+
+Two costs shape the schedule. It is the only sweep here that reads *closed* beads, which is
+half a megabyte of `bd list` on a busy tracker; and it spends a `gh pr list` on each branch
+git says never landed, of which this laptop keeps every retired worktree's. So it runs
+hourly rather than every ten minutes, and asks GitHub about at most twenty branches a
+sweep — nothing is dropped, since a branch it did not reach writes no fingerprint and is
+first in line next time, and the count of what it skipped goes in the log. `flagNotInMain:
+false` switches it off.
 
 ### The bead whose work is already in an open pull request
 
@@ -8205,6 +8290,13 @@ create. `--out=<dir>` writes a screenshot; `--keep` leaves it served so you can 
 yourself. It needs `npm run vendor` to have run — a fresh worktree has no
 `public/vendor`, and without it the app throws on its first markdown render and the
 list never appears, which looks exactly like a bug in whatever you just changed.
+
+`.gitignore` says `public/vendor` with **no trailing slash**, and that detail is bc-slxm.
+A pattern ending in `/` matches directories only, so a session that linked the directory
+in from the main checkout instead of rebuilding it left git reporting `?? public/vendor` —
+and `beadcause-deliver` refuses a worktree with uncommitted changes in it, at the very
+end, after the suite had already passed. `node_modules` above it has always been spelled
+without the slash, which is why only vendor bit.
 
 ### The cache version a branch forgot to move
 
@@ -10952,6 +11044,8 @@ Two consequences of that ordering worth knowing:
 | `advocates.supersededIntervalMinutes` | how often that looks (default 10). Unlike the sweep above it is never forced before a launch, because a marked bead cannot reach one |
 | `advocates.flagInMain` | [ask about an open bead naming a `worktree-*` branch that is already in `origin/main`](#the-bead-whose-branch-is-already-in-main) (default `true`). It never closes anything — a merged branch is a fact, "so the bead is done" is your call |
 | `advocates.inMainIntervalMinutes` | how often that looks (default 10). It runs before the survey, so a bead it flags is out of the queue in the same tick and no session is opened on it |
+| `advocates.flagNotInMain` | [file a finding about a **closed** bead whose own `worktree-*` branch never reached `main`](#the-bead-that-is-closed-over-a-branch-that-never-reached-main) (default `true`). The one sweep here whose failure costs the work rather than a window. It closes, reopens, merges and pushes nothing: the finding is a new bead in the inbox, because a card on a closed bead is never rendered |
+| `advocates.notInMainIntervalMinutes` | how often that looks (default 60). Hourly rather than ten-minutely because it is the only sweep that reads *closed* beads — half a megabyte of `bd list` — and spends a `gh pr list` per branch git says never landed |
 | `advocates.holdOpenPrs` | [hold a bead out of the queue while an open pull request already carries its work](#the-bead-whose-work-is-already-in-an-open-pull-request) (default `true`). It closes nothing — an open PR is not a merged one — it holds, with the number on the card. Without it a worker briefed to merge is opened beside a resolver briefed that the merge is not its to make |
 | `advocates.inflightIntervalMinutes` | how often that asks GitHub (default 5, shorter than the sweeps above because a delivery that could not merge opens a pull request and hands the bead back to `bd ready` in the same minute). It also asks *unconditionally* right before opening a session |
 | `advocates.holdLiveSessions` | [hold a bead out of the queue while a live session already names it](#the-bead-somebody-is-already-sitting-in) (default `true`). The claim is not the guard the brief says it is — "request changes" drops it, a timeout drops the slot, a restart forgets the worker — and without this a second window opens into a worktree somebody is still editing. No interval: the session records are files on this laptop, so it reads on every tick and again before a launch |
@@ -11354,7 +11448,7 @@ one press on the card, rather than a cap that scales with the length of a list. 
 that limit the concurrency is genuine: one tick opens as many windows as it has slots
 for, in as many different checkouts as the beads name.
 
-**Every sweep that asks a checkout asks all of them.** Three do, and each was reading one
+**Every sweep that asks a checkout asks all of them.** Four do, and each was reading one
 directory when a workspace only had one:
 
 | Sweep | What it asks a checkout | What one directory would have cost |
@@ -11362,6 +11456,7 @@ directory when a workspace only had one:
 | open pull requests | `gh pr list --state open` — which beads are already on a branch | a bead whose PR is open in `athena-service` looks exactly like a bead nobody has started, and gets a second window: [bc-utyr](#the-bead-whose-work-is-already-in-an-open-pull-request) with the repo name changed |
 | merged pull requests | which beads GitHub says landed | a bead stays open over work already in `main`, and the next tick spends a window proving it |
 | branches in main | `git merge-base --is-ancestor` against the base | the same, one state earlier — the branch is in the `main` of the repo it was cut from, and nowhere else |
+| [branches *not* in main](#the-bead-that-is-closed-over-a-branch-that-never-reached-main) | which `worktree-*` branches a closed bead owns, and whether any of that work landed | a branch lives only in the checkout it was cut from, so one directory means every other repo's stranded work is silently not there to find — and unlike the three above, nothing else is ever going to notice it |
 
 They are merged, not raced: the first checkout to name a bead wins, in the order the
 `approved` list is written, and the repo travels with the answer so the card can say
