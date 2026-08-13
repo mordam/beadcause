@@ -12022,9 +12022,9 @@ query is "assigned to you", so a name on every row would be the same name on eve
 `state.questions`, exactly as the pull requests and the chat sessions are, for the reason
 that array is read by things a ticket is none of: the waiting count above the list, the
 space picker's per-repo numbers, the answer path, the "N waiting" the monitor draws. A
-ticket is not a bead here **yet** — making one is what the epic-per-ticket step does — and
-until it is, counting it as work asking you something would be a number that no tap can
-bring down.
+ticket is **never** a bead here: the ticket gets [an epic of its own](#an-epic-per-ticket--filed-once-forever-and-held),
+and that bead is the thing you act on, while the row stays a row. Counting the row as work
+asking you something would be a number that no tap can bring down.
 
 Two behaviours come free from being a row and are worth stating because they are what a
 separate screen would have had to re-implement: a ticket obeys the **space picker** and
@@ -12038,6 +12038,78 @@ does not change what rings your phone, so a hidden `JIRA` chip can still notify 
 draws, that the key namespace cannot collide with a bead's, that nothing writes a ticket
 into `state.questions`, and — the one that matters — that the word keeping a ticket out
 of the questions is in the predicate rather than only in the comment above it.
+
+### An epic per ticket — filed once, forever, and held
+
+A ticket that arrives gets a bead: an **epic**, at **P1**, carrying
+`external_ref: jira-<KEY>`, arriving `unendorsed`. That bead is what everything else about
+the ticket hangs off — the work ingested under it, the discussion, the decision to cancel
+it — because a ticket has no id in any tracker and nothing about it can be answered. The
+row in the inbox stays a row; the epic is the thing you can act on.
+
+**Exactly one, forever, is the whole of this step.** The poller re-answers with the same
+tickets every minute and a restart starts from nothing, so "file an epic for each ticket"
+without that word means ten thousand beads by Friday. Three nets, in order, and they catch
+different things:
+
+1. **The ref.** `bd create --external-ref jira-TECH-1` was already a field and already a
+   flag, and it is the link in both directions — from the bead to the ticket for anybody
+   reading it, and from the ticket to the bead for the sweep that has to decide. It is
+   looked up **before** every create, against `bd list --all` rather than against memory,
+   because the epic that was finished last month is not in any list of open work and is
+   still the one epic that ticket gets.
+2. **A near-verbatim title** ([lib/dupe.js](#a-card-that-is-already-a-bead-says-so--and-still-files)), which catches
+   the epic an older build filed before it wrote refs, and the one a second machine on a
+   shared tracker filed while this one was off.
+3. **A title that opens with the ticket key** — `TECH-1 — …`, `TECH-1: …`, `[TECH-1] …`.
+   That is what a person writes when they raise the bead by hand, and its summary need not
+   resemble the ticket's at all, so net 2 cannot see it.
+
+A bead caught by net 2 or 3 is **adopted, not skipped**: the ref is written onto it with
+`bd update --external-ref` and a comment on the bead says so. Skipping would leave the
+ticket with nothing findable by ref — which is the state those two nets exist to get *out*
+of — and would re-decide itself by fuzzy title matching on every restart. Two things it
+will not do: adopt a bead that already carries some *other* `external_ref`, because that is
+somebody else's link, and adopt a bead that merely *mentions* the key. "Follow-up to
+TECH-1" is a bead about the ticket and is not the ticket's epic; net 3 is anchored to the
+start of the title for exactly that reason.
+
+**It arrives held.** `unendorsed`, which is [two layers](#the-endorsement-queue--a-group-tap-or-a-row-at-a-time)
+and only one of them is a queue filter: `openWorkSession` asks the tracker itself, so an
+epic handed straight to the launcher is still refused. That refusal is the guarantee, and
+it matters more here than for an agent's discovery — a JIRA site can assign you fifty
+tickets in an afternoon and nobody has read any of them. `autoEndorse` is the existing
+per-space switch for a space that wants these to skip the gate, and the note on the bead
+says plainly which of the two happened, because a bead claiming to be waiting for a tap
+over a session already running on it is the worse of the two errors.
+
+**Who owns it is not the JIRA assignee, and that is deliberate.** `bd` takes `owner` from
+the git identity of the directory the command runs in, which for a work workspace is
+already the work address. So nothing tries to force one: the assignee is recorded *on* the
+bead — named in the description, reachable through the ref — and the real per-person
+question is left where it belongs, with the advocate that would open the session.
+
+**What a quiet minute costs: nothing.** Each workspace's `ref → id` map is held in memory
+and a tick whose every ticket is already in it makes no `bd` call at all. The map is only
+ever trusted to *skip* — the moment a ticket is missing from it the tracker is re-read and
+the decision made against that, because two sessions filing at once, a bead deleted by
+hand and a `bd dolt pull` bringing in the other machine's epic are all wrong in memory and
+right in the tracker. A create that fails is left alone for five minutes rather than
+retried on the next tick: a ticket bd will never accept would otherwise buy a full read of
+the workspace every minute for as long as it exists.
+
+**No bus event, and that is not an oversight.** Nothing on `/api/poll` changes when an epic
+is filed — a held bead is out of every queue and every count — so an event would wake every
+parked phone to redraw an identical inbox. What is dropped instead is the endorsement
+queue's fifteen-second cache, because that screen is the one place the new epic appears and
+it is fetched on its own.
+
+`node test/jiraepic.mjs` covers the three nets, the hold and its refusal, the free path, the
+backoff and where the epic lands. `node test/jiraepicreal.mjs` asks the **real** `bd` the
+one question a fake cannot answer: that a ref written on the way in comes back out on the
+way past, on create, on update, and on a bead that has since been closed. If it did not,
+every sweep would look up a ticket, find nothing, and file another perfectly well-formed
+epic a minute later.
 
 ### One credential rule and one wire, shared by JIRA and Confluence
 
