@@ -370,6 +370,9 @@
    * floor), and `deferredByPriority` is the part of `ready` it is deliberately leaving
    * alone. The difference between "4 ready" and "4 ready, 3 of them below the floor" is
    * the difference between an advocate that is idle and one that is behaving as told.
+   * `closed` comes last of all and is the exception to the whole row: every other number
+   * here is work that is not done, so it is the one that had to go after the holds
+   * rather than beside `open` where the tracker itself puts it.
    *
    * `heldByRepo` is the newest of them and the odd one out: every other hold on this
    * row resolves itself in time — a window closes, a pull request merges, an epic's
@@ -519,6 +522,27 @@
       // guess have helped?" can be answered from the screen rather than from a hunch.
       busyFiles.length
         ? `<span class="pill muted" title="${esc(busyFiles.map((h) => `${h.id} — ${h.why}`).join('\n'))}">${busyFiles.length} opened onto a busy file</span>`
+        : '',
+      // Last, because it is the only pill on this row that is not work outstanding.
+      // Everything above it is something still to do — open, ready, blocked, held one of
+      // nine ways — and this is what is finished, which is why it reads oddly anywhere
+      // but the end.
+      //
+      // A link for the same reason `held` above it is one: the count was already being
+      // computed and there was nowhere to go from it. It goes to the ledger rather than
+      // to a closed-only list, because there is no closed-only list — the tooltip says
+      // so out loud, so a pill reading `586 closed` cannot be taken as a promise that
+      // 586 rows are on the other side of it. Narrowing it is bc-nib3.7's, and it waits
+      // on the filters (bc-nib3.3) existing at all.
+      //
+      // No `?ws=` on the link, exactly as `/endorse` and `/prs` above have none. Every
+      // page in the app is scoped by the one space picker, which lives on the server —
+      // a link that narrowed the list without moving the picker would hand you a page
+      // whose own control disagreed with what it was showing, and one that moved the
+      // picker would change what every other client is looking at because you tapped a
+      // count.
+      c.closed
+        ? `<a class="pill muted" href="/history" title="Every bead this space has ever had, newest first — the closed ones among them">${c.closed} closed</a>`
         : '',
     ].filter(Boolean);
     return `<div class="mon-domain">${pills.join('')}</div>`;
