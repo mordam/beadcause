@@ -5,10 +5,10 @@
  *     npm test
  *     node test/inboxkinds.mjs
  *
- * The inbox carries five different jobs at one address — a plain question, an
- * advocate's proposal, a worker's merge, a pull request, and (under `Both` and `Agent`)
- * the live beads nobody is asking you about — and public/inboxfilter.js is the one place
- * that knows which is which. Five things about it are worth a suite, and none is visible
+ * The inbox carries six different jobs at one address — a plain question, an
+ * advocate's proposal, a worker's merge, a pull request, a JIRA ticket assigned to you,
+ * and (under `Both` and `Agent`) the live beads nobody is asking you about — and
+ * public/inboxfilter.js is the one place that knows which is which. Five things about it are worth a suite, and none is visible
  * by reading one function:
  *
  * 1. **The kinds have to partition the list.** `KINDS` is a table of predicates, and
@@ -215,6 +215,22 @@ const ROWS = {
   // are not beads at all — no id in any tracker, nothing to answer. See `chatRows` in
   // public/app.js.
   session: { key: 'chat/abc', workspace: 'w', session: { id: 'abc', title: 'New beads' } },
+  // A JIRA ticket, the third of those and the only one that is not even a thing this
+  // app holds — it comes off JIRA. Shaped as bc-0i27.2's poller holds one: key,
+  // summary, status, updated, url, assignee, and no description body. See `jiraRows`
+  // in public/app.js.
+  jira: {
+    key: 'jira:w/TECH-1204',
+    workspace: 'w',
+    jira: {
+      key: 'TECH-1204',
+      summary: 'The meter reads zero after a reconnect',
+      status: 'In Progress',
+      updated: '2026-08-11T09:00:00Z',
+      url: 'https://example.atlassian.net/browse/TECH-1204',
+      assignee: 'adam.morgan@climative.ai',
+    },
+  },
   claimed: { key: 'w/a1', workspace: 'w', agent: true, status: 'in_progress' },
   blocked: { key: 'w/a2', workspace: 'w', agent: true, status: 'blocked' },
   unclaimed: { key: 'w/a3', workspace: 'w', agent: true, status: 'open' },
@@ -222,11 +238,11 @@ const ROWS = {
 
 const QUESTION_KINDS = ['question', 'proposal', 'delivery'];
 const AGENT_KINDS = ['claimed', 'blocked', 'unclaimed'];
-/* On neither side, so every scope can hold one: a pull request comes off `gh`, and a
-   chat session off no sweep at all, so for neither is there a scope that could have
-   missed it — which is what `side: 'any'` means. public/app.js `kindsForScope` is the
-   other half. */
-const ANY_KINDS = ['pr', 'session'];
+/* On neither side, so every scope can hold one: a pull request comes off `gh`, a chat
+   session off no sweep at all, and a JIRA ticket off JIRA, so for none of the three is
+   there a scope that could have missed it — which is what `side: 'any'` means.
+   public/app.js `kindsForScope` is the other half. */
+const ANY_KINDS = ['pr', 'session', 'jira'];
 /** A pull request on a given rung, as the row app.js synthesises from the board. */
 const prOn = (stage) => ({ key: `pr:w#${stage}`, workspace: 'w', pr: { number: 1, stage } });
 
