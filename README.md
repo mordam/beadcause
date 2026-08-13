@@ -8189,7 +8189,7 @@ process — it is read on every poll, and it does not stop being true.
   "mergeMethod": "merge",
   "autoMerge": true,
   "requireApproval": false,
-  "mergeWaitMs": 300000,
+  "mergeWaitMs": 900000,
   "tidyMerged": true
 }
 ```
@@ -8255,7 +8255,10 @@ what is below stays the fallback for everything that has not said.
 `mergeWaitMs` is how long a worker waits for its checks before giving up and asking. Too
 short and a repo with CI hands you every delivery as a question — a pull request is at
 its most pending in the second after it is opened. Too long and a stuck CI queue holds a
-worker's window open for an hour. Five minutes, then it asks.
+worker's window open for an hour. Fifteen minutes, then it asks — measured rather than
+picked: `.github/workflows/test.yml` runs the whole suite on a macOS runner in about five
+minutes, and the five this used to be would have handed you nearly every delivery as a
+question about a pull request that was going green on its own.
 
 **There is a second wait, and it has no setting.** GitHub works out whether a pull request
 can merge *asynchronously*: for a few seconds after a push, `mergeable` is `UNKNOWN` —
@@ -11506,7 +11509,7 @@ Two consequences of that ordering worth knowing:
 | `pr.mergeMethod` | `merge` (default), `squash` or `rebase`. A merge commit because a squash-merged branch is never an ancestor of `main`, and the worktree cleanup will not remove a worktree that fails that test |
 | `pr.autoMerge` | the worker merges its own pull request once the checks report (default `true`). `false` stops it after opening the PR and makes the merge your tap, which is what every delivery used to do. A worker can choose the same for one delivery with `--review`. **A [space](#spaces--keeping-work-out-of-your-evening) overrides this either way**, so this is the default rather than the answer |
 | `pr.requireApproval` | a pull request needs an `APPROVED` review before a worker may merge it (default `false`). Green but unapproved becomes a merge card saying so, rather than a merge — the setting for a repo other people work in. Per space, like `autoMerge` |
-| `pr.mergeWaitMs` | how long a worker waits for its checks before handing the PR over instead (default 5 min). A PR is at its most pending the second after it is opened, so without this a repo with CI would ask you about every delivery |
+| `pr.mergeWaitMs` | how long a worker waits for its checks before handing the PR over instead (default 15 min — the suite takes about five on a runner). A PR is at its most pending the second after it is opened, so without this a repo with CI would ask you about every delivery |
 | `pr.tidyMerged` | let the worktree sweep ask GitHub whether a branch's PR merged, since a squash-merge never makes it an ancestor of main (default `true`; belt beside `mergeMethod`'s braces) |
 | `advocates.workspaces` | which repos get an [advocate](#advocates--an-agent-per-repo-whose-job-is-the-queue-reaching-zero). **Empty by default**; `["*"]` for every one |
 | `advocates.maxWorkers` | sessions one advocate may have open at once (default 1), clamped to `maxWorkersLimit` |
@@ -12370,6 +12373,49 @@ get wrong in silence: that every `test/*.mjs` on disk is in the list (the chain 
 *be* the inventory; the directory is now), that the two `scripts/` entries which are not
 `test/*.mjs` survive, that the three pinned positions hold, and that a failure still
 stops the run, propagates its exit code, and does not run what comes after it.
+
+### GitHub runs it too — `.github/workflows/test.yml`
+
+The same `npm test`, on a `macos-latest` runner, on every pull request, every push to
+`main`, and every merge-group entry. It exists because of what `bin/deliver.js` cannot
+see: it runs the suite locally, on the branch, against the `main` that branch was *cut
+from*. Two branches that each pass alone can still break `main` together, and with a
+dozen worktrees in flight that is not a hypothetical — the merge is a third thing neither
+of them ever ran. bc-rcrt.
+
+**macOS, not Linux, and that is not a preference.** This is a program about launchd,
+osascript, iTerm and a tailnet; the first Ubuntu run died eight suites in on
+`spawn /bin/zsh ENOENT`. On a macOS runner the whole suite passes — but only after the
+runner found four assertions that were about Adam's Mac rather than about the code, each
+of which had been green here for exactly the reason it could never be green anywhere
+else:
+
+- `test/tlsadmin.mjs` named the literal `100.96.105.106` — this laptop's own Tailscale
+  address — as the origin HTTPS falls back to when it is switched off. `BEADCAUSE_TAILSCALE_IP`
+  now pins it. It is deliberately a separate knob from `BEADCAUSE_TAILSCALE`, which
+  overrides the *binary*: `test/certrenew.mjs` asserts the exact list of subcommands its
+  fake is handed, and an `ip -4` in that list breaks three assertions there.
+- `test/claims.mjs` required the refusal to say `worktree-`, true of every checkout on
+  this Mac and of no clone anywhere. It now asks git for the branch the hook would report.
+- `test/outagepush.mjs` produced its outage with a 250ms health window and the reasoning
+  that nothing starts in a quarter of a second. Nothing here does, opening several real
+  beads workspaces; a runner opening one empty one came up first time, so the router never
+  went down and the suite asserted none of what it exists for. `BEADCAUSE_START_DELAY_MS`
+  is the other half of that guarantee — the backend-side mirror of `healthTimeoutMs`.
+- `browse()` SIGKILLed Chrome and deleted the throwaway profile in the same tick. Crashpad
+  outlives the browser it reports on and wrote the directory back after the delete, so the
+  reporter is now off and the browser gets SIGTERM first.
+
+The runner is given two things it has no reason to have: a git identity, because ~28
+suites commit into a temp repo and only most of them set their own, and an empty
+`~/beads/ci/.beads`, because four suites spawn the real daemon and a daemon with no
+workspace correctly refuses to start.
+
+**The job is called `test` and the name is load-bearing.** Branch protection and the merge
+queue name a required check by its job name; rename the job and the rule silently stops
+matching — GitHub does not complain, it waits for a check that will never report. The
+`merge_group` trigger is there before there is a queue for the same reason: a required
+check that does not answer merge-group events blocks a queue rather than gating it.
 
 ### The session-log contract is inside the gate — `test/agentlog.mjs`
 
