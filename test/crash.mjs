@@ -588,6 +588,11 @@ await check('every swallowed failure in the poll cycle reports', () => {
   assert.deepEqual(
     named.sort(),
     [
+      // Sorted, and a capital letter sorts before every lower-case one — lib/jirapoll.js.
+      // Its `sweep` records each JIRA failure against the workspace it belongs to and
+      // returns rather than throwing, so what reaches this catch is the cycle's own
+      // bookkeeping: the same bar `the tracker sync` below is held to.
+      'the JIRA poll',
       'the advocate tick',
       // The beat's own guard. Everything inside the cycle already catches; what reaches
       // this one is the cycle's bookkeeping failing, which is a bug by construction —
