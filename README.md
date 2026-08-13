@@ -624,11 +624,34 @@ costs no `bd` call at all: the counts are cached off the last sweep, the way the
 waiting" chip beside it already is, so a control drawn on every page load cannot become
 a `bd human list` across every workspace on every page load.
 
-`node test/spacebar.mjs` (part of `npm test`) covers it, and the check that earns the
-suite is the one nobody can do by reading: the client's `matches()` and the server's
-`matchesFilter()` are run against each other over every combination of filter and
-workspace, because those two disagreeing in the direction "rings but is not shown" is a
-question you were told about and cannot find.
+**The number on the picker is the list under it, counted, and there is only one of
+them.** It read as a small thing and was not: the inbox printed "Nothing live" with a
+non-zero count in the bar directly above it, because that count had two sources and no
+rule about which won. The picker used to take a *space's* total from `spaces[].count` —
+the server's own sweep of the human-questions channel — and a *repo's* from the
+`counts` map, which the inbox overwrites with what it is actually drawing; so one
+dropdown showed two sweeps, and a scope or a kind filter made them differ by
+construction. Worse, spacebar.js's `/api/spaces` fetch is sent before the page's script
+runs, so on a warm boot its reply landed *after* the inbox had published its own numbers
+and replaced them with the wrong ones.
+
+Both halves are now rules rather than orderings, and `node test/spacebar.mjs` holds them:
+
+- **Every number on the bar is arithmetic over the one `counts` map.** A space's total is
+  its repos summed in the client; `spaces[].count` is read for the 🔕 and the shape and
+  never for a figure.
+- **A page that draws a list owns the numbers.** `adopt()` records what a page publishes
+  and the `/api/spaces` reply is adopted *weakly* — field by field, yielding to anything
+  a page has already said. A page that publishes nothing still gets all of it.
+- **The inbox counts what `render()` drew**, not what the payload said, over everything
+  except the picker's own narrowing: the scope, the kind filter, pull requests as rows.
+  So `beadcause · 3` is a promise that picking `beadcause` leaves you three things — and
+  a kind-filter tap, which fetches nothing at all, moves the number with the list.
+
+The check that earns the suite is still the one nobody can do by reading: the client's
+`matches()` and the server's `matchesFilter()` are run against each other over every
+combination of filter and workspace, because those two disagreeing in the direction
+"rings but is not shown" is a question you were told about and cannot find.
 
 #### The row it costs, and why it keeps it
 

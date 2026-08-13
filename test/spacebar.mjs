@@ -339,6 +339,131 @@ check('a change made on the other device arrives through adopt and is announced 
   assert.deepEqual(plain(h.space.filter), { space: 'Personal', workspace: 'sophab' });
 });
 
+/* ------------------------------- one set of numbers, and whose they are */
+
+/**
+ * The reported screen, both halves of it.
+ *
+ * The inbox printed "Nothing live" while the picker beside it showed a non-zero count —
+ * two sources for one number. The page publishes what it is drawing; our own
+ * `/api/spaces` fetch was sent from the top of spacebar.js, before that page's script
+ * ran, so its reply lands *after* — carrying the human-questions channel as of the last
+ * poll, in whatever scope the list is not showing. Whichever landed last used to win.
+ */
+const late = (() => {
+  let land = () => {};
+  const h = load({
+    fetch: (url) =>
+      url === '/api/spaces'
+        ? new Promise((resolve) => {
+            land = () =>
+              resolve({
+                ok: true,
+                json: async () => ({
+                  spaces: SPACES,
+                  workspaces: NAMES,
+                  counts: COUNTS,
+                  filter: { space: 'all', workspace: 'all' },
+                }),
+              });
+          })
+        : Promise.resolve({ ok: false }),
+  });
+  return { h, land: () => land() };
+})();
+// The inbox, warm-booted from cache in the same tick: the agent scope, nothing live in
+// any repo. It publishes an empty set of counts because that is what it is showing.
+late.h.space.adopt({
+  spaces: SPACES,
+  workspaces: NAMES,
+  counts: {},
+  filter: { space: 'all', workspace: 'all' },
+});
+late.land();
+await new Promise((r) => setTimeout(r, 20));
+
+check('an /api/spaces reply landing after a page has published its own counts is ignored', () => {
+  assert.equal(late.h.space.waiting(), 0, 'the picker is counting beads the list is not showing');
+  assert.equal(late.h.count.hidden, true, 'a count is drawn over an empty list');
+  assert.ok(!late.h.select.innerHTML.includes('·'), `a number survived: ${late.h.select.innerHTML}`);
+});
+
+/* The other side of the same rule: a page that sweeps nothing — the PR board, the
+   advocate console — has only this fetch, and must get all of it. */
+const quiet = load({
+  fetch: async () => ({
+    ok: true,
+    json: async () => ({
+      spaces: SPACES,
+      workspaces: NAMES,
+      counts: COUNTS,
+      filter: { space: 'Personal', workspace: 'all' },
+    }),
+  }),
+});
+await new Promise((r) => setTimeout(r, 20));
+
+check('but it is still the whole payload for a page that publishes nothing of its own', () => {
+  assert.equal(quiet.space.waiting(), 2, 'Personal, from the fetch alone');
+  assert.deepEqual(plain(quiet.space.filter), { space: 'Personal', workspace: 'all' });
+  assert.ok(quiet.select.innerHTML.includes('value="ws:sophab"'), 'no repos: the bar cannot be used');
+});
+
+check('a space`s number is its repos summed, never a second count from the server', () => {
+  const h = load();
+  // `SPACES` says 2 in Personal — its own sweep of the questions channel. The page has
+  // published 1, because the kind filter on screen hides the other. The row in the
+  // dropdown and the badge on the bar are both the number under the list.
+  h.space.adopt({ spaces: SPACES, workspaces: NAMES, counts: { beadcause: 1 }, filter: { space: 'all', workspace: 'all' } });
+  assert.ok(h.select.innerHTML.includes('Personal — all · 1'), h.select.innerHTML);
+  assert.ok(h.select.innerHTML.includes('All spaces · 1'), h.select.innerHTML);
+  h.space.set({ space: 'Personal', workspace: 'all' }, { post: false });
+  assert.equal(h.space.waiting(), 1);
+  assert.equal(h.count.textContent, '1');
+  // Including the synthetic group, which the server emits only when its own sweep found
+  // a stray: `SPACES` has an "Other" row counting one, and the list is showing none.
+  h.space.set({ space: 'Other', workspace: 'all' }, { post: false });
+  assert.equal(h.space.waiting(), 0, 'Other is counting a bead the list is not showing');
+});
+
+check('and a space with nothing in it draws no number at all, whatever the server said', () => {
+  const h = load();
+  h.space.adopt({ spaces: SPACES, workspaces: NAMES, counts: {}, filter: { space: 'all', workspace: 'all' } });
+  assert.ok(!h.select.innerHTML.includes('·'), h.select.innerHTML);
+  h.space.set({ space: 'Climative', workspace: 'all' }, { post: false });
+  assert.equal(h.space.waiting(), 0);
+});
+
+check('a settings write that refreshes the spaces does not resurrect their counts', () => {
+  // public/monitor.js adopts `{spaces}` alone after writing a space's flags, to move the
+  // 🔕 without waiting for a poll. Those rows carry the server's counts, and the page's
+  // own are still the ones on screen.
+  const h = load();
+  h.space.adopt({ spaces: SPACES, workspaces: NAMES, counts: { beadcause: 1 }, filter: { space: 'all', workspace: 'all' } });
+  h.space.adopt({ spaces: SPACES });
+  h.space.set({ space: 'Personal', workspace: 'all' }, { post: false });
+  assert.equal(h.space.waiting(), 1);
+});
+
+check('the inbox publishes the counts from the render that drew the list', () => {
+  const app = read('public/app.js');
+  // Not from the payload: a kind-filter tap changes the list and fetches nothing, pull
+  // requests arrive on a clock of their own, and a render can be deferred behind a
+  // half-written answer. Counted before the picker's own narrowing and after everything
+  // else, which is what makes `beadcause · 3` a promise about what picking it leaves you.
+  //
+  // "Everything else" is named rather than implied: `underOwnedP0s` because the list
+  // under an owned board is its descendants and nothing else, `inKind` because the chips
+  // above the list are a filter too. A sixth kind of row added to one and not the other
+  // fails here rather than on a phone.
+  assert.ok(
+    /publishCounts\(underOwnedP0s\(rows\)\.filter\(inKind\)\)/.test(app),
+    'render() does not publish the counts'
+  );
+  const publish = app.slice(app.indexOf('function publishSpaces'), app.indexOf('function publishCounts'));
+  assert.ok(!publish.includes('counts'), 'publishSpaces counts too — that is the second source back');
+});
+
 /* ================================================================ the wiring */
 
 /* Which pages have the bar, and the one that deliberately does not: admin acts on every
