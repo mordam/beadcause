@@ -4880,6 +4880,71 @@ resolved is a window you have to go and close, and a pointless window is worse t
 sentence. Refused outright on an observer instance, for the reason `POST /api/session` is —
 an unattended agent in a checkout it is only visiting.
 
+#### The sweep a merge sets off
+
+Everything above starts with a thumb. A merge into `main` is measured against every other
+open branch in the same repo and asks none of them first, so one merge can leave five pull
+requests conflicting at once — and until this existed the only thing that noticed was the
+board, which draws a red chip whenever you next look at it, with the fix waiting on a tap
+per pull request that you have to remember to go and make.
+
+`sweepConflicts` in `lib/prsweep.js` is the trigger. Given a repo and the merge that just
+landed in it, it lists the open pull requests, decides which of them conflict *now*, and
+hands the ones that are ours to the queue above. **It merges nothing, ever** — the merge
+into the base stays an act somebody initiates, from a card, from `beadcause-deliver` or
+from github.com, and the most a sweep leaves behind is a branch pushed and mergeable
+again.
+
+Four things it will not touch, and the reasons are four different reasons:
+
+- **Somebody else's pull request.** In a Climative workspace forty repos share one tracker
+  and other engineers have branches open in all of them; merging `main` into a teammate's
+  branch and pushing it is not ours to do, whatever GitHub says about the merge base. The
+  test is either half of *how beadcause knows a branch*: a bead the tracker confirms the
+  pull request is [for](#which-bead-a-pull-request-is-for), or a session archived in
+  `refs/beadcause/sessions/` that names this exact branch ([the session log, kept in the
+  repo](#the-session-log-kept-in-the-repo)). Either is
+  enough and a pull request with neither is a human's — left alone, red chip and all,
+  which is the correct outcome there rather than a failure. The second half is not
+  decoration for the first: embedded Dolt is single-writer with twenty sessions sharing
+  this laptop, and a lock collision makes the tracker answer *no beads* about a pull
+  request a worker opened this morning. Git answers when `bd` cannot.
+- **A draft.** A draft is a branch somebody is still writing, its worktree is very likely
+  locked by the session that opened it, and a resolver sent into a locked tree stands down
+  at step 2 of its own brief — a window opened in order to be closed. The next merge sweeps
+  it again, by which time it is either ready for review or still nobody's business.
+- **A pull request based somewhere else.** A merge into `main` says nothing about a branch
+  stacked on `release-2`, and a resolver sent to it would merge the wrong base in.
+- **Anything at all, on an observer instance or with `openSessions` off.** Both refusals
+  come *before* the first read rather than after it, which is the opposite order to the
+  button's — the button checks the pull request first so that "openSessions is disabled" is
+  never the answer to a question about a conflict that is not there, and nobody asked a
+  sweep anything. A sweep is the worse of the two to get wrong, not the better: the tap
+  opens one window and somebody asked for it, and this can open two while nobody is
+  watching.
+
+**And nothing here reads `mergeable` off a row.** For a few seconds after any merge lands,
+GitHub answers `UNKNOWN` about every other open pull request in the repo while it recomputes
+the merge bases — so a sweep that read the board once and believed it would report a clean
+board, reliably, every time, and look exactly like a feature that does not work. Every
+candidate goes through `mergeability` in `lib/pr.js` instead, which polls to a bounded
+deadline; `UNKNOWN` that never resolves is a third state and is **not** a conflict, so that
+pull request is reported as unanswered and left alone rather than given a window on a guess.
+
+Ownership is decided *before* mergeability, which is the opposite of how the work reads and
+the right way round for what it costs: ownership is a `bd` lookup and one `git log`, while
+mergeability is a network round trip that may sit out a thirty-second poll. A repo with
+thirty teammate branches open would otherwise spend a quarter of an hour finding out about
+pull requests it was never going to touch.
+
+The sweep **never throws at its caller**. Every one of them is a merge that has already
+succeeded, and turning a landed merge into an error because `gh` blinked would be the sweep
+doing more damage than the conflicts it exists to clear — so a failure lands in the result
+instead: `refused` for the two above, `error` for a sweep that could not run at all,
+`trouble` for the pull requests it could not read, `failed` for the windows that would not
+open. `node test/prsweep.mjs` stages the whole thing against a real repo with real session
+archives and a `gh` that answers `UNKNOWN` once before it answers the truth.
+
 #### A resolver the sweep opened is told so
 
 That brief opens with *Adam pressed **Resolve conflicts** in beadcause*, which is true of
