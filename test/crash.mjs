@@ -589,6 +589,11 @@ await check('every swallowed failure in the poll cycle reports', () => {
     named.sort(),
     [
       'the advocate tick',
+      // The beat's own guard. Everything inside the cycle already catches; what reaches
+      // this one is the cycle's bookkeeping failing, which is a bug by construction —
+      // and an unhandled rejection out of a `setInterval` callback would take the
+      // daemon with it.
+      'the cycle',
       'the deploy sweep',
       'the owed-close sweep',
       'the poll',
