@@ -5034,15 +5034,19 @@
       const row = byKey(key);
       if (!row?.pr) return;
       if (armFirst(key, 'conflicts')) return;
-      // Two sentences, because the daemon now answers two different things. A second
+      // Three sentences, because the daemon answers three different things. A second
       // press does not open a second window — it speaks to the session that already has
       // the pull request (lib/resolvers.js, bc-utyr) — and a press that reads back
       // "Session open" over a session somebody opened ten minutes ago is exactly the
-      // report that made two of them look like one.
+      // report that made two of them look like one. The third is the Mac being full:
+      // two resolvers at a time, the rest in line, and the note the daemon sends back
+      // is the one that knows how many are ahead of this one.
       await actOnPr(row, '/api/pr/conflicts', {}, (res) =>
-        res.reused
-          ? `Already being resolved on ${res.branch} — told that session you pressed again.`
-          : `Session open on ${res.branch} — it pushes the branch and stops.`
+        res.queued
+          ? `${res.note}.`
+          : res.reused
+            ? `Already being resolved on ${res.branch} — told that session you pressed again.`
+            : `Session open on ${res.branch} — it pushes the branch and stops.`
       );
       return;
     }
