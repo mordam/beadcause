@@ -155,13 +155,25 @@
     </form>
   </dialog>
 
+  <!-- Every error this page hits, sent back to the daemon as a P0 bead: an uncaught
+       exception, a rejected promise, a failed fetch, any red toast. Ahead of every
+       other script, because it can only catch what loads after it — and it is purely
+       additive, so a page that fails to load it behaves exactly as it did before. -->
+  <script src="/report.js"></script>
   <script src="/vendor/marked.js"></script>
   <script src="/vendor/purify.js"></script>
   <!-- What this page already has, from the last time you were on it: the payload it
        boots from, and the reconciler that keeps a repaint from throwing away the DOM
-       it did not need to touch. First of the shared files, because every page script
-       below asks it for a warm list before it asks the daemon for a cold one. -->
+       it did not need to touch. First of the shared files a page draws with, because
+       every page script below asks it for a warm list before it asks the daemon for a
+       cold one. -->
   <script src="/warm.js"></script>
+  <!-- The delta stream: one long poll on /api/poll, so this page learns what moved
+       instead of re-asking for everything on a clock. Beside warm.js because the two
+       are the same bargain at the two ends of a visit — one paints what you already
+       had, the other keeps it true — and before every page script, all of which mount
+       it. -->
+  <script src="/stream.js"></script>
   <script src="/presence.js"></script>
   <script src="/tabbar.js"></script>
   <!-- The space picker in the top bar — which repo the whole app is about. Before

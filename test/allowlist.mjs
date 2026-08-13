@@ -51,6 +51,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { cleanupTmp } from './helpers/tmp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(HERE, '..');
@@ -69,12 +70,7 @@ fs.mkdirSync(process.env.BEADCAUSE_CONFIG_DIR, { recursive: true });
 delete process.env.BEADCAUSE_OBSERVE;
 delete process.env.BEADCAUSE_READONLY;
 
-// foundation.js first, deliberately: it and agents.js import each other, and the module
-// entered first is the one whose constants initialise. See the same note in
-// test/lookup.mjs and scripts/selftest.mjs.
 const foundation = await import(LIB('foundation.js'));
-// After foundation.js, for the reason above — and by then it is already loaded, since
-// foundation.js is the module that imports DEFAULT_TOOL_LIST from it.
 const agents = await import(LIB('agents.js'));
 const { createAdvocates } = await import(LIB('advocate.js'));
 
@@ -533,7 +529,7 @@ await test('and the narrowed list is what reached the CLI', () => {
   }
 });
 
-fs.rmSync(tmp, { recursive: true, force: true });
+await cleanupTmp(tmp);
 
 console.log(failures ? `\n${failures} failed` : '\nallowlist: all good');
 process.exit(failures ? 1 : 0);

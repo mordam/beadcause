@@ -64,22 +64,28 @@
  * Prints `landed #<n> <url> <sha>` when it merged, or `<question-id> <pr-url>` when it
  * handed it over. Exits non-zero, loudly, on every condition where carrying on would
  * produce a PR that misrepresents what is in the branch — a dirty tree, no commits, a
- * detached head. A merge that did not happen is **not** one of those: the work is
- * pushed, the PR is open, the question is filed, and that is a good ending.
+ * detached head, or a commit carrying an unresolved merge (see `inspectBranch` below).
+ * A merge that did not happen is **not** one of those: the work is pushed, the PR is
+ * open, the question is filed, and that is a good ending.
  */
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { ownAddresseeLabels } from '../lib/addressee.js';
 import { parseJson } from '../lib/bd.js';
 import { loadConfig } from '../lib/config.js';
+import { inspectBranch, report as conflictReport } from '../lib/conflicted.js';
 import { ownerName } from '../lib/owner.js';
 import { cardsForDelivery, deliveryBody, deliveryTitle, DELIVERY_LABEL } from '../lib/delivery.js';
 import { deployFor, deployHint } from '../lib/deploy.js';
 import { landedReason } from '../lib/landed.js';
 import { pushLanded } from '../lib/notify.js';
 import { oweClose } from '../lib/owed.js';
+import { park, questionType } from '../lib/park.js';
 import * as pr from '../lib/pr.js';
+import { baseFor } from '../lib/prbase.js';
 import { landParent } from '../lib/prboard.js';
+import { repoUnits } from '../lib/repos.js';
 import { prPolicyFor } from '../lib/spaces.js';
 
 function arg(...names) {
@@ -127,7 +133,7 @@ const owner = ownerName(cfg);
 const wsName = arg('--workspace', '-w');
 const beadId = arg('--bead', '-b');
 /**
- * Where it lands and how — the flag, then the config, then the built-in default.
+ * How it lands — the flag, then the config, then the built-in default.
  *
  * The config half was missing, and its absence was invisible because the literal here
  * happened to equal the default over there. `pr.mergeMethod` reached `lib/session.js`,
@@ -136,8 +142,19 @@ const beadId = arg('--bead', '-b');
  * changed the promise and not the act. Read here, the setting means what it says, and
  * the brief and the command cannot drift apart.
  */
-const base = arg('--base') || cfg.pr?.base || 'main';
 const method = mergeMethod(String(arg('--method') || cfg.pr?.mergeMethod || 'merge').toLowerCase());
+/**
+ * And *where* it lands, which is no longer one string for the whole install.
+ *
+ * `--base` still wins outright — a session delivering into something other than its
+ * repo's default branch says so on the command line. With no flag the answer comes from
+ * `baseFor` in lib/prbase.js: `pr.base` for a workspace that is one repo, and the repo's
+ * own default branch for a workspace that is forty of them. One setting cannot name
+ * forty bases, and whether they all happen to agree today is not something a delivery
+ * should be resting on — a pull request opened into the wrong base is a perfectly valid
+ * pull request, so being wrong here is silent.
+ */
+const baseFlag = arg('--base');
 const tests = arg('--tests') || '';
 const risk = arg('--risk') || '';
 const left = arg('--left') || '';
@@ -170,6 +187,8 @@ if (!ws || !beadId || has('--help') || has('-h')) {
   console.error(`workspaces: ${cfg.workspaces.map((w) => w.name).join(', ')}`);
   process.exit(1);
 }
+
+const base = baseFlag || (await baseFor(cfg, ws.name, dir));
 
 const git = (args) => execFileSync('git', args, { cwd: dir, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 }).trim();
 
@@ -220,6 +239,40 @@ const ahead = Number(git(['rev-list', '--count', `${upstream}..HEAD`]));
  */
 const nothingAhead = !ahead;
 
+/**
+ * An unresolved merge, or a file that no longer parses — refused here, before anything.
+ *
+ * git commits conflict markers without a murmur, so a merge commit carrying three of
+ * them is indistinguishable from a resolved one at every point between the commit and
+ * whoever loads the file. On 2026-08-11 that reached this command: a resolver session
+ * committed a re-conflicted `public/console.js` (bc-d2y6) and the only symptom was a
+ * test suite failing 38 suites into the gate with `Unexpected token '<<'`, which reads
+ * as a regression in the thing being tested rather than as a file that does not parse.
+ * One `git push` from a phone being served an unparseable script.
+ *
+ * Asked of the **committed blobs**, not the working tree — the tree can be clean while
+ * the branch is broken, which is exactly what happens when the file is fixed after the
+ * commit rather than before it. And asked *first*, ahead of the push, the pull request
+ * and the bead: everything below this line writes to `origin` or to Adam's phone, and a
+ * refusal is only cheap while nothing has been written anywhere.
+ *
+ * `lib/conflicted.js` has the rest of the reasoning, including why `=======` is not one
+ * of the markers it looks for.
+ */
+if (ahead) {
+  const findings = inspectBranch(dir, { ref: 'HEAD', base: upstream });
+  if (findings.length) {
+    die(
+      `refusing to push ${branch} — ${findings.length} file${findings.length === 1 ? '' : 's'} the commits carry ` +
+        `${findings.some((f) => f.kind === 'conflict') ? 'an unresolved merge' : 'a syntax error'}:\n\n` +
+        `${conflictReport(findings, { what: 'the commit' })}\n\n` +
+        'Install the hook and this is caught at `git commit` instead of here, in every\n' +
+        'worktree of this repo: `node scripts/conflict-check.mjs --install-hook`.',
+      6
+    );
+  }
+}
+
 /* ------------------------------------------------------------------- the bead */
 
 const env = { ...process.env, BEADS_DIR: ws.dir, BEADS_ACTOR: cfg.actor };
@@ -245,6 +298,27 @@ const gh = await pr.available();
 if (!gh.ok) die(gh.reason, 4);
 
 /**
+ * And this particular checkout — because `gh` being installed says nothing about
+ * whether *this* repo has a GitHub remote any account here can see.
+ *
+ * It used to be found out two steps later, by `git push` failing on a missing
+ * `origin` or by `gh pr create` failing on a repo it cannot resolve. Both of those name
+ * the remote and neither names the repo, which was fine while a workspace was one
+ * checkout and the repo was never in doubt. In a workspace of forty it is exactly the
+ * half you need, so it is asked here — before the push, while a refusal is still free —
+ * and the slug is kept, because resolving it is a `gh` call and it is wanted twice more
+ * below.
+ */
+const slug = await pr.slugFor(dir);
+if (!slug) {
+  die(
+    `no GitHub repo is visible from ${dir} — nothing there opens pull requests. ` +
+      `The work is committed on ${branch}; say so on ${beadId} and leave it there.`,
+    4
+  );
+}
+
+/**
  * The pull request this delivery is about, and the repo it is in.
  *
  * Module-scope and assigned rather than declared where they are first used, because
@@ -263,12 +337,28 @@ let repoSlug = null;
  * has been deleted, which is exactly what a card merge does (`deleteBranch: true`). So a
  * miss falls back to the merged list and matches on the head ref, which GitHub keeps
  * long after the branch itself is gone.
+ *
+ * **The fallback asks GitHub for the branch, not for the newest N pull requests**, and
+ * that is bc-kbr6. It used to ask for forty merges and match the head ref here — forty
+ * being under a day on this repo, where 120 merged in one day and 152 in two. So the
+ * one case the fallback exists for, a branch merged from a card and deleted, was
+ * answered correctly for a few hours and then not at all: the delivery fell through to
+ * `<branch> has no commits that origin/<branch> does not` and exit 2, over work that had
+ * landed. `--head` moves the match into the query, so the answer does not depend on how
+ * much else merged after it and there is no window to get wrong. The limit stays as a
+ * guard against a runaway answer: one branch has one pull request, or a handful if it
+ * was reopened, never twenty.
+ *
+ * The client-side match is kept underneath it deliberately. It is one `find` over at
+ * most twenty rows, and it means a `gh` that ignored the flag — an old build, a future
+ * one that renames it — narrows the answer wrongly rather than returning somebody
+ * else's pull request as this branch's.
  */
 async function mergedPrFor(head) {
   const direct = await pr.viewForBranch(dir, head);
   if (direct && direct.state === 'MERGED') return direct;
   try {
-    const rows = await pr.list(dir, { state: 'merged', limit: 40 });
+    const rows = await pr.list(dir, { state: 'merged', head, limit: 20 });
     return (rows || []).find((r) => r.branch === head && r.state === 'MERGED') || null;
   } catch {
     // `gh` refusing the list is not evidence that nothing merged, but it is all the
@@ -290,7 +380,7 @@ if (nothingAhead) {
   const merged = await mergedPrFor(branch);
   if (!merged) die(`${branch} has no commits that ${upstream} does not — there is nothing to deliver`, 2);
   request = merged;
-  repoSlug = await pr.slugFor(dir);
+  repoSlug = slug;
   console.error(
     `beadcause-deliver: nothing to push — #${merged.number} was already merged into ${base}. Closing ${beadId} over it.`
   );
@@ -356,7 +446,7 @@ if (request) {
 
 /* ------------------------------------------------- the cards already open on it */
 
-repoSlug = await pr.slugFor(dir);
+repoSlug = slug;
 
 /**
  * Close every merge card already open for this pull request, before this delivery
@@ -653,11 +743,48 @@ if (awaitingApproval) console.error(`beadcause-deliver: not merged — #${reques
  * the button. It is a terrible reason to fail a delivery whose branch is already pushed
  * and whose pull request is already open.
  */
+/**
+ * And **which repo's** deploy, which in a workspace of forty checkouts is not the
+ * workspace's. This session is standing in a worktree of one of them, so the unit is the
+ * one whose checkout owns this worktree's object database — `git rev-parse
+ * --git-common-dir`, which is what `landParent` above already asks for the same reason.
+ *
+ * A worktree that matches no approved repo gets no hint and no Ship, said out loud: it is
+ * the same state as a repo that declared nothing, and inventing the workspace's key for it
+ * would put a button on the card that deploys a checkout this branch was never in.
+ */
+let shipKey = ws.name;
+{
+  const units = repoUnits(cfg, ws.name);
+  if (units.length === 1 && !units[0].repo) {
+    shipKey = units[0].key;
+  } else {
+    // Relative (`.git`) or absolute depending on git's version and where it is run, so it is
+    // resolved against this directory either way; a git that will not answer leaves `common`
+    // as this directory, which matches nothing and is reported below rather than guessed at.
+    let common = path.resolve(dir);
+    try {
+      common = path.resolve(dir, git(['rev-parse', '--git-common-dir']), '..');
+    } catch {
+      /* not a checkout, or a git that refused — handled by finding no unit */
+    }
+    const mine = units.find((u) => u.repo && path.resolve(u.repo.dir) === common);
+    if (mine) shipKey = mine.key;
+    else {
+      shipKey = '';
+      console.error(
+        `beadcause-deliver: ${dir} is not an approved ${ws.name} repo, so the card offers no Ship — ` +
+          `add it to repos.${ws.name}.approved if a deploy of it should be one tap`
+      );
+    }
+  }
+}
+
 let shipHint = '';
 try {
-  shipHint = deployHint(deployFor(cfg, ws.name));
+  shipHint = shipKey ? deployHint(deployFor(cfg, shipKey)) : '';
 } catch (err) {
-  console.error(`beadcause-deliver: ${ws.name} declares a deploy this cannot read, so the card offers no Ship — ${first(err)}`);
+  console.error(`beadcause-deliver: ${shipKey} declares a deploy this cannot read, so the card offers no Ship — ${first(err)}`);
 }
 
 // Before the new card exists, so the inbox is never holding two questions about the
@@ -683,18 +810,29 @@ const delivery = {
   left,
 };
 
+// Typed after the bead it is about to park, because bd will only let an epic be
+// blocked by another epic (lib/park.js) — and an epic is delivered like anything
+// else. Off the row `show` already returned rather than a second lookup. Nothing here
+// reads the card's type: every caller finds these by DELIVERY_LABEL.
+const cardType = questionType(bead.issue_type);
+
 const out = bd([
   'create',
   '--title',
   deliveryTitle(delivery),
   '--type',
-  'task',
+  cardType,
   '--priority',
   '1',
   '--label',
   'human',
   '--label',
   DELIVERY_LABEL,
+  // Whose merge this is, when a tracker is shared: the machine the worker ran on. A
+  // delivery is the clearest case there is — the branch is on this laptop and the
+  // session that wrote it was opened here. Nothing at all when `me` is unset, which is
+  // every single-person install; see lib/addressee.js.
+  ...ownAddresseeLabels(cfg).flatMap((l) => ['--label', l]),
   '--description',
   deliveryBody(delivery, {
     context: `**${request.files ?? 0} file${request.files === 1 ? '' : 's'}**, +${request.additions ?? 0} −${request.deletions ?? 0}, ${ahead} commit${ahead === 1 ? '' : 's'}.`,
@@ -719,10 +857,12 @@ const questionId = created.id || created.issue?.id;
 // The work bead waits behind the question. Without this the advocate's next tick sees
 // a bead that is open and unblocked, and opens a second session onto work that is
 // already sitting in a PR — the exact duplication the whole channel exists to stop.
-try {
-  bd(['dep', 'add', beadId, questionId]);
-} catch (err) {
-  console.error(`beadcause-deliver: filed ${questionId}, but could not park ${beadId} behind it — ${String(err.message).split('\n')[0]}`);
+// No `human` fallback here, unlike ask and propose: the work bead is about to be
+// closed by the merge, and a label nothing takes back off would leave it in the
+// inbox as a card with no question on it forever.
+{
+  const { parked, note } = park(bd, beadId, questionId, { label: false });
+  if (!parked) console.error(`beadcause-deliver: ${note}`);
 }
 
 try {

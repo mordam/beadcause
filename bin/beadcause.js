@@ -1,13 +1,17 @@
 #!/usr/bin/env node
 import { loadConfig, reconcileBaseUrl, CONFIG_PATH, OBSERVING } from '../lib/config.js';
 import { createApp, startPoller, listen } from '../lib/server.js';
-import { advocatedWorkspaces, workerLimit } from '../lib/advocate.js';
+import { advocatedWorkspaces, workerLimit, globalWorkerCap } from '../lib/advocate.js';
 import { buildStamp } from '../lib/build.js';
-import { declareOwnDeploy } from '../lib/deploy.js';
+import { beginShutdown, installCrashHandlers } from '../lib/crash.js';
+import { declareOwnDeploy, ownWorkspace } from '../lib/deploy.js';
 import { hotSwapProblem, problemBanner } from '../lib/service.js';
 import { attachTerminalSocket, releaseSockets } from '../lib/termsocket.js';
-import { closeServer, startRenewal } from '../lib/tls.js';
+import { cleartextWarning, closeServer, startRenewal } from '../lib/tls.js';
+import { describeTailnet, tailnetState } from '../lib/tailnet.js';
 import { pushCertificate } from '../lib/notify.js';
+import { startSlack, slackStatusLine, slackTokenWarnings } from '../lib/slack.js';
+import { repoStatusLine, repoWarnings } from '../lib/repos.js';
 import { flush } from '../lib/commonrepo.js';
 import { restoreTerminals, shutdownTerminals, startTerminalReaper, terminalsEnabled } from '../lib/terminal.js';
 
@@ -34,8 +38,22 @@ const startStandby = process.argv.includes('--standby');
 
 const setupUrl = `${cfg.baseUrl}/?t=${cfg.token}`;
 
+/**
+ * The one thing this Mac knows about the link it is handing out that the person taking
+ * it does not: whether the Android app will accept it — bc-affn.
+ *
+ * **On stderr, every time, because stdout here is a value rather than a display.**
+ * `--url` is piped into shell scripts (scripts/install.sh, the QR page, anything that
+ * wants the address), and a warning mixed into that would be a URL nothing can use.
+ * `cleartextWarning` answers null for the https case, so the ordinary run stays silent.
+ */
+const sayIfCleartext = () => {
+  for (const line of cleartextWarning(cfg.baseUrl) || []) console.warn(`[beadcause] ${line}`);
+};
+
 if (process.argv.includes('--url')) {
   console.log(setupUrl);
+  sayIfCleartext();
   process.exit(0);
 }
 
@@ -78,6 +96,9 @@ if (process.argv.includes('--qr')) {
   } catch {
     console.log('  (no APK published yet — npm run android)\n');
   }
+  // Last, so it is what is still on screen when somebody walks off with the phone —
+  // and after both codes, because the http one is the address in both of them.
+  sayIfCleartext();
   process.exit(0);
 }
 
@@ -91,7 +112,50 @@ const app = createApp(cfg);
 const startedAt = new Date().toISOString();
 const build = buildStamp();
 let role = startStandby ? 'standby' : 'active';
+
+/**
+ * From here on, a crash in this process is a bead rather than only a log line — bc-p38c.4,
+ * and lib/crash.js is where all of it lives.
+ *
+ * As early as it can be, which is: after `createApp` (that is what makes a `bd` handle
+ * exist) and after the two names `where` reads, and *before* the poller and the Slack
+ * socket, because those are the first things here that can throw. Anything above still
+ * crashes the old way, and that is a trade rather than an omission — a throw during config
+ * load or `createApp` has no tracker to file into, and launchd's KeepAlive turning a boot
+ * failure into a loud restart loop with the reason in the log is exactly the volume that
+ * failure wants (see `assertRoutes`).
+ *
+ * The workspace is **this checkout's own**, not `cfg.workspaces[0]`. A beadcause bug
+ * belongs on the beadcause graph, and the first configured workspace is very often the one
+ * wired to a team's JIRA. Falling back to the first is deliberate too: a daemon whose
+ * checkout matches no configured workspace still has crashes worth recording, and a bead
+ * on the wrong graph beats no bead at all.
+ *
+ * `where` is a function because `role` moves. A standby promoted an hour ago should say
+ * `active` on the bead it files, and a string built here would be quietly wrong for
+ * exactly the crashes that are hardest to reason about afterwards.
+ */
+const ownWs = cfg.workspaces.find((w) => w.name === ownWorkspace(cfg)) || cfg.workspaces[0];
+installCrashHandlers(cfg, {
+  bd: app.bd,
+  workspace: ownWs,
+  bus: app.bus,
+  where: () =>
+    `the beadcause daemon — ${role}, build ${build}, pid ${process.pid}${internalPort ? `, internal :${internalPort}` : ''}`,
+});
+
 let poller = startStandby ? null : startPoller(cfg, app);
+/**
+ * The Slack socket, and why it is tied to exactly the same switch as the poller.
+ *
+ * Slack's interactivity cannot reach a tailnet name, so the buttons on a posted question
+ * arrive over an outbound WebSocket this process opens (lib/slack.js). Slack hands an
+ * interaction to one connection, so two backends holding one would not double-answer —
+ * but a standby holding a connection is a standby doing work, and every guarantee the
+ * swap makes rests on it doing none. So it starts when the poller starts, stops when the
+ * poller stops, and null is the ordinary state: Slack off, or no app token.
+ */
+let slack = startStandby ? null : startSlack(cfg);
 // What draining waits on. A long poll parks for up to 55 seconds, and killing the
 // process out from under one is the difference between a seamless swap and the
 // phone deciding it is offline.
@@ -144,6 +208,7 @@ const control = (req, res) => {
       // that needs reconciliation rather than a second restore.
       if (terminalsEnabled(cfg)) restoreTerminals(cfg);
       if (!reaper && terminalsEnabled(cfg)) reaper = startTerminalReaper(cfg);
+      if (!slack) slack = startSlack(cfg);
       if (role !== 'active') console.log('[beadcause] promoted to active — polling');
       role = 'active';
       return reply({ ok: true, role, reaping: reaper !== null });
@@ -152,6 +217,8 @@ const control = (req, res) => {
       poller = null;
       if (reaper) clearInterval(reaper);
       reaper = null;
+      slack?.stop();
+      slack = null;
       if (role !== 'standby') console.log('[beadcause] stood down — poller stopped');
       role = 'standby';
       return reply({ ok: true, role, reaping: reaper !== null });
@@ -178,6 +245,29 @@ const handler = (req, res) => {
   if (req.url.startsWith('/internal/')) return control(req, res);
   return app.handler(req, res);
 };
+
+/**
+ * `BEADCAUSE_START_DELAY_MS` — wait this long before binding. Test-only, and the mirror
+ * image of `healthTimeoutMs` in bin/router.js, which exists "for one reason that is not
+ * tuning — a test needs a window it can guarantee will expire".
+ *
+ * It turns out the window was only half of that guarantee. `test/outagepush.mjs` set the
+ * window to 250ms on the reasoning that nothing starts in a quarter of a second, and on
+ * this laptop, with several real beads workspaces to open, nothing does. A CI runner with
+ * one empty workspace came up well inside it (bc-rcrt), the router never saw an outage,
+ * and a suite about what the phone is told when nothing is being served asserted nothing
+ * at all. A missed window needs a slow *start* as well as a short window, and only one of
+ * those was under the test's control.
+ *
+ * Named on the environment rather than in config.json because it is the backend the
+ * router spawns — it inherits this, and a knob in the config file would be one more line
+ * for a person reading their own settings to wonder about.
+ */
+const startDelayMs = Number(process.env.BEADCAUSE_START_DELAY_MS) || 0;
+if (startDelayMs > 0) {
+  console.error(`[beadcause] holding the bind for ${startDelayMs}ms — BEADCAUSE_START_DELAY_MS`);
+  await new Promise((resolve) => setTimeout(resolve, startDelayMs));
+}
 
 const servers = listen(
   // Behind the router this binds loopback only. The tailnet reaches the router; an
@@ -257,12 +347,24 @@ if (internalPort) {
   setInterval(() => {
     if (Date.now() - lastContact < ORPHAN_MS) return;
     console.error(`[beadcause] no router contact in ${ORPHAN_MS / 1000}s — exiting rather than polling unsupervised`);
+    // A deliberate exit, so nothing a teardown knocks over is a bug worth filing — the
+    // same reason `shutdown` says it. Not a duplicate of that one: this path bypasses it.
+    beginShutdown();
     process.exit(0);
   }, 5000).unref();
 }
 
 console.log(`[beadcause] config      ${CONFIG_PATH}`);
 console.log(`[beadcause] workspaces  ${cfg.workspaces.map((w) => w.name).join(', ')}`);
+// And, for a workspace that is more than one repo, which checkouts it may be worked in
+// — printed even when nothing is configured, because the line that says "every
+// workspace is one repo" is the one that tells you the block exists at all.
+console.log(`[beadcause] repos       ${repoStatusLine(cfg)}`);
+// The three ways an approved list goes wrong on disk — a repo that is not cloned, one
+// that declares no service token, and two that declare the same one. All of them are
+// silent otherwise: they present as a bead resolving to nothing, at whatever hour the
+// advocate got to it. `console.warn` so they are not read as part of the tidy block.
+for (const w of repoWarnings(cfg)) console.warn(`[repos] ${w}`);
 // First thing in the log, and unmissable, because the mistake it guards against is
 // believing you are in it when you are not — and the evidence of *that* arrives
 // thirty seconds later as two Claude windows you did not ask for.
@@ -281,11 +383,28 @@ const advocated = advocatedWorkspaces(cfg).map((w) => `${w.name}\u00d7${workerLi
 console.log(
   `[beadcause] advocates   ${
     advocated.length
-      ? `${advocated.join(', ')} ${OBSERVING ? '(observing — they survey, they open nothing)' : `(max ${cfg.advocates?.globalMaxWorkers ?? 10} sessions in total)`}`
+      ? `${advocated.join(', ')} ${OBSERVING ? '(observing — they survey, they open nothing)' : `(max ${globalWorkerCap(cfg)} sessions in total)`}`
       : '(none — advocates.workspaces is empty)'
   }`
 );
 console.log(`[beadcause] ntfy topic  ${cfg.ntfy.enabled ? cfg.ntfy.topic : '(disabled)'}`);
+// The other delivery surface, said in the same block and for the same reason: a
+// half-configured one — enabled with a bot token and no app token — posts questions
+// whose buttons do nothing, and there is no way to find that out by looking at Slack.
+console.log(`[beadcause] slack       ${slackStatusLine(cfg)}`);
+// And the one thing about those tokens the `.key` naming cannot promise: that the file
+// is not readable by every account on this Mac. `console.warn` so it is not read as part
+// of the tidy startup block above it.
+for (const w of slackTokenWarnings(cfg)) console.warn(`[slack] ${w}`);
+// Whether the address in that URL is on this Mac at all — said in the startup block
+// and in `--status`, next to the URL it decides the fate of, because it is the one fact
+// neither of them used to carry. A phone that cannot load the app is indistinguishable,
+// from up here, from a daemon that is perfectly healthy; this is the line that tells
+// them apart. `console.warn` when it is a problem, so it does not read as part of the
+// tidy block. bc-b4fs, and lib/tailnet.js says what the states mean.
+const tailnet = internalPort ? null : tailnetState(cfg.host);
+if (!tailnet) console.log('[beadcause] tailnet     behind the router — it holds the tailnet address, this process binds loopback');
+else (tailnet.ok ? console.log : console.warn)(`[beadcause] tailnet     ${describeTailnet(tailnet)}`);
 console.log(`[beadcause] phone URL   ${cfg.baseUrl}/?t=${cfg.token}`);
 console.log(`[beadcause] build       ${build} (${role}${internalPort ? `, internal :${internalPort}` : ', standalone'})`);
 
@@ -324,10 +443,19 @@ if (!OBSERVING) {
 }
 
 const shutdown = () => {
+  // Before anything is closed, and this is the whole of one of bc-p38c.4's edge cases:
+  // tearing down servers, terminals and a git flush makes things in flight reject, and
+  // every one of those would otherwise file a P0 bug about a daemon doing exactly as it
+  // was told. The router SIGTERMs a backend on every hot swap — which is to say on every
+  // deploy — so a crash handler that filed during shutdown would file on every deploy.
+  beginShutdown();
   // Guarded, not bare: a standby has no poller to clear.
   if (poller) clearInterval(poller);
   if (reaper) clearInterval(reaper);
   if (certRenewal) clearInterval(certRenewal);
+  // Otherwise the reconnect timer keeps the loop alive past the exit we are asking for,
+  // and a socket left open is one Slack goes on handing interactions to.
+  slack?.stop();
   // A pty that outlived the daemon has nothing left to relay it anywhere, and it
   // holds a Claude session open against the tracker. Outliving a *socket* is the
   // point; outliving the process that owns the registry is just a leak.

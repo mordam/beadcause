@@ -271,12 +271,14 @@ class WatchService : Service() {
 /**
  * Why the phone stayed dark for this one, for the log.
  *
- * Two reasons that look identical in a logcat and are fixed differently: a mute ends
- * on a clock, a filter ends when you press All. Falls back to the mute wording when
+ * Reasons that look identical in a logcat and are fixed differently: a mute ends on a
+ * clock, a filter ends when you press All, and an addressed question is somebody else's
+ * and never rings here however wide the filter goes. Falls back to the mute wording when
  * the server didn't say, which is what an older daemon sends.
  */
 private fun Event.whyQuiet(): String =
     when (quietReason) {
+        "addressed" -> "addressed to somebody else"
         "filtered" -> "outside the inbox filter"
         else -> "${space ?: "its space"} is muted"
     }

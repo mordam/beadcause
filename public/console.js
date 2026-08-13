@@ -44,8 +44,84 @@
    */
   const repoNow = () => window.beadcause?.space?.filter?.workspace || 'all';
 
+  /** How often the conversations you are *not* looking at say what they are doing. */
+  const STATUS_MS = 15000;
+
+  /**
+   * Whether the dismissed conversations are being shown — and where that answer lives.
+   *
+   * `sessionStorage`, not `localStorage`, and that is the whole design. Closing a row
+   * is how you say you are done with it, so the list has to open on the live ones or
+   * the ✕ buys you nothing; a preference remembered forever would quietly undo the
+   * default for good, one tap a month ago. A tab is the right lifetime: a reload — the
+   * launcher's own, or one of the chats it opened — must not re-hide the list you were
+   * reading, and opening the app tomorrow starts clean again.
+   *
+   * It used to be a *navigation* that made this matter, because opening a conversation
+   * was one. It is a repaint now (see `switchTo`), so within a visit the toggle would
+   * survive in a plain variable. Storage is still what carries it across a reload, and
+   * a reload of `/console?id=…` is still how a phone comes back to this screen.
+   *
+   * Unlike the repo tab above, this is nobody else's filter — it is a view of one list
+   * on one screen, it decides nothing about what notifies you, so there is no reason
+   * for the server to own it.
+   */
+  const SHOW_DISMISSED_KEY = 'beadcause.console.dismissed';
+  const readShowDismissed = () => {
+    try {
+      return sessionStorage.getItem(SHOW_DISMISSED_KEY) === '1';
+    } catch {
+      // Private mode, or a WebView with storage denied. Not a reason to fail to draw.
+      return false;
+    }
+  };
+
+  /**
+   * Which chats have a handle in the strip — and why this one is on the disk.
+   *
+   * `localStorage`, beside the token, and deliberately not the `sessionStorage` the
+   * toggle above uses. The two answer different questions. "Show me the dismissed
+   * ones" is a thing you say to the list you are reading now, and a preference
+   * remembered forever would quietly undo the default. A tab is a thing you *have
+   * open*: the app being closed and opened again is exactly when you want your four
+   * conversations back, in the order you opened them, the same way a browser gives
+   * you your tabs back rather than starting you at a blank page.
+   *
+   * Only `{ id, ws }` is kept, never the title. `public/warm.js` is `sessionStorage`
+   * on purpose so that bead text does not sit on the phone's disk overnight, and a
+   * chat's title is bead text — so a restored handle draws its repo until the first
+   * `/api/consoles` comes back, which is an in-memory read on the daemon. The repo is
+   * what the bar already falls back to for a chat with no seed, so it is the same
+   * word in the same place, one request early.
+   *
+   * The `ws` is what makes the strip per-workspace *before* that request lands: it is
+   * the only thing that can say which handles this filter lets through when nothing
+   * has been fetched yet.
+   */
+  const TABS_KEY = 'beadcause.console.tabs';
+  function readTabs() {
+    try {
+      const raw = JSON.parse(localStorage.getItem(TABS_KEY) || '[]');
+      if (!Array.isArray(raw)) return [];
+      return raw
+        .filter((t) => t && typeof t.id === 'string' && t.id)
+        .map((t) => ({ id: t.id, ws: typeof t.ws === 'string' ? t.ws : '' }));
+    } catch {
+      // Denied, or written by something else. Not a reason to fail to draw.
+      return [];
+    }
+  }
+
   const state = {
     token: '',
+    /**
+     * Which conversation is in front, or `''` for the launcher.
+     *
+     * Not "the chat session this page is about" any more. This page holds several at
+     * once — see `chats` below — and this names the one the thread, the composer and
+     * the sheet are currently acting on. Everything else is still loaded, in memory,
+     * exactly as it was left.
+     */
     id: new URLSearchParams(location.search).get('id') || '',
     // The launcher: every workspace, every conversation, and which tab is on.
     workspaces: [],
@@ -61,23 +137,59 @@
      * and nothing else, and any other tab clears it.
      */
     stray: '',
-    console: null,
-    seq: 0,
-    // The cards as edited here. Authoritative over the server's copy while the
-    // sheet is open, which is what makes typing in it safe.
-    draft: null,
-    draftDirty: false,
-    // The server draft the local copy was taken from, so a genuine revision can be
-    // told apart from an echo of our own save.
-    baseDraft: '',
-    pendingRevision: null,
-    open: new Set(),
+    showDismissed: readShowDismissed(),
+    /** The handles, in the order they were opened. See `TABS_KEY`. */
+    tabs: readTabs(),
+    /**
+     * Every conversation opened this visit, keyed by id — see `chatFor`.
+     *
+     * This is the whole change: the transcript, the sequence number, the draft, which
+     * cards are expanded, where the thread was scrolled and what is half-typed in the
+     * composer all used to be one set of fields on `state`, describing the id in
+     * `?id=`. Opening another chat was a page load that threw all of it away.
+     */
+    chats: new Map(),
     armed: false,
     armedTimer: null,
-    saveTimer: null,
-    polling: false,
     creating: false,
   };
+
+  /**
+   * The state of one conversation, made on first sight and then kept.
+   *
+   * Nothing is ever evicted. A transcript is a few kilobytes of JSON and the entire
+   * promise of holding several open is that going back to one is free — an eviction
+   * policy would make it free *sometimes*, which is worse than not offering it.
+   */
+  function chatFor(id) {
+    const held = state.chats.get(id);
+    if (held) return held;
+    const chat = {
+      id,
+      console: null,
+      seq: 0,
+      // The cards as edited here. Authoritative over the server's copy while the
+      // sheet is open, which is what makes typing in it safe.
+      draft: null,
+      draftDirty: false,
+      // The server draft the local copy was taken from, so a genuine revision can be
+      // told apart from an echo of our own save.
+      baseDraft: '',
+      pendingRevision: null,
+      open: new Set(),
+      saveTimer: null,
+      /** Where this thread was left, or null for one that has never been drawn. */
+      scrollTop: null,
+      /** What was typed into the composer and not said. */
+      say: '',
+      queue: makeQueue(id),
+    };
+    state.chats.set(id, chat);
+    return chat;
+  }
+
+  /** The conversation in front: what the thread, the composer and the sheet act on. */
+  const cur = () => state.chats.get(state.id) || null;
 
   /* ---------------------------------------------------------------- plumbing */
 
@@ -152,13 +264,15 @@
   }
 
   let toastTimer;
+  /** Red when something went wrong — and `bad === true` files it. See app.js's toast. */
   function toast(msg, bad = false) {
     const el = $('#toast');
     el.textContent = msg;
-    el.classList.toggle('bad', bad);
+    el.classList.toggle('bad', Boolean(bad));
     el.hidden = false;
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => (el.hidden = true), bad ? 6000 : 3000);
+    if (bad === true) window.beadcause?.report?.toast?.(msg);
   }
 
   const relTime = (iso) => {
@@ -185,6 +299,12 @@
     $('#thread').hidden = true;
     $('#composer').hidden = true;
     document.body.classList.add('launching');
+    // The bar belonged to whichever conversation was in front. Arriving here used to be
+    // a page load, which cleared it; a switch has to say so itself, or the list sits
+    // under another chat's title with its proposal count still offering to open.
+    $('#title').textContent = 'Chat session';
+    $('#pulse').classList.remove('busy');
+    $('#draft-btn').hidden = true;
 
     // What this tab had last time, drawn before the request has left. The launcher is
     // a list of conversations per repo and it is read at a glance, so the whole cost
@@ -198,12 +318,95 @@
       data = await api('/api/consoles');
     } catch (err) {
       if (err.message !== 'token rejected') toast(err.message, true);
+      // Still followed. A launcher opened while the daemon is restarting had nothing to
+      // bring it back before — this page has never had a timer — and the stream, with
+      // its backoff, is what fills the list in when the daemon returns.
+      followLauncher();
       return;
     }
     warm?.write?.('/api/consoles', data);
     adoptConsoles(data);
     // Only from a request that came back, and once per document — see public/warm.js.
     warm?.prewarm?.({ here: 'console', api });
+    // The launcher stops being a snapshot of the moment you arrived and starts
+    // following the log. See `followLauncher`.
+    followLauncher();
+  }
+
+  /* ------------------------------------------------------- the launcher's stream */
+
+  /**
+   * Keep the launcher current, off the daemon's event log.
+   *
+   * This page is the odd one out of the five: the other four refreshed on a wall-clock
+   * timer and this one had no refresh at all, so the list of conversations was a
+   * photograph of the moment you arrived. A turn finishing, a chat closed on the other
+   * device, beads created out of a proposal — none of it showed until you navigated
+   * away and came back.
+   *
+   * `want: 'presence'` is what makes the park free. The daemon sweeps `bd` for a poll
+   * that asked for the inbox questions, and this page draws none of them: it wants to
+   * be *woken*, and then it asks for its own list, which is two in-memory reads on the
+   * daemon rather than a sweep. `cold: true` because nothing this page fetches carries
+   * a sequence — a `since`-less poll is how it learns where in the log it is, and with
+   * `want: 'presence'` that first request costs nothing either.
+   */
+  let stream = null;
+  let listing = false;
+
+  function followLauncher() {
+    if (!window.beadcause?.stream) return;
+    // Mounted once and started every time the launcher is shown, so coming back from a
+    // conversation picks the log up again — `ready` went false while the thread was up.
+    // `start` on a stream that is already parked is a no-op.
+    if (stream) return stream.start();
+    stream = window.beadcause.stream.follow({
+      api,
+      want: 'presence',
+      cold: true,
+      // Not behind an open conversation: the thread has its own feed
+      // (`/api/console/poll`), and repainting a launcher nobody can see would be a
+      // request per event for a screen that is hidden.
+      ready: () => Boolean(state.token) && !$('#launcher').hidden,
+      onWake({ events, resync }) {
+        // Presence is a thumb moving on somebody's phone. It wakes this poll on
+        // purpose — that is how the mirror works — but it has not changed a
+        // conversation, and refetching for it would be a timer built out of somebody
+        // else's scrolling.
+        if (!resync && !window.beadcause.stream.moved(events)) return;
+        // The ＋ picker is open under a thumb. `adoptConsoles` closes it, so a wake
+        // arriving now would take the repo list away mid-choice; the next event
+        // repaints, and so does closing the picker.
+        if (pickerOpen()) return;
+        refreshConsoles();
+      },
+    });
+    stream.start();
+  }
+
+  /**
+   * Go and get the list again, because something moved.
+   *
+   * Deliberately the whole list rather than a patch of the row an event named: an event
+   * says a bead was created or a card answered, and what that did to *these* rows —
+   * which conversation proposed it, how many of its beads now exist — is knowledge the
+   * daemon has and this page does not. It is a cheap thing to ask for, which is the
+   * reason that is an acceptable answer here and not on the pages whose payload is a
+   * `bd` sweep: `/api/consoles` reads the in-memory registry and nothing else.
+   */
+  async function refreshConsoles() {
+    if (listing) return;
+    listing = true;
+    try {
+      const data = await api('/api/consoles');
+      window.beadcause?.warm?.write?.('/api/consoles', data);
+      adoptConsoles(data);
+    } catch {
+      /* The list on screen is still the list. A refused credential has already put the
+         prompt up, and anything else the next event will try again. */
+    } finally {
+      listing = false;
+    }
   }
 
   /**
@@ -228,6 +431,9 @@
     hidePicker();
     renderRepoTabs();
     renderRecent();
+    // The handles above read this list too — a title the agent has just written, a
+    // proposal that landed in a chat nobody is looking at.
+    renderChatTabs();
   }
 
   /**
@@ -252,6 +458,12 @@
 
   const inRepo = (c) => (state.stray ? c.workspace === state.stray : inSpace(c.workspace));
 
+  /** Closed is dismissed: still there, still openable, out of the way until asked for. */
+  const isDismissed = (c) => Boolean(c.closedAt);
+
+  /** Whether a row is drawn at all, which is the one thing the toggle changes. */
+  const shown = (c) => state.showDismissed || !isDismissed(c);
+
   /**
    * The tab bar: All, then one per repo in the selected space, each carrying how many
    * conversations it holds.
@@ -261,6 +473,10 @@
    * start in — and a row of zeroes would report emptiness rather than offering a
    * place to begin.
    *
+   * It counts what the list would *show*, dismissed ones included only while they are
+   * being shown. A tab reading 3 over a list of nothing is the same broken screen the
+   * empty state below is written to avoid, one line higher up.
+   *
    * `All` means all of the *selected space*, not all of the Mac. With one repo picked
    * this row is a single tab and says the same thing twice, which is the honest picture:
    * there is one repo in scope and you are in it.
@@ -268,7 +484,7 @@
   function renderRepoTabs() {
     const row = $('#ws-row');
     const now = state.stray || repoNow();
-    const count = (ws) => state.consoles.filter((c) => c.workspace === ws).length;
+    const count = (ws) => state.consoles.filter((c) => c.workspace === ws && shown(c)).length;
     const tab = (id, label, n) => {
       const on = now === id;
       return `<button class="chip" role="tab" id="ws-tab-${esc(id)}" data-ws="${esc(id)}"
@@ -277,7 +493,7 @@
     row.innerHTML =
       // All counts the space, not whatever a stray tab has narrowed the list to — it is
       // the tab that would take you back out to it.
-      tab('all', 'All', state.consoles.filter((c) => inSpace(c.workspace)).length) +
+      tab('all', 'All', state.consoles.filter((c) => inSpace(c.workspace) && shown(c)).length) +
       tabsHere()
         .map((ws) => tab(ws, ws, count(ws)))
         .join('');
@@ -311,6 +527,7 @@
       hidePicker();
       renderRepoTabs();
       renderRecent();
+      renderChatTabs();
       return;
     }
     state.stray = '';
@@ -322,36 +539,88 @@
     hidePicker();
     renderRepoTabs();
     renderRecent();
+    renderChatTabs();
   }
 
   /**
    * The conversations in the selected repo.
    *
-   * Live ones first, finished ones under them. A chat session is over when the
-   * beads exist, and a list where everything sorts by recency puts the one thing
-   * you have already dealt with at the top.
+   * Live ones first, dismissed ones under them — and by default no dismissed ones at
+   * all. Closing a row is the ✕ beside it and it means "I have dealt with this": the
+   * transcript stays, the id keeps working, saying anything to it brings it back, and
+   * until then it is out of the way. They used to sort to the bottom instead, which
+   * kept the list in the right order and let it grow forever.
+   *
+   * An empty list is where this can go wrong, so the emptiness says which kind it is:
+   * nothing here yet, or nothing left that you have not already finished with.
    */
   function renderRecent() {
     const rows = state.consoles.filter(inRepo);
-    const live = rows.filter((c) => !c.closedAt);
-    const closed = rows.filter((c) => c.closedAt);
-    $('#recent-label').hidden = !rows.length;
+    const live = rows.filter((c) => !isDismissed(c));
+    const dismissed = rows.filter(isDismissed);
+    const listed = state.showDismissed ? [...live, ...dismissed] : live;
+    $('#recent-label').hidden = !listed.length;
     const now = state.stray || repoNow();
     const where = now === 'all' ? window.beadcause?.space?.label?.() || 'here' : now;
-    $('#recent').innerHTML = rows.length
-      ? [...live, ...closed].map(consoleRowHtml).join('')
-      : `<div class="empty"><strong>${
-          state.consoles.length ? `Nothing in ${esc(where)} yet` : 'No conversations yet'
-        }</strong>＋ starts one${now === 'all' ? '' : ` in ${esc(now)}`}.</div>`;
+    const nothingYet = `<strong>${
+      state.consoles.length ? `Nothing in ${esc(where)} yet` : 'No conversations yet'
+    }</strong>＋ starts one${now === 'all' ? '' : ` in ${esc(now)}`}.`;
+    // Everything here has been dismissed. Not the same screen as an empty one, and
+    // saying "nothing yet" over ten conversations you had would read as data loss.
+    // `where` is the picker's word for the selection and it is "everything" on All,
+    // which reads as nonsense in this sentence where it is fine in the one above.
+    const allDismissed = `<strong>${now === 'all' ? 'Nothing still open' : `Nothing open in ${esc(now)}`}</strong>${
+      dismissed.length === 1 ? 'One conversation is' : `${dismissed.length} conversations are`
+    } dismissed — <em>Dismissed</em> above shows them. ＋ starts a new one${
+      now === 'all' ? '' : ` in ${esc(now)}`
+    }.`;
+    const chunks = listed.length
+      ? listed.map((c) => ({ key: c.id, html: consoleRowHtml(c) }))
+      : [{ key: '@empty', html: `<div class="empty">${dismissed.length ? allDismissed : nothingYet}</div>` }];
+    // Keyed rather than rebuilt from joined HTML, because this list now repaints on the
+    // delta stream rather than only when you arrive: a turn finishing in one
+    // conversation must not throw away the other nine rows and the scroll position over
+    // them. See public/warm.js. A browser that dropped the file falls back to the
+    // rebuild this used to be, which is a working list.
+    const paint = window.beadcause?.warm?.paint;
+    if (paint) paint($('#recent'), chunks);
+    else $('#recent').innerHTML = chunks.map((c) => c.html).join('');
 
-    for (const btn of $('#recent').querySelectorAll('[data-close]')) {
-      btn.addEventListener('click', (ev) => {
-        // The row is a link. Closing it must not also open it.
-        ev.preventDefault();
-        ev.stopPropagation();
-        closeConsole(btn.dataset.close, btn);
-      });
+    renderDismissToggle(dismissed.length);
+  }
+
+  /**
+   * The toggle beside the tabs, and the count that makes the filtered list obvious.
+   *
+   * Drawn from the same numbers the list was just drawn from — how many dismissed
+   * conversations are under the selected tab, whether or not they are being shown —
+   * so the two can never disagree about what is being hidden. With none under this
+   * tab there is nothing to reveal and the button goes away entirely; the state
+   * stays, because switching to a repo that has some should show them if that is what
+   * you asked for a moment ago.
+   */
+  function renderDismissToggle(n) {
+    const btn = $('#ws-dismissed');
+    btn.hidden = !n;
+    btn.setAttribute('aria-pressed', String(state.showDismissed));
+    btn.innerHTML = `Dismissed <span class="chip-count">${n}</span>`;
+    btn.setAttribute(
+      'aria-label',
+      `${state.showDismissed ? 'Hide' : 'Show'} ${n} dismissed conversation${n === 1 ? '' : 's'}`
+    );
+  }
+
+  /** Show them or put them away, and remember it for as long as this tab is open. */
+  function setShowDismissed(on) {
+    state.showDismissed = on;
+    try {
+      sessionStorage.setItem(SHOW_DISMISSED_KEY, on ? '1' : '0');
+    } catch {
+      // Storage denied. The toggle still works; it just forgets on the next page.
     }
+    // The tabs too: their counts are of the rows that would be listed.
+    renderRepoTabs();
+    renderRecent();
   }
 
   const pickerOpen = () => !$('#ws-pick').hidden;
@@ -386,6 +655,185 @@
     row.querySelector('.chip')?.focus();
   }
 
+  /* ----------------------------------------------------------------- handles */
+
+  /*
+   * The strip of handles: All on the left, then one per chat you have opened.
+   *
+   * The launcher list is a list of *every* conversation in a repo, which is the right
+   * thing to arrive at and the wrong thing to move around in — going from one chat to
+   * another meant coming back out to it, finding the row again and tapping it, and
+   * doing that with a list that reorders itself as turns land. The handles are the
+   * short list: the ones you personally have open, in the order you opened them.
+   *
+   * `All` is a handle for the launcher itself, and it is the one that cannot be closed.
+   * That is not symmetry — it is the only way back out of a conversation now that the
+   * back gesture is not the only one, and a strip you can strand yourself in is worse
+   * than no strip. It is also why removing a handle is *not* dismissing a chat: the ✕
+   * here takes the handle off the strip and touches nothing on the server, the row is
+   * in the All list exactly as it was, and opening it again puts the handle back. The
+   * ✕ on the row in that list is still the soft close it always was.
+   */
+
+  /** Live word on a chat, whether it is loaded, merely listed, or both. */
+  function liveFor(id) {
+    const chat = state.chats.get(id);
+    const row = state.consoles.find((c) => c.id === id);
+    // The one in front is followed by its own transcript poll and that is the newer
+    // word — the same rule `watchBackground` applies from the other end, where the list
+    // is newer than a loaded chat nothing is polling.
+    if (id === state.id && chat?.console) return chat.console;
+    return row || chat?.console || null;
+  }
+
+  /**
+   * Which handles this filter lets through — plus, always, the one in front.
+   *
+   * A strip whose selected tab is not on it is a broken control, and the filter can
+   * take it away from under you: the space picker moves on the phone in your pocket,
+   * or another tab of this app moves it, and the chat you are reading is suddenly in a
+   * repo the app is not showing. The list behind it narrows, the conversation stays.
+   */
+  const shownTabs = () =>
+    state.tabs.filter((t) => t.id === state.id || inRepo({ workspace: t.ws }));
+
+  /**
+   * Fill in the repo of a handle opened before we knew it.
+   *
+   * `?id=` in the address is a chat with no repo attached — the link on a bead card,
+   * a bookmark, a reload — so its handle is stored blank and would be filtered out of
+   * its own strip the moment it stopped being the one in front. Written back rather
+   * than merely used, because the point of storing it is the *next* boot, where there
+   * is nothing to learn it from until a request comes back.
+   */
+  function learnWorkspaces() {
+    let learned = false;
+    for (const t of state.tabs) {
+      const ws = liveFor(t.id)?.workspace;
+      if (ws && ws !== t.ws) {
+        t.ws = ws;
+        learned = true;
+      }
+    }
+    if (learned) saveTabs();
+  }
+
+  function saveTabs() {
+    try {
+      localStorage.setItem(TABS_KEY, JSON.stringify(state.tabs));
+    } catch {
+      // Storage denied. The strip works for this visit and forgets on the next.
+    }
+  }
+
+  /** One handle. Truncation is CSS's — see `.tab-name` — because a title is a sentence. */
+  function tabHtml(t) {
+    const c = liveFor(t.id);
+    const front = t.id === state.id;
+    // The repo, until the list comes back with the title. See `TABS_KEY`.
+    const name = c?.title || t.ws || 'Chat';
+    const agent = c ? chatAgent(c) : null;
+    // A loaded chat carries the whole draft; a listed one carries the count of it.
+    const beads = c?.draft?.beads?.length ?? c?.beadCount ?? 0;
+    // The same three marks the rows use, in the same order of precedence: a running
+    // turn beats everything, then a dismissed chat, then whose chat it is.
+    const mark = c?.status === 'thinking' ? '<span class="spark"></span>' : c?.closedAt ? '✓' : agent ? esc(agent.emoji) : '';
+    return `<span class="chat-tab">
+      <a class="chat-tab-face" role="tab" data-tab="${esc(t.id)}"
+        href="/console?id=${encodeURIComponent(t.id)}" aria-selected="${front}"
+        tabindex="${front ? 0 : -1}" title="${esc(name)}"
+        >${mark ? `<span class="tab-mark">${mark}</span>` : ''}<span class="tab-name">${esc(name)}</span>${
+          // What the bar's 🧾 says for the chat in front, said on the handle of one that
+          // is not: a proposal waiting to be read is the one thing a background chat is
+          // holding that you would want to go back for.
+          beads ? `<span class="tab-beads">🧾${beads}</span>` : ''
+        }</a>
+      <button class="tab-x" data-untab="${esc(t.id)}" tabindex="${front ? 0 : -1}"
+        aria-label="Close the tab for ${esc(name)}">✕</button>
+    </span>`;
+  }
+
+  /** Which handle was in front when the strip was last drawn, so a switch scrolls once. */
+  let tabsFront = null;
+
+  function renderChatTabs() {
+    const row = $('#chat-tabs');
+    // An old console.html cached beside this file has no strip to draw into, and a
+    // page that is merely as it was beats a page that throws. See public/sw.js.
+    if (!row) return;
+    learnWorkspaces();
+    const tabs = shownTabs();
+    // All alone is a row that says nothing, so there is no row. It comes back with the
+    // first handle, which is the first thing opened — including whatever is in front.
+    row.hidden = !tabs.length;
+    const chunks = [
+      {
+        key: '@all',
+        // A real link to the real launcher, for the same reason the rows are: it can be
+        // copied and opened in a new tab. No ✕ — see the block above.
+        html: `<span class="chat-tab chat-tab-all">
+          <a class="chat-tab-face" role="tab" data-tab="" href="/console"
+            aria-selected="${!state.id}" tabindex="${state.id ? -1 : 0}">All</a>
+        </span>`,
+      },
+      ...tabs.map((t) => ({ key: t.id, html: tabHtml(t) })),
+    ];
+    // Keyed, like the list: the strip is redrawn on every poll — a spark starting, a
+    // proposal arriving, a title the agent has just written — and rebuilding it with
+    // `innerHTML` would throw away where it is scrolled sideways to on every one of
+    // them. See public/warm.js.
+    const paint = window.beadcause?.warm?.paint;
+    if (paint) paint(row, chunks);
+    else row.innerHTML = chunks.map((c) => c.html).join('');
+
+    // Only when the front changed, and only then: a strip scrolled by hand to read the
+    // handles at the far end must not be dragged back on the next turn that lands.
+    if (tabsFront !== state.id) {
+      tabsFront = state.id;
+      // The pill, not the link inside it: `aria-selected` is on the `<a>`, and the ✕
+      // beside it is thirty pixels the browser would happily leave off the end of the
+      // strip — a handle scrolled to with its own close button out of reach.
+      const on = row.querySelector('[aria-selected="true"]')?.closest?.('.chat-tab');
+      on?.scrollIntoView?.({ inline: 'nearest', block: 'nearest' });
+    }
+  }
+
+  /** Opening a chat gives it a handle. Opening one it already has is not a second. */
+  function addTab(id) {
+    if (!id || state.tabs.some((t) => t.id === id)) return;
+    state.tabs.push({ id, ws: liveFor(id)?.workspace || '' });
+    saveTabs();
+  }
+
+  /**
+   * Take a handle off the strip.
+   *
+   * Closing the one in front falls to its neighbour, the way every strip of tabs
+   * anywhere does — and with `replace`, not a push: closing a tab is not somewhere you
+   * went, and the back gesture should still walk out the way you came in. An older
+   * entry naming the chat you just closed still works, and arriving there re-adds the
+   * handle, which is what "opening it again re-adds the tab" means.
+   *
+   * What it does *not* do is drop the conversation out of `state.chats`. The transcript
+   * is a few kilobytes and bc-dmt's promise is that going back to one is free; a handle
+   * is a thing on a strip, not the conversation.
+   */
+  function removeTab(id) {
+    const at = shownTabs().findIndex((t) => t.id === id);
+    const idx = state.tabs.findIndex((t) => t.id === id);
+    if (idx < 0) return;
+    const neighbour = shownTabs()[at - 1] || shownTabs()[at + 1] || null;
+    state.tabs.splice(idx, 1);
+    saveTabs();
+    if (id !== state.id) {
+      renderChatTabs();
+      // One fewer conversation to ask after — and possibly none, which stops the timer.
+      watchBackground();
+      return;
+    }
+    switchTo(neighbour ? neighbour.id : '', { replace: true });
+  }
+
   /**
    * Which agent this conversation is with, or null for a chat session.
    *
@@ -405,21 +853,31 @@
     if (c.beadCount) bits.push(`${c.beadCount} proposed`);
     if (c.created?.length) bits.push(`${c.created.length} created`);
     if (c.seed) bits.push(`from ${c.seed.id}`);
-    const done = Boolean(c.closedAt);
+    const done = isDismissed(c);
     const agent = chatAgent(c);
     // Two marks, because the one that is loudest is also the one that gets taken
     // over: the phase slot says 💬 for a chat session and the agent's own emoji for
     // an agent chat, but a running turn draws a spark there and a finished one a
     // tick — so the pill beside the repo is what holds when the slot is busy.
     const phase = c.status === 'thinking' ? '<span class="spark"></span>' : done ? '✓' : agent ? esc(agent.emoji) : '💬';
+    // Still a real link to the real address — it can be copied, opened in a new tab,
+    // and read by anything that reads links — but a plain tap on it is caught in
+    // `wireLauncher` and answered with a repaint. The href is what a reload lands on;
+    // `data-id` is what the tap switches to.
     return `<div class="console-row${done ? ' closed' : ''}${agent ? ' agent-chat' : ''}">
-      <a class="work-row" href="/console?id=${encodeURIComponent(c.id)}">
+      <a class="work-row" data-id="${esc(c.id)}" href="/console?id=${encodeURIComponent(c.id)}">
         <span class="work-phase">${phase}</span>
         <span class="work-main">
           <span class="work-title">${esc(c.title || 'Untitled')}</span>
           <span class="work-sub"><span class="pill">${esc(c.workspace)}</span>${
+            // The checkout, as a second pill beside the workspace rather than folded
+            // into it: with N repos behind one tracker name, "climative" no longer
+            // says where this conversation is reading from. Absent for every
+            // workspace that is one repo, and for anything an older daemon wrote.
+            c.repo?.name ? `<span class="pill">${esc(c.repo.name)}</span>` : ''
+          }${
             agent ? `<span class="pill agent">${esc(agent.emoji)} ${esc(agent.name)}</span>` : ''
-          }${done ? '<span class="pill">closed</span>' : ''}${
+          }${done ? '<span class="pill">dismissed</span>' : ''}${
             bits.length ? ` ${esc(bits.join(' · '))}` : ''
           }</span>
         </span>
@@ -430,8 +888,11 @@
           ? // Nothing to close, and no "reopen" button either: saying anything to a
             // closed chat session reopens it, so the way back in is the row itself.
             ''
-          : `<button class="row-x" data-close="${esc(c.id)}" aria-label="${
-              agent ? `Close this chat with the ${esc(agent.name)}` : 'Close this chat session'
+          : // "Dismiss", not "close", because that is what a tap here does now: it
+            // leaves the list rather than the app, and the toggle it leaves under says
+            // the same word back.
+            `<button class="row-x" data-close="${esc(c.id)}" aria-label="${
+              agent ? `Dismiss this chat with the ${esc(agent.name)}` : 'Dismiss this chat session'
             }">✕</button>`
       }
     </div>`;
@@ -448,6 +909,9 @@
     if (btn) btn.disabled = true;
     try {
       await api('/api/console/close', { method: 'POST', body: JSON.stringify({ id }) });
+      // What we hold for it is now a transcript missing its own closing line, so it is
+      // dropped rather than kept: the row still opens, and opening it fetches.
+      state.chats.delete(id);
       showLauncher();
     } catch (err) {
       if (btn) btn.disabled = false;
@@ -455,14 +919,23 @@
     }
   }
 
-  /** Open a chat session: on a workspace, or on a workspace seeded with one bead. */
-  async function open(workspace, seed) {
+  /**
+   * Open a chat session: on a workspace, or on a workspace seeded with one bead.
+   *
+   * `replace` for the `?ws=&seed=` way in, which is a URL that *creates* something:
+   * pushing over it would leave a back gesture pointing at an address that starts
+   * another conversation every time it is visited.
+   */
+  async function open(workspace, seed, { replace = false } = {}) {
     try {
       const made = await api('/api/console', {
         method: 'POST',
         body: JSON.stringify({ workspace, seed: seed || undefined }),
       });
-      location.href = `/console?id=${encodeURIComponent(made.id)}`;
+      // The POST hands the conversation back with the id, so a new chat is on screen
+      // without a second request for something we were just given.
+      if (made.console) adopt(made.console);
+      switchTo(made.id, { replace });
     } catch (err) {
       if (err.message !== 'token rejected') toast(err.message, true);
     }
@@ -491,7 +964,7 @@
   }
 
   /** Is there anything the sheet could actually show? What `openSheet` gates on. */
-  const liveDraft = () => (state.draft?.beads?.length || 0) > 0;
+  const liveDraft = () => (cur()?.draft?.beads?.length || 0) > 0;
 
   /**
    * What became of a proposal — read off the transcript rather than stored on it.
@@ -554,7 +1027,7 @@
       const pills = (m.created || [])
         .map(
           (x) =>
-            `<a class="created-row" href="${esc(beadUrl(state.console.workspace, x.id))}" target="_blank" rel="noopener">
+            `<a class="created-row" href="${esc(beadUrl(cur().console.workspace, x.id))}" target="_blank" rel="noopener">
                <span class="pill id created">${esc(x.id)}</span>
                <span class="created-title">${esc(x.title)}</span>
              </a>`
@@ -604,7 +1077,9 @@
   }
 
   function renderThread() {
-    const c = state.console;
+    const chat = cur();
+    if (!chat?.console) return;
+    const c = chat.console;
     const pin = atBottom();
 
     const head = c.seed
@@ -629,29 +1104,25 @@
     $('#pulse').classList.toggle('busy', c.status === 'thinking');
     // The composer is deliberately untouched here. It stays live for the whole turn
     // — never disabled, placeholder unchanged, keyboard never dismissed — and what a
-    // running turn changes is only where the words go: see `queue`.
-    queue.sync(c.status === 'thinking');
+    // running turn changes is only where the words go: see `makeQueue`.
+    chat.queue.sync(c.status === 'thinking');
 
     const count = c.draft?.beads?.length || 0;
     $('#draft-btn').hidden = !count;
     $('#draft-count').textContent = String(count);
+    // Its handle says the same three things this block just said — the spark, the
+    // title, the count — and this poll is where all three change.
+    renderChatTabs();
 
     scrollDown(pin);
   }
 
   /**
-   * Take a server chat session, keeping whatever is under the user's hands.
-   *
-   * The draft is the only contested field: it lives on the server so the agent can
-   * see your edits, and on this screen so you can make them. A revision that lands
-   * while the sheet has unsaved changes is parked rather than applied.
+   * Where the app says you are. Only ever the conversation in front — a chat held in
+   * the background is loaded, not looked at, and reporting it would put this phone in
+   * two places at once.
    */
-  function adopt(c) {
-    state.console = c;
-    state.seq = c.seq;
-    // Every update to the thread comes through here, so this is the one place that
-    // knows both which chat session is open and what it has become — a title that changed
-    // when the agent named it, a chat session that has since been closed.
+  const reportPresence = (c) =>
     window.beadcause?.presence?.report({
       view: 'console',
       id: c.id,
@@ -660,42 +1131,169 @@
       detail: c.title || '',
     });
 
+  /**
+   * Take a server chat session, keeping whatever is under the user's hands.
+   *
+   * Keyed by the id in the payload rather than by whatever is in front: a response can
+   * outlive the switch that asked for it, and the one thing it must not do is write one
+   * conversation's transcript over another's. Only the foreground one repaints.
+   *
+   * The draft is the only contested field: it lives on the server so the agent can
+   * see your edits, and on this screen so you can make them. A revision that lands
+   * while the sheet has unsaved changes is parked rather than applied.
+   */
+  function adopt(c) {
+    const chat = chatFor(c.id);
+    const front = c.id === state.id;
+    chat.console = c;
+    chat.seq = c.seq;
+    // Every update to the thread comes through here, so this is the one place that
+    // knows both which chat session is open and what it has become — a title that changed
+    // when the agent named it, a chat session that has since been closed.
+    if (front) reportPresence(c);
+
     const incoming = JSON.stringify(c.draft || null);
-    if (incoming === state.baseDraft) {
+    if (incoming === chat.baseDraft) {
       // Nothing new from the server — our local copy (edited or not) still stands.
-    } else if (state.draftDirty && sheetOpen()) {
-      state.pendingRevision = c.draft;
+    } else if (chat.draftDirty && (!front || sheetOpen())) {
+      chat.pendingRevision = c.draft;
     } else {
-      state.draft = c.draft ? structuredClone(c.draft) : null;
-      state.baseDraft = incoming;
-      state.draftDirty = false;
-      state.pendingRevision = null;
-      if (sheetOpen()) renderSheet();
+      chat.draft = c.draft ? structuredClone(c.draft) : null;
+      chat.baseDraft = incoming;
+      chat.draftDirty = false;
+      chat.pendingRevision = null;
+      if (front && sheetOpen()) renderSheet();
     }
+    if (!front) return;
     renderThread();
     if (sheetOpen()) renderRevisionBanner();
   }
 
+  /* ------------------------------------------------------------- following */
+
+  /** Which poll loop is the live one. Switching retires the old one by bumping it. */
+  let pollRun = 0;
+  /** The long poll currently parked on the server, so a switch can cut it short. */
+  let inFlight = null;
+
   /**
-   * Follow the conversation. One long poll at a time, restarted as soon as it
+   * Point the transcript poll at whatever is in front.
+   *
+   * One long poll for the page, never one per open chat. A conversation you are not
+   * looking at does not need its transcript streamed, and a parked 25-second request
+   * per open tab is how a phone's connection budget goes; what the others need is
+   * their *status*, and `watchBackground` gets that for all of them in one request.
+   *
+   * The old poll is aborted rather than left to expire. It is parked on the server for
+   * up to twenty-five seconds, and a chat brought forward inside that window would
+   * otherwise sit unwatched for the rest of it — which is precisely the case this whole
+   * change exists to make instant.
+   */
+  function repoll() {
+    stopPolling();
+    if (state.id) poll(pollRun);
+  }
+
+  /**
+   * Retire the live loop without starting another.
+   *
+   * Bumping the run is what the loop itself checks, so it stops at its next turn rather
+   * than being left to notice; the abort is what stops it *waiting* twenty-five seconds
+   * first. Its own place is the conversation that would not load — there is nothing to
+   * follow, and a loop reading `state.id` would spend the rest of the visit taking a
+   * 404 every five seconds.
+   */
+  function stopPolling() {
+    pollRun += 1;
+    const stale = inFlight;
+    inFlight = null;
+    stale?.abort();
+  }
+
+  /**
+   * Follow the conversation in front. One long poll at a time, restarted as soon as it
    * returns — the same feed the inbox lives on, scoped to this chat session, so a turn
    * that spends ninety seconds reading files is watched rather than waited on.
    */
-  async function poll() {
-    if (state.polling) return;
-    state.polling = true;
-    for (;;) {
+  async function poll(run) {
+    while (run === pollRun && state.id) {
+      const id = state.id;
+      const chat = chatFor(id);
       try {
-        const c = await api(`/api/console/poll?id=${encodeURIComponent(state.id)}&since=${state.seq}&wait=25`);
+        inFlight = new AbortController();
+        const c = await api(`/api/console/poll?id=${encodeURIComponent(id)}&since=${chat.seq}&wait=25`, {
+          signal: inFlight.signal,
+        });
+        if (run !== pollRun) return;
         adopt(c);
       } catch (err) {
-        if (err.message === 'token rejected') break;
+        // A switch cut it off, and the conversation now in front has a loop of its own.
+        if (run !== pollRun) return;
+        if (err.message === 'token rejected') return;
         // Off the tailnet, or the daemon restarted. Back off rather than hammer.
         $('#pulse').classList.remove('busy');
         await new Promise((r) => setTimeout(r, 5000));
       }
     }
-    state.polling = false;
+  }
+
+  /** The background status feed, when there is anything in the background. */
+  let statusTimer = null;
+
+  /**
+   * How many conversations there are behind the one in front.
+   *
+   * Loaded chats *and* open handles, because they are no longer the same set: a handle
+   * restored from the last visit has never been fetched, and it is exactly the one
+   * whose spark you cannot get any other way. It used to be `state.chats.size`, which
+   * counted the loaded ones alone and so left a strip of restored handles unwatched.
+   */
+  const behind = () => new Set([...state.chats.keys(), ...state.tabs.map((t) => t.id)]).size - 1;
+
+  /**
+   * What the conversations you are not looking at are doing.
+   *
+   * `/api/consoles` already carries every conversation's status — it is where the
+   * launcher list gets its spark — so all of the background costs one request every
+   * fifteen seconds instead of a long poll each. Their transcripts go stale, and that
+   * is the trade: bringing one forward starts its own poll, which returns everything
+   * said since its sequence number in a single response.
+   *
+   * It is not decoration. A background chat's turn *ending* is what releases anything
+   * left queued above its composer, and nothing else on this page would notice.
+   */
+  function watchBackground() {
+    clearTimeout(statusTimer);
+    // Nothing in front means the launcher, which follows this list for itself; nothing
+    // behind means there is no background to ask about.
+    if (!state.id || behind() < 1) return;
+
+    const tick = async () => {
+      clearTimeout(statusTimer);
+      if (!state.id || behind() < 1) return;
+      try {
+        const data = await api('/api/consoles');
+        window.beadcause?.warm?.write?.('/api/consoles', data);
+        state.workspaces = data.workspaces || [];
+        state.consoles = data.consoles || [];
+        for (const row of state.consoles) {
+          const chat = state.chats.get(row.id);
+          // The one in front has a poll of its own, and that is the newer word.
+          if (!chat?.console || row.id === state.id) continue;
+          chat.console.status = row.status;
+          chat.console.title = row.title || chat.console.title;
+          chat.console.closedAt = row.closedAt;
+          chat.queue.sync(row.status === 'thinking');
+        }
+        // The strip *is* on screen and does depend on it: this request is the only
+        // thing that moves a background handle's spark, title or bead count.
+        renderChatTabs();
+      } catch {
+        /* Nothing else on screen depends on this; the next tick tries again. */
+      }
+      if (state.id && behind() >= 1) statusTimer = setTimeout(tick, STATUS_MS);
+    };
+    tick();
   }
 
   /* ------------------------------------------------------------------ saying */
@@ -709,47 +1307,72 @@
    * the queue still holds the words, and showing them in the thread *and* above the
    * composer would read as having said the same thing twice.
    */
-  async function deliver(text) {
+  async function deliver(id, text) {
+    const chat = chatFor(id);
     const msg = { role: 'user', text, at: new Date().toISOString() };
-    state.console.messages.push(msg);
-    state.console.status = 'thinking';
-    renderThread();
-    scrollDown(true);
-    try {
-      await api('/api/console/message', { method: 'POST', body: JSON.stringify({ id: state.id, text }) });
-    } catch (err) {
-      const i = state.console.messages.indexOf(msg);
-      if (i >= 0) state.console.messages.splice(i, 1);
-      state.console.status = 'idle';
+    chat.console.messages.push(msg);
+    chat.console.status = 'thinking';
+    if (id === state.id) {
       renderThread();
+      scrollDown(true);
+    }
+    try {
+      await api('/api/console/message', { method: 'POST', body: JSON.stringify({ id, text }) });
+    } catch (err) {
+      const i = chat.console.messages.indexOf(msg);
+      if (i >= 0) chat.console.messages.splice(i, 1);
+      chat.console.status = 'idle';
+      if (id === state.id) renderThread();
       throw err;
     }
   }
 
+  /** An id as it can appear inside a quoted attribute selector. */
+  const cssValue = (s) => String(s).replace(/["\\]/g, '\\$&');
+
   /**
-   * The queue is what lets the composer stay open: say something mid-turn and it
-   * waits here, visibly, until the turn lands. Nothing here pushes past the server's
-   * refusal — the 409 stands, and this is the side that waits.
+   * One send queue per conversation, not one per page.
+   *
+   * The queue is what lets the composer stay open: say something mid-turn and it waits
+   * there, visibly, until the turn lands. Nothing here pushes past the server's refusal
+   * — the 409 stands, and this is the side that waits.
+   *
+   * Which is exactly why it cannot be shared once this page holds more than one chat. A
+   * queued message belongs to the conversation it was said to, and a single queue would
+   * deliver those words into whichever chat happened to be in front when the turn
+   * landed — quietly, into a stranger's thread. That is worse than losing them.
+   *
+   * The strip above the composer is still drawn by the queue itself, because it is the
+   * same strip the agents screen has and two hand-written copies would drift. Every
+   * chat's queue attaches to that one element through a selector carrying its own id,
+   * which only matches while `#queued` is stamped with it — so a background queue
+   * moving repaints nothing, and bringing a chat forward is `repaint()` on its queue.
    */
-  const queue = window.beadcause.sendQueue.create({
-    deliver,
-    onError: (err, { willRetry }) => {
-      if (err.message === 'token rejected') return; // the dialog is already up
-      // A 409 is the console saying "not yet", which is exactly what the queue is
-      // for; saying so in a red toast would be reporting the feature as a fault.
-      if (err.status === 409 || willRetry) return;
-      toast(`${err.message} — tap the message above the box to get it back`, true);
-    },
-  });
-  // The pending strip above the composer: drawn by the queue, because it is the same
-  // strip on the agents screen and two copies of it would drift.
-  queue.attach({ el: '#queued', box: '#say', onRestore: autoGrow });
+  function makeQueue(id) {
+    const q = window.beadcause.sendQueue.create({
+      deliver: (text) => deliver(id, text),
+      onError: (err, { willRetry }) => {
+        if (err.message === 'token rejected') return; // the dialog is already up
+        // A 409 is the console saying "not yet", which is exactly what the queue is
+        // for; saying so in a red toast would be reporting the feature as a fault.
+        if (err.status === 409 || willRetry) return;
+        // A toast points at the strip above the composer, and that strip is showing
+        // some other conversation's words right now.
+        if (id !== state.id) return;
+        toast(`${err.message} — tap the message above the box to get it back`, true);
+      },
+    });
+    q.attach({ el: `#queued[data-chat="${cssValue(id)}"]`, box: '#say', onRestore: autoGrow });
+    return q;
+  }
 
   function send(text) {
-    if (!String(text || '').trim() || !state.console) return;
+    const chat = cur();
+    if (!String(text || '').trim() || !chat?.console) return;
     $('#say').value = '';
+    chat.say = '';
     autoGrow($('#say'));
-    queue.say(text);
+    chat.queue.say(text);
   }
 
   /* ------------------------------------------------------------------ sheet */
@@ -790,16 +1413,46 @@
       if (!sheetOpen()) $('#sheet').hidden = true;
     }, 220);
     // Anything typed and not yet flushed goes now, so the next turn sees it.
-    if (state.draftDirty) saveDraft(true);
+    const chat = cur();
+    if (chat?.draftDirty) saveDraft(chat, true);
   }
 
   const priorityLabel = (p) => ['critical', 'high', 'medium', 'low', 'backlog'][p] ?? 'medium';
 
+  /**
+   * "This looks like a bead you already filed", on the card that looks like it.
+   *
+   * The server decides it and writes the sentence (`flagDraftDuplicates` in
+   * lib/server.js), so a draft card and an advocate's proposal card say the same words
+   * about the same thing. Nothing here disables anything: **Create** still creates,
+   * because you are looking at both beads and re-filing on purpose is a real thing to
+   * want — the app states the fact and leaves the decision where it belongs.
+   *
+   * Drawn above the fold, on the collapsed row as well as the open one. The sheet
+   * opens with every card collapsed, so a warning that lived among the fields would be
+   * a warning nobody reads.
+   *
+   * The whole line is the link, because the only useful next move is to go and look at
+   * the bead it names — and `/graph?…&open=1` opens in the drawer over this screen
+   * (public/drawer.js), so looking costs neither the conversation nor the draft. A
+   * `#2` names another card in this same proposal, which is on screen already and has
+   * no address to link to.
+   */
+  function dupeHtml(dup) {
+    if (!dup?.id || !dup.note) return '';
+    const ws = cur()?.console?.workspace;
+    const text = `⚠︎ Possible duplicate: ${esc(dup.note)}`;
+    return ws && !dup.id.startsWith('#')
+      ? `<a class="bead-dupe" href="${beadUrl(ws, dup.id)}">${text}</a>`
+      : `<p class="bead-dupe">${text}</p>`;
+  }
+
   /** One bead: a summary row you tap to open, and the fields underneath it. */
   function beadHtml(b, i, all) {
-    const isOpen = state.open.has(b.ref);
+    const isOpen = cur().open.has(b.ref);
     const others = all.filter((x) => x.ref !== b.ref);
     const externals = b.dependsOn.filter((d) => !all.some((x) => x.ref === d));
+    const dupe = dupeHtml(b.duplicate);
 
     const summary = `<button class="bead-head" data-toggle="${esc(b.ref)}" aria-expanded="${isOpen}">
       <span class="bead-title">${esc(b.title || 'Untitled bead')}</span>
@@ -812,7 +1465,7 @@
       </span>
     </button>`;
 
-    if (!isOpen) return `<div class="bead card">${summary}</div>`;
+    if (!isOpen) return `<div class="bead card">${summary}${dupe}</div>`;
 
     const chips = (name, values, current, labelFor) =>
       values
@@ -844,6 +1497,7 @@
 
     return `<div class="bead card open">
       ${summary}
+      ${dupe}
       <div class="bead-body">
         <label class="field">
           <span>Title</span>
@@ -911,15 +1565,16 @@
   }
 
   function renderSheet() {
-    const beads = state.draft?.beads || [];
+    const chat = cur();
+    const beads = chat?.draft?.beads || [];
     if (!beads.length) return closeSheet();
 
     $('#sheet-title').textContent = `${beads.length} bead${beads.length === 1 ? '' : 's'} to create`;
-    const warnings = (state.draft.warnings || []).length
-      ? `<div class="warnings sheet-warn">${state.draft.warnings.map((w) => `<span>${esc(w)}</span>`).join('')}</div>`
+    const warnings = (chat.draft.warnings || []).length
+      ? `<div class="warnings sheet-warn">${chat.draft.warnings.map((w) => `<span>${esc(w)}</span>`).join('')}</div>`
       : '';
     $('#sheet-body').innerHTML =
-      `<p class="lede">In <strong>${esc(state.console.workspace)}</strong>. Tap a bead to change anything about it — this is what will be created.</p>` +
+      `<p class="lede">In <strong>${esc(chat.console.workspace)}</strong>. Tap a bead to change anything about it — this is what will be created.</p>` +
       warnings +
       `<div id="revision-slot"></div>` +
       beads.map((b, i) => beadHtml(b, i, beads)).join('');
@@ -933,17 +1588,18 @@
   /** A revision that arrived while you were editing. Offered, never imposed. */
   function renderRevisionBanner() {
     const slot = $('#revision-slot');
-    if (!slot) return;
-    if (!state.pendingRevision) return (slot.innerHTML = '');
+    const chat = cur();
+    if (!slot || !chat) return;
+    if (!chat.pendingRevision) return (slot.innerHTML = '');
     slot.innerHTML = `<div class="revision">
       <span>The agent revised this proposal while you were editing.</span>
       <button class="secondary" id="take-revision">Use its version</button>
     </div>`;
     $('#take-revision').addEventListener('click', () => {
-      state.draft = structuredClone(state.pendingRevision);
-      state.baseDraft = JSON.stringify(state.pendingRevision);
-      state.pendingRevision = null;
-      state.draftDirty = false;
+      chat.draft = structuredClone(chat.pendingRevision);
+      chat.baseDraft = JSON.stringify(chat.pendingRevision);
+      chat.pendingRevision = null;
+      chat.draftDirty = false;
       renderSheet();
     });
   }
@@ -953,7 +1609,7 @@
     el.style.height = `${Math.min(el.scrollHeight, 340)}px`;
   }
 
-  const beadFor = (ref) => (state.draft?.beads || []).find((b) => b.ref === ref);
+  const beadFor = (ref) => (cur()?.draft?.beads || []).find((b) => b.ref === ref);
 
   function wireSheet() {
     const body = $('#sheet-body');
@@ -961,7 +1617,8 @@
     for (const b of body.querySelectorAll('[data-toggle]')) {
       b.addEventListener('click', () => {
         const ref = b.dataset.toggle;
-        state.open.has(ref) ? state.open.delete(ref) : state.open.add(ref);
+        const open = cur().open;
+        open.has(ref) ? open.delete(ref) : open.add(ref);
         renderSheet();
       });
     }
@@ -1015,26 +1672,29 @@
     for (const el of body.querySelectorAll('[data-remove]')) {
       el.addEventListener('click', () => {
         const ref = el.dataset.remove;
-        state.draft.beads = state.draft.beads.filter((b) => b.ref !== ref);
+        const chat = cur();
+        chat.draft.beads = chat.draft.beads.filter((b) => b.ref !== ref);
         // Nothing may point at a bead that is no longer being created.
-        for (const b of state.draft.beads) {
+        for (const b of chat.draft.beads) {
           b.dependsOn = b.dependsOn.filter((d) => d !== ref);
           if (b.parent === ref) b.parent = null;
         }
-        state.open.delete(ref);
+        chat.open.delete(ref);
         markDirty();
-        state.draft.beads.length ? renderSheet() : closeSheet();
+        chat.draft.beads.length ? renderSheet() : closeSheet();
         renderThread();
       });
     }
   }
 
   function markDirty() {
-    state.draftDirty = true;
+    const chat = cur();
+    if (!chat) return;
+    chat.draftDirty = true;
     disarm();
     updateCreateButton();
-    clearTimeout(state.saveTimer);
-    state.saveTimer = setTimeout(() => saveDraft(), 700);
+    clearTimeout(chat.saveTimer);
+    chat.saveTimer = setTimeout(() => saveDraft(chat), 700);
   }
 
   /**
@@ -1042,34 +1702,37 @@
    * see what you changed, so the next turn argues with the proposal on your screen
    * rather than the one it last wrote.
    */
-  async function saveDraft(immediate) {
-    clearTimeout(state.saveTimer);
-    if (!state.draftDirty) return;
-    const payload = state.draft ? { beads: state.draft.beads } : null;
+  async function saveDraft(chat, immediate) {
+    clearTimeout(chat.saveTimer);
+    if (!chat.draftDirty) return;
+    const payload = chat.draft ? { beads: chat.draft.beads } : null;
     try {
       const out = await api('/api/console/draft', {
         method: 'POST',
-        body: JSON.stringify({ id: state.id, draft: payload }),
+        body: JSON.stringify({ id: chat.id, draft: payload }),
       });
-      state.draftDirty = false;
+      chat.draftDirty = false;
       // Adopt the server's normalisation (dropped edges, cleaned labels) so what is
       // on screen is what would be created — but not while a field has focus.
-      state.baseDraft = JSON.stringify(out.draft || null);
+      chat.baseDraft = JSON.stringify(out.draft || null);
       if (out.draft && !document.activeElement?.matches?.('#sheet-body textarea, #sheet-body input')) {
-        state.draft = structuredClone(out.draft);
-        if (sheetOpen()) renderSheet();
+        chat.draft = structuredClone(out.draft);
+        if (chat.id === state.id && sheetOpen()) renderSheet();
       }
-      updateCreateButton();
+      if (chat.id === state.id) updateCreateButton();
     } catch (err) {
-      if (err.message !== 'token rejected') toast(`could not save: ${err.message}`, true);
-      if (immediate) state.draftDirty = true;
+      // A save flushed on the way out of a conversation still failed in it, and the
+      // words are still there — but the screen has moved on and a red toast over
+      // another chat would name nothing you can see.
+      if (err.message !== 'token rejected' && chat.id === state.id) toast(`could not save: ${err.message}`, true);
+      if (immediate) chat.draftDirty = true;
     }
   }
 
   /* ----------------------------------------------------------------- create */
 
   function updateCreateButton() {
-    const n = state.draft?.beads?.length || 0;
+    const n = cur()?.draft?.beads?.length || 0;
     const btn = $('#create');
     btn.disabled = !n || state.creating;
     btn.textContent = state.creating
@@ -1093,7 +1756,8 @@
    * pocket tap is not undoable in any way that matters.
    */
   async function createBeads() {
-    if (!state.draft?.beads?.length || state.creating) return;
+    const chat = cur();
+    if (!chat?.draft?.beads?.length || state.creating) return;
     if (!state.armed) {
       state.armed = true;
       updateCreateButton();
@@ -1101,31 +1765,30 @@
       return;
     }
     disarm();
-    if (state.draftDirty) await saveDraft(true);
+    if (chat.draftDirty) await saveDraft(chat, true);
 
     state.creating = true;
     updateCreateButton();
     try {
       const out = await api('/api/console/create', {
         method: 'POST',
-        body: JSON.stringify({ id: state.id, draft: { beads: state.draft.beads }, close: true }),
+        body: JSON.stringify({ id: chat.id, draft: { beads: chat.draft.beads }, close: true }),
       });
-      state.draft = null;
-      state.baseDraft = 'null';
-      state.draftDirty = false;
+      chat.draft = null;
+      chat.baseDraft = 'null';
+      chat.draftDirty = false;
       toast(`created ${out.created.length} bead${out.created.length === 1 ? '' : 's'}`);
       closeSheet();
-      for (const w of out.warnings || []) toast(w, true);
+      for (const w of out.warnings || []) toast(w, 'refused');
       // Accepting ends the conversation: the beads exist and the chat session that argued
       // them into shape is done, so it closes itself and drops you back to the list.
       // Unless there were warnings — those have to be read on the screen that
       // produced them, and this leaves you there to read them.
       if (out.closed) {
-        history.replaceState(null, '', '/console');
-        state.id = '';
-        state.console = null;
-        state.seq = 0;
-        showLauncher();
+        // Let go of it rather than hold a transcript with no closing line in it. The
+        // row is still in the list and still opens; opening it fetches.
+        state.chats.delete(chat.id);
+        switchTo('', { replace: true });
       }
     } catch (err) {
       if (err.message !== 'token rejected') toast(err.message, true);
@@ -1138,10 +1801,12 @@
   /* ------------------------------------------------------------------ start */
 
   function addBead() {
-    if (!state.draft) state.draft = { beads: [], warnings: [] };
-    let ref = `bead-${state.draft.beads.length + 1}`;
-    while (state.draft.beads.some((b) => b.ref === ref)) ref += '-x';
-    state.draft.beads.push({
+    const chat = cur();
+    if (!chat) return;
+    if (!chat.draft) chat.draft = { beads: [], warnings: [] };
+    let ref = `bead-${chat.draft.beads.length + 1}`;
+    while (chat.draft.beads.some((b) => b.ref === ref)) ref += '-x';
+    chat.draft.beads.push({
       ref,
       title: '',
       type: 'task',
@@ -1154,26 +1819,107 @@
       parent: null,
       dependsOn: [],
     });
-    state.open.add(ref);
+    chat.open.add(ref);
     markDirty();
     renderSheet();
     renderThread();
   }
 
-  async function showThread() {
+  /* --------------------------------------------------------------- switching */
+
+  const urlFor = (id) => (id ? `/console?id=${encodeURIComponent(id)}` : '/console');
+
+  /** Put the thread, the composer and the sheet on screen. */
+  function showThreadChrome() {
     $('#launcher').hidden = true;
     $('#thread').hidden = false;
     $('#composer').hidden = false;
     document.body.classList.remove('launching');
+  }
+
+  /** What the conversation being left is holding, so it is still holding it later. */
+  function stash() {
+    const chat = cur();
+    if (!chat) return;
+    chat.scrollTop = $('#thread').scrollTop;
+    chat.say = $('#say').value;
+  }
+
+  /** Draw a conversation we already have, exactly as it was left. */
+  function draw(chat) {
+    renderThread();
+    // After the render, not before: a repaint pins the thread to the bottom, and where
+    // you had scrolled to is the last word on where this one opens.
+    if (chat.scrollTop == null) scrollDown(true);
+    else $('#thread').scrollTop = chat.scrollTop;
+    $('#say').value = chat.say || '';
+    autoGrow($('#say'));
+    chat.queue.repaint();
+    reportPresence(chat.console);
+  }
+
+  /** Fetch one for the first time. Everything after this is drawn from memory. */
+  async function load(chat) {
+    $('#thread').innerHTML = '<div class="empty">Loading…</div>';
+    $('#say').value = '';
     try {
-      adopt(await api(`/api/console?id=${encodeURIComponent(state.id)}`));
+      adopt(await api(`/api/console?id=${encodeURIComponent(chat.id)}`));
     } catch (err) {
-      if (err.message === 'token rejected') return;
+      if (err.message === 'token rejected') return false;
       $('#thread').innerHTML = `<div class="empty"><strong>Not found</strong>${esc(err.message)}. <a href="/console">Start a new one</a>.</div>`;
       $('#composer').hidden = true;
-      return;
+      return false;
     }
-    poll();
+    chat.queue.repaint();
+    return true;
+  }
+
+  /**
+   * Bring a conversation to the front — or, with `''`, the launcher.
+   *
+   * This is what the map is for. A chat that has been loaded is drawn from what is
+   * already here, with nothing between the tap and the transcript: the scroll position
+   * is where you left it, the composer still holds what you were half-way through
+   * typing, and the queue above it is that conversation's own.
+   *
+   * The URL is kept honest on every switch, because it is the only durable name for
+   * where you are: a reload, a bookmark and the link on a bead card all land on the
+   * chat it names, and the system back gesture walks back out through the ones you
+   * came through. `push` is false when the history is what asked.
+   */
+  async function switchTo(id, { push = true, replace = false } = {}) {
+    if (id && id === state.id) return;
+    // The sheet belongs to a conversation, and it is the one thing on this screen that
+    // would otherwise stay up over a different one. Closing it flushes its edits.
+    closeSheet();
+    stash();
+    state.id = id;
+    // Before the load rather than after it: the handle is what says which chat the
+    // page is fetching, and a strip that arrives with the transcript is a strip that
+    // flickers on every switch.
+    if (id) addTab(id);
+    renderChatTabs();
+    if (replace) history.replaceState(null, '', urlFor(id));
+    else if (push) history.pushState(null, '', urlFor(id));
+
+    if (id) {
+      const chat = chatFor(id);
+      showThreadChrome();
+      // Which conversation the one strip above the composer is currently showing —
+      // read by every open chat's queue, and matched by exactly one of them.
+      $('#queued').dataset.chat = id;
+      if (chat.console) draw(chat);
+      else if (!(await load(chat))) return stopPolling();
+    } else {
+      // Through `dataset` both ways, which is the same attribute the queues match on
+      // and one fewer DOM method for anything standing in for this element.
+      delete $('#queued').dataset.chat;
+      $('#queued').hidden = true;
+      showLauncher();
+    }
+
+    repoll();
+    watchBackground();
   }
 
   /**
@@ -1184,10 +1930,22 @@
    * own and no POST from the page it sits on.
    */
   function start() {
-    if (state.id) return showThread();
+    // Cleared first, so the switch below is a switch rather than a no-op: `state.id` is
+    // seeded from the URL at boot, which is where we are being asked to go.
+    const wanted = state.id;
+    state.id = '';
+    if (wanted) {
+      // Landing straight in a conversation — a reload, a bookmark, the link on a bead
+      // card. The handles beside it are ids and repos until a list comes back, and this
+      // page kept the last list it saw: painting from it is what makes them names. The
+      // request is still made a moment later, by `watchBackground`. See public/warm.js.
+      const hit = window.beadcause?.warm?.read?.('/api/consoles');
+      if (Array.isArray(hit?.data?.consoles)) adoptConsoles(hit.data);
+      return switchTo(wanted, { replace: true });
+    }
     const params = new URLSearchParams(location.search);
-    if (params.get('ws')) return open(params.get('ws'), params.get('seed'));
-    showLauncher();
+    if (params.get('ws')) return open(params.get('ws'), params.get('seed'), { replace: true });
+    return switchTo('', { replace: true });
   }
 
   /**
@@ -1203,15 +1961,61 @@
       if (btn) setRepo(btn.dataset.ws);
     });
 
+    /* Closing one from the list. Delegated rather than bound per row, and that became
+       load-bearing when the list stopped being rebuilt on every paint: the reconciler
+       keeps the nodes it did not have to touch, so a listener hung on each ✕ at render
+       time would be hung a second time on the same button the next time anything moved
+       — and one tap would then close the conversation twice.
+
+       This block must stay ABOVE the switch below, and that ordering is the whole of how
+       the two agree. Both are on `#recent` itself, so the `stopPropagation` here does not
+       keep the sibling listener from running — only `stopImmediatePropagation` would. What
+       actually protects it is the `defaultPrevented` guard there, which reads the
+       `preventDefault` here and so needs this to have run first. Swap the two blocks and
+       every ✕ closes the conversation and opens it on the way out, because the button sits
+       inside the row's own `<a>`. */
+    $('#recent').addEventListener('click', (ev) => {
+      const btn = ev.target.closest('[data-close]');
+      if (!btn) return;
+      // The row is a link. Closing it must not also open it.
+      ev.preventDefault();
+      ev.stopPropagation();
+      closeConsole(btn.dataset.close, btn);
+    });
+
+    /* A conversation opens *here*, without a page load. The rows are still links to
+       real addresses — copy one, open it in a new tab, and it works — but a plain tap
+       is answered by bringing that chat to the front, which is what lets the one you
+       were reading a moment ago still be loaded when you come back to it.
+
+       Anything but a plain left tap is the browser's: a modified click means "somewhere
+       else", and a switch would be the one thing that is not. The row ✕ has already
+       stopped the event by the time this runs. */
+    $('#recent').addEventListener('click', (ev) => {
+      if (ev.defaultPrevented || ev.button || ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey) return;
+      const a = ev.target.closest('a.work-row[data-id]');
+      if (!a) return;
+      ev.preventDefault();
+      switchTo(a.dataset.id);
+    });
+
+    // Not delegated like the tabs: this button is in the page, not rebuilt by a paint.
+    $('#ws-dismissed').addEventListener('click', () => setShowDismissed(!state.showDismissed));
+
     /* The picker moved — from this row, from the dropdown above it, or from the phone in
        your pocket. All three end here, so the row and the list agree however it happened.
-       Only while the launcher is up: repainting it behind an open conversation would
-       rebuild a screen nobody is looking at. */
+       The launcher's own repaints are still only while it is up — rebuilding a screen
+       nobody is looking at costs the same as one they are — but the strip above it is
+       on screen either way. */
     window.beadcause?.space?.onChange(() => {
-      if ($('#launcher').hidden) return;
       // A stray tab is a filter of this page's own, and the app moving out from under it
       // is exactly when it stops being what you are looking at.
       state.stray = '';
+      // Ahead of the early return, and that is the difference the strip makes: it is on
+      // screen over an open conversation, where the launcher under it is not, and the
+      // filter decides which handles are on it.
+      renderChatTabs();
+      if ($('#launcher').hidden) return;
       hidePicker();
       renderRepoTabs();
       renderRecent();
@@ -1254,8 +2058,63 @@
     });
   }
 
+  /**
+   * The strip of handles, wired once — it is redrawn constantly, so nothing is bound
+   * to a handle itself.
+   *
+   * Same two listeners as the list, in the same order, and the ordering matters less
+   * here for a reason worth writing down: the ✕ is a *sibling* of the handle's link
+   * rather than a child of it, so `closest('[data-tab]')` from the button walks past
+   * the link entirely and the switch cannot fire on a close. On `#recent` the button
+   * is inside the row's `<a>`, and only the `defaultPrevented` guard keeps one tap
+   * from doing both. Keeping the shape identical is deliberate: two strips of tabs on
+   * one page that disagree about what a ✕ does is how the next change breaks one of
+   * them.
+   */
+  function wireTabs() {
+    const row = $('#chat-tabs');
+    if (!row) return;
+
+    row.addEventListener('click', (ev) => {
+      const btn = ev.target.closest('[data-untab]');
+      if (!btn) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      removeTab(btn.dataset.untab);
+    });
+
+    /* A handle is a real link — to the chat, or to `/console` for All — so a modified
+       click is still the browser's and a copied address still works. A plain tap is
+       answered here, from memory. */
+    row.addEventListener('click', (ev) => {
+      if (ev.defaultPrevented || ev.button || ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey) return;
+      const a = ev.target.closest('[data-tab]');
+      if (!a) return;
+      ev.preventDefault();
+      switchTo(a.dataset.tab);
+    });
+
+    /* Arrow keys walk the strip, and the selection follows the focus — the same
+       contract as the repo tabs above, which is the point: a tab bar that answers the
+       arrows beside one that does not is worse than neither. Only the selected handle
+       is in the tab order, or a strip of six chats is six stops on the way to the
+       conversation. */
+    row.addEventListener('keydown', (ev) => {
+      const step = ev.key === 'ArrowRight' ? 1 : ev.key === 'ArrowLeft' ? -1 : 0;
+      if (!step) return;
+      ev.preventDefault();
+      const tabs = [...row.querySelectorAll('[data-tab]')];
+      const at = tabs.findIndex((t) => t.getAttribute('aria-selected') === 'true');
+      const next = tabs[(at + step + tabs.length) % tabs.length];
+      if (!next) return;
+      switchTo(next.dataset.tab);
+      row.querySelector('[aria-selected="true"]')?.focus?.();
+    });
+  }
+
   function wire() {
     wireLauncher();
+    wireTabs();
     // Dictating the next bead. The status line goes above the composer rather than
     // under the box — this composer is a flex row pinned to the bottom of the screen,
     // and a paragraph dropped into it would stand up as a third column — so it lands
@@ -1282,9 +2141,22 @@
       closeSheet();
       $('#say').focus();
     });
+    /* The back gesture, which is now how you leave a conversation as well as how you
+       arrived at one. Every switch writes the URL, so the history is the list of chats
+       you came through and walking back out of them costs no more than walking in.
+
+       The drawer listens to `popstate` too, for its own pushed entry — that one leaves
+       the address alone, which is why this compares before it acts. */
+    addEventListener('popstate', () => {
+      const id = new URLSearchParams(location.search).get('id') || '';
+      if (id === state.id) return;
+      switchTo(id, { push: false });
+    });
+
     // A half-written edit must not die with the tab.
     addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'hidden' && state.draftDirty) saveDraft(true);
+      const chat = cur();
+      if (document.visibilityState === 'hidden' && chat?.draftDirty) saveDraft(chat, true);
     });
   }
 
