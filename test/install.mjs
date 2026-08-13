@@ -44,7 +44,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -70,16 +70,25 @@ const check = (name, cond, detail = '') => (cond ? ok(name) : bad(name, detail))
 /**
  * The `node` the installer finds on PATH.
  *
- * It answers the four questions install.sh asks node — the version, the monitor flag,
- * configure.js, and the pairing QR — and records every call. For configure.js it also
- * records whether what it was handed on stdin is a terminal, which is the difference
+ * It answers the five questions install.sh asks node — the version, the team tracker, the
+ * monitor flag, configure.js, and the pairing QR — and records every call. For configure.js
+ * it also records whether what it was handed on stdin is a terminal, which is the difference
  * between "asked a human" and "printed the current config": a skipping run must never
  * see a tty here.
+ *
+ * BEADCAUSE_TEST_ONBOARD_EXIT is what scripts/onboard.mjs returns, and it is switchable
+ * because the installer reads it rather than ignoring it: 1 is a refusal that must stop the
+ * install with the running service untouched, and 2 is a step that may work next time and
+ * must not. The real script's own behaviour is test/onboard.mjs's business; what is
+ * testable here is what install.sh does with the answer.
  */
 const NODE_SHIM = `#!/bin/bash
 log="$BEADCAUSE_TEST_LOGDIR/node.log"
 if [ -t 0 ]; then stdin=tty; else stdin=notty; fi
 printf '%s [stdin=%s]\\n' "$*" "$stdin" >> "$log"
+case "$*" in
+  *onboard.mjs*) exit "\${BEADCAUSE_TEST_ONBOARD_EXIT:-0}" ;;
+esac
 case "$1" in
   -p) echo "\${BEADCAUSE_TEST_NODE_MAJOR:-22}" ;;
   -e) printf '%s' "\${BEADCAUSE_TEST_MONITOR:-0}" ;;
@@ -155,29 +164,30 @@ function run(name, { args = [], env = {}, previousPlist = null } = {}) {
   const plist = path.join(home, 'Library', 'LaunchAgents', `${LABEL}.plist`);
   if (previousPlist) fs.writeFileSync(plist, previousPlist);
 
-  let status = 0;
-  let out = '';
-  try {
-    out = execFileSync('bash', [INSTALL, ...args], {
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'pipe'],
-      // A hang is the bug this file is about, so it must fail rather than wedge `npm test`.
-      timeout: 60_000,
-      env: {
-        // Built from nothing rather than inherited: CLAUDECODE and CI are exactly what
-        // the decision under test reads, and this suite runs in both.
-        HOME: home,
-        TMPDIR: dir,
-        PATH: `${bin}:/usr/bin:/bin`,
-        BEADCAUSE_TEST_LOGDIR: logs,
-        BEADCAUSE_TEST_LOADED: path.join(ROOT, 'bin', 'router.js'),
-        ...env,
-      },
-    });
-  } catch (e) {
-    status = e.status ?? (e.code === 'ETIMEDOUT' ? 'TIMED OUT' : e.code);
-    out = `${e.stdout ?? ''}${e.stderr ?? ''}`;
-  }
+  let status;
+  // spawnSync rather than execFileSync, for one reason: `execFileSync` hands back stdout
+  // alone on a run that *succeeds*, and every `warn` in the installer goes to stderr. So a
+  // warning printed by a run that finished — the whole of what a recoverable failure looks
+  // like — was invisible to an assertion, and the only reason nothing had noticed is that
+  // the checks here were all about runs that died.
+  const r = spawnSync('bash', [INSTALL, ...args], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+    // A hang is the bug this file is about, so it must fail rather than wedge `npm test`.
+    timeout: 60_000,
+    env: {
+      // Built from nothing rather than inherited: CLAUDECODE and CI are exactly what
+      // the decision under test reads, and this suite runs in both.
+      HOME: home,
+      TMPDIR: dir,
+      PATH: `${bin}:/usr/bin:/bin`,
+      BEADCAUSE_TEST_LOGDIR: logs,
+      BEADCAUSE_TEST_LOADED: path.join(ROOT, 'bin', 'router.js'),
+      ...env,
+    },
+  });
+  const out = `${r.stdout ?? ''}${r.stderr ?? ''}`;
+  status = r.error?.code === 'ETIMEDOUT' ? 'TIMED OUT' : (r.status ?? r.error?.code ?? 0);
   const read = (f) => (fs.existsSync(path.join(logs, f)) ? fs.readFileSync(path.join(logs, f), 'utf8') : '');
   return {
     status,
@@ -244,6 +254,46 @@ console.log('the questions');
   const r = run('bogus', { args: ['--wat'] });
   check('an unknown option is refused rather than ignored', r.status === 1, `exit ${r.status}`);
   check('and the usage is printed with it', /--non-interactive/.test(r.out), r.out);
+}
+
+/* -------------------------------------------- 1b. the team's tracker, and its answer */
+
+/**
+ * The step a second engineer's install was missing, and what the installer does with its
+ * three exit codes. The tracker has to exist *before* the questions: on a fresh Mac there
+ * is no workspace at all, so `configure.js` would print "No beads workspaces found" and
+ * exit, and the daemon would come up serving an empty inbox with nothing wrong with it.
+ */
+console.log("\nthe team's tracker");
+
+{
+  const r = run('tracker-order', { args: ['-n'] });
+  const onboard = r.node.indexOf('onboard.mjs');
+  const configure = r.node.indexOf('configure.js');
+  check('the onboarding runs', onboard >= 0, r.node);
+  check('before the questions are asked about it', onboard >= 0 && onboard < configure, r.node);
+  check('and a solo install is unaffected by it', r.status === 0, `exit ${r.status}\n${r.out}`);
+}
+
+{
+  const r = run('tracker-refused', { args: ['-n'], env: { BEADCAUSE_TEST_ONBOARD_EXIT: '1' } });
+  check('a refusal stops the install', r.status !== 0, `exit ${r.status}\n${r.out}`);
+  check('and says a decision is needed', /needs a decision/.test(r.out), r.out);
+  // The reason the step sits this early: nothing has been booted out yet, so what was
+  // loaded is still loaded and still running. Same argument as the bootstrap probe.
+  check(
+    'with the running service never booted out',
+    !r.launchctl.some((l) => l.startsWith('bootout')),
+    r.launchctl.join('\n')
+  );
+  check('and no plist written', r.plistText === null, String(r.plistText).slice(0, 120));
+}
+
+{
+  const r = run('tracker-failed', { args: ['-n'], env: { BEADCAUSE_TEST_ONBOARD_EXIT: '2' } });
+  check('a step that may work next time only warns', r.status === 0, `exit ${r.status}\n${r.out}`);
+  check('and says so, with the code', /not set up yet.*exit 2/.test(r.out), r.out);
+  check('the daemon is still installed', r.launchctl.some((l) => l.includes(`${LABEL}.plist`)), r.launchctl.join('\n'));
 }
 
 /* ------------------------------------------------------ 2. loading, and not */

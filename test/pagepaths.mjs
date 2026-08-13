@@ -6,27 +6,30 @@
  *     node test/pagepaths.mjs
  *
  * Pages get renamed and merged; the shortcuts people already made do not. So each
- * view answers to several paths — `/monitor`, `/advocates`, `/sessions`, `/work` and
- * `/work.html` are all one page, `/prs` and `/pulls` are another — and the whole point
- * of keeping the extra ones is that a bookmark never 404s. There was nothing checking
- * that, and the aliases live in a run of one-line `if`s in `serveStatic` which is
- * exactly the shape a merge conflict eats.
+ * view answers to several paths — `/monitor`, `/advocates`, `/sessions`, `/work`,
+ * `/work.html`, `/prs`, `/pulls` and `/prs.html` are by now all one page — and the whole
+ * point of keeping the extra ones is that a bookmark never 404s. There was nothing
+ * checking that, and the aliases live in a run of one-line `if`s in `serveStatic` which
+ * is exactly the shape a merge conflict eats.
  *
  * The case that made this worth a test: when the sessions view was merged into the
  * advocate console, `public/work.html` was deleted. `/work` and `/sessions` were already
  * aliases and were simply repointed; `/work.html` never *had* been one — it resolved as
  * a file on disk — so deleting the file broke it, and it is the one of the three a
  * service worker had been precaching by name. Nothing in the app would have said so.
+ * It has happened once more since, the same way: the pull request board became a pane on
+ * that same page (bc-d4d5) and `public/prs.html` went with it, which makes `/prs.html`
+ * the second path in this file whose file on disk is gone.
  *
  * Static serving only, so no `bd`, no advocates and no poller: `createApp` is handed a
  * config with all of that off.
  */
 import fs from 'node:fs';
 import http from 'node:http';
-import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { boundPort } from './helpers/net.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const LIB = (f) => path.join(HERE, '..', 'lib', f);
@@ -71,17 +74,9 @@ const cfg = {
 
 const { createApp, listen } = await import(LIB('server.js'));
 
-const port = await new Promise((resolve, reject) => {
-  const probe = net.createServer();
-  probe.on('error', reject);
-  probe.listen(0, '127.0.0.1', () => {
-    const { port: p } = probe.address();
-    probe.close(() => resolve(p));
-  });
-});
-
-const app = createApp({ ...cfg, port });
-const servers = listen({ ...cfg, port }, app.handler);
+const app = createApp(cfg);
+const servers = listen(cfg, app.handler);
+const port = await boundPort(servers);
 
 const get = (pathname) =>
   new Promise((resolve, reject) => {
@@ -97,15 +92,6 @@ const get = (pathname) =>
     req.on('error', reject);
     req.end();
   });
-
-for (let i = 0; i < 100; i += 1) {
-  try {
-    await get('/icon.svg');
-    break;
-  } catch {
-    await new Promise((r) => setTimeout(r, 20));
-  }
-}
 
 /* -------------------------------------------------------------------- cases */
 
@@ -123,16 +109,43 @@ const PAGES = [
     paths: ['/', '/index.html'],
   },
   {
-    // Five, and the last three are inherited: the sessions view was merged into this
-    // page, and its paths came with it rather than being retired under people's
-    // thumbs. `/work.html` is the one that has no file behind it any more.
+    // Nine, and six of them are inherited. The sessions view was merged into this page
+    // and its three paths came with it rather than being retired under people's thumbs;
+    // the pull request board became a pane on it (bc-d4d5) and its three came the same
+    // way. `/work.html` and `/prs.html` are the two with no file behind them any more,
+    // which is exactly why they are worth a row here.
     what: 'the advocate console',
     marker: '/monitor.js',
-    paths: ['/monitor', '/advocates', '/monitor.html', '/sessions', '/work', '/work.html'],
+    paths: [
+      '/monitor',
+      '/advocates',
+      '/monitor.html',
+      '/sessions',
+      '/work',
+      '/work.html',
+      '/prs',
+      '/pulls',
+      '/prs.html',
+    ],
   },
   // One live session's facts and its transcript — the page every session row in the app
   // links to, and the reason the console could absorb the sessions view at all.
   { what: 'one session', marker: '/session.js', paths: ['/session', '/session.html'] },
+  // And the same detail for one that has finished, addressed by bead instead of by pid.
+  // `/archive` is the second path because it is the word the repo uses for this everywhere
+  // else — `refs/beadcause/sessions/…` is "the archive" in the README and in the API — and
+  // it is therefore the path somebody types.
+  {
+    what: 'one finished session',
+    marker: '/beadsession.js',
+    paths: ['/bead-session', '/archive', '/beadsession.html'],
+  },
+  // The board itself, which has no paths of its own any more — these are the three the
+  // advocate console above inherited from it. Listed a second time with a second marker
+  // on purpose: `/monitor.js` proves those paths reach that page, and only `/prs.js`
+  // proves the page they reach is one that can draw a board. A monitor.html that dropped
+  // the pane's script would pass every row above and serve a Ship button that is not
+  // there, which is the failure bc-d4d5 was filed about arriving by a different door.
   { what: 'the pull request board', marker: '/prs.js', paths: ['/prs', '/pulls', '/prs.html'] },
   // The endorsement queue. Three, because the screen has two honest names — the place
   // you *endorse* and the *queue* of what is waiting — and which one comes to mind
@@ -142,6 +155,10 @@ const PAGES = [
     marker: '/endorse.js',
     paths: ['/endorse', '/queue', '/endorsements', '/endorse.html'],
   },
+  // The ledger. Two paths and not three, unlike the queue above it: it has been a tab
+  // on the bottom bar since the day it existed, so the bar is the only thing that has
+  // ever linked to it and there is no older name in anybody's home screen to keep alive.
+  { what: 'the history tab', marker: '/history.js', paths: ['/history', '/history.html'] },
   { what: 'the chat session', marker: '/console.js', paths: ['/console', '/console.html'] },
   { what: 'the in-app terminal', marker: '/term.js', paths: ['/terminal', '/term.html'] },
   { what: 'the admin screen', marker: '/admin.js', paths: ['/admin', '/admin.html'] },
@@ -159,6 +176,29 @@ const PAGES = [
    coming back is a failing test rather than a page nobody maintains. */
 const GONE = ['/work.js'];
 
+/**
+ * Paths that were never made, and the decision that says they never will be.
+ *
+ * The Mirror is a *pane* on the advocates page, not a fifth bottom tab (bc-3xb — the
+ * reasons are in the README under "The Mirror is a pane, not a tab"). The other way was
+ * a `/mirror` route and a `mirror.html`, and the cheapest way for this decision to come
+ * undone is for one of those to appear in the run of one-line `if`s above — a merge, a
+ * half-remembered plan, a session that never read the bead. That would be silent: a new
+ * page nobody objected to.
+ *
+ * `test/mirrorpane.mjs` asserts the same two absences by reading the sources, and this is
+ * the other side of that pair rather than a second copy of it. A static read has to know
+ * the shape the route would take — it greps `lib/server.js` for `urlPath === '/mirror'` —
+ * so a redirect, a prefix match, or a `mirror.html` dropped into `public/` and served by
+ * the static handler would all pass it. This asks a running server instead, which is the
+ * claim the decision makes: not that the code avoids a string, but that there is nothing
+ * at either path.
+ */
+const NEVER_MADE = [
+  { path: '/mirror', why: 'the mirror is a pane on /monitor, not a page (bc-3xb)' },
+  { path: '/mirror.html', why: 'and there is no document behind it to serve' },
+];
+
 console.log('\npage paths\n');
 
 for (const page of PAGES) {
@@ -174,6 +214,12 @@ for (const p of GONE) {
   const res = await get(p);
   if (res.status === 404) ok(`${p} is gone, and says so`);
   else bad(`${p} is gone, and says so`, `HTTP ${res.status}`);
+}
+
+for (const { path: p, why } of NEVER_MADE) {
+  const res = await get(p);
+  if (res.status === 404) ok(`${p} 404s — ${why}`);
+  else bad(`${p} 404s — ${why}`, `HTTP ${res.status}: something is serving a page this decision says does not exist`);
 }
 
 for (const s of servers || []) s.close?.();

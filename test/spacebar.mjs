@@ -40,11 +40,12 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import http from 'node:http';
-import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import vm from 'node:vm';
 import { fileURLToPath } from 'node:url';
+import { boundPort } from './helpers/net.mjs';
+import { cleanupTmp } from './helpers/tmp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(HERE, '..');
@@ -460,7 +461,7 @@ check('the inbox publishes the counts from the render that drew the list', () =>
 /* Which pages have the bar, and the one that deliberately does not: admin acts on every
    repo at once (see the header of public/admin.js), and a control it ignored would be a
    lie about what its buttons do. */
-const PAGES = ['index.html', 'prs.html', 'monitor.html', 'console.html', 'foundations.html'];
+const PAGES = ['index.html', 'monitor.html', 'console.html', 'foundations.html'];
 
 check('every page with a filterable list loads /spacebar.js', () => {
   const missing = PAGES.filter((p) => !read(`public/${p}`).includes('/spacebar.js'));
@@ -497,6 +498,7 @@ const { createApp, listen } = await import(LIB('server.js'));
 const { loadState, saveState } = await import(LIB('config.js'));
 
 const cfg = {
+  port: 0,
   host: '127.0.0.1',
   baseUrl: 'http://127.0.0.1',
   token: 'spacebar-test-token',
@@ -518,17 +520,9 @@ const cfg = {
   advocates: { enabled: false, workspaces: [] },
 };
 
-const port = await new Promise((resolve, reject) => {
-  const probe = net.createServer();
-  probe.on('error', reject);
-  probe.listen(0, '127.0.0.1', () => {
-    const { port: p } = probe.address();
-    probe.close(() => resolve(p));
-  });
-});
-
-const app = createApp({ ...cfg, port });
-const servers = listen({ ...cfg, port }, app.handler);
+const app = createApp(cfg);
+const servers = listen(cfg, app.handler);
+const port = await boundPort(servers);
 
 const call = (pathname, opts = {}) =>
   new Promise((resolve, reject) => {
@@ -551,15 +545,6 @@ const call = (pathname, opts = {}) =>
     if (opts.body) req.write(opts.body);
     req.end();
   });
-
-for (let i = 0; i < 100; i += 1) {
-  try {
-    await call('/api/health');
-    break;
-  } catch {
-    await new Promise((r) => setTimeout(r, 50));
-  }
-}
 
 const spaces = await call('/api/spaces');
 check('/api/spaces answers with no `bd` on the machine at all', () => {
@@ -605,7 +590,7 @@ check('and the picker writes through the endpoint the chips always used', () => 
 });
 
 servers.forEach((s) => s.close());
-fs.rmSync(tmp, { recursive: true, force: true });
+await cleanupTmp(tmp);
 
 console.log(failures ? `\n\x1b[31m${failures} of ${ran} failed\x1b[0m\n` : `\n${ran} passed\n`);
 process.exit(failures ? 1 : 0);

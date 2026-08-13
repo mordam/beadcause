@@ -56,6 +56,23 @@ object Prefs {
 
     fun isPaired(ctx: Context) = !baseUrl(ctx).isNullOrBlank() && !token(ctx).isNullOrBlank()
 
+    /**
+     * Paired, but to an address this build will no longer talk to.
+     *
+     * A phone paired before HTTPS holds `http://100.x.y.z:4318`, and every request to
+     * it now fails at the socket — the platform refuses cleartext, so the app cannot
+     * even follow the 307 the Mac would answer with. Nothing here is broken and the
+     * token is still good; only the origin moved. So this is deliberately not an
+     * unpair: the pairing is kept, MainActivity sends you to the QR screen with
+     * [PairActivity.EXTRA_STALE], and the screen says which address it is refusing and
+     * why. Silently clearing the token instead would present as "the app forgot", and
+     * an address policy with a bug in it would then have destroyed the evidence.
+     */
+    fun needsRepair(ctx: Context) = isPaired(ctx) && !Address.isPairable(baseUrl(ctx))
+
+    /** Paired, and somewhere we can actually reach. What every caller but the QR screen wants. */
+    fun isLive(ctx: Context) = isPaired(ctx) && !needsRepair(ctx)
+
     fun connection(ctx: Context): Conn? {
         val url = baseUrl(ctx) ?: return null
         val token = token(ctx) ?: return null

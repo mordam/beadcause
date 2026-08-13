@@ -36,6 +36,7 @@ import path from 'node:path';
 import { execFile, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
+import { removeTreeSync } from './helpers/tmp.mjs';
 
 const run = promisify(execFile);
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -86,7 +87,7 @@ const rejects = async (name, fn, match) => {
 const store = fs.mkdtempSync(path.join(os.tmpdir(), 'beadcause-memory-'));
 process.env.BEADCAUSE_CONFIG_DIR = store;
 process.env.BEADCAUSE_AGENT = 'advocate';
-process.on('exit', () => fs.rmSync(store, { recursive: true, force: true }));
+process.on('exit', () => removeTreeSync(store));
 
 const git = (...args) => execFileSync('git', ['-C', store, ...args], { encoding: 'utf8' }).trim();
 
@@ -110,6 +111,7 @@ fs.writeFileSync(path.join(store, 'android-keystore.jks'), 'PRETEND SIGNING KEY'
 fs.writeFileSync(path.join(store, 'android-keystore.properties'), 'storePassword=hunter2');
 fs.writeFileSync(path.join(store, 'loupe-sophab.png'), 'PRETEND PNG');
 fs.writeFileSync(path.join(store, 'status.json'), '{}');
+fs.writeFileSync(path.join(store, 'restart.json'), '{"at":"2026-08-11T00:00:00.000Z"}');
 fs.mkdirSync(path.join(store, 'logs'), { recursive: true });
 fs.writeFileSync(path.join(store, 'logs', 'run.log'), 'noise');
 fs.writeFileSync(path.join(store, 'config.json'), JSON.stringify({ token: 'abc' }, null, 2) + '\n');
@@ -122,6 +124,9 @@ check('config.json is tracked', tracked.includes('config.json'), tracked.join(' 
 check('the signing key is NOT tracked', !tracked.some((f) => f.includes('keystore')), tracked.join(' '));
 check('the check PNG is not tracked', !tracked.includes('loupe-sophab.png'), tracked.join(' '));
 check('status.json churn is not tracked', !tracked.includes('status.json'), tracked.join(' '));
+// The same argument, one file along: the router rewrites restart.json on every handover
+// and it means nothing thirty seconds later, so its history is noise (bc-kttd).
+check('restart.json churn is not tracked', !tracked.includes('restart.json'), tracked.join(' '));
 check('logs/ is not tracked', !tracked.some((f) => f.startsWith('logs/')), tracked.join(' '));
 
 check('an unchanged directory produces no commit', (await commit('nothing')) === null);
@@ -636,8 +641,8 @@ const { agentExports, systemPrompt, amend } = await import('../lib/foundation.js
 const fakebin = fs.mkdtempSync(path.join(os.tmpdir(), 'beadcause-worker-bin-'));
 const spy = fs.mkdtempSync(path.join(os.tmpdir(), 'beadcause-worker-spy-'));
 process.on('exit', () => {
-  fs.rmSync(fakebin, { recursive: true, force: true });
-  fs.rmSync(spy, { recursive: true, force: true });
+  removeTreeSync(fakebin);
+  removeTreeSync(spy);
 });
 
 const stub = (name, body) => {
@@ -651,6 +656,7 @@ const stub = (name, body) => {
 stub(
   'claude',
   `printf '%s' "$BEADCAUSE_AGENT" > "$SPY/agent"
+printf '%s' "\${BEADCAUSE_LAUNCHD_PROGRAM-UNSET}" > "$SPY/launchd"
 command -v beadcause-memory > "$SPY/which" 2>&1
 : > "$SPY/argv"
 while [ $# -gt 0 ]; do
@@ -680,8 +686,19 @@ const BRIEF = 'Work bc-goo.9. This is the brief, and it must arrive intact.';
 fs.writeFileSync(promptFile, BRIEF);
 fs.writeFileSync(systemFile, systemPrompt(workerF, brief_));
 
+// BEADCAUSE_LAUNCHD_PROGRAM is set on purpose, to something this checkout is not: it is
+// what an iTerm window carries (bc-6sst), and the assertion below is that the command
+// takes it away again. Setting it here is the only way to tell a scrub from a machine
+// that happened not to have one — on a laptop where nobody's daemon is running, an
+// unscrubbed session and a scrubbed one look identical.
 await run('/bin/zsh', ['-lc', sessionCommand(workerF, { dir: wtOne, promptFile, systemFile, mode: 'auto', doneFile })], {
-  env: { ...process.env, PATH: `${fakebin}:${process.env.PATH}`, SPY: spy, BEADCAUSE_CONFIG_DIR: store },
+  env: {
+    ...process.env,
+    PATH: `${fakebin}:${process.env.PATH}`,
+    SPY: spy,
+    BEADCAUSE_CONFIG_DIR: store,
+    BEADCAUSE_LAUNCHD_PROGRAM: '/Users/someone/else/beadcause/bin/router.js',
+  },
 });
 
 const spied = (name) => (fs.existsSync(path.join(spy, name)) ? fs.readFileSync(path.join(spy, name), 'utf8') : '');
@@ -695,6 +712,17 @@ check(
   'and beadcause-memory resolved by name, from this repo\'s bin',
   spied('which').trim().endsWith('/bin/beadcause-memory'),
   spied('which')
+);
+// Empty rather than unset, and the difference is the whole point: launchdProgram() reads
+// an empty value as the positive "nobody's launchd job" and an absent one as "we do not
+// know, fall back to the argv guess". The window is a shell in a terminal, so the
+// spawner is in a position to state the first, and the inherited value it would
+// otherwise be carrying is a fact about iTerm.app's ancestry rather than about this
+// tree — which is what drew HOT-SWAP IS NOT LIVE over a perfectly good install (bc-6sst).
+check(
+  'and it is not carrying the outer terminal\'s launchd program into the worktree',
+  spied('launchd') === '',
+  `${JSON.stringify(spied('launchd'))} — the shell was handed /Users/someone/else/beadcause/bin/router.js`
 );
 check(
   'the session wrote to the memory that follows it',
@@ -713,8 +741,14 @@ check(
 );
 
 const argv = spied('argv').split('\n').filter(Boolean);
-check('the brief still arrived, and first', argv[0] === BRIEF, JSON.stringify(argv));
-check('with the flags after it, where a variadic one cannot eat it', argv.includes('--append-system-prompt-file'), JSON.stringify(argv));
+// Last, not first, and behind a `--` (bc-i4sa). It used to go first because `--tools`
+// and `--allowedTools` are variadic and would eat a trailing operand; `--` terminates a
+// variadic option too, so last is safe and a brief that opens with a dash is no longer
+// read as a flag. test/dashprompt.mjs owns that rule — this is the one place it is
+// checked against a real login shell rather than a generated string.
+check('the brief still arrived, and last', argv[argv.length - 1] === BRIEF, JSON.stringify(argv));
+check('behind the `--` that stops it being read as a flag', argv[argv.length - 2] === '--', JSON.stringify(argv));
+check('with the flags before it, where a variadic one cannot eat it', argv.includes('--append-system-prompt-file'), JSON.stringify(argv));
 check(
   'the system prompt carried the amendable role',
   spied('system.md').includes('You are a **work session**'),
@@ -795,6 +829,113 @@ check(
   Object.keys(await at(beta.dir, () => memory.notes('racer'))).length === 0
 );
 
+/* ------------------------ which of them a session is handed without asking */
+//
+// The pull — "check `notes` before you start" in the system prompt — only works on a
+// session that remembers to. This is the push, and the whole risk of a push is that it
+// is either too big to read or too noisy to trust, so the two things worth asserting are
+// that the right note gets in and that a bead with nothing to do with any of them gets
+// no notes at all. `relevantNotes` is pure, so none of this goes near git.
+
+console.log('\nwhat a work brief is handed, selected against the bead');
+
+// Shaped like the real store: a key that reads as a claim, a body that names files and
+// commands, and — for two of them — the bead the session was working when it learned it.
+const STORE = {
+  'test-browse-flake': {
+    value:
+      'A red test/browse.mjs on a branch that touches neither lib/browse.js nor bin/beadcause-browse ' +
+      'is the concurrency flake, not you: it globs beadcause-browse-* out of the system temp dir and ' +
+      "another session's in-flight run fails it. Beads: bc-wcw3, bc-eldx.",
+    at: '2026-08-11T14:07:40.999Z',
+  },
+  'sw-cache-version-conflicts': {
+    value:
+      'public/sw.js is the most likely merge conflict here: every branch touching public/ bumps ' +
+      "`const CACHE = beadcause-vNN`, and resolving it is not 'take the higher number' — read both " +
+      "sides' comment blocks and renumber your own.",
+    at: '2026-08-11T14:36:36.114Z',
+  },
+  'warm-check-is-the-refresh-gate': {
+    value:
+      'scripts/warm-check.mjs is the real regression gate for a refresh path — run it for bc-rk2o.2-.5 too.',
+    at: '2026-08-11T14:01:12.979Z',
+  },
+  'android-app-is-a-webview': {
+    value:
+      'The Android app renders the PWA in a WebView over the tailnet; there are no bundled assets, so ' +
+      'REBUILT is only owed when the diff touches android/ itself.',
+    at: '2026-08-11T14:14:57.314Z',
+  },
+};
+
+const flake = memory.relevantNotes(STORE, {
+  id: 'bc-zdun',
+  title: 'test/browse.mjs fails whenever a second session runs the suite',
+  description: 'The last assertion globs the system temp dir, so another concurrent npm test fails it.',
+});
+check(
+  'the note about the failing suite is the one a bead about that suite is handed',
+  flake[0]?.key === 'test-browse-flake',
+  flake.map((n) => n.key).join(', ')
+);
+check(
+  'and it is not handed the three that are about something else',
+  flake.length === 1,
+  flake.map((n) => `${n.key}:${n.score.toFixed(2)}`).join(', ')
+);
+
+// The case similarity alone cannot reach, and the reason the bead-id signal exists: the
+// note is *about* this bead and shares almost no words with it. It says so in the only
+// vocabulary both sides share — it names the bead — and that convention is real, not
+// hoped for: nineteen of the twenty notes in this repo's own store name a bead.
+const child = memory.relevantNotes(STORE, { id: 'bc-rk2o.3', title: 'Put monitor on the delta stream' });
+check(
+  'a note naming the bead is handed over even when it reads nothing like it',
+  child[0]?.key === 'warm-check-is-the-refresh-gate' && child[0].named && child[0].score < memory.RELEVANT,
+  child.map((n) => `${n.key} named=${n.named} score=${n.score.toFixed(2)}`).join(', ')
+);
+check(
+  'and the parent id counts, which is how a range like `bc-rk2o.2-.5` reaches every child',
+  memory.relevantNotes(STORE, { id: 'bc-rk2o.5', parent: 'bc-rk2o', title: 'Put console on the delta stream' })[0]?.named === true
+);
+
+// The case that decides whether the section is worth reading at all. A brief that
+// carries four notes about the tests for a bead about timesheets is noise, and a section
+// that is noise once is a section nobody reads again.
+const unrelated = { id: 'bc-nvzc', title: 'Populate Clockify timesheets for July 2026', description: 'Fill in the hours per project.' };
+check('a bead about none of it is handed none of it', memory.relevantNotes(STORE, unrelated).length === 0);
+
+const brief0 = memory.notesBrief(STORE, unrelated);
+check('it still learns the store exists, by key', brief0.includes('`sw-cache-version-conflicts`') && brief0.includes('beadcause-memory notes <key>'));
+check('and every key is in that line — the cap is on bodies, never on what is visible', Object.keys(STORE).every((k) => brief0.includes(`\`${k}\``)), brief0);
+check('a repo with no notes at all gets no heading rather than an empty one', memory.notesBrief({}, unrelated) === '');
+
+const briefed = memory.notesBrief(STORE, {
+  id: 'bc-zdun',
+  title: 'test/browse.mjs fails whenever a second session runs the suite',
+  description: 'The last assertion globs the system temp dir, so another concurrent npm test fails it.',
+});
+check('the section quotes the note in full, not a summary of it', briefed.includes('bin/beadcause-browse'), briefed);
+check('and lists the rest by key without their bodies', briefed.includes('`android-app-is-a-webview`') && !briefed.includes('over the tailnet'), briefed);
+
+// Both caps, and which of them wins. A note is taken whole or not at all — a trap
+// clipped mid-sentence is a trap you cannot act on — but the top-ranked one goes in
+// however big it is, because a budget that can drop the single most relevant note in the
+// store silently is worse than a long section.
+const many = Object.fromEntries(
+  Array.from({ length: 9 }, (_, i) => [`flake-${i}`, { value: `test/browse.mjs and the system temp dir, take ${i}. `.repeat(6), at: `2026-08-1${i}T00:00:00.000Z` }])
+);
+check('the count cap holds', memory.relevantNotes(many, { id: 'bc-x', title: 'test/browse.mjs and the system temp dir' }).length === 4);
+check(
+  'and the character budget holds, below it',
+  memory.relevantNotes(many, { id: 'bc-x', title: 'test/browse.mjs and the system temp dir' }, { chars: 400 }).length < 4
+);
+check(
+  'but the most relevant note is never the one the budget drops',
+  memory.relevantNotes(many, { id: 'bc-x', title: 'test/browse.mjs and the system temp dir' }, { chars: 1 }).length === 1
+);
+
 /* ------------------------------ and the brief says which store to write to */
 //
 // The acceptance case, and the one that decides whether any of the above gets used. A
@@ -832,6 +973,55 @@ check(
   'and what the cost of getting it wrong is, so the choice is not arbitrary',
   /advice\s+you will follow somewhere it is false/.test(brief) && /never see again once you are working elsewhere/.test(brief),
   brief
+);
+
+/* ---------------------------- and the chat session is told *when* to write */
+//
+// bc-sgu4. The brief above anchors the read half to a moment every run has — "check
+// `recall` and `notes` first" — and it fires: thirteen of the thirty-four stored
+// conversations open a turn with `beadcause-memory recall`. It anchors the write half
+// to nothing, and the console is the one agent with no end of its own to hang it on: a
+// worker's brief numbers the write as a closing step, dispatch exits after one comment,
+// and a chat ends by the user not replying. Three days and twenty-eight conversations
+// later it had read constantly and written nothing.
+//
+// So each of the two protocols names its own moment, and both are asserted here for the
+// reason the paragraphs above are: a prompt paragraph is the load-bearing part of this
+// feature and nothing else in the suite would notice it going missing.
+
+const chat = await import('../lib/console.js');
+
+check(
+  'the proposal protocol names the write, not just the read',
+  /beadcause-memory remember/.test(chat.PROTOCOL) && /\bnote\b/.test(chat.PROTOCOL),
+  chat.PROTOCOL
+);
+check(
+  'and ties it to the one terminal act a console conversation has',
+  /before you write the block/i.test(chat.PROTOCOL),
+  chat.PROTOCOL
+);
+check(
+  'and says silence is the usual answer, so it does not become a second tracker',
+  /teach nothing worth\s+keeping/.test(chat.PROTOCOL),
+  chat.PROTOCOL
+);
+
+// The path that matters for every agent *except* the console: `agentEnv` stamps
+// BEADCAUSE_AGENT from the foundation being chatted with, so a memory written here is
+// written as the advocate, or as dispatch, or as the worker. For the advocate it is the
+// only path there has ever been — `memoryBrief` otherwise reaches it through
+// `surveyPrompt`, and no survey has ever run.
+const chatted = chat.chatProtocol('Adam');
+check(
+  'a chat with any other agent names the write too',
+  /beadcause-memory remember/.test(chatted) && /\bnote\b/.test(chatted),
+  chatted
+);
+check(
+  'with its own moment, because a chat has no end to save it up for',
+  /no end to save it up for/.test(chatted),
+  chatted
 );
 
 process.chdir(path.join(HERE, '..'));

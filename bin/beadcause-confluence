@@ -1,0 +1,138 @@
+#!/usr/bin/env node
+/**
+ * `beadcause-confluence <page>` — one named Confluence page, as markdown.
+ *
+ * The read half of the Confluence integration, and the sibling of `beadcause-get`.
+ * An agent here is a `claude -p` with an explicit allowlist and cannot `import`
+ * anything, so lib/confluence.js is invisible to it; this command is the whole of the
+ * surface, and the allowlist entry is `Bash(beadcause-confluence:*)`.
+ *
+ * **What is deliberately missing.** There is no way to write a page, comment on one,
+ * search the site, list what a space contains, or download an attachment. Not
+ * "rejected later" — no code path here builds a POST, a PUT or a search, so there is
+ * nothing for such a flag to reach. The one thing it does is name a page and print it.
+ *
+ * **And it reads as somebody.** This is the difference from `beadcause-get`, which
+ * fetches public URLs and acts as nobody: this carries the install's Atlassian API
+ * token, so a page it can reach is a page that account can reach. That is what
+ * `confluence.readSpaces` is for — it is empty until somebody writes it, and an
+ * install that has not written it gets a refusal here rather than the company wiki.
+ */
+import { loadConfig } from '../lib/config.js';
+import { readPage, readableSpaces, ConfluenceError } from '../lib/confluence.js';
+
+/** The character cap. A wiki page is written by people, but so is a 400-page runbook. */
+const DEFAULT_MAX_CHARS = 200_000;
+
+const USAGE = `beadcause-confluence — read one Confluence page, and nothing else
+
+  beadcause-confluence <page> [--json] [--max-chars=N]
+  beadcause-confluence --spaces
+
+  <page>           a page URL, a page id, or SPACE/Page title
+  --spaces         which spaces this install may read; touches no network
+  --max-chars=N    stop after N characters (default ${DEFAULT_MAX_CHARS})
+  --json           the whole result as one JSON object, body included
+
+Only the spaces listed in confluence.readSpaces can be read, and that list is empty
+until somebody writes it — an install that publishes to Confluence still reads nothing
+until it says which spaces may be read. A page outside them is refused whether you
+name it by title or by id, because the check is against the space Confluence says the
+page is in rather than the one you claimed.
+
+There is no flag to write a page, comment, search, list a space or fetch an
+attachment, and adding one is not an oversight to fix. This reads a page you name.
+
+Cite what you read: the URL and the version number are both printed above the page.
+A wiki page is edited by other people, so the version is the half that makes it a
+fact rather than something that was true when you looked.`;
+
+const KNOWN = new Set(['json', 'spaces', 'max-chars', 'help']);
+
+const flags = new Map();
+const args = [];
+for (const a of process.argv.slice(2)) {
+  const m = /^--([a-z-]+)(?:=(.*))?$/.exec(a);
+  if (m) {
+    if (!KNOWN.has(m[1])) {
+      console.error(`beadcause-confluence: no such option --${m[1]}\n\n${USAGE}`);
+      process.exit(2);
+    }
+    flags.set(m[1], m[2] ?? true);
+  } else if (a.startsWith('-') && a !== '-') {
+    console.error(`beadcause-confluence: no such option ${a}\n\n${USAGE}`);
+    process.exit(2);
+  } else {
+    args.push(a);
+  }
+}
+
+if (flags.has('help')) {
+  console.log(USAGE);
+  process.exit(0);
+}
+
+const cfg = loadConfig();
+
+if (flags.has('spaces')) {
+  const spaces = readableSpaces(cfg);
+  if (flags.has('json')) {
+    console.log(JSON.stringify({ spaces }, null, 2));
+  } else if (spaces.length) {
+    console.log(`# readable Confluence spaces: ${spaces.join(', ')}`);
+  } else {
+    console.log('# no Confluence space may be read — confluence.readSpaces is empty');
+  }
+  process.exit(0);
+}
+
+if (args.length === 0) {
+  console.error(USAGE);
+  process.exit(2);
+}
+if (args.length > 1) {
+  // One page per run, for the reason `beadcause-get` takes one URL: a loop the agent
+  // writes is visible in its log, and a loop this command hides is not. A page title
+  // with a space in it is one argument — quote it.
+  console.error(`beadcause-confluence: one page at a time (got ${args.length}) — quote a title that contains spaces\n\n${USAGE}`);
+  process.exit(2);
+}
+
+const maxChars = (() => {
+  if (!flags.has('max-chars')) return DEFAULT_MAX_CHARS;
+  const n = Number(flags.get('max-chars'));
+  if (!Number.isFinite(n) || n <= 0) {
+    console.error('beadcause-confluence: --max-chars wants a positive number');
+    process.exit(2);
+  }
+  return n;
+})();
+
+try {
+  const page = await readPage(cfg, args[0]);
+  const truncated = page.markdown.length > maxChars;
+  const body = truncated ? page.markdown.slice(0, maxChars) : page.markdown;
+
+  if (flags.has('json')) {
+    console.log(JSON.stringify({ ...page, markdown: body, truncated }, null, 2));
+  } else {
+    // Every line of the preamble starts with `#` so the agent can tell this command's
+    // words from the page's, and so the two things worth citing — the URL and the
+    // version — are the first thing it reads rather than something to go looking for.
+    console.log(`# CONFLUENCE ${page.spaceKey}/${page.title}`);
+    console.log(`# ${page.url}`);
+    console.log(`# version ${page.version ?? '?'}${page.updatedAt ? ` · updated ${page.updatedAt}` : ''} · read just now, never cached`);
+    if (truncated) console.log(`# truncated at the ${maxChars}-character cap`);
+    console.log('');
+    process.stdout.write(body);
+    if (!body.endsWith('\n')) console.log('');
+  }
+  process.exit(0);
+} catch (err) {
+  if (err instanceof ConfluenceError) {
+    console.error(`beadcause-confluence: ${err.message}`);
+    process.exit(1);
+  }
+  console.error(`beadcause-confluence: ${err?.message || err}`);
+  process.exit(1);
+}

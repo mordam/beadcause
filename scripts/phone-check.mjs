@@ -16,13 +16,11 @@
 //
 // It talks to Chrome over the DevTools protocol using Node's global WebSocket,
 // so it adds no dependency. Screenshots land in the directory given by --out.
-import { spawn } from 'node:child_process';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { loadConfig } from '../lib/config.js';
+import { CHROME, launchChrome } from './helpers/chrome.mjs';
 
-const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const VP = { width: 393, height: 852, dpr: 3 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -44,82 +42,6 @@ if (!WS) {
 if (!fs.existsSync(CHROME)) {
   console.error(`Google Chrome not found at ${CHROME}`);
   process.exit(1);
-}
-
-/* ------------------------------------------------------------------ chrome */
-
-function connect(url) {
-  return new Promise((resolve, reject) => {
-    const ws = new WebSocket(url);
-    let id = 0;
-    const pending = new Map();
-    ws.onmessage = (m) => {
-      const msg = JSON.parse(m.data);
-      const p = msg.id != null && pending.get(msg.id);
-      if (!p) return;
-      pending.delete(msg.id);
-      msg.error ? p.reject(new Error(msg.error.message)) : p.resolve(msg.result);
-    };
-    ws.onerror = () => reject(new Error('could not attach to Chrome'));
-    ws.onopen = () =>
-      resolve({
-        send: (method, params = {}) =>
-          new Promise((res, rej) => {
-            const i = ++id;
-            pending.set(i, { resolve: res, reject: rej });
-            ws.send(JSON.stringify({ id: i, method, params }));
-          }),
-        close: () => ws.close(),
-      });
-  });
-}
-
-async function launch() {
-  const port = 9400 + Math.floor(process.pid % 100);
-  const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'beadcause-phone-'));
-  const proc = spawn(
-    CHROME,
-    [
-      '--headless=new',
-      `--remote-debugging-port=${port}`,
-      `--user-data-dir=${profile}`,
-      '--no-first-run',
-      '--no-default-browser-check',
-      // Without these the renderer is throttled to about one frame a second when
-      // the window isn't visible, the force layout never settles, and every
-      // measurement below is a measurement of the throttling instead of the page.
-      '--disable-background-timer-throttling',
-      '--disable-backgrounding-occluded-windows',
-      '--disable-renderer-backgrounding',
-      '--hide-scrollbars',
-      'about:blank',
-    ],
-    { stdio: 'ignore' }
-  );
-
-  let target = null;
-  for (let i = 0; i < 60 && !target; i++) {
-    await sleep(250);
-    try {
-      target = (await (await fetch(`http://127.0.0.1:${port}/json/list`)).json()).find((t) => t.type === 'page');
-    } catch {
-      /* not up yet */
-    }
-  }
-  if (!target) throw new Error('Chrome never exposed a page target');
-  const s = await connect(target.webSocketDebuggerUrl);
-  return {
-    s,
-    close: () => {
-      s.close();
-      proc.kill();
-      try {
-        fs.rmSync(profile, { recursive: true, force: true, maxRetries: 3 });
-      } catch {
-        /* Chrome is still letting go of its profile; it's a temp dir */
-      }
-    },
-  };
 }
 
 const evalJs = async (s, expr) => {
@@ -233,7 +155,7 @@ const check = (label, ok, detail) => {
   console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${String(label).padEnd(26)} ${detail}`);
 };
 
-const { s, close } = await launch();
+const { s, close } = await launchChrome('beadcause-phone-');
 try {
   await s.send('Page.enable');
   await s.send('Runtime.enable');
