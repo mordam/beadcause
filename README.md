@@ -4857,6 +4857,38 @@ resolved is a window you have to go and close, and a pointless window is worse t
 sentence. Refused outright on an observer instance, for the reason `POST /api/session` is —
 an unattended agent in a checkout it is only visiting.
 
+#### A resolver the sweep opened is told so
+
+That brief opens with *Adam pressed **Resolve conflicts** in beadcause*, which is true of
+every window a thumb opened and false of every window a sweep does — and the sweep is
+where most of them will come from once a merge landing triggers one. The wrongness is not
+cosmetic. It is the **first line an unattended session reads**, and an agent handed a wrong
+reason for its own existence reasons the rest out to match: if somebody pressed a button,
+somebody is at the Mac waiting for an answer, and the six steps get read in that light
+rather than as the whole of the job.
+
+So `conflictPromptFor` takes `sweptAfter` — the number of the pull request whose merge set
+the sweep off — and it changes exactly one paragraph, the one under the title:
+
+> **Nobody pressed anything — a merge landed and this is the sweep.** #204 merged into
+> `main`, so every branch still open behind it is now measured against a base it has never
+> seen. GitHub says `bead/zz-work` is one of the ones that conflict with `main` as a result,
+> so the pull request cannot merge as it stands — it carries zz-work.
+
+Every other word is the same string: the six things above, the worktree lock below, and the
+ending that says to stand down and leave the branch unmerged rather than pick a winner
+between two load-bearing sides. That is the whole reason this is one parameter rather than a
+second brief — two briefs drift, and the one that drifts is the one nobody ever presses a
+button to read. `test/prfull.mjs` asserts that by exhaustion instead of by naming the parts
+twice: it splits both briefs into paragraphs, and requires that exactly one of them differs
+and that it is the second.
+
+A sweep that cannot name the merge still gets the swept sentence, with *A pull request merged
+into `main`* where the number would be. The obvious coercion would not have: `Number(true)`
+is `1`, so a caller with nothing but "yes, a sweep" to say would have opened a session on
+"#1 merged into main" — the same confident falsehood in a different sentence, and harder to
+spot for being arithmetically true of something.
+
 #### One press, one session — and what a second press does
 
 On 2026-08-11 one press of that button produced **two** sessions. Both carried the same
