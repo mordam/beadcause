@@ -5237,3 +5237,99 @@ a.pill { text-decoration: none; }
   cursor: pointer;
 }
 .p0-advocate:disabled { opacity: 0.6; cursor: default; }
+
+/* ------------------------------------------------------------- edit mode
+
+   The app as the thing you point at (bc-p49x.1). Two controls and one tint, and all
+   three exist to answer the same question at a glance: is a tap on this screen going
+   to open a card, or is it going to name an element?
+
+   Nothing here changes layout. That is the point: edit mode freezes the repaints so the
+   element under your thumb is still the element you meant, and a mode that reflowed the
+   page on the way in would have thrown the referent away before the first gesture — the
+   same loss the freeze exists to prevent, arriving through the stylesheet instead. So
+   the banner is `position: fixed` over the page rather than a row inserted into it, and
+   the tint is a colour on a pseudo-element rather than a border on anything real. */
+
+/* The way in, mirroring ＋ across the foot of the screen. Left because that is the other
+   thumb, and the same height because the two are peers: one creates, one edits. */
+.editmode {
+  position: fixed;
+  z-index: 24;
+  left: calc(env(safe-area-inset-left) + 14px);
+  bottom: calc(env(safe-area-inset-bottom) + var(--tabbar-h) + 14px);
+  display: flex; align-items: center; justify-content: center;
+  width: 44px; height: 44px;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  backdrop-filter: blur(10px);
+  color: var(--text);
+  font: inherit; font-size: 19px; line-height: 1;
+  cursor: pointer;
+  box-shadow: 0 6px 18px rgb(0 0 0 / 0.28);
+  -webkit-tap-highlight-color: transparent;
+}
+/* Smaller than ＋ and quieter until it is on, then filled: the mode is rare, and a
+   second circle shouting at the same volume as the app's primary action all day is a
+   bad trade for a control most sessions never touch. */
+.editmode.on {
+  border-color: var(--warn);
+  background: var(--warn);
+  color: var(--accent-ink);
+}
+
+/* The banner. It says the one thing that is not otherwise visible — that the screen has
+   stopped repainting — because a frozen inbox and a quiet one look identical, and a
+   person who thought the app had hung would reload it and lose the mode.
+
+   z-index 45 is above an open card, which is the fixed full-screen layer at 40. An open
+   card is a screen you can be pointing at too, and a banner underneath it would leave
+   the only way out of the mode covered by the thing you were editing. */
+.editbar {
+  position: fixed;
+  z-index: 45;
+  top: 0; left: 0; right: 0;
+  display: flex; align-items: center; gap: 10px;
+  padding: calc(env(safe-area-inset-top) + 8px) 12px 8px;
+  background: var(--warn);
+  color: var(--accent-ink);
+  font-size: 13.5px; font-weight: 600;
+  box-shadow: 0 6px 18px rgb(0 0 0 / 0.3);
+}
+.editbar-dot {
+  flex: none;
+  width: 9px; height: 9px;
+  border-radius: 50%;
+  background: var(--accent-ink);
+}
+.editbar-say { flex: 1 1 auto; }
+/* The second way out, beside the sentence that explains why you want one. ✏️ at the foot
+   of the screen is the first, and on an open card it is the one that is covered. */
+.editbar-done {
+  flex: none;
+  min-height: 32px;
+  padding: 4px 14px;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  font: inherit; font-size: 13px; font-weight: 600;
+  cursor: pointer;
+}
+
+/* Room for the banner, and a tint over everything under it. `padding-top` on the body
+   rather than a margin on the list: four different things are fixed to the top of this
+   page and pushing the document is what moves all of them together. */
+body.editing { padding-top: calc(env(safe-area-inset-top) + 44px); }
+/* Drawn on a pseudo-element with pointer-events off, so the whole page reads as held
+   without a single element on it becoming untappable — the taps are exactly what the
+   mode is for. */
+body.editing::after {
+  content: '';
+  position: fixed;
+  z-index: 44;
+  inset: 0;
+  pointer-events: none;
+  box-shadow: inset 0 0 0 2px var(--warn);
+}

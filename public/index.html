@@ -143,6 +143,24 @@
       aria-label="Start a chat session — talk through what the next bead should be">＋</button>
   </div>
 
+  <!--
+    ✏️ — the one thing on this screen that changes the screen rather than the tracker.
+
+    Edit mode freezes the repaints and turns a tap into a way of pointing at an element
+    instead of opening it (bc-p49x.1). It is a button in the page rather than an icon in
+    the top bar because that bar is full at four: a fifth wraps it to three rows on both
+    phone widths, which is measured in scripts/topbar-check.mjs and is the whole of
+    bc-qsj6.1. Bottom left, mirroring ＋ across the foot of the screen — the other thumb,
+    the same height, and the same z-index bargain: it floats over the list and sits below
+    an open card, which is a fixed layer above both.
+
+    It is the way out as well as the way in. In edit mode it goes filled and its label
+    becomes "Leave edit mode", and the banner across the top carries a Done beside it —
+    two ways out of a mode where an ordinary tap no longer does what it used to.
+  -->
+  <button id="editmode" class="editmode" type="button" aria-pressed="false"
+    aria-label="Edit this screen">✏️</button>
+
   <div id="toast" class="toast" role="status" hidden></div>
 
   <dialog id="setup" class="setup">
@@ -200,6 +218,14 @@
        microphone can work here at all, and a page that drops it draws the box with
        no mic in it rather than one that fails on tap. -->
   <script src="/dictate.js"></script>
+  <!-- Edit mode: the freeze, and the anchor that turns an element into a line of this
+       app's own source. Before app.js because app.js registers on it at the top of its
+       IIFE — it asks it whether a repaint may happen and hands it the payload text it is
+       drawing — and a page that drops the file gets the inbox exactly as it was, with a
+       ✏️ that does nothing rather than a screen that will not paint. Named without its
+       leading slash for the reason every other comment in this file is: the wiring check
+       in test/inboxkinds.mjs finds script tags with indexOf. -->
+  <script src="/editmode.js"></script>
   <script src="/app.js"></script>
   <!-- Graph and doc links open over this tab instead of navigating away from it.
        Last, and needing nothing from app.js: it works on the anchors, not the app. -->
