@@ -2504,7 +2504,8 @@ this say before the advocate rewrote it" without anyone having remembered to ask
 
 Snapshots are debounced by two seconds and the reasons accumulate, because one
 advocate cycle rewrites `advocates.json` three or four times in a second and those
-are one event to whoever reads the history back. `status.json`, `restart.json`, `merge-sweeps.json`, `logs/`
+are one event to whoever reads the history back. `status.json`, `restart.json`,
+`merge-sweeps.json`, `sweep-cards.json`, `logs/`
 and the check PNGs are ignored — churn, and not the thing you want a history of.
 `deploys/` is not, and the difference is the point: a deploy record is something somebody
 pressed Ship on, and a restart marker is one line the router overwrites on every swap
@@ -5296,6 +5297,70 @@ queue is in memory like the rest of the file, and more so — an entry carries t
 that opens its window, and there is no way to write that down. `node test/resolverqueue.mjs`
 asserts it: five handed over at once open two, the third opens only once one of the first
 two is gone, and one whose conflict cleared while it waited is dropped instead.
+
+#### One card for the whole sweep, amended as the windows close
+
+A sweep opens two windows and queues a third, and then says nothing for twenty minutes,
+because at the moment it returns nothing has happened yet. The answer you actually want —
+*is my board clean again, and if not, which one needs me?* — arrives later, one pull request
+at a time, in windows nobody is watching. So a sweep that acted on anything files **one
+`human` card** for the whole sweep (`lib/sweepcard.js`), naming every pull request it
+touched and what became of each:
+
+> - [#210](#) `worktree-poll-stream-rk2o1` — Park the inbox on /api/poll (bc-rk2o.1)
+>   ✅ mergeable again
+> - [#212](#) `worktree-history-filter-nib33` — Filter closed history (bc-nib3.3)
+>   ⚠️ **handed back** — the session stopped and it still conflicts — *"both sides rewrote
+>   `renderRow` and only you can say which wins"*
+> - [#214](#) `worktree-wireframe-l5mw` — The wireframe page (bc-l5mw)
+>   ⏳ a session is working on it
+
+**A sweep that found nothing files nothing**, which is most of them: a merge whose repo's
+other branches still fit conflicts nobody, and a card every time would be the inbox
+reporting the weather. What the sweep *left alone* is left off too — a teammate's branch, a
+draft, a pull request GitHub would not answer about are the board's ordinary contents, the
+red chip is the right surface for them, and listing them would bury the one row that is
+actually about you under twelve that are not.
+
+**It is filed at the start and amended, not held until the last window closes.** That was
+the open question on the bead, and the case for holding is real — a card that says *three
+sessions are working* needs you to do nothing at all. Three things settled it the other way.
+A held card is invisible exactly while it is interesting, since *two windows are open on
+this right now* is a state that only exists during the twenty minutes. Held state is lost
+state: everything a held card would be built from lives in the resolver registry, which is
+in memory and forgotten by every restart, deliberately. And amending costs nothing at the
+end, because **when the last pull request comes back mergeable and none was handed back, the
+card closes itself** — so the inbox is clean without a tap, which is what this whole feature
+promises, and an open card means either something is still running or something is waiting
+on you.
+
+**A state is never taken from the resolver's own account of itself.** It is read off the two
+things that outlive an iTerm window: the [registry](#two-windows-at-a-time-and-the-rest-in-line),
+which is exact for as long as a session is live, and then GitHub. A row the registry has let
+go of is *resolved* if GitHub now calls the pull request mergeable and **handed back** if it
+still calls it conflicting — which is the honest ending the brief offers a resolver, a
+conflict where both sides are load-bearing and only you can say which wins. `UNKNOWN` is
+neither, and is asked again next cycle rather than declared a hand-back: a card telling you
+to decide something nobody has established is worse than a card that is a cycle late.
+
+**The one thing GitHub cannot supply is *why*.** A branch that still conflicts is a fact; the
+reason both sides mattered is only in the head of the session that gave up, and that session
+reports into a window that closes when it stops. So the brief now tells a resolver stopping
+without a mergeable branch to leave one line on the pull request beginning
+`beadcause-resolver:`, and the card quotes it back beside the number. Comments from before
+the sweep began are ignored — a reason from last week's conflict, quoted as this week's,
+would be a falsehood with a timestamp to make it convincing — and a hand-back with no
+sentence is still reported, as the fact with the reason missing, because a branch that
+silently stopped being resolvable is the exact thing this exists to stop being invisible.
+
+The follow-up runs in the poll cycle, in the same step that drains the merge records, and
+**writes to the tracker only when something moved**: an amendment every two minutes saying
+what it said last time would be a `bd` write and a woken phone for no news. A card whose
+rows are all still running after four hours stops claiming so — the same window every other
+part of this feature uses — and says *nothing here can say* rather than leaving an assertion
+nothing can check. `node test/sweepcard.mjs` stages the bead's own acceptance: three
+conflicting pull requests, one resolved, one handed back and one still running, producing
+exactly one card that names all three.
 
 #### An occupied worktree that reads as idle
 
