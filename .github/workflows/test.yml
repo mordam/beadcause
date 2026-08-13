@@ -71,6 +71,15 @@ jobs:
           git config --global user.name "beadcause ci"
           git config --global user.email "ci@beadcause.invalid"
 
+      # `discoverWorkspaces` scans `~/beads/*/.beads`, and `bin/beadcause.js` exits 1 with
+      # "nothing to serve" when it finds none — correctly. But four suites spawn the real
+      # daemon to test the *router* (ports, slow starts, the outage push, the blue/green
+      # swap), and on a machine with no workspaces every one of them reads as a backend
+      # that died at startup. An empty directory is all the scan requires; no `bd`, no
+      # database, and nothing here asks the tracker anything.
+      - name: Give the runner a beads workspace to serve
+        run: mkdir -p "$HOME/beads/ci/.beads"
+
       # `postinstall` runs scripts/vendor.js, which copies the browser builds into
       # public/vendor — it needs node_modules, which after this step it has.
       - run: npm ci
