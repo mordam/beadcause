@@ -8372,6 +8372,85 @@ service restart resumes rather than re-notifying — and a cold start (no `since
 reads current state with no backlog, the same way the daemon's own poller refuses to
 push the questions already waiting when it boots.
 
+### Noticing in five seconds — and not sweeping to find out
+
+The park above is only as quick as the daemon behind it, and for a long time the daemon
+was not quick at all. Everything in the poll cycle ran on one clock — `pollSeconds`,
+thirty by default — so a bead answered in another session, a `human` label an agent
+added, a reply comment: all of them were up to thirty seconds old before `/api/poll`
+even knew there was anything to say. The delta stream delivers promptly and always did;
+what it delivers is whatever the last cycle noticed.
+
+The obvious fix is the wrong one. That number was doing two incompatible jobs at once —
+it was the detection latency **and** it was the cost ceiling, because a sweep is one
+`bd human list` per workspace plus a `bd comments` per conversation you are waiting on,
+five subprocesses against an embedded Dolt that around twenty agent sessions are already
+fighting over. Turning it down to five would have bought the latency by paying that cost
+six times over, all day, almost always to learn that nothing had moved.
+
+So the two are split, and there are two clocks now. `pollSeconds` still governs the
+sweep and is unchanged. In front of it, on `detectSeconds`, runs a much cheaper
+question: **did anything write to this tracker since I last looked?** When the answer is
+no — nearly every beat of an idle laptop — nothing else runs at all. When it is yes, the
+sweep happens within five seconds of the write instead of within thirty.
+
+**The signal is Dolt's own manifest**, and the reason it works is that it is a commit
+pointer rather than a timestamp. Every `bd` write is a Dolt commit and every Dolt commit
+rewrites `.beads/embeddeddolt/<prefix>/.dolt/noms/manifest` — about 150 bytes naming the
+new root hash. Reading it is one `open`/`read`/`close` of a file the page cache is
+already holding, and it spawns nothing.
+
+Three near-misses are worth writing down, because each of them looks like it would work:
+
+- **`.beads/last-touched` is not it.** It holds the last bead id `bd` looked at, and it
+  is rewritten *by reads* — a plain `bd show` moves it. A detector on that file would
+  see its own sweep as a change, sweep again, and never stop.
+- **The mtime is not it either**, for the same reason from the other direction: a read
+  opens the manifest, and the mtime on the enclosing `noms` directory moves with it. The
+  manifest's *contents* are byte-identical across a `bd list` and differ after a single
+  `bd create`, which is the whole of why this reads the file rather than stats it.
+- **An `fs.watch` is not it.** Cheaper still, but it is a per-workspace descriptor on a
+  directory Dolt compacts underneath you, and macOS drops FSEvents into polling mode for
+  exactly this shape anyway. A 150-byte read on a timer has no failure mode left to
+  reason about.
+
+**A tracker this cannot read is not an error, and never forces a sweep.** A workspace
+with no embedded Dolt, a manifest caught mid-rewrite, a `dir` the config never carried:
+each of them answers *unknown*, and an unknown workspace falls back to exactly the
+`pollSeconds` cadence it had before any of this existed. The failure mode of the whole
+mechanism is therefore *the old behaviour*, which is the only failure mode worth having
+in something that decides whether the daemon looks at all. Setting `detectSeconds` equal
+to `pollSeconds` chooses that deliberately, and is why there is no boolean to turn this
+off with — a boolean would be a second thing to get wrong about the same question.
+
+**Only the questions sweep rides the fast clock.** The advocate tick, the release queue
+and the tracker sync stay exactly where they were, on `pollSeconds` and on their own
+slower clocks under it — they open sessions, ask GitHub and take Dolt's write lock
+respectively, and none of them is what a phone is waiting on. That is the half of the
+acceptance criterion that is easy to lose in a refactor: *daemon load with nothing moving
+does not rise*. It is asserted rather than assumed, in `test/detect.mjs`.
+
+**And the cycle no longer overlaps itself.** `setInterval` does not await an async
+callback, so a sweep slower than its own interval gets a second one started on top of it.
+At thirty seconds that was theoretical; at five it is an ordinary Tuesday, since
+`bd list` over five hundred beads has been measured at 28 seconds under the load twenty
+agent sessions and a full `npm test` put on this machine. A beat that finds the previous
+one still running now drops itself and says so once, when the long one finally ends,
+rather than queueing another five subprocesses behind the same lock that made the first
+one slow.
+
+Nothing here covers a write that is not a write to a tracker — a pull request merged on
+GitHub, a deploy started on another Mac. Those were never on this clock and are not on
+this one either; they are events the daemon emits when it does them, or the release
+queue's own sweep when somebody else did. And an action taken *in the app* has never
+waited for a cycle at all: answering, endorsing and dismissing emit onto the log
+directly, and the poll that wakes on them re-reads the inbox in the same round trip.
+
+`node test/detect.mjs` holds all of it — including, against the real `bd` binary rather
+than a stub, that the mark moves on a write and does not move on a read. That is a fact
+about bd and Dolt rather than about this repo, and it is the one that would silently take
+the whole mechanism back to thirty seconds if it ever stopped being true.
+
 ## The chat session — deciding what to file
 
 Everything above acts on beads that already exist. The chat session is upstream of that:
@@ -10980,7 +11059,8 @@ Two consequences of that ordering worth knowing:
 | `confluence.readSpaces` | the space keys an unattended agent may [read a page out of](#reading-a-page-in--and-why-the-allowlist-is-empty-to-begin-with), e.g. `["ENG"]`. **Empty by default and does not inherit `space`** — the token that publishes can read the whole site, so an install that publishes still reads nothing until this names a space |
 | `jira` | JIRA per workspace, keyed by workspace name — `{"climative": {"enabled": true, "email": "you@company.com"}}`. Empty by default, and a workspace not named here costs nothing: no call is made about it at all. The site URL and the project keys come from that workspace's own `bd config get jira.url` / `jira.projects`, so `enabled` and `email` are usually the whole setting; `url` / `projects` here override for a workspace whose `bd` was never pointed at JIRA. **There is deliberately no token field** — see [JIRA, per workspace](#jira-per-workspace--read-only-and-one-setting) |
 | `jira.<workspace>.tokenFile` | where that workspace's API token is read from, if not `~/.config/beadcause/jira-<workspace>.key`. A relative name resolves inside that directory. The same option `confluence.apiTokenFile` is, and it opens the same hole: point it at a name that directory does *not* refuse and the log says so on every check |
-| `pollSeconds` | how often new `human` beads are looked for (default 30) |
+| `pollSeconds` | how often the daemon *sweeps* — one `bd human list` per workspace, plus a `bd comments` per conversation you are waiting on (default 30). A cost, not a latency: `detectSeconds` is what decides how quickly a change is noticed, and this is the backstop under it |
+| `detectSeconds` | how often it asks *whether anything moved*, which is a ~150-byte read per workspace and spawns nothing (default 5). Setting it equal to `pollSeconds` turns the mechanism off and restores the single-clock cycle — see [noticing in five seconds](#noticing-in-five-seconds--and-not-sweeping-to-find-out) |
 | `sync.enabled` | keep a shared tracker shared — `bd dolt pull` then `bd dolt push`, per workspace, on a timer (default `true`). It is on for everybody and it does nothing at all on a workspace with no Dolt remote, which is every workspace until you add one. See [A tracker two Macs share](#a-tracker-two-macs-share) |
 | `sync.seconds` | how often (default 120, floor 30). **Not a performance knob** — it is the width of the window in which two machines can act on stale information, which is why it is a setting and not a constant. There is deliberately no list of *which* workspaces sync: a Dolt remote is that list |
 | `monitor.enabled` | generate the LaunchAgent that opens the [activity monitor](#the-monitor--what-it-is-doing-right-now) at login (default `false`; `npm run monitor` works either way) |
