@@ -1,5 +1,11 @@
 node_modules
-public/vendor/
+# No trailing slash, and that is the whole of bc-slxm: a pattern ending in `/` matches
+# **directories only**, and in a worktree `public/vendor` is a *symlink* to the main
+# checkout's copy — which is what a session that wants to run the browser checks is told
+# to make. git saw `?? public/vendor` there, and bin/deliver.js refuses a worktree with
+# uncommitted changes in it, at the very end, after the suite has already passed.
+# `node_modules` above has always been spelled this way, which is why only vendor bit.
+public/vendor
 *.log
 
 # Per-session working notes, not part of the product. They also tend to quote

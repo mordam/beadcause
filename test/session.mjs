@@ -27,7 +27,7 @@
 // 3. **`file` comes back even with no lines**, so an empty pane says where it looked.
 // 4. **`/session` is a page**, served like /doc and /graph — and it must not need a
 //    token in the URL, because it takes it from localStorage and asks the API itself.
-// 5. **The drawer owns `/session`.** One line in public/drawer.js decides whether a tap
+// 5. **The drawer owns `/session`.** One set in public/drawer.js decides whether a tap
 //    on a row navigates the tab away or opens a panel over it, and nothing about it is
 //    visible from the server.
 // 6. **One reader of the transcript endpoint, and one address for a session.** That is
@@ -48,10 +48,11 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import http from 'node:http';
-import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { boundPort } from './helpers/net.mjs';
+import { cleanupTmp } from './helpers/tmp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(HERE, '..');
@@ -164,6 +165,7 @@ fs.writeFileSync(
 /* --------------------------------------------------------------------- server */
 
 const cfg = {
+  port: 0,
   host: '127.0.0.1',
   baseUrl: 'http://127.0.0.1',
   token: 'session-test-token',
@@ -181,19 +183,9 @@ const cfg = {
   advocates: { enabled: false, workspaces: [] },
 };
 
-// A port picked up front rather than `port: 0`: listen() binds asynchronously and hands
-// the servers back immediately, so address() is still null on the next line.
-const port = await new Promise((resolve, reject) => {
-  const probe = net.createServer();
-  probe.on('error', reject);
-  probe.listen(0, '127.0.0.1', () => {
-    const { port: p } = probe.address();
-    probe.close(() => resolve(p));
-  });
-});
-
 const { createApp, listen } = await import(LIB('server.js'));
-const servers = listen({ ...cfg, port }, createApp({ ...cfg, port }).handler);
+const servers = listen(cfg, createApp(cfg).handler);
+const port = await boundPort(servers);
 
 const call = (pathname, { token = cfg.token, body = null } = {}) =>
   new Promise((resolve, reject) => {
@@ -221,15 +213,6 @@ const call = (pathname, { token = cfg.token, body = null } = {}) =>
     req.on('error', reject);
     req.end(payload ?? undefined);
   });
-
-for (let i = 0; i < 100; i += 1) {
-  try {
-    await call('/api/health');
-    break;
-  } catch {
-    await new Promise((r) => setTimeout(r, 50));
-  }
-}
 
 /* --------------------------------------------------- the record, not just the log */
 
@@ -347,12 +330,17 @@ check(() => {
 
 const drawer = fs.readFileSync(PUBLIC('drawer.js'), 'utf8');
 check(() => {
-  const line = drawer.split('\n').find((l) => l.includes('const DETAIL'));
-  assert.ok(line, 'no DETAIL set in public/drawer.js');
-  assert.ok(line.includes("'/session'"), line.trim());
+  // The whole declaration, not the line it starts on: a set of paths grows one entry per
+  // page the drawer learns to own, and any formatter breaks it across lines long before
+  // that stops. Reading the line made the assertion fail with `const DETAIL = new Set([`
+  // — the paths still there, simply out of view — so match to the closing `]` instead.
+  const decl = drawer.match(/const DETAIL = new Set\(\[[\s\S]*?\]\)/);
+  assert.ok(decl, 'no DETAIL set in public/drawer.js');
+  const set = decl[0].replace(/\s+/g, ' ');
+  assert.ok(set.includes("'/session'"), set);
   // The .html twin matters: serveStatic rewrites /session to /session.html, so a
   // request that arrives already spelled that way must be recognised too.
-  assert.ok(line.includes("'/session.html'"), line.trim());
+  assert.ok(set.includes("'/session.html'"), set);
 }, 'the drawer owns /session, so a row opens over the tab rather than navigating it away');
 
 /* Every page in public/ that lists a session. `work.js` was one until the sessions view
@@ -567,7 +555,7 @@ check(() => {
 /* --------------------------------------------------------------------- teardown */
 
 for (const s of servers) s.close();
-fs.rmSync(tmp, { recursive: true, force: true });
+await cleanupTmp(tmp);
 
 console.log('');
 console.log(failures ? `${failures} of ${ran} failed` : `${ran} checks passed`);

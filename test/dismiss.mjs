@@ -38,6 +38,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { boundPort } from './helpers/net.mjs';
+import { cleanupTmp } from './helpers/tmp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const LIB = path.join(HERE, '..', 'lib', 'bd.js');
@@ -214,7 +215,7 @@ try {
   );
 } finally {
   for (const s of servers) s.close();
-  fs.rmSync(tmp, { recursive: true, force: true });
+  await cleanupTmp(tmp);
 }
 
 /* --------------------------------------------------------------------- verdict */

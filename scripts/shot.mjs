@@ -16,11 +16,15 @@
 //   - THE PHONE IS THE DEFAULT. beadcause is a phone app. A 1280px shot is a shot of
 //     the one layout nobody uses, and it hides the exact failures worth catching.
 //     `--desktop` when the bug is specifically a wide-window one.
-//   - THE TOKEN IS NEVER ON THE COMMAND LINE. It comes from loadConfig() and goes
-//     into localStorage before the page's own scripts run. Agent shell commands get
-//     echoed into transcripts, quoted into beads and read on a phone; a secret that
-//     reaches the screen once needs rotating. `?t=` would additionally put it in the
-//     URL bar, which is to say in the screenshot.
+//   - THE TOKEN IS NEVER ON THE COMMAND LINE, AND NEVER IN THE OUTPUT. It comes from
+//     loadConfig(), goes into localStorage before the page's own scripts run, and —
+//     because localStorage rides on no navigation, so a *document* request carrying
+//     no credential is bounced to sign-in — onto the URL as `?t=` as well. Agent shell
+//     commands and agent stdout both get echoed into transcripts, quoted into beads
+//     and read on a phone; a secret that reaches the screen once needs rotating. So
+//     the URL this navigates with and the URL it prints are two different strings:
+//     see URL_TO_SHOOT and URL_SHOWN. They were one string for a while, which put the
+//     live token in the log of every screenshot ever taken (bc-sqab).
 //   - IT WAITS FOR load, NEVER FOR AN IDLE NETWORK. The app holds a WebSocket open
 //     for live updates, so the network is never idle and an idle-wait would time out
 //     on every page that rendered perfectly.
@@ -34,12 +38,11 @@
 // the same way scroll-check.mjs and its siblings already do, so it adds no
 // dependency and no downloaded browser. Chrome is looked up in the usual places and
 // can be pointed at with CHROME_PATH.
-import { spawn } from 'node:child_process';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadConfig } from '../lib/config.js';
+import { launchChrome } from './helpers/chrome.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -117,6 +120,23 @@ const URL_TO_SHOOT = (() => {
   }
 })();
 
+// What the report prints. The token above is a credential — it is what guards the
+// daemon over the tailnet — and this script's whole output goes into an agent's
+// transcript, so printing the URL verbatim writes it into every session log of every
+// screenshot ever taken. The value is masked rather than dropped so the line still
+// says a token was presented, which is the difference between "the page needed no
+// credential" and "the page got one" when you are reading back why a shot came out
+// as the login screen.
+const URL_SHOWN = (() => {
+  try {
+    const u = new URL(URL_TO_SHOOT);
+    if (u.searchParams.has('t')) u.searchParams.set('t', 'redacted');
+    return u.toString();
+  } catch {
+    return URL_TO_SHOOT;
+  }
+})();
+
 // iPhone 14 Pro, the device the other check scripts emulate, so a shot and a check
 // are describing the same pixels. Desktop is a plain 2x laptop window.
 const PHONE = { width: 390, height: 844, dpr: 3, mobile: true };
@@ -141,95 +161,6 @@ const slug =
   (TARGET.replace(/^https?:\/\//, '').replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '') || 'index').slice(0, 48);
 const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\..*/, '').replace('T', '-');
 const OUT = path.resolve(opt('out') || path.join(SHOT_DIR, `${slug}-${stamp}.png`));
-
-/* ------------------------------------------------------------------ driver */
-
-function connect(url) {
-  return new Promise((resolve, reject) => {
-    const ws = new WebSocket(url);
-    let id = 0;
-    const pending = new Map();
-    const listeners = [];
-    ws.onmessage = (m) => {
-      const msg = JSON.parse(m.data);
-      if (msg.method) {
-        for (const fn of listeners) fn(msg.method, msg.params);
-        return;
-      }
-      const p = msg.id != null && pending.get(msg.id);
-      if (!p) return;
-      pending.delete(msg.id);
-      msg.error ? p.reject(new Error(msg.error.message)) : p.resolve(msg.result);
-    };
-    ws.onerror = () => reject(new Error('could not attach to Chrome'));
-    ws.onopen = () =>
-      resolve({
-        send: (method, params = {}) =>
-          new Promise((res, rej) => {
-            const i = ++id;
-            pending.set(i, { resolve: res, reject: rej });
-            ws.send(JSON.stringify({ id: i, method, params }));
-          }),
-        on: (fn) => listeners.push(fn),
-        close: () => ws.close(),
-      });
-  });
-}
-
-async function launch(chrome) {
-  // Derived from the pid so two agents shooting at the same moment do not fight over
-  // one debugging port — which they will, because concurrent agents are the point.
-  const port = 9600 + (process.pid % 300);
-  const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'beadcause-shot-'));
-  const proc = spawn(
-    chrome,
-    [
-      '--headless=new',
-      `--remote-debugging-port=${port}`,
-      `--user-data-dir=${profile}`,
-      '--no-first-run',
-      '--no-default-browser-check',
-      // Offscreen renderers are throttled to about a frame a second, which is plenty
-      // to photograph a half-drawn graph and file it as a layout bug.
-      '--disable-background-timer-throttling',
-      '--disable-backgrounding-occluded-windows',
-      '--disable-renderer-backgrounding',
-      '--hide-scrollbars',
-      'about:blank',
-    ],
-    { stdio: 'ignore' }
-  );
-  let target = null;
-  for (let i = 0; i < 60 && !target; i++) {
-    await sleep(250);
-    try {
-      target = (await (await fetch(`http://127.0.0.1:${port}/json/list`)).json()).find((t) => t.type === 'page');
-    } catch {
-      /* not up yet */
-    }
-  }
-  if (!target) {
-    proc.kill();
-    throw new Error('Chrome never exposed a page target');
-  }
-  const s = await connect(target.webSocketDebuggerUrl);
-  return {
-    s,
-    close: () => {
-      try {
-        s.close();
-      } catch {
-        /* already gone */
-      }
-      proc.kill();
-      try {
-        fs.rmSync(profile, { recursive: true, force: true, maxRetries: 3 });
-      } catch {
-        /* Chrome is still letting go of a temp dir */
-      }
-    },
-  };
-}
 
 /* --------------------------------------------------------- what went wrong */
 
@@ -306,7 +237,7 @@ if (!chrome) {
   process.exit(1);
 }
 
-const { s, close } = await launch(chrome);
+const { s, close } = await launchChrome('beadcause-shot-', { chrome });
 let failure = null;
 
 try {
@@ -400,7 +331,7 @@ if (fs.existsSync(OUT)) {
   const kb = Math.round(fs.statSync(OUT).size / 1024);
   console.log(rel.startsWith('..') ? OUT : rel);
   console.log(
-    `  ${URL_TO_SHOOT} - ${VP.width}x${VP.height} @${VP.dpr}x${VP.mobile ? ' mobile' : ''}${FULL ? ' full-page' : ''} - ${kb} KB`
+    `  ${URL_SHOWN} - ${VP.width}x${VP.height} @${VP.dpr}x${VP.mobile ? ' mobile' : ''}${FULL ? ' full-page' : ''} - ${kb} KB`
   );
 } else {
   console.log('(no screenshot was produced)');

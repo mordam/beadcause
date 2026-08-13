@@ -1,0 +1,182 @@
+#!/usr/bin/env node
+/**
+ * `beadcause-browse <url>` — read a page that only exists once its JavaScript has run.
+ *
+ * The third and last of the lookup shapes, and the one to reach for least often:
+ * `WebFetch` reads a page as prose, `beadcause-get` gives the bytes as served, and this
+ * gives what a browser would have drawn. It costs a Chrome start-up, so it earns its
+ * place only when the other two came back with a shell — an empty `<div id="root">`, a
+ * "loading…", a table that is not in the HTML.
+ *
+ * **The browser is nobody, and that is the whole point.** Adam ruled on bc-awr that
+ * agents get a headless Chrome with a throwaway `--user-data-dir` per run and never the
+ * claude-in-chrome extension, which drives the browser he is signed into and whose
+ * per-site permission prompt has nobody present to answer it. So each run makes a
+ * profile under the system temp directory, launches into it, and deletes it on the way
+ * out — no cookies, no sessions, no extensions, no identity. `lib/browse.js` refuses to
+ * launch against anything else, which is that ruling written where it can be enforced.
+ *
+ * **What is deliberately missing, and it is most of a browser.** There is no flag that
+ * runs JavaScript, clicks, types, submits a form, sets a cookie or a header, or names an
+ * output file. Not "rejected later" — there is no code path that does any of them. The
+ * agent names a URL and may say what to *wait for*; it cannot say what to *do*. Same
+ * argument `bin/beadcause-get` makes about curl: allowlisting a verb grants the whole
+ * binary, so the thing on the allowlist is a command that can only do the one job.
+ *
+ * `--shot` is the one thing that writes a file, and it takes no path: the PNG lands
+ * under `.claude/shots/` with a generated name and the path is printed. A flag that
+ * accepted a path would be an arbitrary file write with a picture in it.
+ */
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import {
+  browse,
+  BrowseError,
+  DEFAULT_MAX_CHARS,
+  HARD_MAX_CHARS,
+  DEFAULT_TIMEOUT_MS,
+  HARD_MAX_TIMEOUT_MS,
+  DEFAULT_SETTLE_MS,
+} from '../lib/browse.js';
+import { LookupError } from '../lib/lookup.js';
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+
+const USAGE = `beadcause-browse — render one public URL in a throwaway headless Chrome
+
+  beadcause-browse <url> [--html] [--wait=SELECTOR] [--settle=MS] [--shot]
+                         [--webgl] [--max-chars=N] [--timeout=SECONDS] [--json]
+
+  --html            the DOM after JavaScript, instead of the visible text
+  --wait=SELECTOR   keep waiting until this selector exists, then read
+  --settle=MS       how long to keep rendering after load (default ${DEFAULT_SETTLE_MS})
+  --shot            also save a PNG under .claude/shots/ and print its path
+  --webgl           software WebGL, for a page that draws on a canvas (slow)
+  --max-chars=N     stop after N characters (default ${DEFAULT_MAX_CHARS}, max ${HARD_MAX_CHARS})
+  --timeout=N       give up after N seconds (default ${DEFAULT_TIMEOUT_MS / 1000}, max ${HARD_MAX_TIMEOUT_MS / 1000})
+  --json            the whole result as one JSON object
+
+Reach for WebFetch first and beadcause-get second. This is for the page neither can
+read: one whose content is assembled in the browser, where what they return is a shell.
+
+The Chrome it launches has no cookies, no history, no extensions and no identity, and
+its profile is deleted when the run ends. There is no flag to run JavaScript, click,
+type, submit, log in, set a header, or write a file of your choosing — this reads a
+page and nothing else. Private and loopback addresses are refused, for the page's own
+subresources as well as for the URL you give it.
+
+Cite what you read. The URL printed on the first line is the one the browser ended up
+on, which is the one worth quoting, along with whatever edition or date the page claims.`;
+
+const KNOWN = new Set(['html', 'wait', 'settle', 'shot', 'webgl', 'max-chars', 'timeout', 'json', 'help']);
+
+const flags = new Map();
+const args = [];
+for (const a of process.argv.slice(2)) {
+  const m = /^--([a-z-]+)(?:=(.*))?$/.exec(a);
+  if (m) {
+    if (!KNOWN.has(m[1])) {
+      console.error(`beadcause-browse: no such option --${m[1]}\n\n${USAGE}`);
+      process.exit(2);
+    }
+    flags.set(m[1], m[2] ?? true);
+  } else if (a.startsWith('-') && a !== '-') {
+    console.error(`beadcause-browse: no such option ${a}\n\n${USAGE}`);
+    process.exit(2);
+  } else {
+    args.push(a);
+  }
+}
+
+if (flags.has('help') || args.length === 0) {
+  console.log(USAGE);
+  process.exit(args.length === 0 && !flags.has('help') ? 2 : 0);
+}
+if (args.length > 1) {
+  // One URL per run, on purpose: a loop the agent writes is visible in the log, and a
+  // loop this command hides is not. Doubly so here, where each one is a browser.
+  console.error(`beadcause-browse: one URL at a time (got ${args.length})\n\n${USAGE}`);
+  process.exit(2);
+}
+
+const number = (name, fallback) => {
+  if (!flags.has(name)) return fallback;
+  const n = Number(flags.get(name));
+  if (!Number.isFinite(n) || n < 0) {
+    console.error(`beadcause-browse: --${name} wants a number`);
+    process.exit(2);
+  }
+  return n;
+};
+
+/**
+ * Where a `--shot` lands. Generated, never given.
+ *
+ * `.claude/shots/` is where `scripts/shot.mjs` already puts pictures of this app, and it
+ * is gitignored — a screenshot is a picture of somebody's real page and has no business
+ * being committed. The name comes from the URL and the clock, so two shots in one minute
+ * do not overwrite each other.
+ */
+function shotPath(url) {
+  const slug =
+    (String(url).replace(/^https?:\/\//, '').replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '') || 'page').slice(0, 48);
+  const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\..*/, '').replace('T', '-');
+  return path.join(ROOT, '.claude', 'shots', `browse-${slug}-${stamp}.png`);
+}
+
+// A run interrupted between `mkdtemp` and the `finally` in `browse()` would leave a
+// profile behind, and the one guarantee this command makes is that it does not. The
+// handlers make the ordinary signals go through the same exit path as everything else.
+for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
+  process.on(sig, () => {
+    console.error(`beadcause-browse: ${sig}`);
+    process.exit(130);
+  });
+}
+
+try {
+  const res = await browse(args[0], {
+    html: flags.has('html'),
+    waitFor: flags.get('wait') === true ? null : flags.get('wait') || null,
+    settleMs: flags.has('settle') ? number('settle') : undefined,
+    webgl: flags.has('webgl'),
+    maxChars: number('max-chars', undefined),
+    timeoutMs: flags.has('timeout') ? number('timeout') * 1000 : undefined,
+    shotPath: flags.has('shot') ? shotPath(args[0]) : null,
+  });
+
+  if (flags.has('json')) {
+    console.log(JSON.stringify(res, null, 2));
+  } else {
+    // Every line of the preamble starts with `#`, so the agent can tell the wrapper's
+    // words from the page's, and so the citable URL is the first thing it reads rather
+    // than something it reconstructs from a redirect chain.
+    console.log(`# ${res.url}`);
+    console.log(
+      `# ${res.title ? `"${res.title}" · ` : ''}${res.isHtml ? 'DOM' : 'rendered text'} · ${res.chars} chars${
+        res.truncated ? ' (truncated at the cap)' : ''
+      }`,
+    );
+    if (res.requestedUrl !== res.url) console.log(`# asked for ${res.requestedUrl}`);
+    if (res.shot) console.log(`# screenshot: ${path.relative(process.cwd(), res.shot)} — open it with Read`);
+    for (const b of res.blocked) console.log(`# the page was refused ${b.what}${b.n > 1 ? ` (x${b.n})` : ''}`);
+    for (const p of res.problems) console.log(`# ${p.kind}: ${p.text}${p.n > 1 ? ` (x${p.n})` : ''}`);
+    if (!res.profileRemoved) console.log('# WARNING: the throwaway profile could not be deleted');
+    console.log('');
+    process.stdout.write(res.text);
+    if (!res.text.endsWith('\n')) console.log('');
+    if (!res.text.trim()) {
+      console.log(
+        '(the page rendered no text — try --wait for a selector you expect, a longer --settle, or --html to see what is actually in the DOM)',
+      );
+    }
+  }
+  process.exit(0);
+} catch (err) {
+  if (err instanceof BrowseError || err instanceof LookupError) {
+    console.error(`beadcause-browse: ${err.message} [${err.code}]`);
+    process.exit(1);
+  }
+  console.error(`beadcause-browse: ${err?.message || err}`);
+  process.exit(1);
+}

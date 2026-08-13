@@ -46,7 +46,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var dictation: Dictation
 
     private val pairing = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
-        if (Prefs.isPaired(this)) startUp() else finish()
+        if (Prefs.isLive(this)) startUp() else finish()
     }
 
     /**
@@ -85,7 +85,17 @@ class MainActivity : AppCompatActivity() {
             }
         })
 
-        if (Prefs.isPaired(this)) startUp() else pairing.launch(Intent(this, PairActivity::class.java))
+        // A pairing saved against the old cleartext URL takes the same road as no
+        // pairing at all — the QR screen — but says so on arrival rather than looking
+        // like the app lost its token. See Prefs.needsRepair.
+        if (Prefs.isLive(this)) {
+            startUp()
+        } else {
+            pairing.launch(
+                Intent(this, PairActivity::class.java)
+                    .putExtra(PairActivity.EXTRA_STALE, Prefs.needsRepair(this))
+            )
+        }
     }
 
     private fun startUp() {

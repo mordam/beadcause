@@ -5,10 +5,10 @@
  *     npm test
  *     node test/inboxkinds.mjs
  *
- * The inbox carries five different jobs at one address — a plain question, an
- * advocate's proposal, a worker's merge, a pull request, and (under `Both` and `Agent`)
- * the live beads nobody is asking you about — and public/inboxfilter.js is the one place
- * that knows which is which. Five things about it are worth a suite, and none is visible
+ * The inbox carries six different jobs at one address — a plain question, an
+ * advocate's proposal, a worker's merge, a pull request, a JIRA ticket assigned to you,
+ * and (under `Both` and `Agent`) the live beads nobody is asking you about — and
+ * public/inboxfilter.js is the one place that knows which is which. Five things about it are worth a suite, and none is visible
  * by reading one function:
  *
  * 1. **The kinds have to partition the list.** `KINDS` is a table of predicates, and
@@ -211,6 +211,26 @@ const ROWS = {
   proposal: { key: 'w/p1', workspace: 'w', proposal: { beads: [{ title: 'x' }] } },
   delivery: { key: 'w/d1', workspace: 'w', delivery: { number: 7 } },
   pr: { key: 'pr:w#7', workspace: 'w', pr: { key: 'w#7', number: 7, stage: 'review' } },
+  // A chat session, which with the pull request above is one of the two rows here that
+  // are not beads at all — no id in any tracker, nothing to answer. See `chatRows` in
+  // public/app.js.
+  session: { key: 'chat/abc', workspace: 'w', session: { id: 'abc', title: 'New beads' } },
+  // A JIRA ticket, the third of those and the only one that is not even a thing this
+  // app holds — it comes off JIRA. Shaped as bc-0i27.2's poller holds one: key,
+  // summary, status, updated, url, assignee, and no description body. See `jiraRows`
+  // in public/app.js.
+  jira: {
+    key: 'jira:w/TECH-1204',
+    workspace: 'w',
+    jira: {
+      key: 'TECH-1204',
+      summary: 'The meter reads zero after a reconnect',
+      status: 'In Progress',
+      updated: '2026-08-11T09:00:00Z',
+      url: 'https://example.atlassian.net/browse/TECH-1204',
+      assignee: 'adam.morgan@climative.ai',
+    },
+  },
   claimed: { key: 'w/a1', workspace: 'w', agent: true, status: 'in_progress' },
   blocked: { key: 'w/a2', workspace: 'w', agent: true, status: 'blocked' },
   unclaimed: { key: 'w/a3', workspace: 'w', agent: true, status: 'open' },
@@ -218,8 +238,11 @@ const ROWS = {
 
 const QUESTION_KINDS = ['question', 'proposal', 'delivery'];
 const AGENT_KINDS = ['claimed', 'blocked', 'unclaimed'];
-/* On neither side: a pull request comes off `gh`, so every scope can hold one. */
-const ANY_KINDS = ['pr'];
+/* On neither side, so every scope can hold one: a pull request comes off `gh`, a chat
+   session off no sweep at all, and a JIRA ticket off JIRA, so for none of the three is
+   there a scope that could have missed it — which is what `side: 'any'` means.
+   public/app.js `kindsForScope` is the other half. */
+const ANY_KINDS = ['pr', 'session', 'jira'];
 /** A pull request on a given rung, as the row app.js synthesises from the board. */
 const prOn = (stage) => ({ key: `pr:w#${stage}`, workspace: 'w', pr: { number: 1, stage } });
 
@@ -337,7 +360,7 @@ await check('a selection the new scope keeps is kept', () => {
   const { filter } = load();
   filter.survey({ kinds: QUESTION_KINDS });
   filter.set(['delivery']);
-  filter.survey({ kinds: [...QUESTION_KINDS, ...AGENT_KINDS] });
+  filter.survey({ kinds: [...QUESTION_KINDS, ...ANY_KINDS, ...AGENT_KINDS] });
   assert.deepEqual(list(filter.selected()), ['delivery']);
 });
 
@@ -395,10 +418,10 @@ await check('the line names the narrowing, and the control says it is narrowed',
   assert.ok(root.classes().includes('narrowed'), 'nothing on screen says the list is filtered');
 });
 
-await check('three selections are counted rather than listed — a phone line is short', () => {
+await check('three or more selections are counted rather than listed — a phone line is short', () => {
   const { filter, summary } = mounted();
   filter.set(QUESTION_KINDS);
-  assert.equal(summary.children[0].textContent, 'Human · 3 kinds');
+  assert.equal(summary.children[0].textContent, `Human · ${QUESTION_KINDS.length} kinds`);
 });
 
 await check('a chip per kind the scope can hold, each with what picking it would leave', () => {
@@ -714,7 +737,12 @@ await check('the service worker ships it, on a version a cached phone will notic
 await check('app.js filters the list through it, rather than only drawing it', () => {
   const app = read('public/app.js');
   assert.ok(app.includes('inboxFilter'), 'app.js never asks the control anything');
-  assert.ok(/inRepo\.filter\(inKind\)/.test(app), 'the list is not filtered by kind');
+  // `inBoard`, not `inRepo`: bc-rfnr.2 put the P0 board's descendant filter between the
+  // two, and the kind filter is deliberately last so the chips count what you can
+  // actually get to. What this check is about is that `inKind` still narrows the list
+  // rather than only colouring the chips — whichever variable it is handed.
+  assert.ok(/inBoard\.filter\(inKind\)/.test(app), 'the list is not filtered by kind');
+  assert.ok(/const inBoard = underOwnedP0s\(inRepo\)/.test(app), 'the P0 board no longer narrows the list');
   assert.ok(app.includes('surveyKinds('), 'the chips are never told what is on screen');
 });
 
@@ -722,8 +750,21 @@ await check('the counts beside the list are counted over the same filter as the 
   // A picker saying 5 above a list showing 1 is the two halves of one screen
   // disagreeing about the same beads.
   const app = read('public/app.js');
-  const publish = app.slice(app.indexOf('function publishSpaces'), app.indexOf('let pendingRender'));
-  assert.ok(publish.includes('inKind(q)'), 'the space picker counts rows the list is hiding');
+  // Off the render that drew the list rather than off the payload: a kind-filter tap
+  // fetches nothing, so a count taken when the rows arrived cannot follow it. The
+  // invariant itself is test/spacebar.mjs's; this is the wiring that gives the picker
+  // any chance of holding it.
+  //
+  // Every filter between the sweep and the screen, and named here one by one so that
+  // adding a sixth kind of row without adding it to the count fails this rather than
+  // being noticed on a phone: `underOwnedP0s` because the list under an owned board is
+  // its descendants and nothing else, `inKind` because the chips are a filter too. The
+  // space and repo narrowing is deliberately absent — these are per-workspace counts
+  // for every workspace, which is exactly the row-per-repo the dropdown draws.
+  assert.ok(
+    /publishCounts\(underOwnedP0s\(rows\)\.filter\(inKind\)\)/.test(app),
+    'the space picker counts rows the list is hiding'
+  );
   const summary = app.slice(app.indexOf('function paintSummary'), app.indexOf('function paintArmed'));
   assert.ok(summary.includes('inKind(q)'), 'the "N waiting" count ignores the kind filter');
 });

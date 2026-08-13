@@ -16,9 +16,12 @@
  *    unrelated. The guard is that Claude Code must *currently* report that pid as a
  *    session named after this bead, and it is checked here against a pid that is alive
  *    and is emphatically not ours.
- * 3. **It must leave the interesting endings alone.** Delivered-but-unmerged, handed
- *    back for a decision, timed out: all of those have something on screen worth
- *    reading, and only a *closed bead* means there is not.
+ * 3. **It must leave the interesting endings alone.** Timed out, lapsed, gone silent:
+ *    those are the daemon's *inference* that a window went quiet, and the inference is
+ *    the reason to read it. The three a session actually reaches — bead closed, pull
+ *    request delivered, bead handed back — all put what they know somewhere that is not
+ *    the window, and all three close it. The middle two arrive with the bead still open
+ *    and no done file written, so they get checks of their own below.
  *
  * The second half of the file is the *sweep* — the same signal aimed at a window this
  * daemon holds no worker for, which is what the windows already open when the above
@@ -37,6 +40,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { cleanupTmp } from './helpers/tmp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const LIB = (name) => path.join(HERE, '..', 'lib', name);
@@ -149,17 +153,24 @@ async function goneWithin(pid, ms) {
  * `ready` is always empty — nothing here launches, and a queue would only add windows
  * to a test about closing them.
  */
-function harness({ show, overrides = {} } = {}) {
+function harness({ show, overrides = {}, labelled = () => [] } = {}) {
   const cfg = baseConfig();
   cfg.advocates = { ...cfg.advocates, ...overrides };
   fs.writeFileSync(CONFIG, JSON.stringify(cfg, null, 2));
   const events = [];
+  const calls = { listLabel: 0 };
   const bd = {
     ready: async () => [],
     show: async (_ws, id) => show(id),
-    listLabel: async () => [],
+    // Counted, because a delivery is now asked about for every *idle* window and not
+    // only for one that exited — which is the difference between a handful of calls a
+    // day and one per quiet window per tick if the answer were not shared.
+    listLabel: async (_ws, label) => {
+      calls.listLabel += 1;
+      return labelled(label);
+    },
   };
-  return { cfg, events, advocates: createAdvocates(cfg, { bd, bus: { emit: (e) => events.push(e) } }) };
+  return { cfg, events, calls, advocates: createAdvocates(cfg, { bd, bus: { emit: (e) => events.push(e) } }) };
 }
 
 /** Seed the persisted state the way a restart would find it, then build the advocate. */
@@ -256,15 +267,23 @@ await check('SIGTERM is given closeHardSeconds before SIGKILL, and then it stops
   assert.equal(done.act, 'drop', 'past the give-up window it is left for a human');
 });
 
-await check('only a closed bead is a candidate at all', () => {
+await check('only an ending the session reached is a candidate at all', () => {
   const w = { id: 'al-1', title: 'a bead', pid: 4242, ended: false };
-  assert.ok(closingFor(w, 'done'), 'closed — the one ending with nothing left on screen');
-  for (const other of ['delivered', 'handback', 'unfinished', 'timeout', 'lapsed', 'silent', 'ended']) {
-    assert.equal(closingFor(w, other), null, `${other} still has something worth reading`);
+  // The three the brief gives a session, all of which put what they know somewhere
+  // that is not the window: the bead, a card, a question.
+  for (const reached of ['done', 'delivered', 'handback']) {
+    assert.ok(closingFor(w, reached), `${reached} is the session's own account of finishing`);
+  }
+  // The four the daemon infers from a window going quiet. The inference is the reason
+  // to read the window, so none of them may close it.
+  for (const other of ['unfinished', 'timeout', 'lapsed', 'silent', 'ended']) {
+    assert.equal(closingFor(w, other), null, `${other} is a window somebody should read`);
   }
   assert.equal(closingFor({ ...w, ended: true }, 'done'), null, 'it already exited — there is no window');
+  assert.equal(closingFor({ ...w, ended: true }, 'delivered'), null, 'nor when you closed it yourself');
   assert.equal(closingFor({ ...w, pid: null }, 'done'), null, 'no pid, nothing to signal');
   assert.equal(closingFor(w, 'done', { enabled: false }), null, 'the off switch is honoured');
+  assert.equal(closingFor(w, 'delivered', { enabled: false }), null, 'for all three of them');
   assert.equal(REAP_DEFAULTS.closeFinishedSessions, true, 'and it is on by default');
 });
 
@@ -311,6 +330,132 @@ await check('a live pid that is not our session is never signalled', async () =>
   assert.ok(alive(bystander.pid), 'it signalled a process that was not its session');
   assert.equal(card(advocates).closing.length, 0, 'and it did not keep watching it either');
   bystander.kill('SIGKILL');
+});
+
+/* -------------------------------- the two endings that leave the bead open */
+
+/**
+ * Delivered and handed back, against a *live* window.
+ *
+ * These are the endings a session reaches without exiting: the bead stays open on
+ * purpose, and `claude` is interactive, so neither the closed-bead branch nor the done
+ * file ever fires. Every check here therefore has an open bead, no done file, and a
+ * process that is still running — which is the state the whole feature used to miss,
+ * and the state in which it used to eventually record a *timeout* and charge the bead
+ * an attempt for having done what the brief asked.
+ */
+
+/** An open delivery card, in the shape `cardsForDelivery` reads a bead out of. */
+const deliveryCard = (bead, number = 42) => ({
+  id: `${bead}-q`,
+  status: 'open',
+  title: `Merge #${number}?`,
+  description: ['```beadpr', `bead: ${bead}`, `number: ${number}`, `url: https://example.invalid/pull/${number}`, '```'].join(
+    '\n'
+  ),
+});
+
+/** The attempts ledger as it was persisted — not on the card, and the point of the check. */
+const attempts = () => JSON.parse(fs.readFileSync(STATE, 'utf8')).alpha?.attempts || {};
+
+await check('a delivered window is closed, and is not written down as a timeout', async () => {
+  clearSessionRecords();
+  const victim = spawnVictim();
+  writeSessionRecord(victim.pid, { name: 'DONE-Alpha - al-1 a bead' });
+  const { advocates, events, calls } = withWorker(
+    { id: 'al-1', title: 'a bead', at: ago(300), dir: REPO, attempt: 1 },
+    { show: async () => ({ id: 'al-1', status: 'in_progress' }), labelled: () => [deliveryCard('al-1')] }
+  );
+
+  await advocates.tick();
+  assert.equal(card(advocates).workers.length, 0, 'the slot went back');
+  assert.ok(
+    events.some((e) => e.action === 'delivered' && e.id === 'al-1'),
+    'the ending it reached is the ending recorded'
+  );
+  assert.deepEqual(attempts(), {}, 'and a documented ending costs the bead no attempt');
+  assert.equal(calls.listLabel, 1, 'one tracker call for the pass, not one per worker');
+  assert.ok(await goneWithin(victim.pid, 4000), 'the window is still open');
+});
+
+await check('a handed-back window is closed, without asking the tracker anything', async () => {
+  clearSessionRecords();
+  const victim = spawnVictim();
+  // No `DONE-`: the brief tells a session that hands back not to claim it finished.
+  writeSessionRecord(victim.pid, { name: 'Alpha - al-1 a bead' });
+  const { advocates, events, calls } = withWorker(
+    { id: 'al-1', title: 'a bead', at: ago(300), dir: REPO, attempt: 1 },
+    { show: async () => ({ id: 'al-1', status: 'in_progress', labels: ['human'] }) }
+  );
+
+  await advocates.tick();
+  assert.ok(
+    events.some((e) => e.action === 'handback' && e.id === 'al-1'),
+    'a `human` label on an open bead under a quiet window is a handback'
+  );
+  assert.deepEqual(attempts(), {}, 'which the brief asks for, so it costs no attempt');
+  assert.equal(calls.listLabel, 0, 'the label was already in hand — no reason to ask about deliveries');
+  assert.ok(await goneWithin(victim.pid, 4000), 'the window is still open');
+});
+
+await check('a window still working is neither finished nor signalled', async () => {
+  clearSessionRecords();
+  const victim = spawnVictim();
+  writeSessionRecord(victim.pid, { name: 'Alpha - al-1 a bead', status: 'busy' });
+  const { advocates, calls } = withWorker(
+    { id: 'al-1', title: 'a bead', at: ago(300), dir: REPO, attempt: 1 },
+    // Everything says delivered *except* the session, which is mid-sentence. A label
+    // written while a session is still typing must not end it.
+    { show: async () => ({ id: 'al-1', status: 'in_progress', labels: ['human'] }), labelled: () => [deliveryCard('al-1')] }
+  );
+
+  await advocates.tick();
+  await new Promise((r) => setTimeout(r, 250));
+  assert.equal(card(advocates).workers.length, 1, 'a busy session still holds its slot');
+  assert.equal(card(advocates).closing.length, 0, 'and nothing was queued against it');
+  assert.equal(calls.listLabel, 0, 'nor was the tracker asked about a session that has not stopped');
+  assert.ok(alive(victim.pid), 'it signalled a session that was still working');
+  victim.kill('SIGKILL');
+});
+
+await check('a quiet window that reached no ending at all is left where it is', async () => {
+  clearSessionRecords();
+  const victim = spawnVictim();
+  writeSessionRecord(victim.pid, { name: 'Alpha - al-1 a bead' });
+  const { advocates } = withWorker(
+    { id: 'al-1', title: 'a bead', at: ago(300), dir: REPO, attempt: 1 },
+    // Open bead, no `human` label, no card: idle is not by itself an ending, and this
+    // is the window that most wants reading.
+    { show: async () => ({ id: 'al-1', status: 'in_progress' }) }
+  );
+
+  await advocates.tick();
+  await new Promise((r) => setTimeout(r, 250));
+  assert.equal(card(advocates).workers.length, 1, 'it kept its slot until the timeout says otherwise');
+  assert.equal(card(advocates).closing.length, 0);
+  assert.ok(alive(victim.pid), 'idle alone was enough to close a window');
+  victim.kill('SIGKILL');
+});
+
+await check('a tracker that will not answer is not evidence that nothing was delivered', async () => {
+  clearSessionRecords();
+  const victim = spawnVictim();
+  writeSessionRecord(victim.pid, { name: 'DONE-Alpha - al-1 a bead' });
+  const { advocates } = withWorker(
+    { id: 'al-1', title: 'a bead', at: ago(300), dir: REPO, attempt: 1 },
+    {
+      show: async () => ({ id: 'al-1', status: 'in_progress' }),
+      labelled: () => {
+        throw new Error('dolt is mid-write');
+      },
+    }
+  );
+
+  await advocates.tick();
+  await new Promise((r) => setTimeout(r, 250));
+  assert.equal(card(advocates).workers.length, 1, 'a refused answer took the slot away anyway');
+  assert.ok(alive(victim.pid), 'and it signalled on the strength of it');
+  victim.kill('SIGKILL');
 });
 
 await check('closeFinishedSessions:false leaves the window alone', async () => {
@@ -502,5 +647,5 @@ await check('the sweep does not queue a window the closing list already has', as
 /* ---------------------------------------------------------------------- out */
 
 console.log(`\n${ran - failures}/${ran} passed\n`);
-fs.rmSync(tmp, { recursive: true, force: true });
+await cleanupTmp(tmp);
 process.exit(failures ? 1 : 0);
