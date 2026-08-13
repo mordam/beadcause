@@ -235,7 +235,7 @@ const bdJson = (args) => {
  * throughout. Everything about the local fast-forward depends on that difference, so
  * it cannot be asserted from a scenario that runs in the main checkout itself.
  */
-function deliver(name, { checks = 'green', refuseMerge = null, extra = [], worktree = false } = {}) {
+function deliver(name, { checks = 'green', refuseMerge = null, extra = [], worktree = false, conflicted = false } = {}) {
   const created = bd(['create', '--title', name, '--description', 'Work for a land-check run.', '--type', 'task', '--json']);
   const bead = JSON.parse(created.slice(created.indexOf('{'), created.lastIndexOf('}') + 1));
   const id = bead.id || bead.issue?.id;
@@ -250,8 +250,19 @@ function deliver(name, { checks = 'green', refuseMerge = null, extra = [], workt
     git(['checkout', '-qb', branch]);
   }
   fs.writeFileSync(path.join(at, `${id}.txt`), `work for ${id}\n`);
+  // A commit that carries an unresolved merge, made exactly the way one really gets
+  // made: `git add -A && git commit` with the markers still in the file, which git
+  // accepts without a word. `--no-verify` because the harness repo may have the
+  // pre-commit hook installed, and the point of this scenario is what happens to a
+  // commit that got past it — a hook is skippable and deliver.js is not.
+  if (conflicted) {
+    fs.writeFileSync(
+      path.join(at, `${id}.js`),
+      `<<<<<<< HEAD\nexport const a = 1;\n=======\nexport const a = 2;\n>>>>>>> origin/main\n`
+    );
+  }
   git(['add', '-A'], at);
-  git(['commit', '-qm', `${id}: the work`], at);
+  git(['commit', '-qm', `${id}: the work`, '--no-verify'], at);
 
   fs.writeFileSync(GH_LOG, '');
   world({ checks, refuseMerge });
@@ -501,6 +512,36 @@ check(
   flat(bd(['comments', heldOff.id])).slice(-160)
 );
 git(['checkout', '--quiet', '--', 'README.md']);
+
+/* ------------------------------- 8. and it will not push an unresolved merge at all */
+
+console.log('\na commit carrying conflict markers: nothing reaches origin, and nothing is asked');
+
+// bc-d2y6, end to end. A resolver session committed a re-conflicted `public/console.js`
+// and every screen showed a normal merge commit; the only symptom was `npm test` failing
+// 38 suites in with `Unexpected token '<<'`. This is the scenario that says such a
+// branch never gets past this command — and every assertion here is a negative one,
+// because "it refused" is worth nothing unless nothing else happened either. A refusal
+// that has already pushed the branch has published the broken file; one that has already
+// filed a question has put an unmergeable pull request on Adam's phone.
+const stillConflicted = deliver('carries an unresolved merge', { conflicted: true });
+check('deliver.js refuses, loudly', stillConflicted.code === 6, `exit ${stillConflicted.code} — ${stillConflicted.stderr}`);
+check('and names the file', new RegExp(`${stillConflicted.id}\\.js`).test(stillConflicted.stderr), stillConflicted.stderr.slice(0, 200));
+check('and the marker it found', /<<<<<<< HEAD/.test(stillConflicted.stderr), stillConflicted.stderr.slice(0, 200));
+check(
+  'nothing was pushed — origin never heard of the branch',
+  !run('git', ['branch', '--list', stillConflicted.branch], { cwd: ORIGIN }).includes(stillConflicted.branch)
+);
+check('no pull request was opened', !stillConflicted.log.some((c) => c[0] === 'pr' && c[1] === 'create'), JSON.stringify(stillConflicted.log.map((c) => c.slice(0, 2))));
+check('and gh was never called at all', stillConflicted.log.length === 0, JSON.stringify(stillConflicted.log.map((c) => c.slice(0, 2))));
+check('the bead is still open', stillConflicted.issue.status !== 'closed', stillConflicted.issue.status);
+check('and no question was filed — this is the session’s to fix, not Adam’s', bdJson(['list', '--label', 'pr-delivery', '--status', 'open', '--json']).length === 0);
+check('it says how to catch it a commit earlier', /--install-hook/.test(stillConflicted.stderr), stillConflicted.stderr.slice(-200));
+
+// And the same branch with the merge actually resolved goes straight through, so the
+// check above is about the markers rather than about anything else the scenario did.
+const resolved = deliver('resolves it before delivering');
+check('a resolved branch still lands normally', /^landed #7/.test(resolved.stdout), resolved.stdout || resolved.stderr);
 
 /* ------------------------------------------------------------------ verdict */
 

@@ -11,9 +11,9 @@
  *     npm run checks -- --no-retry   # the parallel pass raw, without the serial retry
  *     node scripts/checks.mjs --dir <root>   # another tree — this is how it is tested
  *
- * There are twenty-six `scripts/*-check.mjs`, they are the only cover this repo has for
- * layout, taps and anything that happens on a phone, and until this file existed there
- * was no way to run them but one at a time by name. Which in practice meant: run by
+ * The `scripts/*-check.mjs` are the only cover this repo has for layout, taps and anything
+ * that happens on a phone, and until this file existed there was no way to run them but
+ * one at a time by name. Which in practice meant: run by
  * whoever remembered that the page they touched had one. `npm test` says nothing about
  * any of them — that suite is pure Node on purpose, because these want a Chrome — so a
  * check could stop passing the moment a selector moved and stay broken for a month.
@@ -37,7 +37,7 @@
  * because burying that is how a runner acquires a folklore of checks that are "always a
  * bit red". Every check is also on a four-minute leash: a hang is the one failure a
  * runner like this newly introduces, and it is silent in the worst way, because a run
- * that never ends reports nothing about the other twenty-five either.
+ * that never ends reports nothing about any of the rest either.
  *
  * ## What it does before it runs anything
  *
@@ -45,9 +45,9 @@
  * still exists in `public/`. That is the failure this whole file is about, it costs
  * milliseconds, and it names the check and the line — so it runs first and prints
  * before a single Chrome starts. It does not *stop* the run: a stale selector in one
- * check is no reason not to run the other twenty-five. The same audit is in `npm test`
- * as `test/checks.mjs`, which is what makes removing a selector caught by something
- * other than a person remembering.
+ * check is no reason not to run the rest. The same audit is in `npm test` as
+ * `test/checks.mjs`, which is what makes removing a selector caught by something other
+ * than a person remembering.
  *
  * Exit is 0 only if the audit was clean and every check passed.
  */
@@ -78,9 +78,9 @@ const NO_AUDIT = has('--no-audit');
 const JOBS = Math.max(1, Number(valueOf('--jobs', 4)) || 4);
 /**
  * A check that hangs is the one failure this runner could newly introduce, and it is
- * silent in the worst way — the run never ends, so nothing is reported about the other
- * twenty-five either. These take ten to forty seconds; four minutes is a check that has
- * stopped, not one that is slow. `--timeout 0` turns it off for a debugging session.
+ * silent in the worst way — the run never ends, so nothing is reported about any of the
+ * rest either. These take ten to forty seconds; four minutes is a check that has stopped,
+ * not one that is slow. `--timeout 0` turns it off for a debugging session.
  */
 const TIMEOUT = Math.max(0, Number(valueOf('--timeout', 240)) || 0) * 1000;
 const ONLY = (valueOf('--only', '') || '')

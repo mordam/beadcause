@@ -42,9 +42,24 @@
            tabs now — the bar at the foot of every page owns them, so they are one
            tap from anywhere rather than one tap from the inbox. What is left is
            what acts on *this* view (⟳) or is not a standing view of its own.
-           The variation selector on ⌨️ is load-bearing: bare U+2328 renders
-           text-style, which beside ⚖️ reads as a broken glyph rather than an icon. -->
-      <a href="/terminal" class="icon-btn" aria-label="Terminal — drive a Claude session from here">⌨️</a>
+
+           The terminal (⌨️) used to hang here too and does not any more (bc-l8jp.2):
+           it is the least-opened surface in the app and this is the most-opened
+           screen, so it moved to the one page that is already about the daemon
+           rather than about beads — see the terminal card on public/admin.html.
+           Nothing about the terminal itself moved: /terminal still answers, so a
+           bookmark or a home-screen shortcut pointed at it is untouched, and a
+           card's ⌨️ menu item still opens one seeded on that bead (menuHtml in
+           app.js), which is how a terminal is usually reached from here anyway —
+           with the bead already in it.
+
+           Naming that file bare, without its `public/` prefix, is not a slip: the
+           wiring check in test/inboxkinds.mjs locates the script tags in this document
+           with indexOf, so a slash-prefixed script name anywhere above them — in prose
+           as much as in markup — reads as that script loading first, and fails the
+           suite. Every comment in this file that names one drops the slash for that
+           reason. -->
+
       <!-- The endorsement queue: beads an agent filed mid-task, which nothing may open
            a session on until you say so. A door in the chrome rather than a sixth tab
            on the bottom bar — the bar is full at five and what gives up its place is
@@ -98,6 +113,36 @@
   -->
   <div id="scrollpos" class="scrollpos" hidden aria-hidden="true"></div>
 
+  <!--
+    ＋ — the one thing on this screen that creates rather than answers.
+
+    It is here because Chat stopped being a tab (bc-l8jp.5). That tab was two jobs at
+    one address: the conversations you had already started, which are rows in the list
+    above now, and the way to start another, which is this. A tab could not be the
+    second of those — the bar is the same on five pages and "create" does not mean the
+    same thing on all five — so the create moved to the view it belongs to.
+
+    Bottom right, above the tab bar, because that is where a thumb is: the top bar is
+    the far corner of a phone and this is the app's primary action. It floats over the
+    list, and the list pays for it — `body.has-compose` adds the button's height to the
+    padding at the foot of #list, so the last card still clears everything above the
+    bar. What it must not cover is an open card, which is a fixed full-screen layer at
+    z-index 40; ＋ sits below that on purpose (see .compose in style.css).
+
+    The panel above it is for the one case ＋ cannot answer on its own: with more than
+    one repo in the selected space there is no single place to start, so it asks
+    instead of guessing or going dead. Same control the chat launcher grew for the
+    same reason, and it borrows its .ws-pick styling.
+  -->
+  <div class="compose-wrap">
+    <div id="compose-pick" class="compose-pick ws-pick" hidden>
+      <h2 class="section-label">Start one in</h2>
+      <div id="compose-pick-row" class="chip-row"></div>
+    </div>
+    <button id="compose" class="compose" aria-expanded="false" aria-controls="compose-pick"
+      aria-label="Start a chat session — talk through what the next bead should be">＋</button>
+  </div>
+
   <div id="toast" class="toast" role="status" hidden></div>
 
   <dialog id="setup" class="setup">
@@ -110,13 +155,25 @@
     </form>
   </dialog>
 
+  <!-- Every error this page hits, sent back to the daemon as a P0 bead: an uncaught
+       exception, a rejected promise, a failed fetch, any red toast. Ahead of every
+       other script, because it can only catch what loads after it — and it is purely
+       additive, so a page that fails to load it behaves exactly as it did before. -->
+  <script src="/report.js"></script>
   <script src="/vendor/marked.js"></script>
   <script src="/vendor/purify.js"></script>
   <!-- What this page already has, from the last time you were on it: the payload it
        boots from, and the reconciler that keeps a repaint from throwing away the DOM
-       it did not need to touch. First of the shared files, because every page script
-       below asks it for a warm list before it asks the daemon for a cold one. -->
+       it did not need to touch. First of the shared files a page draws with, because
+       every page script below asks it for a warm list before it asks the daemon for a
+       cold one. -->
   <script src="/warm.js"></script>
+  <!-- The delta stream: one long poll on /api/poll, so this page learns what moved
+       instead of re-asking for everything on a clock. Beside warm.js because the two
+       are the same bargain at the two ends of a visit — one paints what you already
+       had, the other keeps it true — and before every page script, all of which mount
+       it. -->
+  <script src="/stream.js"></script>
   <script src="/presence.js"></script>
   <script src="/tabbar.js"></script>
   <!-- The space picker in the top bar — which repo the whole app is about. Before

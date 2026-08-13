@@ -87,13 +87,15 @@
     String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 
   let toastTimer;
+  /** Red when something went wrong — and `bad === true` files it. See app.js's toast. */
   function toast(msg, bad = false) {
     const el = $('#toast');
     el.textContent = msg;
-    el.classList.toggle('bad', bad);
+    el.classList.toggle('bad', Boolean(bad));
     el.hidden = false;
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => (el.hidden = true), bad ? 6000 : 3000);
+    if (bad === true) window.beadcause?.report?.toast?.(msg);
   }
 
   const relTime = (iso) => {
@@ -151,7 +153,10 @@
     $('#live').innerHTML = live
       .map((t) => {
         const sleeping = t.status === 'resumable';
-        const bits = [t.workspace];
+        // The workspace, then the checkout it came up in — `climative · athena-service`.
+        // Undefined for every workspace that is one repo, and for a card an older
+        // daemon served, and dropped from the line either way.
+        const bits = [t.repo?.name ? `${t.workspace} · ${t.repo.name}` : t.workspace];
         if (t.bead) bits.push(t.bead.id);
         bits.push(sleeping ? 'resumable — the daemon restarted' : t.clients ? `${t.clients} watching` : 'nobody watching');
         return `<a class="work-row" href="/terminal?id=${encodeURIComponent(t.id)}">
@@ -336,7 +341,10 @@
 
   function onHello(msg) {
     const t = msg.terminal || {};
-    const label = t.bead ? `${t.bead.id} · ${t.workspace}` : t.workspace || 'Terminal';
+    // The checkout goes on the title too — this is the only line on a phone-sized
+    // screen that says which of a workspace's repos the session in front of you is in.
+    const where = t.repo?.name ? `${t.workspace} · ${t.repo.name}` : t.workspace;
+    const label = t.bead ? `${t.bead.id} · ${where}` : where || 'Terminal';
     $('#title').textContent = label;
     document.title = `${label} · Beadcause`;
     // Reported from the hello rather than from boot: until the socket says what this

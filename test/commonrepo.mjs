@@ -52,6 +52,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { cleanupTmp } from './helpers/tmp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const LIB = (name) => path.join(HERE, '..', 'lib', name);
@@ -136,6 +137,24 @@ await check('a client secret written into config.json aborts the commit', async 
   );
 });
 
+await check('and so does a Slack token typed in beside it', async () => {
+  // A different mistake with the same ending: the README says `botTokenFile`, every
+  // Slack tutorial says `botToken`, and this file is committed after every write. The
+  // rule is checked here rather than trusted because these patterns are handed to `git
+  // grep -E` as strings — one that quietly matches nothing is a guard that reports
+  // success on the day it is needed.
+  fs.writeFileSync(CONFIG, `${JSON.stringify({ slack: { enabled: true, botToken: 'xoxb-not-a-real-token' } }, null, 2)}\n`);
+  await assert.rejects(() => commit('config'), /a Slack bot token/, 'the commit has to refuse, and say which secret');
+  fs.writeFileSync(CONFIG, `${JSON.stringify({ slack: { enabled: true, appToken: 'xapp-not-a-real-token' } }, null, 2)}\n`);
+  await assert.rejects(() => commit('config'), /a Slack app-level token/);
+  // And the field that is *meant* to be here — the path, not the token — must not be
+  // caught by either, or turning Slack on at all would abort every snapshot.
+  fs.writeFileSync(CONFIG, `${JSON.stringify({ slack: { enabled: true, botTokenFile: '/x/slack-bot.key' } }, null, 2)}\n`);
+  await commit('config');
+  // Put back what the next case expects to find.
+  fs.writeFileSync(CONFIG, `${JSON.stringify({ auth: { google: { clientId: 'cid', clientSecret: SECRET_VALUE } } }, null, 2)}\n`);
+});
+
 await check('loadConfig moves it somewhere the snapshot cannot reach', async () => {
   loadConfig();
   const onDisk = JSON.parse(fs.readFileSync(CONFIG, 'utf8'));
@@ -184,6 +203,6 @@ await check('and finds one forced past the guard, by content and by path', async
   assert.equal(byPath.kind, 'path');
 });
 
-fs.rmSync(tmp, { recursive: true, force: true });
+await cleanupTmp(tmp);
 console.log(failures ? `\n${failures} of ${ran} failed` : `\n${ran} passed`);
 process.exit(failures ? 1 : 0);
