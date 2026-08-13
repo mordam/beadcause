@@ -53,7 +53,7 @@ permissions:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: macos-latest
     # The suite is a few minutes locally. 20 is generous enough that a slow runner is not
     # a false red, and short enough that a suite hanging on a port or a lock is killed
     # rather than sitting in the queue ahead of everybody else.
@@ -74,5 +74,26 @@ jobs:
       # `postinstall` runs scripts/vendor.js, which copies the browser builds into
       # public/vendor — it needs node_modules, which after this step it has.
       - run: npm ci
+
+      # TEMPORARY (remove before this PR lands): `npm test` stops at the first failure,
+      # which on a machine that has never run it costs one CI round trip per broken suite.
+      # This runs every suite independently and prints the whole list in one go.
+      - name: Sweep — which suites fail on a runner
+        continue-on-error: true
+        run: |
+          fails=""
+          for s in $(node scripts/test.mjs --list); do
+            if node "$s" > "/tmp/$(basename "$s").log" 2>&1; then
+              echo "pass  $s"
+            else
+              echo "FAIL  $s"
+              fails="$fails $s"
+            fi
+          done
+          echo "================ failing suites:$fails"
+          for s in $fails; do
+            echo "---------------- $s"
+            tail -25 "/tmp/$(basename "$s").log"
+          done
 
       - run: npm test
