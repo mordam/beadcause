@@ -527,7 +527,10 @@ console.log('\nwired into the poll cycle, and into bd');
     /if \(epics\.filed\.length\) forgetQueue\(\)/.test(server),
     'the queue would serve a list without the new epic for another fifteen seconds'
   );
-  check('the filer is on the app, so a test can reach it', /jira, jiraEpics \}/.test(server));
+  // Deliberately not anchored to what follows it: `createApp` returns a growing list and
+  // bc-0i27.5 appended `jiraIngest` after this, which a `jiraEpics }` pattern read as the
+  // filer having been taken off the app.
+  check('the filer is on the app, so a test can reach it', /return \{[^}]*\bjiraEpics\b/.test(server));
 
   const bdSrc = fs.readFileSync(LIB('bd.js'), 'utf8');
   check(
