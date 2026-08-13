@@ -2829,12 +2829,12 @@ And the picker stops reporting a confident zero: a space holding an unreadable r
 draws `⚠` beside whatever count it does have. The number is still the best answer
 available. It just stops being presented as a fact.
 
-### One list, five kinds — and the sub-filter for pull requests
+### One list, six kinds — and the sub-filter for pull requests
 
 The inbox is not one list. An advocate asking to create beads, a worker asking you to
-merge, a plain question, a **pull request**, and — under `Both` and `Agent` — the live
-beads nobody is asking you about, are five different jobs that happen to arrive at the
-same address. `KINDS` in `public/inboxfilter.js` is the table that names them, and it is
+merge, a plain question, a **pull request**, a **JIRA ticket** assigned to you, and —
+under `Both` and `Agent` — the live beads nobody is asking you about, are six different
+jobs that happen to arrive at the same address. `KINDS` in `public/inboxfilter.js` is the table that names them, and it is
 the only place that knows which row is which: one row of it buys a chip, a count, a
 predicate and a place in the summary line. The chips live in the same collapsed
 hover-open control as the scope switch, because two collapsing controls side by side
@@ -2844,8 +2844,18 @@ Each kind carries a `side` — which scope can fetch it. `human` sweeps question
 sweeps live beads, and a chip for something the current scope cannot contain would be a
 control that does nothing, so it is not offered and a selection the new scope cannot
 produce is dropped rather than kept and ignored. `any` is the third value: a pull request
-comes off `gh` rather than off a `bd` sweep, so there is no scope that could have failed
-to fetch one.
+comes off `gh`, a chat session off no sweep at all and a JIRA ticket off JIRA, so for none
+of the three is there a scope that could have failed to fetch one.
+
+**Three of the six are not beads**, and that is the table earning its keep rather than a
+special case. A pull request, a chat session and a JIRA ticket each cost exactly one row
+here — a chip, a count, a predicate and a word in the summary line — plus one word in the
+`question` kind's predicate, which is the only one written as *none of the above* and
+therefore the only one that silently absorbs anything new. Leave `!q.jira` out of it and
+every ticket assigned to you draws under **Questions**, is counted in the Questions chip,
+and appears on a screen you narrowed to the beads asking you something. Nothing about
+that looks broken; it looks like an inbox with more questions in it. See [the tickets
+themselves](#the-tickets-as-a-section-of-the-inbox).
 
 **Pull requests are the one kind with a second axis.** Selecting `PRs` reveals a status
 sub-filter over [the ladder](#the-ladder-in-one-place) — `review · merged · pushed ·
@@ -11803,6 +11813,42 @@ which is why the `method: 'GET'` literal stayed in `lib/jira.js` when the reques
 moved into `lib/atlassian.js`. A shared module that named the verb would have left that
 assertion green and vacuous, and a read-only guarantee that has stopped guaranteeing
 anything is worse than none.
+
+### The tickets, as a section of the inbox
+
+The tickets assigned to you arrive as **rows in the inbox**, under a `JIRA` chip of
+their own, and never mixed into the questions. Not a screen and not a tab: the inbox is
+already the one list that sorts incoming work, and a sixth tab claiming a ticket queue
+is somewhere you *live* would cost a fifth of the bar to say something untrue. What it
+cost instead was one row in [the kinds table](#one-list-six-kinds--and-the-sub-filter-for-pull-requests),
+which is where a chip, a count and a place in the summary line come from for free.
+
+A row says the ticket key, the summary, the status and when it last moved — enough to
+decide whether to open it while scrolling past, which is the whole requirement — and
+carries the workspace it came off, because JIRA is configured per workspace and a key
+alone does not say which project you are looking at. The assignee is *not* drawn: the
+query is "assigned to you", so a name on every row would be the same name on every row.
+
+**They are rows, not beads.** Synthesised at render time and never merged into
+`state.questions`, exactly as the pull requests and the chat sessions are, for the reason
+that array is read by things a ticket is none of: the waiting count above the list, the
+space picker's per-repo numbers, the answer path, the "N waiting" the monitor draws. A
+ticket is not a bead here **yet** — making one is what the epic-per-ticket step does — and
+until it is, counting it as work asking you something would be a number that no tap can
+bring down.
+
+Two behaviours come free from being a row and are worth stating because they are what a
+separate screen would have had to re-implement: a ticket obeys the **space picker** and
+the **P0 board's filter** like everything else in the list, and a ticket in a quiet space
+is as quiet as that space's questions — quiet is per space, a workspace belongs to a
+space, and the row carries the space of the workspace whose JIRA held it. The standing
+asymmetry applies here too: the *kind* filter lives in `localStorage` and deliberately
+does not change what rings your phone, so a hidden `JIRA` chip can still notify you.
+
+`node test/jirarow.mjs` runs the real row renderer over a held ticket and asserts what it
+draws, that the key namespace cannot collide with a bead's, that nothing writes a ticket
+into `state.questions`, and — the one that matters — that the word keeping a ticket out
+of the questions is in the predicate rather than only in the comment above it.
 
 ### One credential rule and one wire, shared by JIRA and Confluence
 
