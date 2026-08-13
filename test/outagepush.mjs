@@ -248,6 +248,18 @@ process.on('SIGINT', () => process.exit(130));
 
 const failedBringUps = () => routerLog.filter((l) => /would not start in time/.test(l)).length;
 
+/**
+ * How many times the recovery loop has *driven*, which is not the same as how many times
+ * it failed.
+ *
+ * `bringUp('nothing is being served — trying again')` (bin/router.js) logs its reason on
+ * every attempt, before there is an outcome. A failed bring-up — "would not start in time"
+ * — is that same attempt losing a 250ms race, and whether it loses is a fact about how
+ * loaded this Mac is rather than about the router. Counting the attempt is what makes the
+ * assertion below say the thing it means on a quiet laptop and on a busy one alike.
+ */
+const retryAttempts = () => routerLog.filter((l) => /nothing is being served — trying again/.test(l)).length;
+
 try {
   console.log(`\n  outage push — router on :${port}, fake ntfy on :${ntfyPort}, config in ${dir}\n`);
 
@@ -318,18 +330,33 @@ try {
   // --------------------------------------------- and it does not keep saying it
 
   // The retry loop runs every couple of seconds while nothing is being served. Wait for
-  // proof that it has run again since the push — a second failed bring-up — and check
-  // that the phone heard nothing about it.
-  const beforeRetries = failedBringUps();
+  // proof that it has run again since the push, and check that the phone heard nothing
+  // about it.
+  //
+  // *Run* again, not *failed* again, and that is the whole of bc-nqrr and bc-vwc9. This
+  // used to count "would not start in time" lines and require a second one before the
+  // router recovered. `healthTimeoutMs` here is 250ms — a window no node process starts
+  // inside — so on a busy Mac the next attempt loses that race too and there is a second
+  // failure to count, while on a quiet one the backend comes up on the very next attempt
+  // and the count stays where it was. The suite was measuring how loaded the machine is
+  // and calling the answer "the router gave up", against a router log that reads as a
+  // textbook recovery. It cost two deliveries a red full run that reproduced in none of
+  // the runs after it, and an intermittent red whose own subject is fine is how people
+  // learn to re-run a suite rather than read it.
+  //
+  // The retry *attempt* is logged before there is an outcome, so it is the same fact on
+  // either machine — and it is the fact the check is named after. A router that gave up
+  // logs no further attempt, the `waitFor` below times out, and the suite still fails.
+  const beforeRetries = retryAttempts();
   await waitFor(
-    'the router to fail another bring-up while still serving nothing',
-    async () => failedBringUps() > beforeRetries || (await get(port, '/api/health')).status === 200,
+    'the router to drive another bring-up while still serving nothing',
+    async () => retryAttempts() > beforeRetries,
     45000
   );
   check(
-    failedBringUps() > beforeRetries,
+    retryAttempts() > beforeRetries,
     'the router did keep trying while it was down',
-    `${failedBringUps()} failed bring-up(s)`
+    `${retryAttempts()} attempt(s), ${failedBringUps()} of them too slow`
   );
   check(
     outagePushes().length === 1,
