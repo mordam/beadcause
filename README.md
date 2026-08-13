@@ -4798,8 +4798,8 @@ afternoon. A merge landing does not work that way. One merge into `main` can lea
 open pull requests measured against a base they have never seen, and the sweep that
 reacts to it hands all five here in the same tick. Every lock in the section above is
 *satisfied* by that — five different pull requests are five different keys — and what
-comes out is five iTerm windows each running this repo's own gate, which is 150 suites
-and about twelve minutes of node, simultaneously, on one laptop.
+comes out is five iTerm windows each running this repo's own gate, which is every suite
+in `test/` and a good twelve minutes of node, simultaneously, on one laptop.
 
 So there is a global cap of **two live resolvers**, and the ones that do not fit **queue**
 rather than being refused. Refusing would hand the work back to whoever asked, and the
