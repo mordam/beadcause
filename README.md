@@ -12083,6 +12083,17 @@ per-space switch for a space that wants these to skip the gate, and the note on 
 says plainly which of the two happened, because a bead claiming to be waiting for a tap
 over a session already running on it is the worse of the two errors.
 
+**A ticket that stops arriving is left completely alone, and that is the decision.**
+The query is `assignee = "<you>"`, so a ticket reassigned to a colleague simply stops
+coming back and beadcause is left holding an epic — possibly with children, possibly with
+a branch — for work that is no longer yours. bc-uz6e put the three answers up (leave it,
+gate it by putting `unendorsed` back on, close it with a reason) and the answer was **leave
+it alone: let the engineer reassign it**. So nothing sweeps for epics whose ticket has
+gone, and nothing revokes or closes one; a half-finished branch is not undone by JIRA
+changing its mind. The good consequence: a ticket handed *back* to you finds its epic by
+ref and files nothing new, because the ref is in the tracker whether or not the ticket was
+in the last sweep.
+
 **Who owns it is not the JIRA assignee, and that is deliberate.** `bd` takes `owner` from
 the git identity of the directory the command runs in, which for a work workspace is
 already the work address. So nothing tries to force one: the assignee is recorded *on* the

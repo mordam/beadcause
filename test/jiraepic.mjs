@@ -302,6 +302,29 @@ await checksAsync('an epic that was closed last month still counts as filed', as
   assert.equal(bd.rows.length, 1, 'a closed epic is not in any list of open work — but it is still the one epic');
 });
 
+await checksAsync('the same key twice in one answer is still one epic', async () => {
+  const bd = fakeBd();
+  const out = await createEpicFiler({ bd }).sweep(CFG, [WS], okResult([ticket('TECH-1'), ticket('TECH-1')]));
+  assert.equal(out.filed.length, 1, 'both rows were decided against the same pre-create snapshot');
+  assert.equal(bd.rows.length, 1);
+});
+
+await checksAsync('a ticket reassigned away and then handed back gets no second epic', async () => {
+  // bc-uz6e: "leave it alone, let the engineer reassign it". Nothing here reacts to a
+  // ticket's absence, so the only thing that has to hold is what happens when it returns.
+  const bd = fakeBd();
+  const filer = createEpicFiler({ bd });
+  await filer.sweep(CFG, [WS], okResult([ticket('TECH-1')]));
+  await filer.sweep(CFG, [WS], okResult([])); // reassigned away — it stops coming back
+  assert.equal(bd.rows.length, 1, 'something reacted to the ticket leaving');
+  assert.equal(String(bd.rows[0].status), 'open', 'the epic was gated or closed behind the engineer');
+
+  bd.calls.length = 0;
+  await createEpicFiler({ bd }).sweep(CFG, [WS], okResult([ticket('TECH-1')]));
+  assert.equal(bd.rows.length, 1, 'a returning ticket was filed a second epic');
+  assert.deepEqual(bd.calls, ['listAll']);
+});
+
 await checksAsync('one workspace’s ref never satisfies another’s ticket', async () => {
   const bd = fakeBd({ rows: [{ id: 'bc-a', title: 'x', status: 'open', labels: [], external_ref: 'jira-TECH-2' }] });
   const out = await createEpicFiler({ bd }).sweep(CFG, [WS], okResult([ticket('TECH-1')]));
