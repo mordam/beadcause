@@ -4788,6 +4788,16 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
 .admin-warn { margin: 7px 0 4px; font-size: 12.5px; line-height: 1.5; color: var(--warn); }
 .admin-warn strong { font-weight: 700; }
 
+/* The terminal card's door — the one control on this page that is a way *in* rather
+   than a switch. `.primary` was written for a <button> in a flex row, so an anchor
+   wearing it needs the three things the button got for free: a box that fills the
+   card, a label centred in it, and no underline. Same bargain as .tls-link below. */
+.admin-door {
+  display: flex; align-items: center; justify-content: center;
+  width: 100%;
+  text-decoration: none;
+}
+
 /* The HTTPS card.
 
    A URL is the subject of half of it — the address a phone is handed, the address it
