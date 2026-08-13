@@ -4197,17 +4197,95 @@ adds one still gets the whole of `beadcause.editMode`, which is how the checks d
 and a page served without `editmode.js` answers `frozen()` false and behaves exactly as
 the inbox always did.
 
+### One press, and three ways to say what should change
+
+A phone has one gesture surface and this mode needs three meanings out of it, so they are
+told apart by **time** and then by **movement** — the idiom a phone already uses to pick
+something up.
+
+- **Tap — retype.** The text opens for editing in place, and what is recorded is the old
+  string and the new one. The one literal edit in the whole epic, and the one that needs
+  no prose. Refused, with the reason said in the banner, when the anchor calls the text
+  tracker data, when it is written in more than one place in source, or when you tapped
+  the box around the words rather than the words.
+- **Hold — describe.** The element is picked up, and letting go without moving it asks
+  for a sentence about what it should do instead. No gesture beyond saying *which*, and
+  expected to be the most used of the three.
+- **Hold, then drag — point.** Where you let go names another element, and what gets
+  recorded is the **relationship** to it: above the title, inside this card, out of this
+  row. Then the same note box, because the drag says where and only the words say what.
+
+Pixels are deliberately never recorded. Nothing downstream could act on one — this app's
+layout is a stylesheet and a template, and "56 pixels left" is not a change anybody can
+make to either, where "out of the head and under the buttons" is. A drop that lands on
+nothing anchored says exactly that rather than guessing.
+
+**The hold is what keeps the list scrollable.** A drag straight from a press is the naive
+implementation and it is unusable here: a thumb moving down this screen is a scroll every
+other second of the day, so a mode that claimed it would make the inbox unreachable below
+the fold with nothing on screen saying why. Nothing is intercepted until the hold has
+fired, and by then the browser has already decided that this finger is not scrolling.
+Movement before the hold releases the gesture entirely rather than fighting the scroller
+for it. `scripts/editgesture-check.mjs` performs a real swipe and requires the page to
+have moved.
+
+**Nothing a gesture does may look like it saved.** A dropped element snaps back before the
+note box has even opened, the box says so in as many words, retyped text is marked as
+unsaved and reverts the moment the mode ends, and the change list's foot says outright
+that nothing in it has changed the app. The failure being designed against is not a lost
+edit: it is a person who believes the drag moved something, reopens the app, finds it
+where it was, and concludes that saving is broken.
+
+### The pass is a change list, and it is reviewable before it is anything else
+
+All three gestures land in one list held for the pass, in the order they were made,
+because the second edit is very often a qualification of the first. The banner carries a
+running count that is also the way into it, each entry says what it was and what you said
+about it, and any one of them can be dropped with a thumb before Save. **A point with no
+note is dropped for you** — it is a finger that slipped rather than an edit, and a tracker
+full of "something about this card" is worse than an empty one, so `Add` stays refused
+while the box is empty.
+
+The list outlives leaving the mode; the visuals do not. Hitting ✏️ twice is not a decision
+to throw a pass away, and the record of what you asked for is the only thing here that
+cannot be reconstructed from the screen afterwards. What empties it is Save.
+
+**So the ✏️ carries the count once the banner has gone.** Leaving the mode puts the whole
+screen back the way the app has it — which is the truth, and is also exactly what a save
+that failed would look like. A badge on the way back in, and the same number in the
+button's label, is the difference between "nothing was applied yet, and here is what you
+said" and "it lost my edits".
+
+`beadcause.editMode` exposes the pass as `changes()` — JSON, holding the anchor, the kind,
+the note or the two strings, and for a point the element it landed against — plus
+`dropChange(id)`, `clearChanges()` and `onChanges(fn)`. **This file files nothing.**
+Turning the list into beads is bc-p49x.3, and a suite asserts that no gesture writes to
+the tracker as it is made: filing half a pass, with no review and no way back, is the
+failure that would be hardest to undo.
+
 ### Checking it
 
 `node test/editmode.mjs` is in `npm test` and covers the mode, the anchor and the
 source-versus-tracker rule against the real `public/app.js` — including that a P0 title
 really does resolve to one line, which is a claim about this repo rather than a law.
 
-`node scripts/editmode-check.mjs` is the acceptance, in a headless Chrome the size of a
-phone. Its first case is the control and is the reason the rest means anything: with the
-mode **off**, a poll carrying a changed bead replaces the very nodes the frozen case then
-keeps. Without it, a check that stamped every node and found the stamps intact would pass
-just as happily against a page that never polled at all.
+`node test/editchanges.mjs`, also in `npm test`, is everything downstream of an anchor:
+the three gestures against a hand-made document with a clock the test moves by hand, the
+refusals, and the change list. It runs the real `public/editmode.js` in a vm the way its
+sibling does.
+
+`node scripts/editmode-check.mjs` is bc-p49x.1's acceptance, in a headless Chrome the size
+of a phone. Its first case is the control and is the reason the rest means anything: with
+the mode **off**, a poll carrying a changed bead replaces the very nodes the frozen case
+then keeps. Without it, a check that stamped every node and found the stamps intact would
+pass just as happily against a page that never polled at all.
+
+`node scripts/editgesture-check.mjs` is bc-p49x.2's, and every case in it is driven as
+actual touches through `Input.dispatchTouchEvent`. That is not thoroughness for its own
+sake: a tap, a hold and a scroll are the same three events until you time them, Chrome is
+the thing that decides which one a finger made, and what a drop lands on is a question
+about where things are on a 393-point screen. A suite that fires `pointerdown` and moves
+its own clock proves the logic and assumes all of that.
 
 ## Detail opens over the tab, not instead of it
 
