@@ -754,8 +754,15 @@ await check('the counts beside the list are counted over the same filter as the 
   // fetches nothing, so a count taken when the rows arrived cannot follow it. The
   // invariant itself is test/spacebar.mjs's; this is the wiring that gives the picker
   // any chance of holding it.
+  //
+  // Every filter between the sweep and the screen, and named here one by one so that
+  // adding a sixth kind of row without adding it to the count fails this rather than
+  // being noticed on a phone: `underOwnedP0s` because the list under an owned board is
+  // its descendants and nothing else, `inKind` because the chips are a filter too. The
+  // space and repo narrowing is deliberately absent — these are per-workspace counts
+  // for every workspace, which is exactly the row-per-repo the dropdown draws.
   assert.ok(
-    /publishCounts\(rows\.filter\(inKind\)\)/.test(app),
+    /publishCounts\(underOwnedP0s\(rows\)\.filter\(inKind\)\)/.test(app),
     'the space picker counts rows the list is hiding'
   );
   const summary = app.slice(app.indexOf('function paintSummary'), app.indexOf('function paintArmed'));

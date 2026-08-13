@@ -451,7 +451,15 @@ check('the inbox publishes the counts from the render that drew the list', () =>
   // requests arrive on a clock of their own, and a render can be deferred behind a
   // half-written answer. Counted before the picker's own narrowing and after everything
   // else, which is what makes `beadcause · 3` a promise about what picking it leaves you.
-  assert.ok(/publishCounts\(rows\.filter\(inKind\)\)/.test(app), 'render() does not publish the counts');
+  //
+  // "Everything else" is named rather than implied: `underOwnedP0s` because the list
+  // under an owned board is its descendants and nothing else, `inKind` because the chips
+  // above the list are a filter too. A sixth kind of row added to one and not the other
+  // fails here rather than on a phone.
+  assert.ok(
+    /publishCounts\(underOwnedP0s\(rows\)\.filter\(inKind\)\)/.test(app),
+    'render() does not publish the counts'
+  );
   const publish = app.slice(app.indexOf('function publishSpaces'), app.indexOf('function publishCounts'));
   assert.ok(!publish.includes('counts'), 'publishSpaces counts too — that is the second source back');
 });

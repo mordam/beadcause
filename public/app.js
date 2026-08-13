@@ -3454,8 +3454,8 @@
       // So the picker's own numbers carry the same caveat the pane above the list
       // does. `state.trouble` rather than `data.trouble`: this is called with a
       // reconciled filter and one payload behind it, and the two must not be able to
-      // disagree about which repos answered. The numbers themselves are not here —
-      // `publishCounts` sends those from the render that drew them.
+      // disagree about which repos answered. The numbers themselves are not here: the
+      // render that drew the list is what sends those, at the end of render().
       trouble: state.trouble,
       filter: data.filter,
     });
