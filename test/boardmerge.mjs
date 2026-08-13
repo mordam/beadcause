@@ -74,6 +74,7 @@ const check = (name, cond, detail = '') => (cond ? ok(name) : bad(name, detail))
 
 const { deliveryBody } = await import(LIB('delivery.js'));
 const { readOwed, OWED_PATH } = await import(LIB('owed.js'));
+const { readSweepRequests, MERGE_SWEEPS_PATH } = await import(LIB('mergesweep.js'));
 
 /* -------------------------------------------------------------------- the repo */
 
@@ -286,6 +287,7 @@ const cardIssue = (id, d) => ({
  * which is the one thing here that can genuinely refuse a close.
  */
 const reset = ({ sibling = false, blocker = false } = {}) => {
+  fs.rmSync(MERGE_SWEEPS_PATH, { force: true });
   const issues = {
     'zz-pr': cardIssue('zz-pr', delivery()),
     // Case 2: a different pull request, in the same repo, for a different bead.
@@ -405,6 +407,14 @@ console.log('\nmerging on the PR board\n');
   const res = await post('/api/pr/merge', { workspace: 'demo', number: 7 });
   check('the merge is taken', res.status === 200, JSON.stringify(res.json));
   check('and the pull request really merged', JSON.parse(fs.readFileSync(PR_STATE, 'utf8'))[0].state === 'MERGED');
+
+  // bc-9d37.4. #8 is still open against the same base and is now measured against a base
+  // it has never seen. Recorded rather than swept here — the sweep opens resolver windows
+  // and the registry that caps them is the daemon's, reached from the poll cycle — so
+  // this endpoint answers when the merge is done and not when a window has opened.
+  const asked = readSweepRequests();
+  check('the conflict sweep is asked for', Object.keys(asked).length === 1, JSON.stringify(asked));
+  check('naming the repo and the merge that set it off', asked.demo?.key === 'demo' && asked.demo?.number === 7, JSON.stringify(asked.demo));
 
   check('the card for that pull request is closed', world().issues['zz-pr'].status === 'closed', world().issues['zz-pr'].status);
   check(

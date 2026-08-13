@@ -69,6 +69,7 @@ const check = (name, cond, detail = '') => (cond ? ok(name) : bad(name, detail))
 const { cardsForDelivery, deliveryBody } = await import(LIB('delivery.js'));
 const { Bd } = await import(LIB('bd.js'));
 const { readOwed, oweClose, sweepOwed, OWED_PATH } = await import(LIB('owed.js'));
+const { readSweepRequests, MERGE_SWEEPS_PATH } = await import(LIB('mergesweep.js'));
 
 /* ------------------------------------------------------------ which card is which */
 
@@ -303,6 +304,7 @@ const DELIVERY = {
 
 /** The tracker as a delivery leaves it: a card, a work bead, and the edge between them. */
 const reset = ({ sibling = false } = {}) => {
+  fs.rmSync(MERGE_SWEEPS_PATH, { force: true });
   const issues = {
     'zz-pr': {
       id: 'zz-pr',
@@ -370,6 +372,14 @@ console.log('\nmerging from the phone\n');
     JSON.stringify(world().issues['zz-pr'].comments)
   );
   check('nothing is left owing', Object.keys(readOwed()).length === 0, JSON.stringify(readOwed()));
+  // bc-9d37.4. A merge leaves every other open branch on this base measured against a
+  // base it has never seen, and the tap is one of four doors that has to say so. Recorded
+  // rather than swept, because the resolver registry that stops two windows opening on
+  // one branch lives in the daemon's memory and the poll cycle is what reaches it — so
+  // this returns when the merge is done, not when a window has opened.
+  const asked = readSweepRequests();
+  check('and the conflict sweep is asked for', Object.keys(asked).length === 1, JSON.stringify(asked));
+  check('naming the repo and the merge', asked.demo?.key === 'demo' && asked.demo?.number === 7, JSON.stringify(asked.demo));
 }
 
 /* ------------------------------------------ the sibling card, which is the bug */

@@ -13,11 +13,12 @@
  * 1. **A door that does not record its merge.** There are four — a delivery card and the
  *    PR board (lib/server.js), `beadcause-deliver`, and `reconcileLanded` for a merge
  *    made on github.com — and the one that gets missed is the one that looks broken
- *    exactly when Adam happens to merge that way. All four are behind a real `gh pr
- *    merge`, so what is asserted here is the *wiring*: the source of each door, read the
- *    way test/crash.mjs reads the poll cycle. Standing a daemon up and stubbing GitHub to
- *    watch a JSON file appear would be a test of the stub. What the fourth door does once
- *    it is wired is test/landed.mjs's, beside the fixtures it needs.
+ *    exactly when Adam happens to merge that way. Each is asserted where it can actually
+ *    be pressed — test/mergeclose.mjs answers a delivery card, test/boardmerge.mjs posts
+ *    to `/api/pr/merge`, test/landed.mjs sweeps a merge made on github.com — and all
+ *    three read the record back off disk. `beadcause-deliver` is the one with no harness,
+ *    being a process that merges and exits, so its door is read out of the source here
+ *    the way test/crash.mjs reads the poll cycle.
  * 2. **A record acted on twice.** `takeSweepRequests` empties the file before anything
  *    is swept, because the one thing a second sweep can do that the first did not is
  *    open a second resolver window on a branch that already has one — bc-utyr, the
@@ -228,15 +229,21 @@ check(
 // `/api/pr/merge` handler, behind a real `gh pr merge` — standing a daemon up and
 // stubbing GitHub to watch a JSON file appear would be a test of the stub. What can go
 // wrong and be invisible is the *wiring*: a door that never calls it at all.
-console.log('\nand the two doors inside the daemon call it');
+console.log('\nand the doors that need a harness to press');
 
 const server = fs.readFileSync(LIB('server.js'), 'utf8');
 const deliver = fs.readFileSync(path.join(HERE, '..', 'bin', 'deliver.js'), 'utf8');
-const cardMerge = server.slice(server.indexOf("if (act.action === 'merge' || act.action === 'ship')"));
-const boardMerge = server.slice(server.indexOf("if (p === '/api/pr/merge'"));
-check('the delivery card merge asks for a sweep', /requestSweep\(/.test(cardMerge.slice(0, 2000)), 'not within the merge branch');
-check('the PR board merge asks for a sweep', /requestSweep\(/.test(boardMerge.slice(0, 3000)), 'not within the handler');
-check('and a worker that merges its own pull request asks too', /requestSweep\(/.test(deliver), 'nothing in bin/deliver.js');
+// The two taps are asserted where they can be pressed: test/mergeclose.mjs answers a
+// delivery card and test/boardmerge.mjs posts to `/api/pr/merge`, both against a real
+// server and a fake `gh`, and both then read the record back off disk. A worker's own
+// delivery has no such harness — it is a process that merges and exits — so what is
+// checked for that door is the call and the shape of it.
+check('a worker that merges its own pull request asks for a sweep', /requestSweep\(\{ workspace: ws\.name/.test(deliver), 'nothing in bin/deliver.js');
+check(
+  'and nothing in bin/deliver.js sweeps in its own process',
+  !/sweepConflicts/.test(deliver),
+  'a worker sweeping in-process cannot see the daemon resolvers — bc-utyr'
+);
 check(
   'the daemon drains them in the poll cycle',
   /await sweepMerges\(\);/.test(server) && /sweepFailed\('the conflict sweep'/.test(server),
@@ -248,11 +255,6 @@ check(
   'after the advocate tick, so a merge it just found is swept in the same cycle',
   server.indexOf('await app.advocates?.tick();') < server.indexOf('await sweepMerges();'),
   'the drain runs before the tick that fills it'
-);
-check(
-  'and nothing in bin/deliver.js sweeps in its own process',
-  !/sweepConflicts/.test(deliver),
-  'a worker sweeping in-process cannot see the daemon resolvers — bc-utyr'
 );
 
 /* ------------------------------------------------------------------ done */
