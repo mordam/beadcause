@@ -44,14 +44,15 @@ identity), which workspaces are **shared with
 other people** (those get a contentless push and no unattended agents), where your
 **code lives** (so a question can show you files from it), whether your shell
 **derives `BEADS_DIR` from the working directory**, whether to use **ntfy**,
-whether commenting should **spawn an agent** to answer you, and whether to open the
-**[activity monitor](#the-monitor--what-it-is-doing-right-now)** at login. A workspace
+whether commenting should **spawn an agent** to answer you, whether to open the
+**[activity monitor](#the-monitor--what-it-is-doing-right-now)** at login, and the
+credentials for **[signing in with Google](#signing-in-with-google)**. A workspace
 holding **more than one repo** is asked one more: which of the checkouts under it are
 [approved](#many-repos-one-workspace--the-approved-list-and-the-token-that-names-each),
 printed with the service token each one declares — an install where every workspace is one
-repo is asked nothing about it. Re-run them any time
-with `npm run configure`; nothing is written until the last answer, so Ctrl+C is
-always safe.
+repo is asked nothing about it. Re-run them any time with `npm run configure`; nothing is
+written until the last answer — not even the client secret, which goes to a file of its
+own — so Ctrl+C is always safe.
 
 **Nothing to answer? Say so.** `npm run install-service -- --non-interactive` (or
 `SKIP_CONFIGURE=1`) prints the configuration on file and changes none of it. An agent
@@ -8929,6 +8930,21 @@ binary blob, a deleted file, and a `.txt` that would not parse as JavaScript and
 asked to. A guard that refuses a delivery it should not is worse than no guard, because
 the answer to it is to take it out.
 
+**And it runs inside `npm test`**, via a wrapper at `test/landcheck.mjs` — which is the whole
+of what that file is for. It used to be outside, on the same reasoning as the
+browser checks below, and that reasoning does not hold for it: those need headless Chrome and
+in two cases a vendored `public/vendor`, while land-check needs only `bd`, which is the tool
+this project is a client of. The cost of it being outside was measured rather than guessed:
+bc-4fq was a bug in `bin/deliver.js`'s argument handling and every other suite in the gate
+passed over it, before the fix and after. Without `bd` the wrapper **skips loudly and exits 0** — a
+machine that cannot run beadcause should not fail a gate over it — and it reads land-check's
+own exit 2 (*"cannot build a scratch workspace"*) as the same kind of skip, which is the
+distinction that code was already drawing. A *missing* `scripts/land-check.mjs`, on the
+other hand, fails: coverage
+quietly ceasing to exist is the failure being fixed, not a thing to shrug at. It is the
+slowest suite bar `scripts/test-swap.js` — 70s on its own, 90s from inside a full run —
+and nearly all of that is `bd`.
+
 `node scripts/delivery-check.mjs` is the other half: the real `public/app.js` in a
 headless Chrome the size of a phone, against a fixture built by `lib/delivery.js` and
 parsed back by `lib/decision.js`, with `/api/pr` stubbed through its four states. It
@@ -10177,7 +10193,8 @@ Quiet state is recomputed locally every second rather than trusted from the poll
 it turns over on a clock, and "why didn't my phone buzz" is the question this is
 going to be asked.
 
-**Starting it at login.** Answer `y` to the last `npm run configure` question and
+**Starting it at login.** Answer `y` to the *open the advocate console at login?*
+question in `npm run configure` and
 `npm run install-service` generates a second LaunchAgent, `m4m.beadcause.monitor`,
 that opens the monitor in its own iTerm2 window when you log in. It is off by
 default, because nobody installing this for the first time should find a terminal
@@ -10908,7 +10925,19 @@ purely additive, and `test/auth.mjs` asserts that in both directions — the tok
 with sign-in on, and a page with no credential still being served with sign-in off.
 
 **It is off until it is configured, and "configured" is strict.** All three of a client
-id, a secret and a non-empty allowlist, *and* something to serve an https callback from:
+id, a secret and a non-empty allowlist, *and* something to serve an https callback from.
+
+**`npm run configure` asks for all of it** — the last question in that script. It prints
+the redirect URI to paste into the Google console rather than asking you to remember it,
+takes the secret with the echo turned off and writes it to the file below at 0600, and
+**says which piece is missing** if what you gave it is not enough to switch sign-in on.
+That last part is why the question exists: short of all four, sign-in is off with one
+line in the log at startup, and that log is not the thing anybody is looking at when a
+login screen will not let them past. The same verdict is on the summary it prints at the
+end (`google sign-in : NOT on — the allowlist is empty`), so re-running it in a pipe is a
+way to ask what state sign-in is in. Answer `none` to the client id to turn it off again.
+
+By hand, it is these:
 
 ```json
 "auth": {
@@ -11094,6 +11123,14 @@ sign out → refused. The refusals get the same treatment, including the two tha
 easiest to get wrong — an address off the allowlist (turned away, logged, and *not*
 echoed back on the screen, because a login page that says which addresses exist is a
 directory) and a `state` that does not match the cookie.
+
+`test/signinsetup.mjs` is the other end of the same thing: the `npm run configure`
+question, driven with scripted answers. It holds two properties that would otherwise rot
+quietly — that a pasted secret appears **nowhere** in the serialised config and does
+appear in a file at 0600, and that every partial answer comes back naming which of the
+four pieces is missing rather than a bare "off". It also pins that a cancelled run writes
+no secret at all, and that typing the derived redirect URI back does not freeze it into
+the config, where it would stop following the certificate.
 
 What it does **not** check is Google itself. The `id_token`'s signature is deliberately
 not verified, because it arrives from a direct TLS call from this process to Google's

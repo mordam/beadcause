@@ -1717,9 +1717,17 @@ add:
   <p class="eyebrow">14 · Evidence</p>
   <h2 class="sec">How each claim is kept honest</h2>
 
-  <p><code>npm test</code> is pure Node and touches no network, no bead and no repo. The
-  browser-driven checks are deliberately outside it, because they need headless Chrome and, in two
-  cases, a vendored <code>public/vendor</code>.</p>
+  <p><code>npm test</code> reaches no network, and every suite in it but one is pure Node against
+  no bead and no repo. The exception is <code>scripts/land-check.mjs</code>, which is in the gate
+  through the wrapper at <code>test/landcheck.mjs</code> and does use a real <code>bd</code> and a
+  real <code>git</code> — both built from scratch under <code>/tmp</code>, so what it touches is its
+  own and nobody's issues or history. It is there because the alternative was measured: bc-4fq was a
+  bug in <code>bin/deliver.js</code> and every other suite passed over it in both directions. On a
+  machine with no <code>bd</code> the wrapper skips and exits 0 rather than failing.</p>
+
+  <p>The browser-driven checks <em>are</em> deliberately outside it, and that is a different
+  reason rather than the same one: they need headless Chrome and, in two cases, a vendored
+  <code>public/vendor</code> that a fresh worktree does not have. land-check needs neither.</p>
 
   <div class="tw">
     <table>
@@ -1729,7 +1737,7 @@ add:
         <tr><td class="mono">test/memory.mjs</td><td>Races six processes onto one topic and asserts the sequence 1..6 is there exactly once. A compare-and-swap you have not raced is one you have not tested.</td></tr>
         <tr><td class="mono">test/pr.mjs</td><td>Drives <code>lib/pr.js</code> against a fake <code>gh</code> on <code>PATH</code>, keyed off a world file and a call log — so <em>“it never shelled out”</em> is an assertion. The wait for checks has its <code>sleep</code> injected, so pending-then-green runs in milliseconds.</td></tr>
         <tr><td class="mono">test/land.mjs</td><td>Covers the thing with no other interface — the <b>brief</b>, which is all beadcause can make a worker do: that the landing ending never tells a session to merge <code>main</code> by hand, and that the marker line cannot claim <code>CAN BE MERGED</code> over work already in <code>main</code>.</td></tr>
-        <tr><td class="mono">scripts/land-check.mjs</td><td>The only place the merge itself runs: real <code>git</code> against a real bare remote, real <code>bd</code> in a scratch workspace, real <code>bin/deliver.js</code>, fake <code>gh</code>. The assertions that matter are negative — <code>gh pr merge</code> must <em>not</em> appear for a red check or <code>--review</code>, and the bead must still be open in every scenario that did not merge.</td></tr>
+        <tr><td class="mono">scripts/land-check.mjs<br>via test/landcheck.mjs</td><td>The only place the merge itself runs: real <code>git</code> against a real bare remote, real <code>bd</code> in a scratch workspace, real <code>bin/deliver.js</code>, fake <code>gh</code>. The assertions that matter are negative — <code>gh pr merge</code> must <em>not</em> appear for a red check or <code>--review</code>, and the bead must still be open in every scenario that did not merge. In <code>npm test</code>, and the slowest suite in it bar <code>test-swap</code> — 70s on its own, 90s from inside a full run; skipped with a printed reason where there is no <code>bd</code> to run it against.</td></tr>
         <tr><td class="mono">scripts/shot-check.mjs</td><td>Keeps the agent's eyes honest, because every way that breaks is silent — a picture always arrives. Fifteen assertions against a fixture page with its own throwaway config, including that the token never reached the output.</td></tr>
         <tr><td class="mono">scripts/*-check.mjs</td><td>Headless Chrome at phone size driving the real <code>public/app.js</code> against fixtures built by the real libraries and parsed back by <code>lib/decision.js</code> — a round trip that never touches a bead. <code>--baseline</code> serves <code>HEAD:</code> versions instead of the working copy, which is how you tell a real failure from a flaky one.</td></tr>
         <tr><td class="mono">test/agentlog.mjs</td><td>Runs <code>scripts/check-agent-log.js</code> inside the gate, because <code>/api/agent-log</code> decides whether the phone keeps polling or stops, and no suite under <code>test/</code> imported <code>lib/agentlog.js</code> at all. Delete the <code>blocked</code> clause from the <code>running</code> expression — a failed run then polls forever — and this is the only thing that goes red; five suites against the same server do not notice.</td></tr>

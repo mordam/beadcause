@@ -5,11 +5,13 @@
  *
  *   npm run configure
  *
- * Run by the installer, and re-runnable at any time. Only three things genuinely
+ * Run by the installer, and re-runnable at any time. Only four things genuinely
  * need a human: which workspaces are shared with other people (that decides what a
  * public relay is allowed to see and where unattended agents may comment), where
- * your code lives (so questions can show you files from it), and whether your shell
- * derives BEADS_DIR from the working directory.
+ * your code lives (so questions can show you files from it), whether your shell
+ * derives BEADS_DIR from the working directory, and the Google sign-in credentials,
+ * which cannot be guessed from anything on this machine — see lib/signinsetup.js,
+ * which owns that last block so a test can drive it.
  *
  * Every question offers a default that is the conservative choice, so holding Enter
  * through the whole thing produces a safe configuration. With no TTY — CI, a piped
@@ -22,6 +24,8 @@ import readline from 'node:readline/promises';
 import { loadConfig, saveConfig, CONFIG_PATH } from '../lib/config.js';
 import { globalWorkerCap } from '../lib/advocate.js';
 import { ownerName } from '../lib/owner.js';
+import { signinStatus } from '../lib/auth.js';
+import { askSignin } from '../lib/signinsetup.js';
 import { repoList, repoStatusLine, forgetRepos } from '../lib/repos.js';
 import { scanTargets, scanRoot, parseApproved, resolveDefaultChoice, tildeHome } from '../lib/reposcan.js';
 import { readTeam } from '../lib/team.js';
@@ -80,6 +84,9 @@ function summary(c) {
     `  asset roots       : ${(c.assetRoots || []).join(', ')}`,
     `  session dirs      : ${c.projectRoot ? `${c.projectRoot}/<workspace>` : '~/beads/<workspace>'}`,
     `  ntfy              : ${c.ntfy?.enabled ? c.ntfy.topic : 'disabled'}`,
+    // Says "NOT on — <reason>" when three of the four pieces are there, because the
+    // symptom of that state is otherwise a single line at startup in a log nobody reads.
+    `  google sign-in    : ${signinStatus(c).text}`,
     // Enabled *and* a channel: either alone posts nothing, and reporting one without
     // the other is how a half-configured Slack reads as a working one.
     `  slack             : ${
@@ -147,8 +154,18 @@ const rl = readline.createInterface({ input: process.stdin, output: process.stdo
  * installer is being driven by something that closes stdin. Either way it must not
  * dump a Node stack trace at someone who is installing this for the first time, and
  * it must not leave a half-answered config behind: nothing is written until the end.
+ *
+ * That holds for the client secret too, which is the one answer that goes somewhere
+ * other than `config.json` — lib/signinsetup.js holds what you type and only writes the
+ * file once the last question of its block is answered, so a cancelled run really does
+ * leave every credential exactly as it found it.
  */
+let unmute = null;
 function bail() {
+  // Before anything is printed: a Ctrl+C landing in the middle of the secret prompt
+  // leaves this terminal's echo turned off, and "setup cancelled" would be swallowed by
+  // the very thing that was hiding the secret.
+  unmute?.();
   rl.close();
   console.log(`\n\nSetup cancelled — nothing was changed. Run ${bold('npm run configure')} when ready.\n`);
   process.exit(0);
@@ -163,6 +180,36 @@ const ask = async (q, dflt) => {
   }
 };
 const yes = async (q, dflt = 'n') => /^y/i.test(await ask(q, dflt));
+
+/**
+ * The same prompt with the echo turned off, for the one answer that is a credential.
+ *
+ * A client secret typed in the clear is in the scrollback of a window that stays open
+ * for the rest of the day, and on a shared screen it is in the room — which would make
+ * setup the weakest link in a design that otherwise goes to some length to keep that
+ * string out of a git history. `readline` has no such mode, so the interface's own
+ * output is swallowed for the duration and the prompt is written past it; `finally`
+ * puts it back, and `bail()` does the same on the Ctrl+C that skips the `finally`.
+ */
+const secret = async (q) => {
+  const out = rl.output;
+  const write = out.write.bind(out);
+  unmute = () => {
+    out.write = write;
+    unmute = null;
+  };
+  out.write = () => true;
+  try {
+    write(`${q} `);
+    return (await rl.question('')).trim();
+  } catch {
+    bail();
+  } finally {
+    unmute?.();
+    // The newline the terminal would have echoed, so the next line does not land on this one.
+    write('\n');
+  }
+};
 
 console.log(`\n${bold('Beadcause setup')} — Enter accepts the default shown in brackets.`);
 console.log(`Workspaces found: ${workspaces.join(', ')}\n`);
@@ -609,6 +656,21 @@ if (repoTargets.length) {
     for (const w of repoList(cfg, target.workspace).warnings) console.log(dim(`   ! ${w}`));
   }
 }
+
+/* ------------------------------------------------------------------- sign-in */
+
+// Last, and the only question that can be answered *nearly*: see lib/signinsetup.js,
+// which owns the block so that a test can drive it with scripted answers and prove the
+// secret never reaches the config object.
+await askSignin(cfg, {
+  ask,
+  yes,
+  secret,
+  heading: '12. Sign in with Google in the browser?',
+  log: console.log,
+  bold,
+  dim,
+});
 
 /* ---------------------------------------------------------------------- write */
 
