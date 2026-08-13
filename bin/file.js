@@ -106,7 +106,7 @@ if (!parsed || parsed.error || !parsed.beads.length) {
 // The same three the daemon builds it with (lib/server.js), so a workspace running a
 // Dolt server rather than embedded Dolt is reached the same way from a pipe as from a
 // phone — `bd` fails against a server that isn't there, and vice versa.
-const bd = new Bd({ bin: cfg.bdBin, actor: cfg.actor, sharedServer: cfg.sharedServer });
+const bd = new Bd({ bin: cfg.bdBin, actor: cfg.actor, sharedServer: cfg.sharedServer, me: cfg.me });
 
 /**
  * Is any of this already filed?
@@ -148,7 +148,13 @@ try {
  */
 const endorsed = autoEndorseAllowed(cfg, ws.name);
 
-const { filed, failed } = await fileBeads(bd, ws, beads, { from, onWarn: warn, endorsed });
+const { filed, failed, home } = await fileBeads(bd, ws, beads, { from, onWarn: warn, endorsed });
+
+// Where they landed, once for the batch — they all share one home (lib/homing.js). Said
+// out loud rather than left to `bd show`, because a bead quietly adopted into an epic the
+// session never named is the kind of surprise a worker should be able to correct in the
+// same breath it filed in.
+if (home?.why) warn(`filed under ${home.why} — nothing named a home, and a bead with no P0 above it is not workable`);
 
 for (const b of filed) {
   if (b.clamped) warn(`"${b.title}" filed at P${b.priority} — an agent-filed bead may not outrank P${PRIORITY_FLOOR}`);
@@ -163,7 +169,7 @@ if (filed.length) {
   // a window on it.
   warn(
     endorsed
-      ? `filed ${count}, endorsed — auto-endorsement is on for this space, so they are ready work ` +
+      ? `filed ${count}, endorsed — auto-endorsement is on for this repo, so they are ready work ` +
           'and an advocate may pick them up. Carry on with what you were doing; they are not yours.'
       : `filed ${count}, held for endorsement — ` +
           'nothing will be worked on them until they are endorsed. Carry on with what you were doing.'

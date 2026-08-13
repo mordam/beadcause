@@ -1,0 +1,307 @@
+#!/usr/bin/env node
+/**
+ * Tier 3, as something an agent can actually reach: a command.
+ *
+ * An agent here is a `claude -p` in a shell with an allowlist. It cannot `import` a
+ * module, so lib/agentrepo.js is a library for the daemon and invisible to the agent it
+ * was written for. This is the surface the agent gets:
+ *
+ *   beadcause-agentrepo path
+ *   beadcause-agentrepo ls [<dir>]
+ *   beadcause-agentrepo cat <file>
+ *   beadcause-agentrepo write <file> [--append]     content on stdin
+ *   beadcause-agentrepo rm <file>
+ *   beadcause-agentrepo git <args...>
+ *
+ * **This wrapper is the permission, not a convenience.** One allowlist entry —
+ * `Bash(beadcause-agentrepo:*)` — grants an unattended agent somewhere it may write, and
+ * the two obvious alternatives do not fence it:
+ *
+ * - `Write`/`Edit` take a path specifier relative to the working directory, and the
+ *   directory being granted is an absolute path outside every checkout.
+ * - `Bash(git -C <dir>:*)` reads like a fence and is not one. `git -C a -C b` chains, so
+ *   a prefix match on the first `-C` permits a second pointing anywhere, and the agent
+ *   would have arbitrary git in any repo on the Mac.
+ *
+ * So containment is here, and it is three rules:
+ *
+ * 1. **The repo is where the daemon said it is.** `$BEADCAUSE_AGENT_REPO`, and it has to
+ *    resolve to `<config>/agents/<workspace>/<agent>/` — `isRepoDir` decides, so the rule
+ *    lives with the code that creates them.
+ * 2. **Every path resolves under it**, after `realpath` on the deepest existing ancestor,
+ *    so a symlink planted in the tree cannot walk out of it.
+ * 3. **git may not be repointed and may not reach the network.** No option before the
+ *    subcommand (that is `-C`, `-c`, `--git-dir`, `--work-tree`, `--exec-path` and
+ *    `--namespace` in one rule), none of those anywhere, and `push`/`fetch`/`remote` and
+ *    friends refused outright — see lib/agentrepo.js for why local-only is the whole
+ *    posture of tier 3 and not a default someone can turn off.
+ *
+ * **It logs every invocation, and that is the experiment rather than surveillance.** The
+ * question tier 3 exists to answer is whether an agent ever *reads back* what it wrote,
+ * and the only honest way to know is to count. What is recorded is the verb, the target
+ * and whether it read or wrote — never file contents. The log is beside the repos, not
+ * inside one, so what the agent owns stays what the agent wrote.
+ */
+import fs from 'node:fs';
+import path from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { isRepoDir, harden, kindOf, record } from '../lib/agentrepo.js';
+
+/**
+ * Nothing is stripped out of the arguments, and that is a bug this had once.
+ *
+ * A general "pull the `--flags` out first" pass is right for a CLI whose arguments are
+ * all its own, and wrong the moment one verb forwards its arguments to another program:
+ * it eats `--oneline` out of `git log --oneline` and hands git a command it never wrote.
+ * So the verb is taken off the front and everything after it is passed on untouched;
+ * `write` is the only verb with a flag of its own, and it looks for it itself.
+ */
+const [verb, ...rest] = process.argv.slice(2);
+
+const USAGE = `beadcause-agentrepo — your own directory, and the git repo in it
+
+  path                       print where it is
+  ls [<dir>]                 what is in it, with sizes
+  cat <file>                 print one file
+  write <file> [--append]    write one; content on stdin
+  rm <file>                  delete one
+  git <args...>              any git command, inside it
+
+Nothing else reads this repo, it has no remote, and it never leaves this Mac.`;
+
+/** Where the daemon said this agent's repo is — checked, never trusted. */
+function repo() {
+  const dir = process.env.BEADCAUSE_AGENT_REPO;
+  if (!dir) throw new Error('no repo — $BEADCAUSE_AGENT_REPO is unset; only beadcause sets it');
+  if (!isRepoDir(dir)) throw new Error(`not an agent repo: ${dir}`);
+  if (!fs.existsSync(path.join(dir, '.git'))) throw new Error(`no repo at ${dir} — beadcause creates it at spawn`);
+  return dir;
+}
+
+/**
+ * A path inside the repo, or a refusal.
+ *
+ * `realpath` on the deepest existing ancestor rather than on the target, because the
+ * target may not exist yet — that is the whole point of `write`. Resolving the ancestor
+ * is what closes the symlink escape: a link planted at `notes -> /etc` resolves before
+ * the containment check rather than after it.
+ *
+ * `.git` is out of bounds for the *file* verbs, and that is not a contradiction of "you
+ * own this". Writing `.git/config` by hand is how a repo acquires a remote, and
+ * local-only is enforced rather than intended. `git` itself is right there.
+ */
+function within(dir, rel, { forWrite = false } = {}) {
+  if (!rel) throw new Error('which file?');
+  if (path.isAbsolute(rel)) throw new Error(`paths are relative to the repo: ${rel}`);
+  const target = path.resolve(dir, rel);
+  let probe = path.dirname(target);
+  const missing = [];
+  while (!fs.existsSync(probe) && path.dirname(probe) !== probe) {
+    missing.unshift(path.basename(probe));
+    probe = path.dirname(probe);
+  }
+  const real = path.join(fs.realpathSync(probe), ...missing, path.basename(target));
+  const inside = path.relative(fs.realpathSync(dir), real);
+  if (!inside || inside.startsWith('..') || path.isAbsolute(inside)) {
+    throw new Error(`outside your repo: ${rel}`);
+  }
+  if (forWrite && (inside === '.git' || inside.startsWith(`.git${path.sep}`))) {
+    throw new Error("`.git` is git's — use `beadcause-agentrepo git` instead");
+  }
+  return real;
+}
+
+/* --------------------------------------------------------------------- git */
+
+/**
+ * Subcommands that reach the network or point at another repo.
+ *
+ * A denylist, unlike `GIT_READS` in lib/agentrepo.js, and the asymmetry is deliberate:
+ * misclassifying an unknown subcommand as a read would silently overstate the
+ * experiment's result, whereas refusing an unknown subcommand outright would break the
+ * one promise tier 3 makes — that this is *all* of git, in your directory.
+ */
+const REFUSED = new Set([
+  'push', 'pull', 'fetch', 'clone', 'remote', 'submodule', 'daemon', 'credential',
+  'send-email', 'request-pull', 'svn', 'p4', 'instaweb', 'http-backend',
+  'upload-pack', 'receive-pack', 'upload-archive',
+]);
+
+/** Options that repoint git wherever they appear, rather than only before the verb. */
+const REPOINTING = ['--git-dir', '--work-tree', '--exec-path', '--namespace', '--config-env'];
+
+function runGit(dir, gitArgs) {
+  const sub = gitArgs[0];
+  if (!sub || sub.startsWith('-')) {
+    // Everything that repoints git is a global option, and every global option comes
+    // before the subcommand. Refusing the position refuses the whole class of them,
+    // including the ones git grows after this is written.
+    throw new Error(
+      `no options before the git subcommand (got ${sub || 'nothing'}) — say \`git log\`, \`git commit -m …\``
+    );
+  }
+  if (REFUSED.has(sub)) {
+    throw new Error(`\`git ${sub}\` is refused — this repo is local-only and has no remote (see lib/agentrepo.js)`);
+  }
+  for (const a of gitArgs) {
+    if (REPOINTING.some((f) => a === f || a.startsWith(`${f}=`))) {
+      throw new Error(`\`${a}\` would point git somewhere else`);
+    }
+  }
+  if (sub === 'config' && gitArgs.some((a) => ['--global', '--system', '--file', '-f'].includes(a))) {
+    throw new Error("`git config` here is this repo's config only");
+  }
+
+  const env = {
+    ...process.env,
+    // Isolated from whoever owns the Mac: the repo's own config is the only config,
+    // which is what makes the `user.name` set at provision the author of every commit.
+    GIT_CONFIG_GLOBAL: '/dev/null',
+    GIT_CONFIG_SYSTEM: '/dev/null',
+    // A commit with no `-m` would otherwise open an editor and hang until the
+    // session's timeout, and an agent has no terminal to notice it in.
+    GIT_EDITOR: 'true',
+    GIT_TERMINAL_PROMPT: '0',
+  };
+  // Deleted, never blanked. `GIT_DIR=''` is *set* as far as git is concerned, and git
+  // then fails with `not a git repository: ''` in a directory that plainly is one —
+  // an inherited variable removed by setting it to empty is a trap worth naming.
+  for (const k of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY']) delete env[k];
+
+  const r = spawnSync('git', gitArgs, { cwd: dir, stdio: 'inherit', timeout: 120000, env });
+  if (r.error) throw new Error(`git ${sub}: ${r.error.message}`);
+  return r.status ?? 1;
+}
+
+/* ------------------------------------------------------------------- the log */
+
+const log = (dir, kind, target) => {
+  const parts = dir.split(path.sep);
+  record({
+    workspace: parts[parts.length - 2],
+    agent: parts[parts.length - 1],
+    run: process.env.BEADCAUSE_AGENT_REPO_RUN || null,
+    arm: process.env.BEADCAUSE_AGENT_REPO_ARM || null,
+    verb,
+    target: target || null,
+    kind,
+  });
+};
+
+/* ------------------------------------------------------------------ the verbs */
+
+function listing(dir, sub) {
+  const root = sub ? within(dir, sub) : dir;
+  const rows = [];
+  const walk = (d) => {
+    let entries;
+    try {
+      entries = fs.readdirSync(d, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of entries.sort((a, b) => a.name.localeCompare(b.name))) {
+      if (e.name === '.git') continue;
+      const p = path.join(d, e.name);
+      if (e.isDirectory()) {
+        walk(p);
+        continue;
+      }
+      if (!e.isFile()) continue;
+      try {
+        const st = fs.statSync(p);
+        const when = st.mtime.toISOString().slice(0, 16).replace('T', ' ');
+        rows.push(`${String(st.size).padStart(8)}  ${when}  ${path.relative(dir, p)}`);
+      } catch {
+        /* raced with a delete */
+      }
+    }
+  };
+  walk(root);
+  return rows;
+}
+
+function main() {
+  if (!verb || verb === 'help' || verb === '--help') {
+    console.log(USAGE);
+    return 0;
+  }
+
+  const dir = repo();
+  const kind = kindOf(verb, rest);
+
+  switch (verb) {
+    case 'path': {
+      log(dir, kind, null);
+      console.log(dir);
+      return 0;
+    }
+
+    case 'ls': {
+      log(dir, kind, rest[0] || '.');
+      const rows = listing(dir, rest[0]);
+      console.log(rows.length ? rows.join('\n') : '(empty)');
+      return 0;
+    }
+
+    case 'cat': {
+      const file = within(dir, rest[0]);
+      log(dir, kind, rest[0]);
+      // Non-zero for a miss rather than an empty stdout, so `cat x || …` works in the
+      // shell the agent is actually using — same rule as `beadcause-memory recall`.
+      if (!fs.existsSync(file)) {
+        console.error(`no such file: ${rest[0]}`);
+        return 1;
+      }
+      process.stdout.write(fs.readFileSync(file));
+      return 0;
+    }
+
+    case 'write': {
+      const append = rest.includes('--append');
+      const [name] = rest.filter((a) => a !== '--append');
+      const file = within(dir, name, { forWrite: true });
+      // Read stdin to the end before touching the file: a heredoc that never arrives
+      // should leave what was there alone rather than truncate it to nothing.
+      const body = fs.readFileSync(0);
+      fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+      if (append) fs.appendFileSync(file, body, { mode: 0o600 });
+      else fs.writeFileSync(file, body, { mode: 0o600 });
+      harden(dir);
+      log(dir, kind, name);
+      console.log(`${append ? 'appended to' : 'wrote'} ${name} (${body.length} bytes)`);
+      return 0;
+    }
+
+    case 'rm': {
+      const file = within(dir, rest[0], { forWrite: true });
+      log(dir, kind, rest[0]);
+      if (!fs.existsSync(file)) {
+        console.error(`no such file: ${rest[0]}`);
+        return 1;
+      }
+      fs.rmSync(file, { recursive: true, force: true });
+      console.log(`removed ${rest[0]}`);
+      return 0;
+    }
+
+    case 'git': {
+      log(dir, kind, rest[0] || null);
+      const status = runGit(dir, rest);
+      harden(dir);
+      return status;
+    }
+
+    default:
+      console.log(USAGE);
+      // A typo'd subcommand is a failure; asking for help is not.
+      return 2;
+  }
+}
+
+try {
+  process.exitCode = main();
+} catch (err) {
+  console.error(`beadcause-agentrepo: ${err.message}`);
+  process.exitCode = 1;
+}

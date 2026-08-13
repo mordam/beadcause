@@ -38,10 +38,11 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import http from 'node:http';
-import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { boundPort } from './helpers/net.mjs';
+import { cleanupTmp } from './helpers/tmp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const LIB = (f) => path.join(HERE, '..', 'lib', f);
@@ -137,9 +138,15 @@ const README = fs.readFileSync(path.join(HERE, '..', 'README.md'), 'utf8');
  *
  * Table rows only — `| GET | \`/api/x\` | … |` — rather than every mention of a path in
  * 4,800 lines of prose. A route argued about in a paragraph is not a documented one.
+ *
+ * **Digits are in the path class**, and were not until `/api/p0s` (bc-rfnr.7). The
+ * failure was the wrong way round and worth naming: a path this pattern cannot match is
+ * one the README can never document, so the check failed on a row that was *there* and
+ * would have gone on failing however the table was edited. A scan that can only see part
+ * of what it is scanning is a scan that reports the wrong side is broken.
  */
 const documented = new Set();
-for (const m of README.matchAll(/^\|\s*(GET|POST|PUT|DELETE|PATCH)\s*\|\s*`(\/api\/[a-z/-]+)`/gim)) {
+for (const m of README.matchAll(/^\|\s*(GET|POST|PUT|DELETE|PATCH)\s*\|\s*`(\/api\/[a-z0-9/-]+)`/gim)) {
   documented.add(`${m[1].toUpperCase()} ${m[2]}`);
 }
 const served = new Set(pairs.map((r) => `${r.method} ${r.path}`));
@@ -190,22 +197,11 @@ const cfg = {
   advocates: { enabled: false, workspaces: [] },
 };
 
-// foundation.js first: it and agents.js import each other, and agents.js is not the
-// end of that cycle that can be pulled in cold.
-await import(LIB('foundation.js'));
 const { createApp, listen, routeTable, assertRoutes } = await import(LIB('server.js'));
 
-const port = await new Promise((resolve, reject) => {
-  const probe = net.createServer();
-  probe.on('error', reject);
-  probe.listen(0, '127.0.0.1', () => {
-    const { port: p } = probe.address();
-    probe.close(() => resolve(p));
-  });
-});
-
-const app = createApp({ ...cfg, port });
-const servers = listen({ ...cfg, port }, app.handler);
+const app = createApp(cfg);
+const servers = listen(cfg, app.handler);
+const port = await boundPort(servers);
 
 const get = (pathname) =>
   new Promise((resolve, reject) => {
@@ -221,15 +217,6 @@ const get = (pathname) =>
     req.on('error', reject);
     req.end();
   });
-
-for (let i = 0; i < 100; i += 1) {
-  try {
-    await get('/api/health');
-    break;
-  } catch {
-    await new Promise((r) => setTimeout(r, 20));
-  }
-}
 
 console.log('\nthe three foundation paths, against the real server\n');
 
@@ -325,7 +312,7 @@ check(
 /* ---------------------------------------------------------------------- done */
 
 for (const s of servers) s.close();
-fs.rmSync(tmp, { recursive: true, force: true });
+await cleanupTmp(tmp);
 
 console.log('');
 if (failures) {

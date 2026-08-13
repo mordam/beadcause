@@ -216,10 +216,11 @@ data class Event(
      */
     val quiet: Boolean,
     /**
-     * Why: `"filtered"` (outside what the inbox is narrowed to) or `"muted"` (the
-     * owning space is muted or inside its quiet hours). Null when it made a noise,
-     * and null from a server too old to say — which is why [quiet] stays the field
-     * anything acts on, and this one only says how to describe it.
+     * Why: `"addressed"` (the question names somebody who is not this Mac's person),
+     * `"filtered"` (outside what the inbox is narrowed to) or `"muted"` (the owning
+     * space is muted or inside its quiet hours). Null when it made a noise, and null
+     * from a server too old to say — which is why [quiet] stays the field anything acts
+     * on, and this one only says how to describe it.
      */
     val quietReason: String?,
     /**
