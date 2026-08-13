@@ -4927,6 +4927,16 @@ every Write in every session, for a fact the daemon could resolve once per branc
 The field stays in the API for whoever does that; the branch is what the refusal names
 today.
 
+**And the register is read a second time, one step earlier.** The hook asks at
+`PreToolUse`, which is the last honest moment for an *edit* and one step too late to be
+cheap: by the time it fires the session exists, has been briefed, has read the tree and has
+a plan, so the refusal costs a wasted tool call by design and the session that means it
+insists and proceeds. The advocate asks the same map at **dispatch**, where the same fact is
+free to act on — see [the bead whose files somebody is already
+editing](#the-bead-whose-files-somebody-is-already-editing). No new state, no fourth lock,
+no protocol between agents: the same register, read at a moment when standing down costs
+nothing rather than a whole session.
+
 That last one is why `node test/claims.mjs` runs the real script against a real server
 rather than testing the register alone: a fail-open client that has broken produces exactly
 the same output as one that found nothing to report, and nothing anywhere else would
@@ -7480,6 +7490,54 @@ comes off when that worker ends, expires on `leaseMinutes` if the Mac went to sl
 says whose it is on the card the entire time it lasts. The cases are in
 `node test/leasequeue.mjs`, including the read count, the sibling that is *not* held, the
 plain parent that holds its subtree too, and the two-machine race resolved after a sync.
+
+### The bead whose files somebody is already editing
+
+Every filter above asks about the **bead**: has another Mac claimed it, is a window open on
+it, does a pull request carry it, is another bead the same job. There is a sixth way for a
+window to be a bad idea and none of them can see it — the bead is unclaimed, unopened,
+unduplicated and in nobody's pull request, and the three files it is going to rewrite are
+open in a session two worktrees over. Nothing collides today; it collides at downmerge, as a
+semantic conflict somebody resolves by hand a day later.
+
+The answer to that already existed and was being asked in the wrong place. `lib/claims.js`
+has known which file each session is editing since the [register was
+built](#one-granularity-down-which-file-somebody-is-already-editing), and the only thing
+that ever asked it was `scripts/claim-guard.sh`, at `PreToolUse`. So this filter adds
+nothing but a read: `claims.list()` is a map in the daemon's own process, and the advocate
+walks it once per survey.
+
+**Which files, though.** That is the half a `bd ready` row cannot answer, and `lib/beadfiles.js`
+is where the answer is worked out — from two sources whose strengths are deliberately not
+the same:
+
+- **declared** — the bead says which files it expects to touch. That is a forecast somebody
+  wrote down on purpose, and it holds;
+- **guessed** — the paths written in the bead's own prose, kept only where one names a file
+  that is really on disk in the checkout that bead would be worked in. That existence check
+  is what separates `lib/advocate.js` from a package name or a path that used to exist, and
+  it still is not evidence enough to withhold work.
+
+**A guess may speak, but it may not hold.** It is `withoutTwins`' rule — evidence that is a
+resemblance must err toward doing the work twice rather than not at all — and the opposite
+of [the open-pull-request rule](#the-bead-whose-work-is-already-in-an-open-pull-request),
+whose evidence is a branch with commits on it. So a bead whose *guessed* surface collides
+with a live claim is dispatched anyway and the collision goes on the card as its own pill,
+separate from the holds and never counted among them: a near miss, kept visible precisely so
+that "would holding on a guess have helped?" is a question the screen can answer.
+`holdGuessedFiles: true` turns the guess into a hold for a workspace whose beads are written
+with their files named; `holdClaimedFiles: false` takes the whole filter out.
+
+**Nothing here has to be released**, which is the property worth the most. The hold is not a
+record — it is recomputed from the register on every survey, and `claims.list()` prunes what
+has expired and what belongs to a worktree no longer on disk as it reads. So a session that
+ends, a claim that ages out at 90 minutes and a `ship` that removes the tree all release
+this without knowing it exists, in the same way a merged pull request releases the filter
+above. The filter also runs **outermost** of the six: a bead any of the others would hold
+reads better as "a window is already open on it" than as "somebody is editing
+`lib/advocate.js`" — and a session's claim on its own bead's files can never hold that bead,
+because the live-session filter one call in took it out first. `node test/claimqueue.mjs`
+covers it.
 
 ### The child that goes ready after its parent's window opened
 
@@ -11538,6 +11596,8 @@ Two consequences of that ordering worth knowing:
 | `advocates.holdOpenPrs` | [hold a bead out of the queue while an open pull request already carries its work](#the-bead-whose-work-is-already-in-an-open-pull-request) (default `true`). It closes nothing — an open PR is not a merged one — it holds, with the number on the card. Without it a worker briefed to merge is opened beside a resolver briefed that the merge is not its to make |
 | `advocates.inflightIntervalMinutes` | how often that asks GitHub (default 5, shorter than the sweeps above because a delivery that could not merge opens a pull request and hands the bead back to `bd ready` in the same minute). It also asks *unconditionally* right before opening a session |
 | `advocates.holdLiveSessions` | [hold a bead out of the queue while a live session already names it](#the-bead-somebody-is-already-sitting-in) (default `true`). The claim is not the guard the brief says it is — "request changes" drops it, a timeout drops the slot, a restart forgets the worker — and without this a second window opens into a worktree somebody is still editing. No interval: the session records are files on this laptop, so it reads on every tick and again before a launch |
+| `advocates.holdClaimedFiles` | [hold a bead out of the queue while another session on this Mac is editing the files it would touch](#the-bead-whose-files-somebody-is-already-editing) (default `true`). The same register `scripts/claim-guard.sh` asks at `PreToolUse`, read at dispatch instead — where standing down costs nothing rather than a session that has already been briefed. No new state and no interval: the map is in this process |
+| `advocates.holdGuessedFiles` | whether a surface *guessed* out of the bead's prose may hold as well, or may only say so on the card (default `false`). A declared surface is a forecast somebody wrote down; a guess is the daemon having read a description, and evidence that is a resemblance errs toward doing the work twice rather than not at all — the same way the twin filter does, and the opposite of the open-pull-request one |
 | `advocates.holdLeases` | [hold a bead out of the queue while another Mac has claimed it in the shared tracker, and stand down when one claims it underneath us](#the-bead-another-mac-has-claimed) (default `true`). Inert until `me` is set, which is every one-Mac install — with no handle there is no label to write and nobody to lose to. The claim is a `held:<stamp>:<handle>` label rather than the assignee, because two labels are two rows Dolt merges rather than a cell it cannot, which is what lets both machines see both claims and agree on the winner without talking |
 | `advocates.leaseMinutes` | how long one of those claims is good for (default 60, restamped at half that by whichever advocate still holds the worker). Not a load knob: it is how long a bead stays parked when the Mac holding it goes to sleep, and a bead parked forever is worse than the duplicate window this prevents |
 | `advocates.sessionLog` | archive each finished session to `refs/beadcause/sessions/<bead>` and note its commits (default `true`) |

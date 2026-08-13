@@ -405,6 +405,13 @@
    * editing one worktree — is invisible from every other view here, which is precisely
    * how it went unnoticed for an hour.
    *
+   * `heldByClaim` is the eighth (bc-mp8c), and the first that names a *file* rather than a
+   * bead: another session on this Mac is editing what this bead would touch, so the window
+   * was not opened. `filesBusy` beside it is the same collision over a surface guessed from
+   * the bead's prose rather than declared on it — dispatched anyway, because a guess may not
+   * withhold work (bc-hrno), and shown anyway, because whether that gate should ever be
+   * turned on is a question only the pattern on this row can answer.
+   *
    * `heldByLease` is the seventh (bc-bllw), and the first that is not about this laptop:
    * a bead another engineer's Mac has claimed in the shared tracker. `stoodDown` is its
    * other half — a window *this* Mac gave up because the other machine's claim won the
@@ -421,6 +428,8 @@
     const prs = (a && a.heldByPr) || [];
     const sitting = (a && a.heldByLive) || [];
     const claimed = (a && a.heldByLease) || [];
+    const onFiles = (a && a.heldByClaim) || [];
+    const busyFiles = (a && a.filesBusy) || [];
     const stood = (a && a.stoodDown) || [];
     const pills = [
       c.open != null ? `<span class="pill">${c.open} open</span>` : '',
@@ -482,6 +491,20 @@
       // something that happened while you were not looking.
       stood.length
         ? `<span class="pill p1" title="${esc(stood.map((s) => `${s.id} — ${s.why}`).join('\n'))}">${stood.length} stood down for another Mac</span>`
+        : '',
+      // The eighth, and the first that names a *file*: a bead held because another session
+      // on this laptop already has its hands on what it would touch (bc-mp8c). `muted`,
+      // like the other holds you can settle by looking — the tooltip names the file and the
+      // worktree, and both are on this Mac.
+      onFiles.length
+        ? `<span class="pill muted" title="${esc(onFiles.map((h) => `${h.id} — ${h.why}`).join('\n'))}">${onFiles.length} whose files are being edited</span>`
+        : '',
+      // And the near miss, which is not a hold and must not read as one: the same collision
+      // over a surface guessed from the bead's text, dispatched anyway because a guess may
+      // not withhold work (bc-hrno). It is here so that the question "would holding on a
+      // guess have helped?" can be answered from the screen rather than from a hunch.
+      busyFiles.length
+        ? `<span class="pill muted" title="${esc(busyFiles.map((h) => `${h.id} — ${h.why}`).join('\n'))}">${busyFiles.length} opened onto a busy file</span>`
         : '',
     ].filter(Boolean);
     return `<div class="mon-domain">${pills.join('')}</div>`;
