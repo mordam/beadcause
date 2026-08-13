@@ -69,6 +69,7 @@ import {
   PORTLOST,
   PORT_ATTEMPTS,
   PORT_TAKEN_EXIT,
+  STOPPED,
   TIMEOUT,
   deferralMs,
   exitKind,
@@ -256,11 +257,17 @@ async function spawnBackend(deadlineMs) {
   const deadline = Date.now() + deadlineMs;
   for (;;) {
     if (child.exitCode !== null || child.signalCode) {
-      // The exit code is read here and nowhere else: a signalled child has no code at
-      // all, and `exitKind(null)` is `EXITED`, which is the right answer for one — a
-      // backend nobody in here killed and that died on a signal is not a port problem.
-      const kind = exitKind(child.exitCode);
-      const why = kind === PORTLOST ? 'could not bind it — something else took it first' : 'exited before it was healthy';
+      // Both halves, and the signal is not optional: a signalled child has no exit code
+      // at all, so `exitKind(child.exitCode)` was asking a question about `null` — and
+      // answering `EXITED`, which condemned the build. A backend nobody in here killed
+      // is a fact about this Mac, not about the code it was running. bc-r0tx.
+      const kind = exitKind(child.exitCode, child.signalCode);
+      const why =
+        kind === PORTLOST
+          ? 'could not bind it — something else took it first'
+          : kind === STOPPED
+            ? 'stopped before it was healthy'
+            : 'exited before it was healthy';
       // The code, always, and it is not decoration: `exited before it was healthy` is the
       // sentence that condemns a build, and which exit produced it is the whole of what
       // anybody reading the log afterwards needs to know. A signalled child says so
@@ -302,6 +309,14 @@ async function spawnBackend(deadlineMs) {
  * that one — the next spawn asks the kernel for another port — so it is retried at once,
  * up to `PORT_ATTEMPTS` times, and it costs neither a health attempt nor a mark on
  * `slowness`: the machine was not slow and the build was never in question.
+ *
+ * A `STOPPED` child leaves here immediately too, and deliberately without a retry of its
+ * own. It is not condemned — that is bc-r0tx, and it happens in `bringUp` — but neither
+ * is spinning the cure: whatever ended it (memory pressure, a stray kill, its own orphan
+ * guard firing inside a health window wider than a minute) would still be true a
+ * millisecond later. The deferral is the right length of wait, and when nothing at all
+ * is being served `outageRetryMs` already makes that two seconds. It costs no `slowness`
+ * either: the child was not slow, it was stopped.
  */
 async function attemptStart(build) {
   let last = null;
@@ -512,30 +527,41 @@ async function bringUp(reason) {
     // again while we were failing, that newer build deserves its own attempt.
     if (!poisonable(err.kind)) {
       // Not poison. The child was alive and unhurried, or it never got the port it was
-      // given — either way that is a sentence about this Mac, and condemning a build for
-      // it is how a good build stopped being served for as long as it took somebody to
-      // read a log file. Deferred instead: tried again on its own, with a window that
-      // has already been widened by `slowness`. Counted per build: a newer build has
-      // earned a fresh, short pause rather than inheriting the one the previous build's
-      // failures had grown to.
+      // given, or something outside it ended it — every one of those is a sentence about
+      // this Mac, and condemning a build for it is how a good build stopped being served
+      // for as long as it took somebody to read a log file. Deferred instead: tried
+      // again on its own, with a window that has already been widened by `slowness`.
+      // Counted per build: a newer build has earned a fresh, short pause rather than
+      // inheriting the one the previous build's failures had grown to.
       deferrals = deferred?.build === attempted ? deferrals + 1 : 1;
       const wait = deferralMs(deferrals);
       const lostPort = err.kind === PORTLOST;
+      const stopped = err.kind === STOPPED;
       // Carried on the snapshot rather than left to be inferred from `attempts`: every
       // surface that reads a deferral says "too slow to answer", and a deferral for a
       // taken port would be four screens of a diagnosis that is simply not this one.
+      // `kind` rides along with it because `why` alone cannot separate three readings —
+      // see the `clause` in `explain`.
       const why = lostPort
         ? `build ${attempted} lost the race for an internal port ${PORT_ATTEMPTS} times — ` +
           'something else on this Mac keeps taking it. Nothing is wrong with the build.'
-        : null;
+        : stopped
+          ? // The `(code 0)` or `(signal …)` is inside `err.message` and is the whole
+            // diagnosis, so it is quoted rather than paraphrased: `signal SIGKILL` is
+            // memory pressure or a stray kill, and `code 0` is the backend's own orphan
+            // guard firing inside a health window wider than its minute.
+            `build ${attempted} ${err.message} — something outside the build ended it, ` +
+            'so the build is not condemned for it.'
+          : null;
       deferred = {
         build: attempted,
-        attempts: lostPort ? PORT_ATTEMPTS : HEALTH_ATTEMPTS,
+        attempts: lostPort ? PORT_ATTEMPTS : stopped ? 1 : HEALTH_ATTEMPTS,
         until: Date.now() + wait,
         deferrals,
+        kind: err.kind,
         why,
       };
-      if (lostPort) {
+      if (why) {
         warn(`${why} Retrying in ${Math.round(wait / 1000)}s.`);
       } else {
         warn(

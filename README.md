@@ -9186,6 +9186,37 @@ launchctl kickstart -k gui/$(id -u)/m4m.beadcause.monitor   # reopen the window 
 Piped rather than shown on a terminal, it drops the box and prints one line per
 event instead, so `node bin/monitor.js >> somewhere.log` does something sensible.
 
+### A cron entry that never returns — `monitor --once`
+
+The long-poll loop has always been careful about a connection that stops answering: an
+`AbortController` around every request, armed at `POLL_TIMEOUT_MS` (40s, which is
+`wait=25` plus room). The `--once` path — one cold fetch, draw, exit — shared none of
+that, and for a long time nothing showed it, because the failure everybody actually has
+is a daemon that is **not running**. That one refuses the connection, `ECONNREFUSED`
+comes straight back, and the offline frame draws in milliseconds.
+
+The case that costs you is a daemon that completes the handshake and then never writes:
+a router mid-restart, a backend wedged on a lock, an ssh tunnel whose far end has gone.
+There `--once` blocked with no upper bound and no output at all — the worst available
+shape for the one mode this README advertises for *screenshots, cron, sanity checks*,
+because a cron entry that never returns is a cron entry that stacks up. bc-34ku.
+
+`ONCE_TIMEOUT_MS` is **ten seconds**, and deliberately not the loop's forty. A cold poll
+sends no `since` and no `wait=`, so the server composes a snapshot and answers at once;
+ten seconds is not impatience, it is the point past which the daemon is not answering at
+all. Past it the frame draws with `no answer` on the connection line — the same two words
+the loop uses for its own abort, which is the whole point of them: a refused connection
+says `ECONNREFUSED` instead, and the two failures must never read alike.
+
+`node test/monitoronce.mjs` drives a real `net.createServer` that accepts and says
+nothing, and asserts the bound from both sides — that the child returns, and that it did
+not return *sooner* than the timeout, which is what would happen if something other than
+the timeout were ending the request and the suite had quietly stopped measuring
+anything. The refusal is driven beside it as the control, on a claimed `freePort()`
+rather than something like `:1`: a privileged port comes back through undici with no
+`cause.code` at all, so the frame would say `fetch failed` and prove nothing about which
+failure it was.
+
 ## The router — why you never restart it
 
 Static files are read from disk on every request. Server code is read **once**, at
@@ -9272,6 +9303,25 @@ The limits, stated plainly:
   otherwise reports "too slow to answer", which sends whoever is reading it after load
   and then after the build, and it is neither. `test/ports.mjs` covers it, end to end for
   the exit code and as arithmetic for the policy.
+- **Nor is a build that was *stopped* — and "exited" was still swallowing two of those.**
+  `exitKind` was asked only for the child's exit *code*, and a child that dies on a signal
+  has no exit code at all: `code` is `null`, `null` is not `PORT_TAKEN_EXIT`, and the
+  answer came back `exited`. So a backend the OOM killer took, or a stray `pkill node`,
+  or a runner tearing down a suite, condemned the build it happened to be running — on
+  the machine where that is *most* likely, which is the one with twenty agent sessions on
+  it. The other one is stranger and was harder to see: **a clean exit 0**. Nothing broken
+  exits zero — a syntax error, a throw at import and a bad config are all non-zero — so a
+  zero is a child that *chose* to stop, and `bin/beadcause.js` has exactly one such path.
+  Its orphan guard `process.exit(0)`s a backend that has had no router contact for
+  `ORPHAN_MS` (60s), and a start can outlive that: `healthDeadline` climbs to
+  `HEALTH_CEILING_MS` (120s) once the router has learned this machine is slow, so the
+  guard fires halfway through a window the router is still patiently waiting out. Both
+  are now `STOPPED`: never poisonable, deferred like a slow start but saying `stopped
+  before it was healthy` rather than `too slow to answer`, and quoting the `(code 0)` or
+  `(signal SIGKILL)` that is the whole diagnosis. The signal has to be *passed* for any
+  of that to work — `exitKind(child.exitCode, child.signalCode)` — which is a call-site
+  mistake `exitKind`'s own tests can never catch, so `test/ports.mjs` reads the router's
+  source for it. bc-r0tx, and it is the third road to bc-dw47's and bc-excc's failure.
 - **A router with nothing behind it says so, in three places.** The failure above has a
   worse cousin: when there is *no* old backend to keep serving, the router holds the
   port and answers 503 to everything. Nothing is down in a way launchd would restart,
@@ -10518,7 +10568,7 @@ the tailnet holding the token could otherwise stop the poller:
 
 | Method | Path | Returns |
 |---|---|---|
-| GET | `/internal/router/state` | `{router, disk, stale, poisoned, deferred, serving, outage, retryAt, slowness, certificate, active, retiring[]}` — what `npm run swap:status` prints. `poisoned` is a build that *died* at startup; `deferred` is one that was only slow, and when it will be tried again. `certificate` is `{name, daysLeft, checkedAt}` off the live socket, or `null` when the port is serving plain HTTP |
+| GET | `/internal/router/state` | `{router, disk, stale, poisoned, deferred, serving, outage, retryAt, slowness, certificate, active, retiring[]}` — what `npm run swap:status` prints. `poisoned` is a build that *died* at startup; `deferred` is one that will be tried again, carrying the `kind` of failure it was — slow, a lost port, or stopped from outside — and when.  `certificate` is `{name, daysLeft, checkedAt}` off the live socket, or `null` when the port is serving plain HTTP |
 | POST | `/internal/router/swap` | `{ok, active}` — or `{ok:false, error}` if the new build would not start |
 
 Every proxied response also carries `x-beadcause-build` and `x-beadcause-pid`,
@@ -12109,9 +12159,10 @@ directory.
 
 The width suite ends by running the real program: `node bin/monitor.js --once` against a
 fake daemon, twice, with every rendered line measured. Around each of those it arms a
-`setTimeout(… child.kill('SIGKILL') …)`, because `--once` does a cold `fetch` with no
-timeout of its own and a daemon that accepts without answering would otherwise hang the
-suite forever.
+`setTimeout(… child.kill('SIGKILL') …)`, because at the time `--once` did a cold `fetch`
+with no timeout of its own and a daemon that accepts without answering would otherwise
+hang the suite forever. (That is [fixed now](#a-cron-entry-that-never-returns--monitor---once),
+and the guard is kept for the rest of the ways a child can wedge.)
 
 The budget was 30 seconds and there was no retry, and what came out when it ran out was
 this:
