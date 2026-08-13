@@ -18,6 +18,26 @@
   rows moved into the inbox and the board kept its URLs without keeping a fifth of the
   bar. A page can be reachable, load-bearing and not a tab — and several are.
 
+  Kept its URLs and lost its way in, as it turned out, which is bc-d4d5: the board is a
+  pane on the advocates page now. "Not a tab" was right and "reachable" was not, and the
+  fix for the second is not to undo the first.
+
+  **Chat** went the same way in the same breath (bc-l8jp.5), for a second reason on top
+  of that one: it was the one tab that was also the way to *create* something, and a bar
+  drawn identically on every page cannot hold a create — whatever it did would have to
+  mean the same thing on all of them, and creating does not. So the conversations you
+  have open are inbox rows like the pull requests, and starting one is ＋ on the inbox.
+  The bar navigates; the inbox creates.
+
+  The same rule is what keeps the **Mirror** out of this list (bc-3xb), and it is worth
+  knowing before you fill either of the places those two left. The Mirror is a *mode* of
+  the advocates page — the same repos and sessions seen from the phone rather than from
+  this Mac — and it is the one surface here that is meaningless on the device a bottom tab
+  is tapped from: it follows another device and drops its own (`notMe` in mirror.js), so a
+  phone tapping a Mirror tab would read "Looking for a device…" forever. It stays an
+  in-page pane on monitor.html. That there is now room on the bar is not an argument for
+  putting it here; see README, "The Mirror is a pane, not a tab".
+
   It is built here rather than pasted into five <head>-alike blocks of HTML because
   there is no templating in this app and a bar that says different things on
   different pages is worse than no bar. One list, one place to add a tab, and one
@@ -39,37 +59,44 @@
     // to recognise all of them or the bar shows nothing as current on a page you are
     // plainly looking at.
     { id: 'inbox', href: '/', icon: '📥', label: 'Inbox', paths: ['/', '/index.html'] },
-    // Everywhere else this is a "chat session" — the page title, the <h1>, the
-    // foundation, the README. Here it is one word, and the bar is why: five tabs
-    // give each label 72px at 360px, and "Chat session" measures 68px *unwrapped*,
-    // so it takes two lines while its three neighbours take one and its icon rides
-    // higher than theirs. 360px is the common Android width and the app is a WebView
-    // shell, so that is the ordinary case, not the edge. The word it might be
-    // confused with — the agent chats on /foundations — is not a tab; the tab that
-    // *was* ambiguous with it, "Sessions", is gone, and the short label is still the
-    // right one on a bar this tight.
-    // The id and the href stay `console`: they live in stored conversation records
-    // and on the phone's home screen.
-    // 💬 rather than the 🧾 this used to be (bc-6np). The receipt was right when the
-    // entry meant the proposal it produces, and it still is on the three places that
-    // do mean that — the proposal button on the page itself, the "proposed N beads —
-    // review" link, and the inbox's "work out the next beads from this". The tab means
-    // the conversation, and the session rows already draw an open one with 💬, so this
-    // agrees with them rather than colliding. No U+FE0F: unlike the ⌨ trap recorded in
-    // index.html, U+1F4AC is emoji-presentation by default and needs no coaxing.
-    { id: 'console', href: '/console', icon: '💬', label: 'Chat', paths: ['/console', '/console.html'] },
-    // There was a **PRs** tab here, next to Advocates. It is gone (bc-l8jp.6) and the
+    // There was a **Chat** tab here, and it is gone (bc-l8jp.5). Not because the chat
+    // session mattered less than the ones that are left, but because it was the one
+    // tab that was two things at once: a *list* of conversations you had already
+    // started, and the only way to start another. Both belong somewhere better. The
+    // list is a category in the inbox now — the conversations you have open are
+    // incoming things, exactly like a question or a pull request, and the inbox's kind
+    // filter already had a table to add them to. Starting one is the ＋ on the inbox,
+    // which is the primary action of the whole app and was never a navigation.
+    //
+    // **`/console` is still a live route with no tab pointing at it.** The id and the
+    // href live in stored conversation records and on people's home screens, so the
+    // page answers to both of its paths exactly as before (see `serveStatic`, and
+    // test/pagepaths.mjs); it is reached from a row in the inbox or from ＋ rather
+    // than from here, and the bar on it marks nothing as current because you are not
+    // on one of these views. It freed a slot on what was then a five-tab bar, which is
+    // what §6 step 8 of the UX review and bc-3xb were both arguments about — and the
+    // tab below went the same way in the same breath, so that argument is settled twice
+    // over rather than narrowly.
+    //
+    // The 💬 the tab had taken by the end (bc-6np, over the 🧾 it started with) went with
+    // it, and it is not lost: the inbox's own session rows draw an open conversation with
+    // exactly that, which is where the icon now does its work.
+    // There was a **PRs** tab here too, next to Advocates. It is gone (bc-l8jp.6) and the
     // reason is the same as the gap above it: a tab is a claim that a screen is somewhere
     // you *live*, and the pull request board is somewhere you glance — "did that ship?" —
     // and then act on twice a day. The rows themselves are incoming work like everything
     // else the inbox holds, so they are cards in the inbox now, under their own filter
-    // with a sub-filter over the status ladder. `/prs`, `/pulls` and `/prs.html` all still
-    // serve the board, which is still the whole of the shipping screen; what points at it
-    // is a link on every PR card rather than a fifth of this bar.
+    // with a sub-filter over the status ladder.
     //
-    // Which means the board is a page the bar marks nothing as current on. That is
-    // deliberate and it is checked (scripts/tabbar-check.mjs): the bar is still there,
-    // because it is the only way off any of these pages.
+    // **That rule has not moved, and the board has (bc-d4d5).** Taking it off the bar
+    // left nothing at all pointing at it: the only route in was the link on a PR card in
+    // the inbox, so on a day with no pull request in the inbox there was no way to reach
+    // **Ship** short of typing a URL. It is a pane on the advocates page now — the third
+    // chip on the row above this bar — which is the Mirror's argument for the second
+    // time: a *mode* of the page you already watch work from, not a page you live on.
+    // So `/prs`, `/pulls` and `/prs.html` are in the Advocates `paths` below, and this
+    // bar marks Advocates as current on all three, which is exactly what the tab means.
+    //
     // The sessions view too. `/sessions`, `/work` and `/work.html` all serve this page
     // now, and they stay in `paths` so the bar marks the right tab for a phone opening
     // the shortcut it has had on its home screen for months.
@@ -78,8 +105,34 @@
       href: '/monitor',
       icon: '📣',
       label: 'Advocates',
-      paths: ['/monitor', '/advocates', '/monitor.html', '/sessions', '/work', '/work.html'],
+      paths: [
+        '/monitor',
+        '/advocates',
+        '/monitor.html',
+        '/sessions',
+        '/work',
+        '/work.html',
+        '/prs',
+        '/pulls',
+        '/prs.html',
+      ],
     },
+    // The record (bc-nib3.2). It earns a tab by this file's own rule rather than in
+    // spite of it: **the historical record is somewhere you live** — it is where you go
+    // to ask "what happened to that", and before it existed a bead that closed last week
+    // was reachable only if you still remembered its id. The inbox is what is arriving,
+    // Advocates is what is running this minute, and neither of them can answer a
+    // question about the past, because a thing that is finished has by definition left
+    // both lists.
+    //
+    // Here rather than at either end, which is two decisions. The bar had to grow in the
+    // **middle**: Inbox is leftmost because it is home and it is `/`, Admin is rightmost
+    // because it is the tab you least want to hit by accident, so neither of the two
+    // positions anybody has learned moves to a different edge. And of the two middle
+    // slots this takes the later one, so that the first three read left to right in the
+    // order the work does — what is arriving, what is running, what is finished — and
+    // Inbox and Advocates, the pair you cross between all day, stay next to each other.
+    { id: 'history', href: '/history', icon: '📜', label: 'History', paths: ['/history', '/history.html'] },
     // The fifth tab this file's header left room for. Pause all / resume all lives
     // on its own page, and it has to be reachable from wherever you noticed you
     // wanted it — which is the point of the bar.

@@ -43,6 +43,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { cleanupTmp } from './helpers/tmp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(HERE, '..');
@@ -60,8 +61,6 @@ fs.mkdirSync(process.env.BEADCAUSE_CONFIG_DIR, { recursive: true });
 delete process.env.BEADCAUSE_OBSERVE;
 delete process.env.BEADCAUSE_READONLY;
 
-// foundation.js first, deliberately: it and agents.js import each other, and the module
-// entered first is the one whose constants initialise.
 const foundation = await import(LIB('foundation.js'));
 const amendment = await import(LIB('amendment.js'));
 const { parseProposal, proposalBody } = await import(LIB('proposal.js'));
@@ -286,8 +285,11 @@ fs.writeFileSync(
 const fs = require('node:fs');
 const path = require('node:path');
 // The prompt matters as much as the answer here: the reflection section is what tells the
-// agent where a non-amendable change belongs, and it is only in the argv.
-fs.writeFileSync(path.join(process.cwd(), 'PROMPT.md'), process.argv[3] || '');
+// agent where a non-amendable change belongs, and it is only in the argv. Read as the
+// operand after \`--\` rather than by index, which is what the real parser does and what
+// keeps this stub honest if the flags before it ever change again (bc-i4sa).
+const sep = process.argv.indexOf('--');
+fs.writeFileSync(path.join(process.cwd(), 'PROMPT.md'), (sep === -1 ? '' : process.argv[sep + 1]) || '');
 const answer = fs.readFileSync(path.join(process.cwd(), 'ANSWER.md'), 'utf8');
 process.stdout.write(JSON.stringify({ type: 'system', subtype: 'init' }) + '\\n');
 process.stdout.write(JSON.stringify({ type: 'result', subtype: 'success', result: answer }) + '\\n');
@@ -439,7 +441,7 @@ await test('the prompt told it where a non-amendable change belongs', () => {
   assert.match(prompt, /protocolOwner/);
 });
 
-fs.rmSync(tmp, { recursive: true, force: true });
+await cleanupTmp(tmp);
 
 console.log(failures ? `\n${failures} failed` : '\nbeyond the amendable set: all good');
 process.exit(failures ? 1 : 0);

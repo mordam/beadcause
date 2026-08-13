@@ -73,10 +73,11 @@
   const refresh = document.getElementById('refresh');
   const said = document.getElementById('said');
 
-  /* Nothing here streams and nothing here is expensive — /api/admin reads two
-     in-memory structures. Slow enough not to fight your thumb, fast enough that the
-     counts on the buttons are the counts you are pressing. */
-  const REFRESH_MS = 10000;
+  /* This page used to re-ask every ten seconds, all day, for as long as it was open —
+     and one of the two things it asked for, `/api/work`, is a `bd` sweep across every
+     workspace. So the most expensive refresh in the app was on the screen you leave
+     open while you decide whether to stop everything. It follows the daemon's event log
+     now (see `follow` below) and asks for nothing at all while nothing moves. */
 
   const esc = (s) =>
     String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -265,7 +266,18 @@
     // The armed button is about to be replaced by a fresh one, so drop the arm
     // rather than leaving `armed` pointing at a node that is no longer on the page.
     disarm();
-    out.innerHTML = state.scopes.map(card).join('');
+    // Keyed by scope, and touching only the cards whose HTML actually differs. This
+    // mattered less when the page repainted on a ten-second timer and matters now: an
+    // advocate launching a session in one repo must not rebuild the other six cards,
+    // because a rebuild is what would take a card out from under a thumb on its way to
+    // a button. See public/warm.js.
+    const chunks = state.scopes.map((s) => ({ key: s.id, html: card(s) }));
+    const paint = window.beadcause?.warm?.paint;
+    if (paint) paint(out, chunks);
+    else out.innerHTML = chunks.map((c) => c.html).join('');
+    // Re-applied after every paint rather than once: a fresh card arrives with its
+    // buttons enabled, and an observer may look at this page and may not act on it.
+    if (isObserving) for (const b of out.querySelectorAll('button[data-do]')) b.disabled = true;
   }
 
   /* ------------------------------------------------------------------ acting */
@@ -361,14 +373,33 @@
     const warm = window.beadcause?.warm;
     const hit = warm?.read?.('/api/admin');
     if (!hit?.data) return false;
+    // Held rather than fetched, and only to grey the buttons out. Absent is not
+    // "not an observer" — it is "we do not know yet", and the poll behind this settles
+    // it either way a moment later. Before the paint, because `render` is what disables
+    // the buttons and it would otherwise draw one live frame of a page you may not act
+    // on. Off `/api/work` still: this page no longer fetches it, but a sibling view
+    // warms it and reading what is already there costs nothing.
+    const work = warm.read('/api/work');
+    if (work?.data && typeof work.data.observing === 'boolean') setObserving(work.data.observing);
     state = hit.data;
     render();
-    // Held rather than fetched, and only to grey the buttons out. Absent is not
-    // "not an observer" — it is "we do not know yet", and the fetch behind this
-    // settles it either way a moment later.
-    const work = warm.read('/api/work');
-    if (work?.data && observing) observing.hidden = !work.data.observing;
     return true;
+  }
+
+  /**
+   * Which daemon you are looking at.
+   *
+   * Off the poll rather than off `/api/work`, which is what this page used to ask for —
+   * and `/api/work` is a `bd` sweep across every workspace, asked for one boolean, every
+   * ten seconds. The event log carries `observing` on every wake, including the first
+   * one, and carries it for free. That single field is the whole reason this page ever
+   * touched the most expensive endpoint in the app.
+   */
+  let isObserving = false;
+  function setObserving(on) {
+    isObserving = Boolean(on);
+    if (observing) observing.hidden = !isObserving;
+    if (isObserving) for (const b of out.querySelectorAll('button[data-do]')) b.disabled = true;
   }
 
   async function load() {
@@ -378,25 +409,78 @@
       warm?.write?.('/api/admin', state);
       pulse?.classList.remove('bad');
       render();
+      // The request came back, so the credential is good: the moment it is safe to go
+      // and warm the other four tabs. Once per document — see public/warm.js.
+      warm?.prewarm?.({ here: 'admin', api });
     } catch (err) {
       pulse?.classList.add('bad');
       if (!state) out.innerHTML = `<div class="empty">Cannot reach the daemon — ${esc(err.message)}</div>`;
+    } finally {
+      // Whether or not that worked, and deliberately: a page opened while the daemon is
+      // restarting used to be brought back by the ten-second timer, and with the timer
+      // gone the stream is the only thing that can. Its own backoff is what stops that
+      // being a request every five seconds at a daemon that is not coming back soon.
+      follow();
     }
-    // An observer may look at this page and may not act on it. The badge is the
-    // same one /monitor shows, for the same reason: which daemon this is.
-    try {
-      const work = await api('/api/work');
-      warm?.write?.('/api/work', work);
-      if (observing) observing.hidden = !work.observing;
-      if (work.observing) {
-        for (const b of out.querySelectorAll('button[data-do]')) b.disabled = true;
-      }
-      // Both requests came back, so the credential is good: the moment it is safe to
-      // go and warm the other four tabs. Once per document — see public/warm.js.
-      warm?.prewarm?.({ here: 'admin', api });
-    } catch {
-      /* The page is still useful without it. */
-    }
+  }
+
+  /* ------------------------------------------------------------------- the stream */
+
+  /**
+   * Follow the event log instead of re-asking on a clock.
+   *
+   * `want: 'presence'` is what makes the park free: the daemon sweeps `bd` for a poll
+   * that asked for the inbox questions, and this page draws none of them. It wants to be
+   * *woken* — and then it asks `/api/admin`, which is two in-memory reads and no `bd` at
+   * all. `cold: true` because nothing this page fetches carries a sequence, and with
+   * `want: 'presence'` the `since`-less first request that learns one costs nothing.
+   *
+   * **Why it re-asks for the whole status rather than patching a row.** Every number on
+   * this page is a promise about what a press will do — "Pause 3 advocates · close 2
+   * terminals" — and the two halves of it come from different places on the daemon: the
+   * advocate roster is on the poll, the open terminals and this page's own record of
+   * what it paused are not. Patching the half that arrives and leaving the other half
+   * from a minute ago would produce a button whose label was true of nothing. So the
+   * status is asked for again, and the reason that is an acceptable answer here and
+   * nowhere else on this screen is that it is not a sweep.
+   */
+  let stream = null;
+  function follow() {
+    if (!window.beadcause?.stream) return;
+    // Mounted once and started every time `load` runs — the boot and the ⟳ — so a stream
+    // that gave up after a run of failures can be picked back up by hand. `start` on one
+    // that is already parked is a no-op.
+    if (stream) return stream.start();
+    stream = window.beadcause.stream.follow({
+      api,
+      want: 'presence',
+      cold: true,
+      onWake({ data, events, resync }) {
+        // On every wake, including the quiet ones, and free.
+        if (typeof data.observing === 'boolean') setObserving(data.observing);
+        // Presence is a thumb moving on somebody's phone. It wakes this poll on purpose
+        // — that is how the mirror works — but it has changed no advocate and no
+        // terminal, and asking again for it would be a timer built out of somebody
+        // else's scrolling.
+        if (!resync && !window.beadcause.stream.moved(events)) return;
+        // Not while a press is in flight, and not while a destructive button is armed:
+        // either would redraw the button out from under the thumb already moving to it.
+        // The next event repaints; so does the ⟳.
+        if (busy || armed) return;
+        load();
+        // Beside `load` rather than behind `resync`, and unlike the certificate card:
+        // this list changes from *outside* this page — another browser signing in, or a
+        // revoke tapped on the phone in your other hand — so a page that only re-read it
+        // when it had lost its place in the log would offer a Revoke button for a session
+        // that ended an hour ago. It costs a `state.json` read and no `bd` sweep, which
+        // is the whole reason the ten-second timer this replaced was worth removing.
+        loadDevices();
+        // Only when we have lost our place in the log, because the certificate card is
+        // the one thing here that nothing but this page ever changes.
+        if (resync) loadTls();
+      },
+    });
+    stream.start();
   }
 
   /* ------------------------------------------------------------------ devices */
@@ -603,12 +687,57 @@
     }
   }
 
-  /** How the certificate is doing, in a phrase. */
+  /**
+   * How long ago, in the coarsest unit that still says something.
+   *
+   * Deliberately the same three tiers and the same two thresholds as `ago` in
+   * lib/tls.js, which is what `npm run swap:status` prints — the terminal and this card
+   * are two readouts of one fact, and two of them rounding differently is how "checked
+   * 2h ago" here and "checked 89m ago" there turn into a question about which is right.
+   * It stops at hours for the same reason that one does: the alarming case is a small
+   * number that has stopped moving, not a large one.
+   */
+  function ago(at) {
+    const then = Date.parse(at || '');
+    if (!Number.isFinite(then)) return null;
+    const secs = Math.max(0, Math.round((Date.now() - then) / 1000));
+    if (secs < 90) return `${secs}s ago`;
+    if (secs < 5400) return `${Math.round(secs / 60)}m ago`;
+    return `${Math.round(secs / 3600)}h ago`;
+  }
+
+  /**
+   * How the certificate is doing, in a phrase.
+   *
+   * The days come off the disk (`certificateState`) and the check comes off the socket
+   * (`serving.checkedAt`, stamped on the live listener by the renewal loop on every
+   * tick) — two facts, and the card is unreadable without both. A certificate with
+   * eighty-nine days left and a loop that last looked six weeks ago is a dead loop, and
+   * neither number says that on its own: the calendar keeps counting down whether or not
+   * anything is still renewing it, and this card was previously showing exactly that
+   * state as healthy.
+   *
+   * Nothing is said when the field is absent, which is the ordinary answer from a router
+   * older than it — it cannot hot-swap itself, so its snapshot predates a deploy until a
+   * `launchctl kickstart`. Silence there is the point: a card that guessed "checked just
+   * now" from the fact that it had *something* to draw would be asserting the one thing
+   * this is here to detect.
+   *
+   * No threshold is applied to the number on purpose. How old is too old is the renewal
+   * loop's own cadence, which is not on the wire — so this says when, plainly, and lets
+   * the reader compare it against a clock rather than inventing a limit here that the
+   * loop has never agreed to.
+   */
   function certPhrase(t) {
     if (!t.name) return 'Tailscale has not named this Mac yet — `tailscale status` did not answer.';
     if (!t.have) return `No certificate for ${t.name} yet.`;
+    const checked = ago(t.serving?.checkedAt);
+    const since = checked ? `, checked ${checked}` : '';
+    // Expired is a fact about the calendar and not about whether there is one: the
+    // daemon keeps serving it on purpose (bc-jv86), so this says which of the two.
+    if (t.expired) return `Certificate for ${t.name} — EXPIRED ${Math.abs(Math.round(t.daysLeft))} days ago${since}.`;
     const days = t.daysLeft === null ? 'an unreadable expiry' : `${Math.round(t.daysLeft)} days left`;
-    return `Certificate for ${t.name} — ${days}${t.renewing ? ', renewing' : ''}.`;
+    return `Certificate for ${t.name} — ${days}${t.renewing ? ', renewing' : ''}${since}.`;
   }
 
   /**
@@ -640,19 +769,23 @@
   function tlsCard(t) {
     const serving = t.serving;
     const ready = t.enabled && t.have;
-    const state3 = serving?.tls
-      ? { text: `serving ${serving.name || 'https'}`, tone: 'live' }
-      : t.restartNeeded
-        ? // A certificate is ready and the socket is still plain: the process holding the
-          // port looks for one every minute and adopts it without being restarted, so this
-          // is a wait rather than a chore. Turning HTTPS *off* is the direction that still
-          // needs a restart — a listener already terminating TLS cannot stop without one.
-          { text: ready ? 'ready — picked up within a minute' : 'restart to stop serving it', tone: 'held' }
-        : ready
-          ? { text: 'on', tone: 'live' }
-          : t.enabled
-            ? { text: 'on, no certificate', tone: 'held' }
-            : { text: 'off', tone: 'dim' };
+    const state3 = t.expired
+      ? // Served, and broken: the chip is the first thing read on this card and it must
+        // not say "serving" about an origin every browser is refusing.
+        { text: 'expired — every phone is warned', tone: 'held' }
+      : serving?.tls
+        ? { text: `serving ${serving.name || 'https'}`, tone: 'live' }
+        : t.restartNeeded
+          ? // A certificate is ready and the socket is still plain: the process holding the
+            // port looks for one every minute and adopts it without being restarted, so this
+            // is a wait rather than a chore. Turning HTTPS *off* is the direction that still
+            // needs a restart — a listener already terminating TLS cannot stop without one.
+            { text: ready ? 'ready — picked up within a minute' : 'restart to stop serving it', tone: 'held' }
+          : ready
+            ? { text: 'on', tone: 'live' }
+            : t.enabled
+              ? { text: 'on, no certificate', tone: 'held' }
+              : { text: 'off', tone: 'dim' };
 
     // What the switch costs, said in the button rather than beside it. Only when the
     // origin actually moves: a `baseUrl` you set by hand — a reverse proxy, a real
@@ -670,7 +803,8 @@
         }</button>`
       );
     } else {
-      if (!t.have) buttons.push(`<button class="primary" data-tls="on">Try again — ask Tailscale for a certificate</button>`);
+      if (!t.have || t.expired)
+        buttons.push(`<button class="primary" data-tls="on">Try again — ask Tailscale for a certificate</button>`);
       buttons.push(`<button class="secondary" data-tls="off" data-confirm="${cost}">Turn HTTPS off</button>`);
     }
 
@@ -684,10 +818,16 @@
         Phones are handed <code>${esc(t.wouldServe)}</code>.
       </p>
       ${
-        t.alarming && t.have
-          ? `<p class="admin-warn"><strong>This certificate is nearly out.</strong> The daemon renews inside the last
+        t.expired
+          ? `<p class="admin-warn"><strong>This certificate has expired, and is still what is being served.</strong> Every
+             phone now gets a certificate warning on every page, and the installed app cannot fetch anything — but the
+             origin has not quietly dropped to plain http, which would turn off the microphone and the offline app with
+             nothing on screen to say why. Fix it with <code>tailscale cert ${esc(t.name || '')}</code> on the Mac; the
+             socket picks the new one up within six hours, or press <strong>Try again</strong> here.</p>`
+          : t.alarming && t.have
+            ? `<p class="admin-warn"><strong>This certificate is nearly out.</strong> The daemon renews inside the last
              month; still being this close means the renewal is not working.</p>`
-          : ''
+            : ''
       }
       ${askFailure(tlsDid?.asked)}
       ${
@@ -737,6 +877,13 @@
              Open the new address here, or scan it on another device.`
           : 'Nothing moved, so nothing was signed out. The code is here anyway.'
       }</p>
+      ${
+        view.pairing.appRefuses
+          ? `<p class="admin-warn"><strong>This code pairs a browser, not the Android app.</strong> The address is plain
+             http, and the app only sends its token to <code>https://…ts.net</code> — scanning this on the app gets a
+             refusal, with the fix back up there under <strong>HTTPS</strong>.</p>`
+          : ''
+      }
       <div class="tls-qr">${view.pairing.qr}</div>
       <div class="admin-btns">
         <a class="primary" href="${esc(view.pairing.url)}">Open ${esc(hostOf(view.pairing.origin))}</a>
@@ -830,13 +977,6 @@
   refresh?.addEventListener('click', loadTls);
   refresh?.addEventListener('click', load);
   refresh?.addEventListener('click', loadDevices);
-  // Not while a press is in flight, and not while a destructive button is armed:
-  // either would redraw the button out from under the thumb already moving to it.
-  setInterval(() => {
-    if (!busy && !armed) load();
-    if (!busy && !armed) loadTls();
-    if (!busy && !armed) loadDevices();
-  }, REFRESH_MS);
   warmBoot();
   load();
   loadTls();

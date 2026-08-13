@@ -40,8 +40,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import net from 'node:net';
 import { fileURLToPath } from 'node:url';
+import { boundPort } from './helpers/net.mjs';
+import { cleanupTmp } from './helpers/tmp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const LIB = (f) => path.join(HERE, '..', 'lib', f);
@@ -249,19 +250,10 @@ const calls = () =>
     .filter(Boolean)
     .map((l) => JSON.parse(l));
 
-const port = await new Promise((resolve, reject) => {
-  const probe = net.createServer();
-  probe.on('error', reject);
-  probe.listen(0, '127.0.0.1', () => {
-    const { port: p } = probe.address();
-    probe.close(() => resolve(p));
-  });
-});
-
 const cfg = {
-  port,
+  port: 0,
   host: '127.0.0.1',
-  baseUrl: `http://127.0.0.1:${port}`,
+  baseUrl: '',
   token: 'answered-test-token',
   actor: 'beadcause',
   bdBin: BIN,
@@ -279,6 +271,11 @@ const cfg = {
 const { createApp, listen } = await import(LIB('server.js'));
 const app = createApp(cfg);
 const servers = listen(cfg, app.handler);
+const port = await boundPort(servers);
+// createApp and listen hold this object, so the two fields that could only be
+// filled in once the kernel had chosen are filled in here, before the first call.
+cfg.port = port;
+cfg.baseUrl = `http://127.0.0.1:${port}`;
 const call = async (pathname, opts = {}) => {
   const res = await fetch(`http://127.0.0.1:${port}${pathname}`, {
     method: opts.method || 'GET',
@@ -365,7 +362,7 @@ try {
   });
 } finally {
   for (const s of servers) s.close();
-  fs.rmSync(tmp, { recursive: true, force: true });
+  await cleanupTmp(tmp);
 }
 
 console.log(failures ? `\n${failures} failure(s)\n` : '\nall good\n');

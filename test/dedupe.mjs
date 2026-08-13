@@ -32,6 +32,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { boundPort } from './helpers/net.mjs';
+import { cleanupTmp } from './helpers/tmp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const LIB = (name) => path.join(HERE, '..', 'lib', name);
@@ -297,9 +299,8 @@ console.log('[]');
   { mode: 0o755 }
 );
 
-const PORT = 4389;
 const cfg = {
-  port: PORT,
+  port: 0,
   host: '127.0.0.1',
   token: 'test-token',
   bdBin: BD,
@@ -320,6 +321,7 @@ const calls = () =>
 const resetCalls = () => fs.writeFileSync(CALLS, '');
 
 const servers = listen(cfg, createApp(cfg).handler);
+const PORT = await boundPort(servers);
 
 const approve = async (id, response = 'CREATE: file the proposed bead in beadcause.') => {
   const res = await fetch(`http://127.0.0.1:${PORT}/api/respond`, {
@@ -435,8 +437,9 @@ console.log('[]');
   const rows = annotateDuplicates([proposed('Another new bead')], []);
   setIssues([proposalBead('bc-q6', 'beadcause', rows)]);
 
-  const blindCfg = { ...cfg, port: PORT + 1, bdBin: broken };
+  const blindCfg = { ...cfg, port: 0, bdBin: broken };
   const blind = listen(blindCfg, createApp(blindCfg).handler);
+  blindCfg.port = await boundPort(blind);
   try {
     const res = await fetch(`http://127.0.0.1:${blindCfg.port}/api/respond`, {
       method: 'POST',
@@ -473,7 +476,10 @@ await check('declining still declines, and the response is still additive', asyn
 /* -------------------------------------------------------------------- the end */
 
 for (const s of servers) s.close();
-fs.rmSync(tmp, { recursive: true, force: true });
+// Not a bare rmSync: the advocate's writes schedule a commit into `<tmp>/config`, and a
+// `git init` still writing `.git/hooks` under the tree being walked is ENOTEMPTY. bc-5uy8
+// — every check above had passed, and the run stopped here at suite 32 of 105.
+await cleanupTmp(tmp);
 
 console.log(`\n${ran - failures}/${ran} ok`);
 process.exit(failures ? 1 : 0);

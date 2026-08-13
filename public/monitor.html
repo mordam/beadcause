@@ -46,14 +46,50 @@
     </div>
   </header>
 
+  <!-- The second row of tabs on this page, and the only page that has one. It swaps a
+       pane; the bar along the bottom moves between pages. That those two are still drawn
+       alike is the open complaint (bc-stci — the pair wants to be a segmented control,
+       now that bc-4aw has given this bar a selector of its own to be restyled through),
+       but which one the Mirror belongs on is settled: it is a pane (bc-3xb).
+
+       The Mirror is a mode of this page rather than a standing view — the same repos and
+       sessions seen from the phone instead of from this Mac — and it is the one surface
+       in the app that is meaningless on the device a bottom tab is tapped from, because
+       it follows *another* device and drops its own. So it lives here, which costs no
+       /mirror route and no mirror.html, and the swap below is one `hidden` attribute
+       against style.css's `.work[hidden]`. README, "The Mirror is a pane, not a tab",
+       has the reasoning and the reason that has since expired.
+
+       PRs is the third of them (bc-d4d5), and it is the same argument a second time: the
+       shipping screen is somewhere you glance and act on twice a day, which is why it is
+       not on the bottom bar — and it is *this* page's repos, so it is a mode of this page
+       rather than a URL with nothing pointing at it, which is what it had become. Its
+       pane is the whole of the old /prs, drawn by the same board script — which is named
+       once, on its own script tag below, because three suites find it in this file by
+       looking for the first mention of its path and prose ahead of the tag reads to them
+       as the tag being in the wrong place.
+
+       `data-pane` is the section a chip shows and `data-view` is what this device tells
+       public/presence.js it is looking at; public/montabs.js reads both and owns the
+       swap. Mirror's is empty on purpose — see that file. -->
   <nav class="chip-row mon-tabs" id="mon-tabs" aria-label="Views">
-    <button class="chip" data-tab="advocates" aria-pressed="true">Advocates</button>
-    <button class="chip" data-tab="mirror" aria-pressed="false">Mirror<span class="tab-dot" id="mirror-dot" hidden></span></button>
+
+    <button class="chip" data-tab="advocates" data-pane="mon" data-view="sessions" aria-pressed="true">Advocates</button>
+    <button class="chip" data-tab="prs" data-pane="prs" data-view="prs" aria-pressed="false">PRs</button>
+    <button class="chip" data-tab="mirror" data-pane="mirror" data-view="" aria-pressed="false">Mirror<span class="tab-dot" id="mirror-dot" hidden></span></button>
   </nav>
 
   <main id="mon" class="work">
     <div class="empty">Asking every workspace…</div>
   </main>
+
+  <!-- The pull request board. Everything /prs.html used to be, minus the chrome it had
+       as a page of its own: this page's top bar carries the pulse, the ⟳ and the
+       observer mark already, and the board's script shares all three rather than drawing
+       a second set. -->
+  <section id="prs" class="work" hidden>
+    <div class="empty">Asking every repo…</div>
+  </section>
 
   <section id="mirror" class="work" hidden>
     <div class="empty">Looking for a device…</div>
@@ -63,13 +99,28 @@
        sessions view now, and a phone sitting on it should be followable from a screen
        with room — see the presence note at the foot of monitor.js for why a page that
        is also a mirror can safely publish itself. -->
+  <!-- Every error this page hits, sent back to the daemon as a P0 bead: an uncaught
+       exception, a rejected promise, a failed fetch, any red toast. Ahead of every
+       other script, because it can only catch what loads after it — and it is purely
+       additive, so a page that fails to load it behaves exactly as it did before. -->
+  <script src="/report.js"></script>
   <!-- What this page already has, from the last time you were on it: the payload it
        boots from, and the reconciler that keeps a repaint from throwing away the DOM
-       it did not need to touch. First of the shared files, because every page script
-       below asks it for a warm list before it asks the daemon for a cold one. -->
+       it did not need to touch. First of the shared files a page draws with, because
+       every page script below asks it for a warm list before it asks the daemon for a
+       cold one. -->
   <script src="/warm.js"></script>
+  <!-- The delta stream: one long poll on /api/poll, so this page learns what moved
+       instead of re-asking for everything on a clock. Beside warm.js because the two
+       are the same bargain at the two ends of a visit — one paints what you already
+       had, the other keeps it true. -->
+  <script src="/stream.js"></script>
   <script src="/presence.js"></script>
   <script src="/tabbar.js"></script>
+  <!-- The chip row above, and which of the three panes is up. Before every pane's own
+       script, because each of them registers on it — and it holds its first paint until
+       DOMContentLoaded, so the order among the three below does not matter. -->
+  <script src="/montabs.js"></script>
   <!-- Which repo the advocates and sessions on this page belong to. Before monitor.js,
        which registers its repaint on it. -->
   <script src="/spacebar.js"></script>
@@ -80,6 +131,11 @@
        own script, which asks it at boot — or at render — whether a microphone can
        work here at all; a page that drops it draws no mic rather than a dead one. -->
   <script src="/dictate.js"></script>
+  <!-- The PRs pane. prcard.js first: it is the row, the lamps and the status ladder,
+       shared with the cards the inbox draws for the same pull requests, and prs.js takes
+       it apart at the top of its own IIFE and has no board to draw without it. -->
+  <script src="/prcard.js"></script>
+  <script src="/prs.js"></script>
   <script src="/mirror.js"></script>
   <!-- The advocates' rows all point into the graph; the drawer keeps them here. -->
   <script src="/drawer.js"></script>

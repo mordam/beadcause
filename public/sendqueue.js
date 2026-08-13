@@ -213,6 +213,15 @@
       remove,
       sync,
       attach,
+      /**
+       * Draw the strip again without the queue having moved.
+       *
+       * For a caller whose composer changed conversation under it: the bead console
+       * keeps one queue per open chat and one strip on the screen, so bringing a chat
+       * to the front means asking *its* queue to say what it is holding. Every other
+       * repaint here is announced by a change, and this is the one that is not.
+       */
+      repaint: announce,
       list,
       size: () => pending.length,
       /** True while a delivery is in the air — for a caller that wants to say so. */

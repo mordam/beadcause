@@ -38,7 +38,11 @@ class WatchService : Service() {
         private val BACKOFF = longArrayOf(2_000, 5_000, 15_000, 30_000, 60_000, 120_000)
 
         fun start(ctx: Context) {
-            if (!Prefs.isPaired(ctx)) return
+            // isLive, not isPaired: a pairing left on the old cleartext URL cannot be
+            // polled at all — every request dies at the socket on the platform's
+            // cleartext policy — so starting would be a foreground notification that
+            // never hears anything. MainActivity sends that case to the QR screen.
+            if (!Prefs.isLive(ctx)) return
             val intent = Intent(ctx, WatchService::class.java)
             try {
                 ctx.startForegroundService(intent)
@@ -267,12 +271,14 @@ class WatchService : Service() {
 /**
  * Why the phone stayed dark for this one, for the log.
  *
- * Two reasons that look identical in a logcat and are fixed differently: a mute ends
- * on a clock, a filter ends when you press All. Falls back to the mute wording when
+ * Reasons that look identical in a logcat and are fixed differently: a mute ends on a
+ * clock, a filter ends when you press All, and an addressed question is somebody else's
+ * and never rings here however wide the filter goes. Falls back to the mute wording when
  * the server didn't say, which is what an older daemon sends.
  */
 private fun Event.whyQuiet(): String =
     when (quietReason) {
+        "addressed" -> "addressed to somebody else"
         "filtered" -> "outside the inbox filter"
         else -> "${space ?: "its space"} is muted"
     }
