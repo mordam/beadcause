@@ -4470,15 +4470,18 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
    of the way, which is the one place it differs from `.chat-card` above.
 
    The ticket key is `.pill.id`, monospaced with the bead ids for the same reason those
-   are: `TECH-1204` and `TECH-1240` are a glance apart in a proportional face.
-
-   **A column rather than a row, since bc-0i27.7 put three controls on it.** The link and
-   the decision are two different lines: approve, discuss and cancel beside a summary on
-   a 360px phone leaves neither of them a readable width, and the summary is what you
-   read *before* deciding. */
-.jira-card { display: flex; flex-direction: column; align-items: stretch; gap: 6px; padding: 10px 12px; }
+   are: `TECH-1204` and `TECH-1240` are a glance apart in a proportional face. */
+/* A column rather than a row since bc-0i27.5, and the change is one line: the ticket
+   still draws as one centred row, but what beadcause made of it goes *underneath* that
+   row rather than inside it — because the row is a link to JIRA, the id under it is a
+   link to the bead, and an `<a>` may not contain an `<a>`. `.work-row` is `flex: none`
+   for the same reason: in a column it would otherwise stretch to fill the card. The
+   three controls bc-0i27.7 added sit under both, on the same argument again: approve,
+   discuss and cancel beside a summary on a 360px phone leaves neither a readable width,
+   and the summary is what you read *before* deciding. */
+.jira-card { display: flex; flex-direction: column; align-items: stretch; padding: 10px 12px; }
 .jira-card .work-row {
-  min-width: 0;
+  flex: none; min-width: 0;
   padding: 0;
   /* The card's own border is the divider in this context — the note on `.chat-card`
      above is the whole of why. */
@@ -4486,6 +4489,20 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
   text-decoration: none;
 }
 .jira-card .work-sub .pill { margin-right: 5px; }
+/* What the ingestion made of the ticket: an id and a count, a wait, or a failure. Indented
+   to the width of the emoji slot above it so it lines up with the title rather than with
+   the card's edge — it is a note about that row and reads as one. */
+.jira-ingest {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+  margin: 6px 0 0 30px;
+  font-size: 11.5px; color: var(--muted);
+}
+.jira-ingest .pill.id { margin: 0; }
+/* Still reading is not a state anybody should read as finished, so it is quieter than the
+   answer that replaces it — and a failure is the one thing here worth a colour, because
+   nothing retries it until the daemon restarts. */
+.jira-ingest.waiting { font-style: italic; opacity: 0.8; }
+.jira-ingest.bad { color: var(--danger); }
 /* The slot holds one emoji rather than a spark, so this is not the flex-parent line
    `.chat-card` needs — it is the centring every other row of this shape has. */
 .jira-card .work-phase { display: flex; align-items: center; justify-content: center; }
@@ -4499,7 +4516,7 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
    Cancel is pushed to the far end by the auto margin, which is the same ranking every
    destructive control on this page gets: never where a thumb lands on the way to the
    one you meant. */
-.jira-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding-left: 30px; }
+.jira-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 8px 0 0 30px; }
 .jira-acts .jira-cancel { margin-left: auto; }
 /* The link is styled as a button so Discuss and Approve read as one pair of choices —
    it goes to a page rather than posting anything, and that is not a distinction worth
@@ -4796,6 +4813,16 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
 }
 .admin-warn { margin: 7px 0 4px; font-size: 12.5px; line-height: 1.5; color: var(--warn); }
 .admin-warn strong { font-weight: 700; }
+
+/* The terminal card's door — the one control on this page that is a way *in* rather
+   than a switch. `.primary` was written for a <button> in a flex row, so an anchor
+   wearing it needs the three things the button got for free: a box that fills the
+   card, a label centred in it, and no underline. Same bargain as .tls-link below. */
+.admin-door {
+  display: flex; align-items: center; justify-content: center;
+  width: 100%;
+  text-decoration: none;
+}
 
 /* The HTTPS card.
 

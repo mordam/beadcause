@@ -3326,6 +3326,7 @@
         </span>
         <time>${esc(relTime(t.updated))}</time>
       </a>
+      ${jiraIngestHtml(row)}
       ${jiraActsHtml(row)}
     </div>`;
   }
@@ -3371,7 +3372,11 @@
     if (!t.bead) {
       acts.push('<span class="jira-wait">its bead is still being filed…</span>');
     } else if (t.held === false) {
-      acts.push(`<span class="jira-wait">✓ approved as <span class="pill id">${esc(t.bead)}</span></span>`);
+      // The id only when the line above is not already carrying it: `jiraIngestHtml`
+      // draws the epic as a link the moment ingestion has finished, and the same bead id
+      // twice on one card reads as two beads.
+      const named = t.ingest?.epic ? '' : ` as <span class="pill id">${esc(t.bead)}</span>`;
+      acts.push(`<span class="jira-wait">✓ approved${named}</span>`);
     } else {
       acts.push(`<button class="secondary" data-act="jira-approve" ${at} ${busy ? 'disabled' : ''}>Approve</button>`);
       acts.push(
@@ -3392,6 +3397,50 @@
 
   /** What the cancel button says. The second tap has to say what it will not take back. */
   const jiraCancelLabel = (armed) => (armed ? 'Tap again — it stops coming back' : 'Cancel');
+
+  /**
+   * What became of the ticket — step 5 of bc-0i27, and the only part of a ticket row
+   * that is about beadcause rather than about JIRA.
+   *
+   * A ticket arrives, gets one held epic within the minute, and is then *read* by an
+   * agent that proposes what it decomposes into (lib/jiraingest.js). That takes minutes,
+   * so the row has three things to be able to say and each of them is a different next
+   * move:
+   *
+   *   - **still reading** — there is nothing to look at yet. Tapping the row opens the
+   *     ticket, which is what you read to decide, and that is the whole affordance.
+   *   - **the parent id** — the reading finished and there are beads. The id is a link
+   *     into the bead's own detail view, because "N beads" you cannot open is a claim
+   *     rather than a result.
+   *   - **it failed** — said out loud, with the reason, rather than left saying *reading*
+   *     forever. A stuck ingestion that looks like a slow one is the failure this line
+   *     exists to make impossible: nothing retries it until the daemon restarts, so
+   *     nobody would ever find out.
+   *
+   * Outside the anchor above rather than inside it, and that is not layout preference: an
+   * `<a>` inside an `<a>` is invalid, and the two links genuinely go to different places
+   * — the row to JIRA, the pill to the bead.
+   */
+  function jiraIngestHtml(row) {
+    const ing = row.jira?.ingest;
+    if (!ing) return '';
+    const bead = ing.epic
+      ? `<a class="pill id" href="${esc(graphUrl({ workspace: row.workspace, id: ing.epic }))}&amp;open=1"
+          target="_blank" rel="noopener">${esc(ing.epic)}</a>`
+      : '';
+    if (ing.state === 'done') {
+      const n = Number(ing.children) || 0;
+      return `<div class="jira-ingest">${bead}<span>${n} bead${n === 1 ? '' : 's'} under it</span></div>`;
+    }
+    if (ing.state === 'failed') {
+      // The epic is still there and still worth opening — it is the ticket's bead
+      // whether or not anything was written under it — so the id stays on the row.
+      return `<div class="jira-ingest bad">${bead}<span>could not be read — ${esc(ing.error || 'no reason given')}</span></div>`;
+    }
+    return `<div class="jira-ingest waiting"><span>${
+      ing.state === 'queued' ? 'waiting to be read…' : 'reading the ticket…'
+    }</span></div>`;
+  }
 
   /**
    * The scope chips. The third column is what the settings panel used to spell out

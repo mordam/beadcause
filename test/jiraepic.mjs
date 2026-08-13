@@ -515,13 +515,20 @@ console.log('\nwired into the poll cycle, and into bd');
   );
   check(
     'and swept off the read that just happened',
-    /await app\.jiraEpics\?\.sweep\(cfg, cfg\.workspaces, liveResults\(out\.results\)\)/.test(server),
+    /const live = liveResults\(out\.results\)[\s\S]{0,200}await app\.jiraEpics\?\.sweep\(cfg, cfg\.workspaces, live\)/.test(
+      server
+    ),
     'the filing is not in sweepJira'
   );
   check(
     'through the cancel filter, so a cancelled ticket is never filed a second epic',
     /import \{ liveResults[^}]*\} from '\.\/jiracancel\.js'/.test(server),
     'a cancel that filtered only the rows on the screen would file a fresh bead on every restart'
+  );
+  check(
+    'and the ingester is handed the same filtered list, not the raw one',
+    /for \(const r of live \|\| \[\]\)/.test(server),
+    'a cancelled ticket would still be read by an agent and given children under a closed epic'
   );
   check(
     'off `results` rather than `changed`, so a create that failed is retried',
@@ -532,7 +539,10 @@ console.log('\nwired into the poll cycle, and into bd');
     /if \(epics\.filed\.length\) forgetQueue\(\)/.test(server),
     'the queue would serve a list without the new epic for another fifteen seconds'
   );
-  check('the filer is on the app, so a test can reach it', /jira, jiraEpics \}/.test(server));
+  // Deliberately not anchored to what follows it: `createApp` returns a growing list and
+  // bc-0i27.5 appended `jiraIngest` after this, which a `jiraEpics }` pattern read as the
+  // filer having been taken off the app.
+  check('the filer is on the app, so a test can reach it', /return \{[^}]*\bjiraEpics\b/.test(server));
 
   const bdSrc = fs.readFileSync(LIB('bd.js'), 'utf8');
   check(

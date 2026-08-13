@@ -408,6 +408,11 @@ console.log('\nwired into the poll cycle');
   );
   check(
     'each one stamped with its space, or the inbox filter files it under Other',
+    // The `space:` line rather than the whole expression around it: bc-0i27.5 added a
+    // second stamped field (`ingest`) and broke this row apart across several lines, and
+    // bc-0i27.7 then wrapped the list in the cancel filter — a pattern anchored to
+    // `tickets: jira.tickets().map((t) => ({ ...t, space:` read either of those as the
+    // space having been taken off.
     /space: spaceFor\(cfg, t\.workspace\)\?\.name \|\| null/.test(src),
     'no space on a ticket row'
   );
