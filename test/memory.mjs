@@ -608,9 +608,16 @@ check(
   otherAgent.stdout.trim() === `${LAYOUT}, and scripts/ is neither`,
   otherAgent.stdout
 );
+// The same provenance line the `recall --of` read gets, and it is the same line by
+// construction — one `provenance()` serves both verbs. It says what the note is *worth*
+// rather than whose it is: the privacy framing this replaced (bc-pud4) pointed at a fix
+// that was rejected, because there is no unpublished half to protect.
 check(
-  'and still says whose notes they are, on stderr only',
-  otherAgent.stdout === `${LAYOUT}, and scripts/ is neither\n` && /notes to itself/.test(otherAgent.stderr),
+  'and still says what the note is worth, on stderr only',
+  otherAgent.stdout === `${LAYOUT}, and scripts/ is neither\n` &&
+    /never a reason on its own/.test(otherAgent.stderr) &&
+    /must face scrutiny/.test(otherAgent.stderr) &&
+    !/notes to itself|not published to you|never chose to publish/.test(otherAgent.stderr),
   JSON.stringify({ out: otherAgent.stdout, err: otherAgent.stderr })
 );
 

@@ -2283,9 +2283,11 @@ to you* — held open as a stopgap against the real fix, which was a **curated
 surface**: agents publish the subset they are willing to have read, and the rest
 stays private. That fix was rejected (bc-pud4), and not on cost. **The private half
 does not exist.** An agent writes every memory expecting the others to read it, which
-is a sentence in `memoryBrief` rather than a second store plus a per-key flag plus an
+is a sentence in `memoryBrief` rather than one more store plus a per-key flag plus an
 answer to who curates — the writing agent, the foundation, or you. Curation would
-have been the machinery for a distinction nobody wanted to draw.
+have been the machinery for a distinction nobody wanted to draw. (Not to be confused
+with the two stores `remember` and `note` are: those split on *where a fact is true*,
+and every agent can read both.)
 
 So the guard moved to where the risk actually is. It was never that a reader sees
 something private; it is that a reader **inherits a conclusion as an instruction** —
