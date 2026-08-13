@@ -439,6 +439,27 @@ check('text written in two places is not retypable — picking one would be a gu
   assert.match(a.editable.why, /2 places/);
 });
 
+check('what counts as tracker text is frozen with the screen, not read live', async () => {
+  // The poll keeps running while the mode is on, so `state` in app.js moves on while the
+  // pixels do not. Asked live, the title on screen would not be in the answer and would
+  // come back `unknown` — not refused, and one step from being filed as an edit to a
+  // file it was never in. Found by the browser check, watching a card go stale under a
+  // frozen screen.
+  let live = ['The bead as it was when you froze the screen'];
+  const host = load({ files: { '/': '<div class="title"></div>' }, scripts: [] });
+  host.edit.provideText(() => live);
+  host.edit.on();
+  await host.edit.ready();
+  live = ['The bead three sweeps later'];
+  const a = host.edit.anchorFor(makeEl('div', { class: 'title' }, [], 'The bead as it was when you froze the screen'));
+  assert.equal(a.text.from, 'data', 'the snapshot was taken late, or not at all');
+  // And it thaws with the screen: the next mode reads the payload as it is then.
+  host.edit.off();
+  host.edit.on();
+  const b = host.edit.anchorFor(makeEl('div', { class: 'title' }, [], 'The bead three sweeps later'));
+  assert.equal(b.text.from, 'data', 'the snapshot outlived the mode that took it');
+});
+
 check('a data provider that throws is reported, not silently believed', async () => {
   const host = load({ files: { '/': '<div class="t">Whatever</div>' }, scripts: [] });
   host.edit.provideText(() => {

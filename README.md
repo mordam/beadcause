@@ -4064,6 +4064,141 @@ test/swcache.mjs` is the gate: it fails if the `const` is not the highest note i
 directory, if a note's own heading disagrees with its filename, if the numbers have a
 gap or a duplicate, or if a version block reappears as prose inside `sw.js`.
 
+## Editing the app from inside the app
+
+A change to this webapp has always started the same way: describing a screen, in words,
+to a chat that cannot see it — from the phone the screen is on. The screen is right
+there and is the best description of itself. **Edit mode** (bc-p49x) is the state that
+lets it be used that way: tap ✏️, and the inbox stops being a list you answer and becomes
+a surface you point at.
+
+Only the foundation is built (bc-p49x.1). Nothing captures an edit yet, nothing files
+one, and nothing applies one — those are bc-p49x.2, .3 and .4. What is here is the two
+things all three of them need: **the screen holds still**, and **any element on it can be
+traced back to the line of source that drew it**.
+
+### The screen holds still, and says so
+
+`render()` rebuilds the list and the reconciler under it replaces every chunk whose HTML
+has changed. Both are right for a list that polls every twenty-five seconds, and both are
+ruinous for a mode whose whole premise is that you are pointing at a specific element:
+the thing you tapped is gone by the time the tap is handled. It is the root cause of
+bc-nh19 again, arriving from the other direction.
+
+So while edit mode is on, **the poll keeps running and the paint stops.** That
+distinction is the design. Stopping the poll would leave the page holding a payload from
+before the edit began and needing a cold sweep to recover; a frozen paint has the fresh
+state in hand the whole time and owes exactly one repaint at the end, which is what
+leaving the mode takes. `app.js` asks `beadcause.editMode.frozen()` at its two paint
+entry points — `render()` and `paintList()` — and defers through the `pendingRender`
+machinery it already had for a half-typed answer.
+
+Deliberately *every* repaint, including the forced ones a filter tap makes. A forced
+repaint under your thumb is the case this exists to prevent, not an exception to it. The
+second gate matters for a case the first misses: `load()` paints the *can't reach the
+server* panel straight through `paintList`, so a link dropping mid-gesture would
+otherwise replace the list you were pointing at with an error message.
+
+A frozen inbox and a quiet one are the same picture, so the mode says which: a fixed
+banner across the top — **Edit mode — the screen is frozen** — with a **Done** beside it,
+a tint on the page, and the ✏️ filled. Without that, a screen that had silently stopped
+updating reads as an app that has hung, and the reflex is to reload it, which is the one
+action that both fixes it and throws away whatever was being pointed at.
+
+### An element, and the line of source that drew it
+
+`beadcause.editMode.anchorFor(el)` turns an element into a record that outlives the
+document: the selector chain down to it, its class names, its visible text, the chunk key
+of the card it belongs to — and where in this app's own source it is written.
+
+That last part is possible because **the class names here are hand-written in the
+template literals that emit them.** There is no build step, no CSS module and no
+generated identifier, so `class="p0-title"` in `public/app.js` is the same eleven
+characters that reach the DOM. The anchor walks a ladder of grep keys, most specific
+first — an `id`, then a `data-act` or `data-role`, then the class attribute as written,
+then the rarest single class, then the visible text — and takes the first that names
+exactly one line. The search runs against the page's own scripts, fetched from the server
+that served them, which is the more honest of the two possible searches: what it reads is
+the source that drew the screen you are looking at, not a working tree that may have
+moved on.
+
+Two things make it more than a substring search.
+
+**Comments come off first**, character for character, so line numbers still land. This is
+not tidiness — it was a real wrong answer, found by the mechanism in itself. Every file in
+this repo argues in prose that names the identifiers around it, and the paragraph at the
+top of `public/editmode.js` quotes `class="p0-title"` while explaining why class names
+make good grep keys. So the first version reported *two* sites for a P0 card's title: the
+line that draws it, and the sentence saying that line exists. Two sites reads as
+"ambiguous, refuse the edit", which is the wrong answer reached by counting an English
+sentence as a place markup is emitted.
+
+**The chain narrows what the element cannot.** `<p class="q">` is written three times in
+`public/app.js` — the card's head, the card's foot and the agent card — and the element
+alone cannot say which. The `.card-head` around it can rule the foot's out: a candidate
+survives if the nearest ancestor that resolves to anything has one of its own hits in the
+same file, above it, close enough to be the block it opened.
+
+Where that still leaves more than one, the anchor says so and lists every candidate. An
+anchor that always produced a single answer would be an anchor nobody could trust, so
+there are three honest outcomes and no fourth: **one site**, **several, all named**, or
+**none**.
+
+### Retyping a bead title is editing the tracker, not the app
+
+Half the text on this screen lives in a template literal in `public/*.js` and half of it
+came out of `bd`. Retyping the first is an edit to the app. Retyping the second is an
+edit to the tracker made while believing you are editing the app — and if it were filed,
+an agent would go looking for a string in `public/app.js` that was never there, and might
+find something near enough to change. So the anchor records which, in `text.from`:
+
+- **data** — the trimmed text is exactly a string the page was drawing out of the payload.
+  `app.js` supplies that set through `provideText`, walked generically off `state` rather
+  than field by field, because a hand-kept copy of the payload's shape would go stale
+  silently and in the dangerous direction.
+- **source** — not that, and found verbatim in the page's own scripts or markup.
+- **unknown** — neither: an interpolated string, a number, a run of text assembled from
+  parts. Honest, and not editable.
+
+**Data beats source when a string is both** — a bead titled "Refresh" is not the ⟳ button
+— because that is the direction where being wrong is survivable. Calling a source string
+data refuses an edit you can still make in a chat, the way you always did. Calling a
+tracker string source files a rename against a file it was never in.
+
+The set is snapshotted on the way in rather than read live, and for the same reason the
+paint is frozen: the poll keeps running, so `state` moves on while the pixels do not. Five
+minutes into a session a live read describes a payload three sweeps newer than the screen,
+the title you are pointing at is not in it, and a bead title comes back `unknown` — not
+refused, and one step from being filed. The screen and the set of strings it is drawing
+are frozen together and thaw together.
+
+### Where the button is, and why not the top bar
+
+✏️ sits at the bottom left of the inbox, mirroring ＋ across the foot of the screen: the
+other thumb, the same height, and the same z-index bargain — over the list, under an open
+card. It is not a fifth icon in the top bar because that bar is full at four, which is
+measured rather than assumed: `scripts/topbar-check.mjs` puts a fifth `.icon-btn` at
+216px of `.sheet-actions` against a 133px brand, which wraps `.topbar` to three rows at
+both 360 and 393. See bc-qsj6.1.
+
+The button is in `public/index.html` rather than built by the module, because where it
+goes is a question about *that page's* layout and not about the mode. A page that never
+adds one still gets the whole of `beadcause.editMode`, which is how the checks drive it —
+and a page served without `editmode.js` answers `frozen()` false and behaves exactly as
+the inbox always did.
+
+### Checking it
+
+`node test/editmode.mjs` is in `npm test` and covers the mode, the anchor and the
+source-versus-tracker rule against the real `public/app.js` — including that a P0 title
+really does resolve to one line, which is a claim about this repo rather than a law.
+
+`node scripts/editmode-check.mjs` is the acceptance, in a headless Chrome the size of a
+phone. Its first case is the control and is the reason the rest means anything: with the
+mode **off**, a poll carrying a changed bead replaces the very nodes the frozen case then
+keeps. Without it, a check that stamped every node and found the stamps intact would pass
+just as happily against a page that never polled at all.
+
 ## Detail opens over the tab, not instead of it
 
 The graph and the reader are linked from every view that names a bead — the inbox,

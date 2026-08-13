@@ -95,6 +95,8 @@
   /** The page's own source, as fetched. `null` until a load has been asked for. */
   let sources = null;
   let loading = null;
+  /** The payload text as of the moment the screen was frozen. See `snapshotData`. */
+  let painted;
 
   /* ------------------------------------------------------------------ source */
 
@@ -322,7 +324,15 @@
         const line = lineAt(file.lines, at);
         const from = file.lines[line - 1];
         const end = file.text.indexOf('\n', at);
-        sites.push({ file: file.url, line, text: file.text.slice(from, end === -1 ? undefined : end).trim().slice(0, 200) });
+        sites.push({
+          file: file.url,
+          line,
+          // The character offset as well as the line, because the chain narrowing below
+          // asks how far apart two hits are and lines are the wrong unit for that: a
+          // template literal is one statement spread over twenty of them.
+          at,
+          text: file.text.slice(from, end === -1 ? undefined : end).trim().slice(0, 200),
+        });
         if (sites.length >= cap) return sites;
         at = file.code.indexOf(needle, at + needle.length);
       }
@@ -416,8 +426,19 @@
     const tried = [];
     let best = null;
     for (const key of keysFor(el, text)) {
-      const sites = sitesFor(key.query);
+      let sites = sitesFor(key.query);
       tried.push({ kind: key.kind, query: key.query, found: sites.length });
+      if (sites.length > 1) {
+        // The chain is the anchor, not the element. `<p class="q">` is written three
+        // times in public/app.js — in the card's head, in its foot and in the agent
+        // card — and the element alone cannot say which; the `.card-head` it is inside
+        // can rule one of the three out. See `byChain`.
+        const narrowed = byChain(sites, el);
+        if (narrowed.length && narrowed.length < sites.length) {
+          sites = narrowed;
+          tried.push({ kind: `${key.kind}+chain`, query: key.query, found: sites.length });
+        }
+      }
       if (sites.length === 1) return { ...key, sites, found: 1, tried };
       if (sites.length && (!best || sites.length < best.sites.length)) best = { ...key, sites };
     }
@@ -425,17 +446,88 @@
     return { kind: null, query: null, sites: [], found: 0, tried };
   }
 
-  /** Everything the page is currently drawing out of the payload, as supplied by app.js. */
-  function dataStrings() {
+  /**
+   * How far above a hit an ancestor's own hit is allowed to be, in characters.
+   *
+   * A card in this app is one template literal of a few thousand characters, and the
+   * element being anchored is emitted somewhere inside the block its parent opened. Wide
+   * enough to hold the biggest of those, narrow enough that the *next* renderer down the
+   * file is outside it — which is the whole distinction being drawn.
+   */
+  const CHAIN_WINDOW = 3000;
+
+  /**
+   * Keep the candidate sites that have the element's ancestors written above them.
+   *
+   * The DOM knows the element is a `.q` inside a `.card-head`; the source has three
+   * `.q`s and three `.card-head`s, and the pairing is the ordering in the file. So a
+   * candidate survives if the nearest ancestor that resolves to anything at all has one
+   * of its own sites in the same file, before it, and close enough to plausibly be the
+   * block it opened.
+   *
+   * Ancestors are tried nearest first and stop as soon as one narrows the field, because
+   * each step up is a weaker claim: a grandparent's class may open a block containing
+   * several candidates, and applying it after the parent has already decided would only
+   * risk throwing the right one away. Narrowing to *nothing* is discarded by the caller —
+   * that means the guess was wrong, and a wrong guess must not beat an honest ambiguity.
+   */
+  function byChain(sites, el) {
+    let node = el.parentElement;
+    for (let hops = 0; node && node.nodeType === 1 && hops < 4; hops++, node = node.parentElement) {
+      const above = ancestorSites(node);
+      if (!above.length) continue;
+      const kept = sites.filter((s) =>
+        above.some((a) => a.file === s.file && a.at <= s.at && s.at - a.at <= CHAIN_WINDOW)
+      );
+      if (kept.length && kept.length < sites.length) return kept;
+    }
+    return [];
+  }
+
+  /** The narrowest set of sites an ancestor resolves to on its own, or nothing. */
+  function ancestorSites(node) {
+    let best = [];
+    for (const key of keysFor(node, '')) {
+      const sites = sitesFor(key.query, 40);
+      if (!sites.length) continue;
+      if (!best.length || sites.length < best.length) best = sites;
+      if (best.length === 1) break;
+    }
+    return best;
+  }
+
+  /**
+   * What the payload was drawing at the moment the screen was frozen.
+   *
+   * Taken once, on the way in, and this is not an optimisation either — it is the freeze
+   * being applied to the second thing that has to be frozen. The poll keeps running while
+   * the mode is on, so `state` in app.js moves on: five minutes into a session the
+   * provider is describing a payload three sweeps newer than the pixels. Asked live, the
+   * title you are pointing at would not be in the answer, and a bead title would come
+   * back as `unknown` — not tracker text, not refused, and one step from being filed as
+   * an edit to a file it was never in. Found exactly that way, by the browser check
+   * watching a card go stale under a frozen screen.
+   *
+   * So the screen and the set of strings it is drawing are frozen together, and they
+   * thaw together too: the next `on()` takes a fresh snapshot.
+   */
+  function snapshotData() {
     try {
       const out = mode.dataText?.();
-      return Array.isArray(out) ? out : [];
+      painted = Array.isArray(out) ? out : [];
     } catch {
       // A provider that throws is a bug in the caller, and the honest consequence here is
       // that nothing can be recognised as data — which makes every string look like
       // source. So it is reported rather than swallowed silently: see `text.provider`.
-      return null;
+      painted = null;
     }
+  }
+
+  /** The snapshot, or a fresh read for a caller anchoring outside the mode entirely. */
+  function dataStrings() {
+    if (painted !== undefined) return painted;
+    snapshotData();
+    return painted;
   }
 
   /**
@@ -534,6 +626,10 @@
   function on() {
     if (mode.on) return loading;
     mode.on = true;
+    // Before anything is drawn or fetched: the snapshot has to describe the screen as it
+    // is at this instant, and the first poll to land afterwards moves `state` without
+    // moving a pixel.
+    snapshotData();
     doc?.body?.classList?.add('editing');
     raiseBanner();
     loading = loading || loadSources();
@@ -545,6 +641,7 @@
   function off() {
     if (!mode.on) return;
     mode.on = false;
+    painted = undefined;
     doc?.body?.classList?.remove('editing');
     dropBanner();
     tell(false);
