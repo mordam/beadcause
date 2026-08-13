@@ -402,10 +402,13 @@ console.log('\nwired into the poll cycle');
   check('the poller exists in the daemon', /createJiraPoller\(\{ bd \}\)/.test(src));
   check('on a clock of its own, not on pollSeconds', /jiraEveryMs\(cfg\)/.test(src));
   check('and its failure is reported like every other sweep', /sweepFailed\('the JIRA poll'/.test(src));
-  check('the tickets ride the inbox payload as `tickets`, which is what the row reads', /tickets: jira\.tickets\(\)/.test(src));
+  check(
+    'the tickets ride the inbox payload as `tickets`, which is what the row reads',
+    /tickets: liveTickets\(jira\.tickets\(\)\)/.test(src)
+  );
   check(
     'each one stamped with its space, or the inbox filter files it under Other',
-    /tickets: jira\.tickets\(\)\.map\(\(t\) => \(\{ \.\.\.t, space: spaceFor\(cfg, t\.workspace\)/.test(src),
+    /space: spaceFor\(cfg, t\.workspace\)\?\.name \|\| null/.test(src),
     'no space on a ticket row'
   );
   check(
