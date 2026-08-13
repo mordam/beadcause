@@ -28,6 +28,14 @@
     // array and is turned into rows at render time (see `chatRows`). What it *is*
     // part of is the list you look at, which is the whole point of bc-l8jp.5.
     consoles: [],
+    // The JIRA tickets assigned to you, and for the same reason again: a ticket is not
+    // a bead. It has no id in this tracker, nothing about it can be answered here, and
+    // every count in the chrome is about beads — so it rides its own array and is
+    // turned into rows at render time (see `jiraRows`). Filled from the `tickets` field
+    // of the inbox payload, which is where the poller in bc-0i27.2 puts what it holds;
+    // until that lands the field is simply absent and this stays empty, which is the
+    // same thing an install with no JIRA configured will always see.
+    tickets: [],
     // The repos the last sweep could not read, each with what `bd` said (lib/sweep.js).
     // Its own array for the same reason `requests` is one, and drawn as a pane above
     // the list rather than folded into the empty state: a failed sweep is a fact about
@@ -3212,6 +3220,82 @@
     </div>`;
   }
 
+  /* ----------------------------------------------------- the JIRA tickets */
+
+  /**
+   * The tickets assigned to you in JIRA, as rows this list can hold.
+   *
+   * The third thing in this file that is not a bead, and it follows the two above it
+   * exactly (bc-0i27.3). They ride the inbox payload (`tickets`), they are turned into
+   * rows here rather than merged into `state.questions`, and the reason is the one
+   * `chatRows` gives: nearly everything reading that array is about beads — the waiting
+   * count, the picker's per-repo numbers, `byKey`, the answer path, the flight an answer
+   * takes into the mark. A JIRA ticket would be counted by all of them and answered by
+   * none, and unlike a chat session it is not even a thing this app owns yet.
+   *
+   * **What a held ticket is**, and it is fixed by bc-0i27.2 rather than by this file:
+   * `key`, `summary`, `status`, `updated`, `url`, `assignee` — deliberately enough to
+   * draw the row with no second call, and deliberately no description body, which the
+   * view in bc-0i27.6 fetches when you open one. Two more fields come from *where* the
+   * ticket was found rather than from JIRA: `workspace`, because JIRA is configured per
+   * workspace, and `space`, because the inbox filters on `q.space` before anything else
+   * and a row without one collects under "Other" and vanishes the moment a space is
+   * picked. That is the same requirement the chat rows put on `inboxConsoles`.
+   *
+   * `key` is namespaced `jira:<workspace>/<ticket>` — a fourth namespace beside the `@`
+   * panes, `pr:` and `chat/`, and no bead's `workspace/id` can begin with it. Two
+   * workspaces pointed at the same JIRA project would otherwise hand this list one row
+   * twice under one key, and a reconcile keyed on that would draw one of them.
+   */
+  const jiraRows = () =>
+    (state.tickets || []).map((t) => ({
+      jira: t,
+      key: `jira:${t.workspace || ''}/${t.key}`,
+      workspace: t.workspace,
+      space: t.space || null,
+    }));
+
+  /**
+   * What a ticket row says while you are scrolling past it.
+   *
+   * The requirement is which ticket, and what state it is in, without opening it — so
+   * the key and the status are on the row rather than behind a tap, and the summary is
+   * the title because that is the only part anybody reads. `assignee` is not drawn: the
+   * whole query is *assigned to you*, so a name on every row would be the same name on
+   * every row. It is carried on the ticket for the view (bc-0i27.6) and for the day the
+   * query grows a second slice.
+   *
+   * It borrows `.work-row` from the chat rows and the launcher for the reason they
+   * borrow it from each other — a fourth shape of row is a fourth thing to recognise in
+   * a list you scan — and the `.card` around it is what makes it one item in a stack.
+   *
+   * **The link goes to JIRA, and that is the interim.** bc-0i27.6 replaces it with the
+   * ticket view opened over the tab, which is where the decision actually gets made;
+   * until then a row you cannot do anything with would be a row that is only a
+   * notification. `openLinksInNewTab` does not reach it (it sweeps `.md`, `.links` and
+   * `.docs` only), so the attributes are written here.
+   */
+  function jiraRowHtml(row) {
+    const t = row.jira;
+    const bits = [];
+    if (t.status) bits.push(String(t.status));
+    // Which workspace's JIRA this came off. Drawn for the same reason a chat row draws
+    // its repo: with two workspaces configured, the ticket key alone does not say which
+    // project you are looking at.
+    return `<div class="card jira-card" data-key="${esc(row.key)}">
+      <a class="work-row" href="${esc(t.url || '#')}" target="_blank" rel="noopener noreferrer">
+        <span class="work-phase">🎫</span>
+        <span class="work-main">
+          <span class="work-title">${esc(t.summary || t.key || 'Untitled')}</span>
+          <span class="work-sub"><span class="pill id">${esc(t.key || '')}</span>${
+            row.workspace ? `<span class="pill">${esc(row.workspace)}</span>` : ''
+          }${esc(bits.join(' · '))}</span>
+        </span>
+        <time>${esc(relTime(t.updated))}</time>
+      </a>
+    </div>`;
+  }
+
   /**
    * The scope chips. The third column is what the settings panel used to spell out
    * under the switch; it rides along as the chip's `title` and its accessible name,
@@ -3257,9 +3341,9 @@
    * see `survey` in public/inboxfilter.js.
    *
    * `any` is the exception and it is not a special case so much as the absence of
-   * one: a pull request comes off `gh` and a chat session off no sweep at all, so for
-   * neither is there a scope that could have failed to fetch it, and neither has a
-   * scope in which its chip would be dead.
+   * one: a pull request comes off `gh`, a chat session off no sweep at all and a JIRA
+   * ticket off JIRA, so for none of them is there a scope that could have failed to
+   * fetch it, and none of them has a scope in which its chip would be dead.
    */
   const kindsForScope = () =>
     (window.beadcause?.inboxFilter?.KINDS || [])
@@ -3704,6 +3788,12 @@
     const under = board.under || {};
     return rows.filter((q) => {
       if (q.session) return true;
+      // And a JIRA ticket, on the same rule and for a stronger reason: it has no bead
+      // at all until bc-0i27.4 files one, so there is nothing for `under` to hold and
+      // filtering on it would hide every ticket the moment you owned a P0. Once the
+      // epic exists this is the line that has to start following it — which is
+      // bc-0i27.5's to write, because it is bc-0i27.5 that puts the id on the row.
+      if (q.jira) return true;
       if (q.pr) {
         const named = q.pr.beads || [];
         return !named.length || named.some((b) => under[`${q.workspace}/${b.id || b}`]);
@@ -3764,11 +3854,14 @@
     // Two levels of filter: space (work vs personal), then workspace within it.
     // With no spaces configured the first level is skipped entirely and this
     // behaves exactly as it did before.
-    // The pull requests and the chat sessions go through both filters too — they are
-    // rows in this list, and a filter that some of the list ignored would be worse than
-    // no filter. Concatenated before the space test rather than after it, so all three
-    // kinds of row are narrowed by the same predicate rather than by a copy of it.
-    const rows = [...state.questions, ...prRows(), ...chatRows()];
+    // The pull requests, the chat sessions and the JIRA tickets go through both filters
+    // too — they are rows in this list, and a filter that some of the list ignored would
+    // be worse than no filter. Concatenated before the space test rather than after it,
+    // so all four kinds of row are narrowed by the same predicate rather than by a copy
+    // of it. That is also the whole of what makes a quiet space's tickets as quiet as
+    // its questions: quiet is per space (lib/spaces.js), a workspace belongs to a space,
+    // and a ticket carries the space of the workspace whose JIRA held it.
+    const rows = [...state.questions, ...prRows(), ...chatRows(), ...jiraRows()];
     const inSpace = state.space === 'all' ? rows : rows.filter((q) => spaceOf(q) === state.space);
     const inRepo =
       state.workspace === 'all' ? inSpace : inSpace.filter((q) => q.workspace === state.workspace);
@@ -3859,7 +3952,7 @@
       // either and no pane key can, so a reconcile cannot mistake one for another. Which
       // is what lets a row be left alone on every poll where its own HTML did not change
       // — the spark starting or a count moving is the whole of what rebuilds a chat row.
-      const beads = visible.filter((q) => !q.pr && !q.session);
+      const beads = visible.filter((q) => !q.pr && !q.session && !q.jira);
       const prs = visible
         .filter((q) => q.pr)
         .sort(
@@ -3869,11 +3962,22 @@
       const chats = visible
         .filter((q) => q.session)
         .sort((a, b) => String(b.session.updatedAt).localeCompare(String(a.session.updatedAt)));
+      // And the tickets, newest first alone, for the reason the chats are: a JIRA ticket
+      // has no rung to sort by, only a last-touched. Below both of them and above the
+      // replied beads, which is where it belongs on the same rule the comment above
+      // uses — a pull request is a decision somebody is waiting on, a conversation is
+      // yours to pick up whenever, and a ticket is work that has not started. None of
+      // the three outranks a bead asking you something, and all three outrank a bead an
+      // agent already has back.
+      const tickets = visible
+        .filter((q) => q.jira)
+        .sort((a, b) => String(b.jira.updated || '').localeCompare(String(a.jira.updated || '')));
       const waiting = beads.filter((q) => !q.awaitingAgent);
       const replied = beads.filter((q) => q.awaitingAgent);
       for (const q of waiting) chunks.push({ key: q.key, html: cardHtml(q) });
       for (const q of prs) chunks.push({ key: q.key, html: prCardHtml(q) });
       for (const q of chats) chunks.push({ key: q.key, html: chatRowHtml(q) });
+      for (const q of tickets) chunks.push({ key: q.key, html: jiraRowHtml(q) });
       for (const q of replied) chunks.push({ key: q.key, html: cardHtml(q) });
     }
     paintList(chunks);
@@ -3911,9 +4015,10 @@
     // 25s poll must not make it flash on screen at someone who isn't scrolling.
     paintScrollPos(false);
     // Beads only. The monitor draws this as "N waiting", which is a claim about work
-    // asking you something — and neither a pull request sitting on origin nor a
-    // conversation you left open is one of those.
-    publishView(visible.filter((q) => !q.pr && !q.session));
+    // asking you something — and none of a pull request sitting on origin, a
+    // conversation you left open, or a JIRA ticket nobody has decided about yet is one
+    // of those.
+    publishView(visible.filter((q) => !q.pr && !q.session && !q.jira));
   }
 
   /**
@@ -5606,6 +5711,13 @@
       state.consoles = data.consoles.filter((c) => !dismissedChats.has(c.id));
       for (const id of dismissedChats) if (!data.consoles.some((c) => c.id === id)) dismissedChats.delete(id);
     }
+    // Taken whole, on the same terms as `consoles` and for the same reason: a ticket has
+    // no local state on this page — no draft, no open card, nothing half-answered — so
+    // the server's copy is always the better one. Absent means a server whose poller
+    // (bc-0i27.2) has not landed yet, or an install with no JIRA configured at all, and
+    // in both cases leaving the last list alone is what stops a mixed fleet from
+    // flickering the section off and on between two daemons.
+    if (Array.isArray(data.tickets)) state.tickets = data.tickets;
     // Taken whole, and taken even when empty — unlike `requests` and `consoles` above.
     // An empty list here is the good news ("every repo answered this time") and it has
     // to be able to clear the pane, which is the whole reason the record is rebuilt on
