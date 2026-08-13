@@ -3738,13 +3738,16 @@
     if (!mine.length) return '';
     const cards = mine
       .map(
-        (c) => `<a class="p0-card" href="${esc(`${graphUrl(c)}&open=1`)}">
-          <div class="p0-head"><span class="pill id">${esc(c.id)}</span>${
+        (c) => `<div class="p0-card">
+          <div class="p0-head"><a class="pill id" href="${esc(`${graphUrl(c)}&open=1`)}">${esc(c.id)}</a>${
             c.inFlight ? `<span class="p0-flight">${c.inFlight} in flight</span>` : ''
           }<span class="p0-open">${c.open === 1 ? '1 open' : `${c.open} open`}</span></div>
-          <div class="p0-title">${esc(c.title || '')}</div>
+          <a class="p0-title" href="${esc(`${graphUrl(c)}&open=1`)}">${esc(c.title || '')}</a>
           ${c.waitingOn ? `<div class="p0-waiting">${esc(c.waitingOn)}</div>` : ''}
-        </a>`
+          <button type="button" class="p0-advocate" data-act="advocate" data-ws="${esc(c.workspace)}" data-bead="${esc(
+            c.id
+          )}">🧭 Put an advocate on it</button>
+        </div>`
       )
       .join('');
     return `<section class="p0-board" aria-label="Your P0s"><div class="p0-kind">Your P0s</div>${cards}</section>`;
@@ -4408,6 +4411,41 @@
     if (!btn) return;
     const key = btn.dataset.key;
     const act = btn.dataset.act;
+
+    /**
+     * Put a P0 advocate on this P0 — the one button on the board's cards.
+     *
+     * First, and keyed on its own `data-bead` rather than on `data-key`: the P0 cards are
+     * not inbox rows and have no bead key, so every branch below this one would read
+     * `undefined` and act on nothing.
+     *
+     * The button is disabled for the round trip and left saying what happened either way.
+     * It opens an iTerm window on the Mac that files beads — that is not something to fire
+     * twice because a train swallowed the first tap, and the 409 the server gives a second
+     * one is a sentence worth reading rather than a silent no-op.
+     */
+    if (act === 'advocate') {
+      const bead = btn.dataset.bead;
+      const was = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = 'Opening…';
+      try {
+        await api('/api/bead/advocate', {
+          method: 'POST',
+          body: JSON.stringify({ workspace: btn.dataset.ws, id: bead }),
+        });
+        btn.textContent = '🧭 Advocate opened';
+        toast(`A P0 advocate is planning ${bead}`);
+      } catch (err) {
+        // Back to a button you can press again, with the reason on screen. Every refusal
+        // this route gives is a fixable state — unowned, closed, already running — so a
+        // dead control saying nothing would be the wrong end of it.
+        btn.disabled = false;
+        btn.textContent = was;
+        toast(err.message, 'refused');
+      }
+      return;
+    }
 
     /**
      * Both answers to the notification prompt — see dismissAskHtml().
