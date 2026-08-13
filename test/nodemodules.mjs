@@ -28,6 +28,18 @@
  *    first thing run in a fresh worktree and the only thing there to say anything, and
  *    "missing marked/lib/marked.umd.js — run npm install", seven times, is the likeliest
  *    reason those four exist.
+ *
+ * A third half arrived with bc-oqu7, and it is the same shape one more time. With the
+ * dependency trees and the gradle output gone, `public/vendor` *was* the attic: 4.2 MB of
+ * every ~6 MB entry, the same seven files 123 times, ~500 MB of 636. It is the one thing
+ * `slimAttic` refuses to drop — an entry without it is not resumable in one command — so
+ * `scripts/vendor.js` borrows it instead, symlinking the seven at the main checkout the
+ * way `node_modules` already is. What the checks below care about is everything that
+ * could make that a worse trade than copying: a link that does not survive retirement, a
+ * link where the *directory* should be (which `.gitignore`'s trailing slash turns into a
+ * refused delivery), a dangling link into a main checkout that never built its own, and a
+ * worktree made before this that keeps its copies forever because `symlinkSync` will not
+ * overwrite.
  */
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -308,6 +320,18 @@ function vendorSays(root, { deps = 'none' } = {}) {
   return `${r.stdout || ''}${r.stderr || ''}`;
 }
 
+/** The seven names `scripts/vendor.js` writes, read out of the file rather than restated. */
+const BUNDLES = [...fs.readFileSync(path.join(REPO, 'scripts', 'vendor.js'), 'utf8').matchAll(/^ {2}\['[^']+', '([^']+)'\],$/gm)].map(
+  (m) => m[1]
+);
+
+/** A main checkout whose `public/vendor` is already built — the thing a worktree borrows. */
+function mainWithVendor(main) {
+  fs.mkdirSync(path.join(main, 'public', 'vendor'), { recursive: true });
+  for (const name of BUNDLES) fs.writeFileSync(path.join(main, 'public', 'vendor', name), `/* ${name} */\n`);
+  return main;
+}
+
 await check(async () => {
   const said = vendorSays(path.join(tmp, 'fresh', '.claude', 'worktrees', 'brand-new-9k2'));
   assert.match(said, /ln -s \.\.\/\.\.\/\.\.\/node_modules node_modules/, said);
@@ -331,6 +355,86 @@ await check(async () => {
   assert.match(said, /run npm install/, `the main checkout still gets the right advice: ${said}`);
   assert.ok(!/ln -s/.test(said), `and not the worktree one: ${said}`);
 }, 'the main checkout is still told to run npm install, which is true there');
+
+/* ----------------------------------------------- and what it stops copying (bc-oqu7) */
+
+console.log('\nwhat a worktree borrows instead of copying');
+
+/**
+ * The other 500 MB. Once the dependency trees and the gradle output were gone,
+ * `public/vendor` *was* the attic — 4.2 MB of every ~6 MB entry, the same seven files
+ * 123 times — and it is the one thing `slimAttic` will not drop, because an entry
+ * without it stops being resumable in one command. So it is borrowed instead.
+ */
+await check(async () => {
+  const main = mainWithVendor(path.join(tmp, 'borrows'));
+  const wt = path.join(main, '.claude', 'worktrees', 'borrowing-vendor-7a');
+  const said = vendorSays(wt);
+  assert.match(said, /7\/7 browser bundles/, said);
+  const dir = path.join(wt, 'public', 'vendor');
+  for (const name of BUNDLES) {
+    assert.ok(fs.lstatSync(path.join(dir, name)).isSymbolicLink(), `${name} is a copy, not a link`);
+    assert.equal(fs.readFileSync(path.join(dir, name), 'utf8'), `/* ${name} */\n`, `${name} does not resolve`);
+  }
+}, 'a worktree links the seven at the main checkout rather than copying them');
+
+await check(async () => {
+  const main = mainWithVendor(path.join(tmp, 'no-deps'));
+  const wt = path.join(main, '.claude', 'worktrees', 'never-installed-2c');
+  const said = vendorSays(wt);
+  // The whole of what a genuinely fresh worktree used to get was seven of these.
+  assert.ok(!/missing /.test(said), `a worktree with no tree yet still needs no install: ${said}`);
+  assert.match(said, /7\/7 browser bundles/, said);
+}, 'and gets them before it has a dependency tree at all, which it could not before');
+
+await check(async () => {
+  const main = mainWithVendor(path.join(tmp, 'retire'));
+  const wt = path.join(main, '.claude', 'worktrees', 'about-to-retire-5f');
+  vendorSays(wt);
+  // Retirement is a move, and `.claude/worktrees-retired/<name>` is the same depth as
+  // `.claude/worktrees/<name>` — which is the whole reason the link is relative.
+  const retired = path.join(main, '.claude', 'worktrees-retired', 'about-to-retire-5f');
+  fs.mkdirSync(path.dirname(retired), { recursive: true });
+  fs.renameSync(wt, retired);
+  const one = path.join(retired, 'public', 'vendor', BUNDLES[0]);
+  assert.ok(fs.lstatSync(one).isSymbolicLink(), 'retirement turned the link into something else');
+  assert.equal(fs.readFileSync(one, 'utf8'), `/* ${BUNDLES[0]} */\n`, 'the link does not survive retirement');
+}, 'the link still resolves once the worktree has been retired');
+
+await check(async () => {
+  const main = path.join(tmp, 'unbuilt-main');
+  const wt = path.join(main, '.claude', 'worktrees', 'nothing-to-borrow-8d');
+  fs.mkdirSync(path.join(wt, 'node_modules', 'marked', 'lib'), { recursive: true });
+  fs.writeFileSync(path.join(wt, 'node_modules', 'marked', 'lib', 'marked.umd.js'), '/* real */\n');
+  vendorSays(wt);
+  const one = path.join(wt, 'public', 'vendor', 'marked.js');
+  assert.ok(!fs.lstatSync(one).isSymbolicLink(), 'linked at a main checkout that has no vendor directory');
+  assert.equal(fs.readFileSync(one, 'utf8'), '/* real */\n');
+}, 'a main checkout that has not built its own vendor is copied from, not linked at');
+
+await check(async () => {
+  const main = mainWithVendor(path.join(tmp, 'was-a-copy'));
+  const wt = path.join(main, '.claude', 'worktrees', 'upgrading-3b');
+  // What every worktree made before bc-oqu7 has sitting there. `symlinkSync` refuses to
+  // overwrite, so a second run has to remove first or the upgrade never happens.
+  fs.mkdirSync(path.join(wt, 'public', 'vendor'), { recursive: true });
+  fs.writeFileSync(path.join(wt, 'public', 'vendor', BUNDLES[0]), 'stale copy\n');
+  vendorSays(wt);
+  const one = path.join(wt, 'public', 'vendor', BUNDLES[0]);
+  assert.ok(fs.lstatSync(one).isSymbolicLink(), 'an existing copy was left in place');
+  assert.equal(fs.readFileSync(one, 'utf8'), `/* ${BUNDLES[0]} */\n`);
+}, 'a worktree that already carries copies is upgraded to links in place');
+
+await check(async () => {
+  const main = mainWithVendor(path.join(tmp, 'ignored'));
+  const wt = path.join(main, '.claude', 'worktrees', 'git-status-1a');
+  vendorSays(wt);
+  // `.gitignore` says `public/vendor/` WITH a trailing slash, which matches a directory
+  // and not a symlink to one. Seven links inside a real directory are ignored; a link
+  // where the directory should be reads as `?? public/vendor` and bin/deliver.js refuses
+  // the delivery over it, after the suite has already passed.
+  assert.ok(fs.lstatSync(path.join(wt, 'public', 'vendor')).isDirectory(), 'public/vendor itself must be a real directory');
+}, 'the directory itself is never the link, because the ignore rule has a trailing slash');
 
 /* --------------------------------------------------------------------- report */
 

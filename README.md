@@ -6861,11 +6861,30 @@ would empty the main checkout's tree through the link.
 `public/vendor/` is the line the list stops at, and the rule is what makes it a line:
 heavy *and* rebuilt by a command the resumer was going to run anyway. Vendor is 4 MB, no
 browser check in this repo starts without it, and rebuilding it needs the dependency tree
-that has just gone — so it stays, and a retired worktree's floor is about 6 MB.
+that has just gone — so it is never dropped.
+
+**Which left it as what the attic was made of, so it is borrowed rather than copied.**
+With the dependency trees and the gradle output gone, 4.2 MB of every ~6 MB entry was
+`public/vendor`: the same seven files 123 times, about 500 MB of 636. Deleting them was
+the one move ruled out above, so `scripts/vendor.js` goes the other way and does in a
+worktree what `node_modules` has always done — **symlinks the seven at the main
+checkout's copy** instead of copying them (bc-oqu7). A normal attic entry is now about
+2 MB, the entry stays resumable in one command because the link resolves without
+anything being rebuilt, and a fresh worktree gets a working `public/vendor` *before* it
+has a dependency tree at all, which it previously could not.
+
+Two things make that safe rather than clever. The link is **relative**, and a retired
+worktree sits at `.claude/worktrees-retired/<name>` — the same depth as the live one —
+so retirement moves it without breaking it. And the links go on the seven **files**,
+never on the directory: `.gitignore` says `public/vendor/` with a trailing slash, which
+matches a directory and not a symlink to one, so a symlinked `public/vendor` would read
+as `?? public/vendor` and `bin/deliver.js` would refuse the delivery after the suite had
+already passed. `node_modules` escapes that only because its own rule has no slash.
 
 The `.note` gains a second line saying what went and how to get it back; line one, the
 stamp the whole expiry rests on, is never rewritten. `bin/attic.js` reports what it
-dropped and what it freed, and `test/nodemodules.mjs` holds both halves.
+dropped and what it freed, and `test/nodemodules.mjs` holds every half of this, the
+borrowed vendor below included.
 
 #### The sweep a human runs — and why it moved in here
 
@@ -6887,11 +6906,13 @@ page describes. `test/pipefail.mjs` keeps the construct out of this repo's own s
 where it sat in four places.
 
 **The second was found by the port, which is the argument for it.** `grep -rlq -- "$n"
-"$dir" --exclude-dir=archive` puts the flag *after* the path, and `grep` on this laptop
-is ugrep, which only honours `--exclude-dir` before it — so it took the flag for a
-filename, warned to a stderr that `2>/dev/null` swallowed, and searched `archive/`
-anyway. Every *spent* handoff went on protecting its attic entry forever. GNU grep
-accepts flags anywhere, which is exactly why nobody would have seen this.
+"$dir" --exclude-dir=archive` writes the flag *after* the `--`, which ends option parsing
+— so grep took `--exclude-dir=archive` for a filename, warned to a stderr that
+`2>/dev/null` swallowed, and searched `archive/` anyway. Every *spent* handoff went on
+protecting its attic entry forever. This was filed as a ugrep quirk about flag *order*
+and is not one: options after the paths are honoured by ugrep and by BSD grep alike, and
+`--` breaks this on GNU grep too. See [the two greps](#two-greps-that-answer-the-wrong-question--testgrepargsmjs)
+for the distinction and for the second hazard, which is ugrep's and is not checkable.
 
 So `bin/attic.js` is what the skill calls now, and `lib/attic.js` is a **layer, not a
 second sweep**: it calls `expireRetired` above for every gate and every removal, and adds
@@ -7795,8 +7816,15 @@ meaning under you.
 
 ### Discoveries and conflicts, at the moment they happen
 
-**An agent still may not create a bead.** That rule is unchanged and absolute; Adam
-approves every bead before it exists. What changed is *when* he gets to approve one.
+**An agent creates the bead, and it arrives held.** Approval did not go away; it moved
+to the other side of the creation. A bead an agent files exists in the tracker the
+moment it is filed, carrying `unendorsed` — a hold with teeth: no advocate queues it,
+no launcher opens a session on it, and it is out of every count that says how much work
+is waiting. You endorse it, edit it, or revoke it from
+[the endorsement queue](#the-endorsement-queue--a-group-tap-or-a-row-at-a-time), and
+until you do, nothing spends an hour on it. That is bc-3zo9, and it is why this section
+no longer says an agent may not create a bead: it may, and what it may not do is have
+one *worked*.
 
 A session used to write what it found into a `## Discovered` heading in a comment and
 carry on. Those sat there — invisible, unanswerable — until the repo's advocate ran
@@ -7804,10 +7832,15 @@ out of ready work and surveyed the comments, which on a repo with a queue is nev
 a discovery arrived a fortnight after the context that made it obvious had gone, or it
 arrived not at all.
 
-Now a session proposes when it finds the thing:
+**There are two tools and they are not interchangeable.** The question that picks one is
+whether the finder can carry on without you.
+
+**`beadcause-file` — a discovery, recorded now, worked later.** The overwhelmingly
+common case: a session trips over work that is real, is not this bead's, and does not
+stop it.
 
 ```bash
-beadcause-propose -w beadcause --from bc-7qo --kind discovery <<'EOF'
+beadcause-file -w beadcause --from bc-7qo <<'EOF'
 - title: Cache-bust site.js
   type: task
   priority: 2
@@ -7818,9 +7851,18 @@ beadcause-propose -w beadcause --from bc-7qo --kind discovery <<'EOF'
 EOF
 ```
 
-That files one ordinary question, which reaches your phone through the same channel
-and renders as the same card an advocate's proposal does — a row per bead, with its
-own controls. Nothing is created until you press the button. Only the waiting is gone.
+That creates the bead for real, marked `unendorsed`, with a `discovered-from` edge back
+to `bc-7qo` recording where it came from, and prints the id. The finder does not wait
+and does not stop — it carries straight on with the bead it was opened for. The cost to
+you is a tap, at a time of your choosing, rather than an hour of somebody's attention
+now; and because the bead exists, the reason it was filed is written down at the moment
+it was obvious rather than reconstructed later. Priority is capped at P2, because what
+an agent finds may not outrank the work you chose.
+
+**`beadcause-propose` — a question first, a bead only if you say so.** Nothing is
+created until you press the button. That is the right shape when the bead itself is
+what is in doubt — a large piece of work an advocate wants a mandate for, or a batch you
+should see as one decision — and it is the only shape for the case below.
 
 `--kind conflict` is the other half, and the more valuable one. A session that hits
 two things that genuinely disagree — its brief against the repo's `CLAUDE.md`, a bead
@@ -8841,7 +8883,7 @@ or it says why not. `--baseline` serves `HEAD:public/console.js` instead, which 
 you tell a real failure from a flaky one: baseline must fail the filed and revised
 cases and the inert tap, the working copy must pass all of them.
 
-### What it costs you to know
+### What a chat session costs you to know
 
 - **The agent cannot write to the tracker.** Its allowlist is read-only `bd` plus
   Read/Grep/Glob. That is not belt-and-braces around the prompt — the review step is
@@ -9060,7 +9102,7 @@ Rotating the phone reflows properly. The pty is resized for real — `stty` agai
 slave device, which makes the kernel raise SIGWINCH in the foreground process group —
 rather than the TUI being left drawn at the width it started at.
 
-### What it costs you to know
+### What the terminal costs you to know
 
 - **The pty comes from `expect`, and could not have come from `script(1)`.** There is
   no `openpty(3)` in Node's standard library, and `node-pty` is a native module
@@ -10136,7 +10178,7 @@ Three endings read differently on purpose. **Answered** is an answer. **Handed b
 an option that said `closes: false` — a commission, work ordered rather than a decision
 taken. **Set aside** is a dismissal, which writes no answer at all.
 
-### Whose answer it is
+### Whose answer a Slack press is
 
 The person who pressed is named on the *Slack message* and not on the bead. The comment
 lands the way every token caller's does — see [Whose answer it
@@ -11825,6 +11867,76 @@ pinned FIRST/LAST list — [the one line every session has to edit](#npm-test) �
 A *missing* harness is a failure and not a skip: cover that quietly stops existing is the
 thing being fixed here, and a wrapper that shrugged when its target went would be a second
 helping of it.
+
+### Two greps that answer the wrong question — `test/grepargs.mjs`
+
+There are two `grep` hazards on this laptop. One is a defect in every script that writes
+it and this suite keeps it out of the repo; the other cannot be caught by any check at
+all, because it happens to greps an *agent* types rather than greps anybody committed.
+They are unrelated, and it matters not to confuse them, because the fix for one is not
+the fix for the other.
+
+**The one that is checked: an option after the `--` is a filename.** `--` ends option
+parsing — POSIX Utility Syntax Guideline 10 — so in
+
+```bash
+# grep -rlq -- "$name" "$dir" --exclude-dir=archive   ← searches archive/ anyway
+```
+
+(commented out on purpose: `test/grepargs.mjs` sweeps fenced commands in this file too,
+and skips comment lines precisely so that quoting the bug in order to explain it is not
+itself a finding.)
+
+`--exclude-dir=archive` is a *file* grep is asked to search. It does not exist, grep
+warns on a stderr that a script gating on the exit status has behind `2>/dev/null`, and
+the exclusion never happens — which is always the permissive direction. That was bc-uytt:
+the `ship` skill's attic sweep asked whether any handoff still mentioned a retired
+worktree, with exactly that line, and `archive/` — spent handoffs, excluded by definition
+— was searched every time. Every spent handoff went on protecting its attic entry from
+removal, forever, and no output ever hinted at it.
+
+This is **not** a ugrep quirk, and getting that wrong decides which call sites are bugs.
+Options written *after* the paths are honoured — measured, by ugrep 7.5 and by macOS BSD
+grep alike, and `grep -rl "n" dir --exclude-dir=archive` excludes correctly on both. Only
+`--` breaks it, and `--` breaks it everywhere, GNU grep included: it is the one part of
+the syntax every implementation is required to agree on. So the fix is never "move the
+flag earlier because of ugrep" — it is "the `--` is in the wrong place", and the same
+line on a GNU box was equally broken. `test/grepargs.mjs` flags a grep only when an
+option-shaped word follows a `--` in the same command, and leaves options-after-paths
+alone, because flagging those would be a rule that makes working lines look broken. It
+sweeps shell scripts *and* fenced commands in tracked markdown — an agent copies a fenced
+command verbatim, which makes a wrong one in a skill or a doc every bit as live as a wrong
+one in a script — and `node test/grepargs.mjs --dir ~/.claude` points the same sweep at a
+tree outside the repo, which is how `~/.claude` was checked.
+
+**The one that cannot be: ugrep silently answers zero.** Inside a Claude Code Bash call
+`grep` is a shell function wrapping ugrep 7.5 — a shell function, so it does *not* survive
+into `bash prune-retired.sh`, and scripts here get `/usr/bin/grep`. Only what an agent
+types itself is ugrep. And ugrep 7.5 drops **every** match for an ERE that alternates `^`
+with a negated character class when the literal after it is four characters or longer.
+No error, no warning, exit 1 — indistinguishable from "there are no hits". Measured
+against `lib/attic.js`, which has three:
+
+```bash
+grep -c -E '(^|[^a-z])gre'  lib/attic.js    # ugrep 3   /usr/bin/grep 3   agrees
+grep -c -E '(^|[^a-z])grep' lib/attic.js    # ugrep 0   /usr/bin/grep 3   WRONG
+grep -c -E '([^a-z]|^)grep' lib/attic.js    # ugrep 0   /usr/bin/grep 3   WRONG
+```
+
+Three characters is fine and four is not, which points at ugrep's literal-prefix skip
+mishandling the anchored branch of the alternation. `(x|[^a-z])grep` is fine, and so is
+`^` alternated with a *positive* class: it needs `^` against a **negated** class,
+plus a literal of four characters or more.
+
+That shape is exactly what a session reaches for to find call sites — "the word, not
+preceded by a dot or a dash" — so a zero reads as *there are no call sites*. It cost a
+survey during bc-2mpr that returned **0** grep call sites in a tree with **41**, and the
+only reason anyone noticed was that a plainer search of the same tree disagreed. Nothing
+static can catch this: the offending command is never written down anywhere, it is typed
+into a Bash call and its output believed. So the defence is the rule, here, where a
+session reading this file will meet it — **use `-P` or `\b` for that shape, and treat a
+zero from any `(^|…)` pattern as suspect until a second, plainer search agrees.** That is
+bc-0p49, and the acceptance it was filed with was a documented rule or nothing.
 
 ### A teardown must not be able to fail a run — `test/helpers/tmp.mjs`
 

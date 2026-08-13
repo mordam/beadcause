@@ -21,11 +21,19 @@
 // `## A second instance — observer mode` is `#a-second-instance--observer-mode`, with two.
 //
 // Deliberately only the anchors: this says nothing about whether the prose is right, only
-// that a link you followed lands where it says it does. It does not police *duplicate*
-// headings either — "Checking it" is how nine different sections end, and that is fine
-// until something links to one, at which point GitHub decides by document order. Two links
-// in here are already in that position and both happen to resolve correctly today; filed
-// as its own bead rather than retitled from under this one.
+// that a link you followed lands where it says it does.
+//
+// Duplicate headings are still fine — "Checking it" is how nine different sections end,
+// and nothing needs those to be unique. What is *not* fine is linking to one, because
+// GitHub resolves an ambiguous slug by document order, and that is the last check here
+// (bc-gop1). Two links were in exactly that position when this file was written: both
+// happened to land on the heading they meant, because the intended heading was the first
+// occurrence in both cases, and neither was stable — inserting a section with the same
+// subheading *earlier* in the file would have silently redirected the link, with nothing
+// to see. The link still renders. It just scrolls somewhere else. The fix was to retitle
+// the later duplicates ("What a chat session costs you to know", "What the terminal costs
+// you to know", "Whose answer a Slack press is"), so a link that reads as unambiguous is
+// unambiguous. This check is what stops the next one being written.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -64,7 +72,15 @@ const md = fs.readFileSync(path.join(ROOT, 'README.md'), 'utf8');
 const prose = md.replace(/^```[\s\S]*?^```/gm, (block) => block.replace(/[^\n]/g, ' '));
 
 const headings = new Map();
-for (const m of prose.matchAll(/^#{1,6} +(.+)$/gm)) headings.set(slug(m[1]), m[1].trim());
+// Every line a slug is produced on, not just the last: `headings` collapses duplicates by
+// definition, which is the thing the ambiguity check below has to see.
+const slugLines = new Map();
+for (const m of prose.matchAll(/^#{1,6} +(.+)$/gm)) {
+  const s = slug(m[1]);
+  headings.set(s, m[1].trim());
+  if (!slugLines.has(s)) slugLines.set(s, []);
+  slugLines.get(s).push(prose.slice(0, m.index).split('\n').length);
+}
 
 const lineOf = (index) => prose.slice(0, index).split('\n').length;
 
@@ -81,6 +97,23 @@ check('every in-page link resolves to a heading', () => {
     broken,
     [],
     `${broken.length} link(s) point at no heading — a retitled heading is the usual cause:\n` + broken.join('\n')
+  );
+});
+
+check('no link points at a slug more than one heading produces', () => {
+  const ambiguous = [];
+  for (const m of prose.matchAll(/\]\(#([^)\s]+)\)/g)) {
+    const lines = slugLines.get(m[1]);
+    if (!lines || lines.length < 2) continue;
+    ambiguous.push(`README.md:${lineOf(m.index)}  #${m[1]}  → headings at ${lines.join(', ')}`);
+  }
+  assert.deepEqual(
+    ambiguous,
+    [],
+    `${ambiguous.length} link(s) point at a slug more than one heading produces — GitHub picks the\n` +
+      'first by document order, so the link works until somebody inserts a section above it. Retitle\n' +
+      'the duplicate that is *not* being linked to, rather than the one that is:\n' +
+      ambiguous.join('\n')
   );
 });
 
