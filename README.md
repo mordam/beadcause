@@ -3351,6 +3351,51 @@ would look like a bug in the page:
   otherwise the same blank card. ⟳ sends `refresh=1` and forces a fresh sweep — once per
   press, not once per page of the scroll that follows it.
 
+### The door from the advocate console — `N closed`
+
+The advocate console's repo row is nine or ten pills of work outstanding — open, ready,
+blocked, in progress, and the [nine ways a bead is held back](#advocates--an-agent-per-repo-whose-job-is-the-queue-reaching-zero)
+— and nothing at all about what had been finished. It now ends with a muted **`N
+closed`**, and the two things worth saying about it are that it is free and that it is
+last.
+
+**Free.** `bd status` has carried `closed_issues` since long before that row existed, and
+`forWorkspace` in `lib/work.js` has always read that summary for `open`, `ready`,
+`blocked` and `in progress`. So the count is a field already in hand rather than a fourth
+`bd` invocation — which is the whole argument, on a card that repaints every twenty
+seconds across every workspace at once. `test/closedpill.mjs` asserts that as *argv*
+rather than by reading the code: its `bd` is a stub binary that logs every call, and the
+check is that three are made and that they are the same three as before.
+
+**Last.** Every other number on the row is work that is not done, so this one reads as one
+of them if it sits beside `open` where the tracker itself puts it. At the end, after the
+holds, it is plainly the other kind of number.
+
+It is drawn from that field or not drawn at all: `?? null`, not `?? 0`. A `bd` too old to
+report it leaves the pill off, because `0 closed` over a repo with three hundred closed
+beads is not a missing number, it is a wrong one — and a workspace whose tracker fell over
+takes the error path and gets no count of any kind.
+
+The pill is a link to [the ledger](#the-ledger--the-history-tab), and its tooltip says
+what that is: *every bead this space has ever had*, not the closed ones on their own.
+That distinction is deliberate rather than an oversight — there is no closed-only list to
+send it to yet, the ledger does not filter, and a link that quietly showed you more rows
+than the number beside it promised would be the kind of small lie this app spends a lot of
+prose avoiding. Narrowing it is its own bead, behind the filters.
+
+No `?ws=` on the href, exactly as the `N held for endorsement` and `N in an open pull
+request` pills above it carry none. Scope in this app is
+[one picker](#one-space-at-a-time--the-picker-in-the-top-bar), it lives on the server, and
+it is shared: a link that narrowed a page without moving the picker would land you on a
+list whose own control disagreed with it, and one that moved the picker would change what
+every other client is looking at because you tapped a count.
+
+This pill is the last thing off `worktree-closed-history-qsj6`. That branch built a
+closed-only page before [the ledger](#the-ledger--the-history-tab) existed; bc-qsj6 was
+closed as a duplicate of bc-nib3 and the branch can never merge, since it writes the two
+files the ledger landed as. The count was the one part of it worth copying out (bc-1sj4),
+and with it out nothing needs the branch.
+
 ### Why Chat is not a tab, and ＋ is not a tab either
 
 Chat went the same way as PRs, in the same afternoon, and for one more reason on top of
