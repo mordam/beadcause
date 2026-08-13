@@ -61,6 +61,7 @@ const {
 } = await import(LIB('jiraepic.js'));
 const { UNENDORSED, assertEndorsed } = await import(LIB('endorse.js'));
 const { titleSimilarity, DUPE_THRESHOLD } = await import(LIB('dupe.js'));
+const { ticketFrom } = await import(LIB('jirapoll.js'));
 
 let failures = 0;
 const ok = (name) => console.log(`  ✓ ${name}`);
@@ -246,6 +247,32 @@ console.log('\nwhat the epic is');
 
   check('a homed epic says who chose the home', /Filed under bc-back, the unsorted backlog/.test(epicNotes(ticket('TECH-4'), { homed: 'bc-back, the unsorted backlog' })));
   check('and an adopted one says it was adopted', /Adopted rather than filed/.test(epicNotes(ticket('TECH-5'), { adopted: 'its title opens with the ticket key' })));
+}
+
+console.log('\nthe shape it is handed is the shape the poller builds');
+{
+  // Not a fixture of my own: `ticketFrom` is lib/jirapoll.js's contract, and the two
+  // modules are coupled by it. A field renamed on that side and not this one would leave
+  // every epic titled after `undefined` with nobody the wiser until one was read.
+  const issue = epicIssue(
+    ticketFrom(
+      {
+        key: 'TECH-9',
+        fields: {
+          summary: 'Fix the login redirect loop',
+          status: { name: 'In Progress' },
+          updated: '2026-08-13T10:00:00.000+0000',
+          assignee: { emailAddress: 'adam@climative.ai', displayName: 'Adam Morgan' },
+        },
+      },
+      { workspace: 'climative', url: 'https://climative.atlassian.net' }
+    )
+  );
+  check('the title is built from the real ticket shape', issue.title === 'TECH-9 — Fix the login redirect loop');
+  check('the ref too', issue.externalRef === 'jira-TECH-9');
+  check('and the body carries the url the poller built, not the REST one', /https:\/\/climative\.atlassian\.net\/browse\/TECH-9/.test(issue.body));
+  check('with the status and the assignee off the same row', /In Progress/.test(issue.body) && /adam@climative\.ai/.test(issue.body));
+  check('and nothing in it reads `undefined`', !/undefined/.test(`${issue.title}${issue.body}${issue.acceptance}${issue.notes}`));
 }
 
 console.log('\nthe hold is a refusal, not merely a queue filter');
