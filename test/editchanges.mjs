@@ -443,6 +443,33 @@ await check('a drop inside a container that holds things is inside it, not above
   assert.equal(h.edit.relationAt(h.act, 10, 275).rel, 'inside', JSON.stringify(where));
 });
 
+{
+  const h = await ready(load());
+  down(h, h.act);
+  up(h, h.act);
+  h.act.own = 'Half a thought';
+  h.act.fire('keydown', { key: 'Escape' });
+  await check('Escape abandons a retype, and the app keeps its own words', () => {
+    assert.equal(h.act.textContent, 'Show details');
+    assert.equal(h.edit.changes().length, 0);
+    assert.equal(h.act.getAttribute('contenteditable'), null);
+  });
+}
+
+{
+  const h = await ready(load());
+  down(h, h.act);
+  up(h, h.act);
+  h.act.own = 'Show one';
+  h.act.fire('keydown', { key: 'Enter', preventDefault() {} });
+  await check('and the keyboard`s own return key is what commits one', () => {
+    // The only way out of an edit that does not mean something else: in this mode every
+    // tap elsewhere is another gesture.
+    assert.equal(h.edit.changes().length, 1);
+    assert.equal(h.edit.changes()[0].to, 'Show one');
+  });
+}
+
 /* ============================================== 2. the scroll this must not swallow */
 
 await check('a thumb that moves before the hold fires is a scroll, and is left alone', async () => {

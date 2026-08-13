@@ -987,10 +987,26 @@
     const was = anchor.text.value;
     el.setAttribute('contenteditable', 'true');
     el.classList?.add?.('editretype');
+    const onKey = (ev) => {
+      if (ev.key === 'Enter' && !ev.shiftKey) {
+        // The keyboard's own return key, which on a phone is the only way out of an edit
+        // that does not mean something else: every tap elsewhere is another gesture.
+        ev.preventDefault?.();
+        el.blur?.();
+      } else if (ev.key === 'Escape') {
+        el.textContent = was;
+        el.blur?.();
+      }
+    };
     const finish = (keep) => {
       el.removeAttribute?.('contenteditable');
+      el.removeEventListener?.('keydown', onKey);
       el.classList?.remove?.('editretype');
       const now = visibleText(el);
+      // Emptied counts as abandoned rather than as "delete this text". A thumb that
+      // selected everything and tapped away looks identical to one that meant it, and of
+      // the two readings only this one is recoverable — the words are back and you can
+      // say what you wanted in a note instead.
       if (!keep || now === was || !now) {
         el.textContent = was;
         return;
@@ -1003,15 +1019,7 @@
       });
     };
     el.addEventListener?.('blur', () => finish(true), { once: true });
-    el.addEventListener?.('keydown', (ev) => {
-      if (ev.key === 'Enter' && !ev.shiftKey) {
-        ev.preventDefault?.();
-        el.blur?.();
-      } else if (ev.key === 'Escape') {
-        el.textContent = was;
-        el.blur?.();
-      }
-    });
+    el.addEventListener?.('keydown', onKey);
     el.focus?.();
     selectAll(el);
     say('Retype it, then tap away');
