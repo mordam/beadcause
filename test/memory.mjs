@@ -112,6 +112,7 @@ fs.writeFileSync(path.join(store, 'android-keystore.properties'), 'storePassword
 fs.writeFileSync(path.join(store, 'loupe-sophab.png'), 'PRETEND PNG');
 fs.writeFileSync(path.join(store, 'status.json'), '{}');
 fs.writeFileSync(path.join(store, 'restart.json'), '{"at":"2026-08-11T00:00:00.000Z"}');
+fs.writeFileSync(path.join(store, 'merge-sweeps.json'), '{"beadcause":{"workspace":"beadcause","key":"beadcause","number":9}}');
 fs.mkdirSync(path.join(store, 'logs'), { recursive: true });
 fs.writeFileSync(path.join(store, 'logs', 'run.log'), 'noise');
 fs.writeFileSync(path.join(store, 'config.json'), JSON.stringify({ token: 'abc' }, null, 2) + '\n');
@@ -127,6 +128,10 @@ check('status.json churn is not tracked', !tracked.includes('status.json'), trac
 // The same argument, one file along: the router rewrites restart.json on every handover
 // and it means nothing thirty seconds later, so its history is noise (bc-kttd).
 check('restart.json churn is not tracked', !tracked.includes('restart.json'), tracked.join(' '));
+// And once more for the sweep a merge asks for: written by whichever process merged,
+// emptied by the next poll cycle, and a history of it would be one commit per merge
+// saying something the pull request already says (bc-9d37.4).
+check('merge-sweeps.json churn is not tracked', !tracked.includes('merge-sweeps.json'), tracked.join(' '));
 check('logs/ is not tracked', !tracked.some((f) => f.startsWith('logs/')), tracked.join(' '));
 
 check('an unchanged directory produces no commit', (await commit('nothing')) === null);

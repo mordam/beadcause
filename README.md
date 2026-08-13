@@ -2476,7 +2476,7 @@ this say before the advocate rewrote it" without anyone having remembered to ask
 
 Snapshots are debounced by two seconds and the reasons accumulate, because one
 advocate cycle rewrites `advocates.json` three or four times in a second and those
-are one event to whoever reads the history back. `status.json`, `restart.json`, `logs/`
+are one event to whoever reads the history back. `status.json`, `restart.json`, `merge-sweeps.json`, `logs/`
 and the check PNGs are ignored — churn, and not the thing you want a history of.
 `deploys/` is not, and the difference is the point: a deploy record is something somebody
 pressed Ship on, and a restart marker is one line the router overwrites on every swap
@@ -4945,6 +4945,60 @@ instead: `refused` for the two above, `error` for a sweep that could not run at 
 open. `node test/prsweep.mjs` stages the whole thing against a real repo with real session
 archives and a `gh` that answers `UNKNOWN` once before it answers the truth.
 
+#### Every way a merge lands sets it off
+
+A sweep is only worth having if it happens whichever way the merge happened, and there are
+four ways into `main` here:
+
+- a tap on a **delivery card** in the inbox, which is how work a worker could not merge
+  itself lands;
+- a tap on **Merge** on the [PR board](#where-you-read-it-an-inbox-card-and-the-board);
+- **`beadcause-deliver`**, which is how most work lands — a worker merges its own pull
+  request as its last act;
+- the **merge button on github.com**, from a phone browser or from somebody else, which
+  nothing here performs and `reconcileLanded` notices afterwards.
+
+A door that does not sweep is not a gap you would ever see; it is a feature that looks
+broken exactly on the day you happened to merge that way. So all four call one function,
+and none of them calls `sweepConflicts` where it stands. What they do instead is write down
+that a merge landed, keyed by the repo it landed in — `lib/mergesweep.js` — and the
+daemon's poll cycle sweeps it a few seconds later.
+
+**The reason is where the resolvers are counted.** One resolver per pull request, two on
+this Mac at once, and a queue for the rest are all guarantees held in the daemon's memory
+(`lib/resolvers.js`, deliberately: a window handle is worth exactly as long as the iTerm
+holding it). `beadcause-deliver` is a *different process*. A sweep run there starts from an
+empty registry — it cannot see the resolver the daemon opened ten minutes ago, so it would
+open a second window on the same branch, which is the incident the whole file exists to
+prevent — and then it exits, taking any queue it had built with it. The registry has to be
+one registry, and only the daemon holds it.
+
+Three things fall out of recording rather than sweeping, and each of them was wanted:
+
+- **No merge waits for a window.** A tap on a card returns when the merge is done, not when
+  a resolver has opened; the record is one small atomic file write.
+- **A sweep that goes wrong cannot fail the merge that caused it.** Different tick,
+  different stack, and the merge already happened.
+- **Two merges into one repo cost one sweep**, because the records are keyed by repo and
+  the higher pull request number wins — which is the number the resolver's brief should
+  name anyway.
+
+Records are **taken before they are acted on** and never retried. A sweep is a courtesy on
+top of a merge that already succeeded, so a request that outlived a daemon restart, or one
+that failed once, is dropped rather than re-run: the next merge into that repo asks GitHub
+again, which is a better answer than a four-hour-old note about a base that has moved twice
+since. `merge-sweeps.json` is ignored by the [config repo](#where-the-rest-lives-configbeadcause-is-a-git-repo)
+for the same reason `restart.json` is — it is empty again within thirty seconds, and what it
+recorded is on the pull request it merged.
+
+The one door with a gate in front of it is github.com's, and the gate is the one the
+[fast-forward](#the-merge-that-happened-somewhere-else) already uses: the sweep is asked for only
+when that tick actually *closed* something. Anything else is a `gh pr list` per repo per
+interval — forty of them on a workspace like climative — for a question whose answer is
+nearly always "nothing conflicts". The blind spot is the same one and the same size: a pull
+request merged by hand with no bead behind it is noticed by nothing, and the next merge that
+is noticed sweeps past both.
+
 #### A resolver the sweep opened is told so
 
 That brief opens with *Adam pressed **Resolve conflicts** in beadcause*, which is true of
@@ -7343,6 +7397,14 @@ line naming the paths, and `main` left exactly where it was. Only when the sweep
 closed a bead or a card, because that is the moment the answer is known to be worth a
 fetch; a workspace of forty checkouts asking every ten minutes for a question that is
 nearly always "no" is forty fetches for nothing.
+
+**And it asks for the conflict sweep**, behind the same gate and for a reason one sentence
+along: a merge does not only leave this laptop behind, it leaves every branch still open on
+that base measured against a base it has never seen. The other three doors into `main` know
+the moment they merge; this is the one where the trigger arrives late and still has to fire
+exactly once — see [every way a merge lands sets it off](#every-way-a-merge-lands-sets-it-off).
+The blind spot is the same one and the same size: a pull request merged by hand with no bead
+behind it is noticed by neither half.
 
 #### The fortnight that was really forty rows
 
