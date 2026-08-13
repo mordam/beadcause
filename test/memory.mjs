@@ -641,8 +641,8 @@ const { agentExports, systemPrompt, amend } = await import('../lib/foundation.js
 const fakebin = fs.mkdtempSync(path.join(os.tmpdir(), 'beadcause-worker-bin-'));
 const spy = fs.mkdtempSync(path.join(os.tmpdir(), 'beadcause-worker-spy-'));
 process.on('exit', () => {
-  fs.rmSync(fakebin, { recursive: true, force: true });
-  fs.rmSync(spy, { recursive: true, force: true });
+  removeTreeSync(fakebin);
+  removeTreeSync(spy);
 });
 
 const stub = (name, body) => {
@@ -656,6 +656,7 @@ const stub = (name, body) => {
 stub(
   'claude',
   `printf '%s' "$BEADCAUSE_AGENT" > "$SPY/agent"
+printf '%s' "\${BEADCAUSE_LAUNCHD_PROGRAM-UNSET}" > "$SPY/launchd"
 command -v beadcause-memory > "$SPY/which" 2>&1
 : > "$SPY/argv"
 while [ $# -gt 0 ]; do
@@ -685,8 +686,19 @@ const BRIEF = 'Work bc-goo.9. This is the brief, and it must arrive intact.';
 fs.writeFileSync(promptFile, BRIEF);
 fs.writeFileSync(systemFile, systemPrompt(workerF, brief_));
 
+// BEADCAUSE_LAUNCHD_PROGRAM is set on purpose, to something this checkout is not: it is
+// what an iTerm window carries (bc-6sst), and the assertion below is that the command
+// takes it away again. Setting it here is the only way to tell a scrub from a machine
+// that happened not to have one — on a laptop where nobody's daemon is running, an
+// unscrubbed session and a scrubbed one look identical.
 await run('/bin/zsh', ['-lc', sessionCommand(workerF, { dir: wtOne, promptFile, systemFile, mode: 'auto', doneFile })], {
-  env: { ...process.env, PATH: `${fakebin}:${process.env.PATH}`, SPY: spy, BEADCAUSE_CONFIG_DIR: store },
+  env: {
+    ...process.env,
+    PATH: `${fakebin}:${process.env.PATH}`,
+    SPY: spy,
+    BEADCAUSE_CONFIG_DIR: store,
+    BEADCAUSE_LAUNCHD_PROGRAM: '/Users/someone/else/beadcause/bin/router.js',
+  },
 });
 
 const spied = (name) => (fs.existsSync(path.join(spy, name)) ? fs.readFileSync(path.join(spy, name), 'utf8') : '');
@@ -700,6 +712,17 @@ check(
   'and beadcause-memory resolved by name, from this repo\'s bin',
   spied('which').trim().endsWith('/bin/beadcause-memory'),
   spied('which')
+);
+// Empty rather than unset, and the difference is the whole point: launchdProgram() reads
+// an empty value as the positive "nobody's launchd job" and an absent one as "we do not
+// know, fall back to the argv guess". The window is a shell in a terminal, so the
+// spawner is in a position to state the first, and the inherited value it would
+// otherwise be carrying is a fact about iTerm.app's ancestry rather than about this
+// tree — which is what drew HOT-SWAP IS NOT LIVE over a perfectly good install (bc-6sst).
+check(
+  'and it is not carrying the outer terminal\'s launchd program into the worktree',
+  spied('launchd') === '',
+  `${JSON.stringify(spied('launchd'))} — the shell was handed /Users/someone/else/beadcause/bin/router.js`
 );
 check(
   'the session wrote to the memory that follows it',
