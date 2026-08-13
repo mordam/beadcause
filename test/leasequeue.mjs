@@ -78,8 +78,9 @@ const working = (id, title, over = {}) => bead(id, title, { inProgress: true, ..
 
 /**
  * The batch head on the other Mac, as the tracker shows it from here: an epic, claimed, and
- * carrying one machine's claim. An **epic**, because that is the qualifier — a batch head is
- * always one, and a session on a plain parent speaks only for the bead it was handed.
+ * carrying one machine's claim. An **epic** because a batch head always is one, which is the
+ * case this was written for — not because the rule needs it to be. Since bc-zgfo any
+ * ancestor holds, and the case immediately below pins the plain-parent half.
  */
 const heldEpic = (id, handle, minutes = 2) =>
   working(id, 'the epic', { issue_type: 'epic', labels: [leaseLabel(handle, ago(minutes))] });
@@ -164,8 +165,10 @@ function machine(w, rows, { handle, overrides = {}, bdOver = {} } = {}) {
     listLabel: async () => [],
     show: async (_ws, id) => {
       shows.set(id, (shows.get(id) || 0) + 1);
-      // The whole row and not three fields of it, because `leaseHolderAbove` reads the type:
-      // a claim on an epic above a bead holds it, and a claim on a plain parent does not.
+      // The whole row and not three fields of it: `leaseHolderAbove` reads the labels off
+      // whatever it finds above, and the type rode along here until bc-zgfo made every
+      // ancestor count. Kept whole, because a fixture that hands back less than the tracker
+      // does is a fixture that goes green on a read this code stops making.
       const row = rows.find((r) => r.id === id);
       return {
         ...(row || { id, issue_type: 'task' }),
@@ -445,16 +448,19 @@ await check('it holds the subtree and nothing beside it', async () => {
 });
 
 /**
- * And the qualifier, which is the other half of "nothing beside it". `heldByChildren` fires
- * its upward check only against a **batch head**, and test/twinqueue.mjs holds that line for
- * this laptop: a session handed one plain parent speaks for one bead, and holding its
- * children behind it would leave nobody doing either. The rule here cannot see whether the
- * other machine's window took a batch — a label says a machine and a moment — so it uses the
- * one thing a batch head always is, and the two rules then agree. They have to: the same two
- * beads must not resolve one way when the window is on this Mac and another way when it is
- * on the next desk.
+ * And the ancestor that is not an epic, which since bc-zgfo holds its subtree like any
+ * other. This ran the other way until then: the upward check in `heldByChildren` fired only
+ * against a **batch head**, this rule cannot see whether the other machine's window took a
+ * batch — a label says a machine and a moment — so it used the one thing a batch head
+ * always is, an epic, and the two rules agreed by construction.
+ *
+ * bc-zgfo took the qualifier off the local rule, and the *agreement* is the invariant
+ * rather than the qualifier: the same two beads must not resolve one way when the window is
+ * on this Mac and another way when it is on the next desk. So this followed in the same
+ * commit, and it cost no reads — the type test sat after the `bd show`, so a non-epic
+ * ancestor was already being fetched and then discarded.
  */
-await check('a claim on a plain parent holds nothing under it', async () => {
+await check("a claim on a plain parent holds what is under it too", async () => {
   const rows = [
     working('x-1', 'a plain parent, being worked', { labels: [leaseLabel('beta', ago(2))] }),
     bead('x-1.1', 'a child'),
@@ -463,8 +469,9 @@ await check('a claim on a plain parent holds nothing under it', async () => {
   const alpha = machine(w, rows, { handle: 'alpha' });
 
   const card = await alpha.tick();
-  assert.deepEqual(heldIds(card), [], 'a parent is not a subtree');
-  assert.deepEqual(alpha.opened, ['x-1.1']);
+  assert.deepEqual(heldIds(card), ['x-1.1'], 'beta is inside this subtree, whatever type its bead is');
+  assert.deepEqual(alpha.opened, [], 'so no second window opens under it here');
+  assert.match(card.heldByLease[0].why, /on x-1, which is above it/, card.heldByLease[0].why);
 });
 
 /**

@@ -7329,14 +7329,16 @@ bead**, and both halves of the rule ask it:
   down — while the machine above stands nobody down, which is what keeps the answer at
   exactly one and not zero.
 
-**Epics only**, and the qualifier is the whole of it. A batch head is always an epic, so the
-case this exists for is covered; a session on a *plain* parent was handed one bead and
-speaks for one bead, and holding its children behind it would leave nobody doing either.
-That is already the line the local rule draws — it fires its own upward check only against a
-worker carrying a batch — and the two must not disagree, because the same two beads must not
-resolve one way when the window is on this Mac and another way when it is on the next desk.
-Everything else about that window is unknowable from here and is not guessed at: a label
-says a machine and a moment, not what the session was briefed on.
+**Any ancestor**, not only an epic. It was epics only until bc-zgfo, on the argument that a
+batch head is always an epic and a session on a *plain* parent was handed one bead and
+speaks for one bead. The local rule drew that line first and this one followed it, because
+the same two beads must not resolve one way when the window is on this Mac and another way
+when it is on the next desk — and [when the local rule dropped the
+qualifier](#the-child-that-goes-ready-after-its-parents-window-opened), this had to drop it
+in the same commit. It costs nothing: the type test sat *after* the `bd show`, so a non-epic
+ancestor was already being read and then discarded. Everything else about that window is
+unknowable from here and is not guessed at: a label says a machine and a moment, not what
+the session was briefed on.
 
 Which leaves the tiebreak, and it is the asymmetry rather than the stamp: the machine above
 wins, however recently it claimed. Earliest-stamp would have been the *fairer* answer and
@@ -7345,7 +7347,87 @@ which is the bug. Holding is also the cheaper mistake and a self-cancelling one:
 comes off when that worker ends, expires on `leaseMinutes` if the Mac went to sleep, and
 says whose it is on the card the entire time it lasts. The cases are in
 `node test/leasequeue.mjs`, including the read count, the sibling that is *not* held, the
-plain parent that holds nothing, and the two-machine race resolved after a sync.
+plain parent that holds its subtree too, and the two-machine race resolved after a sync.
+
+### The child that goes ready after its parent's window opened
+
+Every filter so far asks about work *underneath* a bead: is a child ready, is a session in
+the subtree, does this epic still have open children. The mirror question — is a session
+already open **above** this bead — was asked only against a **batch head**, a worker that
+had been handed a whole subtree in one brief. The reasoning was that an epic is not the
+work, its children are, so holding a child because something sits on its parent would leave
+nobody doing either.
+
+That has one hole, and it is bc-zgfo. **A hold behind a live window is a wait, not a
+stall.** The worker above ends, the reconcile pass drops it, and the child launches on the
+next tick — bounded in the worst case by `workerTimeoutMinutes`. What the qualifier let
+through instead was two windows inside one subtree, on one laptop, with the parent's brief a
+superset of the child's: the [bc-3zo9 duplicate](#the-bead-somebody-is-already-sitting-in)
+with the order reversed, costing a branch rather than a wait.
+
+Two ways in, and neither needs a batch to exist:
+
+- **A non-epic parent whose only child was blocked when it launched.** A plain task with
+  subtasks is ordinary work; its window has no batch. An hour later the subtask unblocks,
+  goes ready, and nothing holds it.
+- **An epic that launched with no open children, and gained one.** Such an epic is
+  deliberately workable — an epic with nothing under it is an ordinary bead with an
+  ambitious type, and it should not need a human to retype it before anything picks it up.
+  But a worker that files a bead under the epic it is working has just created a ready bead
+  inside its own subtree. bc-2uj4 was in exactly that state while this was written.
+
+So the check is now unqualified: **any live session on any ancestor holds the bead**, and
+the card says which window and which bead it is under. The floor is unchanged — with no
+workers there is nothing to match, and a session on a bead that is not an ancestor of
+anything queued matches nothing, so an ordinary busy advocate is untouched. Matching is
+prefix-on-the-id with the dot included, so `x-11` is not underneath `x-1`.
+
+The batch dispatcher asks the same question on the same terms, because it never reaches the
+suppression: a batch head goes straight onto the workable list, so an inner epic under a
+live window would otherwise be promoted to a dispatcher of its own. The two rules moving
+together is the invariant — one subtree, one answer, per tick. `node test/epicqueue.mjs`
+covers both, including the sibling that is not held.
+
+### The bead that closed while the queue was being built
+
+Every guard above holds a bead that *should* be worked but not right now. This one refuses a
+bead that should not be worked at all, because it is finished.
+
+bc-uaxn is the incident. A worker window was handed a full brief for bc-ikj6 —
+"opened automatically by the beadcause advocate because it came up ready" — seventy-eight
+minutes after `bin/deliver.js` closed it and #173 had merged. `bd ready` cannot return a
+closed bead and the survey is built from it, so no fresh survey queued that window; the
+launch path was never established from what was left on disk, and that is precisely the
+argument for a refusal at the door rather than one more filter upstream. A guard that only
+holds when you can name the route is a guard that holds until the day you cannot.
+
+**The wasted window is the harmless half.** The brief opens with *claim it before you touch
+anything*, and `bd update <id> --claim` sets `in_progress`. On a closed bead that
+**resurrects merged work**: it reopens the bead, puts it back in front of the next advocate
+tick, and that tick can open another window on it. A session that simply obeys its brief in
+order does this before it ever reads the close reason. The window that found bc-ikj6 escaped
+only because it happened to run `bd show` first and noticed `[CLOSED]`.
+
+Two layers, matching [endorsement](#the-endorsement-queue--a-group-tap-or-a-row-at-a-time)'s
+two and for the same reason:
+
+- **A refusal**, in the two doors into an unattended session — the worker and the epic
+  planner. It reads the row the endorsement check has already fetched from the tracker, so
+  it costs nothing and it cannot be fooled by a stale queue row, which is the entire shape
+  of the bug: the bead closed *after* the queue was built. It bites hardest on the planner,
+  which ends by reopening its epic so the plan is visible to the queue — a planner opened on
+  a closed epic would un-close it as its last act.
+- **A sentence in the brief**, because the refusal only covers the doors this daemon owns.
+  A window opened by hand, resumed, or launched by something written later still starts by
+  reading its brief, and the brief now says what to do when `bd show` answers `CLOSED`:
+  do not claim it, say what the close reason says landed, and stop.
+
+**Only `closed`.** `in_progress` stays workable and that is load-bearing — attempt 2 on a
+bead the previous window claimed and abandoned is an ordinary retry, and refusing it would
+turn every abandoned session into a bead nothing may ever pick up again. Blocked and
+deferred are queue questions `bd ready` already answers, and answering them twice here would
+be a second opinion with no incident behind it. `node test/stillopen.mjs` covers both layers,
+including that the gate reads the tracker rather than the row it was handed.
 
 ### The session log, kept in the repo
 
