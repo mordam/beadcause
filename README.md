@@ -4099,6 +4099,15 @@ second gate matters for a case the first misses: `load()` paints the *can't reac
 server* panel straight through `paintList`, so a link dropping mid-gesture would
 otherwise replace the list you were pointing at with an error message.
 
+**What it does not cover, deliberately, is everything that is not the poll.** Three paths
+in `app.js` write to the DOM on their own clocks and never through `render()`: a PR
+card's arm timer expiring six seconds after you armed it, the session log tailing into an
+open `<pre>`, and the space picker adopting a payload. None can fire without a
+deliberate interaction just before the mode is entered, and none of the three is fixed by
+one more `isFrozen()` — a frozen screen suppressing an arm timer changes what arming
+means, and a log that stops tailing looks like an agent that stopped working. That is
+bc-p49x.5, and it is a decision rather than a missing line.
+
 A frozen inbox and a quiet one are the same picture, so the mode says which: a fixed
 banner across the top — **Edit mode — the screen is frozen** — with a **Done** beside it,
 a tint on the page, and the ✏️ filled. Without that, a screen that had silently stopped
