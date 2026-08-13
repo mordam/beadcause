@@ -531,6 +531,61 @@ const spyLand = (answer = { fetched: true, advanced: true, note: 'fast-forwarded
   check('closing only a stale card is still enough to bring main up', spy.calls.length === 1, JSON.stringify(spy.calls));
 }
 
+/*
+ * And the other thing a merge nothing here performed leaves behind — bc-9d37.4, rule 5.
+ *
+ * The same gate as the fast-forward above and for a reason one sentence along from it: a
+ * merge does not only leave this laptop behind, it leaves every branch still open on that
+ * base measured against a base it has never seen. Three of the four doors into `main`
+ * know the moment they merge; this is the one where the trigger arrives late and still
+ * has to fire once. `requestSweep` is injected because the sweep itself belongs to the
+ * daemon and nothing in this repo's tests may open an iTerm window — lib/mergesweep.js
+ * and test/mergesweep.mjs are where what it asks for is acted on.
+ */
+const spySweep = () => {
+  const calls = [];
+  return { calls, request: (rec) => (calls.push(rec), rec) };
+};
+
+{
+  forgetPrefixes();
+  const bd = fakeBd([{ id: 'wg-aaa', title: 'fix the thing' }]);
+  const spy = spyLand();
+  const swept = spySweep();
+  const result = await reconcileLanded(bd, ws('sweep-one'), REPO, {
+    rows: [asListed(mergedRow())],
+    key: 'sweep-one',
+    land: spy.land,
+    request: swept.request,
+  });
+  check('a sweep that closed a bead asks for the conflict sweep too', swept.calls.length === 1, JSON.stringify(swept.calls));
+  check('for the repo it swept, keyed the way resolvers are', swept.calls[0]?.key === 'sweep-one' && swept.calls[0]?.workspace === 'sweep-one');
+  check('naming the merge it just found out about', swept.calls[0]?.number === mergedRow().number, JSON.stringify(swept.calls[0]));
+  check('and the request travels back on the result', result.swept?.key === 'sweep-one', JSON.stringify(result.swept));
+}
+
+{
+  forgetPrefixes();
+  // The ordinary tick again, and the same argument as the fetch above: a `gh pr list` per
+  // repo per interval, on a workspace of forty checkouts, for an answer that is nearly
+  // always "nothing conflicts".
+  const bd = fakeBd([{ id: 'wg-aaa', status: 'closed' }], { live: [] });
+  const swept = spySweep();
+  const result = await reconcileLanded(bd, ws('sweep-two'), REPO, { rows: [asListed(mergedRow())], land: spyLand().land, request: swept.request });
+  check('a sweep that closed nothing asks for nothing', swept.calls.length === 0, JSON.stringify(swept.calls));
+  check('and says so', result.swept === null, JSON.stringify(result.swept));
+}
+
+{
+  forgetPrefixes();
+  // No key from the caller. Right for every single-repo workspace and refused rather than
+  // resolved for the others, which is `unitFor`'s job and not this file's.
+  const bd = fakeBd([{ id: 'wg-aaa', title: 'fix the thing' }]);
+  const swept = spySweep();
+  await reconcileLanded(bd, ws('sweep-three'), REPO, { rows: [asListed(mergedRow())], land: spyLand().land, request: swept.request });
+  check('a caller that names no repo gets the workspace name', swept.calls[0]?.key === 'sweep-three', JSON.stringify(swept.calls[0]));
+}
+
 {
   forgetPrefixes();
   const bd = fakeBd([{ id: 'wg-aaa', title: 'fix the thing' }]);

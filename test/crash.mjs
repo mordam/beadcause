@@ -598,6 +598,10 @@ await check('every swallowed failure in the poll cycle reports', () => {
       // this one is the cycle's bookkeeping failing, which is a bug by construction —
       // and an unhandled rejection out of a `setInterval` callback would take the
       // daemon with it.
+      // lib/mergesweep.js. Same bar again: `sweepMerged` takes its records before it
+      // acts on them and lands every sweep's failure in an outcome, so a rejection out
+      // of it is the drain's own bookkeeping rather than a `gh` that blinked.
+      'the conflict sweep',
       'the cycle',
       'the deploy sweep',
       'the owed-close sweep',

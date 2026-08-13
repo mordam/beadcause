@@ -79,6 +79,7 @@ import { ownerName } from '../lib/owner.js';
 import { cardsForDelivery, deliveryBody, deliveryTitle, DELIVERY_LABEL } from '../lib/delivery.js';
 import { deployFor, deployHint } from '../lib/deploy.js';
 import { landedReason } from '../lib/landed.js';
+import { requestSweep } from '../lib/mergesweep.js';
 import { pushLanded } from '../lib/notify.js';
 import { oweClose } from '../lib/owed.js';
 import { park, questionType } from '../lib/park.js';
@@ -521,6 +522,38 @@ function clearOpenCards(why) {
   return cleared;
 }
 
+/**
+ * Which approved repo this worktree belongs to — `''` when none does.
+ *
+ * A worktree is not a checkout: it has its own directory and shares the object database
+ * of the repo it was cut from, so the only honest way to ask is `git rev-parse
+ * --git-common-dir` and match what comes back against the approved list.
+ *
+ * Two callers, both of which need the same answer for different halves of the ending.
+ * The card's **Ship** needs it to name a deploy (`deployFor` takes this key, and a bare
+ * workspace key in a workspace of forty repos is refused rather than resolved). The
+ * merge needs it because the conflict sweep is keyed the same way — see lib/mergesweep.js
+ * — and a sweep asked for under the wrong key would be a sweep of a different service.
+ * One function rather than two copies, because the copies would drift on the day
+ * somebody moves a repo.
+ */
+function unitKeyHere() {
+  const units = repoUnits(cfg, ws.name);
+  if (units.length === 1 && !units[0].repo) return units[0].key;
+  // Relative (`.git`) or absolute depending on git's version and where it is run, so it is
+  // resolved against this directory either way; a git that will not answer leaves `common`
+  // as this directory, which matches nothing and is reported by the caller rather than
+  // guessed at.
+  let common = path.resolve(dir);
+  try {
+    common = path.resolve(dir, git(['rev-parse', '--git-common-dir']), '..');
+  } catch {
+    /* not a checkout, or a git that refused — handled by finding no unit */
+  }
+  const mine = units.find((u) => u.repo && path.resolve(u.repo.dir) === common);
+  return mine ? mine.key : '';
+}
+
 /* -------------------------------------------------------------------- the merge */
 
 /**
@@ -632,6 +665,26 @@ async function landHere(landed, { external = false } = {}) {
   } catch (err) {
     console.error(`beadcause-deliver: merged ${where}, but could not bring local ${base} up — ${first(err)}`);
   }
+
+  /**
+   * And every *other* branch still open on this base, which this merge has just measured
+   * against a base it has never seen — see lib/mergesweep.js.
+   *
+   * Recorded for the daemon rather than swept here, and that is not a convenience. The
+   * registry that stops two resolver windows opening on one pull request is in the
+   * daemon's memory (lib/resolvers.js, deliberately: a window handle is worth as long as
+   * the iTerm holding it). This is a different process, so a sweep run here would start
+   * from an empty registry — it cannot see the resolver the daemon opened ten minutes
+   * ago, so it would open a second one on the same branch, which is bc-utyr — and then
+   * `process.exit(0)` below would take any queue it had built with it.
+   *
+   * No key means this worktree belongs to no approved repo, which is the same state that
+   * costs the card its Ship: the daemon could not resolve a checkout for it either, so
+   * asking would only fill the log with a request nothing can act on.
+   */
+  const sweepKey = unitKeyHere();
+  if (sweepKey) requestSweep({ workspace: ws.name, key: sweepKey, number: request.number, base, why: `a worker's own delivery of ${beadId}` });
+  else console.error(`beadcause-deliver: merged ${where}, but ${dir} is no approved ${ws.name} repo, so nothing will sweep the branches behind it`);
 
   // The bead, in two writes and in this order: the comment is the record of what
   // happened, and the close is the claim that it is finished. Both are wrapped,
@@ -753,31 +806,12 @@ if (awaitingApproval) console.error(`beadcause-deliver: not merged — #${reques
  * the same state as a repo that declared nothing, and inventing the workspace's key for it
  * would put a button on the card that deploys a checkout this branch was never in.
  */
-let shipKey = ws.name;
-{
-  const units = repoUnits(cfg, ws.name);
-  if (units.length === 1 && !units[0].repo) {
-    shipKey = units[0].key;
-  } else {
-    // Relative (`.git`) or absolute depending on git's version and where it is run, so it is
-    // resolved against this directory either way; a git that will not answer leaves `common`
-    // as this directory, which matches nothing and is reported below rather than guessed at.
-    let common = path.resolve(dir);
-    try {
-      common = path.resolve(dir, git(['rev-parse', '--git-common-dir']), '..');
-    } catch {
-      /* not a checkout, or a git that refused — handled by finding no unit */
-    }
-    const mine = units.find((u) => u.repo && path.resolve(u.repo.dir) === common);
-    if (mine) shipKey = mine.key;
-    else {
-      shipKey = '';
-      console.error(
-        `beadcause-deliver: ${dir} is not an approved ${ws.name} repo, so the card offers no Ship — ` +
-          `add it to repos.${ws.name}.approved if a deploy of it should be one tap`
-      );
-    }
-  }
+const shipKey = unitKeyHere();
+if (!shipKey) {
+  console.error(
+    `beadcause-deliver: ${dir} is not an approved ${ws.name} repo, so the card offers no Ship — ` +
+      `add it to repos.${ws.name}.approved if a deploy of it should be one tap`
+  );
 }
 
 let shipHint = '';

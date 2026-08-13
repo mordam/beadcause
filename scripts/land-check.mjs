@@ -337,6 +337,16 @@ check('with a reason naming what it landed as', /^Landed as #7 as la11ded1/.test
 check('and a comment on the bead recording the merge', (landed.issue.comment_count ?? 0) >= 1, String(landed.issue.comment_count));
 check('no delivery question was filed — there is nothing to ask', bdJson(['list', '--label', 'pr-delivery', '--json']).length === 0);
 
+// bc-9d37.4. A merge leaves every other open branch on this base measured against a base
+// it has never seen, and a worker is one of the four doors that has to say so. It records
+// rather than sweeps, because the registry that stops two resolver windows opening on one
+// branch is in the daemon's memory and this is a process that merges and exits — so what
+// this asserts is the file the daemon's poll cycle drains, in the scratch config directory
+// this harness already isolates.
+const sweeps = JSON.parse(fs.readFileSync(path.join(CONFIG_DIR, 'merge-sweeps.json'), 'utf8'));
+check('it asked the daemon to sweep the branches behind it', Object.keys(sweeps).join(',') === 'landcheck', JSON.stringify(sweeps));
+check('naming the merge that set it off', sweeps.landcheck?.number === 7, JSON.stringify(sweeps.landcheck));
+
 /* ------------------------------------------------------- 2. GitHub refuses the merge */
 
 console.log('\nGitHub refuses: the old question, with its sentence on it');
