@@ -119,13 +119,18 @@ function lift(src, opener) {
   throw new Error(`no statement end after ${opener}`);
 }
 
-/** The row renderer, run for real, with the two helpers it borrows from around it. */
+/** The row renderer, run for real, with the helpers it borrows from around it. */
 function renderRow(row) {
-  const context = vm.createContext({ Date, String, Math, JSON });
+  const context = vm.createContext({ Date, String, Math, JSON, Number, encodeURIComponent });
   vm.runInContext(
     [
       lift(APP, 'const esc = ('),
       lift(APP, 'function relTime(iso)'),
+      lift(APP, 'function graphUrl(q)'),
+      // The second half of the row since bc-0i27.5 — what beadcause made of the ticket.
+      // test/jiraingest.mjs owns what it says; it is lifted here because without it the
+      // row does not render at all, and this suite is about the row.
+      lift(APP, 'function jiraIngestHtml(row)'),
       lift(APP, 'function jiraRowHtml(row)'),
       'globalThis.out = jiraRowHtml(ROW);',
     ].join('\n'),

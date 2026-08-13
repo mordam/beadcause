@@ -405,7 +405,11 @@ console.log('\nwired into the poll cycle');
   check('the tickets ride the inbox payload as `tickets`, which is what the row reads', /tickets: jira\.tickets\(\)/.test(src));
   check(
     'each one stamped with its space, or the inbox filter files it under Other',
-    /tickets: jira\.tickets\(\)\.map\(\(t\) => \(\{ \.\.\.t, space: spaceFor\(cfg, t\.workspace\)/.test(src),
+    // The `space:` line rather than the whole expression around it: bc-0i27.5 added a
+    // second stamped field (`ingest`) and broke this row apart across several lines, and
+    // a pattern anchored to `.map((t) => ({ ...t, space:` read that as the space having
+    // been taken off.
+    /tickets: jira\.tickets\(\)\.map\(/.test(src) && /space: spaceFor\(cfg, t\.workspace\)/.test(src),
     'no space on a ticket row'
   );
   check(

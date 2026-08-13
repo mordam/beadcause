@@ -12122,6 +12122,92 @@ way past, on create, on update, and on a bead that has since been closed. If it 
 every sweep would look up a ticket, find nothing, and file another perfectly well-formed
 epic a minute later.
 
+### Reading the ticket — the children under the epic, and what the row says while it happens
+
+An epic built from a summary and a status is enough to *find* the work and nothing like
+enough to *do* it. So a minute or so after the epic lands, an agent reads the ticket's own
+description and thread and proposes what it decomposes into, and those beads are created as
+real children of the epic — `lib/jiraingest.js`, and the third of the three modules JIRA
+arrives through.
+
+**It is the chat session's path with a ticket where the conversation was.** Nothing here
+invents a way to propose beads. `lib/console.js` already runs an agent that reads something
+and answers with a fenced ` ```beads ` block; `lib/draft.js` already parses that block,
+repairs its graph, breaks its cycles and orders it for creation. Both are used as they
+stand, and the protocol string is *imported* from console.js rather than copied — a second
+copy of it is a second thing that can drift away from the parser reading it. The agent runs
+with the chat session's own foundation, which is **read-only against the tracker**: it can
+`bd show`, `Read`, `Grep` and `Glob`, and it cannot create anything. beadcause creates what
+it proposed.
+
+**Nobody presses the button, and the review is one level up.** A chat session waits for
+you; a ticket arrives while you are asleep, and the whole point of the epic is that the
+inbox has something to tap by morning. The children therefore arrive `unendorsed`, exactly
+as the epic does — and a held bead is not work: `assertEndorsed` asks the tracker itself, so
+even a session handed one by hand is refused. They are beads you can read, edit,
+re-prioritise and delete, and none of them is started until the approve on the row lifts the
+hold. Held-and-editable is what "editable before it becomes work" means here; parking the
+proposal in a queue instead would leave the row saying *still reading* until somebody
+happened to open it.
+
+**What lands on each child**, and every one of the three is owed because this does not go
+through `lib/filing.js`: the `unendorsed` marker (or a note saying plainly that
+auto-endorsement took it off), the `jira-ticket` label the epic also carries, so everything
+one ticket produced is findable by one label, and the epic as its `parent` — which is what
+makes `bd dep tree` render them and is exactly what `bin/file.js` could not have given
+them. A bead filed that way gets a `discovered-from` edge, and `bd update --parent`
+afterwards refuses outright: *"dependency X -> Y already exists with type discovered-from"*.
+An epic decomposed through the filing seam has no children at all. Priority is clamped to
+the epic's own P1 rather than to the filing floor: a child of a P1 epic may be a P1, and P0
+is something you choose.
+
+**Exactly once, asked of the epic.** The filer has `external_ref` to ask the tracker with;
+a child has no ref of its own, so the question "has this ticket been read?" is asked as
+"does this epic have children?" — one `bd list --parent` per ticket per daemon life, and
+never again. That is deliberately the safe direction and the cost is worth stating: a run
+that died half way leaves two children of the five it meant to make, and the next start
+sees two children and calls it done rather than filing three more beside them. A
+half-decomposed epic that says so on its row is recoverable by anyone reading it; a
+duplicated one is a tracker nobody trusts.
+
+**One at a time, and never awaited.** An ingestion is a `claude -p` that reads a ticket and
+greps a repo — minutes, and real money — so `MAX_RUNNING` is 1 across every workspace, and a
+morning that assigns you nine tickets reads them one after another rather than putting nine
+agents on the Mac at once. The sweep *starts* runs and returns; a poll cycle that blocked on
+an agent would stop the phone being answered. A ticket waiting its turn is `queued` and says
+so.
+
+**The row is step 5 of the epic, and it has three things to say** — each of them a different
+next move:
+
+| State | The row says | Because |
+|---|---|---|
+| `reading`, `queued` | *reading the ticket…* | There is nothing to look at yet. Tapping the row opens the ticket, which is what you read to decide. |
+| `done` | the epic's id, and how many beads are under it | The id is a link into that bead's own detail view. "3 beads" you cannot open is a claim, not a result. |
+| `failed` | *could not be read* — with the reason | Nothing retries it until the daemon restarts, so a stuck ingestion that looked like a slow one would never be found. |
+
+The id appearing **is** what "the reading has finished" means, which is why the row does not
+draw it earlier even though the epic has existed since the ticket arrived.
+
+**A bus event, and only on the answer.** Unlike the epic filing one section up, this one
+emits — because the row's content changes minutes after the sweep that started the run
+returned, and a phone parked on `/api/poll` is woken only by the event log (`lib/events.js`).
+One event per ticket that settles, which is a handful a day; an event per tick would wake
+every parked client every minute to redraw an identical inbox. The endorsement queue's
+fifteen-second cache is dropped in the same breath, for the reason the filer drops it.
+
+**A failure is sticky for the life of the process.** The failures that reach here are an
+agent that would not start, a JIRA read that was refused, a `bd` that would not take a
+title — none of them fixed by trying again in sixty seconds, and all of them would otherwise
+buy a `claude` process a minute for a ticket nobody can see is stuck. It says so on the row
+instead, which is where somebody can do something about it, and a daemon restart is what
+tries again.
+
+`node test/jiraingest.mjs` covers the brief the agent is handed, the ADF walk that turns a
+v3 description into text, what a child bead actually is, the once-only question and its
+cost, the four failure paths, the concurrency cap, and the row — the renderer lifted out of
+`public/app.js` and run for real, the way `test/jirarow.mjs` runs it.
+
 ### One credential rule and one wire, shared by JIRA and Confluence
 
 The two Atlassian integrations landed within minutes of each other, independently, and
