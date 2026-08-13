@@ -19,18 +19,17 @@
 // app.js and style.css instead of the working copy, so a failure here can be told
 // apart from a flake — baseline must fail the record cases, the working copy must
 // pass all of them.
-import { execFileSync, spawn } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import http from 'node:http';
-import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { toQuestion } from '../lib/decision.js';
 import { proposalBody, proposalTitle } from '../lib/proposal.js';
+import { CHROME, launchChrome } from './helpers/chrome.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PUBLIC = path.join(ROOT, 'public');
-const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const VP = { width: 393, height: 852, dpr: 3 };
 const TOKEN = 'proposal-check-token';
 const BASELINE = process.argv.includes('--baseline');
@@ -160,78 +159,6 @@ function serve() {
   return new Promise((resolve) => server.listen(0, '127.0.0.1', () => resolve(server)));
 }
 
-/* ------------------------------------------------------------------ chrome */
-
-function connect(url) {
-  return new Promise((resolve, reject) => {
-    const ws = new WebSocket(url);
-    let id = 0;
-    const pending = new Map();
-    ws.onmessage = (m) => {
-      const msg = JSON.parse(m.data);
-      const p = msg.id != null && pending.get(msg.id);
-      if (!p) return;
-      pending.delete(msg.id);
-      msg.error ? p.reject(new Error(msg.error.message)) : p.resolve(msg.result);
-    };
-    ws.onerror = () => reject(new Error('could not attach to Chrome'));
-    ws.onopen = () =>
-      resolve({
-        send: (method, params = {}) =>
-          new Promise((res, rej) => {
-            const i = ++id;
-            pending.set(i, { resolve: res, reject: rej });
-            ws.send(JSON.stringify({ id: i, method, params }));
-          }),
-        close: () => ws.close(),
-      });
-  });
-}
-
-async function launch() {
-  const port = 9600 + Math.floor(process.pid % 100);
-  const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'beadcause-proposal-'));
-  const proc = spawn(
-    CHROME,
-    [
-      '--headless=new',
-      `--remote-debugging-port=${port}`,
-      `--user-data-dir=${profile}`,
-      '--no-first-run',
-      '--no-default-browser-check',
-      '--disable-background-timer-throttling',
-      '--disable-backgrounding-occluded-windows',
-      '--disable-renderer-backgrounding',
-      '--hide-scrollbars',
-      'about:blank',
-    ],
-    { stdio: 'ignore' }
-  );
-  let target = null;
-  for (let i = 0; i < 60 && !target; i++) {
-    await sleep(250);
-    try {
-      target = (await (await fetch(`http://127.0.0.1:${port}/json/list`)).json()).find((t) => t.type === 'page');
-    } catch {
-      /* not up yet */
-    }
-  }
-  if (!target) throw new Error('Chrome never exposed a page target');
-  const s = await connect(target.webSocketDebuggerUrl);
-  return {
-    s,
-    close: () => {
-      s.close();
-      proc.kill();
-      try {
-        fs.rmSync(profile, { recursive: true, force: true, maxRetries: 3 });
-      } catch {
-        /* Chrome is still letting go of a temp dir */
-      }
-    },
-  };
-}
-
 const evalJs = async (s, expr) => {
   const r = await s.send('Runtime.evaluate', { expression: expr, returnByValue: true });
   if (r.exceptionDetails)
@@ -287,7 +214,7 @@ const check = (name, ok, detail) => {
 
 const server = await serve();
 const BASE = `http://127.0.0.1:${server.address().port}`;
-const { s, close } = await launch();
+const { s, close } = await launchChrome('beadcause-proposal-');
 
 try {
   await s.send('Page.enable');
@@ -441,19 +368,19 @@ try {
   await evalJs(s, `${ROW(2)}.querySelector('.prop-btn.no').click()`);
   await sleep(200);
   const before = await evalJs(s, PICKS());
-  const goBefore = await evalJs(s, `document.querySelector('.prop-go').textContent.trim()`);
+  const goBefore = await evalJs(s, `document.querySelector('.prop-bulk .approve').textContent.trim()`);
   await evalJs(s, `${ROW(1)}.querySelector('.prop-more')?.click()`);
   await sleep(300);
   const after = await evalJs(s, PICKS());
-  const goAfter = await evalJs(s, `document.querySelector('.prop-go').textContent.trim()`);
+  const goAfter = await evalJs(s, `document.querySelector('.prop-bulk .approve').textContent.trim()`);
   check(
     'expanding a row leaves the picks untouched',
     JSON.stringify(before) === JSON.stringify(after) && before['1'].yes === 'true' && before['2'].no === 'true',
     `${JSON.stringify(before)} → ${JSON.stringify(after)}`
   );
   check(
-    'and leaves the primary button saying the same thing',
-    goBefore === goAfter && /Create 1 of 2/.test(goAfter),
+    'and leaves the approve button saying the same thing',
+    goBefore === goAfter && /Approve 1 of 2/.test(goAfter),
     `"${goBefore}" → "${goAfter}"`
   );
 
@@ -507,6 +434,160 @@ try {
     'approve and decline are still thumb-sized and reachable',
     phone.minBtn >= 40 && phone.btnRight <= phone.cardRight,
     `${phone.minBtn}px, right edge ${phone.btnRight}px of ${phone.cardRight}px`
+  );
+
+  /* 10. the bulk controls: in the top bar, self-arming, and saying what they file */
+  //
+  // The card used to end in three full-width buttons — Approve all, Decline all,
+  // and a primary that did the filing — none of which answered the question and all
+  // of which looked like they might. The two that are left moved up into the card's
+  // top bar and took the primary's job with them, so each has to arm on the first
+  // tap and name its own count before the second.
+  console.log('\nthe bulk controls, now that they live in the top bar\n');
+
+  // The card has been open since the top of this file, which is the state where
+  // "Hide details" and "↑ Collapse" would otherwise be two buttons for one thing.
+  const BAR = `(() => {
+      const card = ${ROW(1)}.closest('.card');
+      const q = (sel) => card.querySelector(sel);
+      const bulk = q('.prop-bulk');
+      const detail = q('.card-top .detail');
+      return {
+        open: card.classList.contains('open'),
+        inTopBar: !!q('.card-top .prop-bulk'),
+        underRows: !!q('.proposal .prop-bulk'),
+        thirdButton: !!q('.prop-go') + card.querySelectorAll('[data-act="pick-submit"]').length,
+        toggleInBar: !!q('.card-top [data-act="toggle"]'),
+        toggleAtFoot: !!q('.actions [data-act="toggle"]'),
+        collapse: !!q('.card-top .collapse'),
+        approve: q('.prop-bulk .approve')?.textContent.trim(),
+        decline: q('.prop-bulk .decline')?.textContent.trim(),
+        count: q('.prop-count')?.textContent.trim(),
+        rightOf: (() => {
+          const b = bulk?.getBoundingClientRect();
+          const d = detail?.getBoundingClientRect();
+          return b && d ? Math.round(b.left - d.right) : null;
+        })(),
+        // How far the group's right edge falls short of the bar's own right edge.
+        // Zero is right-justified; the bar wraps at 393px, so this rather than a
+        // left-of/right-of comparison is what "hard right" actually means here.
+        shortOfRight: (() => {
+          const top = q('.card-top');
+          const b = bulk?.getBoundingClientRect();
+          if (!top || !b) return null;
+          const pad = parseFloat(getComputedStyle(top).paddingRight) || 0;
+          return Math.round(top.getBoundingClientRect().right - pad - b.right);
+        })(),
+        sameLine: (() => {
+          const b = bulk?.getBoundingClientRect();
+          const d = detail?.getBoundingClientRect();
+          return b && d ? Math.abs(b.top - d.top) < 4 : null;
+        })(),
+      };
+    })()`;
+
+  const bar = await evalJs(s, BAR);
+  check(
+    'the bulk row is in the card\'s top bar, not under the rows',
+    bar.inTopBar && !bar.underRows,
+    `top bar=${bar.inTopBar}, under the rows=${bar.underRows}`
+  );
+  check('there is no third confirm button left', !bar.thirdButton, `.prop-go / pick-submit: ${bar.thirdButton}`);
+  check(
+    'an open card is not offered two ways to hide the same details',
+    bar.open && bar.collapse && !bar.toggleInBar && !bar.toggleAtFoot,
+    `collapse=${bar.collapse}, a second toggle=${bar.toggleInBar || bar.toggleAtFoot}`
+  );
+  // Row 1 is approved and row 2 declined by now, which is the case the old primary
+  // existed for: the count has to survive on a button whose name is "Approve".
+  check(
+    'each says how many it will file before you tap it',
+    /Approve 1 of 2/.test(bar.approve || '') && /Decline all 2/.test(bar.decline || ''),
+    `"${bar.approve}" / "${bar.decline}"`
+  );
+
+  // Closed, the card is a row in a list again and the toggle is what opens it —
+  // in the same bar as the two bulk buttons, hard left of them.
+  await evalJs(s, `${ROW(1)}.closest('.card').querySelector('.card-top .collapse').click()`);
+  await sleep(500);
+  const shut = await evalJs(s, BAR);
+  check(
+    'closed, the details toggle is in that bar too and no longer at the foot',
+    !shut.open && shut.toggleInBar && !shut.toggleAtFoot,
+    `in the bar=${shut.toggleInBar}, still at the foot=${shut.toggleAtFoot}`
+  );
+  check(
+    'with the two bulk buttons hard right in it',
+    shut.shortOfRight !== null && shut.shortOfRight <= 1 && (!shut.sameLine || shut.rightOf > 0),
+    `${shut.shortOfRight}px short of the bar's right edge, ${shut.sameLine ? 'same line' : 'wrapped below'} the toggle`
+  );
+
+  await evalJs(s, `document.querySelector('.prop-bulk .approve').click()`);
+  await sleep(200);
+  const armed = await evalJs(
+    s,
+    `(() => {
+      const card = ${ROW(1)}.closest('.card');
+      return {
+        approve: card.querySelector('.prop-bulk .approve').textContent.trim(),
+        approveOn: card.querySelector('.prop-bulk .approve').classList.contains('confirm'),
+        decline: card.querySelector('.prop-bulk .decline').textContent.trim(),
+        declineOn: card.querySelector('.prop-bulk .decline').classList.contains('confirm'),
+        stillHere: !!card.isConnected,
+      };
+    })()`
+  );
+  check(
+    'the first tap arms rather than files, and still names the count',
+    armed.stillHere && armed.approveOn && /Tap again · create 1 of 2/.test(armed.approve),
+    `"${armed.approve}", card ${armed.stillHere ? 'still on screen' : 'gone'}`
+  );
+  check('arming one does not arm the other', !armed.declineOn, `decline reads "${armed.decline}"`);
+
+  await evalJs(s, `document.querySelector('.prop-bulk .decline').click()`);
+  await sleep(200);
+  const swapped = await evalJs(
+    s,
+    `(() => {
+      const card = ${ROW(1)}.closest('.card');
+      return {
+        approve: card.querySelector('.prop-bulk .approve').textContent.trim(),
+        approveOn: card.querySelector('.prop-bulk .approve').classList.contains('confirm'),
+        decline: card.querySelector('.prop-bulk .decline').textContent.trim(),
+        count: card.querySelector('.prop-count').textContent.trim(),
+      };
+    })()`
+  );
+  check(
+    'arming the decline disarms the approve, which stops saying "tap again"',
+    !swapped.approveOn && /Approve 1 of 2/.test(swapped.approve),
+    `"${swapped.approve}"`
+  );
+  check(
+    'and the decline says it will create nothing, not "decline 1"',
+    /Tap again · create nothing/.test(swapped.decline),
+    `"${swapped.decline}"`
+  );
+
+  // Undecided is a real state and the count for it has to survive the move: with
+  // both rows decided it is empty, and clearing one brings it back.
+  check('with every row decided there is nothing undecided to report', swapped.count === '', `"${swapped.count}"`);
+  await evalJs(s, `${ROW(2)}.querySelector('.prop-btn.no').click()`);
+  await sleep(200);
+  const undecided = await evalJs(
+    s,
+    `(() => {
+      const card = ${ROW(1)}.closest('.card');
+      return {
+        count: card.querySelector('.prop-count').textContent.trim(),
+        approve: card.querySelector('.prop-bulk .approve').textContent.trim(),
+      };
+    })()`
+  );
+  check(
+    'clearing a pick brings the undecided count back, and it is not counted as a decline',
+    /1 undecided/.test(undecided.count) && /Approve all 2/.test(undecided.approve),
+    `"${undecided.count}", approve reads "${undecided.approve}"`
   );
 
   /* A picture of both states, for the times the numbers above are not the argument. */

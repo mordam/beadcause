@@ -36,17 +36,15 @@
 // `--baseline` serves HEAD's prs.js and style.css instead of the working copy, so a
 // failure can be told apart from a flake. Against a main with no board at all, every
 // case fails at once, which is what that should look like.
-import { spawn } from 'node:child_process';
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import http from 'node:http';
-import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { CHROME, launchChrome } from './helpers/chrome.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PUBLIC = path.join(ROOT, 'public');
-const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const VP = { width: 393, height: 852, dpr: 3 };
 const BASELINE = process.argv.includes('--baseline');
 const outDir = (process.argv.find((a) => a.startsWith('--out=')) || '').slice(6);
@@ -59,8 +57,8 @@ if (!fs.existsSync(CHROME)) {
 
 /* ---------------------------------------------------------------- the fixture */
 
-/* One repo, four rows, one per stage — including the row nobody has looked at, which
-   is the case a two-state lamp gets wrong. */
+/* One repo, five rows, one per rung of the ladder — including the row nobody has looked
+   at, which is the case a two-state lamp gets wrong. */
 const row = (over) => ({
   workspace: 'demo',
   repo: 'acme/demo',
@@ -84,13 +82,14 @@ const row = (over) => ({
   pushed: true,
   local: true,
   deployed: true,
+  shipped: true,
   deployTracked: true,
   // The default is the repo that has declared no deploy, because that is most of them
   // — and it is the row whose Ship still opens a window on the Mac. The one that
   // deploys from here is a row of its own below, so both are on screen at once.
   deployDeclared: false,
   deployHint: '',
-  stage: 'deployed',
+  stage: 'live',
   note: '',
   ...over,
 });
@@ -122,9 +121,9 @@ const BOARD = () => ({
   observing: false,
   build: { dir: '/Users/x/repos/demo', commit: 'a'.repeat(40), short: 'aaaaaaa', at: '2026-08-09T09:00:00Z' },
   // `ship` is absent, not zero, when there is no queue to report — a daemon predating
-  // the queue sends no such key, and the tab badge has to fall back to `owed` rather
-  // than read an invented nought. See `render` in public/prs.js.
-  counts: { open: 1, merged: 1, pushed: 1, deployed: 1, closed: 0, owed: 2, ...(RELEASE ? { ship: RELEASE.count } : {}) },
+  // the queue sends no such key, and nothing may read an invented nought. (There was a
+  // tab badge fed from these numbers; the PRs tab is gone with bc-l8jp.6 and so is it.)
+  counts: { review: 1, merged: 1, pushed: 2, deployed: 0, live: 1, closed: 0, owed: 3, ...(RELEASE ? { ship: RELEASE.count } : {}) },
   repos: [
     {
       workspace: 'demo',
@@ -148,7 +147,8 @@ const BOARD = () => ({
           pushed: false,
           local: false,
           deployed: false,
-          stage: 'open',
+          shipped: null,
+          stage: 'review',
           checks: { state: 'passing', passing: 2, failing: 0, pending: 0, failed: [], total: 2 },
           beads: [{ id: 'de-a1b', title: 'the bead it is for', status: 'open' }],
         }),
@@ -157,6 +157,7 @@ const BOARD = () => ({
           number: 3,
           title: 'Merged and pushed, not shipped',
           deployed: false,
+          shipped: false,
           stage: 'pushed',
           note: 'Merged and pushed — but not in the build that is running. Ship it.',
         }),
@@ -167,6 +168,7 @@ const BOARD = () => ({
           pushed: null,
           local: null,
           deployed: null,
+          shipped: null,
           stage: 'merged',
           note: 'Nothing here has seen that commit yet — this Mac may not have fetched.',
         }),
@@ -175,6 +177,7 @@ const BOARD = () => ({
           number: 5,
           title: 'Merged in a repo that wrote its deploy down',
           deployed: false,
+          shipped: false,
           stage: 'pushed',
           deployDeclared: true,
           deployHint: 'runs `launchctl` · rebuilds APK · restarts beadcause',
@@ -274,7 +277,10 @@ function serve() {
     }
     if (p.startsWith('/api/')) return json({});
 
-    let rel = p === '/prs' || p === '/pulls' ? '/prs.html' : p;
+    // The board is a pane on the advocates page now (bc-d4d5). Everything below is
+    // unchanged by that: the pane keeps the `#prs` id it had as a `<main>`, and arriving
+    // by this path is what puts its chip up — see `initial` in public/montabs.js.
+    let rel = p === '/prs' || p === '/pulls' || p === '/prs.html' ? '/monitor.html' : p;
     const name = rel.replace(/^\/+/, '');
     if (BASE_FILES[name]) {
       res.writeHead(200, { 'content-type': TYPES[path.extname(name)] });
@@ -289,76 +295,6 @@ function serve() {
     fs.createReadStream(file).pipe(res);
   });
   return new Promise((r) => server.listen(0, '127.0.0.1', () => r(server)));
-}
-
-/* ------------------------------------------------------------------- chrome */
-
-function connect(url) {
-  return new Promise((resolve, reject) => {
-    const ws = new WebSocket(url);
-    let id = 0;
-    const pending = new Map();
-    ws.onmessage = (m) => {
-      const msg = JSON.parse(m.data);
-      const p = msg.id != null && pending.get(msg.id);
-      if (!p) return;
-      pending.delete(msg.id);
-      msg.error ? p.reject(new Error(msg.error.message)) : p.resolve(msg.result);
-    };
-    ws.onerror = () => reject(new Error('could not attach to Chrome'));
-    ws.onopen = () =>
-      resolve({
-        send: (method, params = {}) =>
-          new Promise((res, rej) => {
-            const i = ++id;
-            pending.set(i, { resolve: res, reject: rej });
-            ws.send(JSON.stringify({ id: i, method, params }));
-          }),
-        close: () => ws.close(),
-      });
-  });
-}
-
-async function launch() {
-  const port = 9700 + Math.floor(process.pid % 100);
-  const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'beadcause-prs-'));
-  const proc = spawn(
-    CHROME,
-    [
-      '--headless=new',
-      `--remote-debugging-port=${port}`,
-      `--user-data-dir=${profile}`,
-      '--no-first-run',
-      '--no-default-browser-check',
-      '--disable-background-timer-throttling',
-      '--hide-scrollbars',
-      'about:blank',
-    ],
-    { stdio: 'ignore' }
-  );
-  let target = null;
-  for (let i = 0; i < 60 && !target; i++) {
-    await sleep(250);
-    try {
-      target = (await (await fetch(`http://127.0.0.1:${port}/json/list`)).json()).find((t) => t.type === 'page');
-    } catch {
-      /* not up yet */
-    }
-  }
-  if (!target) throw new Error('Chrome never exposed a page target');
-  const s = await connect(target.webSocketDebuggerUrl);
-  return {
-    s,
-    close: () => {
-      s.close();
-      proc.kill();
-      try {
-        fs.rmSync(profile, { recursive: true, force: true, maxRetries: 3 });
-      } catch {
-        /* Chrome is still letting go of a temp dir */
-      }
-    },
-  };
 }
 
 const evalJs = async (s, expr) => {
@@ -463,7 +399,7 @@ const DEPLOY_BODY = `(() => {
 
 const server = await serve();
 const BASE = `http://127.0.0.1:${server.address().port}`;
-const chrome = await launch();
+const chrome = await launchChrome('beadcause-prs-');
 const { s } = chrome;
 
 try {
@@ -484,6 +420,34 @@ try {
   await s.send('Page.navigate', { url: `${BASE}/prs` });
   await sleep(1600);
 
+  /* --------------------------------------------------------------- the pane */
+
+  /* The board is a chip on the advocates page now (bc-d4d5), and two things about that
+     are only true in a browser. Arriving by its own URL has to select it — this whole
+     file would otherwise be measuring the advocates roster — and swapping away and back
+     has to leave it drawn, because nothing is fetched for it until its chip is up and a
+     pane that came back empty would look exactly like a board with nothing on it. */
+  console.log('the board as a pane');
+
+  const paneUp = `!document.getElementById('prs').hidden`;
+  ok(await evalJs(s, paneUp), 'arriving at /prs puts the board’s chip up');
+  ok(
+    (await evalJs(s, `document.querySelector('#mon-tabs [data-tab="prs"]').getAttribute('aria-pressed')`)) === 'true',
+    'and the chip says so'
+  );
+
+  await evalJs(s, `document.querySelector('#mon-tabs [data-tab="advocates"]').click()`);
+  await sleep(200);
+  ok(!(await evalJs(s, paneUp)), 'swapping to the advocates pane takes the board off screen');
+
+  await evalJs(s, `document.querySelector('#mon-tabs [data-tab="prs"]').click()`);
+  await sleep(900);
+  ok(await evalJs(s, paneUp), 'and coming back puts it up again');
+  ok(
+    (await evalJs(s, `document.querySelectorAll('#prs .board-pr').length`)) === 5,
+    `with the board still on it — ${await evalJs(s, `document.querySelectorAll('#prs .board-pr').length`)} rows`
+  );
+
   /* ------------------------------------------------------------- the lamps */
 
   console.log('what the lamps say');
@@ -495,31 +459,32 @@ try {
 
   const shipped = await evalJs(s, LAMPS(1));
   ok(
-    JSON.stringify(shipped) === JSON.stringify(['on:Merged', 'on:Pushed', 'on:Deployed']),
-    `a shipped one lights all three — ${JSON.stringify(shipped)}`
+    JSON.stringify(shipped) === JSON.stringify(['on:Merged', 'on:Pushed', 'on:Deployed', 'on:Live']),
+    `a shipped one lights all four — ${JSON.stringify(shipped)}`
   );
 
   const owed = await evalJs(s, LAMPS(3));
   ok(
-    JSON.stringify(owed) === JSON.stringify(['on:Merged', 'on:Pushed', 'off:Deployed']),
-    `merged and pushed but not running is two lit, one dark — ${JSON.stringify(owed)}`
+    JSON.stringify(owed) === JSON.stringify(['on:Merged', 'on:Pushed', 'off:Deployed', 'off:Live']),
+    `merged and pushed but not running is two lit, two dark — ${JSON.stringify(owed)}`
   );
 
   const unknown = await evalJs(s, LAMPS(2));
   ok(
-    unknown[1] === 'unknown:Pushed' && unknown[2] === 'unknown:Deployed',
+    unknown[1] === 'unknown:Pushed' && unknown[2] === 'unknown:Deployed' && unknown[3] === 'unknown:Live',
     `what nobody has looked at is neither on nor off — ${JSON.stringify(unknown)}`
   );
 
   const open = await evalJs(s, LAMPS(4));
   ok(
-    JSON.stringify(open) === JSON.stringify(['off:Merged', 'off:Pushed', 'off:Deployed']),
+    JSON.stringify(open) === JSON.stringify(['off:Merged', 'off:Pushed', 'off:Deployed', 'off:Live']),
     `an open one lights nothing — ${JSON.stringify(open)}`
   );
 
   const spoken = await evalJs(s, SPOKEN(2));
   ok(
-    JSON.stringify(spoken) === JSON.stringify(['Merged: yes', 'Pushed: not known', 'Deployed: not known']),
+    JSON.stringify(spoken) ===
+      JSON.stringify(['Merged: yes', 'Pushed: not known', 'Deployed: not known', 'Live: not known']),
     `and a reader hears the state, which colour alone would not carry — ${JSON.stringify(spoken)}`
   );
 
@@ -549,6 +514,25 @@ try {
   ok(/Ship/.test(btns.join('|')), `a merged one offers the ship — ${btns.join(', ')}`);
   ok(!/Merge/.test(btns.join('|')), 'and no merge, because it is already merged');
   ok(/Comment/.test(btns.join('|')), 'and you can always say something');
+
+  /* And the way through to the whole screen for this one pull request. It is a link into
+     the inbox's own sheet (bc-l8jp.7) rather than a second copy of it, so what is worth a
+     browser here is the href it actually rendered: the key the inbox resolves is
+     `pr:<workspace>#<number>`, and the `#` in the middle of it has to survive being put
+     after the `#` that starts a fragment. A `%23` short of that lands on the inbox with
+     nothing open and looks like a link that does nothing. */
+  const full = await evalJs(
+    s,
+    `(() => {
+      const a = [...document.querySelectorAll('#prs .board-actions a')].find((el) => /Full view/.test(el.textContent));
+      return a ? { href: a.getAttribute('href'), hash: new URL(a.href, location.href).hash } : null;
+    })()`
+  );
+  ok(full && full.href === '/#pr%3Ademo%233', `the full view is one tap away — ${JSON.stringify(full)}`);
+  ok(
+    full && decodeURIComponent(full.hash.slice(1)) === 'pr:demo#3',
+    `and the key survives the round trip — ${full ? decodeURIComponent(full.hash.slice(1)) : 'no link'}`
+  );
 
   /* -------------------------------------------------------------- the arming */
 
@@ -722,7 +706,9 @@ try {
       }),
     ],
   };
-  await evalJs(s, `document.getElementById('prs-refresh').click()`);
+  // The page's one ⟳, shared with the two panes beside this one; each of them ignores it
+  // while it is hidden, so on this pane it means the board.
+  await evalJs(s, `document.getElementById('refresh').click()`);
   await sleep(900);
   let strip = await evalJs(s, STRIP);
   ok(strip.length === 1 && /live/.test(strip[0]), `a deploy in flight is on the screen — ${JSON.stringify(strip)}`);

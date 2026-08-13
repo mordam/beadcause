@@ -42,11 +42,12 @@
  */
 import fs from 'node:fs';
 import http from 'node:http';
-import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { boundPort } from './helpers/net.mjs';
+import { cleanupTmp } from './helpers/tmp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const LIB = (f) => path.join(HERE, '..', 'lib', f);
@@ -70,10 +71,10 @@ const bad = (name, detail) => {
   if (detail) console.log(`      ${detail}`);
 };
 const check = (name, cond, detail = '') => (cond ? ok(name) : bad(name, detail));
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const { deliveryBody } = await import(LIB('delivery.js'));
 const { readOwed, OWED_PATH } = await import(LIB('owed.js'));
+const { readSweepRequests, MERGE_SWEEPS_PATH } = await import(LIB('mergesweep.js'));
 
 /* -------------------------------------------------------------------- the repo */
 
@@ -286,6 +287,7 @@ const cardIssue = (id, d) => ({
  * which is the one thing here that can genuinely refuse a close.
  */
 const reset = ({ sibling = false, blocker = false } = {}) => {
+  fs.rmSync(MERGE_SWEEPS_PATH, { force: true });
   const issues = {
     'zz-pr': cardIssue('zz-pr', delivery()),
     // Case 2: a different pull request, in the same repo, for a different bead.
@@ -362,17 +364,10 @@ const base = {
 
 const { createApp, listen } = await import(LIB('server.js'));
 
-const port = await new Promise((resolve, reject) => {
-  const probe = net.createServer();
-  probe.on('error', reject);
-  probe.listen(0, '127.0.0.1', () => {
-    const { port: p } = probe.address();
-    probe.close(() => resolve(p));
-  });
-});
-const cfg = { ...base, port };
+const cfg = { ...base, port: 0 };
 const app = createApp(cfg);
 const servers = listen(cfg, app.handler);
+const port = await boundPort(servers);
 
 const request = (method, pathname, body) =>
   new Promise((resolve, reject) => {
@@ -403,15 +398,6 @@ const request = (method, pathname, body) =>
 
 const post = (pathname, body) => request('POST', pathname, body);
 
-for (let i = 0; i < 100; i += 1) {
-  try {
-    await post('/api/nothing', {});
-    break;
-  } catch {
-    await sleep(20);
-  }
-}
-
 /* ------------------------------------------------- the merge that spends a card */
 
 console.log('\nmerging on the PR board\n');
@@ -421,6 +407,14 @@ console.log('\nmerging on the PR board\n');
   const res = await post('/api/pr/merge', { workspace: 'demo', number: 7 });
   check('the merge is taken', res.status === 200, JSON.stringify(res.json));
   check('and the pull request really merged', JSON.parse(fs.readFileSync(PR_STATE, 'utf8'))[0].state === 'MERGED');
+
+  // bc-9d37.4. #8 is still open against the same base and is now measured against a base
+  // it has never seen. Recorded rather than swept here — the sweep opens resolver windows
+  // and the registry that caps them is the daemon's, reached from the poll cycle — so
+  // this endpoint answers when the merge is done and not when a window has opened.
+  const asked = readSweepRequests();
+  check('the conflict sweep is asked for', Object.keys(asked).length === 1, JSON.stringify(asked));
+  check('naming the repo and the merge that set it off', asked.demo?.key === 'demo' && asked.demo?.number === 7, JSON.stringify(asked.demo));
 
   check('the card for that pull request is closed', world().issues['zz-pr'].status === 'closed', world().issues['zz-pr'].status);
   check(
@@ -572,6 +566,6 @@ console.log('\nwhen the work bead cannot close\n');
 
 for (const s of servers) s.close?.();
 if (servers[0]?.front) servers[0].front.close?.();
-fs.rmSync(tmp, { recursive: true, force: true });
+await cleanupTmp(tmp);
 console.log(failures ? `\n${failures} of ${ran} failed\n` : `\nall ${ran} passed\n`);
 process.exit(failures ? 1 : 0);

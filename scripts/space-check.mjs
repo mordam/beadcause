@@ -7,8 +7,8 @@
 // test/spacedetails.mjs proves the contract: `null` means inherit, a patch touches
 // only what it names, the write reaches the running daemon *and* the file. None of
 // that says the card draws, and none of it says a press reaches the endpoint — which
-// is the whole feature, because these seven settings were a config hand-edit until
-// there was a button.
+// is the whole feature, because every one of these settings was a config hand-edit
+// until there was a button.
 //
 // So this one drives the real `public/monitor.js` in a headless Chrome the size of a
 // phone, over a real `bin/beadcause.js` started on a temp config directory. Nothing is
@@ -23,17 +23,18 @@
 // `--keep` leaves the temp config directory behind, which is where to look when a
 // press appears to work and the file says otherwise. `--shot <file.png>` writes a
 // phone-sized picture of the card with every panel open — the one thing a list of
-// ticks cannot tell you is whether seven settings on a 393px screen read as a card or
-// as a wall.
+// ticks cannot tell you is whether a row per setting on a 393px screen reads as a card
+// or as a wall.
 import fs from 'node:fs';
-import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { freePort } from '../test/helpers/net.mjs';
+import { SETTINGS } from '../lib/spaces.js';
+import { CHROME, launchChrome } from './helpers/chrome.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const VP = { width: 393, height: 852, dpr: 3 };
 const TOKEN = 'space-check-token';
 const KEEP = process.argv.includes('--keep');
@@ -61,21 +62,13 @@ const wsDir = (name) => {
   return dir;
 };
 
-const port = await new Promise((resolve, reject) => {
-  const probe = net.createServer();
-  probe.on('error', reject);
-  probe.listen(0, '127.0.0.1', () => {
-    const { port: p } = probe.address();
-    probe.close(() => resolve(p));
-  });
-});
-
 /* `bd` answers everything with an empty list, so the page has real advocates-and-
    sessions machinery running over nothing rather than a tracker sweep in the way. The
    settings card does not read `bd` at all, which is the point of it being cheap. */
 const FAKE_BD = path.join(tmp, 'bd');
 fs.writeFileSync(FAKE_BD, "#!/usr/bin/env node\nprocess.stdout.write('[]');\n", { mode: 0o755 });
 
+const port = await freePort();
 const CONFIG = {
   port,
   host: '127.0.0.1',
@@ -128,76 +121,6 @@ for (let i = 0; i < 80; i += 1) {
 const onDisk = () => JSON.parse(fs.readFileSync(path.join(CONFIG_DIR, 'config.json'), 'utf8'));
 const spaceOnDisk = (name) => onDisk().spaces.find((s) => s.name === name) || {};
 
-/* ------------------------------------------------------------------ chrome */
-
-function connect(url) {
-  return new Promise((resolve, reject) => {
-    const ws = new WebSocket(url);
-    let id = 0;
-    const pending = new Map();
-    ws.onmessage = (m) => {
-      const msg = JSON.parse(m.data);
-      const q = msg.id != null && pending.get(msg.id);
-      if (!q) return;
-      pending.delete(msg.id);
-      msg.error ? q.reject(new Error(msg.error.message)) : q.resolve(msg.result);
-    };
-    ws.onerror = () => reject(new Error('could not attach to Chrome'));
-    ws.onopen = () =>
-      resolve({
-        send: (method, params = {}) =>
-          new Promise((res, rej) => {
-            const i = ++id;
-            pending.set(i, { resolve: res, reject: rej });
-            ws.send(JSON.stringify({ id: i, method, params }));
-          }),
-        close: () => ws.close(),
-      });
-  });
-}
-
-async function launch() {
-  const dbg = 9800 + Math.floor(process.pid % 100);
-  const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'beadcause-space-chrome-'));
-  const proc = spawn(
-    CHROME,
-    [
-      '--headless=new',
-      `--remote-debugging-port=${dbg}`,
-      `--user-data-dir=${profile}`,
-      '--no-first-run',
-      '--no-default-browser-check',
-      '--disable-background-timer-throttling',
-      '--hide-scrollbars',
-      'about:blank',
-    ],
-    { stdio: 'ignore' }
-  );
-  let target = null;
-  for (let i = 0; i < 60 && !target; i += 1) {
-    await sleep(250);
-    try {
-      target = (await (await fetch(`http://127.0.0.1:${dbg}/json/list`)).json()).find((t) => t.type === 'page');
-    } catch {
-      /* not up yet */
-    }
-  }
-  if (!target) throw new Error('Chrome never exposed a page target');
-  const s = await connect(target.webSocketDebuggerUrl);
-  return {
-    s,
-    close: () => {
-      s.close();
-      proc.kill();
-      try {
-        fs.rmSync(profile, { recursive: true, force: true, maxRetries: 3 });
-      } catch {
-        /* Chrome is still letting go of a temp dir */
-      }
-    },
-  };
-}
-
 const evalJs = async (s, expr) => {
   const r = await s.send('Runtime.evaluate', { expression: expr, returnByValue: true, awaitPromise: true });
   if (r.exceptionDetails)
@@ -215,7 +138,7 @@ const check = (name, ok, detail) => {
 
 console.log(`\nspace details — daemon on :${port}, config in ${CONFIG_DIR}\n`);
 
-const { s, close } = await launch();
+const { s, close } = await launchChrome('beadcause-space-chrome-');
 try {
   await s.send('Emulation.setDeviceMetricsOverride', { ...VP, mobile: true, deviceScaleFactor: VP.dpr });
 
@@ -241,6 +164,18 @@ try {
           state: el.querySelector('.mon-state')?.textContent,
           text: el.textContent.replace(/\\s+/g, ' '),
           rows: [...el.querySelectorAll('.space-what')].map((x) => x.textContent),
+          // Which setting each row actually writes, read off the controls in it rather
+          // than off its heading: the heading is a sentence for a human ("Agents may
+          // answer unasked") and the key is what \`POST /api/space\` takes. Quiet hours
+          // and quiet days are the two rows with bespoke controls instead of a
+          // \`data-space-set\`, so they are named from the attribute they do carry.
+          keys: [...el.querySelectorAll('.space-row')].map((r) => {
+            const set = r.querySelector('[data-space-set]');
+            if (set) return set.getAttribute('data-space-set');
+            if (r.querySelector('[data-space-hours]')) return 'quietHours';
+            if (r.querySelector('[data-space-day]')) return 'quietDays';
+            return \`unknown: \${r.querySelector('.space-what')?.textContent || '?'}\`;
+          }),
         };
       })()`
     );
@@ -266,8 +201,28 @@ try {
   check('with a settings panel on it', await open('Settings'));
   await sleep(300);
 
+  // Against `SETTINGS` rather than against a number: a count in this file is a number
+  // that has to be moved every time a setting is added, and when it is not moved this
+  // check greets the next person with a red they have to spend time proving is not
+  // theirs — which is exactly what happened when `autoShip` landed (bc-qda7). The list
+  // in lib/spaces.js is the same one the endpoint validates a patch against, so a
+  // setting the card has no row for, and a row writing a key the server would reject,
+  // both fail here and both fail by name.
   const opened = await card();
-  check('carrying a row for every setting', opened?.rows.length === 7, (opened?.rows || []).join(', ') || 'none');
+  const drawn = new Set(opened?.keys || []);
+  const missingRow = SETTINGS.filter((k) => !drawn.has(k));
+  const extraRow = [...drawn].filter((k) => !SETTINGS.includes(k));
+  check(
+    'carrying a row for every setting',
+    missingRow.length === 0 && extraRow.length === 0 && drawn.size === (opened?.keys || []).length,
+    [
+      missingRow.length ? `no row for ${missingRow.join(', ')}` : '',
+      extraRow.length ? `a row for ${extraRow.join(', ')}, which is not a setting` : '',
+      (opened?.keys || []).join(', ') || 'none',
+    ]
+      .filter(Boolean)
+      .join(' — ')
+  );
 
   const press = async (selector) => {
     const hit = await evalJs(
@@ -320,6 +275,75 @@ try {
   await press('[data-space-hours="clear"]');
   check('and Clear removes them outright', !('quietHours' in spaceOnDisk('Work')), JSON.stringify(spaceOnDisk('Work')));
 
+  /* ------------------------------------------------------------ slack channel */
+
+  /* The one control on the card you type into, and the only one with three answers
+     rather than two — so all three are pressed here, and the *file* is what says which
+     one landed. `""` and a missing key look identical on the screen and mean opposite
+     things to `slackChannelFor`, which is the whole reason this section exists.
+
+     `type` rather than `value =`: the field is drawn from a draft in the page's state
+     and the draft is filled by the `input` event, so setting the property alone would
+     test a path a thumb never takes — and would pass while a repaint quietly threw the
+     typed id away. */
+  const type = async (text) =>
+    evalJs(
+      s,
+      `(() => {
+        const el = document.querySelector('#slack-channel');
+        if (!el) return false;
+        el.value = ${JSON.stringify(text)};
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+        return true;
+      })()`
+    );
+
+  check('the channel field is on the card', await type('C0SPACECHECK'));
+  await press('[data-space-channel="set"]');
+  check(
+    'a typed channel reaches the daemon',
+    spaceOnDisk('Work').slackChannel === 'C0SPACECHECK',
+    JSON.stringify(spaceOnDisk('Work').slackChannel)
+  );
+
+  /* The claim no static read can make: this page repaints off a stream event rather
+     than off your thumb, so a poll landing mid-type must not take the id away. */
+  await type('C0HALFTYPED');
+  await evalJs(s, `window.beadcause.monitor.refresh()`);
+  await sleep(700);
+  check(
+    'and a repaint under your thumb does not take a half-typed one away',
+    (await evalJs(s, `document.querySelector('#slack-channel')?.value`)) === 'C0HALFTYPED',
+    await evalJs(s, `document.querySelector('#slack-channel')?.value`)
+  );
+
+  await press('[data-space-set="slackChannel"][data-value=""]');
+  check(
+    'Never stores an empty channel — the answer a missing key cannot give',
+    spaceOnDisk('Work').slackChannel === '',
+    JSON.stringify(spaceOnDisk('Work'))
+  );
+  check(
+    'and the field goes back to what the space says rather than keeping the draft',
+    (await evalJs(s, `document.querySelector('#slack-channel')?.value`)) === '',
+    await evalJs(s, `document.querySelector('#slack-channel')?.value`)
+  );
+
+  await press('[data-space-set="slackChannel"][data-value="null"]');
+  check(
+    'and Inherit takes the key away, which is the other nothing',
+    !('slackChannel' in spaceOnDisk('Work')),
+    JSON.stringify(spaceOnDisk('Work'))
+  );
+
+  await type('');
+  const blank = await press('[data-space-channel="set"]');
+  check(
+    'Set on a blank field is refused rather than guessed at',
+    blank && !('slackChannel' in spaceOnDisk('Work')) && /Type a channel id/.test((await card())?.text || ''),
+    JSON.stringify(spaceOnDisk('Work'))
+  );
+
   /* --------------------------------------------------------------- muting */
 
   await press('[data-space-set="muted"][data-value="true"]');
@@ -344,6 +368,40 @@ try {
     repos.some((r) => r.startsWith('beta') && r.includes('minimal push')) &&
       repos.some((r) => r.startsWith('alpha') && r.includes('no agent replies')),
     repos.join(' | ')
+  );
+
+  /* One row in that panel is a control, and it writes a *different body* from every
+     other press on this card — `{space, workspace, settings}` rather than `{space,
+     settings}`. That is exactly the shape a fixture would be free to get right while
+     the page got it wrong, so it is pressed here against the real daemon and read back
+     off the config file: the whole feature is that beadcause can stop holding while the
+     repo beside it in the same space goes on holding. */
+  const endorsed = await press('[data-repo-set="autoEndorse"][data-repo="alpha"][data-value="true"]');
+  check(
+    'a repo row`s On reaches the daemon as that repo`s own answer, not the space`s',
+    endorsed && onDisk().autoEndorsePerWorkspace?.alpha === true && !('autoEndorse' in spaceOnDisk('Work')),
+    JSON.stringify(onDisk().autoEndorsePerWorkspace || null)
+  );
+  check(
+    'and the repo beside it in the same space is untouched — the point of the whole row',
+    !('beta' in (onDisk().autoEndorsePerWorkspace || {})),
+    JSON.stringify(onDisk().autoEndorsePerWorkspace || null)
+  );
+  const afterRepo = await evalJs(
+    s,
+    `[...document.querySelectorAll('.space-repo')].map((r) => r.textContent.replace(/\\s+/g, ' ').trim())`
+  );
+  check(
+    'the row redraws with the resolved tag and the pressed button agreeing',
+    afterRepo.some((r) => r.startsWith('alpha') && r.includes('files endorsed')),
+    afterRepo.find((r) => r.startsWith('alpha'))
+  );
+
+  await press('[data-repo-set="autoEndorse"][data-repo="alpha"][data-value="null"]');
+  check(
+    'and Inherit takes the key out rather than storing a false the space cannot override',
+    !('alpha' in (onDisk().autoEndorsePerWorkspace || {})),
+    JSON.stringify(onDisk().autoEndorsePerWorkspace || null)
   );
 
   /* ------------------------------------------------------------ the rest of it */

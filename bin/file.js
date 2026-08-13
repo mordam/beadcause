@@ -13,6 +13,13 @@
  * wait for that. It files and carries on. See lib/filing.js for what goes on the bead
  * and why.
  *
+ * **Unless the space says otherwise.** `autoEndorse` on the workspace's space
+ * (lib/spaces.js) files without the hold, for the case where the tap was never a review:
+ * a personal repo whose only reader is the person who would have pressed Endorse. Then
+ * these beads are ready work the moment they exist. It is off unless asked for, it is not
+ * something a session can ask for, and everything else on the bead is unchanged — the P2
+ * ceiling, the `agent-filed` label and the `discovered-from` edge all still go on.
+ *
  * This is the sibling of `beadcause-propose`, and the two are different acts now:
  *
  *   - **file** — "there is more work here". The bead exists; the review is after it.
@@ -48,6 +55,7 @@ import { Bd } from '../lib/bd.js';
 import { parseProposal, dupeNote } from '../lib/proposal.js';
 import { annotateDuplicates, liveCandidates } from '../lib/dupe.js';
 import { fileBeads, PRIORITY_FLOOR } from '../lib/filing.js';
+import { autoEndorseAllowed } from '../lib/spaces.js';
 
 function arg(...names) {
   for (const n of names) {
@@ -98,7 +106,7 @@ if (!parsed || parsed.error || !parsed.beads.length) {
 // The same three the daemon builds it with (lib/server.js), so a workspace running a
 // Dolt server rather than embedded Dolt is reached the same way from a pipe as from a
 // phone — `bd` fails against a server that isn't there, and vice versa.
-const bd = new Bd({ bin: cfg.bdBin, actor: cfg.actor, sharedServer: cfg.sharedServer });
+const bd = new Bd({ bin: cfg.bdBin, actor: cfg.actor, sharedServer: cfg.sharedServer, me: cfg.me });
 
 /**
  * Is any of this already filed?
@@ -129,7 +137,24 @@ try {
   warn(`filing without a duplicate check — ${String(err.message).split('\n')[0]}`);
 }
 
-const { filed, failed } = await fileBeads(bd, ws, beads, { from, onWarn: warn });
+/**
+ * Does this workspace's space file without the hold?
+ *
+ * Read here, once, from the config this process already loaded — the same
+ * `autoEndorseAllowed` the space details screen draws and the session brief is written
+ * from (lib/spaces.js). Nothing on the command line can ask for it: a session cannot
+ * endorse its own discoveries, whatever it thinks of them, and a `--endorse` flag would
+ * be exactly that. The answer belongs to the space.
+ */
+const endorsed = autoEndorseAllowed(cfg, ws.name);
+
+const { filed, failed, home } = await fileBeads(bd, ws, beads, { from, onWarn: warn, endorsed });
+
+// Where they landed, once for the batch — they all share one home (lib/homing.js). Said
+// out loud rather than left to `bd show`, because a bead quietly adopted into an epic the
+// session never named is the kind of surprise a worker should be able to correct in the
+// same breath it filed in.
+if (home?.why) warn(`filed under ${home.why} — nothing named a home, and a bead with no P0 above it is not workable`);
 
 for (const b of filed) {
   if (b.clamped) warn(`"${b.title}" filed at P${b.priority} — an agent-filed bead may not outrank P${PRIORITY_FLOOR}`);
@@ -137,9 +162,17 @@ for (const b of filed) {
 for (const b of failed) warn(`could not file "${b.title}" — ${b.error}`);
 
 if (filed.length) {
+  const count = filed.length === 1 ? '1 bead' : `${filed.length} beads`;
+  // Two different facts, and the session is told which one is true rather than the
+  // reassuring one. "Held for endorsement" over an auto-endorsing space would have a
+  // worker report that nothing runs until Adam looks, minutes before an advocate opens
+  // a window on it.
   warn(
-    `filed ${filed.length === 1 ? '1 bead' : `${filed.length} beads`}, held for endorsement — ` +
-      'nothing will be worked on them until they are endorsed. Carry on with what you were doing.'
+    endorsed
+      ? `filed ${count}, endorsed — auto-endorsement is on for this repo, so they are ready work ` +
+          'and an advocate may pick them up. Carry on with what you were doing; they are not yours.'
+      : `filed ${count}, held for endorsement — ` +
+          'nothing will be worked on them until they are endorsed. Carry on with what you were doing.'
   );
 }
 

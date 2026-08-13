@@ -38,7 +38,7 @@
 
   <!-- One agent: four tabs over the same header. -->
   <main id="detail" class="launcher" hidden>
-    <nav class="tabs" role="tablist">
+    <nav class="agent-tabs" role="tablist">
       <button class="tab" data-tab="foundation" role="tab" aria-selected="true">Foundation</button>
       <button class="tab" data-tab="history" role="tab" aria-selected="false">History</button>
       <button class="tab" data-tab="chat" role="tab" aria-selected="false">Chat</button>
@@ -96,6 +96,11 @@
 
   <div id="toast" class="toast" role="status" hidden></div>
 
+  <!-- Every error this page hits, sent back to the daemon as a P0 bead: an uncaught
+       exception, a rejected promise, a failed fetch, any red toast. Ahead of every
+       other script, because it can only catch what loads after it — and it is purely
+       additive, so a page that fails to load it behaves exactly as it did before. -->
+  <script src="/report.js"></script>
   <script src="/vendor/marked.js"></script>
   <script src="/vendor/purify.js"></script>
   <!-- Which repo's foundations these are. This screen has always been about exactly one

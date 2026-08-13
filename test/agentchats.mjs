@@ -27,10 +27,10 @@
  */
 import fs from 'node:fs';
 import http from 'node:http';
-import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { boundPort } from './helpers/net.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const LIB = (f) => path.join(HERE, '..', 'lib', f);
@@ -87,6 +87,9 @@ const write = (id, extra = {}) => {
 };
 
 write('chatsession', { agent: 'console', title: 'What to file next' });
+// The kinds are what `POST /api/console` actually accepts — the agents screen opens a
+// chat with the advocate, the dispatcher or the work session, never with a persona.
+write('advocatechat', { agent: 'advocate', title: 'Chat with the advocate' });
 write('criticchat', { agent: 'critic', title: 'Chat with the critic' });
 write('housechat', { agent: 'house-style', title: 'Chat with the house-style' });
 write('ghostchat', { agent: 'deleted-one', title: 'Chat with the deleted-one' });
@@ -96,9 +99,7 @@ write('oldchat', { title: 'From before' });
 
 /* -------------------------------------------------------- withAgentNames */
 
-// foundation.js first: it and agents.js import each other, and agents.js is not the
-// end of that cycle that can be pulled in cold.
-await import(LIB('foundation.js'));
+const { AGENTS, mark } = await import(LIB('foundation.js'));
 const { withAgentNames } = await import(LIB('agents.js'));
 
 // One custom agent, because the emoji a custom agent draws with exists only here.
@@ -109,7 +110,13 @@ const cfg = {
   token: 'agentchats-token',
   actor: 'beadcause-test',
   workspaces: [{ name: 'demo', dir: ws }],
-  agents: [{ id: 'house-style', name: 'House style', emoji: '🏠', description: 'x'.repeat(30) }],
+  agents: [
+    { id: 'house-style', name: 'House style', emoji: '🏠', description: 'x'.repeat(30) },
+    // A persona whose id collides with an agent kind. It is a legal persona — the
+    // rosters are separate namespaces — and it must not get to relabel the advocate's
+    // conversations, which is why the kind is resolved first.
+    { id: 'advocate', name: 'Devil’s advocate', emoji: '😈', description: 'x'.repeat(30) },
+  ],
   openSessions: false,
   autoDispatch: false,
   claudeSessions: false,
@@ -128,6 +135,9 @@ const named = withAgentNames(
     { id: 'c', agent: 'critic' },
     { id: 'd', agent: 'house-style' },
     { id: 'e', agent: 'deleted-one' },
+    { id: 'f', agent: 'advocate' },
+    { id: 'g', agent: 'dispatch' },
+    { id: 'h', agent: 'worker' },
   ],
   cfg
 );
@@ -141,21 +151,33 @@ is('a custom agent gets the emoji its config gave it', [by('d').agentName, by('d
 // whatever the roster says now.
 is('an agent that no longer exists keeps its own id', [by('e').agentName, by('e').agentEmoji], ['deleted-one', '🤖']);
 
+// The kinds. These are the only ids a conversation can actually be opened with, and
+// every one of them used to land on the line above — named after its own id, drawn
+// with the generic 🤖, because the roster they were being looked up in is the reply
+// personas' (bc-rjes).
+is('the advocate is named and drawn as itself', [by('f').agentName, by('f').agentEmoji], ['Advocate', '📣']);
+is('and so is the dispatcher', [by('g').agentName, by('g').agentEmoji], ['Dispatcher', '📨']);
+is('and the work session', [by('h').agentName, by('h').agentEmoji], ['Worker', '🛠️']);
+// `cfg.agents` above holds a persona whose id is `advocate`. A persona cannot own one
+// of these records, so the kind wins — otherwise a name chosen for a chip on the
+// agents screen would silently relabel the advocate's conversations.
+is('a persona sharing a kind’s id does not relabel it', by('f').agentName, 'Advocate');
+
+// Every kind, not just the three that exist today: a fifth added to BASELINES with no
+// mark would otherwise ship as another 🤖 and nothing would say so.
+is(
+  'every agent kind has a mark of its own',
+  AGENTS.filter((a) => !mark(a)?.name || !mark(a)?.emoji),
+  []
+);
+
 /* ------------------------------------------------------------------ routes */
 
 const { createApp, listen } = await import(LIB('server.js'));
 
-const port = await new Promise((resolve, reject) => {
-  const probe = net.createServer();
-  probe.on('error', reject);
-  probe.listen(0, '127.0.0.1', () => {
-    const { port: p } = probe.address();
-    probe.close(() => resolve(p));
-  });
-});
-
-const app = createApp({ ...cfg, port });
-const servers = listen({ ...cfg, port }, app.handler);
+const app = createApp(cfg);
+const servers = listen(cfg, app.handler);
+const port = await boundPort(servers);
 
 const call = (pathname, method = 'GET', payload) =>
   new Promise((resolve, reject) => {
@@ -182,20 +204,12 @@ const call = (pathname, method = 'GET', payload) =>
     req.end(body);
   });
 
-for (let i = 0; i < 100; i += 1) {
-  try {
-    await call('/api/consoles');
-    break;
-  } catch {
-    await new Promise((r) => setTimeout(r, 20));
-  }
-}
-
 console.log('\nthe list the launcher draws\n');
 
 const listed = await call('/api/consoles');
 const rows = Object.fromEntries((listed.body.consoles || []).map((c) => [c.id, c]));
 is('every conversation is still in the list', Object.keys(rows).sort(), [
+  'advocatechat',
   'chatsession',
   'criticchat',
   'ghostchat',
@@ -206,6 +220,13 @@ is(
   'GET /api/consoles names the agent on an agent chat',
   [rows.criticchat?.agentName, rows.criticchat?.agentEmoji],
   ['Critic', '🧨']
+);
+// The row bc-rjes is about: the one kind of agent chat that actually happens, off the
+// live route rather than off `withAgentNames` in isolation.
+is(
+  'and the advocate’s conversation carries the mark chosen for it',
+  [rows.advocatechat?.agentName, rows.advocatechat?.agentEmoji],
+  ['Advocate', '📣']
 );
 is(
   'and the custom one, from the config rather than the built-ins',

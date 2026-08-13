@@ -21,6 +21,15 @@
 // every screen in the app, and it is the exact failure this whole channel was built to
 // stop.
 //
+// The last scenario is about the *laptop* rather than the endings: a merge happens at
+// GitHub, so this Mac's own `main` is a commit behind the moment one lands, and a
+// delivery brings it up. It is the only scenario that runs from a real `git worktree`,
+// because that is where a worker delivers from and the whole behaviour turns on it —
+// and it asserts both halves, the fast-forward and the refusal to touch a main checkout
+// with uncommitted work in it. The fake `gh` fast-forwards the bare origin's `main` to
+// the branch on merge, which is the one thing about GitHub that has to be real for any
+// of it to mean anything.
+//
 // Nothing here reaches the network, opens a window, or writes outside its temp
 // directory: BEADCAUSE_CONFIG_DIR points at a scratch config whose ntfy is off, so no
 // notification is sent to anyone's phone, and `--keep` leaves the lot for inspection.
@@ -86,9 +95,26 @@ if (a === 'pr' && b === 'view') {
   if (!/^\\d+$/.test(String(rest[0])) && !state.opened) fail('no pull requests found for branch "' + rest[0] + '"');
   done(JSON.stringify(state.pr));
 }
-if (a === 'pr' && b === 'create') { state.opened = true; fs.writeFileSync(process.env.GH_STATE, JSON.stringify(state)); done(state.pr.url + '\\n'); }
+if (a === 'pr' && b === 'create') {
+  state.opened = true;
+  // The head ref, so the merge below can do to the bare origin what GitHub's merge
+  // does to it: put the branch's commits on main. Without that, origin/main never
+  // moves in this harness and the fast-forward under test has nothing to fast-forward.
+  const h = args.indexOf('--head');
+  if (h > -1) state.head = args[h + 1];
+  fs.writeFileSync(process.env.GH_STATE, JSON.stringify(state));
+  done(state.pr.url + '\\n');
+}
 if (a === 'pr' && b === 'merge') {
   if (state.refuseMerge) fail(state.refuseMerge);
+  // A fast-forward of the bare repo's main to the branch tip. Not a merge commit —
+  // this fake has no worktree to merge in — but the only property anything downstream
+  // cares about is that origin/main now contains the work, which it does.
+  if (state.head && process.env.ORIGIN_DIR) {
+    try {
+      require('child_process').execFileSync('git', ['--git-dir', process.env.ORIGIN_DIR, 'update-ref', 'refs/heads/main', 'refs/heads/' + state.head]);
+    } catch (e) { fail('the fake gh could not move origin/main: ' + e.message); }
+  }
   state.pr.state = 'MERGED';
   state.pr.mergedAt = '2026-08-10T12:00:00Z';
   state.pr.mergeCommit = { oid: 'la11ded11111' };
@@ -191,6 +217,7 @@ const env = {
   BEADCAUSE_CONFIG_DIR: CONFIG_DIR,
   GH_LOG,
   GH_STATE,
+  ORIGIN_DIR: ORIGIN,
   BEADS_DIR,
 };
 
@@ -200,18 +227,42 @@ const bdJson = (args) => {
   return JSON.parse(out.slice(out.indexOf('['), out.lastIndexOf(']') + 1));
 };
 
-/** One scenario: a fresh bead, a fresh branch, a fresh gh world, one deliver run. */
-function deliver(name, { checks = 'green', refuseMerge = null, extra = [] } = {}) {
+/**
+ * One scenario: a fresh bead, a fresh branch, a fresh gh world, one deliver run.
+ *
+ * `worktree` puts the delivery where a real one happens — `.claude/worktrees/<name>`
+ * is a separate checkout with its own branch, and the main checkout stays on `main`
+ * throughout. Everything about the local fast-forward depends on that difference, so
+ * it cannot be asserted from a scenario that runs in the main checkout itself.
+ */
+function deliver(name, { checks = 'green', refuseMerge = null, extra = [], worktree = false, conflicted = false } = {}) {
   const created = bd(['create', '--title', name, '--description', 'Work for a land-check run.', '--type', 'task', '--json']);
   const bead = JSON.parse(created.slice(created.indexOf('{'), created.lastIndexOf('}') + 1));
   const id = bead.id || bead.issue?.id;
 
   const branch = `bead/${id}-work`;
-  git(['checkout', '-q', 'main']);
-  git(['checkout', '-qb', branch]);
-  fs.writeFileSync(path.join(REPO, `${id}.txt`), `work for ${id}\n`);
-  git(['add', '-A']);
-  git(['commit', '-qm', `${id}: the work`]);
+  let at = REPO;
+  if (worktree) {
+    at = path.join(tmp, `worktree-${id}`);
+    git(['worktree', 'add', '--quiet', '-b', branch, at, 'main']);
+  } else {
+    git(['checkout', '-q', 'main']);
+    git(['checkout', '-qb', branch]);
+  }
+  fs.writeFileSync(path.join(at, `${id}.txt`), `work for ${id}\n`);
+  // A commit that carries an unresolved merge, made exactly the way one really gets
+  // made: `git add -A && git commit` with the markers still in the file, which git
+  // accepts without a word. `--no-verify` because the harness repo may have the
+  // pre-commit hook installed, and the point of this scenario is what happens to a
+  // commit that got past it — a hook is skippable and deliver.js is not.
+  if (conflicted) {
+    fs.writeFileSync(
+      path.join(at, `${id}.js`),
+      `<<<<<<< HEAD\nexport const a = 1;\n=======\nexport const a = 2;\n>>>>>>> origin/main\n`
+    );
+  }
+  git(['add', '-A'], at);
+  git(['commit', '-qm', `${id}: the work`, '--no-verify'], at);
 
   fs.writeFileSync(GH_LOG, '');
   world({ checks, refuseMerge });
@@ -224,7 +275,7 @@ function deliver(name, { checks = 'green', refuseMerge = null, extra = [] } = {}
   const ran = spawnSync(
     'node',
     [path.join(ROOT, 'bin', 'deliver.js'), '-w', 'landcheck', '-b', id, '--tests', 'npm test — fine', ...extra],
-    { cwd: REPO, env, input: 'What changed, and why.\n', encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 }
+    { cwd: at, env, input: 'What changed, and why.\n', encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 }
   );
   const stdout = String(ran.stdout || '');
   const stderr = String(ran.stderr || '');
@@ -244,6 +295,8 @@ function deliver(name, { checks = 'green', refuseMerge = null, extra = [] } = {}
   return {
     id,
     branch,
+    // Where it ran — the main checkout, or the worktree that stands in for a session's.
+    at,
     stdout: said,
     // Everything it printed, for the one assertion that is about a line *above* the
     // answer: a config migration narrating itself on the way past.
@@ -283,6 +336,16 @@ check('the work bead is closed', landed.issue.status === 'closed', landed.issue.
 check('with a reason naming what it landed as', /^Landed as #7 as la11ded1/.test(landed.issue.close_reason || ''), landed.issue.close_reason);
 check('and a comment on the bead recording the merge', (landed.issue.comment_count ?? 0) >= 1, String(landed.issue.comment_count));
 check('no delivery question was filed — there is nothing to ask', bdJson(['list', '--label', 'pr-delivery', '--json']).length === 0);
+
+// bc-9d37.4. A merge leaves every other open branch on this base measured against a base
+// it has never seen, and a worker is one of the four doors that has to say so. It records
+// rather than sweeps, because the registry that stops two resolver windows opening on one
+// branch is in the daemon's memory and this is a process that merges and exits — so what
+// this asserts is the file the daemon's poll cycle drains, in the scratch config directory
+// this harness already isolates.
+const sweeps = JSON.parse(fs.readFileSync(path.join(CONFIG_DIR, 'merge-sweeps.json'), 'utf8'));
+check('it asked the daemon to sweep the branches behind it', Object.keys(sweeps).join(',') === 'landcheck', JSON.stringify(sweeps));
+check('naming the merge that set it off', sweeps.landcheck?.number === 7, JSON.stringify(sweeps.landcheck));
 
 /* ------------------------------------------------------- 2. GitHub refuses the merge */
 
@@ -405,6 +468,90 @@ check('and it said so on stdout rather than moving a setting silently', /pr\.mer
 // check cannot be either of them leaking through.
 const forced = deliver('overrides the method', { extra: ['--method', 'rebase'] });
 check('--method on the command line wins over the config', forced.merges[0]?.includes('--rebase'), JSON.stringify(forced.merges[0]));
+
+/* ------------------------------------- 7. and this Mac's own main follows the merge */
+
+console.log('\nthe main checkout: it ends up at what GitHub now has');
+
+// The merge is at GitHub, so `origin/main` has the commit the instant it lands and this
+// laptop's `main` does not — until something fetches. Nothing reliably did: the next
+// deploy, a merge from the board, or a person. In between, every `git worktree add`
+// here branched from before the delivery, and the session in that worktree paid for it
+// with a downmerge of work it had never heard of.
+// On `main` and clean, which is what the main checkout looks like on this Mac while
+// sessions work in worktrees beside it. The scenarios above leave it on the last branch
+// they made, and that would take the other path through `landLocally` — the one for a
+// checkout that is *not* on the base — which is not the case worth pinning here.
+git(['checkout', '-q', 'main']);
+const beforeFF = git(['rev-parse', 'main']);
+const followed = deliver('the laptop follows', { worktree: true });
+check('it landed', /^landed #7/.test(followed.stdout), followed.stdout);
+check(
+  "the main checkout's main is now exactly origin/main",
+  git(['rev-parse', 'main']) === run('git', ['--git-dir', ORIGIN, 'rev-parse', 'main']).trim(),
+  `${git(['rev-parse', 'main'])} vs ${run('git', ['--git-dir', ORIGIN, 'rev-parse', 'main']).trim()}`
+);
+check('  — which is a move, not the place it already was', git(['rev-parse', 'main']) !== beforeFF);
+check('  — and it is still on main, not on the worker’s branch', git(['rev-parse', '--abbrev-ref', 'HEAD']) === 'main');
+check('  — the session log says what it did to the checkout', /fast-forwarded main/.test(followed.stderr), followed.stderr);
+// Whitespace-flattened, because `bd comments` wraps to the terminal and a sentence
+// that happens to break across two lines is not a sentence that is missing.
+const flat = (s) => String(s).replace(/\s+/g, ' ');
+check(
+  '  — and so does the bead, which outlives the window',
+  /This Mac's checkout: fast-forwarded main/.test(flat(bd(['comments', followed.id]))),
+  flat(bd(['comments', followed.id])).slice(-160)
+);
+
+// And the refusal, end to end. The unit test in test/prboard.mjs pins `landLocally`'s
+// behaviour; this pins that a *delivery* inherits it, because a worker fast-forwarding
+// over Adam's open files at three in the morning is the one way this change could do
+// real damage.
+fs.writeFileSync(path.join(REPO, 'README.md'), '# land check\n\nadam is mid-edit\n');
+const dirtyMain = git(['rev-parse', 'main']);
+const heldOff = deliver('the laptop is busy', { worktree: true });
+check('a delivery still lands over a dirty main checkout', /^landed #7/.test(heldOff.stdout), heldOff.stdout);
+check('  — but main is left exactly where it was', git(['rev-parse', 'main']) === dirtyMain);
+check(
+  '  — with the uncommitted edit untouched',
+  fs.readFileSync(path.join(REPO, 'README.md'), 'utf8') === '# land check\n\nadam is mid-edit\n'
+);
+check(
+  '  — and the reason on the bead, where someone will see it',
+  /uncommitted work/.test(flat(bd(['comments', heldOff.id]))),
+  flat(bd(['comments', heldOff.id])).slice(-160)
+);
+git(['checkout', '--quiet', '--', 'README.md']);
+
+/* ------------------------------- 8. and it will not push an unresolved merge at all */
+
+console.log('\na commit carrying conflict markers: nothing reaches origin, and nothing is asked');
+
+// bc-d2y6, end to end. A resolver session committed a re-conflicted `public/console.js`
+// and every screen showed a normal merge commit; the only symptom was `npm test` failing
+// 38 suites in with `Unexpected token '<<'`. This is the scenario that says such a
+// branch never gets past this command — and every assertion here is a negative one,
+// because "it refused" is worth nothing unless nothing else happened either. A refusal
+// that has already pushed the branch has published the broken file; one that has already
+// filed a question has put an unmergeable pull request on Adam's phone.
+const stillConflicted = deliver('carries an unresolved merge', { conflicted: true });
+check('deliver.js refuses, loudly', stillConflicted.code === 6, `exit ${stillConflicted.code} — ${stillConflicted.stderr}`);
+check('and names the file', new RegExp(`${stillConflicted.id}\\.js`).test(stillConflicted.stderr), stillConflicted.stderr.slice(0, 200));
+check('and the marker it found', /<<<<<<< HEAD/.test(stillConflicted.stderr), stillConflicted.stderr.slice(0, 200));
+check(
+  'nothing was pushed — origin never heard of the branch',
+  !run('git', ['branch', '--list', stillConflicted.branch], { cwd: ORIGIN }).includes(stillConflicted.branch)
+);
+check('no pull request was opened', !stillConflicted.log.some((c) => c[0] === 'pr' && c[1] === 'create'), JSON.stringify(stillConflicted.log.map((c) => c.slice(0, 2))));
+check('and gh was never called at all', stillConflicted.log.length === 0, JSON.stringify(stillConflicted.log.map((c) => c.slice(0, 2))));
+check('the bead is still open', stillConflicted.issue.status !== 'closed', stillConflicted.issue.status);
+check('and no question was filed — this is the session’s to fix, not Adam’s', bdJson(['list', '--label', 'pr-delivery', '--status', 'open', '--json']).length === 0);
+check('it says how to catch it a commit earlier', /--install-hook/.test(stillConflicted.stderr), stillConflicted.stderr.slice(-200));
+
+// And the same branch with the merge actually resolved goes straight through, so the
+// check above is about the markers rather than about anything else the scenario did.
+const resolved = deliver('resolves it before delivering');
+check('a resolved branch still lands normally', /^landed #7/.test(resolved.stdout), resolved.stdout || resolved.stderr);
 
 /* ------------------------------------------------------------------ verdict */
 

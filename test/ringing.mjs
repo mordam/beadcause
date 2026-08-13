@@ -30,8 +30,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import http from 'node:http';
-import net from 'node:net';
 import { fileURLToPath } from 'node:url';
+import { boundPort } from './helpers/net.mjs';
+import { cleanupTmp } from './helpers/tmp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const LIB = (f) => path.join(HERE, '..', 'lib', f);
@@ -265,17 +266,9 @@ const serverCfg = {
   advocates: { enabled: false, workspaces: [] },
 };
 
-const port = await new Promise((resolve, reject) => {
-  const probe = net.createServer();
-  probe.on('error', reject);
-  probe.listen(0, '127.0.0.1', () => {
-    const { port: p } = probe.address();
-    probe.close(() => resolve(p));
-  });
-});
-
-const app = createApp({ ...serverCfg, port });
-const servers = listen({ ...serverCfg, port }, app.handler);
+const app = createApp(serverCfg);
+const servers = listen(serverCfg, app.handler);
+const port = await boundPort(servers);
 
 const call = (pathname, opts = {}) =>
   new Promise((resolve, reject) => {
@@ -298,15 +291,6 @@ const call = (pathname, opts = {}) =>
     if (opts.body) req.write(opts.body);
     req.end();
   });
-
-for (let i = 0; i < 100; i += 1) {
-  try {
-    await call('/api/health');
-    break;
-  } catch {
-    await new Promise((r) => setTimeout(r, 50));
-  }
-}
 
 /** The three beads ringing, with no shade recorded yet. */
 const seed = (extra = {}) =>
@@ -498,7 +482,7 @@ check(() => {
 }, 'a bead the filter kept quiet is not recorded — it never made a noise to clear');
 
 servers.forEach((s) => s.close());
-fs.rmSync(tmp, { recursive: true, force: true });
+await cleanupTmp(tmp);
 
 console.log(failures ? `\n\x1b[31m${failures} of ${ran} failed\x1b[0m\n` : `\n${ran} passed\n`);
 process.exit(failures ? 1 : 0);

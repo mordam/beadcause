@@ -37,10 +37,11 @@
  */
 import fs from 'node:fs';
 import http from 'node:http';
-import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { boundPort } from './helpers/net.mjs';
+import { cleanupTmp } from './helpers/tmp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const LIB = (f) => path.join(HERE, '..', 'lib', f);
@@ -64,11 +65,11 @@ const bad = (name, detail) => {
   if (detail) console.log(`      ${detail}`);
 };
 const check = (name, cond, detail = '') => (cond ? ok(name) : bad(name, detail));
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const { cardsForDelivery, deliveryBody } = await import(LIB('delivery.js'));
 const { Bd } = await import(LIB('bd.js'));
 const { readOwed, oweClose, sweepOwed, OWED_PATH } = await import(LIB('owed.js'));
+const { readSweepRequests, MERGE_SWEEPS_PATH } = await import(LIB('mergesweep.js'));
 
 /* ------------------------------------------------------------ which card is which */
 
@@ -257,17 +258,10 @@ const cfgBase = {
 
 const { createApp, listen } = await import(LIB('server.js'));
 
-const port = await new Promise((resolve, reject) => {
-  const probe = net.createServer();
-  probe.on('error', reject);
-  probe.listen(0, '127.0.0.1', () => {
-    const { port: p } = probe.address();
-    probe.close(() => resolve(p));
-  });
-});
-const cfg = { ...cfgBase, port };
+const cfg = { ...cfgBase, port: 0 };
 const app = createApp(cfg);
 const servers = listen(cfg, app.handler);
+const port = await boundPort(servers);
 
 const post = (pathname, body) =>
   new Promise((resolve, reject) => {
@@ -296,15 +290,6 @@ const post = (pathname, body) =>
     req.end();
   });
 
-for (let i = 0; i < 100; i += 1) {
-  try {
-    await post('/api/nothing', {});
-    break;
-  } catch {
-    await sleep(20);
-  }
-}
-
 const DELIVERY = {
   workspace: 'demo',
   bead: 'zz-work',
@@ -319,6 +304,7 @@ const DELIVERY = {
 
 /** The tracker as a delivery leaves it: a card, a work bead, and the edge between them. */
 const reset = ({ sibling = false } = {}) => {
+  fs.rmSync(MERGE_SWEEPS_PATH, { force: true });
   const issues = {
     'zz-pr': {
       id: 'zz-pr',
@@ -386,6 +372,14 @@ console.log('\nmerging from the phone\n');
     JSON.stringify(world().issues['zz-pr'].comments)
   );
   check('nothing is left owing', Object.keys(readOwed()).length === 0, JSON.stringify(readOwed()));
+  // bc-9d37.4. A merge leaves every other open branch on this base measured against a
+  // base it has never seen, and the tap is one of four doors that has to say so. Recorded
+  // rather than swept, because the resolver registry that stops two windows opening on
+  // one branch lives in the daemon's memory and the poll cycle is what reaches it — so
+  // this returns when the merge is done, not when a window has opened.
+  const asked = readSweepRequests();
+  check('and the conflict sweep is asked for', Object.keys(asked).length === 1, JSON.stringify(asked));
+  check('naming the repo and the merge', asked.demo?.key === 'demo' && asked.demo?.number === 7, JSON.stringify(asked.demo));
 }
 
 /* ------------------------------------------ the sibling card, which is the bug */
@@ -481,6 +475,6 @@ console.log('\nthe retry, unattended\n');
 
 for (const s of servers) s.close?.();
 if (servers[0]?.front) servers[0].front.close?.();
-fs.rmSync(tmp, { recursive: true, force: true });
+await cleanupTmp(tmp);
 console.log(failures ? `\n${failures} of ${ran} failed\n` : `\nall ${ran} passed\n`);
 process.exit(failures ? 1 : 0);

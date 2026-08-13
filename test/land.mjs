@@ -40,6 +40,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { cleanupTmp } from './helpers/tmp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const LIB = path.join(HERE, '..', 'lib', 'session.js');
@@ -185,8 +186,85 @@ for (const [name, brief] of [
     /bc-fmt/.test(brief) &&
     /\*\* BEAD WORK DONE \*\*/.test(brief) &&
     /DONE-/.test(brief) &&
-    /two honest endings/.test(brief);
-  check(`"${name}" claims the bead, reads CLAUDE.md, names the bead, and has both exits`, all);
+    // Three since bc-y4bi: hand it back, say it is bigger than it looked, or mark it a
+    // duplicate of the bead that already covers it. The third is the one that used to be
+    // improvised in a comment nothing could read — see lib/superseded.js.
+    /three honest endings/.test(brief);
+  check(`"${name}" claims the bead, reads CLAUDE.md, names the bead, and has all three exits`, all);
+  check(
+    `"${name}" can mark a duplicate rather than write the instruction in a comment`,
+    /bd label add bc-fmt superseded-by:<the-original>/.test(brief) && /bd dep add bc-fmt <the-original>/.test(brief)
+  );
+}
+
+/* --------------------------------------- the step that outlives the window (bc-goo.10) */
+
+/**
+ * The one part of the ending written for the next agent rather than for Adam.
+ *
+ * It is asserted here rather than trusted because the three things that make it work are
+ * each one sentence, and each of them is the kind of sentence a later edit tidies away:
+ *
+ * 1. **The foreshadow comes before the ending.** A session told about this only in the
+ *    closing sequence has to reconstruct the run from memory, and what it reconstructs is
+ *    "worked on lib/foo.js" — a summary of what it did, not the thing that surprised it.
+ *    So the position is the feature, and position is what the index comparison checks.
+ * 2. **Silence is the expected answer.** The failure mode of the whole feature is a
+ *    paragraph filed every single run, at which point the store is noise and nobody opens
+ *    it. `amendment.reflectionPrompt` states that as a bar for the same reason; a brief
+ *    that dropped the sentence would still work and would quietly fill the store.
+ * 3. **The marker stays last.** The writes are tool calls and the marker is the last line
+ *    of the final message, so the step has to come first *and* has to say why — a session
+ *    obeying both instructions in the other order puts its marker in the middle, and a
+ *    line whose whole value is that it can be grepped for stops being findable.
+ *
+ * Both stores are named because there are two and the choice between them is the whole
+ * of getting it right: a repo fact in `remember` is advice followed where it is false,
+ * and a general lesson in `note` is one never seen again. See `memoryBrief` in
+ * lib/memory.js, which is the single copy of the long version.
+ */
+console.log('\nthe step that writes something down before the window closes');
+
+for (const [name, brief] of [
+  ['lands its own work', land],
+  ['asks first', ask],
+  ['no remote', none],
+]) {
+  check(
+    `"${name}" foreshadows the step up in the brief, where the surprise is still in front of it`,
+    brief.indexOf('notice the surprises as you hit them') > 0 &&
+      brief.indexOf('notice the surprises as you hit them') < brief.indexOf('Write down anything you learned'),
+    (brief.match(/.*notice the surprises.*/) || [])[0]
+  );
+  check(
+    `"${name}" names both stores, and the one question that chooses between them`,
+    /beadcause-memory note\b/.test(brief) && /beadcause-memory remember\b/.test(brief) && /would this still be true somewhere/.test(brief),
+    (brief.match(/.*beadcause-memory.*/) || [])[0]
+  );
+  check(
+    `"${name}" does not ask for something every run — silence is the expected answer`,
+    /Most runs should write nothing/.test(brief),
+    (brief.match(/.*Most runs.*/) || [])[0]
+  );
+  check(`"${name}" keeps the line that stops this becoming a second tracker`, /work item attached is a bead, not a note/.test(brief));
+  // The ordering the marker depends on: write, rename, then the message whose last line
+  // is the marker. Numbered *and* argued, because a session reads the numbers.
+  check(
+    `"${name}" runs the three closing steps in the order the marker needs`,
+    /^1\. \*\*Write down anything you learned/m.test(brief) &&
+      /^2\. \*\*Rename this session/m.test(brief) &&
+      /^3\. \*\*Make the last line of your final message/m.test(brief),
+    (brief.match(/^\d\. \*\*.*/gm) || []).join(' | ')
+  );
+  check(
+    `"${name}" says outright that the writes happen before the final message, not after the marker`,
+    /\*\*before\*\* your final message/.test(brief) && /nothing can follow it/.test(brief)
+  );
+  check(
+    `"${name}" owes the step whichever way it ends, including the ones that hand the work back`,
+    /whichever way this session ends/.test(brief),
+    (brief.match(/.*whichever way this session ends.*/) || [])[0]
+  );
 }
 
 check(
@@ -302,6 +380,48 @@ check(
 );
 check('and never says "merge-merges"', !/merge-merges/.test(bareBrief));
 
+/* ---------------------------------- what the last session in this repo already learned */
+
+console.log('\nthe repo-local notes the brief carries');
+
+// The push half of tier 1. The system prompt already tells every worker to run
+// `beadcause-memory notes` before it starts, and that line stays — but a session that has
+// to remember to read before it has read anything mostly does not, and a store nobody
+// opens is a store that was never worth writing to. So the daemon selects against the
+// bead and puts the likely ones in the brief. The rule and its caps live in lib/memory.js
+// and are tested there; what is asserted here is that the brief carries the result, that
+// it survives a workspace with no notes at all, and — the one that would quietly undo the
+// whole thing — that a section arriving is never allowed to read as permission to skip
+// the rest of the store.
+const NOTES = {
+  'sw-cache-version-conflicts': {
+    value: 'public/sw.js is the most likely merge conflict here — read both blocks before renumbering.',
+    at: '2026-08-11T14:36:36.114Z',
+  },
+  'fixed-port-suites-collide': { value: 'test/dedupe.mjs binds 127.0.0.1:4389, so two suites at once is EADDRINUSE.', at: '2026-08-11T14:08:31.486Z' },
+};
+const WORKED = { id: 'bc-fmt', title: 'Workers land their own work when the bead is done', description: 'public/sw.js and the merge conflict it causes.' };
+const noted = workPromptFor('beadcause', WORKED, 1, MODE(), OWNER, { notes: NOTES });
+
+check('the brief carries the note the bead is about', noted.includes('most likely merge conflict here'), (noted.match(/.*sw\.js.*/) || [])[0]);
+check(
+  'and names the rest by key, so a capped section never reads as the whole store',
+  noted.includes('`fixed-port-suites-collide`') && noted.includes('beadcause-memory notes <key>'),
+  (noted.match(/.*unread here.*/) || [])[0]
+);
+check(
+  'the section sits above the tests paragraph, where what it mostly says is how they are really run',
+  noted.indexOf('already worked out') < noted.indexOf('Run whatever this repo calls its tests'),
+  `${noted.indexOf('already worked out')} vs ${noted.indexOf('Run whatever this repo calls its tests')}`
+);
+// A workspace whose store is empty — every workspace, on the day this shipped — must get
+// no heading rather than a heading over nothing. An agent shown an empty section twice
+// learns the section is furniture, and stops reading it on the day it has something in it.
+check('a workspace with no notes gets no section at all', !land.includes('already worked out') && !land.includes('beadcause-memory notes <key>'), land);
+// Whatever else changes, this cannot: the brief is passed the notes rather than reading
+// them, so every ending stays assertable here without a repo, a ref or a store.
+check('every ending can still carry one', [MODE(), MODE({ autoMerge: false }), null].every((m) => workPromptFor('beadcause', WORKED, 1, m, OWNER, { notes: NOTES }).includes('already worked out')));
+
 /* -------------------------------------------- the stored value the new default needs */
 
 console.log('\nthe one-time move of a stored `squash`');
@@ -331,10 +451,67 @@ check('a squash set back afterwards is left alone', moveSquashDefault(again) ===
 check('and anything already on merge is not touched at all', moveSquashDefault({ pr: { mergeMethod: 'merge' } }) === '');
 check('nor is an explicit rebase', moveSquashDefault({ pr: { mergeMethod: 'rebase' } }) === '');
 
+/* -------------------------------------------------- the batch head's extra sentences */
+
+/**
+ * A batch brief (bc-bhp9). The advocate can now hand one window an epic plus its ready
+ * children, and two sentences in that brief are load-bearing in a way the rest are not.
+ *
+ * The delivery and close sections are written for a single-bead window: both interpolate
+ * one bead id, and in a batch that id is the *epic*. A worker that follows them literally
+ * closes the epic on its first phase — which reports every remaining child as done, and
+ * takes them out of the batch that would have carried them next tick. So the brief has to
+ * override its own later sections, and if that override ever goes missing the failure is
+ * silent: the work still happens, the board just lies about it.
+ */
+console.log('\na batch head is told it is not a single-bead window');
+
+const BATCH = {
+  id: 'bc-epic',
+  title: 'The epic',
+  batch: [
+    { id: 'bc-epic.1', title: 'first child' },
+    { id: 'bc-epic.2', title: 'second child' },
+  ],
+};
+const batched = workPromptFor('beadcause', BATCH, 1, MODE(), OWNER);
+
+check('the opening says it holds the epic and its children, not one bead', /epic \*\*beadcause\/bc-epic\*\* and the 2 beads under it/.test(batched), (batched.match(/^You are working.*/) || [])[0]);
+check('every bead in the batch is named, so it can read them all before planning', batched.includes('bd show bc-epic.1') && batched.includes('bd show bc-epic.2'));
+check('it is told to choose phases rather than work the list in order', /work them in phases you choose/.test(batched));
+check('and told the order it was given is not a plan', /it is pick order, not a plan/.test(batched));
+check(
+  'the epic must not be closed while a child is open — the sentence that stops a lying board',
+  /Do not close \\?`bc-epic\\?` itself until every bead under it is closed/.test(batched),
+  (batched.match(/.*until every bead under it.*/) || [])[0]
+);
+check('and the delivery step is re-pointed at the bead each phase completes', /name the bead that phase completed — not \\?`bc-epic\\?`/.test(batched), (batched.match(/.*name the bead that phase.*/) || [])[0]);
+check('stopping part-way is named as a correct ending, so it does not grind', /That is the correct ending, not a failure/.test(batched));
+
+/**
+ * The one command in the batch brief that is load-bearing across ticks. The worker claimed
+ * the epic to start, and `bd ready` skips a claimed bead — the same fact `bd.reopen` exists
+ * for. So an epic left claimed with children still open is a bead nothing will pick up
+ * again, and the remainder gets handed out one window at a time instead of as a batch. The
+ * flags have to match `reopen`'s, or the hand-back does not hand anything back.
+ */
+check(
+  'a part-done batch hands the epic back unclaimed, or the remainder never batches again',
+  batched.includes('bd update bc-epic --status open --assignee ""'),
+  (batched.match(/.*bd update bc-epic.*/) || [])[0]
+);
+check('and says why that line is there, since it reads like bookkeeping', /a claimed bead\s*\n?is skipped by the advocate's queue/.test(batched));
+
+// The other half of the contract, and the one a regression would reach first: a bead the
+// advocate never batched must get byte-identical prose to what it got before any of this
+// existed. `land` above is that bead, built from the same MODE.
+check('a single-bead brief is untouched by any of it', land === workPromptFor('beadcause', { id: BEAD.id, title: BEAD.title, batch: [] }, 1, MODE(), OWNER));
+check('and carries none of the batch sentences', !/in phases you choose/.test(land) && !/until every bead under it/.test(land));
+
 /* ------------------------------------------------------------------ verdict */
 
 console.log('');
-fs.rmSync(tmp, { recursive: true, force: true });
+await cleanupTmp(tmp);
 if (failures) {
   console.log(`\x1b[31m${failures} check${failures === 1 ? '' : 's'} failed\x1b[0m`);
   process.exit(1);

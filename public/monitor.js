@@ -72,10 +72,30 @@
   const tally = document.getElementById('tally');
   const observing = document.getElementById('observing');
 
-  /* Three `bd` calls per workspace behind /api/work, so this refreshes on a timer
-     rather than streaming. The transcript poll below is the fast one — a file read. */
-  const REFRESH_MS = 20000;
+  /* There were three `bd` calls per workspace behind /api/work and a whole inbox sweep
+     beside them, every twenty seconds, for as long as this page was open. It follows the
+     daemon's event log now (see `follow` below), which changes the bargain in two ways:
+
+     - **The roster arrives free.** `/api/poll` carries `advocates.snapshot()` on every
+       wake, whatever woke it. So a pause, a resume, a check-in, a slot freeing — most of
+       what this page is *about* — lands here without a request of any kind.
+     - **The `bd` half is asked for only when something happened that `bd` would answer
+       differently.** A claimed bead, a session opening, a proposal filed. An advocate
+       merely saying it is still surveying is a repaint and nothing more.
+
+     What has no event and cannot have one is a session claiming a bead in a terminal
+     nobody told the daemon about. That used to be caught within twenty seconds by the
+     timer and is now caught by the next event, the ⟳, or coming back to the page. In
+     practice a running advocate emits several events a minute, so the page it matters on
+     is the busy one. */
   const LOG_MS = 2500;
+
+  /* Which advocate actions repaint for free and which are worth going back to `bd` for
+     used to be a set and a predicate here. Both moved into public/stream.js as
+     `workMoved` (bc-xxzz), because the inbox asks the same question about the copy it
+     holds *for* this page, and two copies of that judgement drifting apart would mean
+     the inbox handing this page a warm payload missing exactly the row you tapped
+     through to see. See `follow` below for the only use of it left here. */
 
   const esc = (s) =>
     String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -134,6 +154,20 @@
     spaceError: null,
     /** What the last press changed, in the daemon's words rather than the label's. */
     spaceSaid: null,
+    /* The Slack channel field, which is the one control on this card you *type* into.
+       Same reason as the steppers below: a stream event repaints this page under your
+       thumb, and a half-typed channel id living in the DOM would be thrown away by a
+       poll nobody asked for. `{ space, text }`, dropped the moment a press sends it. */
+    slackDraft: null,
+    /* The three halves of a stepper that has been moved but not yet applied — see
+       `limitControl`. All keyed the same way (`stepKey`), and all in `state` rather
+       than in the markup for one reason: this page repaints off a poll every couple
+       of seconds, so a number held in the DOM would be thrown away under the thumb
+       that was still adjusting it. `applyingLimits` is here for the same reason — a
+       repaint mid-write must not hand back an enabled control. */
+    pendingLimits: new Map(), // step key → the number you have dialled up, not yet sent
+    applyingLimits: new Set(), // step key → a write is in flight
+    limitErrors: new Map(), // step key → why the last apply was refused
   };
 
   function readOpen() {
@@ -254,23 +288,77 @@
    *   that explains itself. `tickOne` writes the same sentence into the note once it
    *   is actually blocked; this says it the moment you press, which is when you are
    *   looking.
+   *
+   * What it no longer does is write on every press. Each ± used to POST — so 1 → 5
+   * was four writes to config.json, four applies on the running daemon and four
+   * repaints, with no moment in the middle where you could change your mind. The
+   * number moves in the page now and Apply is what sends it, once.
    */
-  function limitStepper(a) {
-    const key = esc(a.workspace);
-    const ceiling = a.ceiling || 9;
-    const step = (delta, label, title, off) =>
-      `<button class="adv-btn adv-step" data-adv="limit" data-ws="${key}" data-value="${a.limit + delta}" title="${esc(
-        title
-      )}"${off ? ' disabled' : ''}>${label}</button>`;
-    return `<span class="adv-limit${a.globalHeld ? ' held' : ''}" title="${esc(
-      a.globalHeld
-        ? `${a.limit} sessions at once — but globalMaxWorkers is ${a.globalMax} across every advocate, so this repo will not get more than that`
-        : `How many sessions this advocate may open at once — one iTerm window each, on this Mac`
-    )}">
-      ${step(-1, '−', 'One fewer session at a time', a.limit <= 1)}
-      <b>${a.limit}</b>
-      ${step(1, '+', `One more session at a time (up to ${ceiling})`, a.limit >= ceiling)}
+  const GLOBAL_STEP = 'global';
+  /** Where a stepper's pending value lives. `global` has no repo, like its action. */
+  const stepKey = (ws) => (ws ? `ws:${ws}` : GLOBAL_STEP);
+  const stepWorkspace = (key) => (key === GLOBAL_STEP ? undefined : key.slice(3));
+  const stepAction = (key) => (key === GLOBAL_STEP ? 'globalLimit' : 'limit');
+
+  /**
+   * `−  3  +  Apply` — the body both steppers share.
+   *
+   * One builder for the per-repo control and the global one, because they were already
+   * deliberately the same control and the hold-until-Apply behaviour is the part it
+   * would be worst to have two versions of.
+   *
+   * Three states, and each has to survive a repaint arriving mid-adjustment:
+   *
+   * - **settled** — no pending value, so the number is the daemon's and there is no
+   *   Apply to press. Identical to what this control has always looked like;
+   * - **moved** — you have stepped it. The pill picks up `pending`, Apply appears, and
+   *   nothing has been written yet: the number under it is still `live`, which is what
+   *   the Apply title says out loud so a control left half-adjusted cannot be mistaken
+   *   for one that took;
+   * - **applying** — the write is in flight. Every button in the control is disabled,
+   *   including the steppers, because a ± landing between the POST and its answer
+   *   would leave a pending number that no longer means anything.
+   */
+  function limitControl({ key, live, ceiling, held, pillTitle, fewerTitle, moreTitle }) {
+    const want = state.pendingLimits.has(key) ? state.pendingLimits.get(key) : live;
+    const busy = state.applyingLimits.has(key);
+    const moved = want !== live;
+    const step = (delta, label, title, atEnd) =>
+      `<button class="adv-btn adv-step" data-step="${esc(key)}" data-value="${
+        want + delta
+      }" data-ceiling="${ceiling}" title="${esc(title)}"${atEnd || busy ? ' disabled' : ''}>${label}</button>`;
+    return `<span class="adv-limit${held ? ' held' : ''}${moved ? ' pending' : ''}" title="${esc(pillTitle)}">
+      ${step(-1, '−', fewerTitle, want <= 1)}
+      <b>${want}</b>
+      ${step(1, '+', moreTitle, want >= ceiling)}
+      ${
+        moved
+          ? `<button class="adv-btn adv-apply primary" data-apply="${esc(key)}" title="${esc(
+              busy ? `Setting it to ${want}…` : `Set it to ${want}. It is still ${live} — nothing has been written yet.`
+            )}"${busy ? ' disabled' : ''}>${busy ? '…' : 'Apply'}</button>`
+          : ''
+      }
     </span>`;
+  }
+
+  function limitStepper(a) {
+    return limitControl({
+      key: stepKey(a.workspace),
+      live: a.limit,
+      ceiling: a.ceiling || 9,
+      held: a.globalHeld,
+      pillTitle: a.globalHeld
+        ? `${a.limit} sessions at once — but globalMaxWorkers is ${a.globalMax} across every advocate, so this repo will not get more than that`
+        : `How many sessions this advocate may open at once — one iTerm window each, on this Mac`,
+      fewerTitle: 'One fewer session at a time',
+      moreTitle: `One more session at a time (up to ${a.ceiling || 9})`,
+    });
+  }
+
+  /** The refusal from the last Apply, drawn where the press was. */
+  function limitErrorHtml(key) {
+    const said = state.limitErrors.get(key);
+    return said ? `<div class="adv-note bad">${esc(said)}</div>` : '';
   }
 
   /**
@@ -282,6 +370,17 @@
    * floor), and `deferredByPriority` is the part of `ready` it is deliberately leaving
    * alone. The difference between "4 ready" and "4 ready, 3 of them below the floor" is
    * the difference between an advocate that is idle and one that is behaving as told.
+   * `closed` comes last of all and is the exception to the whole row: every other number
+   * here is work that is not done, so it is the one that had to go after the holds
+   * rather than beside `open` where the tracker itself puts it.
+   *
+   * `heldByRepo` is the newest of them and the odd one out: every other hold on this
+   * row resolves itself in time — a window closes, a pull request merges, an epic's
+   * children get done — and this one never will. A bead naming a `repo:` token nothing
+   * approved declares, or one two approved repos both declare, waits on somebody
+   * editing a label or an approved list, and until then it is out of the queue with
+   * nothing else on screen accounting for it. Its tooltip carries lib/repos.js's own
+   * sentence, which names the fix.
    *
    * `heldByChildren` is the third such subtraction, and it earns a pill for the same
    * reason: an epic whose children are the work is ready by bd's reckoning and not by
@@ -289,10 +388,59 @@
    * nothing on screen accounts for the difference. Its `why` goes in the tooltip —
    * the pill is the number, "bc-3zo9.1 is ready under it" is the answer to the
    * question the number provokes.
+   *
+   * `heldByTwin` is the fourth, and the only one of them that can move on its own: a
+   * bead held because another one is the same job comes back the moment that other one
+   * closes. Which is exactly why it needs the pill — "1 ready" that never becomes a
+   * session, with nothing on screen naming the bead it is waiting behind, is
+   * indistinguishable from an advocate that has stopped working.
+   *
+   * `heldByPr` is the fifth (bc-utyr), and the one whose pill is a *link*: a bead held
+   * because an open pull request already carries its work is waiting on something you
+   * can act on from the phone you are reading this on — a merge, or a conflict to
+   * resolve — and the board is where both taps live. The others name a bead you would
+   * have to go and find; this one names a number and takes you to it.
+   *
+   * `heldByLive` is the sixth (bc-vq78), and the one whose tooltip names a *process*: a
+   * bead held because a window is already open on it is waiting on that window ending,
+   * and the pid is what tells you which of the fifteen on screen it is. It earns the
+   * pill more than any of the others, because the state it prevents — two sessions
+   * editing one worktree — is invisible from every other view here, which is precisely
+   * how it went unnoticed for an hour.
+   *
+   * `heldByClaim` is the eighth (bc-mp8c), and the first that names a *file* rather than a
+   * bead: another session on this Mac is editing what this bead would touch, so the window
+   * was not opened. `filesBusy` beside it is the same collision over a surface guessed from
+   * the bead's prose rather than declared on it — dispatched anyway, because a guess may not
+   * withhold work (bc-hrno), and shown anyway, because whether that gate should ever be
+   * turned on is a question only the pattern on this row can answer.
+   *
+   * `heldByNoP0` is the ninth (bc-rfnr.7), and the only one that is not about contention
+   * at all: every other pill on this row names two things wanting one bead, and this one
+   * names a bead nothing has asked for. It is `p1` for `heldByRepo`'s reason — those two
+   * are the holds that never clear on their own — and its tooltip names the beads,
+   * because the fix is one tap into each sheet and there is nowhere else to start.
+   *
+   * `heldByLease` is the seventh (bc-bllw), and the first that is not about this laptop:
+   * a bead another engineer's Mac has claimed in the shared tracker. `stoodDown` is its
+   * other half — a window *this* Mac gave up because the other machine's claim won the
+   * tiebreak — and it is on this row rather than in the sessions list because a session
+   * that has already been withdrawn is not a session any more. Both are `p1` rather than
+   * muted: every other pill here names something on this screen, and these two name a
+   * window on somebody else's desk, which you can only settle by asking them.
    */
   function domainHtml(w, a) {
     const c = w?.counts || {};
+    const unplaced = (a && a.heldByRepo) || [];
     const waiting = (a && a.heldByChildren) || [];
+    const twins = (a && a.heldByTwin) || [];
+    const prs = (a && a.heldByPr) || [];
+    const sitting = (a && a.heldByLive) || [];
+    const claimed = (a && a.heldByLease) || [];
+    const onFiles = (a && a.heldByClaim) || [];
+    const busyFiles = (a && a.filesBusy) || [];
+    const stood = (a && a.stoodDown) || [];
+    const orphans = (a && a.heldByNoP0) || [];
     const pills = [
       c.open != null ? `<span class="pill">${c.open} open</span>` : '',
       c.ready ? `<span class="pill">${c.ready} ready</span>` : '',
@@ -309,11 +457,92 @@
       c.inProgress ? `<span class="pill on">${c.inProgress} in progress</span>` : '',
       c.blocked ? `<span class="pill p1">${c.blocked} blocked</span>` : '',
       a && a.queue ? `<span class="pill mine">${a.queue} for the advocate</span>` : '',
+      // How many checkouts one workspace name is standing for. Absent for every
+      // single-repo workspace, which is almost all of them — and the tooltip is the
+      // approved list, because "climative" on its own no longer says what is in scope.
+      a && a.repos?.length
+        ? `<span class="pill muted" title="${esc(a.repos.join('\n'))}">${a.repos.length} checkout${
+            a.repos.length === 1 ? '' : 's'
+          }</span>`
+        : '',
       a && a.deferredByPriority
         ? `<span class="pill muted">${a.deferredByPriority} below the priority floor</span>`
         : '',
+      // Toned `p1` rather than `muted`, unlike every other hold on this row: the others
+      // clear themselves when a window closes or a pull request merges, and this one
+      // never does. It is waiting on an edit, and the tooltip is where the edit is named.
+      unplaced.length
+        ? `<span class="pill p1" title="${esc(unplaced.map((h) => `${h.id} — ${h.why}`).join('\n'))}">${unplaced.length} naming no checkout</span>`
+        : '',
       waiting.length
         ? `<span class="pill muted" title="${esc(waiting.map((h) => `${h.id} — ${h.why}`).join('\n'))}">${waiting.length} waiting on ${waiting.length === 1 ? 'its children' : 'their children'}</span>`
+        : '',
+      // `p1` rather than `muted`, with `heldByRepo`: those are the two holds on this row
+      // that no amount of waiting resolves. This one is waiting on somebody deciding
+      // where the work belongs, and the tooltip names each bead so the decision can be
+      // made from the sheet the id takes you to. See lib/underp0.js.
+      orphans.length
+        ? `<span class="pill p1" title="${esc(orphans.map((h) => `${h.id} — ${h.why}`).join('\n'))}">${orphans.length} with no P0 above ${orphans.length === 1 ? 'it' : 'them'}</span>`
+        : '',
+      twins.length
+        ? `<span class="pill muted" title="${esc(twins.map((h) => `${h.id} — ${h.why}`).join('\n'))}">${twins.length} the same job under another id</span>`
+        : '',
+      prs.length
+        ? `<a class="pill muted" href="/prs" title="${esc(prs.map((h) => `${h.id} — ${h.why}`).join('\n'))}">${prs.length} in an open pull request</a>`
+        : '',
+      // No link, unlike the pull requests: the window this names is on the same page you
+      // are reading, in the sessions list below.
+      sitting.length
+        ? `<span class="pill muted" title="${esc(sitting.map((h) => `${h.id} — ${h.why}`).join('\n'))}">${sitting.length} with a session already open</span>`
+        : '',
+      // And the seventh, which is the only pill here naming something you cannot see from
+      // this screen: another Mac's window, on another desk. Hence `p1` rather than
+      // `muted` — the other six are states you can settle by looking, and this one is a
+      // state you can only settle by asking somebody.
+      claimed.length
+        ? `<span class="pill p1" title="${esc(claimed.map((h) => `${h.id} — ${h.why}`).join('\n'))}">${claimed.length} claimed by another Mac</span>`
+        : '',
+      // Not a subtraction from the queue at all, but the same argument one step later: a
+      // window this advocate gave up because another Mac won the race. It clears itself
+      // after an hour (`standDown` in lib/advocate.js), so a pill that is here is about
+      // something that happened while you were not looking.
+      stood.length
+        ? `<span class="pill p1" title="${esc(stood.map((s) => `${s.id} — ${s.why}`).join('\n'))}">${stood.length} stood down for another Mac</span>`
+        : '',
+      // The eighth, and the first that names a *file*: a bead held because another session
+      // on this laptop already has its hands on what it would touch (bc-mp8c). `muted`,
+      // like the other holds you can settle by looking — the tooltip names the file and the
+      // worktree, and both are on this Mac.
+      onFiles.length
+        ? `<span class="pill muted" title="${esc(onFiles.map((h) => `${h.id} — ${h.why}`).join('\n'))}">${onFiles.length} whose files are being edited</span>`
+        : '',
+      // And the near miss, which is not a hold and must not read as one: the same collision
+      // over a surface guessed from the bead's text, dispatched anyway because a guess may
+      // not withhold work (bc-hrno). It is here so that the question "would holding on a
+      // guess have helped?" can be answered from the screen rather than from a hunch.
+      busyFiles.length
+        ? `<span class="pill muted" title="${esc(busyFiles.map((h) => `${h.id} — ${h.why}`).join('\n'))}">${busyFiles.length} opened onto a busy file</span>`
+        : '',
+      // Last, because it is the only pill on this row that is not work outstanding.
+      // Everything above it is something still to do — open, ready, blocked, held one of
+      // nine ways — and this is what is finished, which is why it reads oddly anywhere
+      // but the end.
+      //
+      // A link for the same reason `held` above it is one: the count was already being
+      // computed and there was nowhere to go from it. It goes to the ledger rather than
+      // to a closed-only list, because there is no closed-only list — the tooltip says
+      // so out loud, so a pill reading `586 closed` cannot be taken as a promise that
+      // 586 rows are on the other side of it. Narrowing it is bc-nib3.7's, and it waits
+      // on the filters (bc-nib3.3) existing at all.
+      //
+      // No `?ws=` on the link, exactly as `/endorse` and `/prs` above have none. Every
+      // page in the app is scoped by the one space picker, which lives on the server —
+      // a link that narrowed the list without moving the picker would hand you a page
+      // whose own control disagreed with what it was showing, and one that moved the
+      // picker would change what every other client is looking at because you tapped a
+      // count.
+      c.closed
+        ? `<a class="pill muted" href="/history" title="Every bead this space has ever had, newest first — the closed ones among them">${c.closed} closed</a>`
         : '',
     ].filter(Boolean);
     return `<div class="mon-domain">${pills.join('')}</div>`;
@@ -344,6 +573,10 @@
    */
   function workerRow(a, w) {
     const chips = [
+      // A batch head stands for several beads and the row shows one title. Without this
+      // the others are invisible: they left the queue, one window went up, and nothing on
+      // screen says the two facts are the same fact.
+      w.batch?.length ? `<span class="tag">carrying ${esc(w.batch.length)} more under it</span>` : '',
       w.claimed ? '<span class="tag ok">claimed</span>' : '<span class="tag">not claimed yet</span>',
       w.ended ? '<span class="tag warn">the window has exited</span>' : '',
       // Where a reclaim got to. Asked and unanswered is the state worth seeing: the
@@ -355,6 +588,10 @@
           }</span>`
         : '',
       w.sessionStatus ? `<span class="tag">${esc(w.sessionStatus)}</span>` : '',
+      // Which checkout the window is actually open in. Only ever present where the
+      // workspace holds more than one, which is why there is no chip on a sophab row
+      // saying "sophab" — see `repoNameFor` in lib/advocate.js.
+      w.repo ? `<span class="tag">${esc(w.repo)}</span>` : '',
       w.pid ? `<span class="tag dim">pid ${esc(w.pid)}</span>` : '',
       w.attempt > 1 ? `<span class="tag warn">attempt ${esc(w.attempt)}</span>` : '',
       // Nothing to address, so Reclaim cannot ask about this one — it will free the
@@ -423,7 +660,9 @@
             <span class="work-title">${esc(b.title)}</span>
             <span class="work-sub"><span class="pill id">${esc(b.id)}</span><span class="tag">${esc(
               P_LABEL[b.priority] ?? `P${b.priority}`
-            )}</span><span class="tag dim">${esc(b.type)}</span></span>
+            )}</span><span class="tag dim">${esc(b.type)}</span>${
+              b.repo ? `<span class="tag">${esc(b.repo)}</span>` : ''
+            }</span>
           </span>
           <time>${esc(age(b.createdAt))}</time>
         </a>`
@@ -690,6 +929,13 @@
           : ''
       }
       ${
+        // Why the last Apply on this card's stepper was refused. In the card rather
+        // than appended to the button's parent, because applying repaints the page and
+        // a note stuck onto the old DOM would vanish with it — which is exactly the
+        // press whose failure has to be visible.
+        limitErrorHtml(stepKey(key))
+      }
+      ${
         // The workspace's own error, and only when it is not the advocate's error
         // said twice. They are separate facts — the advocate holds its last failure
         // in memory, /api/work asks bd afresh — and usually the same sentence.
@@ -835,6 +1081,54 @@
     </div>`;
   }
 
+  /**
+   * How many sessions may be open on this whole Mac — the third line in the block, and
+   * the only one of the three you can press.
+   *
+   * This is `advocates.globalMaxWorkers`, and it is the cap that most often actually
+   * binds: every advocate card already quotes it, in its stepper's tooltip and in the
+   * amber "Held by globalMaxWorkers" note the tick writes when it is what stopped a
+   * launch. Until now it was also the one number on this page you could not change
+   * without editing ~/.beadcause/config.json and restarting the daemon — so the page
+   * could tell you exactly which number was holding your work up and offer you nothing
+   * to do about it.
+   *
+   * Deliberately the same control as the per-repo one — `.adv-limit`, two square
+   * buttons and the number between them — because it is the same kind of decision one
+   * level up, and a second shape for it would read as a different kind of setting.
+   * What differs is the range (`GLOBAL_WORKERS_CEILING`, which travels in the payload
+   * rather than being written here) and that it is stated as a fraction: `3 of 20` is
+   * the headroom question, and it is the reason you came to look at this number.
+   *
+   * Above the space card and under the two health lines, because it is global and the
+   * card below it is one space's — settings sorted widest-first, which is also the
+   * order you scroll past them in.
+   */
+  function globalHtml(g, observing) {
+    if (!g) return ''; // An older daemon behind a newer page: say nothing, invent nothing.
+    const ceiling = g.ceiling || 36;
+    const held = g.live >= g.maxWorkers;
+    return `<div class="svc ok svc-set">
+      <span class="svc-dot">⚙</span>
+      <span><b class="svc-num${held ? ' warn' : ''}">${g.live}</b> of ${plural(
+        g.maxWorkers,
+        'session'
+      )} open across every advocate${held ? ' — every slot is in use' : ''}</span>
+      ${limitControl({
+        key: GLOBAL_STEP,
+        live: g.maxWorkers,
+        ceiling,
+        held,
+        pillTitle: observing
+          ? 'This instance only watches — the cap belongs to the daemon that acts.'
+          : 'advocates.globalMaxWorkers — the total across every advocate on this Mac, whatever any one repo’s own limit says',
+        fewerTitle: 'One fewer session on this Mac, across every advocate',
+        moreTitle: `One more session on this Mac (up to ${ceiling})`,
+      })}
+      ${limitErrorHtml(GLOBAL_STEP)}
+    </div>`;
+  }
+
   /* ------------------------------------------------------- the space's own settings
 
      What makes this page the details of a *space* rather than a list of advocates that
@@ -842,8 +1136,11 @@
 
      Every one of these already existed and every one of them was a config hand-edit:
      `quietHours`, `quietDays`, `ntfyDetail` and `autoDispatch` have been read out of
-     lib/spaces.js since spaces were invented, and `autoMerge`/`requireApproval` joined
-     them with the per-space PR policy. Editing them meant opening
+     lib/spaces.js since spaces were invented, `autoMerge`/`requireApproval` joined them
+     with the per-space PR policy, `autoEndorse` — whether a bead an agent filed here
+     may be worked before you have read it — joined them after that, and `autoShip` joined
+     them with the release queue that deploys a merge without being tapped. Editing them
+     meant opening
      `~/.beadcause/config.json` on the Mac — which is exactly the wrong place, because
      the moment you know a setting is wrong is the moment you are looking at what it
      did, on a phone, at the weekend.
@@ -853,14 +1150,21 @@
 
      - **Muted** is two-state. There is no global "mute everything" behind it, so
        "not set" and "off" are the same thing and a third button would be a lie.
-     - **The four with a global behind them** are three-state — On, Off, *Inherit* —
+     - **The seven with a global behind them** are three-state — On, Off, *Inherit* —
        because `prPolicyFor` is explicit that a space may override the global in either
        direction, so "off" and "following the default, which is off" are different
        answers that must survive the default changing under them. The Inherit button
-       says what it currently resolves to rather than the word alone.
+       says what it currently resolves to rather than the word alone. `autoEndorse` is
+       one of them and its global default is `off` rather than on, which is the whole
+       reason Inherit names what it resolves to instead of saying "Inherit".
      - **Quiet hours and quiet days** are a pair of times and a row of days, each
        clearable, because "no quiet hours" is a state you have to be able to get back
        to and deleting the key is the only way there.
+     - **The Slack channel** is the only one you type, and it has three answers rather
+       than two: a channel id, *Never* — which stores an empty string and means this
+       space stays out of Slack however the global is set — and *Inherit*. Never and
+       Inherit look identical on the day you press them and come apart the day
+       `slack.channel` changes, which is the whole reason both buttons are there.
   */
 
   /** The name of the space this page is about, or null when nothing is narrowed to one. */
@@ -911,6 +1215,38 @@
   }
 
   /**
+   * The same three-state control, one level down: this repo's own answer to
+   * `autoEndorse`, which outranks the space's.
+   *
+   * Its own function rather than a fourth argument to `tri` because the two write to
+   * different things — `tri` posts `{ space, settings }` and this posts
+   * `{ space, workspace, settings }` — and the press handlers have to be able to tell
+   * them apart from the DOM alone. `data-repo-set` is that difference, and it also keeps
+   * these buttons out of the `[data-space-set]` handler, which would have sent a repo's
+   * press as the whole space's answer: the exact bug this feature exists to end.
+   *
+   * Inherit names what it resolves to *through the space*, not the global — `Inherit
+   * (on)` on a repo inside an endorsing space is the truth, and reading the global there
+   * would be a button promising the opposite of what pressing it does.
+   */
+  function repoTri(r) {
+    const btn = (v, text, title) =>
+      `<button class="adv-btn${r.autoEndorseOwn === v ? ' on' : ''}" data-repo-set="autoEndorse" data-repo="${esc(
+        r.name
+      )}" data-value="${esc(String(v))}" title="${esc(title)}">${esc(text)}</button>`;
+    return `<div class="space-repo-set">
+      <span class="space-repo-what">Beads agents file here</span>
+      ${btn(true, 'On', `${r.name} — files arrive endorsed, whatever the space says`)}
+      ${btn(false, 'Off', `${r.name} — files stay held for a tap, whatever the space says`)}
+      ${btn(
+        null,
+        `Inherit (${onOff(r.autoEndorseInherited)})`,
+        `Follow the space, which is currently ${onOff(r.autoEndorseInherited)}`
+      )}
+    </div>`;
+  }
+
+  /**
    * The whole settings card for the selected space.
    *
    * Drawn above the advocate cards because it is what the page is *about*, and because
@@ -923,13 +1259,13 @@
     if (!name) {
       // Not an error and not worth a card: nothing is narrowed, so there is no one
       // space whose settings these would be. The picker in the bar above is the fix,
-      // and saying so once is cheaper than drawing seven controls that write nowhere.
+      // and saying so once is cheaper than drawing a card of controls that write nowhere.
       return `<p class="subtitle space-none">Pick a space in the bar above to see and change its settings.</p>`;
     }
     if (state.spaceError) {
       // The synthetic "Other" group lands here: it is a place the picker offers, not a
       // thing with settings, and the server 404s it rather than inventing one.
-      return `<article class="card mon-card plain space-card">
+      return `<article class="card work-card mon-card plain space-card">
         <div class="work-head"><h2>${esc(name)}</h2><span class="mon-state dim">no settings</span></div>
         <p class="subtitle">${esc(state.spaceError)}${
           name === 'Other'
@@ -955,6 +1291,10 @@
         : { text: 'may reach you', tone: 'live' };
 
     const days = s.quietDays || [];
+    // Only this space's — switching space while a channel is half-typed is a different
+    // answer to a different question, and carrying it across would be the card showing
+    // you one space's channel under another space's name.
+    const draft = state.slackDraft?.space === name ? state.slackDraft.text : null;
     const rows = [
       `<div class="space-row">
         <div class="space-row-head">
@@ -1016,12 +1356,63 @@
         </div>
       </div>`,
 
+      // The only field on this card that is a free-text id rather than a choice, and the
+      // only one whose two ways of saying "nothing" are different answers — see
+      // `slackChannelFor`. `Never` writes an empty string and keeps this space out of
+      // the channel however `slack.channel` is set; `Inherit` deletes the key. The
+      // input's value comes from the draft first, so a repaint mid-type cannot take it.
+      `<div class="space-row">
+        <div class="space-row-head">
+          <span class="space-what">Slack channel</span>
+          <span class="space-state ${s.slackChannel ? 'live' : s.slackChannel === '' ? 'held' : 'dim'}">${
+            s.slackChannel
+              ? esc(s.slackChannel)
+              : s.slackChannel === ''
+                ? 'never posts'
+                : `inherited · ${g.slackChannel ? esc(g.slackChannel) : 'none'}`
+          }</span>
+        </div>
+        <p class="space-help">Where this space's questions are posted, with a button per option — a channel id (<b>C…</b>) or a DM id (<b>D…</b>), not a #name.${
+          quiet.slack ? '' : ' <b>Slack is off</b> in the config, so nothing here posts anywhere until it is on.'
+        }</p>
+        <div class="space-btns space-channel">
+          <input type="text" id="slack-channel" value="${esc(draft ?? s.slackChannel ?? '')}" placeholder="${esc(
+            g.slackChannel || 'C0123456789'
+          )}" aria-label="Slack channel for this space" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="done">
+          <button class="adv-btn primary" data-space-channel="set" title="Post this space&#39;s questions to the channel typed here">Set</button>
+          <button class="adv-btn${s.slackChannel === '' ? ' on' : ''}" data-space-set="slackChannel" data-value="" title="This space never posts to Slack, whatever the global channel is">Never</button>
+          <button class="adv-btn${s.slackChannel === null ? ' on' : ''}" data-space-set="slackChannel" data-value="null" title="Follow the global slack.channel, which is currently ${esc(g.slackChannel || 'unset')}">Inherit (${esc(g.slackChannel || 'none')})</button>
+        </div>
+      </div>`,
+
+      `<div class="space-row">
+        <div class="space-row-head">
+          <span class="space-what">Slack detail</span>
+          <span class="space-state ${s.slackDetail ? 'live' : 'dim'}">${
+            s.slackDetail ? esc(s.slackDetail) : `inherited · ${esc(g.slackDetail)}`
+          }</span>
+        </div>
+        <p class="space-help">How much of the question goes into the channel. <b>minimal</b> posts a nudge and a link with none of the words — the answer for a channel with people in it who should see that a decision is waiting without seeing what it is about.</p>
+        <div class="space-btns">
+          <button class="adv-btn${s.slackDetail === 'full' ? ' on' : ''}" data-space-set="slackDetail" data-value="full">Full</button>
+          <button class="adv-btn${s.slackDetail === 'minimal' ? ' on' : ''}" data-space-set="slackDetail" data-value="minimal">Minimal</button>
+          <button class="adv-btn${s.slackDetail === null ? ' on' : ''}" data-space-set="slackDetail" data-value="null">Inherit (${esc(g.slackDetail)})</button>
+        </div>
+      </div>`,
+
       tri(
         'autoDispatch',
         'Agents may answer unasked',
         'Whether an unattended agent may reply to comments in this space. The global switch is a veto: with it off, nothing here can turn it back on.',
         s.autoDispatch,
         g.autoDispatch
+      ),
+      tri(
+        'autoEndorse',
+        'Beads agents file arrive endorsed',
+        'On means a discovery an agent files here is ready work the moment it exists, and an advocate may open a session on it before you have read it. Off is the hold: nothing runs until you tap Endorse.',
+        s.autoEndorse,
+        g.autoEndorse
       ),
       tri(
         'autoMerge',
@@ -1037,24 +1428,85 @@
         s.requireApproval,
         g.requireApproval
       ),
+      tri(
+        'autoShip',
+        'Merges ship themselves',
+        'On means a merge runs the repo’s own deploy without waiting for Ship — batched behind a ten-minute settle window, so four merges are one deploy. An epic labelled auto-ship or no-auto-ship overrides this for its own work.',
+        s.autoShip,
+        g.autoShip
+      ),
     ].join('');
 
     // What each repo actually resolves to, which is not always what the space says:
-    // `ntfy.minimalWorkspaces` and `autoDispatchExclude` are per-repo lists that outrank
-    // it. A screen that showed only the space's answer would be quietly wrong about
-    // exactly the repo that had been singled out.
+    // `ntfy.minimalWorkspaces`, `slack.excludeWorkspaces` and `autoDispatchExclude` are
+    // per-repo lists that outrank it. A screen that showed only the space's answer would
+    // be quietly wrong about exactly the repo that had been singled out.
+    //
+    // A row is a workspace, and since lib/repos.js that is not always one checkout: a
+    // `checkouts` count means this row's single answer governs that many repos of an org
+    // sharing one tracker. Saying so is the whole of what the space-is-the-unit decision
+    // asks of the screen — one row reading as one repo understated the reach of every
+    // setting above it by fortyfold. See the block above `autoDispatchAllowed` in
+    // lib/spaces.js.
+    //
+    // And one of these rows is a *control*. `autoEndorse` is the setting a space is the
+    // wrong unit for — the reason to stop holding is "nobody but me reads this tracker",
+    // which is a fact about one workspace's graph and not about the five beside it in the
+    // same space — so it has a per-workspace override, and this row is where it is set.
+    // A row being a workspace is what makes that sound: the override is the same grain as
+    // the row and the same grain as the tracker, which is the grain the block above
+    // `autoDispatchAllowed` says these answers vary at. It belongs here rather than as a
+    // twelfth row above for the reason the panel already exists: the row states the
+    // answer for this repo, and until now there was nothing to press on the one line that
+    // knew what was wrong. The tag stays beside the buttons and is not made redundant by
+    // them: it is the *resolved* answer, and the buttons say which of the three levels
+    // gave it.
+    const many = d.repos.filter((r) => typeof r.checkouts === 'number');
+    const total = d.repos.reduce((n, r) => n + (typeof r.checkouts === 'number' ? r.checkouts : 1), 0);
     const repos = d.repos.length
       ? `<div class="space-repos">${d.repos
           .map(
             (r) => `<div class="space-repo">
+              <div class="space-repo-tags">
               <span class="pill id">${esc(r.name)}</span>
+              ${
+                typeof r.checkouts === 'number'
+                  ? `<span class="tag ${r.checkouts ? 'dim' : 'warn'}">${
+                      r.checkouts ? `${r.checkouts} checkout${r.checkouts === 1 ? '' : 's'}, one answer` : 'no checkout resolved'
+                    }</span>`
+                  : ''
+              }
               <span class="tag${r.ntfyDetail === 'minimal' ? ' warn' : ' dim'}">${esc(r.ntfyDetail)} push</span>
               <span class="tag ${r.autoDispatch ? 'ok' : 'dim'}">${r.autoDispatch ? 'agents may answer' : 'no agent replies'}</span>
+              <span class="tag ${r.autoEndorse ? 'warn' : 'dim'}">${r.autoEndorse ? 'files endorsed' : 'files held'}</span>
               <span class="tag ${r.autoMerge ? 'ok' : 'warn'}">${r.autoMerge ? 'auto-merge' : 'hands you the PR'}</span>
               ${r.autoMerge && r.requireApproval ? '<span class="tag warn">approval first</span>' : ''}
+              <span class="tag ${r.autoShip ? 'ok' : 'dim'}">${r.autoShip ? 'ships itself' : 'waits for Ship'}</span>
+              ${
+                // Only where Slack is on at all: a "no slack" tag on every repo of every
+                // install that has never configured it would be a column of noise about a
+                // feature nobody here uses. Where it *is* on, this is the tag that catches
+                // `slack.excludeWorkspaces` — the per-repo veto that outranks the space,
+                // exactly like `ntfy.minimalWorkspaces` on the row above.
+                quiet.slack
+                  ? `<span class="tag ${r.slackChannel ? 'ok' : 'warn'}">${
+                      r.slackChannel
+                        ? `slack ${esc(r.slackChannel)}${r.slackDetail === 'minimal' ? ' · minimal' : ''}`
+                        : 'no slack'
+                    }</span>`
+                  : ''
+              }
+              </div>
+              ${repoTri(r)}
             </div>`
           )
-          .join('')}</div>`
+          .join('')}</div>${
+          many.length
+            ? `<p class="subtitle">${esc(
+                many.map((r) => r.name).join(', ')
+              )} holds many checkouts sharing one tracker, so the settings above are one answer for all of them — which repo a bead is about does not change them.</p>`
+            : ''
+        }`
       : '<p class="subtitle">No configured repo is in this space.</p>';
 
     const missing = d.missing.length
@@ -1063,7 +1515,12 @@
         } — config drift, and nothing here reaches them.</div>`
       : '';
 
-    return `<article class="card mon-card space-card">
+    // `work-card` is the padding, and this was the one card on the page without it —
+    // every setting in it sat on the card's left border, and the only thing holding the
+    // head off the top one was the margin an unstyled <h2> happens to bring. bc-8l74
+    // took that margin away to make the head a row, so the class it should always have
+    // had is here now. See `.space-card` in public/style.css.
+    return `<article class="card work-card mon-card space-card">
       <div class="work-head">
         <h2>${esc(d.space)}</h2>
         <span class="mon-state ${head.tone}">${esc(head.text)}</span>
@@ -1071,7 +1528,7 @@
       ${missing}
       ${state.spaceSaid ? `<div class="adv-note${state.spaceSaid.bad ? ' bad' : ''}">${esc(state.spaceSaid.text)}</div>` : ''}
       ${section(`space:${d.space}:cfg`, 'Settings', '', rows)}
-      ${section(`space:${d.space}:repos`, 'What each repo resolves to', String(d.repos.length), repos)}
+      ${section(`space:${d.space}:repos`, 'What each repo resolves to', String(total), repos)}
     </article>`;
   }
 
@@ -1090,6 +1547,14 @@
     const data = state.work;
     if (!data) return;
     if (polled && out.contains(document.activeElement) && document.activeElement?.type === 'time') return;
+
+    // A pending number the daemon has since arrived at anyway — this repo stepped from
+    // another device, or the value applied and came back — is settled, not pending. Done
+    // here rather than in `stepLimit` because it is a *poll* that makes it true, and an
+    // Apply button offering to set 5 to 5 is a press with nothing behind it.
+    for (const [key, want] of state.pendingLimits) {
+      if (!state.applyingLimits.has(key) && liveLimit(key) === want) state.pendingLimits.delete(key);
+    }
 
     // Which daemon am I looking at? Two consoles side by side are otherwise
     // identical, and the one that acts is not the one you have been clicking.
@@ -1139,7 +1604,12 @@
     // The space's own settings sit under the two health lines and above the repos: it
     // is what this page is the details *of*, and a setting you scroll six advocate
     // cards to reach is a setting you go back to editing the config file for.
-    out.innerHTML = serviceHtml(data.service) + routerHtml(data.router) + spaceHtml() + (cards || nothing);
+    out.innerHTML =
+      serviceHtml(data.service) +
+      routerHtml(data.router) +
+      globalHtml(data.globals, data.observing) +
+      spaceHtml() +
+      (cards || nothing);
 
     // An observer may read this space's settings and may not write them: its `cfg` is
     // the real daemon's config file, so a press here would change what the *other*
@@ -1148,8 +1618,14 @@
     // not something you find out by pressing. Same treatment the admin page gives its
     // own buttons, and drawn rather than hidden — a control that vanished would read as
     // a feature this build does not have.
+    // The global session cap is in the same sentence for the same reason — an
+    // observer's config file *is* the live daemon's, so stepping it here would change
+    // how many windows the other process opens after its next restart, which is the
+    // one kind of press an instance that "never acts" must not make.
     if (data.observing) {
-      for (const el of out.querySelectorAll('[data-space-set],[data-space-day],[data-space-hours],#qh-from,#qh-to')) {
+      for (const el of out.querySelectorAll(
+        '[data-space-set],[data-repo-set],[data-space-day],[data-space-hours],[data-space-channel],#qh-from,#qh-to,#slack-channel,[data-step="global"],[data-apply="global"]'
+      )) {
         el.disabled = true;
         el.title = 'This instance only watches — the settings belong to the daemon that acts.';
       }
@@ -1165,6 +1641,10 @@
       .filter(Boolean)
       .join(' · ');
     tally.className = `mon-tally${waiting ? ' warn' : ''}`;
+    // Opening a log card is a repaint, and it is also the moment the transcript tail has
+    // to start — there is no other signal for it, and this is the one place every way of
+    // opening one goes through. `scheduleLogs` is a no-op when nothing is unfolded.
+    scheduleLogs();
   }
 
   /** Is this repo in the selected space? See public/spacebar.js. */
@@ -1242,7 +1722,9 @@
       // Kept for the next document that wants them — this page on the next tab tap,
       // and /admin, which boots from /api/work too.
       const warm = window.beadcause?.warm;
-      warm?.write?.('/api/work', work);
+      // With its sequence, so the inbox can tell whether the copy it is holding for this
+      // page has been invalidated by anything since — see `MAINTAINED` in public/app.js.
+      warm?.write?.('/api/work', work, Number(work?.seq) || 0);
       if (questions.questions) warm?.write?.('/api/questions?scope=human', questions, questions.seq);
       adoptQuestions(questions);
       state.error = null;
@@ -1252,7 +1734,7 @@
       // of `cfg`, no `bd` and no disk.
       await loadSpace();
       render({ polled });
-      pumpLogs();
+      pumpLogs().finally(scheduleLogs);
       // Only from a request that came back: warming behind a refused credential would
       // be four more refusals. See public/warm.js.
       warm?.prewarm?.({ here: 'advocates', api });
@@ -1264,6 +1746,11 @@
       if (!state.work) out.innerHTML = `<div class="empty"><strong>Can't reach the server</strong>${esc(err.message)}</div>`;
     } finally {
       pulse.classList.remove('busy');
+      // Whether or not that worked, and deliberately: a page opened while the daemon is
+      // restarting used to be brought back by the twenty-second timer, and with the
+      // timer gone the stream is the only thing that can. Its own backoff is what stops
+      // that being a request every five seconds at a daemon that is not coming back yet.
+      follow();
     }
   }
 
@@ -1332,7 +1819,15 @@
 
   /* ------------------------------------------------------------------ actions */
 
-  /** Pause, resume, free the slots, forget the attempt counters, or set the limit. */
+  /**
+   * Pause, resume, free the slots, or forget the attempt counters.
+   *
+   * `ws` is undefined for exactly one action: `globalLimit` is a total across every
+   * advocate, so it belongs to no repo and `JSON.stringify` drops the key rather than
+   * naming one. The server reads the action before it looks for a workspace. Nothing
+   * reaches here with that action any more — the global cap is applied by `applyLimit`
+   * — but the shape is the endpoint's, not this button row's, so it stays.
+   */
   async function control(ws, action, btn, value) {
     const was = btn.textContent;
     btn.disabled = true;
@@ -1349,7 +1844,71 @@
     } catch (err) {
       btn.textContent = was;
       btn.disabled = false;
-      btn.closest('.mon-card')?.insertAdjacentHTML('beforeend', `<div class="adv-note bad">${esc(err.message)}</div>`);
+      // The card for a repo's button, and the global row itself for the one button
+      // that has no card — a refusal appended nowhere is a press that looks like it
+      // worked, which is the whole failure this line exists to prevent.
+      (btn.closest('.mon-card') || btn.closest('.svc'))?.insertAdjacentHTML(
+        'beforeend',
+        `<div class="adv-note bad">${esc(err.message)}</div>`
+      );
+    }
+  }
+
+  /**
+   * Move a stepper without writing anything.
+   *
+   * A pending number equal to the live one is *deleted* rather than stored, so stepping
+   * up and back down again puts the control back to settled — an Apply button offering
+   * to set 3 to 3 is a press with nothing behind it. Clamped here as well as by the
+   * disabled buttons: a keyboard repeat can outrun a repaint.
+   */
+  function stepLimit(key, want, ceiling) {
+    if (state.applyingLimits.has(key)) return;
+    const live = liveLimit(key);
+    const next = Math.max(1, Math.min(Number(want) || 1, ceiling ?? Infinity));
+    if (live != null && next === live) state.pendingLimits.delete(key);
+    else state.pendingLimits.set(key, next);
+    // A number you have just re-dialled is not a number that failed to apply.
+    state.limitErrors.delete(key);
+    render();
+  }
+
+  /** What the daemon currently has, for the stepper keyed `key`. */
+  function liveLimit(key) {
+    if (key === GLOBAL_STEP) return state.work?.globals?.maxWorkers ?? null;
+    const ws = stepWorkspace(key);
+    return (state.work?.advocates || []).find((a) => a.workspace === ws)?.limit ?? null;
+  }
+
+  /**
+   * Send the number the stepper is holding — the one write this control makes.
+   *
+   * The whole control goes disabled for the round trip (`applyingLimits` plus a
+   * repaint, so a poll landing mid-flight cannot re-enable it), and the pending value
+   * is kept on failure: the refusal is a reason to look at the number, not a reason to
+   * lose it. On success it is dropped and `load()` brings back the daemon's own answer,
+   * which is what the pill then shows — the two differ whenever the clamp bit.
+   */
+  async function applyLimit(key) {
+    const want = state.pendingLimits.get(key);
+    if (want == null || state.applyingLimits.has(key)) return;
+    state.applyingLimits.add(key);
+    state.limitErrors.delete(key);
+    render();
+    try {
+      await api('/api/advocate', {
+        method: 'POST',
+        // A number, never a string: the daemon would clamp `"4"` to the same 4, but the
+        // endpoint is the contract and a stringly-typed count stays wrong quietly.
+        body: JSON.stringify({ workspace: stepWorkspace(key), action: stepAction(key), value: Number(want) }),
+      });
+      state.pendingLimits.delete(key);
+      state.applyingLimits.delete(key);
+      await load();
+    } catch (err) {
+      state.applyingLimits.delete(key);
+      state.limitErrors.set(key, err.message);
+      render();
     }
   }
 
@@ -1368,7 +1927,7 @@
    * field that was already inheriting changes nothing, and saying "nothing to change"
    * is more honest than a tick.
    */
-  async function saveSpace(patch, btn) {
+  async function saveSpace(patch, btn, workspace = null) {
     const name = spaceName();
     if (!name) return;
     const was = btn?.textContent;
@@ -1379,10 +1938,18 @@
     try {
       const r = await api('/api/space', {
         method: 'POST',
-        body: JSON.stringify({ space: name, settings: patch }),
+        // `workspace` is what turns this into the repo row's write — one setting, this
+        // repo only, outranking the space. Omitted entirely rather than sent as `null`
+        // for the ordinary case, so a body that never mentions a repo cannot be read as
+        // one that named an unusable one.
+        body: JSON.stringify(workspace ? { space: name, workspace, settings: patch } : { space: name, settings: patch }),
       });
       state.space = r;
       state.spaceError = null;
+      // Whatever was typed has either just been sent or has just been overruled by a
+      // press on Never or Inherit. Either way the field goes back to showing what the
+      // space now says, which is the only thing on this card that is true.
+      state.slackDraft = null;
       state.spaceSaid = {
         text: r.changed?.length ? `${r.changed.join(', ')} changed` : 'nothing to change — it was already set that way',
       };
@@ -1491,6 +2058,18 @@
       return;
     }
 
+    // The same three buttons on a repo row, and they must be matched *before* nothing
+    // else claims them: they carry a workspace as well as a field, and the handler above
+    // would have written the whole space's answer from a press meant for one repo.
+    const repoSet = e.target.closest('[data-repo-set]');
+    if (repoSet) {
+      e.preventDefault();
+      const raw = repoSet.dataset.value;
+      const value = raw === 'null' ? null : raw === 'true' ? true : raw === 'false' ? false : raw;
+      saveSpace({ [repoSet.dataset.repoSet]: value }, repoSet, repoSet.dataset.repo);
+      return;
+    }
+
     const day = e.target.closest('[data-space-day]');
     if (day) {
       e.preventDefault();
@@ -1516,6 +2095,23 @@
       return;
     }
 
+    const chan = e.target.closest('[data-space-channel]');
+    if (chan) {
+      e.preventDefault();
+      const typed = (out.querySelector('#slack-channel')?.value || '').trim();
+      // A blank field and a press on Set is the one gesture with no honest reading:
+      // `""` is what Never writes and it is a *different* answer from Inherit, so
+      // picking one of them here would be the card quietly deciding which. Both
+      // buttons are an inch away.
+      if (!typed) {
+        state.spaceSaid = { text: 'Type a channel id, or press Never or Inherit.', bad: true };
+        render();
+        return;
+      }
+      saveSpace({ slackChannel: typed }, chan);
+      return;
+    }
+
     const sum = e.target.closest('[data-toggle]');
     if (sum) {
       toggle(sum.dataset.toggle);
@@ -1524,11 +2120,28 @@
       return;
     }
 
+    // Before `[data-adv]`, and carrying no `data-adv` of their own: a stepper press is
+    // now a change to a number this page is holding, and only Apply talks to the daemon.
+    const stp = e.target.closest('[data-step]');
+    if (stp) {
+      e.preventDefault();
+      stepLimit(stp.dataset.step, Number(stp.dataset.value), Number(stp.dataset.ceiling) || undefined);
+      return;
+    }
+
+    const app = e.target.closest('[data-apply]');
+    if (app) {
+      e.preventDefault();
+      applyLimit(app.dataset.apply);
+      return;
+    }
+
     const adv = e.target.closest('[data-adv]');
     if (adv) {
       e.preventDefault();
-      // `value` only exists on the stepper. Undefined for every other action, which
-      // is what the server expects — nothing else here carries a number.
+      // Nothing here carries a number any more — the two that did are the steppers
+      // above, which apply through `applyLimit`. `value` stays in the signature
+      // because `control` is the one door to /api/advocate and the endpoint takes one.
       control(adv.dataset.ws, adv.dataset.adv, adv, adv.dataset.value);
       return;
     }
@@ -1578,7 +2191,24 @@
     }
   });
 
-  document.getElementById('refresh').addEventListener('click', load);
+  /* The one field on this page you type into, and this page repaints off a stream
+     event rather than off your thumb — so what has been typed is held in `state` and
+     drawn from there, the same treatment the limit steppers get and for the same
+     reason. Without it a poll landing between the first character and the press takes
+     the channel id away and the field silently goes back to what the space already
+     said. */
+  out.addEventListener('input', (e) => {
+    if (!e.target.closest('#slack-channel')) return;
+    state.slackDraft = { space: spaceName(), text: e.target.value };
+  });
+
+  /* The ⟳ is the page's, and this page has three panes now — so it only means *this*
+     one while this one is up. Without the guard, pressing it on the board would sweep
+     `bd` for every tracker on the Mac to refresh a roster nobody is looking at, which is
+     the same bill `ready` below exists to stop the stream running up. */
+  document.getElementById('refresh').addEventListener('click', () => {
+    if (!out.hidden) load();
+  });
   /* The space picker moved. Which repos are drawn is decided at paint time off the
      /api/work payload already in hand — but *whose settings* the card at the top shows
      has changed, and that is a different space's config, so it is fetched. Painted
@@ -1589,27 +2219,97 @@
     render();
     loadSpace().then(render);
   });
-  // Two `bd` calls per workspace every twenty seconds is worth paying for the pane
-  // you are looking at and nothing else — the mirror tab sits over this one, and a
-  // hidden page must not keep sweeping every tracker on the Mac.
-  setInterval(() => !out.hidden && load({ polled: true }), REFRESH_MS);
-  setInterval(() => !out.hidden && pumpLogs(), LOG_MS);
+  /* ------------------------------------------------------------------- the stream */
 
-  // How the tab bar brings this pane back up to date when you return to it.
+  /**
+   * Follow the event log instead of re-asking on a clock.
+   *
+   * `want: 'presence'` is what makes the park free — this page draws none of the inbox
+   * questions, so it asks the daemon not to sweep `bd` on its behalf and goes and gets
+   * what it needs itself, for the events that need it. `cold: true` because `/api/work`
+   * carries no sequence, and the `since`-less first request that learns one costs
+   * nothing under `want: 'presence'`.
+   *
+   * The pane is only followed while it is the one you are looking at: the mirror tab
+   * sits over this one, and a hidden page must not keep asking about every tracker on
+   * the Mac. That was true of the timer this replaces and it is truer here, because the
+   * park is a held socket rather than a tick.
+   */
+  let stream = null;
+  function follow() {
+    if (!window.beadcause?.stream) return;
+    // Mounted once and started every time. `load` is what calls this — the boot, the ⟳,
+    // and the mirror tab handing the pane back (`window.beadcause.monitor.refresh`) —
+    // and the middle one is why: `ready` goes false while the mirror is up, which ends
+    // the loop, and coming back has to be able to pick it up again. `start` on a stream
+    // that is already parked is a no-op.
+    if (stream) return stream.start();
+    stream = window.beadcause.stream.follow({
+      api,
+      want: 'presence',
+      cold: true,
+      ready: () => !out.hidden,
+      onWake({ data, events, resync }) {
+        // The half that costs nothing. The snapshot is on every wake whatever woke it,
+        // so an advocate pausing, checking in or freeing a slot repaints from the poll
+        // that was already parked — no request, no `bd`.
+        if (state.work && Array.isArray(data.advocates)) {
+          state.work = { ...state.work, advocates: data.advocates, observing: data.observing ?? state.work.observing };
+          // `render` restarts the transcript tail, which matters here as much as on a
+          // fold: an advocate that has just started surveying is one this page begins
+          // tailing, and the snapshot above is how it finds out.
+          render({ polled: true });
+        }
+        if (resync) {
+          // We have lost our place in the log, so nothing on screen is provably current.
+          load({ polled: true });
+          return;
+        }
+        // Presence is a thumb moving on somebody's phone, and an advocate saying it is
+        // still surveying is the roster above. Neither is a reason to sweep `bd`.
+        if (window.beadcause.stream.workMoved(events)) load({ polled: true });
+      },
+    });
+    stream.start();
+  }
+
+  /**
+   * The transcript tail, on its own clock — and only while there is a transcript to tail.
+   *
+   * A self-rescheduling timeout rather than a `setInterval`, which is not a style
+   * preference: an advocate's log is a file on the Mac and a file changing emits no
+   * event, so this is the one thing on the page that genuinely has to ask on a clock.
+   * Making it stop when no log card is open and no advocate is surveying is what keeps
+   * that from being a request every two and a half seconds all day for a fold nobody
+   * has opened. `render` restarts it, so opening a card is what starts the tail.
+   */
+  let logTimer = null;
+  function scheduleLogs() {
+    clearTimeout(logTimer);
+    logTimer = null;
+    if (out.hidden) return;
+    const advocates = state.work?.advocates || [];
+    if (!advocates.some((a) => isOpen(`${a.workspace}:log`) || a.surveying)) return;
+    logTimer = setTimeout(() => pumpLogs().finally(scheduleLogs), LOG_MS);
+  }
+
+  // Kept for anything that wants this pane refreshed from outside. The chip row does it
+  // through the subscription at the foot of this file now, rather than by name.
   window.beadcause = window.beadcause || {};
   window.beadcause.monitor = { refresh: load };
 
-  /* Where this device is, for a mirror on some other screen. There is no selection to
-     publish — being here is the whole report — and the id stays `sessions` because that
-     is what lib/presence.js whitelists and what the mirror already has a name for; this
-     page is simply what the name now points at.
+  /* Where this device is, for a mirror on some other screen, is published by
+     public/montabs.js rather than here — because on this page it is a fact about which
+     of the three chips is up, and there is no moment at which this file knows that and
+     that one does not. The ids are on the chips themselves in monitor.html: `sessions`
+     for this pane, because that is what lib/presence.js whitelists and what the mirror
+     already has a name for; `prs` for the board; and nothing at all for the Mirror.
 
-     This page can also *be* a mirror, and presence.js's own header was right that a
-     device which followed itself would be absurd — so `showTab` in mirror.js revises
-     this to `null` while the mirror pane is up, and mirror.js drops its own device from
-     the list it follows. Both halves are needed: the report is honest about which pane
-     you are on, and the list cannot circle back on this one even mid-switch. */
-  window.beadcause?.presence?.report({ view: 'sessions' });
+     That last one is not tidiness. This page can also *be* a mirror, and presence.js's
+     own header was right that a device which followed itself would be absurd — so the
+     report goes `null` while the mirror pane is up, and mirror.js drops its own device
+     from the list it follows. Both halves are needed: the report is honest about which
+     pane you are on, and the list cannot circle back on this one even mid-switch. */
 
   if (!token) {
     out.innerHTML = '<div class="empty"><strong>This device is not paired</strong>Open the inbox first.</div>';
@@ -1617,6 +2317,17 @@
     // Paint what this tab had, then go and ask. The order is the whole point: `load`
     // is not made faster by this, it is made invisible.
     warmBoot();
-    load();
+    /* And ask only while this is the pane you are on. The chip row calls back once at
+       boot with whichever chip is up — which is the boot `load()` that used to be
+       written here — and again every time you come back to this one, which is what
+       mirror.js used to do by calling `beadcause.monitor.refresh` by name. Arriving on
+       /prs, which is this same page with the board up, now costs no `bd` sweep at all.
+
+       The fallback is not dead code: a service worker holding a monitor.html from before
+       the chip row was a file would load this one beside no montabs.js, and a page that
+       then never asked for anything would be a blank roster with no way to fill it. */
+    const tabs = window.beadcause?.monTabs;
+    if (tabs) tabs.onChange((which) => which === 'advocates' && load());
+    else load();
   }
 })();

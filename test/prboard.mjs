@@ -5,18 +5,21 @@
  *     npm test
  *     node test/prboard.mjs
  *
- * The board's whole value is that its three lamps are *true*, so this test is built
- * around the three ways they could quietly stop being:
+ * The board's whole value is that its four lamps are *true*, so this test is built
+ * around the ways they could quietly stop being — and around the ladder they add up to,
+ * which is `stageOf` in lib/prstage.js and is now the one place a status is decided:
  *
  * 1. **A null drawn as a no.** Every ancestry question here has three answers, and the
  *    third one — this Mac has never fetched that commit, this repo has no deploy the
  *    daemon can see — must never collapse into `false`. That is the one failure that
  *    would make the screen actively lie: "not pushed" when the truth is "nobody
  *    looked". So the assertions check for `null` identically, not for falsiness.
- * 2. **Deployed drifting to mean "newest".** It means *the commit this process booted
- *    from* and nothing after it. A merge that landed while the daemon was running must
- *    read as not deployed, and that is asserted against a boot commit deliberately set
- *    two commits behind the tip.
+ * 2. **Live drifting to mean "newest".** It means *the commit this process booted from*
+ *    and nothing after it. A merge that landed while the daemon was running must not read
+ *    as live, and that is asserted against a boot commit deliberately set two commits
+ *    behind the tip. `Deployed` is the weaker claim beside it — a deploy of this repo that
+ *    ran after the merge — and the two are asserted apart, because collapsing them is how
+ *    "a deploy ran" would come to be drawn as "this is what is running".
  * 3. **`landLocally` touching a dirty checkout.** Adam edits inside these repos while
  *    sessions run. A fast-forward over uncommitted work, triggered from a phone in
  *    another room, is the most destructive thing this file could do — so the test
@@ -182,13 +185,17 @@ const cfg = {
   pr: { base: 'main' },
 };
 
-const { collectBoard, forgetBoard, landLocally, runningBuild } = await import(path.join(ROOT, 'lib', 'prboard.js'));
+const { collectBoard, forgetBoard, landLocally, landParent, runningBuild } = await import(path.join(ROOT, 'lib', 'prboard.js'));
 const prlib = await import(path.join(ROOT, 'lib', 'pr.js'));
 
+/* `deploys: []` on purpose. Two rungs of the ladder are answers about the deploy journal,
+   and the journal is a real directory under ~/.config — a suite that read it would be
+   asserting against whatever this Mac happened to have shipped this morning. The rung that
+   needs a record gets one, explicitly, further down. */
 const sweep = async () => {
   forgetBoard();
   prlib.forgetAvailability();
-  const board = await collectBoard(bd, cfg, { force: true, boot: BOOT });
+  const board = await collectBoard(bd, cfg, { force: true, boot: BOOT, deploys: [] });
   return board;
 };
 const byNumber = (board, n) => board.repos[0].prs.find((p) => p.number === n);
@@ -213,8 +220,8 @@ check('the repo is named from gh, not guessed', repo.repo === 'acme/widgets', JS
 check('and the sweep found every pull request', repo.prs.length === 6, `${repo.prs.length}`);
 
 const shipped = byNumber(board, 1);
-check('merged, on origin, and in the running build reads as deployed', shipped.stage === 'deployed', shipped.stage);
-check('  — with all three lamps true', shipped.merged && shipped.pushed === true && shipped.deployed === true);
+check('merged, on origin, and in the running build reads as live', shipped.stage === 'live', shipped.stage);
+check('  — with every lamp true', shipped.merged && shipped.pushed === true && shipped.deployed === true);
 check('  — and nothing left to say about it', shipped.note === '', shipped.note);
 
 const owed = byNumber(board, 2);
@@ -233,7 +240,11 @@ check('pushed is computed against origin, not against local main', local.pushed 
 check('  — so a commit only this laptop has is merged, not pushed', local.stage === 'merged', local.stage);
 
 const open = byNumber(board, 5);
-check('an open pull request has no lamps lit', open.stage === 'open' && !open.merged && !open.pushed && !open.deployed);
+check(
+  'a pull request still open is on the first rung, with no lamps lit',
+  open.stage === 'review' && !open.merged && !open.pushed && !open.deployed,
+  open.stage
+);
 
 const closed = byNumber(board, 6);
 check('a closed one says so rather than reading as work owed', closed.stage === 'closed', closed.stage);
@@ -241,28 +252,83 @@ check('  — in a sentence', /without merging/.test(closed.note), closed.note);
 
 check('deploy is tracked, because the daemon boots from this repo', repo.deployTracked === true);
 check(
-  'what is owed counts merged work and not open decisions',
-  board.counts.owed === 3 && board.counts.open === 1,
+  'what is owed counts merged work and not decisions in review',
+  board.counts.owed === 3 && board.counts.review === 1,
   JSON.stringify(board.counts)
 );
 check(
   'and the ones you can act on sort to the top',
-  board.repos[0].prs[0].stage === 'open',
+  board.repos[0].prs[0].stage === 'review',
   board.repos[0].prs.map((p) => p.stage).join(',')
+);
+
+/* --------------------------------------------------- the rung a deploy record buys */
+
+console.log('\nbetween pushed and live: a deploy that ran');
+
+/* #2 merged *after* the daemon booted, so it can never read as `live` on this board — and
+   a deploy of this repo that started after the merge and ended `ok` did carry it, which is
+   a different word for a different fact. The record is the shape lib/deploy.js writes. */
+board = await collectBoard(bd, cfg, {
+  force: true,
+  boot: BOOT,
+  deploys: [
+    { id: 'dep-1', workspace: 'widgets', status: 'ok', startedAt: new Date().toISOString() },
+    // Another repo's, and a failed one of ours: neither may move a rung.
+    { id: 'dep-2', workspace: 'gadgets', status: 'ok', startedAt: new Date().toISOString() },
+    { id: 'dep-3', workspace: 'widgets', status: 'failed', startedAt: new Date().toISOString() },
+  ],
+});
+const carried = byNumber(board, 2);
+check('a merge an ok deploy has carried reads as deployed, not pushed', carried.stage === 'deployed', carried.stage);
+check('  — with the Deployed lamp lit off the journal', carried.shipped === true, String(carried.shipped));
+check('  — and Live still dark, because this process is older than the merge', carried.deployed === false);
+check(
+  '  — so the note is about what cannot be seen rather than about shipping it',
+  /not visible from here/.test(carried.note),
+  carried.note
+);
+check(
+  'a deploy of another repo, and a failed one of this repo, move nothing',
+  (await collectBoard(bd, cfg, {
+    force: true,
+    boot: BOOT,
+    deploys: [
+      { id: 'dep-4', workspace: 'gadgets', status: 'ok', startedAt: new Date().toISOString() },
+      { id: 'dep-5', workspace: 'widgets', status: 'failed', startedAt: new Date().toISOString() },
+    ],
+  })).repos[0].prs.find((p) => p.number === 2).stage === 'pushed'
+);
+/* Every rung, across the two sweeps rather than in one — and the reason is the ladder
+   working: with that `ok` record on the journal the only `pushed` row is `deployed`
+   instead, which is exactly the promotion under test. `pushed` is what the same board
+   says with an empty journal. */
+const rungs = new Set([
+  ...board.repos[0].prs.map((p) => p.stage),
+  ...(await sweep()).repos[0].prs.map((p) => p.stage),
+]);
+check(
+  'and every rung of the ladder is reachable in a real flow',
+  ['review', 'merged', 'pushed', 'deployed', 'live', 'closed'].every((id) => rungs.has(id)),
+  [...rungs].join(',')
 );
 
 /* ------------------------------------------------------------- untracked deploy */
 
 console.log('\nwhen the daemon does not run the repo it is looking at');
 
-board = await collectBoard(bd, cfg, { force: true, boot: { ...BOOT, common: path.join(tmp, 'somewhere-else') } });
+board = await collectBoard(bd, cfg, {
+  force: true,
+  boot: { ...BOOT, common: path.join(tmp, 'somewhere-else') },
+  deploys: [],
+});
 const elsewhere = board.repos[0].prs.find((p) => p.number === 1);
 check('deployed is null — unknown, not no', elsewhere.deployed === null, String(elsewhere.deployed));
 check('  — the card says the deploy is not visible from here', board.repos[0].deployTracked === false);
 check('  — and the row says it in words', /no deploy/.test(elsewhere.note), elsewhere.note);
 check(
   'a daemon with no boot commit at all does not crash the board',
-  (await collectBoard(bd, cfg, { force: true, boot: null })).repos[0].prs.length === 6
+  (await collectBoard(bd, cfg, { force: true, boot: null, deploys: [] })).repos[0].prs.length === 6
 );
 
 /* ------------------------------------------------------------- beads on a row */
@@ -422,6 +488,68 @@ check(
   offBranch.advanced === true && git(REPO, 'rev-parse', 'main') === git(REPO, 'rev-parse', 'origin/main'),
   JSON.stringify(offBranch)
 );
+
+/* ------------------------------------------------- landing it from a worktree */
+
+console.log('\nand from inside a worktree, which is where a worker delivers from');
+
+// The shape every unattended delivery has: the main checkout sitting on `main`, the
+// session in `.claude/worktrees/<name>` on a branch of its own, and `origin/main` a
+// commit ahead of both because GitHub has just merged something.
+git(REPO, 'checkout', '--quiet', 'main');
+const WT = path.join(tmp, 'worktree');
+git(REPO, 'worktree', 'add', '--quiet', '-b', 'worker-branch', WT, 'main');
+git(other, 'commit', '--quiet', '--allow-empty', '-m', 'the worker’s own merge');
+git(other, 'push', '--quiet', 'origin', 'main');
+
+const fromWorktree = await landParent(WT, 'main');
+check('a delivery in a worktree moves the main checkout, not the worktree', fromWorktree.advanced === true, JSON.stringify(fromWorktree));
+check(
+  '  — and it names the checkout it moved, which is not the one it was given',
+  fs.realpathSync(fromWorktree.dir) === fs.realpathSync(REPO) && fromWorktree.dir !== WT,
+  `${fromWorktree.dir} vs ${REPO}`
+);
+check('  — main now has what origin has', git(REPO, 'rev-parse', 'main') === git(REPO, 'rev-parse', 'origin/main'));
+check('  — the worktree is still on its own branch', git(WT, 'rev-parse', '--abbrev-ref', 'HEAD') === 'worker-branch');
+
+// The refusal is the whole reason this goes through landLocally rather than running
+// two git commands of its own: a worker at three in the morning must be no more
+// willing to fast-forward over open files than the button on the phone is.
+git(other, 'commit', '--quiet', '--allow-empty', '-m', 'and another');
+git(other, 'push', '--quiet', 'origin', 'main');
+fs.writeFileSync(path.join(REPO, 'file.txt'), 'adam is mid-edit again\n');
+const heldOff = await landParent(WT, 'main');
+check('a main checkout with uncommitted work in it is left alone', heldOff.advanced === false, JSON.stringify(heldOff));
+check('  — and the note says why, so the bead can carry it', /uncommitted/.test(heldOff.note), heldOff.note);
+check(
+  '  — and it names the path, so nobody has to work out whose mess it is',
+  /file\.txt/.test(heldOff.note),
+  heldOff.note
+);
+check(
+  '  — with the edit untouched',
+  fs.readFileSync(path.join(REPO, 'file.txt'), 'utf8') === 'adam is mid-edit again\n'
+);
+git(REPO, 'checkout', '--quiet', '--', 'file.txt');
+
+// bc-s7fs, and the reason the note distinguishes the two: this is not an edit at all
+// but residue a tool left behind, and it holds the fast-forward exactly as hard. A
+// session reading the refusal has to be able to tell that nothing here is anybody's
+// unsaved work, or it leaves the blocker alone out of caution — which is how one
+// `.beads/` stopped every delivery in this repo for a day.
+fs.mkdirSync(path.join(REPO, '.beads'), { recursive: true });
+fs.writeFileSync(path.join(REPO, '.beads', 'metadata.json'), '{}\n');
+const strayOnly = await landParent(WT, 'main');
+check('a stray untracked directory holds the fast-forward just as hard', strayOnly.advanced === false, JSON.stringify(strayOnly));
+check('  — and the note names it', /\.beads/.test(strayOnly.note), strayOnly.note);
+check(
+  '  — and says none of it is edited work, which is what makes it safe to clear',
+  /all untracked/.test(strayOnly.note),
+  strayOnly.note
+);
+fs.rmSync(path.join(REPO, '.beads'), { recursive: true, force: true });
+
+git(REPO, 'worktree', 'remove', '--force', WT);
 
 /* ------------------------------------------------------------------ the build */
 

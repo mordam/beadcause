@@ -2,7 +2,7 @@
  *
  * The phone is a good place to be *told* something and a poor place to read it: a
  * question's brief is scrolled a paragraph at a time, its thread is behind a tap, and
- * the bead it depends on is a page away. This tab follows the phone — the same card,
+ * the bead it depends on is a page away. This pane follows the phone — the same card,
  * the same chat session, the same list — and draws the version that would not fit: the
  * whole body, every comment, the options as buttons you can actually press.
  *
@@ -12,25 +12,42 @@
  *     the phone publishes as it moves (public/presence.js). Tapping something here
  *     takes the wheel deliberately and says so, with one press to hand it back.
  *   - **It waits on the bus, not on a timer.** The presence event wakes the parked
- *     `/api/poll`, so a card opening in a hand shows up here as fast as the network
- *     allows, and nothing is polled in between.
+ *     `/api/poll` — public/stream.js's, which this page mounts like every other
+ *     standing view — so a card opening in a hand shows up here as fast as the network
+ *     allows, and nothing is polled in between. A chat session, which moves without
+ *     the phone moving, has a parked request of its own on the same principle — see
+ *     the console feed at the foot of this file.
  *   - **Every button here is an endpoint that already existed.** Answering, commenting
  *     and talking to a chat session are the phone's own writes; this page has no privilege
  *     of its own and adds no state to the daemon.
+ *
+ * **And a pane rather than a tab of its own (bc-3xb).** This landed in the same window as
+ * the bottom tab bar, which left /monitor carrying two rows of tabs and an open question
+ * about which row this belongs on. It belongs here: the three properties above make it a
+ * *mode* of the advocates page — that page's repos and sessions, seen from the other
+ * device — and the first of them makes it the one surface in the app that is meaningless
+ * on a phone, which is where a bottom tab is tapped. `notMe` below drops this device from
+ * the list, and `showTab` reports `view: null` while the pane is up, precisely so a mirror
+ * cannot follow itself; a phone that tapped a Mirror tab would hit both of those and read
+ * "Looking for a device…" for as long as it looked. The bar had no sixth place when this
+ * was decided and has a free one now, and the answer is the same either way — see README,
+ * "The Mirror is a pane, not a tab".
  */
 (() => {
   'use strict';
 
   const token = localStorage.getItem('beadcause.token') || '';
   const pane = document.getElementById('mirror');
-  const advPane = document.getElementById('mon');
-  const tabsEl = document.getElementById('mon-tabs');
   const dot = document.getElementById('mirror-dot');
 
-  /* A chat session is in-memory on the daemon, so following one closely costs a map
-     lookup. Everything else behind this view costs `bd`, and is fetched on a move. */
-  const CONSOLE_MS = 1500;
+  /* How long after a broken console poll to try again. The presence feed used to share
+     this and no longer does — `stream.js` owns that backoff now; see feed() below. */
   const RETRY_MS = 3000;
+  /* The shortest gap between two rebuilds of this pane. A streamed turn moves a chat
+     session's sequence once per token, so the console feed below can be handed a new
+     state several times a second; see paint() for why they are coalesced here and not
+     on the console's own page. */
+  const PAINT_MS = 120;
 
   const esc = (s) =>
     String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -77,7 +94,6 @@
   /* --------------------------------------------------------------------- state */
 
   const state = {
-    seq: 0,
     devices: [],
     // Which device to follow. Empty means "whichever spoke last", which is the right
     // answer while there is only ever one phone awake.
@@ -98,7 +114,10 @@
     picks: new Map(),
     busy: '',
     note: null,
-    active: localStorage.getItem('beadcause.mirror.tab') === 'mirror',
+    // Whether the Mirror chip is the one that is up. Set from public/montabs.js, which
+    // owns the row — including at boot, so this starts false and is corrected before
+    // anything reads it rather than being decided twice from localStorage.
+    active: false,
     // Set while the tab is hidden and the phone has moved, so the tab itself can say
     // there is something new behind it.
     moved: false,
@@ -113,7 +132,13 @@
         ...(opts.headers || {}),
       },
     });
-    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `HTTP ${res.status}`);
+    // The status rides along: the console feed has to tell a session that is gone —
+    // which is an ending, and stops the loop — from a daemon that restarted mid-park,
+    // which is a pause.
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw Object.assign(new Error(body.error || `HTTP ${res.status}`), { status: res.status });
+    }
     return res.json();
   }
 
@@ -163,6 +188,10 @@
     const key = targetKey(t);
     if (!force && key === state.detailKey) return;
     state.detailKey = key;
+    // Whatever the console feed was following, it is not what this pane is about to
+    // show — including when the same key is being re-read, because the read replaces
+    // the state the parked poll is sitting on.
+    stopConsole();
     state.detail = null;
     state.error = null;
     if (!t) return render();
@@ -173,7 +202,11 @@
       state.error = err.message;
     }
     // Another move landed while we were fetching; that fetch owns the screen now.
-    if (targetKey(target()) === key) render();
+    if (targetKey(target()) !== key) return;
+    render();
+    // The one read is what draws the frame and reports a session that is already
+    // gone. From here the poll has it, parked on the sequence that read came back on.
+    if (t.view === 'console' && state.detail?.id) followConsole(state.detail.id, state.detail.seq);
   }
 
   function fetchFor(t) {
@@ -519,8 +552,15 @@
   function render() {
     if (!state.active) return;
     const t = target();
-    const focus = document.activeElement?.dataset?.draft || '';
-    const caret = document.activeElement?.selectionStart ?? null;
+    // Both ends of the selection, not just the near one: a caret is the case where they
+    // are equal, so carrying only `selectionStart` silently turns every *selection* into
+    // one. The direction rides along because it is what the next Shift-arrow extends
+    // from — a backward selection restored as forward grows out of the wrong end.
+    const held = document.activeElement;
+    const focus = held?.dataset?.draft || '';
+    const caret = held?.selectionStart ?? null;
+    const upto = held?.selectionEnd ?? null;
+    const way = held?.selectionDirection || 'none';
 
     if (!state.devices.length) {
       pane.innerHTML = `<div class="empty"><strong>No device has said where it is</strong>Open the inbox on the
@@ -540,13 +580,45 @@
       const el = pane.querySelector(`[data-draft="${CSS.escape(focus)}"]`);
       if (el) {
         el.focus();
-        const at = caret == null ? el.value.length : caret;
-        el.setSelectionRange(at, at);
+        const from = caret == null ? el.value.length : caret;
+        const to = upto == null ? from : upto;
+        el.setSelectionRange(from, to, way);
       }
     }
     // A live chat session is read from the bottom, like every other terminal.
     const thread = pane.querySelector('.mir-thread');
     if (thread) thread.scrollTop = thread.scrollHeight;
+  }
+
+  /**
+   * render(), but at most once every PAINT_MS, and never dropping the last state.
+   *
+   * A turn moves the chat session's sequence once per streamed token, so the feed
+   * below can hand this pane a new state as fast as the round trips allow. The
+   * console's own page repaints per token quite happily; this one must not, because
+   * its composer is *inside* the pane render() rebuilds — retyping the DOM under a
+   * focused textarea ten times a second is a worse thing to do to someone than
+   * showing them a tenth of a second less of an agent's sentence.
+   */
+  let paintedAt = 0;
+  let paintTimer = null;
+
+  function paint() {
+    const wait = PAINT_MS - (Date.now() - paintedAt);
+    if (wait <= 0) {
+      clearTimeout(paintTimer);
+      paintTimer = null;
+      paintedAt = Date.now();
+      return render();
+    }
+    // Already one scheduled: it will paint whatever the latest state is by then,
+    // which is the point of coalescing rather than queueing.
+    if (paintTimer) return;
+    paintTimer = setTimeout(() => {
+      paintTimer = null;
+      paintedAt = Date.now();
+      render();
+    }, wait);
   }
 
   function note(text, bad = false) {
@@ -562,6 +634,19 @@
   /* ------------------------------------------------------------------- actions */
 
   const draftFor = (key) => (state.drafts.get(key) || '').trim();
+
+  /**
+   * After a write to a chat session: let the feed carry it, unless there is no feed.
+   *
+   * Every write this pane can make to a session moves its sequence, so the parked
+   * poll is already bringing the result back. The fallback is for the one case where
+   * it is not — a feed that stood itself down on a 404, which the write just proved
+   * wrong.
+   */
+  async function settled(id) {
+    if (feedId === id) return render();
+    return ensureDetail(true);
+  }
 
   async function respond(t, text, close, option = null) {
     const key = t.key || `${t.workspace}/${t.id}`;
@@ -676,7 +761,11 @@
       try {
         await api('/api/console/message', { method: 'POST', body: JSON.stringify({ id: btn.dataset.id, text }) });
         state.drafts.delete(key);
-        await ensureDetail(true);
+        // The words are already on their way back down the feed — appending the user's
+        // own message is the first thing a turn does to the session, and that moves the
+        // sequence the poll is parked on. Re-reading it here would only take the pane
+        // back to "Reading it…" for a round trip it does not need.
+        await settled(btn.dataset.id);
       } catch (err) {
         note(err.message, true);
       }
@@ -686,7 +775,8 @@
     if (act === 'close-console') {
       try {
         await api('/api/console/close', { method: 'POST', body: JSON.stringify({ id: btn.dataset.id }) });
-        await ensureDetail(true);
+        // Closing appends a system message, so the feed carries this one too.
+        await settled(btn.dataset.id);
       } catch (err) {
         note(err.message, true);
       }
@@ -696,21 +786,48 @@
   /* ---------------------------------------------------------------------- feed */
 
   /**
-   * One parked request, restarted the moment it returns.
+   * The delta stream, followed for presence — the sixth and last mount of stream.js.
    *
-   * It runs whether or not this tab is showing, which is deliberate: the whole
-   * argument for presence riding the bus is that a move is known instantly, and a
-   * mirror that started listening when you looked at it would be a poll with extra
-   * steps. The cost is a socket — the presence branch of `/api/poll` explicitly does
-   * not sweep `bd`.
+   * This was a `for (;;)` of its own until bc-2ml3, and the reason given for leaving it
+   * out of the conversion was that three of the shared loop's rules are inverted here:
+   * it runs whether or not its pane is showing, it never stops, and it has no fallback
+   * to stand down to. Read against what `stream.js` actually offers, none of the three
+   * survives — which is why this is a mount and not a sixth hand-rolled long poll:
+   *
+   *   - **"Whether or not the pane is showing" is not the visibility rule.** The pane
+   *     here is the mirror/advocates toggle *inside* one document, and stream.js has no
+   *     opinion about it: its rule is `document.hidden`, the browser tab. So passing no
+   *     `ready` keeps exactly the property this comment used to defend — the feed runs
+   *     while you are looking at the advocates pane, which is what makes the dot able to
+   *     say the phone has moved behind it. A window merely unfocused on a second screen
+   *     is `visible`, and that is the mirror's whole use case; hidden means minimised or
+   *     a background tab, where nothing here is being read by anyone.
+   *   - **"Never stops" is the retry, and it is the default.** `retryMs` walks a broken
+   *     poll out to a minute instead of re-asking a daemon that has gone every three
+   *     seconds for as long as the page is open, which is what this loop did.
+   *   - **"No fallback" is `onSettle` being optional.** A mount with a retry and no
+   *     settle handler is precisely "come back, there is nothing to stand down to".
+   *
+   * What the conversion adds beyond the backoff: an abort when the tab hides rather than
+   * a socket held in the dark, and a `resync` this loop had no concept of.
+   *
+   * `want: 'presence'` keeps the listener from making the daemon sweep every tracker on
+   * each event — this page reads `presence`, and nothing else here. `cold: true` because
+   * nothing else on this page carries a sequence, so the first request has to go and ask
+   * the log where it is; without it the pane would wait for the first event before it
+   * knew there were any devices at all.
+   *
+   * Optional throughout, as on the inbox: `monitor.html` loads `/stream.js` above this
+   * file, but a shell cached before that was true would make a bare call a TypeError in
+   * the first lines of this IIFE — a mirror pane with no tabs at all, rather than one
+   * that does not follow.
    */
-  async function feed() {
-    for (;;) {
-      try {
-        // `want=presence` keeps this listener from making the daemon sweep every
-        // tracker on each event: this page reads `presence`, and nothing else here.
-        const data = await api(`/api/poll?since=${state.seq}&wait=25&want=presence`);
-        state.seq = data.seq ?? state.seq;
+  function feed() {
+    const stream = window.beadcause?.stream?.follow?.({
+      api,
+      want: 'presence',
+      cold: true,
+      async onWake({ data, events, resync }) {
         const before = targetKey(target());
         if (Array.isArray(data.presence)) state.devices = data.presence.filter(notMe);
         const after = targetKey(target());
@@ -722,54 +839,117 @@
           render();
         }
         // Something happened to the bead we are showing. Nothing else would tell us:
-        // presence says where the phone is, not what the tracker did underneath it.
-        const touched = (data.events || []).some((ev) => ev.type !== 'presence' && ev.key && ev.key === target()?.key);
+        // presence says where the phone is, not what the tracker did underneath it. A
+        // resync is the log having rolled past us, which empties `events` and so would
+        // read as "nothing moved" — the one case where the honest answer is to re-read.
+        const key = target()?.key;
+        const touched = resync || (events || []).some((ev) => ev.type !== 'presence' && ev.key && ev.key === key);
         if (touched && state.active) await ensureDetail(true);
         dot.hidden = !state.moved;
-      } catch {
+      },
+    });
+    stream?.start();
+  }
+
+  /* ------------------------------------------------------------------- console */
+
+  /**
+   * A chat session, followed as it is written.
+   *
+   * It is the one view that changes without the phone moving and without a bus event
+   * — the agent is mid-sentence — so it gets a parked request of its own rather than
+   * a timer. `/api/console/poll` waits on that session's own sequence and hands back
+   * the whole session the moment it moves, which is exactly what the console's own
+   * page lives on (public/console.js) and what the chat tab on the advocates page
+   * does (public/foundations.js). Doing the same here means a turn lands as it is
+   * written instead of up to a second and a half late, and a session nobody is
+   * talking to costs one held request rather than forty a minute.
+   *
+   * The whole session comes back, not a diff — which is what makes a mirror that
+   * missed half a turn (asleep, off the tailnet) correct on the first response
+   * instead of having to reconcile a stream it never saw.
+   */
+  let feedGen = 0;
+  let feedId = '';
+
+  /** Stand the current loop down. Its parked request is abandoned, not awaited. */
+  function stopConsole() {
+    feedId = '';
+    feedGen += 1;
+  }
+
+  function followConsole(id, since) {
+    if (!id || id === feedId) return;
+    feedId = id;
+    consoleFeed(id, Number(since) || 0, ++feedGen);
+  }
+
+  /**
+   * `gen` is what stands a stale loop down rather than the id alone: the phone can
+   * leave a session and come back to it while the previous poll is still parked, and
+   * a response to *that* request would paint over a newer read of the same session.
+   */
+  async function consoleFeed(id, since, gen) {
+    let seq = since;
+    // Re-read every time round, so a loop that was stood down while it was parked —
+    // or while it was backing off — never asks for anything again.
+    while (gen === feedGen) {
+      try {
+        const c = await api(`/api/console/poll?id=${encodeURIComponent(id)}&since=${seq}&wait=25`);
+        if (gen !== feedGen) return;
+        seq = c.seq ?? seq;
+        state.detail = c;
+        paint();
+      } catch (err) {
+        if (gen !== feedGen) return;
+        if (err.status === 404) {
+          // Gone — closed and swept, or a daemon that no longer remembers it. There
+          // is nothing left to wait for, so say so once and stop, rather than asking
+          // again every three seconds until the phone happens to move.
+          state.error = err.message;
+          feedId = '';
+          return paint();
+        }
+        // Off the tailnet, or the daemon restarted under the parked request. `seq` is
+        // kept, so whatever streamed during the gap arrives with the next response.
         await new Promise((r) => setTimeout(r, RETRY_MS));
       }
     }
   }
 
-  // A chat session is the one view that changes without the phone moving and without a bus
-  // event — the agent is mid-sentence. Cheap enough to follow closely: it is a read
-  // out of the daemon's own memory.
-  setInterval(() => {
-    if (state.active && target()?.view === 'console') ensureDetail(true);
-  }, CONSOLE_MS);
-
   /* ---------------------------------------------------------------------- tabs */
 
-  function showTab(which) {
-    state.active = which === 'mirror';
-    localStorage.setItem('beadcause.mirror.tab', which);
-    advPane.hidden = state.active;
-    pane.hidden = !state.active;
-    for (const b of tabsEl.querySelectorAll('[data-tab]')) b.setAttribute('aria-pressed', String(b.dataset.tab === which));
-    // What this device is looking at, which the chip just changed. On the mirror pane
-    // you are looking at *another* device, so this one is nowhere — `null` keeps the
-    // record and marks it idle rather than dropping it, which is what a mirror on a
-    // third screen should see. See the presence note at the foot of monitor.js.
-    window.beadcause?.presence?.report({ view: state.active ? null : 'sessions' });
-    if (state.active) {
-      state.moved = false;
-      dot.hidden = true;
-      ensureDetail(true);
-    } else {
-      window.beadcause?.monitor?.refresh();
-    }
+  /* Which chip is up is public/montabs.js's to decide — there are three of them now, and
+     the pane going away has to be told as much as the one arriving. This answers for
+     this pane and nothing else: the `hidden` attributes, the aria-pressed states and
+     what presence.js is told all moved there, and the report that used to be written out
+     here is the empty `data-view` on the Mirror chip in monitor.html.
+
+     Called once at boot as well as on every change, so there is no separate first paint.
+     Handing the advocates pane back is *its* subscriber's business now, not this one's:
+     with three panes, "not the mirror" stopped being a name for one page. */
+  function watchTabs() {
+    window.beadcause?.monTabs?.onChange((which) => {
+      state.active = which === 'mirror';
+      if (state.active) {
+        state.moved = false;
+        dot.hidden = true;
+        ensureDetail(true);
+      } else {
+        // Nothing repaints while this pane is hidden, so a parked poll on the way back
+        // would only be a held request nobody reads. Coming back forces a fresh read,
+        // which starts a fresh one.
+        stopConsole();
+      }
+    });
   }
 
-  tabsEl.addEventListener('click', (e) => {
-    const b = e.target.closest('[data-tab]');
-    if (b) showTab(b.dataset.tab);
-  });
-
   if (!token) {
+    // The chip still works and the pane still swaps — montabs.js does both. What an
+    // unpaired device does not do is go and ask, which is why nothing subscribes here.
     pane.innerHTML = '<div class="empty"><strong>This device is not paired</strong>Open the inbox first.</div>';
   } else {
-    showTab(state.active ? 'mirror' : 'advocates');
+    watchTabs();
     feed();
   }
 })();

@@ -36,6 +36,9 @@ import path from 'node:path';
 import { loadConfig, CONFIG_DIR, CONFIG_PATH } from '../lib/config.js';
 import { PHASES } from '../lib/activity.js';
 import { isQuiet, quietUntil } from '../lib/spaces.js';
+// Terminal columns rather than code units — see lib/width.js for why the phase icons
+// have to be measured against a table, and why that table lives over there.
+import { dw, cut } from '../lib/width.js';
 
 /* ------------------------------------------------------------------ arguments */
 
@@ -84,73 +87,6 @@ const C = {
   cyanBold: sgr('1;36'),
   magentaBold: sgr('1;35'),
 };
-
-/* ---------------------------------------------------------------------- width */
-
-/*
- * Terminal columns, not code units. The box has a right-hand border, so a phase
- * icon miscounted by one column shears every line beneath it — and JS string length
- * is no guide at all: '⏳' is one code unit and two columns, '🤔' is two of each.
- * So the East-Asian-wide and emoji ranges are consulted directly, and the two
- * modifiers that change a *neighbour's* width are handled where they appear: U+FE0F
- * promotes the character before it to emoji presentation, and a ZWJ fuses the glyph
- * after it into the one before.
- */
-const WIDE = [
-  [0x1100, 0x115f], [0x2329, 0x232a], [0x2e80, 0x303e], [0x3041, 0x33ff],
-  [0x3400, 0x4dbf], [0x4e00, 0x9fff], [0xa000, 0xa4cf], [0xac00, 0xd7a3],
-  [0xf900, 0xfaff], [0xfe10, 0xfe19], [0xfe30, 0xfe6f], [0xff00, 0xff60],
-  [0xffe0, 0xffe6], [0x1f300, 0x1f64f], [0x1f680, 0x1f6ff], [0x1f7e0, 0x1f7eb],
-  [0x1f900, 0x1f9ff], [0x1fa70, 0x1faff],
-  // The scattered pre-emoji BMP characters that still render double-width.
-  [0x231a, 0x231b], [0x23e9, 0x23ec], [0x23f0, 0x23f0], [0x23f3, 0x23f3],
-  [0x25fd, 0x25fe], [0x2614, 0x2615], [0x2648, 0x2653], [0x267f, 0x267f],
-  [0x2693, 0x2693], [0x26a1, 0x26a1], [0x26aa, 0x26ab], [0x26bd, 0x26be],
-  [0x26c4, 0x26c5], [0x26ce, 0x26ce], [0x26d4, 0x26d4], [0x26ea, 0x26ea],
-  [0x26f2, 0x26f3], [0x26f5, 0x26f5], [0x26fa, 0x26fa], [0x26fd, 0x26fd],
-  [0x2705, 0x2705], [0x270a, 0x270b], [0x2728, 0x2728], [0x274c, 0x274c],
-  [0x274e, 0x274e], [0x2753, 0x2755], [0x2757, 0x2757], [0x2795, 0x2797],
-  [0x27b0, 0x27b0], [0x27bf, 0x27bf], [0x2b1b, 0x2b1c], [0x2b50, 0x2b50],
-  [0x2b55, 0x2b55],
-];
-const ZERO = [[0x0300, 0x036f], [0x200b, 0x200f], [0x20d0, 0x20f0], [0xfe00, 0xfe0f], [0x1f3fb, 0x1f3ff]];
-
-const inRanges = (cp, ranges) => ranges.some(([a, b]) => cp >= a && cp <= b);
-
-const SEGMENTER = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
-const graphemes = (s) => [...SEGMENTER.segment(String(s))].map((g) => g.segment);
-
-/** Columns occupied by one grapheme cluster. */
-function clusterWidth(g) {
-  let n = 0;
-  let last = 0;
-  let joined = false;
-  for (const ch of g) {
-    const cp = ch.codePointAt(0);
-    if (cp === 0x200d) { joined = true; continue; }
-    if (joined) { joined = false; continue; }
-    if (cp === 0xfe0f) { if (last === 1) { n += 1; last = 2; } continue; }
-    if (cp < 0x20) continue;
-    last = inRanges(cp, ZERO) ? 0 : inRanges(cp, WIDE) ? 2 : 1;
-    n += last;
-  }
-  return n;
-}
-
-const dw = (s) => graphemes(s).reduce((n, g) => n + clusterWidth(g), 0);
-
-/** The longest prefix of `s` that fits in `max` columns. */
-function cut(s, max) {
-  let text = '';
-  let width = 0;
-  for (const g of graphemes(s)) {
-    const w = clusterWidth(g);
-    if (width + w > max) break;
-    text += g;
-    width += w;
-  }
-  return { text, width };
-}
 
 /* ------------------------------------------------------------ line composition */
 
@@ -269,6 +205,11 @@ const EVENT_COLOUR = {
   // word, and that is the point: nothing was decided here.
   dismissed: C.dim,
   resync: C.red,
+  // Red, with the rest of the "you are not being told something" family, because that
+  // is what a tracker out of sync is: this daemon is fine, and it is quietly the only
+  // one that knows what it knows. Emitted on the transition only — see lib/sync.js —
+  // so a red line here is always news rather than a state being restated every tick.
+  sync: C.red,
   monitor: C.dim,
 };
 
@@ -322,6 +263,12 @@ function eventDetail(e) {
       const what = [e.title, e.detail].filter(Boolean).join(' — ');
       return `${e.action || 'tick'}${what ? `  ${what}` : ''}`;
     }
+    case 'sync':
+      // `describeSync` already wrote the sentence on the daemon's side, and it is the
+      // same sentence the log line and the notification carry. Copied rather than
+      // rebuilt here on purpose: three renderings of one fact are three chances for the
+      // monitor to say something subtly different from the phone about the same tick.
+      return e.detail || (e.state === 'ok' ? 'syncing again' : 'not syncing');
     case 'monitor':
       return `watching ${BASE} — everything the daemon does appears here`;
     default:
@@ -684,6 +631,43 @@ function logEvent(e) {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+/**
+ * How long the long-poll gives one parked request. `wait=25` is the server's side of
+ * it, so anything past forty seconds is a connection that is no longer there.
+ */
+const POLL_TIMEOUT_MS = 40000;
+
+/**
+ * And how long the one `--once` fetch gets — a quarter of that, because it is a
+ * different request.
+ *
+ * `--once` polls *cold*: no `since`, no `wait=`, so the server composes a snapshot and
+ * answers straight away. Ten seconds is therefore not impatience, it is the point past
+ * which the daemon is not answering at all.
+ *
+ * It had no bound whatsoever until bc-34ku, and the common failure hid that: a daemon
+ * that is simply not running refuses the connection, `ECONNREFUSED` comes back at once,
+ * and the offline frame draws. The case that costs you is a daemon that completes the
+ * handshake and then never writes — a router mid-restart, a backend wedged on a lock, an
+ * ssh tunnel whose far end has gone. There this blocked with no upper bound and no
+ * output at all, which is the worst possible shape for the one mode the README
+ * advertises for "screenshots, cron, sanity checks": a cron entry that never returns is
+ * a cron entry that stacks up. `test/monitorwidth.mjs` has been working around it for as
+ * long as it has existed — its own comment said so — and its SIGKILL guard was the only
+ * bound on this anywhere.
+ */
+const ONCE_TIMEOUT_MS = 10000;
+
+/**
+ * Whether a rejected fetch means "it took the connection and never answered".
+ *
+ * Two names for one condition: `poll()` aborts through an `AbortController`, which
+ * rejects `AbortError`, and `--once` uses `AbortSignal.timeout`, which rejects
+ * `TimeoutError`. Both surfaces say `no answer`, and they have to say it identically —
+ * the whole value of that line is that it is not the word a refused connection gets.
+ */
+const isNoAnswer = (err) => err?.name === 'AbortError' || err?.name === 'TimeoutError';
+
 let running = true;
 let inflight = null;
 let refreshing = false;
@@ -720,7 +704,7 @@ async function poll() {
   while (running) {
     const url = state.since === null ? `${BASE}/api/poll` : `${BASE}/api/poll?since=${state.since}&wait=25`;
     inflight = new AbortController();
-    const guard = setTimeout(() => inflight?.abort(), 40000);
+    const guard = setTimeout(() => inflight?.abort(), POLL_TIMEOUT_MS);
     try {
       const res = await fetch(url, {
         headers: { 'x-beadcause-token': cfg.token },
@@ -746,7 +730,7 @@ async function poll() {
         continue;
       }
       state.conn = 'offline';
-      state.connDetail = err.name === 'AbortError' ? 'no answer' : err.cause?.code || err.message.split('\n')[0];
+      state.connDetail = isNoAnswer(err) ? 'no answer' : err.cause?.code || err.message.split('\n')[0];
       if (LINE_MODE) console.error(`[monitor] ${state.connDetail}`);
       draw();
       await sleep(backoff);
@@ -782,7 +766,10 @@ function quit(code = 0) {
 if (ONCE) {
   // A single frame still needs data, so do one cold poll and print what came back.
   try {
-    const res = await fetch(`${BASE}/api/poll`, { headers: { 'x-beadcause-token': cfg.token } });
+    const res = await fetch(`${BASE}/api/poll`, {
+      headers: { 'x-beadcause-token': cfg.token },
+      signal: AbortSignal.timeout(ONCE_TIMEOUT_MS),
+    });
     if (res.ok) {
       apply(await res.json());
       state.conn = 'live';
@@ -795,7 +782,12 @@ if (ONCE) {
     }
   } catch (err) {
     state.conn = 'offline';
-    state.connDetail = err.cause?.code || err.message.split('\n')[0];
+    // The same two words `poll()` uses for its own abort, and for the same reason: a
+    // daemon that refused the connection and a daemon that took it and said nothing are
+    // different diagnoses, and the frame has one line to tell them apart. `TimeoutError`
+    // is what `AbortSignal.timeout` rejects with; `AbortError` is what a plain
+    // controller gives, and both mean the same thing here.
+    state.connDetail = isNoAnswer(err) ? 'no answer' : err.cause?.code || err.message.split('\n')[0];
   }
   draw();
   process.exit(0);

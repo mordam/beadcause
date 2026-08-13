@@ -27,6 +27,13 @@
  *
  * The `bd` binary is never run: `run()` is replaced with a log-and-reply stub, so
  * the module is exercised without a tracker, a workspace, or a lock to lose.
+ *
+ * Which is also the one thing this file cannot do. A stub answers with what the code
+ * already believes, so failure 2 above — inventing a gate — is invisible here by
+ * construction, and bc-5864 was filed believing it had happened. **test/closegatereal.mjs
+ * is the other half**: same shapes, a real `bd init` in a throwaway workspace, and every
+ * case asserting the gate's answer against what the binary then does with the same close.
+ * Anything asserted here about bd's rules is asserted there against bd.
  */
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -161,6 +168,17 @@ console.log('\nclose gate\n');
   const bd = fakeBd({ show: [issue({ issue_type: 'task' })], list: [{ id: 'dm-1.1', status: 'open' }] });
   await bd.closeGate(WS, 'dm-1');
   check('children are not asked about for anything but an epic', !bd.calls.some((c) => c.includes('list')), bd.calls.join(' | '));
+}
+
+{
+  // And the answer that follows from it, said out loud because it is the one somebody
+  // will read as a bug: bd's parent gate is on the word `epic`, so a **feature** with
+  // open children closes without complaint and this must not hold it. bc-5864 was
+  // filed on bc-rk2o — a feature, closed by a delivery over an open child — read as bd
+  // and this file disagreeing. test/closegatereal.mjs asks bd itself.
+  const bd = fakeBd({ show: [issue({ issue_type: 'feature' })], list: [{ id: 'dm-1.1', status: 'open' }] });
+  const gate = await bd.closeGate(WS, 'dm-1');
+  check('a feature with open children is not gated — only an epic is', gate === null, JSON.stringify(gate));
 }
 
 /* ------------------------------------------------------------ it fails open */
