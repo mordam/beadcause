@@ -337,12 +337,28 @@ let repoSlug = null;
  * has been deleted, which is exactly what a card merge does (`deleteBranch: true`). So a
  * miss falls back to the merged list and matches on the head ref, which GitHub keeps
  * long after the branch itself is gone.
+ *
+ * **The fallback asks GitHub for the branch, not for the newest N pull requests**, and
+ * that is bc-kbr6. It used to ask for forty merges and match the head ref here — forty
+ * being under a day on this repo, where 120 merged in one day and 152 in two. So the
+ * one case the fallback exists for, a branch merged from a card and deleted, was
+ * answered correctly for a few hours and then not at all: the delivery fell through to
+ * `<branch> has no commits that origin/<branch> does not` and exit 2, over work that had
+ * landed. `--head` moves the match into the query, so the answer does not depend on how
+ * much else merged after it and there is no window to get wrong. The limit stays as a
+ * guard against a runaway answer: one branch has one pull request, or a handful if it
+ * was reopened, never twenty.
+ *
+ * The client-side match is kept underneath it deliberately. It is one `find` over at
+ * most twenty rows, and it means a `gh` that ignored the flag — an old build, a future
+ * one that renames it — narrows the answer wrongly rather than returning somebody
+ * else's pull request as this branch's.
  */
 async function mergedPrFor(head) {
   const direct = await pr.viewForBranch(dir, head);
   if (direct && direct.state === 'MERGED') return direct;
   try {
-    const rows = await pr.list(dir, { state: 'merged', limit: 40 });
+    const rows = await pr.list(dir, { state: 'merged', head, limit: 20 });
     return (rows || []).find((r) => r.branch === head && r.state === 'MERGED') || null;
   } catch {
     // `gh` refusing the list is not evidence that nothing merged, but it is all the

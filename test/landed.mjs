@@ -472,6 +472,74 @@ const deliveryCard = (over = {}) => ({
   check('and a sweep that closed nothing stays quiet in the summary', describeLanded({ ok: true, closed: [], cards: [], truncated: result.truncated }) === '', 'expected an empty summary');
 }
 
+/* ------------------------------------------------- and this Mac's own main */
+
+/**
+ * bc-6sqs. A worker's delivery brings the main checkout up after its merge, and so does
+ * the tap on the pull request board — which left exactly one door into `main` that did
+ * not: a pull request merged on github.com itself, which is the door this whole file
+ * exists for. The bead closed, the board drew merged, and local `main` stayed behind
+ * until something else happened to fetch, so every worktree cut afterwards branched from
+ * before the merge.
+ *
+ * `landLocally` is injected here rather than run: what is being asserted is *when* the
+ * sweep asks for the fast-forward and what it does with the answer. That it refuses a
+ * dirty checkout is lib/prboard.js's claim and test/prboard.mjs's to make.
+ */
+console.log('\nbringing this Mac up');
+
+const spyLand = (answer = { fetched: true, advanced: true, note: 'fast-forwarded main to origin/main' }) => {
+  const calls = [];
+  const land = async (dir, base) => {
+    calls.push({ dir, base });
+    if (answer instanceof Error) throw answer;
+    return answer;
+  };
+  return { calls, land };
+};
+
+{
+  forgetPrefixes();
+  const bd = fakeBd([{ id: 'wg-aaa', title: 'fix the thing' }]);
+  const spy = spyLand();
+  const result = await reconcileLanded(bd, ws('land-one'), REPO, { rows: [asListed(mergedRow())], land: spy.land });
+  check('a sweep that closed a bead fast-forwards the checkout it swept', spy.calls.length === 1, JSON.stringify(spy.calls));
+  check('the checkout and the base are the sweep’s own', spy.calls[0]?.dir === REPO && spy.calls[0]?.base === 'main', JSON.stringify(spy.calls[0]));
+  check('and what happened travels back for the log', /fast-forwarded/.test(result.landed?.note || ''), JSON.stringify(result.landed));
+}
+
+{
+  forgetPrefixes();
+  // The ordinary tick: a fortnight of merges whose beads are all closed already. Asking
+  // git anything here is a fetch per repo per interval — forty of them on a workspace
+  // like climative — for an answer that is nearly always "nothing to do".
+  const bd = fakeBd([{ id: 'wg-aaa', status: 'closed' }], { live: [] });
+  const spy = spyLand();
+  const result = await reconcileLanded(bd, ws('land-two'), REPO, { rows: [asListed(mergedRow())], land: spy.land });
+  check('a sweep that closed nothing does not touch the checkout at all', spy.calls.length === 0, JSON.stringify(spy.calls));
+  check('and says nothing about it', result.landed === null, JSON.stringify(result.landed));
+}
+
+{
+  forgetPrefixes();
+  // A stale delivery card closing is still this daemon noticing a merge it did not
+  // perform, which is the whole trigger — the bead behind it having been closed by hand
+  // does not put the checkout any less far behind.
+  const bd = fakeBd([{ id: 'wg-aaa', status: 'closed' }], { questions: [deliveryCard()], live: [] });
+  const spy = spyLand();
+  await reconcileLanded(bd, ws('land-three'), REPO, { rows: [asListed(mergedRow())], land: spy.land });
+  check('closing only a stale card is still enough to bring main up', spy.calls.length === 1, JSON.stringify(spy.calls));
+}
+
+{
+  forgetPrefixes();
+  const bd = fakeBd([{ id: 'wg-aaa', title: 'fix the thing' }]);
+  const spy = spyLand(new Error('fatal: could not read from remote repository'));
+  const result = await reconcileLanded(bd, ws('land-four'), REPO, { rows: [asListed(mergedRow())], land: spy.land });
+  check('a git that will not answer does not cost the bead its close', bd.writes.some((w) => w.kind === 'close'), JSON.stringify(bd.writes));
+  check('and the failure is a sentence rather than a throw', /could not bring local main up/.test(result.landed?.note || ''), JSON.stringify(result.landed));
+}
+
 /* ------------------------------------------ the window, and what it costs to reach */
 
 /**

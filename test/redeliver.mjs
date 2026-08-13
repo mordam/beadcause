@@ -239,9 +239,26 @@ if (args[0] === 'pr') {
     save();
     out(s.prs[head].url + '\\n');
   }
+  // \`gh pr list\`, which here means one question only: which pull requests exist for this
+  // head ref? A \`deleted\` pull request still answers — GitHub keeps \`headRefName\` on the
+  // record long after the branch itself is gone, which is the whole reason the fallback
+  // asks this way. \`--limit\` is honoured against a NEWEST-FIRST list, so a fixture with
+  // forty newer merges in it reproduces the cap this used to have.
+  if (args[1] === 'list') {
+    const head = flag('--head');
+    const want = String(flag('--state') || 'all').toUpperCase();
+    const rows = Object.values(s.prs)
+      .filter((p) => (head ? p.headRefName === head : true))
+      .filter((p) => (want === 'ALL' ? true : p.state === want))
+      .sort((a, b) => b.number - a.number)
+      .slice(0, Number(flag('--limit') || 30));
+    out(JSON.stringify(rows));
+  }
   const pr = find(args[2]);
   if (args[1] === 'view') {
-    if (!pr) fail('no pull requests found for branch ' + args[2]);
+    // A merge from a card deletes the branch (\`deleteBranch: true\`), and \`gh pr view\`
+    // resolves a *ref*: once it is gone this is the failure a delivery meets first.
+    if (!pr || pr.deleted) fail('no pull requests found for branch ' + args[2]);
     out(JSON.stringify(pr));
   }
   if (args[1] === 'comment') out('commented\\n');
@@ -546,6 +563,90 @@ console.log('\nre-delivering the same branch\n');
   const calls = fs.readFileSync(GH_LOG, 'utf8');
   check('no pull request was opened', !/"create"/.test(calls), calls.split('\n').filter(Boolean).join(' | '));
   check('and nothing was asked to merge', !/"merge"/.test(calls), calls.split('\n').filter(Boolean).join(' | '));
+}
+
+/* ------------------- a branch merged from a card, under a day of other merges */
+
+{
+  /**
+   * bc-kbr6, and it is the case above with the one detail that used to break it: the
+   * merge came from a **card**, so GitHub deleted the branch, so `gh pr view <branch>`
+   * has no ref to resolve and fails. That is what the fallback is for — and the fallback
+   * asked for the forty most recent merges and matched the head ref in this process.
+   * Forty merges is under a day on this repo (152 in two days, measured), so a branch
+   * merged the day before yesterday fell off the end of the list and the delivery died
+   * with `<branch> has no commits that origin/main does not` and exit 2, over work that
+   * had landed. Forty-one newer merges below, which is a fixture the old code cannot
+   * pass and the new one does not care about: `--head` puts the match in the query.
+   */
+  writeConfig({ pr: { autoMerge: true, base: 'main', mergeMethod: 'merge' } });
+  reset();
+  fs.rmSync(path.join(CONFIG_DIR, 'owed-closes.json'), { force: true });
+
+  git(repo, 'checkout', '--quiet', '-b', 'work-carded');
+  commit('seven');
+  git(repo, 'push', '--quiet', '-u', 'origin', 'work-carded');
+  git(repo, 'checkout', '--quiet', 'main');
+  git(repo, 'merge', '--quiet', '--no-ff', '-m', 'Merge pull request #78', 'work-carded');
+  git(repo, 'push', '--quiet', 'origin', 'main');
+  git(repo, 'checkout', '--quiet', 'work-carded');
+  const cardedSha = git(repo, 'rev-parse', 'HEAD');
+  // The branch GitHub deleted on the merge. Locally it is still checked out, which is
+  // exactly where a worker stands when it runs this.
+  git(repo, 'push', '--quiet', 'origin', '--delete', 'work-carded');
+
+  const s = ghState();
+  s.prs['work-carded'] = {
+    number: 78,
+    title: 'zz-work: the work',
+    url: 'https://github.com/acme/widgets/pull/78',
+    state: 'MERGED',
+    isDraft: false,
+    mergeable: 'MERGEABLE',
+    mergeStateStatus: 'CLEAN',
+    headRefName: 'work-carded',
+    baseRefName: 'main',
+    additions: 1,
+    deletions: 0,
+    changedFiles: 1,
+    statusCheckRollup: [],
+    reviewDecision: null,
+    mergedAt: '2026-08-10T12:00:00Z',
+    mergeCommit: { oid: cardedSha },
+    deleted: true,
+  };
+  // A day's worth of other merges on top of it, newer by number and by date.
+  for (let n = 0; n < 41; n += 1) {
+    s.prs[`someone-else-${n}`] = {
+      number: 100 + n,
+      title: `zz-other-${n}: something else`,
+      url: `https://github.com/acme/widgets/pull/${100 + n}`,
+      state: 'MERGED',
+      isDraft: false,
+      mergeable: 'MERGEABLE',
+      mergeStateStatus: 'CLEAN',
+      headRefName: `someone-else-${n}`,
+      baseRefName: 'main',
+      additions: 1,
+      deletions: 0,
+      changedFiles: 1,
+      statusCheckRollup: [],
+      reviewDecision: null,
+      mergedAt: '2026-08-11T12:00:00Z',
+      mergeCommit: { oid: 'f'.repeat(16) },
+      deleted: true,
+    };
+  }
+  fs.writeFileSync(GH_STATE, JSON.stringify(s, null, 2));
+
+  const out = deliver();
+  const bead = world().issues['zz-work'];
+  const calls = fs.readFileSync(GH_LOG, 'utf8');
+
+  check('a branch merged from a card, under 41 newer merges, still reports its landing', out.startsWith('landed #78'), out);
+  check('the work bead is closed over it', bead.status === 'closed', `${bead.status} — ${bead.close_reason || ''}`);
+  check('the fallback asked GitHub about the branch rather than for the newest N', /"--head","work-carded"/.test(calls), calls.split('\n').filter(Boolean).slice(-3).join(' | '));
+  check('and the deleted branch was not recreated on origin', !git(repo, 'ls-remote', '--heads', 'origin', 'work-carded').trim(), git(repo, 'ls-remote', '--heads', 'origin', 'work-carded'));
 }
 
 await cleanupTmp(tmp);
