@@ -463,5 +463,48 @@ check('the rows have a style to wear', () => {
   assert.match(css, /\.rel-row \{[\s\S]*?min-height: 44px/, '.rel-row is smaller than a thumb');
 });
 
+/* ------------------------------------------------------------ whose bead this is */
+
+check('a P0 says who owns it, and says so even when nobody does', () => {
+  // An unowned P0 is the state bc-rfnr.5's triage exists to clear, so the row has to be
+  // drawn on the screen you are already looking at rather than only where an owner
+  // already exists — otherwise the one bead you would fix never asks to be fixed.
+  const html = sheetHtml({ id: 'bc-x', title: 'x', priority: 0, labels: [], dependencies: [] });
+  assert.match(html, /class="owner-row"/, 'a P0 sheet draws no owner row');
+  assert.match(html, /unowned/, 'an unowned P0 does not say so');
+  const owned = sheetHtml({ id: 'bc-x', title: 'x', priority: 0, labels: ['owner:adam@example.com'], dependencies: [] });
+  assert.match(owned, /owner-who" title="adam@example.com">adam</, 'the handle is not drawn, or not titled with the whole of it');
+});
+
+check('AND A BEAD THAT IS NEITHER A P0 NOR OWNED IS THE SHEET IT ALWAYS WAS', () => {
+  // Most beads. The row is for the board, and a P3 gaining furniture it has no use for
+  // is the cost this feature must not impose on the rest of the tracker.
+  const html = sheetHtml({ id: 'bc-x', title: 'x', priority: 3, labels: ['inbox'], dependencies: [] });
+  assert.ok(!html.includes('owner-row'), 'a P3 with no owner grew an owner row');
+  // But a P1 somebody deliberately took still says so: ownership is recorded on any
+  // bead, and only the *default* is P0-only (lib/bd.js).
+  const kept = sheetHtml({ id: 'bc-x', title: 'x', priority: 1, labels: ['owner:bob@example.com'], dependencies: [] });
+  assert.match(kept, /class="owner-row"/, 'an owned P1 hides who owns it');
+});
+
+check('two owners are drawn as two, rather than resolved down to one', () => {
+  // It means two machines wrote before either synced (lib/ownership.js). Showing one is
+  // how a tracker starts lying about who is answerable.
+  const html = sheetHtml({
+    id: 'bc-x', title: 'x', priority: 0,
+    labels: ['owner:adam@example.com', 'owner:bob@example.com'], dependencies: [],
+  });
+  assert.match(html, /adam<\/span><span class="owner-and">/, 'the second owner is missing');
+  assert.match(html, /bob<\/span>/);
+});
+
+check('the owner row has a style to wear, and it is thumb-sized', () => {
+  const css = read('public/style.css');
+  for (const sel of ['.owner-row', '.owner-kind', '.owner-who', '.owner-btn', '.owner-acts']) {
+    assert.ok(css.includes(sel), `${sel} has no rule in style.css`);
+  }
+  assert.match(css, /\.owner-row \{[\s\S]*?min-height: 44px/, '.owner-row is smaller than a thumb');
+});
+
 console.log(failures ? `\n${failures} failed\n` : '\nall good\n');
 process.exit(failures ? 1 : 0);

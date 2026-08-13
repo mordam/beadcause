@@ -854,54 +854,6 @@
   }
 
   /**
-   * Owner handles on a bead, off its labels — the client's copy of `ownersOf`.
-   *
-   * Duplicated rather than shared because there is no module boundary between a browser
-   * and `lib/` here, and the alternative is a field on `/api/bead` that every other
-   * reader of that route would then have to know about. The prefix is the contract; it
-   * is stated in lib/ownership.js and asserted against this copy in test/ownership.mjs,
-   * so the two cannot drift without the suite saying so.
-   */
-  const OWNER_PREFIX = 'owner:';
-  const ownersOn = (b) =>
-    (b?.labels || [])
-      .map((l) => String(l ?? '').trim())
-      .filter((l) => l.toLowerCase().startsWith(OWNER_PREFIX))
-      .map((l) => l.slice(OWNER_PREFIX.length).trim().toLowerCase())
-      .filter((h, i, all) => h && all.indexOf(h) === i);
-
-  /**
-   * Whose bead this is, and the one control on this page that changes it.
-   *
-   * **Drawn on a P0, and on anything that already has an owner.** Not on every bead: a
-   * P3 sheet looks exactly as it did before this existed, which is most sheets. P0 is
-   * where an *absent* owner is itself worth saying out loud — an unowned P0 is the state
-   * bc-rfnr.5's triage exists to clear, and a row that says "unowned" on the screen you
-   * are already looking at is how it gets cleared one bead at a time instead.
-   *
-   * Two owners is drawn as two, for `ownersOf`'s reason: it means two machines wrote
-   * before either synced, and picking one to display would hide the collision rather
-   * than resolve it.
-   */
-  function ownerRowHtml(b) {
-    const owners = ownersOn(b);
-    if (!owners.length && Number(b?.priority) !== 0) return '';
-    const who = owners.length
-      ? owners
-          .map((h) => `<span class="owner-who" title="${esc(h)}">${esc(h.split('@')[0])}</span>`)
-          .join('<span class="owner-and">·</span>')
-      : '<span class="owner-who is-none">unowned</span>';
-    // "Owned by" rather than "Owner", because the pills above already carry a word called
-    // owner and it is a different fact: `b.owner` is bd's own column, the git identity of
-    // the checkout the bead was filed from, which on this Mac is the same string on every
-    // row. This one is `owner:<handle>` — who is answerable — and two rows on one sheet
-    // both headed "Owner" would be read as one of them being wrong.
-    return `<div class="owner-row" id="sheet-owner" data-id="${esc(b.id)}">
-      <span class="owner-kind">Owned by</span>${who}<span class="owner-acts" id="sheet-owner-acts"></span>
-    </div>`;
-  }
-
-  /**
    * The buttons, once we know what this browser may claim the bead *for*.
    *
    * Late and optional, exactly like `loadSession`: the row is already on screen saying
@@ -1308,6 +1260,54 @@
     const when = closedWhen(sessions[0].at);
     const count = sessions.length === 1 ? '1 session' : `${sessions.length} sessions`;
     return box('', 'What its session did', when ? `${count} · newest ${when}` : count, sessionUrl(id));
+  }
+
+  /**
+   * Owner handles on a bead, off its labels — the client's copy of `ownersOf`.
+   *
+   * Duplicated rather than shared because there is no module boundary between a browser
+   * and `lib/` here, and the alternative is a field on `/api/bead` that every other
+   * reader of that route would then have to know about. The prefix is the contract; it
+   * is stated in lib/ownership.js and asserted against this copy in test/ownership.mjs,
+   * so the two cannot drift without the suite saying so.
+   */
+  const OWNER_PREFIX = 'owner:';
+  const ownersOn = (b) =>
+    (b?.labels || [])
+      .map((l) => String(l ?? '').trim())
+      .filter((l) => l.toLowerCase().startsWith(OWNER_PREFIX))
+      .map((l) => l.slice(OWNER_PREFIX.length).trim().toLowerCase())
+      .filter((h, i, all) => h && all.indexOf(h) === i);
+
+  /**
+   * Whose bead this is, and the one control on this page that changes it.
+   *
+   * **Drawn on a P0, and on anything that already has an owner.** Not on every bead: a
+   * P3 sheet looks exactly as it did before this existed, which is most sheets. P0 is
+   * where an *absent* owner is itself worth saying out loud — an unowned P0 is the state
+   * bc-rfnr.5's triage exists to clear, and a row that says "unowned" on the screen you
+   * are already looking at is how it gets cleared one bead at a time instead.
+   *
+   * Two owners is drawn as two, for `ownersOf`'s reason: it means two machines wrote
+   * before either synced, and picking one to display would hide the collision rather
+   * than resolve it.
+   */
+  function ownerRowHtml(b) {
+    const owners = ownersOn(b);
+    if (!owners.length && Number(b?.priority) !== 0) return '';
+    const who = owners.length
+      ? owners
+          .map((h) => `<span class="owner-who" title="${esc(h)}">${esc(h.split('@')[0])}</span>`)
+          .join('<span class="owner-and">·</span>')
+      : '<span class="owner-who is-none">unowned</span>';
+    // "Owned by" rather than "Owner", because the pills above already carry a word called
+    // owner and it is a different fact: `b.owner` is bd's own column, the git identity of
+    // the checkout the bead was filed from, which on this Mac is the same string on every
+    // row. This one is `owner:<handle>` — who is answerable — and two rows on one sheet
+    // both headed "Owner" would be read as one of them being wrong.
+    return `<div class="owner-row" id="sheet-owner" data-id="${esc(b.id)}">
+      <span class="owner-kind">Owned by</span>${who}<span class="owner-acts" id="sheet-owner-acts"></span>
+    </div>`;
   }
 
   function sheetHtml(b) {
