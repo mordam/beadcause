@@ -7397,6 +7397,14 @@ it — and **Let it go**, which closes it and leaves the original closed with th
 its thread. Neither is recommended: that a bead was closed over unlanded work says nothing
 about whether the work is still worth having.
 
+**The card is filed under the P0 the stranded bead itself belongs to**, or the unsorted
+backlog — see [where a filed bead
+lands](#where-it-lands--a-bead-filed-under-nothing-is-unworkable-the-moment-it-exists).
+This is the sweep bc-rfnr.8 was filed over: four of these cards were sitting parentless on
+the day the P0 gate landed, and a parentless `human` card is not merely held, it is off
+the inbox entirely. A sweep whose whole justification is that the cost of missing one is
+the work itself cannot report into a screen that will not draw it.
+
 It asks once. The fingerprint goes in the *closed* bead's notes rather than on the card,
 because the card gets answered and closed and a guard that read its existence would refile
 it for ever. The card is written first all the same, and the fingerprint second: a creation
@@ -8245,6 +8253,64 @@ you is a tap, at a time of your choosing, rather than an hour of somebody's atte
 now; and because the bead exists, the reason it was filed is written down at the moment
 it was obvious rather than reconstructed later. Priority is capped at P2, because what
 an agent finds may not outrank the work you chose.
+
+#### Where it lands — a bead filed under nothing is unworkable the moment it exists
+
+Since bc-rfnr.7, a bead that is not a P0 and has no P0 above it is **not workable**: no
+advocate queues it, no launcher opens a session on it, and its card wears a `no P0 above
+this` pill offering the fix. That rule is the point of the P0 board, and it has a
+consequence for everything the daemon files unattended — a bead created with no parent
+fails it the moment it exists, and there are two things wrong with it rather than one:
+
+- It is **held**, which the advocate says out loud: a log line, an event on the bus and
+  the pill.
+- It is **invisible**, which nothing says at all. The inbox draws only what descends
+  from a P0 you own, so a `human` card filed with no parent is not on the phone. A
+  *question* the daemon writes to a screen that will not show it is this app's one
+  unforgivable failure arriving through the mechanism meant to prevent it.
+
+So the parent is chosen at the filing seam (`lib/homing.js`), and the rule is one
+sentence: **a bead lands under the P0 that the work which found it belongs to** —
+`--from` on the command above, the closed bead behind a
+[stranded branch](#the-bead-that-is-closed-over-a-branch-that-never-reached-main), the
+epic behind a promotion, the session behind an amendment request. Failing that, under
+the **unsorted backlog**: the open P0 carrying the `unsorted` label, which is where a
+bead goes when nobody has yet decided where it goes. The bead's notes say which happened
+and invite you to move it, because a bead quietly adopted into an epic nobody named
+otherwise reads as somebody else's decision.
+
+Three things about that rule are deliberate and each is a thing that would be wrong if
+reversed:
+
+**Under the P0, not under the bead that found it.** The tempting version parents each
+discovery under whatever turned it up. It reads better and it manufactures, on a
+schedule, the one shape that is held forever with nothing saying why: an open child of a
+non-P0 parent that has since closed. A task closes in a week; a P0 closing is the end of
+an epic, which is the honest moment for what hangs off it to stop being work. The
+`discovered-from` edge already records the fine-grained trail, and it is deliberately
+*not* an ancestry edge — a `discovered-from` must never pull a bead into a P0's
+descendants, since every bead an agent has ever filed carries one.
+
+**A label on the tracker, not an id in config.** `~/.config/beadcause/config.json` is
+per-Mac and the graph is shared, so an id in a settings file would name a different bead
+— or nothing at all — on the second machine. Label an open P0 `unsorted` and every
+daemon writing to that tracker files into the same pile. Two of them is not an error: the
+lowest id wins, on every machine, until somebody takes the label off.
+
+**Nothing is refused.** No `--from`, a `--from` that is itself under nothing, no
+`unsorted` P0, or a `bd export` that lost a Dolt lock race: the bead is filed with no
+parent, exactly as it was before any of this existed. A filing seam that failed closed
+would turn a lock collision into a discovery nobody kept, which is a worse trade than the
+hold it is avoiding. `beadcause-file` says so and names the fix — but only when the
+workspace *has* an open P0, because the gate itself fails open on one that does not, and
+a warning about a hold that is not happening is a lie printed at every filing. And if bd
+refuses the parent outright — its hierarchy is its own, and a P0 that is a crash `bug`
+rather than an epic is dispatchable directly, so a session really can be working under
+one — the bead is filed again with no parent and the refusal is reported. Nothing here
+chose that parent; losing a discovery over it would be the wrong way round.
+
+`test/homing.mjs` covers it, including the property the whole thing is for, asserted
+against the tracker after a real `fileBeads`: the bead it just filed has a P0 above it.
 
 **`beadcause-propose` — a question first, a bead only if you say so.** Nothing is
 created until you press the button. That is the right shape when the bead itself is

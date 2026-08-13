@@ -148,7 +148,13 @@ try {
  */
 const endorsed = autoEndorseAllowed(cfg, ws.name);
 
-const { filed, failed } = await fileBeads(bd, ws, beads, { from, onWarn: warn, endorsed });
+const { filed, failed, home } = await fileBeads(bd, ws, beads, { from, onWarn: warn, endorsed });
+
+// Where they landed, once for the batch — they all share one home (lib/homing.js). Said
+// out loud rather than left to `bd show`, because a bead quietly adopted into an epic the
+// session never named is the kind of surprise a worker should be able to correct in the
+// same breath it filed in.
+if (home?.why) warn(`filed under ${home.why} — nothing named a home, and a bead with no P0 above it is not workable`);
 
 for (const b of filed) {
   if (b.clamped) warn(`"${b.title}" filed at P${b.priority} — an agent-filed bead may not outrank P${PRIORITY_FLOOR}`);
