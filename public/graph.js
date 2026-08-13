@@ -851,6 +851,8 @@
     // this call only adds the buttons that change it, so a `/auth/whoami` that never
     // answers costs the sheet a control and never the fact.
     loadOwnerActions(full, seq);
+    // And the fourth, on the beads that carry the row at all — see `adoptRowHtml`.
+    loadAdoptActions(full, seq);
   }
 
   /**
@@ -1310,6 +1312,92 @@
     </div>`;
   }
 
+  /**
+   * The one refusal that never clears itself, and the fix for it. bc-rfnr.7.
+   *
+   * A bead that is not a P0 and has no P0 above it is not workable: no advocate queues
+   * it, and the launcher refuses it at the door (lib/underp0.js). Every other hold in
+   * this app resolves on its own — a window closes, a pull request merges — so every
+   * other one is reported and left alone. This one waits on somebody deciding where the
+   * work belongs, which is a decision and therefore a control.
+   *
+   * Drawn from `noP0`, which `/api/bead` answers off the cached graph. A server that has
+   * never heard of the field leaves it undefined and this draws nothing, which is the
+   * same sheet as last week rather than a row claiming a bead is orphaned because an old
+   * daemon did not say otherwise.
+   *
+   * The picker itself arrives late, like `loadOwnerActions` — the sentence is the half
+   * that is true regardless, and a `/api/p0s` that never answers costs the control and
+   * never the explanation.
+   */
+  function adoptRowHtml(b) {
+    if (!b?.noP0) return '';
+    return `<div class="adopt-row" id="sheet-adopt" data-id="${esc(b.id)}">
+      <span class="adopt-kind">No P0 above this</span>
+      <span class="adopt-why">Nothing has decided it, so nothing will open a session on it.</span>
+      <span class="adopt-acts" id="sheet-adopt-acts"></span>
+    </div>`;
+  }
+
+  /**
+   * Fill the picker, once we know what there is to adopt it under.
+   *
+   * `loadOwnerActions`' contract to the letter: not awaited, sequence-checked, and a
+   * failure that changes the row rather than the sheet. A `<select>` rather than a button
+   * each, unlike the owner row — that one offers at most two handles and this one offers
+   * every open P0 in the workspace, which is a dozen on this tracker and will be more.
+   *
+   * On success the row is *removed* rather than rewritten, because the thing it exists to
+   * report is no longer true: the bead is workable, and a row still saying "no P0 above
+   * this" beside a confirmation that there now is one is the sheet contradicting itself.
+   * The server's own answer decides that, not the fact that the write returned — adopting
+   * under a P0 makes the bead workable, and the check is what proves it did.
+   */
+  async function loadAdoptActions(b, seq) {
+    const row = $('sheet-adopt');
+    const slot = $('sheet-adopt-acts');
+    if (!row || !slot) return;
+    let out;
+    try {
+      out = await api(`/api/p0s?workspace=${encodeURIComponent(workspace)}`);
+    } catch {
+      // Silent, and the only silent failure on this sheet: the sentence above is already
+      // on screen and is the part that matters. A picker that could not be built is one
+      // tap on the graph away from being done by hand.
+      return;
+    }
+    if (seq !== sheetSeq) return;
+    const p0s = (out?.p0s || []).filter((c) => c.id !== b.id);
+    if (!p0s.length) {
+      // Said out loud rather than left empty: a workspace with no open P0 at all is why
+      // this bead is held, and "adopt it under one" with nothing in the list would read
+      // as a broken control instead of as the thing to go and do.
+      slot.innerHTML = '<span class="adopt-none">no open P0 in this space yet</span>';
+      return;
+    }
+    const options = p0s
+      .map((c) => `<option value="${esc(c.id)}">${esc(c.id)} — ${esc(String(c.title || '').slice(0, 60))}</option>`)
+      .join('');
+    slot.innerHTML =
+      `<select class="adopt-pick" id="sheet-adopt-pick" aria-label="Adopt under">${options}</select>` +
+      '<button type="button" class="adopt-btn">Adopt</button>';
+    slot.addEventListener('click', async (ev) => {
+      const btn = ev.target.closest('.adopt-btn');
+      if (!btn || btn.disabled) return;
+      const parent = $('sheet-adopt-pick')?.value || '';
+      if (!parent) return;
+      btn.disabled = true;
+      try {
+        const done = await post('/api/bead/adopt', { workspace, id: row.dataset.id, parent });
+        if (seq !== sheetSeq) return;
+        if (done.workable) row.remove();
+        else slot.innerHTML = '<span class="adopt-err">adopted, but still nothing decides it</span>';
+      } catch (err) {
+        slot.innerHTML = `<span class="adopt-err">${esc(err.message)}</span>`;
+      }
+    });
+  }
+
   function sheetHtml(b) {
     const parts = [`<h2 class="sheet-title">${esc(b.title || '')}</h2>`];
     const rel = relations(b);
@@ -1340,6 +1428,13 @@
     // around directly under the pills, where it cannot be scrolled past.
     const owner = ownerRowHtml(b);
     if (owner) parts.push(owner);
+    // And directly under it, on the beads that are held: nothing has decided this one, so
+    // nothing will work it. Here rather than lower down because it is the reason the bead
+    // is not moving, and a sheet that explained that below the description would be
+    // answering the question after you had given up asking it. Absent on every bead with
+    // a P0 above it, which is almost all of them once the tracker is in shape.
+    const adopt = adoptRowHtml(b);
+    if (adopt) parts.push(adopt);
     // And under that, the way through to what actually ran. Above the relations rather
     // than below them because those are more of the tracker and this is the one row on
     // the sheet that leaves it — and because on a closed bead the three read in order:

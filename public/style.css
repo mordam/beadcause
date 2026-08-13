@@ -5016,6 +5016,53 @@ a.pill { text-decoration: none; }
    writes anything (see `ownerRowHtml`). Shaped like `.sheet-session` and `.rel-row`
    because it is the same furniture in the same place: one line, one border, 44px of it,
    so resolving the buttons late never moves the description under a thumb. */
+/* The held row (bc-rfnr.7). Shaped like `.owner-row` because it sits directly under one
+   and two differently-shaped rows would read as two kinds of thing, and toned like
+   `.pill.p1` for the reason that pill is: every other hold in this app clears itself and
+   this one waits on a decision. Not an error colour — an orphaned bead is a state of the
+   tracker, and most of them got there by being filed before anybody drew the board. */
+.adopt-row {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  min-height: 44px;
+  margin-bottom: 14px;
+  padding: 6px 10px;
+  border: 1px solid var(--p1, var(--line));
+  border-radius: 10px;
+  background: var(--surface-2);
+  font-size: 14px;
+}
+.adopt-kind {
+  flex: none;
+  font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--p1, var(--muted));
+}
+.adopt-why { min-width: 0; color: var(--muted); }
+.adopt-acts { margin-left: auto; display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+/* 16px on the select specifically: iOS Safari zooms the whole page on focus for anything
+   smaller, and a sheet that jumps under a thumb reaching for a button is worse than a
+   control two points larger than its neighbours. */
+.adopt-pick {
+  max-width: 46vw;
+  min-height: 36px;
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 16px;
+}
+.adopt-btn {
+  min-height: 36px;
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 13px;
+}
+.adopt-btn[disabled] { opacity: 0.5; }
+.adopt-none, .adopt-err { color: var(--muted); font-size: 12px; }
+
 .owner-row {
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
   min-height: 44px;

@@ -412,6 +412,12 @@
    * withhold work (bc-hrno), and shown anyway, because whether that gate should ever be
    * turned on is a question only the pattern on this row can answer.
    *
+   * `heldByNoP0` is the ninth (bc-rfnr.7), and the only one that is not about contention
+   * at all: every other pill on this row names two things wanting one bead, and this one
+   * names a bead nothing has asked for. It is `p1` for `heldByRepo`'s reason — those two
+   * are the holds that never clear on their own — and its tooltip names the beads,
+   * because the fix is one tap into each sheet and there is nowhere else to start.
+   *
    * `heldByLease` is the seventh (bc-bllw), and the first that is not about this laptop:
    * a bead another engineer's Mac has claimed in the shared tracker. `stoodDown` is its
    * other half — a window *this* Mac gave up because the other machine's claim won the
@@ -431,6 +437,7 @@
     const onFiles = (a && a.heldByClaim) || [];
     const busyFiles = (a && a.filesBusy) || [];
     const stood = (a && a.stoodDown) || [];
+    const orphans = (a && a.heldByNoP0) || [];
     const pills = [
       c.open != null ? `<span class="pill">${c.open} open</span>` : '',
       c.ready ? `<span class="pill">${c.ready} ready</span>` : '',
@@ -466,6 +473,13 @@
         : '',
       waiting.length
         ? `<span class="pill muted" title="${esc(waiting.map((h) => `${h.id} — ${h.why}`).join('\n'))}">${waiting.length} waiting on ${waiting.length === 1 ? 'its children' : 'their children'}</span>`
+        : '',
+      // `p1` rather than `muted`, with `heldByRepo`: those are the two holds on this row
+      // that no amount of waiting resolves. This one is waiting on somebody deciding
+      // where the work belongs, and the tooltip names each bead so the decision can be
+      // made from the sheet the id takes you to. See lib/underp0.js.
+      orphans.length
+        ? `<span class="pill p1" title="${esc(orphans.map((h) => `${h.id} — ${h.why}`).join('\n'))}">${orphans.length} with no P0 above ${orphans.length === 1 ? 'it' : 'them'}</span>`
         : '',
       twins.length
         ? `<span class="pill muted" title="${esc(twins.map((h) => `${h.id} — ${h.why}`).join('\n'))}">${twins.length} the same job under another id</span>`
