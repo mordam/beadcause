@@ -12204,10 +12204,12 @@ curl -sI http://127.0.0.1:4318/api/health | grep beadcause
 The limits, stated plainly:
 
 - **The router cannot replace itself.** Doing so means giving up the socket, which is
-  the outage the whole thing exists to avoid. Change `bin/router.js`, `lib/build.js`
-  or `lib/config.js` and it says so once in the log; you restart it by hand with
+  the outage the whole thing exists to avoid. Change `bin/router.js`, `lib/build.js`,
+  `lib/config.js` or `lib/service.js` and you restart it by hand with
   `launchctl kickstart -k gui/$(id -u)/m4m.beadcause`. It is small and it rarely
-  moves, which is the trade.
+  moves, which is the trade — and it is the one state here that does **not** clear
+  itself, which is why
+  [it gets a screen of its own](#a-router-older-than-its-own-source-and-where-that-finally-shows).
 - **A build that *dies* is condemned; a build that is merely slow is retried.** If the
   new backend exits before it is healthy — a syntax error, a bad import — the old one
   keeps serving and that build is not retried until the files change again, because
@@ -12342,6 +12344,63 @@ The limits, stated plainly:
   the console is a *grandchild* of launchd, so the router passes down what it was handed
   in `BEADCAUSE_LAUNCHD_PROGRAM`; a backend reading its own `argv` would call every
   healthy install stale.
+
+### A router older than its own source, and where that finally shows
+
+The bullet above says you restart it by hand. The question that leaves open is *how you
+find out you need to*, and for a long time the honest answer was "by chance".
+
+Every other degraded state in this section resolves on its own. A stale build swaps in
+seconds. A build that was too slow is retried on the clock. A poisoned one clears the
+moment the files move. The router's own source is different in kind precisely because it
+cannot be acted on: the process holding the socket stays on the code it started with
+until somebody restarts the daemon, and nothing — no swap, no merge, no deploy of
+anything else — changes that.
+
+It had two surfaces, and both are places nobody stands. One line in
+`~/Library/Logs/beadcause.log`, said once at the moment it happens and never again. And
+a marker on the router line of `npm run swap:status`, which nothing runs on a schedule:
+
+```
+router   pid 62191 on :4318  ⚠ source changed — restart it
+active   pid 43669 :58756 build 2c87352d7141 active inflight 2 up 494s
+disk     2c87352d7141  (matches what is running)
+```
+
+Read that output and the last two lines are reassuring, which is the trap: the *backend*
+is current, the hot-swap worked, the disk matches what is running. Only the first line
+is about the process in front of them. So a fix for a stopped Tailscale merged, deployed,
+and did not run on this Mac for a day — while the advocate console's health line showed a
+green ✓ naming a build that genuinely was current. It was naming the backend's.
+
+That verdict is now the same one everywhere, which is what `explain()` in `lib/startup.js`
+is for: the log, `swap:status`, and the health block on the advocate console, said in one
+vocabulary. A router running old code reads there as an amber block of its own —
+
+> ⚠ **THE ROUTER IS RUNNING OLDER CODE** · `router-source`
+> serving build `2c87352d7141`, but the router in front of it is older than its own source
+> restart it: `launchctl kickstart -k gui/501/m4m.beadcause`
+
+— and three details in that block are each there because of a specific way it went wrong:
+
+- **Its own headline.** The two the block already had are `THE PHONE IS ON AN OLDER BUILD`
+  and `NOTHING IS BEING SERVED`, and both are false here. The phone is on the current
+  build; what is old is the program in front of it.
+- **Its own verb.** The other states are fixed with `npm run swap`, so the fix line said
+  *force it*. A swap is the one thing that cannot clear this — it replaces the backend,
+  which is already right — and it is the obvious thing to try from a screen that has just
+  told you something is behind.
+- **The command, from the router itself.** The uid and the LaunchAgent label are facts
+  only that process holds, so it publishes the whole line on `/internal/router/state`
+  rather than having three readers each rebuild it. A router too old to carry the field
+  still gets the diagnosis, without the command.
+- **It never displaces anything more urgent.** The backend states are all about what the
+  phone is being served *right now*, so they win; the flag rides the payload as
+  `sourceChanged` underneath whichever verdict is being shown, because a poisoned build
+  in front of a stale router is both, and only one of them fits on the line.
+
+`test/routersource.mjs` covers the rule as arithmetic, `--status` end to end against a
+stub control plane, the passthrough on `routerHealth`, and the drawn block itself.
 
 ### The WebSocket goes through it too, and a swap ends it on purpose
 
