@@ -6398,12 +6398,17 @@ daemon's poll cycle sweeps it a few seconds later.
 
 **The reason is where the resolvers are counted.** One resolver per pull request, two on
 this Mac at once, and a queue for the rest are all guarantees held in the daemon's memory
-(`lib/resolvers.js`, deliberately: a window handle is worth exactly as long as the iTerm
-holding it). `beadcause-deliver` is a *different process*. A sweep run there starts from an
-empty registry — it cannot see the resolver the daemon opened ten minutes ago, so it would
-open a second window on the same branch, which is the incident the whole file exists to
-prevent — and then it exits, taking any queue it had built with it. The registry has to be
-one registry, and only the daemon holds it.
+(`lib/resolvers.js`). `beadcause-deliver` is a *different process*. It would open a second
+window on the same branch, which is the incident that whole file exists to prevent — and
+then exit, taking any queue it had built with it. The registry has to be one registry, and
+only the daemon holds it.
+
+Since bc-9d37.11 the *keys* of that registry outlive the process, so a restart no longer
+starts from nothing — but that does not make a second process safe, and it is worth being
+precise about why. What survives is enough to know a branch is taken; the iTerm handle is
+not, and cannot be. A daemon reading those keys back can refuse to open a second window,
+which is the guarantee that matters. It cannot nudge, cannot count toward another
+process's cap, and cannot drain another process's queue.
 
 Three things fall out of recording rather than sweeping, and each of them was wanted:
 
@@ -6499,11 +6504,33 @@ Three states, not two, and the third is the point:
 **Everything for one pull request is serialised**, which is not belt-and-braces — it is the
 actual shape of the incident. One press produced two requests a moment apart, and a
 check-then-launch with an `await` in the middle is a check both of them pass. Under the
-lock the second request arrives after the first has a handle to hand it. The state is in
-memory and never on disk, for the reason a phone's whereabouts is: a handle is worth
-exactly as long as the iTerm holding it, and a record that survived a restart would only
-ever be a claim about a window nobody can address. `node test/resolvers.mjs` asserts all of
-it — including ten simultaneous presses producing one window and nine nudges.
+lock the second request arrives after the first has a handle to hand it.
+
+**The keys are on disk; the handles are not** — and until bc-9d37.11 neither was. The old
+rule was *in memory, never on disk*, on the reasoning that a record surviving a restart
+"would only ever be a claim about a window nobody can address". Every clause of that is
+still true; the conclusion assumed the thing asking again is **a press**, arriving hours
+later with no memory of its own. The sweep is not. It runs because a merge landed, and a
+merge landing is what kickstarts this daemon — so the restart happens *immediately before*
+the caller asks, every time. On 2026-08-14 that was 475 boots against 19 sweeps, and PR
+#243 was handed to `resolveFor` by eighteen consecutive sweeps over seven hours, thirteen
+of which opened or queued a window for it. Thirteen resolvers, one branch, over a green
+suite — because every assertion in it was about a single process.
+
+So the keys survive and the handle does not, which is not a compromise: a record read back
+after a restart is exactly the third state above — *something is on it and cannot be
+asked*. The file already refuses to open a second window for that, and already lets go of
+it after half an hour. The daemon says so at boot (`2 windows restored from the last
+daemon`), the sweep logs those branches as `left #243 to the window already on it` rather
+than as failures, and the card calls them **working**, because that is what they are.
+
+The queue still lives only in memory, and that is now written down as a decision rather
+than an omission: a waiting entry carries a closure that opens a window and a `recheck`
+that asks GitHub, neither of which can be serialised — and the next sweep re-derives it
+from GitHub anyway. A lost queue costs a delay; a lost registry costs a second window in
+the same tree, which is bc-utyr. `node test/resolvers.mjs` asserts all of it — including
+ten simultaneous presses producing one window and nine nudges, and six cases that call
+`restart()` because nothing inside one process can see this.
 
 **And that line said *Adam pressed Resolve conflicts again* whatever asked**, which is the
 same falsehood the brief above carries a `sweptAfter` to avoid, arriving by the other door
