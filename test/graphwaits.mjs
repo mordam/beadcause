@@ -124,6 +124,22 @@ check('discovered-from and related are not waiting', () => {
   assert.equal(w['bc-ne8u'], 0);
 });
 
+check('and neither is `relates-to`, which is the spelling bd actually writes', () => {
+  // The `related` above is the name of the single hand-made see-also this workspace
+  // held when the set was written; `bd dep relate` stores `relates-to`, at both ends.
+  // The difference was harmless over one edge and load-bearing the moment bc-arj0.4's
+  // sweep drew eight hundred: every one of them would have arrived on a card counted as
+  // a live blocker, so a bead that merely *mentions* eight others would say it waits on
+  // eight — the exact sentence this whole file exists to stop.
+  const w = waitsOn(
+    [node('bc-767a'), node('bc-rcrt'), node('bc-42ow')],
+    [edge('bc-rcrt', 'bc-767a', 'relates-to'), edge('bc-42ow', 'bc-767a', 'relates-to')]
+  );
+  assert.equal(w['bc-767a'], 0);
+  // And the same walk the other way: a see-also holds nothing up from either end.
+  assert.equal(blocksOf([node('bc-rcrt'), node('bc-767a')], [edge('bc-rcrt', 'bc-767a', 'relates-to')])['bc-rcrt'], 0);
+});
+
 check('an edge type nobody here has seen still counts', () => {
   // The permissive direction, and the one bd's own number is on. A new kind of edge
   // showing up as "waits on 1" is a number to argue with; silently dropping it is a
