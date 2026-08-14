@@ -122,7 +122,10 @@ check('opening lapses, so a launch that died gives the button back', () => {
 check('the card is actually given it', () => {
   const src = read('lib', 'server.js');
   assert.match(src, /advocate: advocateSession\(sessions, bead\.id/, 'p0Card must carry the advocate field');
-  assert.match(src, /p0Card\(name, b, beads, parents, sessions\)/, 'the board must hand its snapshot down');
+  // Matched on the last argument rather than the whole call: bc-rfnr.9.1 re-keyed this
+  // off a children index while this bead was in flight, and a test that pins every
+  // argument of somebody else's function fails on their change rather than on ours.
+  assert.match(src, /p0s\.push\(p0Card\([^)]*, sessions\)\)/, 'the board must hand its snapshot down');
   assert.match(src, /const sessions = liveSessions\(cfg\);/, 'one read per board, not one per card');
 });
 
