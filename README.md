@@ -6030,6 +6030,27 @@ instead: `refused` for the two above, `error` for a sweep that could not run at 
 open. `node test/prsweep.mjs` stages the whole thing against a real repo with real session
 archives and a `gh` that answers `UNKNOWN` once before it answers the truth.
 
+**"Once" is decided by a marker file, and the reason is `atOnce` (bc-9d37.7).** That fake
+`gh` used to count views in the same `prs.json` it read the rows from — load, add one,
+write — and the sweep asks about candidates six at a time, so six of those processes were
+doing it to one file at once. Both things that can go wrong did. A lost update moved #14's
+window, so the pull request that is *meant* to answer `UNKNOWN` first and `CONFLICTING`
+after sometimes answered `CONFLICTING` first, and a different check went red each time. And
+a `JSON.parse` landed on a truncated file, which the sweep dutifully reported as `trouble` —
+so the one visible difference between a green run and a red one was `1 could not be read` in
+the suite's own progress line. It failed about one run in three under load, for two months,
+and because `scripts/test.mjs` stops at the first failure it took the rest of the gate with
+it. The counter is now one file per number created with `wx`, which is the same question put
+to the filesystem, and the filesystem can answer it for six processes at once: exactly one
+`open` wins and the rest get `EEXIST`. Nothing writes `prs.json` any more.
+
+The tempting fix was to lower `atOnce` in the suite, and it would have gone green. Six in
+flight is the thing being tested; a harness that cannot survive the concurrency the code
+really runs at is a harness that has stopped testing it. The suite now asserts
+`trouble.length === 0` outright, so the next time that line appears it accuses the fixture
+rather than `lib/prsweep.js` — which is where twelve interleaved A/B runs on this bead had
+already ruled it out.
+
 #### Every way a merge lands sets it off
 
 A sweep is only worth having if it happens whichever way the merge happened, and there are
@@ -16054,6 +16075,50 @@ fifteen suites never remove their scratch root at all, which leaks a directory t
 clears and, having no `rmdir` in it, cannot lose this race. Flagging any of those would be
 a rule that makes working lines look broken, and a lint people learn to work around is
 worse than none.
+
+#### The removal that is not a teardown — the per-case `reset()`
+
+The scan above looks for the scratch **root**, because that is where the losing line always
+was. bc-9d37.9 is the same race in a place a teardown-shaped scan cannot see. `test/leasequeue.mjs`
+went red on a gate run with the familiar `ENOTEMPTY` *after* all twenty of its checks had
+printed `ok`, and the line was not at the bottom of the file:
+
+```js
+function reset() {
+  const dir = process.env.BEADCAUSE_CONFIG_DIR;
+  for (const f of fs.readdirSync(dir)) fs.rmSync(path.join(dir, f), { recursive: true, force: true });
+}
+```
+
+`check()` calls that before **every** case. So it is the worse form rather than the milder
+one: it races `git init` twenty times a run instead of once, and it removes the config
+directory's contents one entry at a time — `.git` among them — which is a shape the root
+scan matches nothing in. **Ten suites carried it**: `claimqueue`, `handlease`, `livequeue`,
+`proposegate`, `prqueue`, `ranmodel`, `repoqueue`, `reposurvey`, `repotidy` and `twinqueue`.
+
+It only bites once a suite runs past the 2000ms debounce, which is what makes it a trap
+rather than a bug: every one of those ten was green, and each was one added case away from
+an intermittent red whose own assertions all passed. That is exactly what happened —
+bc-9otk added nine cases to `leasequeue.mjs`, it began failing about one run in eight, and
+the half-hour it cost went on the wrong file, because a crash after "all 29 checks passed"
+does not look like it belongs to the diff that added the checks.
+
+The fix is the same helper and a different pair of doors: `await quiesce()` **once**, then
+`await removeTree(…)` per entry. There is no root to hand `cleanupTmp`, and quiescing once
+per case rather than once per entry is the whole saving — the flush is what removes the git
+child, and the retries are only the backstop.
+
+`test/tmpadoption.mjs` grew a second scan for it, and the judgement it has to make is which
+children of the config directory matter. A child named by a **variable** came out of
+`readdirSync` and therefore includes `.git`, so it is flagged. A child named by a **literal**
+is a directory somebody chose — `test/signinsetup.mjs` throws away `config/tls`, which holds
+no git repo and cannot lose this race — so it is not, with `.git` itself the one literal that
+is. Getting that line wrong in either direction costs something real: too loose and a working
+line in `signinsetup.mjs` fails the repo, too tight and the scan quietly matches nothing
+forever. So the check asserts **both** — that the reset shape is still recognised, and that
+the quiesced form the ten suites were moved to still passes. A guard that only ever says no
+is one whose green is unfalsifiable, and the first legitimate edit it goes red on is the last
+time anybody reads it.
 
 ### A suite must not assert about a directory it does not own — `test/browse.mjs`
 
