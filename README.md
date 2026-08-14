@@ -1322,6 +1322,64 @@ one place, and why `scripts/land-check.mjs` presses the real `bin/deliver.js` ag
 real tracker with a real epic: a refactor that lost the rule would pass every unit test
 that models it and fail there.
 
+#### And the entry it is held over is applied on the tick
+
+A refusal that can only be answered by hand is a refusal that gets walked around. The
+gate above says *adopt them or drop them from the line*, and until bc-arj0.2 "adopt them"
+meant a person typing `bd update <bead> --parent <epic>` once per bead — ninety of them
+on the day the measurement was taken. So the daemon does it: `lib/adoptsweep.js` runs in
+the poll cycle, reads each epic's list off the same `bd export` the P0 board is already
+built from, and reparents what it names. **The list is the contract; the edges are the
+machine's job.** Write the line, wait a tick, and `bd dep tree` draws what the prose says.
+
+It runs **before the advocate tick**, which is the whole of the placement argument: the
+advocate reaches an epic's work through its children, so an epic whose list has just
+become edges dispatches as an epic with children on the same beat rather than the next.
+It costs the write lock ahead of the tick and nothing else — a settled graph writes
+nothing, and after the first pass over a workspace that is every pass.
+
+**Applying it is one line of code; the refusals are the feature.** Each is a case
+where the write would destroy something somebody decided on purpose, and a daemon on a
+thirty-second clock is the wrong thing to be deciding those:
+
+| the entry | what happens | why |
+|---|---|---|
+| names a bead with no parent | **adopted** | the ordinary case |
+| names a bead that is already its child | nothing | already applied |
+| names a bead with a *different* parent | **refused**, naming the parent | somebody decided that; a line in a description is not evidence they were wrong |
+| names a bead already linked to this epic by any other edge | **refused**, naming the type | bd holds one edge per pair, so applying it means deleting the other — and `discovered-from` is where the bead *came from*, an older fact than who claims it |
+| …except a `relates-to`, which is **replaced** | adopted, see-also dropped first | see below |
+| named by **two** epics | **refused for both**, each told about the other | there is no answer here that is not a judgement, and the order bd exports two rows in is not a way to pick one |
+| names an id no bead here has | **refused** | a typo, or another workspace's prefix — and the gate's sentence on the phone is how a typo gets found |
+| written on a closed epic, or on something that is not an epic | nothing | a closed epic's list is a record, and moving live work under a closed parent is how a bead becomes held and invisible |
+| would make the epic its own descendant | **refused** | bd refuses it too; asking is what costs the spawn |
+
+The `relates-to` exception is not a nicety — without it this applies **nothing** on any
+graph beadcause has been running against. Writing a description through beadcause runs
+[the mention hook](#every-bead-id-in-prose-is-an-edge-behind-it) over it, and the ids in an
+`Adopts:` line are bead ids in prose, so an epic filed through beadcause's own seam
+arrives already see-also'd to everything it adopts — and every adoption is then refused by
+the row above it, forever, with the close gate holding the epic open over a list that can
+never be applied. Replacing it loses nothing, which is the argument: a see-also claims
+only *mentioned near*, and a parent link says that and more. `test/adoptsweepreal.mjs`
+asserts the hook really does draw it, so the rule cannot quietly become dead code.
+
+A refusal is a standing condition rather than an event — *bc-4bet cannot adopt bc-d5sv:
+already a child of bc-xl7n.1* is true on every beat until somebody arbitrates it — so it
+is logged on the beat it appears and on the beat it goes away, the way a sync failure is,
+and not once a cycle. The phone hears about it through the gate: the epic will not close,
+and the refusal names the entries.
+
+**What proves it is the round trip, not the write.** Three files written at different
+times have to agree — `lib/adopts.js` reads the line, `lib/adoptsweep.js` applies it,
+`Bd.gateFor` refuses the close over an entry that is not a child — and the failure that
+matters is not any of them being absent but two of them disagreeing, which is an epic held
+closed over an adoption nothing believes in and no way to fix it from a phone.
+`test/adoptsweepreal.mjs` therefore closes the loop against the real binary: write a list,
+sweep once, and the gate lets the epic go. `test/adoptsweep.mjs` is where the refusals
+live, over fixtures, because a rule that can only be tested by writing to a tracker is one
+nobody re-tests after changing it.
+
 ### The best refusal is a button that was never there
 
 Refusing before anything is written fixed the damage. It did not fix the shape:

@@ -593,6 +593,9 @@ await check('every swallowed failure in the poll cycle reports', () => {
       // returns rather than throwing, so what reaches this catch is the cycle's own
       // bookkeeping: the same bar `the tracker sync` below is held to.
       'the JIRA poll',
+      // lib/adoptsweep.js. It lands every refusal and every rejected write in its answer
+      // rather than throwing, so what reaches this catch is the cycle's own bookkeeping.
+      'the adoption sweep',
       'the advocate tick',
       // The beat's own guard. Everything inside the cycle already catches; what reaches
       // this one is the cycle's bookkeeping failing, which is a bug by construction —
