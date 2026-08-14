@@ -175,7 +175,7 @@ as narrow as the slowest machine's) and not true of `autoDispatch`, whose global
 governs your own private workspaces.
 
 What the shared trackers *do* set, without anybody being asked, is the three protections
-that used to depend on question 2: no unattended agent comments on them
+that used to depend on question 3: no unattended agent comments on them
 (`autoDispatchExclude`), their questions push a contentless nudge rather than the text
 (`ntfy.minimalWorkspaces`), and beads an agent files itself keep waiting for a tap
 (`autoEndorsePerWorkspace`). All three are additive — a name you added yourself is never
@@ -1045,7 +1045,7 @@ A boolean per repo rather than a list of names, because both directions have to 
 sayable: a repo held inside a space that endorses is the same kind of exception as the
 other way round, and a list can only ever say one of them. Keyed by workspace name like
 `jira` and `advocates.perWorkspace`, and deliberately not a field on a `workspaces` entry
-— that array is rediscovered from `~/beads/*/.beads` on every start, so anything written
+— that array is rediscovered under [`workspaceRoots`](#where-trackers-live--workspaceroots-and-the-two-shapes-a-root-can-have) on every start, so anything written
 onto it by hand is gone at the next restart.
 
 **None of the three new ones loosens a gate**, which is worth being exact about, because
@@ -13436,7 +13436,8 @@ Two consequences of that ordering worth knowing:
 | `auth.google.redirectUri` | the callback registered with Google. Derived from the certificate's MagicDNS name and normally left `null`; sign-in cannot switch on without one, because Google refuses a plain-http callback |
 | `auth.google.sessionDays` | how long a signed-in browser stays signed in (default `30`) |
 | `auth.google.enabled` | `false` turns sign-in off while leaving the rest of the block configured (default `true`) |
-| `workspaces` | auto-discovered from `~/beads/*/.beads`, and **reconciled on every start** — entries whose directory has gone are dropped and new ones picked up, both logged. Renaming a workspace directory used to leave a stale entry that failed on every poll tick, silently hiding that whole workspace from the phone |
+| `workspaceRoots` | where to look for trackers (default: `~/beads` and nothing else). A **container** root holds one workspace per subdirectory, which is what `~/beads` is; a root with its own `.beads` **is** one workspace, named after the directory it sits in, which is what a tracker living inside the repo it tracks looks like — `["~/beads", "~/climative.dev/architecture"]`. Rediscovered on every start, so adding a root is the only edit; two roots reaching the same directory are one workspace, and two workspaces that would share a *name* are refused with the second named in the log. See [Where trackers live](#where-trackers-live--workspaceroots-and-the-two-shapes-a-root-can-have) |
+| `workspaces` | auto-discovered under `workspaceRoots`, and **reconciled on every start** — entries whose directory has gone are dropped and new ones picked up, both logged. Renaming a workspace directory used to leave a stale entry that failed on every poll tick, silently hiding that whole workspace from the phone |
 | `repos` | the checkouts **one workspace** may be worked in, keyed by workspace name — `{"climative": {"root": "~/climative.dev", "default": "architecture", "approved": ["architecture", "athena-service"]}}`. Empty by default, and a workspace not named here costs nothing: it is one repo, as every workspace was before this existed. `approved` is a list you write and nothing discovers — a directory under `root` that is not in it resolves to nothing; `npm run configure` prints the tree with each repo's token for you to tick, which is not the same thing as approving one. Each repo's identity is the **service token** it declares in its own `config/config.yaml`, read from the checkout rather than restated here; `default` is the repo a bead carrying no token belongs to, and `tokenPath` / `tokenKey` override where the token is read from. A bead says which repo it is about by carrying that token as a `repo:<token>` label. See [Many repos, one workspace](#many-repos-one-workspace--the-approved-list-and-the-token-that-names-each) and [how a bead names one](#how-a-bead-says-which-repo-it-is-about--repotoken) |
 | `edits.workspace` | which tracker a pass from [edit mode](#save-files-the-pass) is filed into (default `null`). Null is not "none": it means the workspace whose sessions open in *this* checkout, because an edit typed into this screen is a change to this app whichever tracker's beads happen to be drawn on it. Set it only where that answer is wrong |
 | `edits.root` | the standing P0 every pass lands under (default `null`). Null means found by its `edit-root` label, or created on the first Save — so an install that has configured nothing still files under a P0 that exists, without which nothing under it would be workable at all. Name one here to override that; a root named here and since **closed** is ignored rather than used |
@@ -13561,8 +13562,8 @@ behind it or it does not, and the setting that says so is a boolean and an addre
 ```
 
 Keyed by workspace name, like `sessionDirs` and `advocates.perWorkspace`. It is
-deliberately **not** a field on a `workspaces` entry: that array is discovered from
-`~/beads/*/.beads` and reconciled on every start, so anything written onto it by hand
+deliberately **not** a field on a `workspaces` entry: that array is discovered under
+[`workspaceRoots`](#where-trackers-live--workspaceroots-and-the-two-shapes-a-root-can-have) and reconciled on every start, so anything written onto it by hand
 disappears at the next restart — which would present as JIRA quietly switching itself
 off overnight.
 
@@ -14124,6 +14125,81 @@ it is in one place: a reader that knew one shape would silently drop the other p
 words. `node test/atlassian.mjs` covers the rules; the two suites beside it still own
 their own sentences.
 
+### Where trackers live — `workspaceRoots`, and the two shapes a root can have
+
+`~/beads/sophab/.beads`, `~/beads/deluvia/.beads`, `~/beads/ehatt/.beads`. One directory
+holding one subdirectory per workspace, each with a `.beads` in it — that is what
+`bd init` in `~/beads/<name>` produces, what the installer tells a fresh Mac to make, and
+what discovery read for as long as there was only one shape to read.
+
+There is a second shape, and it is the one a *team* tracker has. Climative's `cl-` graph
+moved into `~/climative.dev/architecture/.beads` on 2026-08-12, because forty service
+checkouts and the issues about them should arrive in one clone: the repo the team already
+has is the repo the tracker ships in. Nothing about that is exotic — it is what beads
+itself recommends for a shared graph — and the root there **is** the workspace rather than
+holding one.
+
+`workspaceRoots` is the list of places to look, and it understands both:
+
+```json
+"workspaceRoots": ["~/beads", "~/climative.dev/architecture"]
+```
+
+A root with its own `.beads` is one workspace, named after the directory it sits in
+(`architecture`). A root without one is a container, and every subdirectory of it that has
+a `.beads` is a workspace named after that subdirectory. The default is `["~/beads"]`
+alone, so an install that has never heard of this setting discovers exactly what it
+discovered before — the whole compatibility story is that one default.
+
+**It is discovery and not a list, on purpose, and that is what makes it one edit.**
+`workspaces` below it is written by the daemon on every start and reconciled against the
+disk: a root added here is picked up at the next restart, a renamed directory is dropped
+with a log line, and neither needs a second edit. Until this existed the only way to serve
+an out-of-tree tracker was to hand-write a `workspaces` entry, which *worked* — the
+reconciler keeps any saved entry whose directory exists — but worked by accident. Nothing
+documented it, nothing tested it, and `npm run configure` said in as many words that the
+directory was "not a workspace under ~/beads".
+
+Two things are refused rather than guessed at:
+
+- **Two roots reaching one directory are one workspace.** A symlinked container, or the
+  same path written twice, is deduped by directory and nothing is said about it — there is
+  nothing to say.
+- **Two workspaces that would share a name are not.** The second one found is dropped and
+  named in the log. Almost everything else in this config is keyed by workspace name —
+  `sessionDirs`, `jira`, `advocates.perWorkspace`, a space's `workspaces` list — so two
+  trackers called `climative` would silently share every one of those answers, and which
+  one won would depend on the order the roots were typed in.
+
+**A container root is excluded from the repo search; a root that is a workspace is not.**
+`candidateRoot` guesses where a multi-repo workspace's checkouts live, and it has always
+refused to offer `~/beads`: that is the tracker's own tree, `~/beads/<workspace>` is named
+after the workspace by construction, and nothing in it is a checkout anybody works in.
+Every one of those sentences is false about `~/climative.dev/architecture`, which is a
+checkout somebody works in every day — so the exclusion follows the *container* roots and
+leaves the in-repo ones alone.
+
+**And a session opens in an out-of-tree workspace without pinning `sessionDirs`.** With
+`projectRoot` configured, beadcause reimplements the shell's own rule to work out which
+tracker a directory resolves to, and that rule named `~/beads/<repo>/.beads` outright. On
+an install whose tracker is somewhere else it therefore never matched anything: no
+directory mapped back to the `architecture` workspace, and every session opened on one of
+its beads refused with *"a shell there would use a different issue graph"* until
+`sessionDirs.architecture` was set by hand. The rule now resolves a name through
+`workspaces` and keeps `~/beads/<name>/.beads` only as the guess for a name nothing knows
+— and the workspace's own directory is one of the candidates checked, so the session opens
+in the checkout the tracker lives in. It is still *checked* rather than assumed: where a
+shell in that directory really would write to a different graph, the refusal stands, which
+is the entire reason the check is there.
+
+`npm run configure` asks this first, before anything else, because every question after it
+that names a workspace — which are shared, which go in which space, which get an advocate
+— is asked over the list discovery produced. It is also the only question that can be
+answered on a machine with no tracker at all, which is why "no workspaces found" now comes
+*after* it: the install this setting exists for used to be met with *"No beads workspaces
+found under ~/beads. Create one and re-run"*, which is advice to build the wrong thing in
+the wrong place.
+
 ### Many repos, one workspace — the approved list, and the token that names each
 
 Every other part of beadcause assumes a workspace **is** a repo: one tracker, one
@@ -14162,7 +14238,8 @@ one default:
 
 Keyed by workspace name, like `sessionDirs`, `advocates.perWorkspace` and
 [`jira`](#jira-per-workspace--read-only-and-one-setting) — and deliberately **not** a
-field on a `workspaces` entry, because that array is discovered from `~/beads/*/.beads`
+field on a `workspaces` entry, because that array is discovered under
+[`workspaceRoots`](#where-trackers-live--workspaceroots-and-the-two-shapes-a-root-can-have)
 and reconciled on every start, so anything written onto it by hand disappears at the
 next restart.
 
@@ -14215,7 +14292,7 @@ JSON, which is worse than it sounds, because both facts that decide an entry are
 from the file you are editing: whether the repo is cloned at all, and what token its own
 `config/config.yaml` declares. Forty-odd directories means opening forty YAML files and
 hoping — and a token typed from memory is a bead that resolves to nothing at three in the
-morning. So the tenth question of the wizard reads the root and shows you what is there:
+morning. So the last question of the wizard reads the root and shows you what is there:
 
 ```
    48 directories under ~/climative.dev, ✓ marking what is approved today:

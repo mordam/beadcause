@@ -21,12 +21,12 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import readline from 'node:readline/promises';
-import { loadConfig, saveConfig, CONFIG_PATH } from '../lib/config.js';
+import { loadConfig, saveConfig, workspaceRoots, reconcileWorkspaces, CONFIG_PATH } from '../lib/config.js';
 import { globalWorkerCap } from '../lib/advocate.js';
 import { ownerName } from '../lib/owner.js';
 import { signinStatus } from '../lib/auth.js';
 import { askSignin } from '../lib/signinsetup.js';
-import { repoList, repoStatusLine, forgetRepos } from '../lib/repos.js';
+import { repoList, repoStatusLine, forgetRepos, expandHome } from '../lib/repos.js';
 import { scanTargets, scanRoot, parseApproved, resolveDefaultChoice, tildeHome } from '../lib/reposcan.js';
 import { readTeam } from '../lib/team.js';
 
@@ -36,12 +36,16 @@ const bold = (s) => `\x1b[1m${s}\x1b[0m`;
 const dim = (s) => `\x1b[2m${s}\x1b[0m`;
 
 const cfg = loadConfig();
-const workspaces = cfg.workspaces.map((w) => w.name);
+
+// Reassigned once, by question 1: adding a root changes which workspaces exist, and
+// every question after it that is keyed by workspace name — shared, spaces, advocates —
+// must be asked about the new list rather than the one this process booted with.
+let workspaces = cfg.workspaces.map((w) => w.name);
 
 /**
  * What the team has already decided, when there is a team — see lib/team.js.
  *
- * Read here for one reason: question 2 is the one answer on this screen that is not really
+ * Read here for one reason: question 3 is the one answer on this screen that is not really
  * yours. Which workspaces are shared decides where an unattended agent may comment on a
  * graph other people read, and on a federated install it must not depend on which
  * engineers read the question carefully. A problem in the file is *not* raised here —
@@ -70,6 +74,9 @@ function summary(c) {
     // First line, because it is the one that is wrong on a fresh machine and the one
     // nobody thinks to look for: every prompt an agent gets says this name.
     `  agents call you   : ${ownerName(c)}`,
+    // Above the workspaces rather than below, because it is the answer to "why is that
+    // list not what I expected" and reading it second is reading it too late.
+    `  workspace roots   : ${workspaceRoots(c).map(tildeHome).join(', ')}`,
     `  workspaces        : ${workspaces.join(', ') || '(none)'}`,
     // Two separate lists govern this, and reporting only one made a workspace look
     // unprotected when it was actually covered by the other.
@@ -82,7 +89,7 @@ function summary(c) {
         : '(none)'
     }`,
     `  asset roots       : ${(c.assetRoots || []).join(', ')}`,
-    `  session dirs      : ${c.projectRoot ? `${c.projectRoot}/<workspace>` : '~/beads/<workspace>'}`,
+    `  session dirs      : ${c.projectRoot ? `${c.projectRoot}/<workspace>` : 'each workspace\'s own directory'}`,
     `  ntfy              : ${c.ntfy?.enabled ? c.ntfy.topic : 'disabled'}`,
     // Says "NOT on — <reason>" when three of the four pieces are there, because the
     // symptom of that state is otherwise a single line at startup in a log nobody reads.
@@ -129,21 +136,6 @@ if (!tty) {
     `\n${dim('Nothing was changed: this needs an interactive terminal to ask questions.')}\n` +
       `${dim('Run')} ${bold('npm run configure')} ${dim('directly in Terminal or iTerm, or edit the file above by hand.')}\n`
   );
-  process.exit(0);
-}
-
-if (!workspaces.length) {
-  console.log(`\nNo beads workspaces found under ~/beads.`);
-  // The one place this message is actively misleading is the case it is most likely to be
-  // read in: a second engineer with a fresh clone, whose tracker is not something they
-  // should create — it exists already, on a remote, and needs bootstrapping rather than
-  // making. Saying "create one" there is how somebody ends up with an empty private graph
-  // beside the team's.
-  if (teamShared.length) {
-    console.log(`team.json names ${teamShared.join(', ')}: bring it here with ${bold('npm run onboard')}, then re-run this.\n`);
-  } else {
-    console.log(`Create one and re-run: ${bold('npm run configure')}\n`);
-  }
   process.exit(0);
 }
 
@@ -212,7 +204,70 @@ const secret = async (q) => {
 };
 
 console.log(`\n${bold('Beadcause setup')} — Enter accepts the default shown in brackets.`);
-console.log(`Workspaces found: ${workspaces.join(', ')}\n`);
+
+/* -------------------------------------------------------------- where trackers live */
+
+/**
+ * Asked before anything else, because it decides what the rest of the wizard is *about*.
+ *
+ * Every question below this one that names a workspace — which is shared, which is in
+ * which space, which gets an advocate — is asked over the list discovery produced, and a
+ * root added afterwards would be a root whose workspaces nobody was asked about until the
+ * next run.
+ *
+ * It is also the only question that can be answered on a machine with no tracker at all,
+ * which is why the "nothing found" exit sits *after* it rather than before: the install
+ * this setting exists for — a tracker inside the repo it tracks, no `~/beads` on the Mac
+ * — used to be told "No beads workspaces found under ~/beads. Create one and re-run",
+ * which is advice to build the wrong thing in the wrong place.
+ */
+console.log(`\n${bold('1. Where do your beads workspaces live?')}`);
+console.log(
+  dim(
+    '   Comma-separated directories, rediscovered on every start. ~/beads is the usual\n' +
+      '   answer: it holds one subdirectory per workspace. A directory with its own\n' +
+      '   .beads IS one workspace — name the repo itself when the tracker lives inside\n' +
+      '   the repo it tracks, as a team tracker shipped with its own clone does.'
+  )
+);
+const rootsRaw = await ask('   roots:', workspaceRoots(cfg).map(tildeHome).join(', '));
+const roots = [...new Set(rootsRaw.split(',').map((r) => r.trim()).filter(Boolean).map(expandHome))];
+// A root that is not there is kept rather than dropped, and said out loud. Dropping it
+// would be the silent kind of helpful: an external disk that happens to be unplugged
+// today, or a clone that is coming in the next step, and the workspaces under it would
+// leave the config without anything ever saying they had.
+for (const root of roots.filter((r) => !fs.existsSync(r))) {
+  console.log(dim(`   (${tildeHome(root)} is not there yet — kept, and looked at again on every start)`));
+}
+cfg.workspaceRoots = roots.length ? roots : workspaceRoots({});
+cfg.workspaces = reconcileWorkspaces(cfg.workspaces, cfg, { persist: false });
+workspaces = cfg.workspaces.map((w) => w.name);
+
+console.log(`\nWorkspaces found: ${workspaces.join(', ') || '(none)'}\n`);
+
+if (!workspaces.length) {
+  // Written before the exit, and it is the one write this file makes anywhere but the
+  // end. The invariant that protects a *cancelled* run — nothing on disk until the last
+  // question — is not the same as throwing away an answer somebody gave to a question
+  // that was asked: naming the root where a tracker is about to be bootstrapped is
+  // precisely what this run was worth, and re-typing it after `npm run onboard` is a
+  // step nobody should be charged for.
+  saveConfig(cfg);
+  console.log(`No beads workspaces found under ${cfg.workspaceRoots.map(tildeHome).join(', ')}.`);
+  console.log(dim(`(the roots are saved — ${CONFIG_PATH})`));
+  // The one place this message is actively misleading is the case it is most likely to be
+  // read in: a second engineer with a fresh clone, whose tracker is not something they
+  // should create — it exists already, on a remote, and needs bootstrapping rather than
+  // making. Saying "create one" there is how somebody ends up with an empty private graph
+  // beside the team's.
+  if (teamShared.length) {
+    console.log(`team.json names ${teamShared.join(', ')}: bring it here with ${bold('npm run onboard')}, then re-run this.\n`);
+  } else {
+    console.log(`Create one and re-run: ${bold('npm run configure')}\n`);
+  }
+  rl.close();
+  process.exit(0);
+}
 
 /* ------------------------------------------------------------------ your name */
 
@@ -228,7 +283,7 @@ console.log(`Workspaces found: ${workspaces.join(', ')}\n`);
  * The default comes from your git `user.name`, first word only, because the value is
  * read inline in prose. Anything you type is kept as typed.
  */
-console.log(bold('1. What should the agents call you?'));
+console.log(bold('2. What should the agents call you?'));
 console.log(
   dim(
     '   This name goes into every agent prompt, the body of every pull request an\n' +
@@ -268,7 +323,7 @@ const sharedDefault =
     .filter((name) => workspaces.includes(name))
     .join(', ') || 'none';
 
-console.log(bold('2. Which of these are shared with other people?'));
+console.log(bold('3. Which of these are shared with other people?'));
 console.log(
   dim(
     '   Shared workspaces are treated carefully in two ways: their questions push a\n' +
@@ -289,7 +344,7 @@ const shared = /^none$/i.test(sharedRaw)
       .filter(Boolean)
       .filter((name) => {
         const known = workspaces.includes(name);
-        if (!known) console.log(dim(`   (ignoring "${name}" — not a workspace under ~/beads)`));
+        if (!known) console.log(dim(`   (ignoring "${name}" — not a workspace beadcause found)`));
         return known;
       });
 
@@ -305,7 +360,7 @@ for (const name of teamShared.filter((n) => !shared.includes(n))) {
 
 /* --------------------------------------------------------------------- spaces */
 
-console.log(`\n${bold('3. Group them into spaces?')}`);
+console.log(`\n${bold('4. Group them into spaces?')}`);
 console.log(
   dim(
     '   A space is a set of workspaces that share a notification policy — the point\n' +
@@ -339,7 +394,7 @@ if (await yes('   set up spaces? (y/n)', (cfg.spaces || []).length ? 'y' : 'n'))
       const days = await ask('     also quiet all day on (e.g. sat,sun — blank for none):', 'sat,sun');
       if (days.trim()) space.quietDays = days.split(',').map((d) => d.trim().slice(0, 3).toLowerCase()).filter(Boolean);
     }
-    // Shared workspaces were already handled in question 1; this is the space-level
+    // Shared workspaces were already handled in question 3; this is the space-level
     // equivalent, and it keeps applying as you add workspaces to the space later.
     if (picked.some((w) => shared.includes(w))) space.ntfyDetail = 'minimal';
 
@@ -354,20 +409,20 @@ if (await yes('   set up spaces? (y/n)', (cfg.spaces || []).length ? 'y' : 'n'))
 /* ---------------------------------------------------------------- asset roots */
 
 /**
- * "none" rather than a blank line, for the reason question 7 gives below: `ask`
+ * "none" rather than a blank line, for the reason question 8 gives below: `ask`
  * substitutes the default on an empty answer, and the default here is a *guess* — the
  * first of ~/code, ~/src, ~/dev, ~/projects, ~/Projects, ~/work, ~/repos that exists. So
  * on any machine that has one of those, pressing Enter accepted the guess and the prompt
  * that said "Blank to skip" was offering something it could not do. That was bc-4zhv, and
- * it is the same defect question 10 was fixed for: the only way out was to type a path
+ * it is the same defect question 11 was fixed for: the only way out was to type a path
  * that does not exist and let the "does not exist — skipping" branch catch it, which is a
  * wrong answer that happens to fail.
  */
-console.log(`\n${bold('4. Where does your code live?')}`);
+console.log(`\n${bold('5. Where does your code live?')}`);
 console.log(
   dim(
     '   A question can only show you an image or open a document that sits under one\n' +
-      '   of these directories. ~/beads is always included. A path, or "none".'
+      '   of these directories. Your workspace roots are always included. A path, or "none".'
   )
 );
 const guesses = ['code', 'src', 'dev', 'projects', 'Projects', 'work', 'repos'].map((d) => path.join(HOME, d));
@@ -375,7 +430,10 @@ const guess = guesses.find((d) => fs.existsSync(d)) || 'none';
 const codeRootRaw = await ask('   path:', guess);
 const codeRoot = /^(none|skip|-)$/i.test(codeRootRaw.trim()) ? '' : codeRootRaw.trim();
 
-const assetRoots = new Set([path.join(HOME, 'beads'), ...(cfg.assetRoots || [])]);
+// The workspace roots rather than a literal ~/beads: a tracker attaches its images
+// beside itself, and on an install pointed elsewhere the always-included directory was
+// the one place there was nothing to read.
+const assetRoots = new Set([...workspaceRoots(cfg), ...(cfg.assetRoots || [])]);
 if (codeRoot) {
   const resolved = path.resolve(codeRoot.replace(/^~/, HOME));
   if (fs.existsSync(resolved)) assetRoots.add(resolved);
@@ -385,14 +443,14 @@ cfg.assetRoots = [...assetRoots];
 
 /* ----------------------------------------------------------------- projectRoot */
 
-console.log(`\n${bold('5. Does your shell pick a beads workspace from the current directory?')}`);
+console.log(`\n${bold('6. Does your shell pick a beads workspace from the current directory?')}`);
 console.log(
   dim(
-    '   Some setups have a chpwd hook mapping <root>/<repo> to ~/beads/<repo>, often\n' +
-      '   carrying an actor, an API token, or a Claude account along with it. If yours\n' +
-      '   does, a session opened from the phone must start in the matching checkout.\n' +
-      '   Answer n if you are unsure — sessions then open in ~/beads/<workspace>, which\n' +
-      '   always works.'
+    '   Some setups have a chpwd hook mapping <root>/<repo> to the <repo> workspace,\n' +
+      '   often carrying an actor, an API token, or a Claude account along with it. If\n' +
+      '   yours does, a session opened from the phone must start in the matching\n' +
+      '   checkout. Answer n if you are unsure — sessions then open in each workspace\'s\n' +
+      '   own directory, which always works.'
   )
 );
 if (await yes('   shell-derived? (y/n)', 'n')) {
@@ -413,7 +471,7 @@ if (await yes('   shell-derived? (y/n)', 'n')) {
 
 /* ------------------------------------------------------------------------ push */
 
-console.log(`\n${bold('6. Push notifications')}`);
+console.log(`\n${bold('7. Push notifications')}`);
 console.log(
   dim(
     '   The Android app posts its own notifications over your tailnet and needs\n' +
@@ -436,7 +494,7 @@ cfg.ntfy = { ...cfg.ntfy, enabled: await yes('   use ntfy? (y/n)', cfg.ntfy?.ena
  * default, so on a re-run over a configured install a blank would silently keep the
  * channel it was meant to remove.
  */
-console.log(`\n${bold('7. Post questions to a Slack channel as well?')}`);
+console.log(`\n${bold('8. Post questions to a Slack channel as well?')}`);
 console.log(
   dim(
     '   The same question, in a channel, with a button per option — pressing one writes\n' +
@@ -464,7 +522,7 @@ if (slackChannel) {
 
 /* --------------------------------------------------------------- unattended work */
 
-console.log(`\n${bold('8. Should commenting spawn an agent to answer you?')}`);
+console.log(`\n${bold('9. Should commenting spawn an agent to answer you?')}`);
 console.log(
   dim(
     '   Otherwise a comment just sets a label and waits for an agent session to come\n' +
@@ -476,7 +534,7 @@ cfg.autoDispatch = await yes('   auto-dispatch? (y/n)', cfg.autoDispatch === fal
 
 /* -------------------------------------------------------------------- monitor */
 
-console.log(`\n${bold('9. Open the advocate console at login?')}`);
+console.log(`\n${bold('10. Open the advocate console at login?')}`);
 console.log(
   dim(
     '   A browser window on /monitor: what each repo\'s advocate is working on, what it\n' +
@@ -493,7 +551,7 @@ cfg.monitor = {
 
 /* ------------------------------------------------------------------ advocates */
 
-console.log(`\n${bold('10. Which repos should have an advocate?')}`);
+console.log(`\n${bold('11. Which repos should have an advocate?')}`);
 console.log(
   dim(
     '   An advocate watches one repo\'s ready beads and opens a Claude session on each\n' +
@@ -510,7 +568,7 @@ const advocated = /^none$/i.test(advRaw)
       .filter(Boolean)
       .filter((name) => {
         const known = workspaces.includes(name) || name === '*';
-        if (!known) console.log(dim(`   (ignoring "${name}" — not a workspace under ~/beads)`));
+        if (!known) console.log(dim(`   (ignoring "${name}" — not a workspace beadcause found)`));
         return known;
       });
 
@@ -553,7 +611,7 @@ cfg.advocates = { ...(cfg.advocates || {}), workspaces: advocated, maxWorkers, e
  */
 const repoTargets = scanTargets(cfg);
 if (repoTargets.length) {
-  console.log(`\n${bold('11. Which repos may be worked in?')}`);
+  console.log(`\n${bold('12. Which repos may be worked in?')}`);
   console.log(
     dim(
       `   ${repoTargets.map((t) => t.workspace).join(', ')} ${
