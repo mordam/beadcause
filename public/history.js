@@ -100,6 +100,9 @@
      *  over — both straight off the response. */
     total: null,
     errors: [],
+    /** How old the last answer was, off `x-beadcause-kept` — `null` until one has
+     *  landed, which is what keeps the mark off a first paint. See `parseKept`. */
+    kept: null,
     /** What is on screen, newest first, in the order the server sent it. */
     rows: [],
     /** Bumped on every rebuild. An in-flight fetch whose generation has moved on
@@ -129,6 +132,30 @@
     const days = Math.round(hrs / 24);
     if (days < 365) return `${days}d`;
     return `${Math.round(days / 365)}y`;
+  }
+
+  /**
+   * How old the answer was, off the header the daemon puts it on.
+   *
+   *     x-beadcause-kept: stale; age=41; refreshing
+   *
+   * The daemon serves a kept answer immediately and sweeps behind it (lib/cache.js), so
+   * a list can be up to date, ten seconds old, or — if `bd` has started refusing — much
+   * older than that with a failure attached. Those are three different things to be
+   * looking at and only the first is the one this page used to claim silently.
+   *
+   * A missing or unparseable header is `null` rather than a guess: an older daemon does
+   * not send one, and "I do not know how old this is" must not draw as "this is fresh".
+   */
+  function parseKept(value) {
+    if (!value) return null;
+    const parts = String(value).split(';').map((s2) => s2.trim());
+    const age = parts.find((s2) => s2.startsWith('age='));
+    return {
+      stale: parts[0] === 'stale',
+      ageSec: age ? Number(age.slice(4)) || 0 : 0,
+      refreshing: parts.includes('refreshing'),
+    };
   }
 
   /* ------------------------------------------------------------------ the fetch */
@@ -163,6 +190,10 @@
     if (refresh) q.set('refresh', '1');
     const res = await fetch(`/api/history?${q}`, { headers: { 'x-beadcause-token': token } });
     if (!res.ok) throw new Error(res.status === 404 ? 'no ledger here' : `HTTP ${res.status}`);
+    // Every page carries it, and the latest one wins: a scroll that begins on a kept
+    // answer and reaches its fourth page after the sweep landed is looking at fresh rows
+    // by then, and the mark should have gone.
+    state.kept = parseKept(res.headers && typeof res.headers.get === 'function' ? res.headers.get('x-beadcause-kept') : null);
     const data = await res.json();
     const rows = Array.isArray(data.rows) ? data.rows : [];
     state.rows.push(...rows);
@@ -225,6 +256,7 @@
     state.more = true;
     state.total = null;
     state.errors = [];
+    state.kept = null;
     state.loading = false;
     // There is always something to ask for now — every selection is a legal request,
     // including the empty one — so the page is never `ready` before an answer.
@@ -285,17 +317,59 @@
    *  over the repos that answered, so a selection with a repo in `errors[]` would be a
    *  smaller number presented as the whole of it. */
   function countLine(label) {
-    if (state.total == null || state.errors.length) return '';
-    return `<p class="hist-count">${plural(state.total, 'bead')} in ${esc(label)}</p>`;
+    // Suppressed by a repo that could not be read *at all*, because then the number is a
+    // count of some of the selection presented as the whole of it. A repo being drawn
+    // over a failed refresh is not that: every one of its rows is here and counted, they
+    // are simply older, which `keptSuffix` says on the same line.
+    if (state.total == null || state.errors.some((e) => !e || !e.stale)) return '';
+    return `<p class="hist-count">${plural(state.total, 'bead')} in ${esc(label)}${keptSuffix()}</p>`;
   }
 
+  /**
+   * The mark that says you are looking at a kept answer — and it is deliberately quiet.
+   *
+   * A spinner over the list would be worse than the staleness it is announcing: the whole
+   * point of the daemon answering out of memory is that the rows are *there*, instantly,
+   * and covering them to say "these arrived instantly" would be the one change that undoes
+   * the improvement. So it is a clause at the end of the count line, in the muted colour
+   * the count is already in, and it disappears on the repaint that brings fresh rows.
+   *
+   * Nothing is drawn for a fresh answer, and nothing is drawn before one has landed — the
+   * first paint of a cold page must not accuse the daemon of holding something back.
+   */
+  function keptSuffix() {
+    const k = state.kept;
+    if (!k || !k.stale) return '';
+    const secs = Math.max(0, Math.round(k.ageSec));
+    const ago = secs < 60 ? `${secs}s` : `${Math.round(secs / 60)}m`;
+    return ` <span class="hist-kept">· as of ${ago} ago${k.refreshing ? ', refreshing' : ''}</span>`;
+  }
+
+  /**
+   * The repos that would not answer — and the ones being drawn over a failure.
+   *
+   * Two different sentences, because they are two different situations and the old one
+   * was wrong about the second. A repo with `stale: true` **is** on screen: its rows are
+   * the last good sweep, and what has failed is the attempt to replace them. Saying
+   * "could not read it, everything below is the rest of the selection" about a repo whose
+   * rows are half the list is both alarming and untrue. What a person needs told there is
+   * that the list has stopped moving, and how long ago it stopped.
+   */
   function troubleHtml() {
     if (!state.errors.length) return '';
-    const which = state.errors
-      .map((e) => `${esc((e && e.workspace) || 'a repo')} (${esc((e && e.error) || 'would not answer')})`)
-      .join(', ');
-    const rest = state.rows.length ? ' Everything below is the rest of the selection.' : '';
-    return `<p class="hist-trouble">⚠ Could not read ${which}.${rest}</p>`;
+    const named = (e) => `${esc((e && e.workspace) || 'a repo')} (${esc((e && e.error) || 'would not answer')})`;
+    const dead = state.errors.filter((e) => !e || !e.stale);
+    const held = state.errors.filter((e) => e && e.stale);
+    const lines = [];
+    if (dead.length) {
+      const rest = state.rows.length ? ' Everything below is the rest of the selection.' : '';
+      lines.push(`⚠ Could not read ${dead.map(named).join(', ')}.${rest}`);
+    }
+    if (held.length) {
+      const when = state.kept && state.kept.stale ? ` The rows below are as of ${Math.max(0, Math.round(state.kept.ageSec))}s ago.` : '';
+      lines.push(`⚠ ${held.map(named).join(', ')} — showing the last good read.${when}`);
+    }
+    return lines.map((l) => `<p class="hist-trouble">${l}</p>`).join('');
   }
 
   /** The foot of the list: what is left, and the way to ask for it. */
