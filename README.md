@@ -6658,6 +6658,58 @@ the cycle after you tap Noted or dismiss it. `node test/sweepanswer.mjs` drives 
 path through a real `POST /api/respond` — the card stays open, the refusals say which pull
 request they are about, and every other question in the inbox is untouched.
 
+#### A card that outlives its record, and the card as its own backup
+
+Everything above runs off `sweep-cards.json`: one record per open card, holding the repo, the
+checkout, the base and every pull request with its branch. `followSweepCards` iterates *the
+records* and nothing else, and `resolveSweepFor` reads the same record to learn which branch
+an **Answer #n** should open a window on. So a card that has lost its record is not merely
+behind — it is unreachable. Nothing visits it, so it can never be amended and can never
+close; its buttons do nothing; and it sits in the inbox asserting, in its own body, that it
+closes itself when the pull requests come back mergeable, which for that card is untrue and
+always will be.
+
+**This happened, to eight cards in one morning.** On 2026-08-14 thirteen sweep cards were
+filed in beadcause between 02:42Z and 08:24Z and five records survived. The cause is not
+subtle in hindsight and it is worth naming, because the shape of the mistake is general: the
+end of `followSweepCards` used to run `keep(id, null)` — *drop the record* — whenever a card
+was **finished with**, on the reasoning that a card nothing can move on its own has nothing
+left to chase. [The hand-back button](#and-the-hand-back-has-a-button-that-does-something)
+made that false, and the fix that made the drop conditional landed at 07:30Z. Every card
+that reached that line before it — the eight — was orphaned on the cycle it printed
+`is finished — 1 still needs you` in the daemon log, and every card that reached it after was
+kept. The five survivors were not a race or a partial write; they were simply the cards
+processed after the deploy.
+
+**So the record now has a backup, and it is the card.** The card names the merge, the repo,
+the base and every pull request with its branch, because it was written for a human to read —
+and that is a whole record. Every half hour (`RECOVER_EVERY_MS`, not a config key) the daemon
+scans the inbox of each workspace that has a repo, and any open card whose title matches the
+one `sweepCardTitle` writes and which has no record gets one rebuilt from its own body,
+before the follow-up runs so it is chased on the same cycle. Nothing is written to the
+tracker to do it. On a clock of its own rather than every cycle because it is a backstop for
+something having gone wrong, it costs one `bd human list` per workspace, and a card that has
+been orphaned for hours is not made worse by another half hour.
+
+**What is not read back is the states.** Whatever the card says a row was, the missing record
+is proof that nothing has checked it lately, and a row recovered straight into *handed back*
+is a row `chaseRow` returns unchanged forever — the orphan again with extra steps. So every
+rebuilt row starts at `recovering` and GitHub decides, and until it has, **nothing is written
+onto the card**: *we lost our own bookkeeping* is not news about a pull request, and it is
+not worth waking a phone for. A GitHub that never answers is ended by the same four-hour
+window as everything else here, which turns the row into *nothing here can say* — the honest
+version of the same admission, and one you can act on. The refusal is strict for the same
+reason: the title counts the rows and the body lists them, so a card whose body does not
+produce exactly that many rows is not rebuilt at all, because half a record would close a
+card on behalf of a pull request it never asked about.
+
+One drop was removed as well as backstopped. A `bd close` that failed used to drop the
+record — a card in the inbox saying everything is fine is a tap to dismiss rather than a lost
+finding — but that is a card orphaned by one busy tracker, so it is now kept and retried next
+cycle, exactly as a failed amendment already was. `node test/sweepcardorphan.mjs` covers both:
+it asserts the premise (an orphan is invisible to the follow loop), rebuilds a record from a
+real card body and closes the card by the ordinary loop with nothing done by hand.
+
 #### An occupied worktree that reads as idle
 
 The de-duplication above stops the *second window*, and it is worth being honest about what
