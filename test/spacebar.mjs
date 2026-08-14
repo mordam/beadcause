@@ -501,7 +501,12 @@ check('and no page publishes counts to it any more', () => {
   assert.ok(!/function publishCounts/.test(app), 'the inbox still defines publishCounts');
   assert.ok(!/^\s*publishCounts\(/m.test(app), 'the inbox still calls publishCounts');
   const publish = app.slice(app.indexOf('function publishSpaces'), app.indexOf('function publishSpaces') + 1200);
-  assert.ok(!publish.includes('counts'), 'publishSpaces sends counts');
+  // On a word boundary, not a substring. The window is 1200 characters of source rather
+  // than the function, so it reaches whatever is written next to it — and what is written
+  // next to it now is the account chip's publish, which names `/api/accounts`. "accounts"
+  // contains "counts", and a substring test read that as the inbox having put the numbers
+  // back. The field this is about is `counts`, and only that.
+  assert.ok(!/\bcounts\b/.test(publish), 'publishSpaces sends counts');
   assert.ok(!read('public/monitor.js').includes('counts,'), 'the advocate console still publishes counts');
 });
 
