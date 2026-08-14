@@ -198,6 +198,34 @@ cache.clear();
   await check(() => assert.equal(healed.error, null), 'with the failure cleared off the envelope');
 }
 
+/* A failure that lands on an entry still INSIDE its window stays there, and a read will not
+   shift it — the warm path answers from memory without producing, so only a `refresh`, a
+   `drop` or the window running out can clear it. That is a property of a cache and not a
+   bug, but it is a trap for any caller that treats `error` as "report this and move on":
+   lib/prboard.js does, because a red PR card must not outlive the `gh` outage that caused
+   it, which is why it drops the key on the way out rather than only rethrowing. Written
+   down here because this is where somebody will look for it. */
+cache.clear();
+{
+  const p = producer('good');
+  await cache.read('prs:/repo', p.run, FRESH);
+  p.fail = 'gh: could not connect to github.com';
+  await quiet(async () => {
+    await cache.read('prs:/repo', p.run, { ...FRESH, refresh: true });
+  });
+
+  p.fail = null;
+  p.value = 'healed';
+  const warm = await cache.read('prs:/repo', p.run, FRESH);
+  await check(() => assert.match(warm.error || '', /could not connect/), 'a failure on a still-fresh entry is not shifted by a read');
+  await check(() => assert.equal(p.calls, 2), 'because a warm read produces nothing — nothing is asking whether it healed');
+
+  cache.drop('prs:/repo');
+  const after = await cache.read('prs:/repo', p.run, FRESH);
+  await check(() => assert.equal(after.error, null), 'dropping it is what makes the next read find out');
+  await check(() => assert.equal(after.value, 'healed'), 'and the answer is the one from after the outage');
+}
+
 cache.clear();
 {
   const p = producer('never');
@@ -286,6 +314,42 @@ cache.clear();
   await check(() => assert.equal(n, 2), 'a prefix drop takes every scope of one kind');
   await check(() => assert.equal(cache.peek('ledger:a'), null), 'and leaves nothing kept under it');
   await check(() => assert.ok(cache.peek('prs:/repo')), 'while another kind is untouched — which is what the key convention buys');
+}
+
+/* A drop takes the *in-flight* refresh with it, and this is the half that has a caller.
+   lib/prboard.js drops `board:` before a forced sweep rather than only asking for
+   `refresh`, because its producer is the only one in the app that reads another cache —
+   joining a background refresh would hand a merge two-minute-old `gh` rows while the code
+   around it believed it had re-swept. That is only true if a drop really does release the
+   single-flight slot, so: a sweep in flight, a drop, and the next read must start a *second*
+   producer and answer with the second one's value. The first is still allowed to land; what
+   it may not do is become the answer. See `generation` in lib/cache.js. */
+cache.clear();
+{
+  let release;
+  let calls = 0;
+  const slow = () => {
+    calls += 1;
+    const mine = calls;
+    return new Promise((resolve) => {
+      if (mine === 1) release = () => resolve('in flight when the drop happened');
+      else resolve('swept after the drop');
+    });
+  };
+
+  const joined = cache.read('board:', slow, FRESH);
+  cache.drop('board:');
+  const forced = await cache.read('board:', slow, FRESH);
+  await check(() => assert.equal(calls, 2), 'a read after a drop starts its own sweep rather than joining the doomed one');
+  await check(() => assert.equal(forced.value, 'swept after the drop'), 'and answers with the new sweep');
+
+  release();
+  const stranded = await joined;
+  await check(() => assert.ok(stranded), 'the caller stranded on the dropped sweep is still answered rather than left hanging');
+  await check(
+    () => assert.equal(cache.peek('board:').value, 'swept after the drop'),
+    'and the sweep the drop was about may not write itself back in — a merge would have re-read stale rows'
+  );
 }
 
 /* ------------------------------------------------------------------- the ⟳ button */

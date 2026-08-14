@@ -40,6 +40,14 @@
  * 6. **Tracker text cannot write markup into the board.** A bead title is text out of
  *    `bd`; the escaped form is asserted present, not merely the raw tag absent.
  *
+ * 7. **The section itself folds, and folding it must not lose anything** (bc-eevn). Three
+ *    ways that goes wrong and none of them throws: the shut line drops the count, so a
+ *    folded board is indistinguishable from a screen with no epics on it; the fold reaches
+ *    into `state.p0open` and closes the tree you were reading; or it reaches the list
+ *    underneath, and hiding a display quietly empties the inbox. The direction of the flag
+ *    is checked too — it is stored shut-side-true so that every default there has ever
+ *    been, including a state object written before the field existed, reads as open.
+ *
  * No browser, no `bd`, no network. The renderers touch no DOM — they return a string —
  * so they are sliced out of public/app.js and run in a `node:vm` with the four helpers
  * they borrow. See test/jirarow.mjs, whose `lift` this is.
@@ -147,10 +155,11 @@ function lift(src, opener) {
  * whole of what the tap does — so calling this twice with the same `open` list is a
  * faithful stand-in for the poll repaint that the feature has to survive.
  */
-function board(p0s, open = []) {
+function board(p0s, open = [], shut = false) {
   const state = {
     p0board: { owned: true, p0s, under: {} },
     p0open: new Set(open),
+    p0shut: shut,
     space: 'all',
     workspace: 'all',
     spaces: [],
@@ -165,6 +174,7 @@ function board(p0s, open = []) {
       lift(APP, 'const STATUS_LABEL = '),
       lift(APP, 'function graphUrl(q)'),
       lift(APP, 'const P0_INDENT_CAP = '),
+      lift(APP, 'const P0_SECTION_LABEL = '),
       lift(APP, 'function p0HintText(on, total)'),
       lift(APP, 'function p0RowHtml(card, row)'),
       lift(APP, 'function p0TreeHtml(card)'),
@@ -292,7 +302,10 @@ check('only the card whose key was tapped is open', () => {
   const html = board([CARD, OTHER], ['beadcause/bc-p49x']);
   assert.ok(html.includes('bc-p49x.4'), 'the tapped card did not open');
   assert.ok(!html.includes('bc-rfnr.9.2'), 'the other card opened too');
-  assert.equal((html.match(/aria-expanded="true"/g) || []).length, 1);
+  // Counted on the cards only. The section heading is a disclosure too since bc-eevn, and
+  // an open board is a third `aria-expanded="true"` that says nothing about which card
+  // was tapped — so this matches the attribute where it sits on a `data-p0` button.
+  assert.equal((html.match(/data-p0="[^"]+" aria-expanded="true"/g) || []).length, 1);
 });
 
 check('and the toggle writes state rather than poking the DOM', () => {
@@ -310,6 +323,73 @@ check('and the toggle writes state rather than poking the DOM', () => {
 
 check('the board is still one reconcile chunk, which is why the set has to exist', () => {
   assert.match(APP, /chunks\.push\(\{ key: '@p0', html: p0s \}\)/);
+});
+
+console.log('\nthe section folds away');
+
+check('the heading is the control, and it says what the section is', () => {
+  const html = board([CARD, OTHER]);
+  assert.match(html, /<button type="button" class="p0-kind" data-act="p0-fold" aria-expanded="true"/);
+  assert.match(html, /Epics assigned to you/);
+  // The old name, gone from the screen and from what a screen reader announces for the
+  // region — both, because half a rename is a section that reads one way and is called
+  // another.
+  assert.ok(!html.includes('Your P0s'), 'the board still calls itself Your P0s');
+  assert.match(html, /aria-label="Epics assigned to you"/);
+});
+
+check('shut, the cards are gone and the count is not', () => {
+  const html = board([CARD, OTHER], [], true);
+  assert.ok(!html.includes('p0-card'), 'a shut board is still drawing its cards');
+  assert.ok(!html.includes('The inbox is a P0 board'), 'a shut board is still drawing its titles');
+  // How many epics are behind the fold. Without it, a folded board is indistinguishable
+  // from a screen with no epics on it — which is the one thing this section exists to
+  // never be (bc-rfnr.2).
+  assert.match(html, /class="p0-kind-n">2</);
+  assert.match(html, /aria-expanded="false"/);
+  assert.match(html, /Epics assigned to you/);
+});
+
+check('the fold is display only — what was open inside it is still open when it comes back', () => {
+  const shut = board([CARD, OTHER], ['beadcause/bc-rfnr'], true);
+  assert.ok(!shut.includes('p0-tree'), 'a shut board is drawing a tree');
+  const back = board([CARD, OTHER], ['beadcause/bc-rfnr'], false);
+  assert.ok(back.includes('p0-tree'), 'unfolding the board lost the tree that was open');
+  assert.equal(back, board([CARD, OTHER], ['beadcause/bc-rfnr']), 'shut defaults to open');
+});
+
+check('an absent `p0shut` is an open board, on every state object that predates the field', () => {
+  // The direction of the flag is the whole safety argument: stored shut-side-true, every
+  // default there has ever been — an older page, a missing localStorage key, a state
+  // object built before bc-eevn — reads as the board showing.
+  assert.ok(board([CARD], [], undefined).includes('p0-card'));
+  assert.match(APP, /p0shut: localStorage\.getItem\('beadcause\.p0shut'\) === '1'/);
+});
+
+check('the tap writes the preference as well as the state, and pokes no DOM', () => {
+  const at = APP.indexOf("if (act === 'p0-fold') {");
+  assert.notEqual(at, -1, 'the fold handler is gone');
+  const branch = APP.slice(at, at + 500);
+  const body = branch.slice(0, branch.indexOf('\n    }'));
+  assert.match(body, /state\.p0shut = !state\.p0shut/);
+  // Persisted on the tap. The next thing that happens to this page is a poll, and there
+  // is no later save — a reload before the write is the fold undoing itself.
+  assert.match(body, /localStorage\.setItem\('beadcause\.p0shut'/);
+  assert.match(body, /render\(true\)/);
+  assert.ok(!/classList|\.hidden|innerHTML|querySelector/.test(body), 'the fold is reaching into the DOM');
+  // And it leaves the cards' own open set alone: folding the board away is putting it
+  // down, not closing the epic you were reading in it.
+  assert.ok(!body.includes('p0open'), 'folding the board also closed the trees inside it');
+});
+
+check('folding changes nothing about the list underneath', () => {
+  // `underOwnedP0s` is what narrows the inbox to your epics' descendants, and it reads
+  // the board data rather than whether the board is on screen. A fold that narrowed the
+  // list too would be a control that quietly empties the inbox.
+  const at = APP.indexOf('function underOwnedP0s(rows)');
+  assert.notEqual(at, -1, 'underOwnedP0s is gone');
+  const fn = APP.slice(at, APP.indexOf('\n  }', at));
+  assert.ok(!fn.includes('p0shut'), 'the inbox filter is reading whether the board is folded');
 });
 
 console.log('\nthe edges');
@@ -351,6 +431,7 @@ check('the three no-op cases are untouched: no `me`, no P0s, an old payload', ()
       lift(APP, 'const STATUS_LABEL = '),
       lift(APP, 'function graphUrl(q)'),
       lift(APP, 'const P0_INDENT_CAP = '),
+      lift(APP, 'const P0_SECTION_LABEL = '),
       lift(APP, 'function p0HintText(on, total)'),
       lift(APP, 'function p0RowHtml(card, row)'),
       lift(APP, 'function p0TreeHtml(card)'),
@@ -381,6 +462,21 @@ check('the tap region is stripped back to text and keeps a phone-sized target', 
   const rule = CSS.slice(at, CSS.indexOf('}', at));
   assert.match(rule, /min-height: 44px/);
   assert.match(rule, /text-align: left/);
+});
+
+check('the heading is a real tap target, and the count sits at the far end', () => {
+  const at = CSS.indexOf('.p0-kind {');
+  assert.notEqual(at, -1, 'public/style.css has no .p0-kind');
+  const rule = CSS.slice(at, CSS.indexOf('}', at));
+  // Shut, this line is the only way back to the board — so it is a thumb target rather
+  // than the 11px label it used to be, and it is the width of the section.
+  assert.match(rule, /min-height: var\(--tap\)/);
+  assert.match(rule, /width: 100%/);
+  const n = CSS.slice(CSS.indexOf('.p0-kind-n {'), CSS.indexOf('}', CSS.indexOf('.p0-kind-n {')));
+  assert.match(n, /margin-left: auto/);
+  // The chevron the fold turns is the shared one, so it rotates off `aria-expanded`
+  // rather than off a second rule that could drift from it.
+  assert.match(CSS, /\[aria-expanded='true'\] > \.chev/);
 });
 
 console.log(`\n${failures ? `\x1b[31m${failures} of ${ran} failed\x1b[0m` : `\x1b[32mall good\x1b[0m (${ran})`}\n`);

@@ -18,6 +18,10 @@
  *    activate, the fetch handler and a failed `cache.put` each relay; the offline path
  *    does not, because being in a tunnel is not a bug; and a worker with no page open
  *    drops the report rather than throwing inside the thing that was recording it.
+ *    That offline path is also *what it answers with*, which is more than reporting and
+ *    is here because this is where the harness for it already lived: a URL that carries
+ *    its state in the query string is served the cached page rather than the index
+ *    (bc-nib3.11), and the login screen is still neither stored nor served.
  * 2. **The page end**, with a hand-made `navigator.serviceWorker`, proving the relayed
  *    message becomes `POST /api/error` with everything a report costs still spent — and
  *    that `startMessages()` is called, without which the listener is registered, correct,
@@ -244,13 +248,17 @@ await check('a cache that refuses to answer is relayed — that one is not the t
 });
 
 await check('and the last resort is watched too, not only the first look', async () => {
-  // The request misses cleanly and then the index page — the fallback of the fallback —
-  // is what the storage chokes on. An easy one to leave uncovered by hanging the
-  // rejection handler off the first `caches.match` alone.
-  let asked = 0;
+  // The request misses cleanly — exactly, and then with its query string set aside — and
+  // it is the index page, the fallback of the fallback, that the storage chokes on. An
+  // easy one to leave uncovered by hanging the rejection handler off the first
+  // `caches.match` alone. Keyed on the argument rather than on a call count, because
+  // only the last resort asks for a path as a string.
   const sw = loadWorker({
     fetch: () => Promise.reject(new Error('Failed to fetch')),
-    match: () => (++asked === 1 ? Promise.resolve(undefined) : Promise.reject(new Error('UnknownError: Database deleted'))),
+    match: (req) =>
+      typeof req === 'string'
+        ? Promise.reject(new Error('UnknownError: Database deleted'))
+        : Promise.resolve(undefined),
   });
   const out = await outcome(sw.request('/app.js'));
   await settle();
@@ -268,6 +276,112 @@ await check('nothing cached at all rejects with the path, rather than answering 
   assert.ok(out.error, 'respondWith was handed undefined, which is a network error nobody can read');
   assert.match(out.error.message, /nothing cached for \/history\.js/);
   assert.equal(sw.posted.length, 0, 'an empty cache offline is not worth a bead per request');
+});
+
+/* ------------------------------------------- the offline answer to a narrowed URL */
+
+/*
+  bc-nib3.11. `Cache.match` keys on the whole URL and no path in SHELL carries a query
+  string, so every URL in this app that holds its state in the query — the History tab's
+  four filters, and every home-screen shortcut built on them — used to miss the cache
+  outright and land the reader on the index page with nothing said. What follows is that
+  answer, and the two things it must not disturb on the way past.
+*/
+
+/**
+ * A cache holding exactly these paths, answering the way `Cache.match` answers.
+ *
+ * The whole URL is the key, and only `{ ignoreSearch: true }` will put
+ * `/history?status=closed` onto a stored `/history` — which is the one behaviour every
+ * check below turns on, so a stub that matched on pathname alone would pass them all
+ * against a worker that had not changed at all.
+ */
+function cacheOf(paths) {
+  const held = new Map(paths.map((p) => [p, { body: `cached ${p}` }]));
+  const asked = [];
+  const match = (req, opts) => {
+    const url = new URL(typeof req === 'string' ? req : req.url, 'http://127.0.0.1:4317');
+    const ignoreSearch = !!(opts && opts.ignoreSearch);
+    asked.push({ path: url.pathname + url.search, ignoreSearch });
+    const exact = held.get(url.pathname + url.search);
+    if (exact) return Promise.resolve(exact);
+    return Promise.resolve(ignoreSearch ? held.get(url.pathname) : undefined);
+  };
+  return { match, asked, held };
+}
+
+await check('a filtered ledger URL offline serves the cached ledger rather than the inbox', async () => {
+  const cache = cacheOf(['/', '/history']);
+  const sw = loadWorker({ fetch: () => Promise.reject(new Error('Failed to fetch')), match: cache.match });
+  const out = await outcome(sw.request('/history?status=closed&priority=P0'));
+  await settle();
+  assert.deepEqual(out.value, { body: 'cached /history' }, 'the shortcut opened the index page instead of the ledger');
+  assert.ok(!cache.asked.some((a) => a.path === '/'), 'it reached the last resort with the page it wanted in the cache');
+  assert.equal(sw.posted.length, 0, 'a phone offline on a filtered URL filed a bead');
+});
+
+await check('the exact entry still wins over the one the query string was set aside for', async () => {
+  // A cache can hold both, because anything fetched online is stored under the URL it
+  // was asked for. The one that was asked for is the one to answer with; the widened
+  // match is a fallback, not a replacement.
+  const cache = cacheOf(['/', '/history', '/history?status=closed']);
+  const sw = loadWorker({ fetch: () => Promise.reject(new Error('Failed to fetch')), match: cache.match });
+  const out = await outcome(sw.request('/history?status=closed'));
+  await settle();
+  assert.deepEqual(out.value, { body: 'cached /history?status=closed' });
+  assert.deepEqual(cache.asked, [{ path: '/history?status=closed', ignoreSearch: false }], 'it looked further than it needed to');
+});
+
+await check('a query string on a path nothing has cached still falls through to the index', async () => {
+  const cache = cacheOf(['/']);
+  const sw = loadWorker({ fetch: () => Promise.reject(new Error('Failed to fetch')), match: cache.match });
+  const out = await outcome(sw.request('/nowhere?status=closed'));
+  await settle();
+  assert.deepEqual(out.value, { body: 'cached /' }, 'the offline navigation lost its last resort');
+  assert.deepEqual(
+    cache.asked.map((a) => `${a.path}${a.ignoreSearch ? ' (ignoreSearch)' : ''}`),
+    ['/nowhere?status=closed', '/nowhere?status=closed (ignoreSearch)', '/'],
+    'the three looks, in order'
+  );
+});
+
+await check('the login page is still never served from cache — a next= param widens onto nothing', async () => {
+  // The one thing dropping a query string could plausibly have broken. It does not:
+  // there is no `/login` entry to widen onto, because `fetchAndStore` never stores one,
+  // and the path in a `next=` parameter is a parameter rather than a path.
+  const cache = cacheOf(['/', '/history']);
+  const sw = loadWorker({ fetch: () => Promise.reject(new Error('Failed to fetch')), match: cache.match });
+  const out = await outcome(sw.request('/login?next=/history?status=closed'));
+  await settle();
+  assert.deepEqual(out.value, { body: 'cached /' }, 'a credentialed page was served for a login request');
+});
+
+await check('and the other half of that: a login screen is never stored in the first place', async () => {
+  const answer = (res) => (request) => Promise.resolve({ ok: true, status: 200, clone: () => ({ body: 'copy' }), ...res(request) });
+  const stored = [];
+  const put = (req) => {
+    stored.push(typeof req === 'string' ? req : req.path);
+    return Promise.resolve();
+  };
+
+  // A page asked for without a credential: 302 → /login, followed by `fetch`, so `ok` is
+  // true and the body is the login screen under the path that was wanted.
+  const redirected = loadWorker({ put, fetch: answer(() => ({ redirected: true, url: 'http://127.0.0.1:4317/login' })) });
+  await outcome(redirected.request('/history'));
+  await settle();
+  assert.deepEqual(stored, [], 'a login screen was cached under the page that was asked for');
+
+  // And the page asked for by name, which is not a redirect at all.
+  const byName = loadWorker({ put, fetch: answer(() => ({ redirected: false, url: 'http://127.0.0.1:4317/login' })) });
+  await outcome(byName.request('/login'));
+  await settle();
+  assert.deepEqual(stored, [], 'the login page was cached by name');
+
+  // The control, without which the two above pass against a `put` that is never called.
+  const ordinary = loadWorker({ put });
+  await outcome(ordinary.request('/history'));
+  await settle();
+  assert.deepEqual(stored, ['/history'], 'an ordinary page is stored, so the two refusals above mean something');
 });
 
 await check('a response that cannot be stored is relayed — a full phone stops caching silently', async () => {

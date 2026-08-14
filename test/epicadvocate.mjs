@@ -308,6 +308,53 @@ check('THE DAEMON READS THE ADVOCATE’S OWN STORE, NOT THE WORKER’S', () => {
   assert.ok(!/notesIn\(dir, 'worker'\)/.test(body), 'it is being handed the worker’s notes');
 });
 
+/* --------------------------------------------------- tier 4, in the one window that
+   could not see it (bc-nib3.9) */
+
+check('THE BRIEF ASKS FOR A DEBRIEF, AND NAMES IT AS THE THIRD THING', () => {
+  // The write half. A supervisor already leaves two things behind — the waiting-on
+  // sentence and its notes — so the failure this guards against is not "it says nothing
+  // about memory", it is the closing step reading as a restatement of those two. The
+  // command has to be there and it has to be distinguished from them.
+  const text = epicAdvocatePrompt('beadcause', p0(), [], null, 'Adam');
+  assert.match(text, /beadcause-memory debrief "/, 'the P0 advocate is never asked for a report on its visit');
+  const at = text.indexOf('beadcause-memory debrief');
+  assert.ok(at > text.indexOf(WAITING_CLOSE), 'the report is asked for before the sentence the card draws');
+  assert.ok(at < text.indexOf('Two things you may not do'), 'and it is not the last word — the refusals are');
+});
+
+check('AND IT IS HANDED WHAT ITS PREVIOUS VISITS LEFT', () => {
+  // The read half, without which the ask above is the write-only diary bc-714o refused
+  // to build the other half of.
+  const debriefs = [
+    { bead: 'zz-p0', at: '2026-08-13T09:00:00Z', text: 'The build here needs vendor run first; two hours lost to that.' },
+  ];
+  const text = epicAdvocatePrompt('beadcause', p0(), [], null, 'Adam', { debriefs });
+  assert.match(text, /two hours lost to that/, 'the last visit’s report is not in the brief');
+  assert.match(text, /an earlier run at this bead/, 'and it is not attributed, so its weight cannot be judged');
+});
+
+check('and a P0 nobody has reported on gets no heading at all', () => {
+  // `notesBrief`’s rule, for `debriefBrief`’s reason: a heading with nothing under it
+  // teaches this agent that the section is furniture, and it is re-opened for weeks.
+  const text = epicAdvocatePrompt('beadcause', p0(), [], null, 'Adam', { debriefs: [] });
+  assert.ok(!text.includes('What the last runs at this bead actually hit'), 'an empty tier 4 section is still drawn');
+});
+
+check('AND THE DOOR STAMPS THE BEAD, WHICH IS THE HALF NO BRIEF CAN SHOW', () => {
+  // The whole of bc-nib3.9 in one argument: `launch` writes `BEADCAUSE_BEAD` only when
+  // it is handed a bead, and this door passed an agent and no bead — so `beadcause-memory
+  // debrief` refused in the one window opened on the same bead for weeks. Pinned as
+  // source for the same reason the notes-store check above is: reaching the call needs a
+  // tracker, a checkout and a window, and this is one property.
+  const src = fs.readFileSync(path.join(HERE, '..', 'lib', 'session.js'), 'utf8');
+  const from = src.indexOf('export async function openEpicAdvocateSession');
+  assert.ok(from > 0, 'openEpicAdvocateSession has been renamed — re-point this check');
+  const body = src.slice(from, src.indexOf('\n}\n', from));
+  assert.match(body, /agent: EPIC_ADVOCATE, bead: row\.id/, 'the P0 advocate is opened with no bead, so debrief refuses');
+  assert.match(body, /debriefs: await debriefsFor\(dir, row\)/, 'and it is asked for a report it is never shown one of');
+});
+
 /* ------------------------------------------------------------------------ done */
 
 await cleanupTmp(tmp);

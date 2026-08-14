@@ -69,6 +69,7 @@ const check = (name, cond, detail = '') => (cond ? ok(name) : bad(name, detail))
 const { cardsForDelivery, deliveryBody } = await import(LIB('delivery.js'));
 const { Bd } = await import(LIB('bd.js'));
 const { readOwed, oweClose, sweepOwed, OWED_PATH } = await import(LIB('owed.js'));
+const { isClaimGuard } = await import(LIB('bd.js'));
 const { readSweepRequests, MERGE_SWEEPS_PATH } = await import(LIB('mergesweep.js'));
 
 /* ------------------------------------------------------------ which card is which */
@@ -149,11 +150,21 @@ if (args[0] === 'comments') { process.stdout.write('[]'); process.exit(0); }
 if (args[0] === 'close') {
   const issue = w.issues[args[1]];
   if (!issue) die('Error: no issue found matching "' + args[1] + '"');
+  const forced = args.includes('--force') || args.includes('-f');
   const open = (issue.dependencies || [])
     .filter((d) => d.dependency_type === 'blocks')
     .filter((d) => ((w.issues[d.id] || {}).status || 'closed') !== 'closed')
     .map((d) => d.id);
-  if (open.length) die('cannot close ' + issue.id + ': blocked by open issues [' + open.join(' ') + '] (use --force to override)');
+  if (open.length && !forced) die('cannot close ' + issue.id + ': blocked by open issues [' + open.join(' ') + '] (use --force to override)');
+  // bd 1.2.1's claim guard, quoted from the real binary (bc-9d37.13). It is here rather
+  // than in the assertions because it is the *binary's* behaviour, and the point of the
+  // cases below is that beadcause's own code copes with it. --force lifts it, which was
+  // measured against bd 1.2.1 rather than read out of --help, where it is undocumented.
+  const assignee = issue.assignee || '';
+  const actor = flag('--actor') || '';
+  if (assignee && actor && assignee !== actor && !forced) {
+    die('cannot close ' + issue.id + ': assignee is "' + assignee + '", actor is "' + actor + '"; reclaim or use --force to override');
+  }
   issue.status = 'closed';
   issue.close_reason = flag('--reason') || '';
   save();
@@ -538,6 +549,86 @@ console.log('\nthe retry, unattended\n');
 
 for (const s of servers) s.close?.();
 if (servers[0]?.front) servers[0].front.close?.();
+
+/* -------------------------------------------- bc-9d37.13: the 1.2.1 claim guard */
+
+console.log('\na delivery closing the bead its own worker claimed\n');
+
+{
+  // The bug, in the state every delivered bead is actually in: the worker claimed it, so
+  // the assignee is a git identity, and everything beadcause runs carries the `beadcause
+  // (…)` byline. bd 1.2.1 refuses that close. Before the fix this was `failed`, kept, and
+  // retried with the identical command every poll cycle forever — three real records were
+  // stuck in exactly that loop when this was filed.
+  const bd = new Bd({ bin: FAKE_BD, actor: 'beadcause (neadamthal@gmail.com)' });
+  reset();
+  const w = world();
+  w.issues['zz-work'].assignee = 'neadamthal@gmail.com';
+  w.issues['zz-work'].dependencies = [];
+  writeWorld(w);
+  oweClose({ workspace: 'demo', id: 'zz-work', reason: 'Merged #7 as c5004cce into main', why: 'the claim guard' });
+
+  const swept = await sweepOwed(bd, cfg.workspaces);
+  check('the retry closes it over the claim guard', swept[0]?.status === 'closed', JSON.stringify(swept));
+  check('and it really is closed', world().issues['zz-work'].status === 'closed', world().issues['zz-work'].status);
+  // The whole reason --force was chosen over reclaim-then-close: the tracker keeps saying
+  // who did the work. `bd update --assignee <actor>` would also have cleared the refusal,
+  // and would have overwritten this with the daemon's byline on every delivered bead.
+  check('the worker keeps the credit', world().issues['zz-work'].assignee === 'neadamthal@gmail.com', String(world().issues['zz-work'].assignee));
+  check('and nothing is left owing it', Object.keys(readOwed()).length === 0, JSON.stringify(readOwed()));
+}
+
+{
+  // The half that must NOT be forced. `--force` lifts the blocker refusal too, so a close
+  // that was refused for a *live blocker* has to stay refused — otherwise this fix would
+  // quietly close gated beads, which is a much worse bug than the one it repairs.
+  const bd = new Bd({ bin: FAKE_BD, actor: 'beadcause (neadamthal@gmail.com)' });
+  reset();
+  const w = world();
+  w.issues['zz-work'].assignee = 'neadamthal@gmail.com';
+  writeWorld(w);
+  oweClose({ workspace: 'demo', id: 'zz-work', reason: 'Merged #7', why: 'blocked by zz-pr' });
+
+  const swept = await sweepOwed(bd, cfg.workspaces);
+  check('a blocked bead is still blocked, claim guard or not', swept[0]?.status === 'blocked', JSON.stringify(swept));
+  check('it is not closed', world().issues['zz-work'].status !== 'closed', world().issues['zz-work'].status);
+  check('and the record is kept, because that one really does clear on its own', Object.keys(readOwed()).length === 1, JSON.stringify(readOwed()));
+  fs.rmSync(OWED_PATH, { force: true });
+}
+
+{
+  // An assignee that matches the actor was never the problem, and must not start paying
+  // for one: the plain close still goes through on the first attempt, with no --force
+  // anywhere near it. Asserted on the calls rather than on the outcome, because both
+  // paths end with a closed bead and only one of them steps over a guard.
+  const bd = new Bd({ bin: FAKE_BD, actor: 'neadamthal@gmail.com' });
+  reset();
+  const w = world();
+  w.issues['zz-work'].assignee = 'neadamthal@gmail.com';
+  w.issues['zz-work'].dependencies = [];
+  writeWorld(w);
+  fs.writeFileSync(BD_LOG, '');
+  oweClose({ workspace: 'demo', id: 'zz-work', reason: 'Merged #7', why: 'the lock' });
+
+  const swept = await sweepOwed(bd, cfg.workspaces);
+  const calls = fs.readFileSync(BD_LOG, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l));
+  check('a matching assignee closes on the first try', swept[0]?.status === 'closed', JSON.stringify(swept));
+  check('and nothing was forced', !calls.some((c) => c.includes('--force')), JSON.stringify(calls.filter((c) => c[0] === 'close')));
+  fs.rmSync(OWED_PATH, { force: true });
+}
+
+{
+  // isClaimGuard is what decides whether --force is reached for at all, so it is worth
+  // asserting directly against the three refusals bd 1.2.1 actually emits — two of which
+  // also end in "use --force to override" and must not match.
+  check('the claim guard is recognised', isClaimGuard(new Error('cannot close bc-x: assignee is "a", actor is "b"; reclaim or use --force to override')));
+  check('a blocked close is not', !isClaimGuard(new Error('cannot close blocked issue: cg-0yq is blocked by [cg-aed] (use --force to override)')));
+  check('nor is an open child', !isClaimGuard(new Error('cannot close cg-pvg: 1 open child issue(s); close children first or use --force to override')));
+  check('and it reads stderr, not only the message', isClaimGuard({ message: 'Command failed', stderr: 'cannot close bc-x: assignee is "a", actor is "b"; reclaim' }));
+  check('nothing at all is not a claim guard', !isClaimGuard(null) && !isClaimGuard(undefined));
+}
+
 await cleanupTmp(tmp);
+
 console.log(failures ? `\n${failures} of ${ran} failed\n` : `\nall ${ran} passed\n`);
 process.exit(failures ? 1 : 0);
