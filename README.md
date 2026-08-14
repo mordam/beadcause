@@ -13337,23 +13337,28 @@ original `<dir> no longer exists`.
 Which leaves the installs that had already worked around this by hand, and they get the
 migration rather than a note telling them to make one. Any saved `workspaces` entry that
 **cannot have come from discovery** — its directory is not `~/beads/<its name>/.beads` —
-is copied into `workspaceDirs` on the next start, and says so. Nothing changes
-about what is served: the entry was already in the list and already pointed there, and
-this only writes down *why*, so that it survives the directory going away for an
-afternoon. It is bounded by reading the config rather than by a spent flag — a name
-already in `workspaceDirs` is never touched, so an explicit `null` cannot be undone by
-it, and a directory that is not there is left for reconciliation to drop rather than
-pinned as a rule that would warn on every start forever.
+is copied into `workspaceDirs` on the next start. Nothing changes about what is served:
+the entry was already in the list and already pointed there, and this only writes down
+*why*, so that it survives the directory going away for an afternoon. It is bounded by
+reading the config rather than by a spent flag — a name already in `workspaceDirs` is
+never touched, so an explicit `null` cannot be undone by it, and a directory that is not
+there is left for reconciliation to drop rather than pinned as a rule that would warn on
+every start forever.
 
-Every one of those notices goes to **stderr**, which is the same argument [the base URL
-makes](#the-url-you-are-given-and-what-happens-to-a-phone-that-already-has-one) and is
-not a matter of taste. Every `bin/*.js` here loads the config, and several of them exist
-to print one value something else parses — `bin/file.js` prints the id it filed, and
-callers read it with `stdout.trim()`. A workspace notice on stdout does not appear
-*beside* that id, it becomes *part of* it: the bead lands, the id read back is a
-sentence, and the caller reports that nothing was filed. Both `test/autoendorse.mjs` and
-`test/filing.mjs` failed exactly that way while this was being written, which is why the
-`adding workspace` line moved with the new ones.
+**It says nothing while doing it**, and the drop and pick-up notices moved to stderr —
+neither is a matter of taste, and both were measured. `loadConfig` is not the daemon's:
+it is every `bin/*.js` in the repo, and both of a CLI's streams are contracts. **stdout
+is parsed** — `bin/file.js` prints the id it filed and callers read it with
+`stdout.trim()`, so a notice there does not appear *beside* the id, it becomes *part of*
+it, and the caller reports that nothing was filed over a bead sitting in the tracker
+(`test/autoendorse.mjs` and `test/filing.mjs`, both red). **stderr is asserted empty on
+the happy path** — "nothing was reported, because nothing went wrong" is
+`test/park.mjs`, which is how the adoption notice went red immediately after being moved
+off stdout to fix the first one. So a normalisation nothing went wrong in is not news,
+and it leaves its own record: the key it writes is in the config file. A write that
+*fails* is news, and is warned about. This is the same argument [the base URL
+makes](#the-url-you-are-given-and-what-happens-to-a-phone-that-already-has-one) for its
+own notice, arrived at from the other end.
 
 ### Where the remote goes, and why beadcause will not choose for you
 

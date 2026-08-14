@@ -290,43 +290,62 @@ test('legacy:adoption-touches-nothing-else', async () => {
 });
 
 /**
- * Every one of these notices goes to **stderr**, and this is the case that caught it.
+ * The two stream contracts, both of which this broke while it was being written.
  *
- * `bin/file.js` prints the id it filed and callers read it with `stdout.trim()`. A
- * workspace notice on stdout does not appear beside that id — it becomes part of it, and
- * the caller then reports that nothing landed while the bead is sitting in the tracker.
- * That is exactly how `test/autoendorse.mjs` failed while this was being written, and it
- * is the argument `reconcileBaseUrl` already makes for the base-URL notice.
+ * `loadConfig` is not the daemon's — it is every `bin/*.js` in the repo, and both of a
+ * CLI's streams are load-bearing. **stdout is parsed**: `bin/file.js` prints the id it
+ * filed and callers read it with `stdout.trim()`, so a notice there does not appear
+ * beside the id, it becomes part of it — the bead lands, the id read back is a sentence,
+ * and the caller reports that nothing was filed. That is how `test/autoendorse.mjs` and
+ * `test/filing.mjs` went red. **stderr is asserted empty on the happy path**: "nothing
+ * was reported, because nothing went wrong" is `test/park.mjs`, and that is how the
+ * adoption notice went red after being moved off stdout to fix the first one.
+ *
+ * So: a load with something to report keeps it off stdout, and a load whose only act is
+ * the adoption reports nothing at all.
  */
-test('quiet:never-on-stdout', async () => {
+const captured = (fn) => {
+  const out = [];
+  const err = [];
+  const [log, warn, error] = [console.log, console.warn, console.error];
+  console.log = (...a) => out.push(a.join(' '));
+  console.warn = (...a) => err.push(a.join(' '));
+  console.error = (...a) => err.push(a.join(' '));
+  try {
+    fn();
+  } finally {
+    [console.log, console.warn, console.error] = [log, warn, error];
+  }
+  return { out, err };
+};
+
+test('quiet:notices-never-land-on-stdout', async () => {
   const gone = beadsUnderHome('gone');
   beadsUnderHome('appearing');
-  const checkout = beadsInCheckout('climative.dev', 'architecture');
-  // One config that will make it say all three things at once: adopt the hand-added
-  // entry, drop the retired one, and pick up the workspace it has never seen.
-  writeConfig({
-    workspaces: [
-      { name: 'architecture', dir: path.join(checkout, '.beads') },
-      { name: 'gone', dir: gone },
-    ],
-    workspaceDirs: { gone: null },
-  });
+  // A config that will make it say two things at once: drop the retired one, and pick up
+  // the workspace it has never seen.
+  writeConfig({ workspaces: [{ name: 'gone', dir: gone }], workspaceDirs: { gone: null } });
   const { loadConfig } = await import(LIB('config.js'));
 
-  const out = [];
-  const log = console.log;
-  console.log = (...a) => out.push(a.join(' '));
-  try {
-    loadConfig();
-  } finally {
-    console.log = log;
-  }
-
+  const { out, err } = captured(() => loadConfig());
   assert.deepEqual(
     out.filter((line) => /workspace/i.test(line)),
     [],
     `a workspace notice on stdout corrupts whatever the command was printing, got: ${JSON.stringify(out)}`,
   );
+  assert.equal(err.filter((line) => /adding workspace appearing/.test(line)).length, 1, 'it is still said, on stderr');
+  assert.equal(err.filter((line) => /dropping workspace gone/.test(line)).length, 1, 'and so is the drop');
+});
+
+test('quiet:adoption-says-nothing-at-all', async () => {
+  const checkout = beadsInCheckout('climative.dev', 'architecture');
+  writeConfig({ workspaces: [{ name: 'architecture', dir: path.join(checkout, '.beads') }] });
+  const { loadConfig } = await import(LIB('config.js'));
+
+  const { out, err } = captured(() => loadConfig());
+  assert.deepEqual(savedConfig().workspaceDirs, { architecture: path.join(checkout, '.beads') }, 'it did adopt');
+  assert.deepEqual(out, [], `a CLI's stdout is parsed, got: ${JSON.stringify(out)}`);
+  assert.deepEqual(err, [], `and its stderr is asserted empty when nothing went wrong, got: ${JSON.stringify(err)}`);
 });
 
 /* ------------------------------------------------------------------- running */
