@@ -468,7 +468,7 @@ const numbers = (rows) => rows.map((r) => r.number).sort((a, b) => a - b);
   // A merge into `main` says nothing about a branch based on `release-2`, and a resolver
   // sent to it would merge the wrong base in. Asserted as an absence *and* as a count, so
   // a filter that dropped every row would not pass this by accident.
-  const accounted = numbers(out.handed.concat(out.queued, out.reused, out.theirs, out.mergeable, out.drafts, out.unresolved, out.failed, out.trouble));
+  const accounted = numbers(out.handed.concat(out.queued, out.reused, out.unreachable, out.theirs, out.mergeable, out.drafts, out.unresolved, out.failed, out.trouble));
   check('every open pull request the sweep looked at is accounted for', out.open === 8 && out.checked === 6 && accounted.length === 6, JSON.stringify({ open: out.open, checked: out.checked, accounted }));
   check('and a pull request based on another branch was not one of them', !accounted.includes(17) && !accounted.includes(10), JSON.stringify(accounted));
 

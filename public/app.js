@@ -5972,49 +5972,6 @@
     }
 
     /**
-     * Both answers to the notification prompt — see dismissAskHtml().
-     *
-     * The keys go back up with the tap rather than the server re-deciding on its own,
-     * so what is cleared is exactly what the sentence you read was counting. A bead
-     * that started ringing in between is not covered by it.
-     *
-     * The pane goes on the tap, before the write. If the write fails the server state
-     * is unchanged, so the next poll brings the same ask straight back — which is the
-     * right way round: a prompt that reappears is recoverable, a prompt that hangs
-     * about after you answered it is not.
-     */
-    if (act === 'shade-clear' || act === 'shade-leave') {
-      const ask = state.dismissAsk;
-      const clear = act === 'shade-clear';
-      state.dismissAsk = null;
-      render(true);
-      if (!ask?.keys?.length) return;
-      // Counted for exactly the reason the filter's own writes are: the 25s poll is
-      // very likely to be in flight when you tap, and its payload was assembled before
-      // this write landed. Without the guard, answering the prompt would be followed by
-      // the same prompt sliding back onto the screen a second later.
-      shadeWrites += 1;
-      try {
-        const res = await api('/api/notifications/dismiss', {
-          method: 'POST',
-          body: JSON.stringify({ confirm: clear, keys: ask.keys }),
-        });
-        const n = clear ? res.cleared ?? 0 : res.left ?? 0;
-        toast(
-          clear
-            ? `Cleared ${n} notification${n === 1 ? '' : 's'} — the bead${n === 1 ? '' : 's'} stay${n === 1 ? 's' : ''} open`
-            : `Left ${n === 1 ? 'it' : 'them'} on the phone`
-        );
-      } catch (err) {
-        // The server state is unchanged, so the next poll offers the same ask again.
-        toast(err.message, true);
-      } finally {
-        shadeWrites -= 1;
-      }
-      return;
-    }
-
-    /**
      * Put a conversation away — the ✕ on a chat card.
      *
      * One tap, no arm-then-confirm, exactly as the launcher's ✕ has always been. The
