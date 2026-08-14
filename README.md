@@ -2798,6 +2798,21 @@ file a report against somebody else's work, and afterwards that is indistinguish
 their having written it. A window with no bead — a ship window, a rebase window — is
 stamped with nothing, and `debrief` refuses there rather than guessing.
 
+**And that refusal caught one window it should never have applied to.** The P0 advocate is
+opened, closed and re-opened on the *same bead* for weeks, and it was the one bead-shaped
+door passing an agent and no bead — so tier 4 could not see the session that had the most
+to say to its own successor. It was not an oversight in tier 4: that agent landed after
+this store was written, and the merge took the union of the two signatures without
+extending it. `openEpicAdvocateSession` now passes `bead: row.id` beside `agent`, and its
+brief asks for a report as the *third* thing it leaves behind, next to the two it already
+did — the waiting-on sentence, which is one line of current state for a phone, and its
+notes, which are what is still true next week. What a visit actually was fitted neither,
+so it was written as a belief that went stale or not written at all. One honest delay
+comes with it: an advocate window has no worker record, `archiveSession` runs over those,
+so what it writes stays staged until the next planner or worker session on that P0 folds
+it in — the same rider the paragraph below describes for a daemon that was down, stamped
+with a plainly older time. Archiving the advocate window itself is `bc-nib3.13`.
+
 **Writes append rather than replace, and there is no key to replace by.** Two calls in one
 run are two things that happened, not a correction of the first. That is the difference
 from the other two stores and it falls out of what this one is: `note` and `remember` hold
@@ -2836,6 +2851,13 @@ names it, the way the notes section names its own.
 The epic planner gets the same section, and is arguably the reader it serves best: the
 reports its children's runs left are the only first-hand account of which parts of an epic
 turned out to be entangled, which is the exact question a plan answers.
+
+The P0 advocate gets it too, and the same graph rule narrows it further without a line of
+special-casing: a root P0 has no parent, so it has no siblings, so what arrives is the
+reports of previous runs at *that P0* and nothing else. That is the right answer twice —
+it is this agent's own account of its last visit, which a window that starts from the bead
+every time has never had, and it cannot be swamped by twenty children's afternoons the way
+its notes section would be if the same widening were tried there.
 
 `test/debrief.mjs` covers the seam, because the store is written by one module and
 consumed by another and every interesting failure is invisible from either side alone: a
