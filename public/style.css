@@ -771,6 +771,32 @@ body {
   border-radius: var(--radius);
   overflow: hidden;
 }
+
+/*
+  Shut, the whole card is the way into it — bc-rfnr.9.3 took the "Show details"
+  button off the top bar, and the `data-act` the article carries while it is shut is
+  what the list's delegated handler resolves a tap on the body to. These two rules
+  are the whole of *saying so*, and they are load-bearing in that order:
+
+  `cursor: pointer` is the desktop half, and on iOS it is also what makes `:active`
+  fire on a non-button element at all — Safari sends the pressed state only to
+  elements it has decided are clickable, and this is the property it decides by.
+
+  The press tint is the affordance a phone actually has: no hover on a thumb, no
+  chevron on these cards, so what says "control" is the row going down under the
+  finger, which is what every native list does. `:has()` keeps it off the card when
+  the thing being pressed is a control *on* the card — a proposal's ✓ tinting the
+  whole card would say the card was about to open, which is the one thing that tap
+  does not do.
+
+  Deliberately no `user-select: none`. Text in a card has to stay selectable, and it
+  is the handler that drops a tap ending in a live selection — a stylesheet that
+  forbade the selection would have made the guard untestable and the id uncopyable.
+*/
+.card[data-act] { cursor: pointer; }
+.card[data-act]:active:not(:has(button:active, a:active, input:active, textarea:active, label:active)) {
+  background: var(--surface-2);
+}
 /* `.card.answering` — a 50% dim held over the card for as long as bd took — used to
    live here, with a "Recording your answer…" row under it. Both are gone: the card
    now leaves on the tap and the answer flies to the mark as a bead, which says the
@@ -1320,8 +1346,8 @@ body {
 .pr-num { flex: none; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-weight: 700; color: var(--accent); }
 .pr-title { flex: 1; min-width: 0; font-size: 14px; font-weight: 590; line-height: 1.35; }
 .pr-branch { font-size: 12px; color: var(--muted); }
-/* The session's own account of what it did, on the card rather than behind
-   "Show details" — merge is two taps from here, so what you would want to have read
+/* The session's own account of what it did, on the card rather than behind the tap
+   that opens it — merge is two taps from here, so what you would want to have read
    before those two taps has to be above them. */
 .pr-summary { display: flex; flex-direction: column; gap: 9px; }
 .pr-summary .md { font-size: 13px; line-height: 1.55; }
@@ -1733,14 +1759,20 @@ body {
 }
 
 /*
-  The card's top bar. Reading on the left, acting on the right — and on an open card
-  the ⋮ and the way out beyond that, hard right because that is the side a thumb
-  reaches on a phone and the same side in both corners, so collapsing is one habit
-  rather than two.
+  The card's top bar. Acting on the card, hard right — and on an open card the ⋮ and
+  the way out beyond that, on the same side because that is the side a thumb reaches
+  on a phone and the same side in both corners, so collapsing is one habit rather
+  than two.
 
-  It wraps rather than shrinking: at 393px a three-bead proposal's two bulk buttons
-  and the details toggle do not fit on one line, and a bar that squeezed them would
-  clip a label whose whole job is to say how many beads the next tap creates.
+  Reading used to be a "Show details" button hard left of all that, and bc-rfnr.9.3
+  took it out: the card is the control now (see cardBodyOpens in public/app.js), so
+  the bar holds only what *acts*. A shut card that is not a proposal therefore has no
+  bar at all — cardTopHtml returns nothing rather than an empty row, because the
+  padding here and the `+ .card-head` rule below are both visible on an empty one.
+
+  It still wraps rather than shrinking: at 393px a three-bead proposal's two bulk
+  buttons can want two lines, and a bar that squeezed them would clip a label whose
+  whole job is to say how many beads the next tap creates.
 */
 .card-top {
   display: flex; flex-wrap: wrap;
@@ -1748,8 +1780,6 @@ body {
   gap: 8px;
   padding: 12px 15px 0;
 }
-/* Hard left, and the only thing on the bar that is about reading the card. */
-.card-top > .detail { margin-right: auto; }
 /* The head brings its own top padding; with a row above it that reads as a gap. */
 .card-top + .card-head { padding-top: 6px; }
 .agent-card .card-top { padding: 10px 14px 0; }

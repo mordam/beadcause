@@ -435,7 +435,7 @@ try {
 
   /* --------------------------------------------- the two cards with their own controls */
 
-  await evalJs(s, `document.querySelector('${card(PROP_KEY)} [data-act="toggle"]').click()`);
+  await evalJs(s, `document.querySelector('${card(PROP_KEY)}[data-act="toggle"]').click()`);
   if (!(await waitFor(s, `!!document.querySelector('${card(PROP_KEY)} [data-role="answer"]')`)))
     throw new Error('the proposal card never opened');
   await sleep(250);
@@ -446,7 +446,7 @@ try {
     JSON.stringify(prop.opts.map((o) => o.label))
   );
 
-  await evalJs(s, `document.querySelector('${card(PR_KEY)} [data-act="toggle"]').click()`);
+  await evalJs(s, `document.querySelector('${card(PR_KEY)}[data-act="toggle"]').click()`);
   if (!(await waitFor(s, `!!document.querySelector('${card(PR_KEY)} [data-role="answer"]')`)))
     throw new Error('the delivery card never opened');
   await sleep(250);

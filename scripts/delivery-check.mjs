@@ -681,7 +681,7 @@ try {
     await sleep(200);
     if (await evalJs(s, `!!${CARD(PROP_KEY)}`)) break;
   }
-  await evalJs(s, `${CARD(PROP_KEY)}.querySelector('[data-act="toggle"]').click()`);
+  await evalJs(s, `${CARD(PROP_KEY)}.click()`);
   await sleep(500);
 
   let r1 = await evalJs(s, ROW_VIEW(1));

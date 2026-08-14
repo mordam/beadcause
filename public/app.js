@@ -765,24 +765,33 @@
    * full-width buttons under the question, none of which answered it, and the one
    * that did the work looked exactly like the two that did not.
    *
-   * So they come up here. Reading (the details toggle) is hard left; acting on the
-   * whole card (a proposal's bulk approve/decline) is hard right, next to the way
-   * out. The foot keeps only what is genuinely a second body of content — the
-   * session log — and an answer box, when there is one, is then the only full-width
-   * control on the card.
+   * So they come up here. Acting on the whole card (a proposal's bulk
+   * approve/decline) is hard right, next to the way out. The foot keeps only what is
+   * genuinely a second body of content — the session log — and an answer box, when
+   * there is one, is then the only full-width control on the card.
+   *
+   * **There is no "Show details" here any more** (bc-rfnr.9.3). Reading used to be a
+   * button hard left on every collapsed card, which is a control saying "this is a
+   * card you can open" beside a card you can open: the card itself is the control
+   * now, and `cardBodyOpens` in the list's click handler is what makes the body of a
+   * shut one a tap target. An open card never had a "Hide details" either — collapse
+   * is that button, and it stays exactly where it was.
    *
    * Two things stay conditional on `open`, because closed the card is a row in a
-   * list: the kebab, and collapse. And an open card does *not* also get a "Hide
-   * details" — collapse is that button, one row to the right of where it would go.
+   * list: the kebab, and collapse. So on a shut card this bar holds only a
+   * proposal's bulk pair, and on a shut card that is not a proposal it holds nothing
+   * at all — which is why it returns the empty string rather than an empty row. A
+   * `.card-top` with nothing in it is still 12px of padding, and it also pulls
+   * `.card-head`'s own top padding down to 6 (see `.card-top + .card-head`), so an
+   * empty one is not invisible: it is a gap where the head used to start.
    */
-  function cardTopHtml(q, opts = {}) {
+  function cardTopHtml(q) {
     const on = state.menu === q.key;
     const open = state.open.has(q.key);
+    const bulk = propBulkHtml(q);
+    if (!open && !bulk) return '';
     return `<div class="card-top">
-      ${open ? '' : `<button class="top-btn detail" data-act="toggle" data-key="${esc(q.key)}">${esc(
-        opts.detailLabel || 'Show details'
-      )}</button>`}
-      ${propBulkHtml(q)}
+      ${bulk}
       ${
         open
           ? `<div class="menu-wrap">
@@ -1529,10 +1538,10 @@
   /**
    * What the session said about its own work — on the card, not in the brief.
    *
-   * Everywhere else in the inbox, context lives behind *Show details*, because a
-   * question is a sentence and the brief is the argument for it. A delivery is the
-   * other way round: the question is always the same four words, and the argument is
-   * the entire content. Merge is two taps from the collapsed card, so anything you
+   * Everywhere else in the inbox, context lives behind the tap that opens the card,
+   * because a question is a sentence and the brief is the argument for it. A delivery
+   * is the other way round: the question is always the same four words, and the
+   * argument is the entire content. Merge is two taps from the collapsed card, so anything you
    * would want to have read before those two taps has to be above them.
    *
    * Folded when it is long, by the same machinery and for the same reason as a
@@ -1788,6 +1797,11 @@
    * is made here now, not on github.com. The second is mechanical — the whole row is one
    * tap target, and an `<a>` inside it was a nested interactive element a phone could
    * resolve either way.
+   *
+   * The `data-act` on the article is the *rest* of the card (bc-rfnr.9.3): the row
+   * button was never quite the whole of it, and a tap on the note underneath was a tap
+   * on nothing. The button is nearer, so `closest('[data-act]')` still resolves the row
+   * itself through the button and this only picks up what falls outside it.
    */
   function prCardHtml(row) {
     const card = window.beadcause?.prCard;
@@ -1795,7 +1809,7 @@
     if (!card || !p) return '';
     if (state.open.has(row.key)) return prFullHtml(row, p, card);
     return `<article class="card pr-card" id="card-${cardId(row.key)}" data-key="${esc(row.key)}"
-      data-stage="${esc(p.stage)}">
+      data-act="pr-open" data-stage="${esc(p.stage)}">
       <button class="work-row pr-row" type="button" data-act="pr-open" data-key="${esc(row.key)}"
         aria-expanded="false">
         ${card.bodyHtml(p, { repo: true })}
@@ -2595,9 +2609,6 @@
     // whether GitHub will take it, which a generic option button cannot.
     const opts = q.proposal?.beads?.length || q.delivery ? [] : d?.options || [];
     const open = state.open.has(q.key);
-    const hasBrief = Boolean(
-      d?.diagrams?.length || d?.links?.length || d?.docs?.length || d?.images?.length || q.sections.length || d?.context
-    );
 
     const chosen = pickedOption(q);
     const options = opts
@@ -2633,12 +2644,20 @@
     // read one at a time, and on a phone expanding inline meant the brief, the thread
     // and the answer box all competed with the list around them. openOnly() is what
     // keeps "one at a time" true.
+    //
+    // **Shut, the card is its own control** (bc-rfnr.9.3): `data-act="toggle"` is on
+    // the article itself, so the delegated handler resolves a tap anywhere on it — the
+    // title, the pills, the whitespace beside them — to the same branch the "Show
+    // details" button used to reach. `closest('[data-act]')` is what keeps that from
+    // swallowing what is inside: every control on a shut card carries its own
+    // `data-act` and is therefore nearer, and `cardBodyOpens` handles the ones that
+    // carry none (links, boxes, a selection you are making). It is on the article only
+    // while shut, because an open card's way out is `↑ Collapse` and a body that also
+    // collapsed would close the sheet under the first tap on a paragraph.
     return `<article class="card${open ? ' open' : ''}${draft ? ' has-draft' : ''}${
       q.awaitingAgent ? ' replied' : ''
-    }" id="card-${cardId(q.key)}" data-key="${esc(q.key)}">
-      ${cardTopHtml(q, {
-        detailLabel: draft ? 'Resume your answer' : hasBrief ? 'Show details' : 'Write an answer',
-      })}
+    }" id="card-${cardId(q.key)}" data-key="${esc(q.key)}"${open ? '' : ' data-act="toggle"'}>
+      ${cardTopHtml(q)}
       <div class="card-head">
         <div class="meta">
           <span class="pill">${esc(q.workspace)}</span>
@@ -2969,10 +2988,18 @@
    *
    * Smaller type than a question, too. There can be two hundred of these and eleven
    * questions; they must not compete for attention with the thing that needs you.
+   *
+   * Shut, it is its own control, exactly as a question card is — see the comment on
+   * `cardHtml`. The one difference is where "shut" is read from: this card expands
+   * *inline* and never wears `.open`, so `state.open` is the only thing that knows,
+   * and the `Graph →` link is the reason `cardBodyOpens` has to guard anchors rather
+   * than trusting `data-act` to be everywhere.
    */
   function agentCardHtml(q) {
     const open = state.open.has(q.key);
-    return `<article class="card agent-card" id="card-${cardId(q.key)}" data-key="${esc(q.key)}">
+    return `<article class="card agent-card" id="card-${cardId(q.key)}" data-key="${esc(
+      q.key
+    )}"${open ? '' : ' data-act="toggle"'}>
       ${cardTopHtml(q)}
       <div class="card-head">
         <div class="meta">
@@ -3628,7 +3655,7 @@
     // Which workspace's JIRA this came off. Drawn for the same reason a chat row draws
     // its repo: with two workspaces configured, the ticket key alone does not say which
     // project you are looking at.
-    return `<div class="card jira-card" data-key="${esc(row.key)}">
+    return `<div class="card jira-card" data-key="${esc(row.key)}" data-act="jira-open">
       <button class="work-row" type="button" data-act="jira-open" data-key="${esc(row.key)}"
         aria-expanded="false">
         <span class="work-phase">🎫</span>
@@ -5460,9 +5487,48 @@
     if (state.menu) closeMenu();
   });
 
+  /**
+   * Everything on a shut card that a tap must reach *instead of* opening it.
+   *
+   * A shut card carries its own `data-act` (bc-rfnr.9.3), so the card is the control
+   * and there is no "Show details" button any more. The delegation does most of the
+   * containment for free — every control drawn on a card has a `data-act` of its own
+   * and is therefore nearer than the article, so `closest()` picks it and the card
+   * never hears about it. This is the list of what carries none:
+   *
+   * - **`a[href]`** — the agent card's `Graph →`, and any link inside rendered
+   *   markdown. Following a link and expanding the card underneath it is two things
+   *   from one tap, and the one you did not ask for is the one that stays behind when
+   *   you come back.
+   * - **The native form elements** — a box you are typing in, a checkbox, the label
+   *   that stands for it. `label` matters on its own: a tap on the words next to a
+   *   checkbox is a tap on the checkbox, and the checkbox is what the tap was for.
+   * - **`pre`** and **`summary`** — the session log pane, which is a scroller you drag
+   *   sideways, and a native disclosure, which is its own toggle. Both are read rather
+   *   than pressed for this.
+   *
+   * And a **live selection** beats all of it. Selecting a bead id to copy ends in a
+   * click on the card, and a card that expanded under every attempt to copy the one
+   * line worth copying would be the exact trap this bead names. `toString()` on an
+   * empty selection is `''`, so this only fires when there is really something
+   * selected; `getSelection` is optional-chained because a fake DOM in a test has no
+   * reason to implement it.
+   */
+  const CARD_BODY_KEEPS_TAP = 'a[href], button, input, textarea, select, label, summary, pre, [contenteditable]';
+
+  function cardBodyOpens(ev, card) {
+    const inner = ev.target.closest?.(CARD_BODY_KEEPS_TAP);
+    if (inner && card.contains(inner)) return false;
+    if (String(window.getSelection?.() ?? '').trim()) return false;
+    return true;
+  }
+
   listEl.addEventListener('click', async (ev) => {
     const btn = ev.target.closest('[data-act]');
     if (!btn) return;
+    // The tap landed on the card itself rather than on anything drawn on it — see
+    // cardBodyOpens for what that has to keep its hands off.
+    if (btn.classList.contains('card') && !cardBodyOpens(ev, btn)) return;
     const key = btn.dataset.key;
     const act = btn.dataset.act;
 
