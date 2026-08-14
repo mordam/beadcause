@@ -184,6 +184,9 @@ await check('A TRACKER THAT COULD NOT ANSWER IS ASKED AGAIN', async () => {
   const beads = createBranchBeads({ cfg: cfgFor('zz'), bd, attribute: claims.attribute, log: (m) => said.push(m) });
   assert.equal(await beads.follow(CHECKOUT, 'worktree-freeze-timers-p49x5'), '', 'no answer, and no claim of one');
   assert.match(said.join('\n'), /could not resolve a bead/);
+  await beads.follow(CHECKOUT, 'worktree-freeze-timers-p49x5');
+  await beads.follow(CHECKOUT, 'worktree-freeze-timers-p49x5');
+  assert.equal(said.length, 1, 'said once per branch, not once per edit — an outage must stay readable');
   down = false;
   assert.equal(await beads.follow(CHECKOUT, 'worktree-freeze-timers-p49x5'), 'zz-p49x.5', 'a Dolt lock is not a verdict');
 });
