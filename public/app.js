@@ -113,6 +113,21 @@
     space: 'all',
     workspace: 'all',
     open: new Set(),
+    /**
+     * Which P0 cards are showing their tree, by card key (`workspace/id`). bc-rfnr.9.2.
+     *
+     * Page state rather than DOM state, and that is the whole of how an open tree
+     * survives a poll. The board is one reconcile chunk keyed `@p0` (see
+     * `p0SectionHtml`), so every sweep that moves a single count replaces the whole
+     * section's HTML — a `hidden` toggled on a node, or an `open` on a `<details>`,
+     * would fold up under your thumb every 25 seconds. Rebuilt from this set on each
+     * render instead, so a repaint redraws exactly what was open.
+     *
+     * Not persisted across a reload, unlike the filter: which epics are unfolded is
+     * where you are looking *now*, and a phone that comes back to four expanded trees
+     * is a screen you have to fold up before you can read it.
+     */
+    p0open: new Set(),
     armed: null, // key of the control awaiting its confirm tap
     armedTimer: null,
     // Which option each card's answer is currently making — `key → option id`.
@@ -4657,6 +4672,88 @@
   }
 
   /**
+   * How far the tree indents before it stops indenting — see `.p0-row` in style.css.
+   *
+   * Three steps, so a fourth generation draws level with the third rather than another
+   * notch in from it. A phone is 360px wide and a bead title needs most of them: an
+   * indent that kept stepping would put the sixth level's titles off the right edge of
+   * a card, and this tracker nests six deep in places (bc-rfnr.9.2 is itself a
+   * grandchild). Depth past the cap is not lost — the rows are still in parent order,
+   * and the row above a deeper one is its parent.
+   */
+  const P0_INDENT_CAP = 3;
+
+  /**
+   * The line under the title saying what a tap does, and how much there is.
+   *
+   * It carries the *total* where the count above it carries what is open, which is the
+   * one number the collapsed card was missing: "9 open" says nothing about whether the
+   * epic is nine of ten or nine of sixty. And it is the honest place to say a P0 has
+   * nothing under it at all — a card promising a tree and opening on one sentence is a
+   * worse read than a card that said so with its mouth shut.
+   */
+  function p0HintText(on, total) {
+    if (on) return 'Tap to fold it up';
+    if (!total) return 'Nothing filed under it yet';
+    return `Tap for ${total === 1 ? 'the one bead' : `all ${total} beads`} under it`;
+  }
+
+  /**
+   * One descendant, as a row in its P0's tree.
+   *
+   * A link to the graph rather than a control, for now: bc-rfnr.9.4 turns this into an
+   * expansion in place with the bead's details, its PRs and its session under it, and
+   * until it does, a row that swallowed the tap and did nothing would be worse than the
+   * one destination this app already has for a bead nobody is asking about.
+   *
+   * `pending` is the server's word for "this bead is itself a question" (see `p0Card`),
+   * and it is drawn because it is the reason to scroll a tree at all — bc-rfnr.9.7 takes
+   * the flat list of questions away, and this pill is where they go.
+   *
+   * Only a non-open status is drawn. There can be sixty rows here, and sixty pills all
+   * saying `open` is the default restated sixty times.
+   */
+  function p0RowHtml(card, row) {
+    const status = String(row.status || 'open');
+    const closed = status === 'closed';
+    // `depth` arrives 1-based from `treeUnder` — a direct child is 1 — so the indent is
+    // one step per level *below* the first, capped as above.
+    const step = Math.min(Math.max(Number(row.depth) || 1, 1), P0_INDENT_CAP + 1) - 1;
+    return `<a class="p0-row${closed ? ' done' : ''}${row.pending ? ' asks' : ''}" style="--d:${step}" href="${esc(
+      `${graphUrl({ workspace: card.workspace, id: row.id })}&open=1`
+    )}">
+      <span class="p0-row-id">${esc(row.id)}</span>
+      ${row.pending ? '<span class="pill p0-asks">asks you</span>' : ''}
+      ${
+        status === 'open'
+          ? ''
+          : `<span class="pill st-${esc(status)}">${esc(STATUS_LABEL[status] || status)}</span>`
+      }
+      <span class="p0-row-title">${esc(row.title || '')}</span>
+    </a>`;
+  }
+
+  /**
+   * Everything under one P0, drawn off the `tree` the server already built (bc-rfnr.9.1):
+   * every descendant at any depth, flat and pre-order with a `depth` on each row. Nesting
+   * is therefore an indent and never a walk — the client does no graph work at all.
+   *
+   * **A P0 with nothing under it says so.** An epic that has not been broken down yet is
+   * the single most likely card to be tapped, and a tap that opens a blank gap reads as a
+   * tree that failed to load — which is a bug report about the poll rather than the true
+   * answer, which is that nobody has filed anything under it.
+   */
+  function p0TreeHtml(card) {
+    const rows = card.tree || [];
+    if (!rows.length) {
+      return `<div class="p0-none">Nothing under this one yet — no beads hang off ${esc(card.id)}.</div>`;
+    }
+    return `<div class="p0-tree" id="p0tree-${cardId(card.key || `${card.workspace}/${card.id}`)}">${rows
+      .map((row) => p0RowHtml(card, row))
+      .join('')}</div>`;
+  }
+
+  /**
    * The P0s you own, as their own section at the top — not sorted to the top.
    *
    * The difference is the whole bead. `byUrgency` would put a P0 first *today*, and on the
@@ -4671,6 +4768,13 @@
    * `waitingOn` is drawn only when it is there. It is the EpicAdvocate's sentence to write
    * (bc-rfnr.3) and is null until that lands — a placeholder saying "nothing" would be a
    * claim, where an absent line is honestly nothing yet.
+   *
+   * **The summary is the control (bc-rfnr.9.2).** Everything above the tree is one
+   * `<button>` that opens the card, which is why the id and the title are no longer
+   * anchors: an anchor inside a button is not valid, and the way to the graph moved to
+   * `.p0-graph` beside the advocate. What is open lives in `state.p0open` and the section
+   * is rebuilt from it every render — and that is not a style choice, it is the only
+   * shape that survives the chunk above being replaced whole 25 seconds later.
    */
   /**
    * The one control on a P0 card, in its three states — and the point of bc-d6yk is that
@@ -4724,16 +4828,34 @@
     );
     if (!mine.length) return '';
     const cards = mine
-      .map(
-        (c) => `<div class="p0-card">
-          <div class="p0-head"><a class="pill id" href="${esc(`${graphUrl(c)}&open=1`)}">${esc(c.id)}</a>${
-            c.inFlight ? `<span class="p0-flight">${c.inFlight} in flight</span>` : ''
-          }<span class="p0-open">${c.open === 1 ? '1 open' : `${c.open} open`}</span></div>
-          <a class="p0-title" href="${esc(`${graphUrl(c)}&open=1`)}">${esc(c.title || '')}</a>
-          ${c.waitingOn ? `<div class="p0-waiting">${esc(c.waitingOn)}</div>` : ''}
-          ${p0Control(c)}
-        </div>`
-      )
+      .map((c) => {
+        // The card's own key, with the same fallback the server's shape makes
+        // unnecessary — `p0Card` sends one — because it is the identity the open set is
+        // held by, and a card whose key came back undefined would make every card on the
+        // board expand and collapse together.
+        const key = c.key || `${c.workspace}/${c.id}`;
+        const on = state.p0open.has(key);
+        const tree = c.tree || [];
+        return `<div class="p0-card${on ? ' on' : ''}" data-key="${esc(key)}">
+          <button type="button" class="p0-tap" data-act="p0" data-p0="${esc(key)}" aria-expanded="${on}"${
+            on ? ` aria-controls="p0tree-${cardId(key)}"` : ''
+          }>
+            <span class="p0-head"><span class="pill id">${esc(c.id)}</span>${
+              c.inFlight ? `<span class="p0-flight">${c.inFlight} in flight</span>` : ''
+            }<span class="p0-open">${c.open === 1 ? '1 open' : `${c.open} open`}</span><span class="p0-caret" aria-hidden="true">${
+              on ? '▾' : '▸'
+            }</span></span>
+            <span class="p0-title">${esc(c.title || '')}</span>
+            ${c.waitingOn ? `<span class="p0-waiting">${esc(c.waitingOn)}</span>` : ''}
+            <span class="p0-hint">${p0HintText(on, tree.length)}</span>
+          </button>
+          ${on ? p0TreeHtml(c) : ''}
+          <div class="p0-acts">
+            ${p0Control(c)}
+            <a class="p0-graph" href="${esc(`${graphUrl(c)}&open=1`)}">🕸 Graph</a>
+          </div>
+        </div>`;
+      })
       .join('');
     return `<section class="p0-board" aria-label="Your P0s"><div class="p0-kind">Your P0s</div>${cards}</section>`;
   }
@@ -5468,6 +5590,71 @@
         btn.disabled = false;
         btn.textContent = was;
         toast(err.message, 'refused');
+      }
+      return;
+    }
+
+    /**
+     * Open a P0's tree, or fold it up. bc-rfnr.9.2.
+     *
+     * On its own `data-p0` for the same reason the advocate button is on `data-bead`:
+     * a P0 card is not an inbox row and `data-key` on the branches below means a bead
+     * key. The set is the only record of what is open — see `state.p0open` — so this
+     * is a state write and a repaint, with no DOM poked directly at all. That is what
+     * makes it survive the poll: the next sweep re-renders from the same set.
+     *
+     * `render(true)` because a tap is a tap: forced past the half-typed-answer guard,
+     * the way the card toggles above already are.
+     */
+    if (act === 'p0') {
+      const p0 = btn.dataset.p0;
+      closeMenu();
+      closeAgentMenu();
+      if (state.p0open.has(p0)) state.p0open.delete(p0);
+      else state.p0open.add(p0);
+      render(true);
+      return;
+    }
+
+    /**
+     * Both answers to the notification prompt — see dismissAskHtml().
+     *
+     * The keys go back up with the tap rather than the server re-deciding on its own,
+     * so what is cleared is exactly what the sentence you read was counting. A bead
+     * that started ringing in between is not covered by it.
+     *
+     * The pane goes on the tap, before the write. If the write fails the server state
+     * is unchanged, so the next poll brings the same ask straight back — which is the
+     * right way round: a prompt that reappears is recoverable, a prompt that hangs
+     * about after you answered it is not.
+     */
+    if (act === 'shade-clear' || act === 'shade-leave') {
+      const ask = state.dismissAsk;
+      const clear = act === 'shade-clear';
+      state.dismissAsk = null;
+      render(true);
+      if (!ask?.keys?.length) return;
+      // Counted for exactly the reason the filter's own writes are: the 25s poll is
+      // very likely to be in flight when you tap, and its payload was assembled before
+      // this write landed. Without the guard, answering the prompt would be followed by
+      // the same prompt sliding back onto the screen a second later.
+      shadeWrites += 1;
+      try {
+        const res = await api('/api/notifications/dismiss', {
+          method: 'POST',
+          body: JSON.stringify({ confirm: clear, keys: ask.keys }),
+        });
+        const n = clear ? res.cleared ?? 0 : res.left ?? 0;
+        toast(
+          clear
+            ? `Cleared ${n} notification${n === 1 ? '' : 's'} — the bead${n === 1 ? '' : 's'} stay${n === 1 ? 's' : ''} open`
+            : `Left ${n === 1 ? 'it' : 'them'} on the phone`
+        );
+      } catch (err) {
+        // The server state is unchanged, so the next poll offers the same ask again.
+        toast(err.message, true);
+      } finally {
+        shadeWrites -= 1;
       }
       return;
     }

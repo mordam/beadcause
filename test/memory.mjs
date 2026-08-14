@@ -114,6 +114,7 @@ fs.writeFileSync(path.join(store, 'status.json'), '{}');
 fs.writeFileSync(path.join(store, 'restart.json'), '{"at":"2026-08-11T00:00:00.000Z"}');
 fs.writeFileSync(path.join(store, 'merge-sweeps.json'), '{"beadcause":{"workspace":"beadcause","key":"beadcause","number":9}}');
 fs.writeFileSync(path.join(store, 'sweep-cards.json'), '{"bc-1":{"card":"bc-1","workspace":"beadcause","prs":[]}}');
+fs.writeFileSync(path.join(store, 'coverage.json'), '{"commit":"abc","files":[]}');
 fs.mkdirSync(path.join(store, 'logs'), { recursive: true });
 fs.writeFileSync(path.join(store, 'logs', 'run.log'), 'noise');
 fs.writeFileSync(path.join(store, 'config.json'), JSON.stringify({ token: 'abc' }, null, 2) + '\n');
@@ -136,6 +137,9 @@ check('merge-sweeps.json churn is not tracked', !tracked.includes('merge-sweeps.
 // And its follow-up half: the rows of the card a sweep filed, deleted the moment the last
 // resolver stops. The history worth keeping is the bead it is about (bc-9d37.5).
 check('sweep-cards.json churn is not tracked', !tracked.includes('sweep-cards.json'), tracked.join(' '));
+// And the coverage report (lib/coverage.js): a few hundred kilobytes rewritten whole by
+// every `npm run coverage`, and true only of the commit stamped inside it (bc-vriu.2).
+check('coverage.json churn is not tracked', !tracked.includes('coverage.json'), tracked.join(' '));
 check('logs/ is not tracked', !tracked.some((f) => f.startsWith('logs/')), tracked.join(' '));
 
 check('an unchanged directory produces no commit', (await commit('nothing')) === null);
