@@ -269,12 +269,15 @@ data class Event(
      */
     val quietReason: String?,
     /**
-     * Why a `dismissed` event happened — `"filtered"` today, and nothing else.
+     * Why a `dismissed` event happened — `"filtered"` (the inbox was narrowed past this
+     * bead) or `"addressed"` (the question was handed to somebody else from the card, so
+     * it has stopped being this Mac's to answer).
      *
      * Separate from [quietReason], which says why the phone stayed *dark* for an
      * arrival. This says why a row already in the shade was taken away, and the two
-     * would be confusing to read off one field even though today they both say
-     * "filtered". Null from a server too old to send it.
+     * would be confusing to read off one field even where they use the same word. Null
+     * from a server too old to send it. Nothing branches on the value — the row goes
+     * either way — so a reason this shell has never heard of is logged and obeyed.
      */
     val reason: String?,
 )
