@@ -51,6 +51,14 @@
   line, and the space picker and the P0 board narrowing them exactly as they narrow
   everything else. Its price was the same one word, `!q.jira`, in the predicate below.
 
+  `endorsement` is the fourth, and the first that took the deal with **no new fetch at
+  all** (bc-w156). A bead held for endorsement was already in this list — the agent sweep
+  returns one like any other open bead, and it drew as one more `unclaimed` — so the whole
+  of the change was a row here, a `held` flag on the row, and `!q.held` in the three
+  predicates it is being taken out of. That is why it could be done at the same time as
+  *deleting* a door: the 🗳️ in the chrome was a fifth destination for a list this table
+  could already have been carrying, and what replaced it is nothing.
+
   Each kind carries a `side`, because a scope that never fetched a row cannot show a
   chip for it: `human` sweeps questions, `agent` sweeps live beads, `both` does both,
   and a chip for something the current scope cannot contain is a control that does
@@ -197,25 +205,52 @@
       test: (q) => Boolean(q.jira),
     },
     {
+      id: 'endorsement',
+      // On the agent side, and that is a fact about where the rows come from rather than
+      // about what they are. A bead held for endorsement is a decision waiting on you —
+      // by every other measure it belongs under `Human` — but the only sweep that returns
+      // one is the agent sweep (`agentBeads` in lib/server.js), because the marker is a
+      // label and the human sweep queries a different one. Putting the chip under `Human`
+      // would be a control with nothing behind it until something pays for a second query
+      // per workspace per poll, which is the bill the chrome refused (bc-w156.4).
+      side: 'agent',
+      label: 'Endorsements',
+      note: 'Beads an agent filed that nothing may work until you say so. Tap through to decide.',
+      // First among the agent kinds because it is the only one of the four that is
+      // waiting on *you*: claimed, blocked and unclaimed are all reports about work, and
+      // this is a question. It also has to be first in effect as well as in order — the
+      // three below say `!q.held` rather than relying on being tested later, for the
+      // reason `!q.proposal` is spelled out under Merges: exclusivity is the property
+      // this table is asserted on (test/inboxkinds.mjs), not an accident of the ordering.
+      //
+      // `q.held` is `awaitingEndorsement` computed server-side, so a ship bead — which
+      // carries the same marker and is waiting on a deploy rather than on a judgement —
+      // is not one of these. That rule lives in lib/endorsequeue.js and is deliberately
+      // not restated here; two copies of it is what the incident behind lib/shipbead.js
+      // was made of.
+      test: (q) => Boolean(q.agent) && Boolean(q.held),
+    },
+    {
       id: 'claimed',
       side: 'agent',
       label: 'Claimed',
       note: 'Work an agent has in hand right now. Nothing here is asking you anything.',
-      test: (q) => Boolean(q.agent) && q.status === 'in_progress',
+      test: (q) => Boolean(q.agent) && !q.held && q.status === 'in_progress',
     },
     {
       id: 'blocked',
       side: 'agent',
       label: 'Blocked',
       note: 'Live beads waiting on something else — the work that is stuck.',
-      test: (q) => Boolean(q.agent) && q.status === 'blocked',
+      test: (q) => Boolean(q.agent) && !q.held && q.status === 'blocked',
     },
     {
       id: 'unclaimed',
       side: 'agent',
       label: 'Unclaimed',
       note: 'Open beads nobody has picked up.',
-      test: (q) => Boolean(q.agent) && q.status !== 'in_progress' && q.status !== 'blocked',
+      test: (q) =>
+        Boolean(q.agent) && !q.held && q.status !== 'in_progress' && q.status !== 'blocked',
     },
   ];
 

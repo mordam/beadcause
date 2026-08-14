@@ -5,9 +5,10 @@
  *     npm test
  *     node test/inboxkinds.mjs
  *
- * The inbox carries six different jobs at one address — a plain question, an
+ * The inbox carries seven different jobs at one address — a plain question, an
  * advocate's proposal, a worker's merge, a pull request, a JIRA ticket assigned to you,
- * and (under `Both` and `Agent`) the live beads nobody is asking you about — and
+ * a bead held for endorsement, and (under `Both` and `Agent`) the live beads nobody is
+ * asking you about — and
  * public/inboxfilter.js is the one place that knows which is which. Five things about it are worth a suite, and none is visible
  * by reading one function:
  *
@@ -236,13 +237,20 @@ const ROWS = {
       assignee: 'adam.morgan@climative.ai',
     },
   },
+  // Held for endorsement: an agent row like the three below it in every way except the
+  // one that decides what may happen to it. `held` is not a status — bd has no such
+  // state — it is `awaitingEndorsement` computed server-side in `agentBeads`, which is
+  // why the fixture carries an ordinary `open` beside it. That pairing is the whole
+  // hazard this kind introduces: without `!q.held` on the three agent predicates, this
+  // row is an endorsement *and* an unclaimed bead, and the check below is what says so.
+  endorsement: { key: 'w/e1', workspace: 'w', agent: true, status: 'open', held: true },
   claimed: { key: 'w/a1', workspace: 'w', agent: true, status: 'in_progress' },
   blocked: { key: 'w/a2', workspace: 'w', agent: true, status: 'blocked' },
   unclaimed: { key: 'w/a3', workspace: 'w', agent: true, status: 'open' },
 };
 
 const QUESTION_KINDS = ['question', 'proposal', 'delivery'];
-const AGENT_KINDS = ['claimed', 'blocked', 'unclaimed'];
+const AGENT_KINDS = ['endorsement', 'claimed', 'blocked', 'unclaimed'];
 /* On neither side, so every scope can hold one: a pull request comes off `gh`, a chat
    session off no sweep at all, and a JIRA ticket off JIRA, so for none of the three is
    there a scope that could have missed it — which is what `side: 'any'` means.
@@ -281,6 +289,39 @@ await check('an agent row with a status nobody has heard of is still exactly one
   const odd = { key: 'w/a9', workspace: 'w', agent: true, status: 'wat' };
   const hits = list(model.KINDS.filter((k) => k.test(odd))).map((k) => k.id);
   assert.deepEqual(hits, ['unclaimed']);
+});
+
+await check('a held bead is an endorsement whatever its status says', () => {
+  // The three agent kinds split on `status`, and `held` is orthogonal to all three: a
+  // bead can be held and claimed, held and blocked, or held and open. Every one of them
+  // is a decision waiting on you before it is a report about work, so every one lands on
+  // the same chip — and none of them lands on two. This is the check that fails if
+  // `!q.held` is dropped from any of the three predicates below it in the table.
+  for (const status of ['open', 'in_progress', 'blocked', 'wat']) {
+    const row = { key: `w/h-${status}`, workspace: 'w', agent: true, status, held: true };
+    const hits = list(model.KINDS.filter((k) => k.test(row))).map((k) => k.id);
+    assert.deepEqual(hits, ['endorsement'], `held+${status} matched ${hits.join(', ') || 'nothing'}`);
+  }
+});
+
+await check('a bead that is not held is untouched by the new kind', () => {
+  // The other direction, and the one a partition needs stated: `held` absent and `held`
+  // false both have to leave the three status kinds exactly as they were, or adding this
+  // row would have quietly emptied the agent side of the inbox.
+  for (const held of [undefined, false]) {
+    const row = { key: 'w/n1', workspace: 'w', agent: true, status: 'open', held };
+    const hits = list(model.KINDS.filter((k) => k.test(row))).map((k) => k.id);
+    assert.deepEqual(hits, ['unclaimed'], `held=${held} matched ${hits.join(', ') || 'nothing'}`);
+  }
+});
+
+await check('a question is never an endorsement, whatever it carries', () => {
+  // `held` is a field only `agentBeads` writes, so a human-side row cannot have one —
+  // but the predicate says `q.agent` first rather than trusting that, because the kind
+  // whose test is "none of the above" is one field away from absorbing anything new.
+  const row = { key: 'w/q9', workspace: 'w', title: 'a question', held: true };
+  const hits = list(model.KINDS.filter((k) => k.test(row))).map((k) => k.id);
+  assert.deepEqual(hits, ['question'], `matched ${hits.join(', ') || 'nothing'}`);
 });
 
 await check('a delivery that is also a proposal is still one kind, not two', () => {

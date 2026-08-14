@@ -5252,6 +5252,11 @@ a.pill { text-decoration: none; }
    Built on `.card` for the surface and its own rows rather than on `.work-row`, which
    is a one-line flex row and cannot hold three stacked lines without fighting it. */
 .hist-count { margin: 0 0 2px; font-size: 13px; color: var(--muted); }
+/* The kept-answer mark (bc-1kwl.2.3). Deliberately no colour of its own and no weight:
+   serving a ten-second-old list while the sweep runs behind it is the *ordinary* case
+   now, not a fault, and a warning colour here would cry wolf on every second page load.
+   It is a clause on the end of the count line, dimmer than the count itself. */
+.hist-kept { opacity: 0.75; }
 .hist-trouble {
   margin: 0 0 4px;
   font-size: 13px; line-height: 1.45;

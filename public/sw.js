@@ -127,8 +127,11 @@ const SHELL = [
   '/prs.html',
   '/prs.js',
   // The endorsement queue. Three paths for one page, the same bargain the console
-  // makes with its five: /endorse is what the 🗳️ in the inbox points at, /queue is
-  // what you type, and /endorsements is what a notification could carry later.
+  // makes with its five: /endorse is where a held card in the inbox and the advocate
+  // console's `N held for endorsement` pill both point, /queue is what you type, and
+  // /endorsements is what a notification could carry later. The 🗳️ in the chrome that
+  // used to be the main way in is gone (bc-w156) — the page is now reached from the row
+  // it is about rather than from a fixed door, which is why it is still in the shell.
   '/endorse',
   '/queue',
   '/endorse.html',
