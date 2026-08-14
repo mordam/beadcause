@@ -164,6 +164,26 @@ check('a label with a newline in it survives as a line break, not as a broken no
   assert.ok(src.includes('<br/>'), 'no label survived as a two-line one — has the model lost its shape?');
 });
 
+check('no label reaches mermaid with a backtick in it', () => {
+  // A backtick opens mermaid's markdown-string mode even inside the quotes, and the parse
+  // then fails for the whole *diagram* rather than the node — which leaves the source in
+  // the box, exactly the way a missing mermaid does. Three flows died that way over
+  // labels reading `bd ready` and the ```beads block.
+  for (const flow of map.flows) {
+    assert.ok(!mermaidFor(flow.id).includes('`'), `${flow.id} has a backtick in a label`);
+  }
+});
+
+check('no node is called something mermaid already means', () => {
+  // `end` closes a subgraph, so a step honestly called "the session ends" took the chat
+  // flow's whole diagram down with it. `problems` is what refuses it; this is the case
+  // that proved the refusal works.
+  const found = problems({ exists: () => true });
+  assert.deepEqual(found, [], found.join('\n'));
+  const bad = flowchart().flows.some((f) => f.nodes.some((n) => n.id === 'end'));
+  assert.equal(bad, false, 'a node is called `end` again');
+});
+
 check('an unknown flow is an error rather than an empty diagram', () => {
   assert.throws(() => mermaidFor('no-such-flow'), /unknown flow/);
 });

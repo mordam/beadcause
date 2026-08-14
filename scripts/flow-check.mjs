@@ -211,6 +211,26 @@ try {
   check('each agent’s allowlist is on the page', agents.tools >= 4, `${agents.tools} of ${agents.cards} carry one`);
   check('and whether it may write to the tracker', agents.writes);
 
+  // Every flow, not only the one the page opens on. A label is prose written by hand and
+  // mermaid's parser has opinions about several characters that turn up in it — a fenced
+  // block's backticks, a bracket, an arrow — and a flow that fails to parse leaves its
+  // source in the box exactly the way a missing mermaid does. Checking one flow would
+  // have said nothing about the other ten.
+  const flows = await evaluate('window.FLOWCHART.flows.map(f => f.id)');
+  const undrawn = [];
+  for (const id of flows) {
+    await evaluate(`[...document.querySelectorAll('.fc-nav button')].find(b => b.dataset.go === ${JSON.stringify(id)}).click()`);
+    let svg = false;
+    for (let i = 0; i < 60 && !svg; i += 1) {
+      await sleep(50);
+      svg = await evaluate(`!!document.querySelector('.fc-diagram svg')`);
+    }
+    const want = await evaluate(`window.FLOWCHART.flows.find(f => f.id === ${JSON.stringify(id)}).nodes.length`);
+    const got = await evaluate(`document.querySelectorAll('.fc-diagram g.node').length`);
+    if (!svg || got !== want) undrawn.push(`${id} (${got}/${want})`);
+  }
+  check(`all ${flows.length} flows draw, with every step a shape`, undrawn.length === 0, `not drawn: ${undrawn.join(', ')}`);
+
   check('nothing threw', errors.length === 0, errors.join('\n      '));
 
   if (SHOT) {
