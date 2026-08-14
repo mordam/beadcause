@@ -761,6 +761,12 @@ async function landHere(landed, { external = false } = {}) {
   // this merge says nothing about — so the merge is left as the comment written above and
   // the epic stays open. Not owed either (lib/owed.js): the retry would carry the same
   // sentence into the same refusal every thirty seconds for as long as the machine runs.
+  //
+  // The claim is left on it deliberately. A worker's bead is `in_progress` and assigned
+  // by the time it gets here, and `bd ready` skips an assigned bead — so an epic left
+  // open *and claimed* stays out of the advocate's queue, where an open unclaimed one
+  // would be handed straight to another session to deliver and be refused again. Closing
+  // it was the old way out of that loop, and it is the thing this rule exists to stop.
   const epicStaysOpen = bead.issue_type === 'epic' && isMergeReason(closeReason);
   if (epicStaysOpen) {
     console.error(
