@@ -189,6 +189,11 @@ function load({ hover = false, store = new Map(), card = true } = {}) {
   };
   const ctx = vm.createContext({ window, document: doc, localStorage, setTimeout, clearTimeout });
   if (card) vm.runInContext(read('public/prcard.js'), ctx, { filename: 'prcard.js' });
+  // The panel itself, which inboxfilter.js mounts rather than draws — index.html loads
+  // it first for the same reason. The real one, not a stub: every check below about
+  // hover, pinning and the summary line is a check on *that* file, reached through this
+  // one, and a stub would be the second implementation the split exists to prevent.
+  vm.runInContext(read('public/filtermenu.js'), ctx, { filename: 'filtermenu.js' });
   vm.runInContext(read('public/inboxfilter.js'), ctx, { filename: 'inboxfilter.js' });
   const host = doc.createElement('nav');
   host.replaceChildren = El.prototype.replaceChildren.bind(host);

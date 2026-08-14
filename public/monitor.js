@@ -1501,8 +1501,52 @@
   }
 
   /**
-   * The same three-state control, one level down: this repo's own answer to
-   * `autoEndorse`, which outranks the space's.
+   * The four settings a repo row may answer for itself, in the order they happen to
+   * work: a filing arrives, a pull request merges, a review gates that merge, the merge
+   * deploys. Reading down a row is reading the life of one piece of work.
+   *
+   * `on`/`off` are the sentences the *buttons* promise, so each one says what pressing
+   * it does to this repo rather than naming the field again — a title reading
+   * "autoShip — on" tells you nothing you could not see.
+   *
+   * The keys are `WORKSPACE_SETTINGS` in lib/spaces.js and the server refuses anything
+   * else, so a typo here is a 400 rather than a setting silently written nowhere.
+   */
+  const REPO_SETTINGS = [
+    {
+      key: 'autoEndorse',
+      what: 'Beads agents file here',
+      on: 'files arrive endorsed, whatever the space says',
+      off: 'files stay held for a tap, whatever the space says',
+    },
+    {
+      key: 'autoMerge',
+      what: 'Workers merge their own work',
+      on: 'a worker merges its own pull request once the checks are green',
+      off: 'every delivery hands you the pull request instead',
+    },
+    {
+      key: 'requireApproval',
+      what: 'An approving review first',
+      // Only bites while the row above it is on: with auto-merge off every delivery is
+      // already a question, and answering it *is* the approval. Said on the row rather
+      // than hiding the buttons — the answer is still stored, and it is the one that
+      // applies the moment auto-merge goes back on.
+      moot: (r) => !r.autoMerge,
+      on: 'green checks are not enough — the pull request needs an approving review',
+      off: 'green checks are enough',
+    },
+    {
+      key: 'autoShip',
+      what: 'Merges ship themselves',
+      on: 'a merge runs this repo’s deploy without waiting for Ship',
+      off: 'a merge waits for the Ship button',
+    },
+  ];
+
+  /**
+   * The same three-state control as `tri`, one level down: this repo's own answer, which
+   * outranks its space's.
    *
    * Its own function rather than a fourth argument to `tri` because the two write to
    * different things — `tri` posts `{ space, settings }` and this posts
@@ -1513,23 +1557,30 @@
    *
    * Inherit names what it resolves to *through the space*, not the global — `Inherit
    * (on)` on a repo inside an endorsing space is the truth, and reading the global there
-   * would be a button promising the opposite of what pressing it does.
+   * would be a button promising the opposite of what pressing it does. `r.inherits`
+   * carries that per field; `r.own` is `null` for every field this repo leaves alone,
+   * which is what puts Inherit on.
+   *
+   * A row whose payload predates `own`/`inherits` draws nothing rather than four rows of
+   * buttons that would all read Inherit (off) and write the wrong answer on a press — the
+   * same reasoning the server side gives for treating an unreadable override as absent.
    */
   function repoTri(r) {
-    const btn = (v, text, title) =>
-      `<button class="adv-btn${r.autoEndorseOwn === v ? ' on' : ''}" data-repo-set="autoEndorse" data-repo="${esc(
-        r.name
-      )}" data-value="${esc(String(v))}" title="${esc(title)}">${esc(text)}</button>`;
-    return `<div class="space-repo-set">
-      <span class="space-repo-what">Beads agents file here</span>
-      ${btn(true, 'On', `${r.name} — files arrive endorsed, whatever the space says`)}
-      ${btn(false, 'Off', `${r.name} — files stay held for a tap, whatever the space says`)}
-      ${btn(
-        null,
-        `Inherit (${onOff(r.autoEndorseInherited)})`,
-        `Follow the space, which is currently ${onOff(r.autoEndorseInherited)}`
-      )}
+    if (!r.own || !r.inherits) return '';
+    return REPO_SETTINGS.map((s) => {
+      const own = r.own[s.key] ?? null;
+      const inherited = Boolean(r.inherits[s.key]);
+      const btn = (v, text, title) =>
+        `<button class="adv-btn${own === v ? ' on' : ''}" data-repo-set="${esc(s.key)}" data-repo="${esc(
+          r.name
+        )}" data-value="${esc(String(v))}" title="${esc(title)}">${esc(text)}</button>`;
+      return `<div class="space-repo-set">
+      <span class="space-repo-what">${esc(s.what)}${s.moot?.(r) ? ' <span class="space-repo-moot">— moot; the merge is yours</span>' : ''}</span>
+      ${btn(true, 'On', `${r.name} — ${s.on}`)}
+      ${btn(false, 'Off', `${r.name} — ${s.off}`)}
+      ${btn(null, `Inherit (${onOff(inherited)})`, `Follow the space, which is currently ${onOff(inherited)}`)}
     </div>`;
+    }).join('');
   }
 
   /**

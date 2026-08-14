@@ -39,7 +39,7 @@
   directory, and re-read the line: git may well have merged it silently. `node
   test/swcache.mjs` checks precisely that, in about a second.
 */
-const CACHE = 'beadcause-v50';
+const CACHE = 'beadcause-v53';
 const SHELL = [
   '/',
   '/index.html',
@@ -67,6 +67,11 @@ const SHELL = [
   // page cached without it is a page with no way to change which repo the app is about,
   // and on the inbox it is what the space and workspace chip rows became.
   '/spacebar.js',
+  // The panel every filter bar in the app is drawn in — the collapsed line, the chips,
+  // the hover-and-tap state machine. In the shell because two pages mount it and
+  // neither has any control on it at all without it: the inbox loses the scope switch
+  // and the kinds, the History tab loses all four of its filters.
+  '/filtermenu.js',
   // The inbox's own filter — the scope switch and the kind chips, in one collapsed
   // line. In the shell for the same reason the picker is: without it the inbox has no
   // control on it at all to say which slice of the tracker you are looking at.

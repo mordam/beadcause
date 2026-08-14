@@ -548,6 +548,34 @@ console.log('\nthe brief and the command, reading one answer\n');
     (await prMode({ ...cfg, spaces: [{ name: 'Work', workspaces: ['demo'], autoMerge: false, requireApproval: true }] }, repo, 'demo'))
       .requireApproval === false
   );
+
+  /* -------------------------------------------- and what happens after the merge */
+
+  // Per repo rather than per space, which is the level `autoShipPerWorkspace` exists for
+  // — and the point of checking it here is that the brief reads the *same resolver* the
+  // release queue does, so a session is never told its merge ships itself in a repo where
+  // it does not.
+  const ships = await prMode({ ...cfg, autoShipPerWorkspace: { demo: true } }, repo, 'demo');
+  check('the brief knows whether the merge ships itself, per repo', ships.autoShip === true && work.autoShip === false);
+  check(
+    'and says so, so a session does not declare a deploy owed that nobody has to run',
+    /merge ships itself here/.test(workPromptFor('demo', bead, 1, ships, 'Adam')) &&
+      /drop the flag rather than declaring a deploy/.test(workPromptFor('demo', bead, 1, ships, 'Adam'))
+  );
+  check(
+    'a repo that waits for Ship gets exactly the brief it got before',
+    !/ships itself/.test(workPromptFor('demo', bead, 1, work, 'Adam'))
+  );
+  check(
+    'and a repo whose workers do not merge at all is never told its merge ships — there is no merge to ship',
+    (
+      await prMode(
+        { ...cfg, autoShipPerWorkspace: { demo: true }, autoMergePerWorkspace: { demo: false } },
+        repo,
+        'demo'
+      )
+    ).autoShip === false
+  );
 }
 
 await cleanupTmp(tmp);

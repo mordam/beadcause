@@ -235,8 +235,8 @@ const bdJson = (args) => {
  * throughout. Everything about the local fast-forward depends on that difference, so
  * it cannot be asserted from a scenario that runs in the main checkout itself.
  */
-function deliver(name, { checks = 'green', refuseMerge = null, extra = [], worktree = false, conflicted = false } = {}) {
-  const created = bd(['create', '--title', name, '--description', 'Work for a land-check run.', '--type', 'task', '--json']);
+function deliver(name, { checks = 'green', refuseMerge = null, extra = [], worktree = false, conflicted = false, type = 'task', body = 'Work for a land-check run.' } = {}) {
+  const created = bd(['create', '--title', name, '--description', body, '--type', type, '--json']);
   const bead = JSON.parse(created.slice(created.indexOf('{'), created.lastIndexOf('}') + 1));
   const id = bead.id || bead.issue?.id;
 
@@ -346,6 +346,32 @@ check('no delivery question was filed — there is nothing to ask', bdJson(['lis
 const sweeps = JSON.parse(fs.readFileSync(path.join(CONFIG_DIR, 'merge-sweeps.json'), 'utf8'));
 check('it asked the daemon to sweep the branches behind it', Object.keys(sweeps).join(',') === 'landcheck', JSON.stringify(sweeps));
 check('naming the merge that set it off', sweeps.landcheck?.number === 7, JSON.stringify(sweeps.landcheck));
+
+/* ------------------------------------------------ 1b. an epic merges and stays open */
+
+console.log('\nan epic: the branch merges, the epic does not close');
+
+// bc-arj0.3. bc-ka5y closed as "Merged #212 as 72789c0b into main" with twenty-one of its
+// twenty-three adoptees still open, and five more epics did the same thing the same day.
+// bd permits every one of those closes — an `Adopts:` line is prose, so the epic has no
+// children as far as it is concerned — which is why the refusal is here rather than only
+// in the gate. This is the scenario that presses the real bin/deliver.js against a real
+// tracker, so it is the one that would notice the rule being lost in a refactor.
+const epic = deliver('an umbrella epic', { type: 'epic', body: 'The theme.\n\nAdopts: lc-nobody.\n' });
+check('deliver.js exits 0 — the merge is not in doubt', epic.code === 0, `exit ${epic.code} — ${epic.stderr}`);
+check('and it still says `landed`, because it did land', /^landed #7 /.test(epic.stdout), epic.stdout);
+check('the pull request really merged', epic.merges.length === 1, JSON.stringify(epic.log.map((c) => c.slice(0, 2))));
+check('but the epic is still open', epic.issue.status !== 'closed', epic.issue.status);
+check('with no close reason on it', !epic.issue.close_reason, epic.issue.close_reason || '(none)');
+check('the session log says why, in one line somebody can act on', /does not close on a merge/.test(epic.stderr), epic.stderr);
+check('and the epic carries the merge and the reason it survived it', (epic.issue.comment_count ?? 0) >= 2, String(epic.issue.comment_count));
+// Nothing to retry: a close refused for a reason no amount of waiting improves must not
+// be written into the ledger the poll drains, or it is attempted every thirty seconds
+// forever. See lib/owed.js.
+const epicOwed = fs.existsSync(path.join(CONFIG_DIR, 'owed-closes.json'))
+  ? JSON.parse(fs.readFileSync(path.join(CONFIG_DIR, 'owed-closes.json'), 'utf8'))
+  : {};
+check('and no close is owed for it', !Object.keys(epicOwed).some((k) => k.endsWith(epic.id)), JSON.stringify(epicOwed));
 
 /* ------------------------------------------------------- 2. GitHub refuses the merge */
 

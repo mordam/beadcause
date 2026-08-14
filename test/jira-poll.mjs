@@ -404,7 +404,18 @@ console.log('\nwired into the poll cycle');
   check('and its failure is reported like every other sweep', /sweepFailed\('the JIRA poll'/.test(src));
   check(
     'the tickets ride the inbox payload as `tickets`, which is what the row reads',
-    /tickets: liveTickets\(jira\.tickets\(\)\)/.test(src)
+    // The field and the filter, and not what is inside the filter: bc-0i27.6 lifted the
+    // poller's answer into a `held` local so the cancelled half could be split off it
+    // without asking twice, and a pattern anchored to `liveTickets(jira.tickets())` read
+    // that as the live filter having been dropped.
+    /tickets: liveTickets\(/.test(src) && /const held = jira\.tickets\(\)/.test(src)
+  );
+  check(
+    'and the cancelled ones ride a field of their own, counted by nothing',
+    // bc-0i27.6. They are not rows — beadify lives on a ticket's own view and a view
+    // needs a way in, which is the whole of why they are on the payload at all.
+    /cancelledTickets: cancelledTickets\(held\)/.test(src),
+    'a cancelled ticket has no way back — the beadify button has nowhere to live'
   );
   check(
     'each one stamped with its space, or the inbox filter files it under Other',
