@@ -31,6 +31,7 @@
  * network, a checkout or a pull request.
  */
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -286,6 +287,35 @@ check('and it says it is re-entrant, because the next window starts from the bea
 check('an approval-gated repo says so, or a perfect resolution reads as a failure', () => {
   const text = mergeAdvocatePrompt('beadcause', { id: 'bc-m1' }, spec, { attempts: 1 }, { policy: { requireApproval: true } });
   assert.match(text, /waits for an approving review/);
+});
+
+/* ---------------------------------------------------------------- the door */
+
+check('AND THE DOOR OPENS IT AS ITSELF, WHICH IS THE WHOLE ARGUMENT FOR THE KIND', () => {
+  // The same check test/epicadvocate.mjs makes about its own door, for the same reason:
+  // this is the half no brief can show. A window opened without `agent` runs with the
+  // worker's reach — `bd close` and `gh pr merge` both in it — over somebody else's
+  // branch, which is exactly the position bc-r941 exists to take the merge out of. And
+  // `bead` alongside it is what stamps BEADCAUSE_BEAD, without which `beadcause-memory
+  // debrief` refuses in the one window opened on the same bead all afternoon (bc-nib3.9).
+  const src = fs.readFileSync(path.join(HERE, '..', 'lib', 'session.js'), 'utf8');
+  const from = src.indexOf('export async function openMergeAdvocateSession');
+  assert.ok(from > 0, 'openMergeAdvocateSession has been renamed — re-point this check');
+  const body = src.slice(from, src.indexOf('\n}\n', from));
+  assert.match(body, /agent: MERGE_ADVOCATE, bead: issue\.id/, 'the merge window is opened as something else, with something else’s permissions');
+  assert.match(body, /mergeAdvocatePrompt\(/, 'and with a brief that is not its own');
+});
+
+check('and the queue reaches that door rather than the worker-reach one', () => {
+  const src = fs.readFileSync(path.join(HERE, '..', 'lib', 'server.js'), 'utf8');
+  const from = src.indexOf('openResolver: async (entry, dir)');
+  assert.ok(from > 0, 'the queue no longer wires a resolver — re-point this check');
+  const body = src.slice(from, from + 2600);
+  assert.match(body, /openMergeAdvocateSession\(/, 'the queue opens a conflict window with the worker’s permissions');
+  assert.ok(!/openConflictSession\(/.test(body), 'it fell back to the worker-reach session');
+  // And through the registry that allows one window per pull request — the reason
+  // lib/mergesweep.js records a merge rather than sweeping it.
+  assert.match(body, /resolveFor\(/, 'nothing stops a second window opening on the same pull request');
 });
 
 console.log(failures ? `\n\x1b[31m${failures} of ${ran} failed\x1b[0m\n` : `\n${ran} passed\n`);
