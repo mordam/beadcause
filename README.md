@@ -13357,6 +13357,106 @@ here builds a path out of a workspace's name — the `cd` a failure notification
 comes off the workspace's own directory, and the one place that guess was made is the
 one place it would have been wrong first.
 
+### Where a workspace lives, when it is not under `~/beads`
+
+That paragraph was true of the sync code and false of everything upstream of it.
+`discoverWorkspaces()` in `lib/config.js` reads `~/beads/*/.beads` and takes what is in
+it, and for a long time that was the whole of how beadcause knew a workspace existed —
+so a tracker living anywhere else was not merely un-synced, it was **not in the list at
+all**. Nothing polled it, nothing queued it, nothing drew it.
+
+That is not a hypothetical, and the two halves of it happened to the same tracker on the
+same afternoon. On 2026-08-12 Climative's `cl-` graph — the one wired to JIRA, the one
+forty service repos file into, and the only workspace on this Mac with a Dolt remote —
+was moved out of `~/beads/climative` and into the `architecture` checkout, for the reason
+the section above gives: a tracker a team shares belongs in the repo the team already
+clones. beadcause stopped seeing it that evening and said nothing, because there is
+nothing to say. **A workspace nothing polls is indistinguishable from a workspace with
+nothing in it**: an empty inbox, a zero on the tab, and an advocate with no ready beads
+is exactly what a quiet Friday looks like.
+
+The copy left behind was the other half, and it is the worse one. It sat at
+`~/beads/climative.retired-20260812`, which is still under `~/beads`, so it was still
+discovered and still swept — and its questions, frozen on the day it was set aside, were
+drawn as current ones on the phone. A stale question you cannot see is a question that
+goes unanswered; a stale question you *can* see is one that gets answered, into a graph
+nobody reads. The only way to stop it was to move the directory out of `~/beads`
+entirely, which is a person remembering a rule about this program while doing something
+else.
+
+So there is one key, `workspaceDirs`, and it says both:
+
+```json
+{
+  "workspaceDirs": {
+    "climative": "~/climative.dev/architecture",
+    "climative.retired-20260812": null
+  }
+}
+```
+
+A **directory** serves a workspace from wherever it actually is. Write it as the checkout
+or as the `.beads` inside it — the checkout is the thing a person has in their head and
+the `.beads` is beads' business, and both name the same workspace. `~` expands, because
+this is a hand-edited line that gets copied onto a second Mac. **`null`** takes a name out
+and keeps it out, however it was found; nothing is deleted and nothing moves, which is
+the point — the directory being *there* is the whole state being talked about, so "drop
+what no longer exists" could never have expressed it.
+
+`~/beads` is still the rule and this is still the exception. An install that has never
+configured anything finds its workspaces exactly as it always did, which is what makes a
+first run work at all; a name that appears in both places resolves to the one that was
+named, because two entries called `climative` pointing at two graphs is the one outcome
+nothing downstream could make sense of. A named directory that is not there is a
+**warning, not a refusal** — the entry is dropped, a line naming the key goes to the log,
+and `~/beads` still answers for that name if it has one. A typo must be loud, since a
+workspace silently not served is the exact failure this key exists to end; it must not
+also take out a workspace that was working.
+
+The half worth being precise about is that this is a **rule, re-applied on every load**,
+and not a list. Before it existed the workaround was to hand-edit `workspaces` — the
+saved list, which was auto-discovered but persisted so it *could* be edited. That works
+until the first time it doesn't. `workspaces` is reconciled against the disk on every
+start: entries whose directory has gone are dropped and the shorter list is written back.
+For a discovered workspace that is self-healing, because the next start finds it again.
+For a hand-added one it was **one-way** — a single start while the checkout was moved,
+re-cloned, or on a volume that had not mounted yet lost it for good, with a log line
+saying `no longer exists` at a moment when that was perfectly true. An entry in
+`workspaceDirs` comes back on its own the moment the directory does, and that — surviving
+a restart — is the whole difference between the two.
+
+Reconciliation applies the exclusions too, so a retired workspace already sitting in a
+saved `workspaces` list is evicted on the next start rather than only kept out of future
+discovery. Every drop names its reason, and the three reasons are different sentences:
+`workspaceDirs.<name> is null`, `workspaceDirs.<name> names <dir> instead`, and the
+original `<dir> no longer exists`.
+
+Which leaves the installs that had already worked around this by hand, and they get the
+migration rather than a note telling them to make one. Any saved `workspaces` entry that
+**cannot have come from discovery** — its directory is not `~/beads/<its name>/.beads` —
+is copied into `workspaceDirs` on the next start. Nothing changes about what is served:
+the entry was already in the list and already pointed there, and this only writes down
+*why*, so that it survives the directory going away for an afternoon. It is bounded by
+reading the config rather than by a spent flag — a name already in `workspaceDirs` is
+never touched, so an explicit `null` cannot be undone by it, and a directory that is not
+there is left for reconciliation to drop rather than pinned as a rule that would warn on
+every start forever.
+
+**It says nothing while doing it**, and the drop and pick-up notices moved to stderr —
+neither is a matter of taste, and both were measured. `loadConfig` is not the daemon's:
+it is every `bin/*.js` in the repo, and both of a CLI's streams are contracts. **stdout
+is parsed** — `bin/file.js` prints the id it filed and callers read it with
+`stdout.trim()`, so a notice there does not appear *beside* the id, it becomes *part of*
+it, and the caller reports that nothing was filed over a bead sitting in the tracker
+(`test/autoendorse.mjs` and `test/filing.mjs`, both red). **stderr is asserted empty on
+the happy path** — "nothing was reported, because nothing went wrong" is
+`test/park.mjs`, which is how the adoption notice went red immediately after being moved
+off stdout to fix the first one. So a normalisation nothing went wrong in is not news,
+and it leaves its own record: the key it writes is in the config file. A write that
+*fails* is news, and is warned about. This is the same argument [the base URL
+makes](#the-url-you-are-given-and-what-happens-to-a-phone-that-already-has-one) for its
+own notice, arrived at from the other end.
+
 ### Where the remote goes, and why beadcause will not choose for you
 
 **beadcause never adds a remote.** It syncs one that exists and it never invents one, and
@@ -13593,7 +13693,8 @@ another Mac's, and an agent's — and asserts that exactly one of them rings.
 | `auth.google.redirectUri` | the callback registered with Google. Derived from the certificate's MagicDNS name and normally left `null`; sign-in cannot switch on without one, because Google refuses a plain-http callback |
 | `auth.google.sessionDays` | how long a signed-in browser stays signed in (default `30`) |
 | `auth.google.enabled` | `false` turns sign-in off while leaving the rest of the block configured (default `true`) |
-| `workspaces` | auto-discovered from `~/beads/*/.beads`, and **reconciled on every start** — entries whose directory has gone are dropped and new ones picked up, both logged. Renaming a workspace directory used to leave a stale entry that failed on every poll tick, silently hiding that whole workspace from the phone |
+| `workspaces` | auto-discovered from `~/beads/*/.beads`, and **reconciled on every start** — entries whose directory has gone are dropped and new ones picked up, both logged. Renaming a workspace directory used to leave a stale entry that failed on every poll tick, silently hiding that whole workspace from the phone. Do not hand-edit this to add a workspace that lives elsewhere: an entry here survives only while its directory does, and one start with the checkout away drops it for good. Use `workspaceDirs` |
+| `workspaceDirs` | the workspaces `~/beads` cannot answer for, keyed by name and empty by default — `{"climative": "~/climative.dev/architecture", "climative.retired-20260812": null}`. A **directory** serves a workspace from wherever it actually lives (the checkout or the `.beads` inside it, `~` expands); **`null`** takes a name out of the list and keeps it out, which is the retired-tracker case and the one thing "drop what no longer exists" cannot say. Applied on every load rather than baked into `workspaces` once, so a named workspace comes back on its own when its checkout does. A name in both places resolves to the one named here; a named directory that is not there is a logged warning, not a refusal. See [Where a workspace lives](#where-a-workspace-lives-when-it-is-not-under-beads) |
 | `repos` | the checkouts **one workspace** may be worked in, keyed by workspace name — `{"climative": {"root": "~/climative.dev", "default": "architecture", "approved": ["architecture", "athena-service"]}}`. Empty by default, and a workspace not named here costs nothing: it is one repo, as every workspace was before this existed. `approved` is a list you write and nothing discovers — a directory under `root` that is not in it resolves to nothing; `npm run configure` prints the tree with each repo's token for you to tick, which is not the same thing as approving one. Each repo's identity is the **service token** it declares in its own `config/config.yaml`, read from the checkout rather than restated here; `default` is the repo a bead carrying no token belongs to, and `tokenPath` / `tokenKey` override where the token is read from. A bead says which repo it is about by carrying that token as a `repo:<token>` label. See [Many repos, one workspace](#many-repos-one-workspace--the-approved-list-and-the-token-that-names-each) and [how a bead names one](#how-a-bead-says-which-repo-it-is-about--repotoken) |
 | `edits.workspace` | which tracker a pass from [edit mode](#save-files-the-pass) is filed into (default `null`). Null is not "none": it means the workspace whose sessions open in *this* checkout, because an edit typed into this screen is a change to this app whichever tracker's beads happen to be drawn on it. Set it only where that answer is wrong |
 | `edits.root` | the standing P0 every pass lands under (default `null`). Null means found by its `edit-root` label, or created on the first Save — so an install that has configured nothing still files under a P0 that exists, without which nothing under it would be workable at all. Name one here to override that; a root named here and since **closed** is ignored rather than used |
