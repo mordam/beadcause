@@ -122,8 +122,22 @@ check('a half-written record keeps the reason and loses only the fields it lacks
     at: null,
     space: null,
     filter: null,
+    // Absent on every record written before accounts existed (bc-exqi), which is what a
+    // record from last week is — one field shorter, and the card says one clause less.
+    account: null,
     for: null,
   });
+});
+
+check('an arrival in the other account names it, and nothing else does', () => {
+  // The fourth reason. Like `for` on an addressed arrival it is kept from the *arrival*:
+  // the split can be re-drawn afterwards, and a card that had gone quiet for an account
+  // it could no longer name would read as the app having done it for no reason.
+  const rec = quietArrival('account', { space: 'Work' }, { space: 'all', workspace: 'all' }, NOW, 'you@work.example');
+  assert.equal(rec.account, 'you@work.example');
+  assert.equal(rec.filter, null, 'the filter is not what hid it');
+  assert.equal(arrivedQuiet({ 'bc/x': rec }, 'bc/x').account, 'you@work.example');
+  assert.equal(quietArrival('muted', { space: 'Work' }, { space: 'all', workspace: 'all' }, NOW, 'you@work.example').account, null);
 });
 
 check('an addressed arrival names who was asked, and nothing else does', () => {
