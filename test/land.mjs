@@ -218,10 +218,19 @@ for (const [name, brief] of [
  *    obeying both instructions in the other order puts its marker in the middle, and a
  *    line whose whole value is that it can be grepped for stops being findable.
  *
- * Both stores are named because there are two and the choice between them is the whole
- * of getting it right: a repo fact in `remember` is advice followed where it is false,
- * and a general lesson in `note` is one never seen again. See `memoryBrief` in
- * lib/memory.js, which is the single copy of the long version.
+ * All three stores are named because the choice between them is the whole of getting it
+ * right: a repo fact in `remember` is advice followed where it is false, a general lesson
+ * in `note` is one never seen again, and a report on this run in either of them is advice
+ * that goes stale without anybody noticing. See `memoryBrief` in lib/memory.js, which is
+ * the single copy of the long version.
+ *
+ * A fourth thing is asserted since tier 4 arrived, and it is the one a later tidy-up is
+ * most likely to undo: **silence is the expected answer for two of the three and not for
+ * the third**. `debrief` is a report on this run, so the "most runs write nothing" bar
+ * written for the other two is wrong for it — and a store an agent has been told to use
+ * sparingly is a store bc-sgu4 already showed us goes unused entirely. The two
+ * instructions therefore sit in two paragraphs saying opposite things, and both are
+ * checked.
  */
 console.log('\nthe step that writes something down before the window closes');
 
@@ -233,25 +242,44 @@ for (const [name, brief] of [
   check(
     `"${name}" foreshadows the step up in the brief, where the surprise is still in front of it`,
     brief.indexOf('notice the surprises as you hit them') > 0 &&
-      brief.indexOf('notice the surprises as you hit them') < brief.indexOf('Write down anything you learned'),
+      brief.indexOf('notice the surprises as you hit them') < brief.indexOf('Leave a report on this run'),
     (brief.match(/.*notice the surprises.*/) || [])[0]
   );
   check(
-    `"${name}" names both stores, and the one question that chooses between them`,
-    /beadcause-memory note\b/.test(brief) && /beadcause-memory remember\b/.test(brief) && /would this still be true somewhere/.test(brief),
+    `"${name}" names all three stores`,
+    /beadcause-memory note\b/.test(brief) &&
+      /beadcause-memory remember\b/.test(brief) &&
+      /beadcause-memory debrief /.test(brief),
     (brief.match(/.*beadcause-memory.*/) || [])[0]
   );
   check(
-    `"${name}" does not ask for something every run — silence is the expected answer`,
-    /Most runs should write nothing/.test(brief),
-    (brief.match(/.*Most runs.*/) || [])[0]
+    `"${name}" gives the question that chooses between the two that outlive the run`,
+    /would still be true in another repo next week/.test(brief),
+    (brief.match(/.*another repo next week.*/) || [])[0]
   );
-  check(`"${name}" keeps the line that stops this becoming a second tracker`, /work item attached is a bead, not a note/.test(brief));
+  check(
+    `"${name}" does not ask for a note every run — silence is the expected answer there`,
+    /most runs should write\s+neither, which is the expected answer/.test(brief),
+    (brief.match(/.*most runs should write.*/) || [])[0]
+  );
+  check(
+    `"${name}" asks for a debrief every run, which is the opposite instruction and has to survive beside it`,
+    /this one you should almost always\s+write/.test(brief),
+    (brief.match(/.*almost always.*/) || [])[0]
+  );
+  check(
+    `"${name}" says what a debrief is for, so it is not written as a second copy of the note`,
+    /It does not have to still be true next week/.test(brief)
+  );
+  check(
+    `"${name}" keeps the line that stops this becoming a second tracker`,
+    /work item attached is a bead, not any of the three/.test(brief)
+  );
   // The ordering the marker depends on: write, rename, then the message whose last line
   // is the marker. Numbered *and* argued, because a session reads the numbers.
   check(
     `"${name}" runs the three closing steps in the order the marker needs`,
-    /^1\. \*\*Write down anything you learned/m.test(brief) &&
+    /^1\. \*\*Leave a report on this run/m.test(brief) &&
       /^2\. \*\*Rename this session/m.test(brief) &&
       /^3\. \*\*Make the last line of your final message/m.test(brief),
     (brief.match(/^\d\. \*\*.*/gm) || []).join(' | ')

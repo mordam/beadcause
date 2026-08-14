@@ -209,6 +209,11 @@
        the board at /prs. Before the filter, which reads the status ladder off it to
        build the sub-filter's chips, and therefore before app.js too. -->
   <script src="/prcard.js"></script>
+  <!-- The panel the filter lives in — the collapsed line, the chips, and the open-and-
+       close state machine, shared with the History tab's own filter bar. Before
+       inboxfilter.js, which mounts it rather than drawing one: without this file the
+       inbox has no control on it at all. -->
+  <script src="/filtermenu.js"></script>
   <!-- The inbox's filter: the scope and a chip per kind of incoming thing, behind one
        collapsed line. Before app.js, because app.js hands it the scope group and asks
        it whether each row is in view as it renders — and a page that drops it falls
