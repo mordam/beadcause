@@ -67,8 +67,9 @@
     // the screen, because the two are opposite claims about the list below them — see
     // `syncTroubleHtml`.
     syncTrouble: [],
-    // The P0 board (bc-rfnr.2): `{ p0s[], under, owned }` — which P0s carry your
-    // `owner:<handle>`, and for every other row the id of the P0 it descends from.
+    // The P0 board (bc-rfnr.2): `{ p0s[], under, unhomed, owned }` — which P0s carry your
+    // `owner:<handle>`, and for every other row the id of the P0 it descends from, or
+    // (bc-i7tw) the fact that no P0 anywhere has it, which is drawn rather than hidden.
     // `owned: false` is what an install with no `me` answers, and it means the whole
     // section and the whole filter are off: the inbox is the flat list it always was.
     // **`p0board`, not `board`** — `state.board` is the *pull request* board (`prRows`
@@ -77,7 +78,7 @@
     // Its own object rather than fields on the rows, because the *absence* of a row from
     // `under` is the filter — and a row that arrived before the board did must not read
     // as one with no P0 above it. See `p0Board` in lib/server.js.
-    p0board: { p0s: [], under: {}, owned: false },
+    p0board: { p0s: [], under: {}, unhomed: {}, owned: false },
     // P0s this phone has just launched an advocate on, `key -> ms`. The server records
     // the same fact (`advocateOpened` in lib/server.js) and is the authority the moment
     // its answer arrives; this covers the seconds before it does, so the card cannot
@@ -4587,6 +4588,16 @@
    * in `under`; what decides it is whether any bead it names is. A pull request that names
    * no bead stays visible, deliberately: it is a decision somebody is waiting on, and the
    * failure mode of hiding one is worse than the failure mode of showing one too many.
+   *
+   * **And a question with no P0 above it at all is drawn** — `unhomed`, bc-i7tw, and it is
+   * that same failure mode taken seriously rather than a fourth exception. `under` says
+   * which of *your* P0s a row hangs off, so a row under nobody's P0 and a row under a
+   * colleague's are the same absence to it, and hiding both meant a question filed with no
+   * parent went to no screen at all: `/api/ask` is the phone's share target, so the sharpest
+   * case is a question you asked from your own phone thirty seconds ago and cannot find. The
+   * server draws the distinction the client cannot (see `p0Board`), and this line is what it
+   * is for. A row under *somebody's* P0 is still hidden — that is bc-rfnr.2 working, and it
+   * is on a screen, just not this one.
    */
   /** Is the board actually narrowing anything? The three no-op cases, asked once. */
   function isBoarded() {
@@ -4598,6 +4609,7 @@
     const board = state.p0board;
     if (!isBoarded()) return rows;
     const under = board.under || {};
+    const unhomed = board.unhomed || {};
     return rows.filter((q) => {
       if (q.session) return true;
       // And a JIRA ticket, on the same rule and for a stronger reason: it has no bead
@@ -4610,7 +4622,7 @@
         const named = q.pr.beads || [];
         return !named.length || named.some((b) => under[`${q.workspace}/${b.id || b}`]);
       }
-      return Boolean(under[q.key]);
+      return Boolean(under[q.key] || unhomed[q.key]);
     });
   }
 
