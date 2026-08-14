@@ -14384,11 +14384,59 @@ no chip saying `sophab` on a sophab row. `test/repoqueue.mjs` is the
 suite; `multiRepo` being false is what keeps every other workspace from reading a label,
 a directory or a `config/config.yaml` at all.
 
-**What is still one directory**, and deliberately out of this: the worktree sweep, the
-session-log archive and the survey agent that proposes work all still run in the
-workspace's default repo. Those are housekeeping in a checkout rather than questions
-about the queue, and each wants its own answer about what "all of them" means for a
-worktree attic — filed rather than guessed at.
+**And so does the housekeeping, for a different reason.** The four sweeps above are
+questions whose wrong answer hands out an iTerm window; the three loops below are not,
+which is why they were filed rather than swept up with them — bc-u53i, and bc-l853.5 for
+the archive. Each wanted its own answer to what "all of them" means, and the three
+answers are different.
+
+The **session-log archive** follows the *session*, not the workspace and not a loop over
+every repo. `refs/beadcause/sessions/<bead>` lives in the checkout the work happened in —
+that is the whole point of storing it in refs rather than a directory, the log travels
+with the commits it describes — and the worker record already knows which one, because
+`dir` on it is where `openWorkSession` actually opened the window. A loop would have been
+the wrong shape: there is exactly one right repo for each log and the record names it.
+
+The **worktree sweep** is the loop, and genuinely N sweeps: `.claude/worktrees/` is per
+checkout, so retiring, expiring and slimming each ask one `git worktree list` and one
+attic walk per approved repo. There is nothing to merge — a worktree in one repo is not
+a candidate answer to a question about another — so the card carries a row per checkout
+and the summary names each one that moved:
+
+```
+🧹 architecture: retired swr-cache-8t3 · athena-service: retired poll-stream-rk2o1 (freed 41 MB)
+```
+
+One checkout that cannot be swept is not the sweep failing, the same rule the four above
+keep: it says `1 of 3 checkouts did not answer` beside what the others did, rather than
+reporting a clean sweep of a repo it never looked at. Nothing about this was urgent and
+that is worth being honest about — a worktree in `athena-service` that is never retired
+breaks nothing, it simply sits there, and so does the attic behind it, in thirty-nine
+repos, forever. A leak rather than a bug, which is why it could wait.
+
+The **survey agent** is the one that is deliberately *not* a loop. A survey is not a
+question about a checkout the way "which pull requests are open" is — it is a question
+about the tracker, *is this queue genuinely empty*, and there is one of those per
+workspace however many repos hang off it. Forty surveys would be forty agents proposing
+into one graph, each blind to the other thirty-nine, and `maxProposals` would stop
+meaning anything. So it stays one read-only run, opened in the `default` checkout, with
+every other approved repo passed to `claude` as `--add-dir` — which is not a nicety:
+`claude` refuses a read outside its working directory, so without it the survey proposes
+work having read `architecture` and none of the repo the queue is actually about.
+
+The flags are half of it and the prompt is the other half, because an agent handed forty
+directories and no sentence about them reads the one it is standing in. So the prompt
+names them, says which one is the cwd, and asks for the `repo:` label — that last part
+being the one thing the agent could not have worked out by looking, since a proposed bead
+carrying no token is not refused. It **resolves**, to the default repo, silently, and
+work found in `athena-service` then reads perfectly well on the card and opens its
+session in the wrong tree.
+
+`test/repotidy.mjs` and `test/reposurvey.mjs` are the two suites, and both assert the
+half that would be a regression rather than a gap: a single-repo workspace — which is
+every workspace on this Mac but Climative — produces the summary string it always
+produced, with no repo prefix and no per-repo rows, and its survey pays no `--add-dir`
+and gets no paragraph about checkouts it does not have.
 
 ### Every window and every card says which checkout it came up in
 
@@ -14511,12 +14559,13 @@ archives into the directory each worker was launched in, which the worker record
 carries, so the archive follows the session rather than re-deriving where it should have
 been.
 
-**Two sweeps still do not.** The worktree sweep and the landed-reconcile in
-`lib/advocate.js` both still resolve one directory per workspace, so in a multi-repo
-workspace they only ever see the default repo — worktrees cut elsewhere are never
-retired, and a bead whose pull request merged in another approved repo is not closed by
-the sweep. Both are the same shape of change and neither is done; they are on their own
-bead rather than assumed away here.
+**And so do the two sweeps that used to be named here as not doing it.** The
+landed-reconcile asks every approved checkout whether GitHub merged a bead's pull
+request, and the worktree sweep retires, expires and slims `.claude/worktrees/` in each
+of them, naming the repo on the card for every entry that moved — see [what spans repos
+and what does not](#one-advocate-many-checkouts--what-spans-repos-and-what-does-not) for
+the shape of each and why the survey agent, the third of the family, is deliberately one
+run across N repos rather than N runs.
 
 ### Policy stays per space, even when a workspace is forty repos
 
