@@ -847,6 +847,23 @@ person who ran it with a red they had to spend time proving was not theirs (bc-q
 thing a list of ticks cannot tell you — whether a row per setting on a 393px screen
 reads as a card or as a wall.
 
+**And `node test/spacecard.mjs` asks the row-per-setting question without Chrome**, so
+`npm test` catches it too. That check living only in the browser half was the reason the
+staleness above went unnoticed for as long as it did: a check that wants Chrome is not in
+`npm test`, so it is run by hand exactly when somebody has already touched the card —
+which is precisely the case where nothing was forgotten. Adding a key to `SETTINGS` and
+forgetting the row stayed green everywhere that runs automatically. This suite runs the
+real `public/monitor.js` in a `node:vm` against a `/api/space` payload built by the real
+`spaceDetail` — not a fixture typed out by hand, which would be free to be right about a
+shape the endpoint does not serve — and reads each drawn row's key off its control by the
+same three rules `space-check` uses, naming a setting with no row, a row writing a key the
+server would refuse, and a row whose control this reader cannot read at all. It asserts
+the same rows are drawn for a space that has set everything and for one that has set
+nothing, because the fresh install is where a missing row is least visible: every control
+is on Inherit and there is nothing on the card to look wrong. What is left to the browser
+check is what a string cannot answer — that a press reaches `config.json`, and how the
+card reads on a phone.
+
 ### And it offers to tidy up the noise it already made
 
 Narrowing the filter silences what comes *next*. It used to say nothing at all about
