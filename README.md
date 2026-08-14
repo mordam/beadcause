@@ -468,6 +468,90 @@ Two, because the parser and the gesture fail in different ways:
   the committed build arms the first tap instead of opening the card. Not in
   `npm test` — it needs Chrome.
 
+## Accounts — one life at a time
+
+Beadcause reads every tracker on the Mac, which is the right thing for a notification
+daemon and the wrong thing for a screen: work and everything that is not work, in one
+inbox, one board and one picker. Spaces group them by *when they may interrupt you*,
+which is a real question and not this one. An **account** is the level above — an email
+address that owns a set of workspaces, and, inside a workspace that holds many
+checkouts, a set of repos:
+
+```json
+"accounts": [
+  { "email": "you@gmail.com", "label": "Personal",
+    "workspaces": ["notes", "sideproject"] },
+  { "email": "you@work.example", "label": "Work",
+    "workspaces": ["acme"],
+    "repos": { "acme": ["acme", "athena-service"] } }
+]
+```
+
+One is in force at a time, and **what it owns is the whole of what the app shows**. The
+other account's questions, pull requests, chats, tickets, advocates and spaces are not
+behind a filter you can widen — they are not on the screen, and the picker does not offer
+them.
+
+**The address is the control.** It sits at the right-hand end of the top bar on every
+page; tapping it opens a menu holding that page's own actions — refresh, the endorsement
+queue, foundations, the gear — and **Switch accounts**, which opens the picker. The
+picker has a ＋ for adding one: an address, a name, and a tick per workspace.
+
+```
+┌────────────────────────────────────────────────┐
+│ ●  [icon]                you@work.example  ▾   │
+│ ┌────────────────────────────────────────────┐ │
+│ │ ⟳   Refresh                                │ │
+│ │ 🗳️   Endorsement queue                      │ │
+│ │ ⚖️   Foundations                            │ │
+│ │ ────────────────────────────────────────── │ │
+│ │ ⇄   Switch accounts                        │ │
+│ └────────────────────────────────────────────┘ │
+└────────────────────────────────────────────────┘
+```
+
+**Nothing is on until there are two.** An install with no `accounts` behaves exactly as
+it did before they existed — every predicate answers "in scope", and the chip simply
+draws `me`. One account owns everything unless it says otherwise, so the *first* one
+changes nothing but the address in the bar. Adding a second is what separates anything —
+and adding it through the picker writes both: the account you typed, and the one it
+implies, owning every workspace you did not give away. A config with one account and
+eight unclaimed repos is not a state the ＋ can leave you in, because those repos would
+be visible from nowhere.
+
+**It is a view scope and not a credential**, deliberately. Switching is one tap with no
+sign-in, and the pairing token still reaches everything — it has to, because an ntfy
+action button, the Android app and `bin/router.js` all call this daemon with no browser
+anywhere in them. What an account changes is what a *screen* is handed. If you want a
+real boundary, that is Google sign-in and per-device revocation, which is a different
+mechanism and lives in [Signing in with Google](#signing-in-with-google).
+
+**Which account you are in is stored on the server**, in `state.json`, beside the inbox
+filter and for the same two reasons: the push path reads it from inside the poll with no
+client in the loop, and one person with a phone and a laptop should not have two devices
+disagreeing about which life they are in. Switching on the laptop switches the phone.
+
+**A bead in the account you are not in goes quiet, and is never lost.** It is still
+swept, still filed, still counted, and it is on the screen the second you switch — the
+same contract a narrowed filter and a muted space already have. The log says which kind
+of quiet it was, because the lever is different for each:
+
+```
+[beadcause] acme/cl-9x2 arrived quietly (outside Personal (you@gmail.com))
+```
+
+**And filing follows the account.** The address in the bar is the handle a bead you file
+is stamped with — its owner label at P0, its addressee, the byline on a comment, the
+handle a claim leases with. Before accounts, that was whichever address `me` happened to
+list first, forever. Both addresses stay yours, so a question another machine addresses
+to your other one still arrives here as yours; only what a *new* write is signed with
+moves. See `accountHandles` in `lib/accounts.js`.
+
+**The admin screen is deliberately not narrowed**, the same way it has no space picker:
+it acts on the daemon rather than on a repo, and a page whose buttons reach every
+workspace must not draw a chip implying otherwise. The chip is there — it is how you
+switch from that page — but nothing on the page below it is filtered.
+
 ## Spaces — keeping work out of your evening
 
 Workspaces can be grouped into **spaces**, and a space is defined by *when it may
@@ -503,6 +587,12 @@ you press **All**:
 [beadcause] sophab/sp-4kd arrived quietly (outside the inbox filter: Work / acme)
 [beadcause] acme/cl-9x2 arrived quietly (Work is muted right now)
 ```
+
+There is a third, one level up: a bead in the account you are not in — see
+[Accounts](#accounts--one-life-at-a-time). It is tested *before* the filter, because
+widening the filter cannot reach it; the picker does not offer the other account's repos
+at all, so calling it "filtered" would send you to press a button that cannot bring it
+back.
 
 **One channel is exempt: a foundation request is never quietened by the filter.** The
 filter's two levels are space and workspace, and both answer "which of my lives is this
@@ -2708,6 +2798,21 @@ file a report against somebody else's work, and afterwards that is indistinguish
 their having written it. A window with no bead — a ship window, a rebase window — is
 stamped with nothing, and `debrief` refuses there rather than guessing.
 
+**And that refusal caught one window it should never have applied to.** The P0 advocate is
+opened, closed and re-opened on the *same bead* for weeks, and it was the one bead-shaped
+door passing an agent and no bead — so tier 4 could not see the session that had the most
+to say to its own successor. It was not an oversight in tier 4: that agent landed after
+this store was written, and the merge took the union of the two signatures without
+extending it. `openEpicAdvocateSession` now passes `bead: row.id` beside `agent`, and its
+brief asks for a report as the *third* thing it leaves behind, next to the two it already
+did — the waiting-on sentence, which is one line of current state for a phone, and its
+notes, which are what is still true next week. What a visit actually was fitted neither,
+so it was written as a belief that went stale or not written at all. One honest delay
+comes with it: an advocate window has no worker record, `archiveSession` runs over those,
+so what it writes stays staged until the next planner or worker session on that P0 folds
+it in — the same rider the paragraph below describes for a daemon that was down, stamped
+with a plainly older time. Archiving the advocate window itself is `bc-nib3.13`.
+
 **Writes append rather than replace, and there is no key to replace by.** Two calls in one
 run are two things that happened, not a correction of the first. That is the difference
 from the other two stores and it falls out of what this one is: `note` and `remember` hold
@@ -2746,6 +2851,13 @@ names it, the way the notes section names its own.
 The epic planner gets the same section, and is arguably the reader it serves best: the
 reports its children's runs left are the only first-hand account of which parts of an epic
 turned out to be entangled, which is the exact question a plan answers.
+
+The P0 advocate gets it too, and the same graph rule narrows it further without a line of
+special-casing: a root P0 has no parent, so it has no siblings, so what arrives is the
+reports of previous runs at *that P0* and nothing else. That is the right answer twice —
+it is this agent's own account of its last visit, which a window that starts from the bead
+every time has never had, and it cannot be swamped by twenty children's afternoons the way
+its notes section would be if the same widening were tried there.
 
 `test/debrief.mjs` covers the seam, because the store is written by one module and
 consumed by another and every interesting failure is invisible from either side alone: a
@@ -11965,7 +12077,7 @@ prose in a comment.
 
 `test/swbump.mjs` asks it now, on every `npm test`, about the branch you are on. It
 compares the working tree against the `main` it grew from, so the answer arrives before
-the commit rather than after it, and it says one of three things:
+the commit rather than after it, and it says one of four things:
 
 - **An advisory, which never fails the run.** Two or more files in `SHELL` changed and
   `const CACHE` did not move: here they are, decide. That over-reports on purpose. The
@@ -11982,6 +12094,12 @@ the commit rather than after it, and it says one of three things:
   or id and another newly *styles* it — the stylesheet shape, below. It does not fail
   the run; it turns "these five files moved, decide" into "`console.js` newly draws
   `.bead-dupe`, which `style.css` only gained on this branch".
+- **A file added whole that a cached page cannot load.** A new `SHELL` file whose only
+  way onto a page is a `<script src>` tag another `SHELL` file only just gained, and
+  which a third one now calls into off the window. Which side of the line that lands on
+  is decided by the caller: reached flat it is a `TypeError` and red, and reached behind
+  `&&` or `?.` it is a control that silently does not appear, and it is named inside the
+  advisory. The script-tag shape, below.
 
 The reading is deliberately narrow. Comments are stripped before a line is read, and a
 member counts as gained only if it is *defined* at head and not at base — appearing in
@@ -12002,6 +12120,11 @@ node test/swbump.mjs --base 65745de5^2 --head 65745de5   # bc-dmt: flagged
 node test/swbump.mjs --base cbfd7367^  --head cbfd7367   # bc-p38c.2: silent
 node test/swbump.mjs --base e7aa8e68^1 --head e7aa8e68^2 # bc-pzti: the stylesheet pair
 ```
+
+bc-nib3.3, the branch the script-tag half is written from, is the one that cannot be
+replayed that way — it *bumped*, so pointed at its own revisions the check is correctly
+silent. The suite pins its `const CACHE` back to the value it had first, which is the
+state the branch was actually in when swbump shrugged at it.
 
 ### The stylesheet half of the same pair
 
@@ -12040,6 +12163,52 @@ unstyled is a warning in the wrong colour on a page that otherwise works; v37's 
 unstyled is a screen with no navigation on it. The check finds the pair and names both
 halves of it; how much an unstyled name costs is the judgement, and it stays with the
 person reading the diff — who, unlike this file, can open the page.
+
+### The script tag that is the other half
+
+Both rules above pair two files the branch *modified*, and "a file added whole, with its
+callers, is never a mixed pair" is a rule with a suite of its own: a cache from before
+the branch has neither half of it, so there is nothing to disagree with.
+
+bc-nib3.3 (#247) is the shape that goes straight through the middle of that. The
+collapsing filter chrome came out of `public/inboxfilter.js` into a new
+`public/filtermenu.js` so the History tab could mount the same control instead of a
+second implementation of it. The new file is *added*, so it is neither half of a member
+pair; the thing that puts `window.beadcause.filterMenu` on the page is a `<script src>`
+tag, which is markup rather than a call; and `inboxfilter.js` — a file the cache has had
+all along — gained `window.beadcause.filterMenu.mount(host, …)`. The pair that actually
+breaks is the phone's *old* `index.html`, which has no such tag, beside the branch's new
+`inboxfilter.js`, and it takes the inbox's whole filter bar out with a `TypeError`.
+swbump printed an advisory. The bump was made anyway, argued out by hand in
+`docs/sw-cache/v51.md` — which is the hand-written version of the failure the check
+should have printed — and the next session lifting a shared browser module would have
+read "advisory" and skipped it.
+
+So the added file is not one half of this pair. The *page that loads it* is, and the
+page is a file the cache has had all along and this branch edited. `scriptSrcs` reads
+the tags a page gained, `globalInstalls` reads the surface the new file puts on the
+window — skipping the `window.beadcause = window.beadcause || {}` line every one of
+these files carries, which is nobody's surface in particular — and `globalCalls` reads
+what another modified `SHELL` file newly reaches for through it.
+
+Which strength it lands at is decided by the caller, and bc-nib3.3 has one of each in a
+single commit. `inboxfilter.js` calls `mount` flat, on a page that cannot have loaded
+the file: that is a `TypeError`, and it is red. `history.js` mounts the identical
+control behind `if (host && window.beadcause && window.beadcause.filterMenu)`, so a
+phone without the file draws a ledger with no filter bar and throws nothing — the
+"looks like a working page" failure again, named inside the advisory and left to the
+reader to price. An optional-chained `window.beadcause?.filterMenu?.mount(…)` counts as
+the same guard for the same reason.
+
+It is quiet by construction, and that is measured the way the stylesheet half was.
+Replayed over every one of the 240 merges `main` has ever had, it fires on **no unbumped
+branch at all**, and independently explains **4 of the 31 that did bump** — bc-nib3.3's
+own diff, bc-rk2o putting every view on the delta stream behind a new `stream.js`,
+bc-xqnj's `spacebar.js`, and the branch that first added `sendqueue.js`. Every one of
+those is a new shared module arriving with the tags that load it, which is exactly the
+work this fires on and exactly the work a human bumped for. `bc-p38c.2` stays silent
+under it for the reason it always did: `report.js` went onto twelve pages and nothing
+gained a call into it, so cached HTML without the tag is the app exactly as it was.
 
 ## The Android app
 
@@ -14831,6 +15000,10 @@ cookie says so), and `/auth/signout` ends the session.
 | POST | `/api/pr/conflicts` | `{key, number}` | opens an iTerm session on the branch whose job is to merge the base into it, resolve, run the repo's own gate and push — then stop. `409` unless GitHub reports it `CONFLICTING` right now, so a resolved conflict cannot leave a window somebody has to close. Refused on an observer, and on a daemon with `openSessions` off. Two resolvers run at a time: past that it answers `{queued, place}` and the window opens when one frees, with GitHub asked again first — [the cap](#two-windows-at-a-time-and-the-rest-in-line) |
 | POST | `/api/comment` | `{workspace, id, text, agent?}` | comments, sets `human-replied`, dispatches that agent to reply (default when absent or unknown) |
 | POST | `/api/dismiss` | `{workspace, id, reason?}` | takes the card off the screen and **closes nothing**. Writes your note if you typed one, writes nothing at all if you did not, and never touches the status — "I am not dealing with this now" is not "this is decided" |
+| GET | `/api/accounts` | — | what the [account switcher](#accounts--one-life-at-a-time) draws: `{account, accounts[], workspaces[], repos, me}`. The workspace list here is **every** workspace on the Mac rather than the account's, because it is what the add-an-account form is built from. Costs no `bd` call — a `state.json` read and a walk of the config |
+| POST | `/api/accounts` | `{email, label?, workspaces[], repos?}` | add an account or rewrite one. Adding the first one writes **two**: the account you named, and the address this Mac already files as, owning every workspace you did not give it — a repo in no account would be visible from nowhere. Writes `config.json`, which the common repo snapshots. Refused on an observer |
+| DELETE | `/api/accounts` | `{email}` or `?email=` | forget one. Removing the last turns the scoping off and puts every workspace back on every screen. The address is taken from the query as well as the body, because Node's own HTTP server refuses a chunked DELETE body outright. Refused on an observer |
+| POST | `/api/account` | `{email}` | switch account — the whole of what **Switch accounts** does. Server-side like the filter below it, so the phone and the laptop agree and the push path reads the same value. An address naming no account is a 400. Filing follows it: the daemon's byline, addressee and owner stamps become that address at once |
 | POST | `/api/filter` | `{space, workspace}` | which slice the inbox is, remembered server-side so every client agrees and the notifications match. Each is a name or `all`, bounded at 120 characters. Notifications already unread for beads the new filter excludes are left exactly as they are — [nothing tidies them](#and-it-does-not-tidy-up-the-noise-it-already-made) |
 | GET | `/api/spaces` | — | what the [space picker](#one-space-at-a-time--the-picker-in-the-top-bar) draws: `{spaces, workspaces[], filter}`. Costs no `bd` call — the spaces are cached off the last sweep — because it is fetched on every page load of every standing view. **No counts**: the picker draws none |
 | GET | `/api/space` | `?space=` | one space's own configuration, for the [space details](#space-details--the-page-the-advocate-console-became) screen: `{settings, effective, repos[], defaults, missing[]}`. `settings` is `null` per field for "inherit"; `repos[]` is what each workspace actually resolves to, which is not always what the space says. 404 for anything that is not a configured space, the synthetic `Other` group included |
