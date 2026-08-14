@@ -39,7 +39,7 @@
   directory, and re-read the line: git may well have merged it silently. `node
   test/swcache.mjs` checks precisely that, in about a second.
 */
-const CACHE = 'beadcause-v48';
+const CACHE = 'beadcause-v49';
 const SHELL = [
   '/',
   '/index.html',
@@ -57,6 +57,12 @@ const SHELL = [
   // without it now — it is the only way off a page — so it belongs in the shell
   // rather than being fetched once per page over a phone link.
   '/tabbar.js',
+  // How the app finds out that what it is made of has moved — the reload after a deploy
+  // that changed public/, and the download-ask-install-restart the shell does when one
+  // rebuilt the APK. In the shell rather than network-first because the moment it is
+  // wanted is the moment a deploy has just ended: a page fetching it over a tailnet the
+  // daemon is restarting on would miss the one event it exists to hear.
+  '/update.js',
   // The space picker in the top bar, on the same five pages and for the same reason: a
   // page cached without it is a page with no way to change which repo the app is about,
   // and on the inbox it is what the space and workspace chip rows became.

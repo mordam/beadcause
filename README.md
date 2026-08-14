@@ -5733,6 +5733,121 @@ the ledger is a watermark and the marker on the bead is what stops the duplicate
 `unconfirmed` closes nothing, and, over real HTTP against `createApp`, that one press
 runs one deploy for the whole queue and the next one is refused.
 
+### Ship from the console you are already on
+
+The queue above lives on the PR board, which is a pane you switch to. The page you are
+*actually* on while work is finishing is the advocate console — sessions opening, beads
+closing, worktrees tidying themselves — and the question that follows immediately from
+watching that is **"is any of it live?"**. Answering it meant the PRs chip, a board that
+re-sweeps every repo, and finding the card again.
+
+So each advocate card carries the same strip: the merges this repo is holding that are
+not running, the ones you can read at a glance, and a **Ship** that arms on the first tap
+and deploys the lot on the second. It is `POST /api/release/ship` — the board's own
+endpoint, the board's own queue out of `lib/release.js`, the same `startDeploy` — so a
+Ship from here and a Ship from the board are one act with two doors, and there is no
+second code path to keep true. A repo with nothing waiting draws no strip at all.
+
+`node scripts/advocate-ship-check.mjs` drives the real console in headless Chrome with
+every POST recorded: that the strip lands on the card for the repo it is about and above
+that advocate's own folds, that the first tap sends **nothing** and says how many are
+about to go out, that the second sends one `/api/release/ship` carrying the repo's *key*,
+that a repo with an empty queue draws no strip at all, and that a refusal lands on the
+card in the daemon's own words.
+
+The board it draws from is **borrowed, not owned**: `/api/prs` is a `gh` sweep per repo,
+so the console asks for it at most once a minute, only while its own pane is up, and
+again the moment anything on the log could have moved the number — a merge, a deploy, a
+review declined. A fetch that fails keeps what it had and says nothing: the strip is a
+bonus on this page, not its subject, and an error banner over the advocates because
+GitHub was slow would be a worse page than one whose count is a minute old.
+
+### After the deploy — the app updating itself
+
+A deploy moves two things that are not the daemon, and until bc-jznr it told nobody about
+either. The files under `public/` that every open tab is made of, and — when `android/`
+moved — the APK the phone's shell *is*. A phone left on the inbox went on running the
+bundle it loaded that morning against a daemon that had moved underneath it, and the
+shell was upgraded by somebody remembering to open a URL and thumb through an installer.
+
+So the daemon now says what it did, and the app decides what that means for it.
+`GET /api/update` and two booleans on the `deploy` event every client is already parked
+on: **`web`** — something under `public/` is different from what you loaded — and
+**`apk`** — the rebuild step ran and republished the shell. `lib/update.js` derives both
+from the record the runner already writes, and two of its rules are load-bearing:
+
+- **They follow the pull, not the restart.** This daemon serves `public/` from disk on
+  every request and the runner's pull is a fast-forward of that very checkout, so the
+  files moved the moment the pull did — whether or not the restart after it worked. A
+  beadcause deploy ordinarily settles as `unconfirmed` (it killed the process that would
+  have reported on it), and gating on `ok` would leave every client stale forever.
+- **Only this checkout.** A deploy of sophab moves `public/` too. The test is the
+  record's own `dir` against the tree this daemon is running out of — not the repo's key,
+  which is config, and which is `null` on a Mac where the clone is in no workspace.
+
+`public/update.js` is the client half, on every standing page. It **borrows the page's
+poll** rather than opening one — `stream.listen`, added for this — because a second
+parked request on every page of every device for one boolean is exactly the cost this app
+spends care avoiding elsewhere.
+
+**The event alone is not enough, and that is not a detail.** A beadcause deploy kills the
+daemon every client is parked on; the settle event is emitted by the *new* process, by
+which time every poll has broken and is sitting out a backoff, and a poll that comes back
+asks cold — current sequence, no backlog. The one event that matters is precisely the one
+a page can be relied upon to miss. So the boot read acts too, behind two guards that have
+to be read together: **one reload per deploy id, per device, ever** — written down before
+the reload, because a reload is what stops this page existing — and **only where this page
+predates the deploy**, so a tab opened after it does not flicker for nothing. The first is
+the guarantee and holds whatever else is wrong; the second compares two machines' clocks
+and is therefore allowed to be wrong and never load-bearing.
+
+**The page reloads itself, and the shell asks first.** Those are deliberately different:
+
+- A reload is cheap and invisible when it lands well, so it happens on its own. Through
+  `registration.update()` first, or the service worker's cache hands back the very bundle
+  we are leaving — and never over a caret: anything typed into is a deferred reload,
+  taken when the box is left or the screen comes back.
+- Installing an APK restarts the app. So the download happens silently the moment the
+  shell learns it is behind — 28 MB over a tailnet costs nothing anybody notices — and
+  the **ask** comes after the bytes have landed, so saying yes is a moment rather than a
+  minute of watching a bar. Say *Later* and an **Update app** button stays in the top bar
+  until it is applied. It arms like everything else here that restarts something.
+
+The version is a real number now. `versionCode` was `1` in every build ever made, which
+makes "is the published one newer?" unanswerable; `npm run android` derives it from the
+commit count, stamps it into the APK and writes the same pair into
+`public/beadcause.apk.json` beside it — because an APK's version lives in a binary the
+daemon has no business unpacking. The two are cross-checked by byte count, and where they
+disagree the version is **unknown** rather than wrong: a sidecar describing some other
+file is the one input that could put a phone in a download loop.
+
+The install itself is `PackageInstaller`, not an intent at the system installer — only
+the session API reports what happened, so every ending has a name instead of "did the
+version change next time somebody looked". On Android 12+ an update to a package this app
+installed may be applied with `USER_ACTION_NOT_REQUIRED`, so the *second* update onward
+needs no system dialog at all; the first goes through the platform's confirm screen,
+because the installed copy came from a browser download and this app is not yet its
+installer of record. Both are ordinary paths and both are handled. It needs the one-off
+"install unknown apps" toggle, and `Updater` opens that settings screen rather than
+failing inside a coroutine where nobody would see it.
+
+Coming back up is asked for **twice**, on purpose. Replacing a package kills the process,
+and whether the receiver that hears about it may then start an activity depends on state
+it cannot see. So the relaunch is attempted and a *"Beadcause updated — tap to reopen"*
+notification goes out beside it, which `MainActivity` cancels the moment it is on screen.
+The cost is a row that flashes and clears on the phones where the relaunch worked; the
+cost of trusting the relaunch alone is an app that quietly does not come back on the
+phones where it did not.
+
+`node test/update.mjs` covers the daemon's half — that an `unconfirmed` restart still
+reports the page it moved, that a rebuilt APK in `public/` is not "the page changed", that
+another checkout's deploy says nothing to us, and that a sidecar which does not match the
+file beside it names no version. `node test/appupdate.mjs` runs the real
+`public/update.js` in a vm against a stub DOM and a fake bridge: that the boot read
+catches the deploy whose event the restart ate, that the page which comes back does not
+reload again, that a caret defers one, that a browser is never offered an APK, that a
+version nothing can compare is left alone, and that one tap arms where two install.
+
 ### Deploying a repo, when it says how
 
 For a long time the daemon could do everything after a merge except the last thing.
@@ -11892,6 +12007,7 @@ cookie says so), and `/auth/signout` ends the session.
 | POST | `/api/devices` | `{action: 'revoke', id}` | ends that one session and no other: the row is deleted, so the cookie naming it authorises nothing on its next request, on this backend and on the one replacing it. `self` when you have just revoked the browser you are holding, which also clears its cookie. **Not** refused on an observer — it shares this list with the live daemon, so the session it revokes is the same session |
 | GET | `/api/deploys` | `?limit=` or `?id=` | the recent deploys, or one with its log. Four endings, not two: `ok`, `failed`, and the two that mean nobody knows — `unconfirmed` (the ordinary ending of a restart) and `lost` |
 | POST | `/api/deploy` | `{key, bead?, reason?}` | runs that repo's declared deploy. `409` with no declaration, or if one is already running. Means "written down and a process owns it", never "it worked". Refused on an observer |
+| GET | `/api/update` | — | what the last deploy did to **the client asking**, and what the published APK now is. `deploy` is `{web, apk}` — did `public/` move, was the shell rebuilt — for deploys of *this* checkout only; `apk` is `{versionCode, versionName, size, builtAt}` off `public/beadcause.apk` and the sidecar beside it, with an unknown version rather than a wrong one where the two disagree. A `stat` and a directory read: no sweep, because every page asks it at boot |
 | POST | `/api/presence` | `{device, view, key}` | which view this device has open, so [the mirror](#the-mirror--whatever-the-phone-has-open-with-room-to-read-it) can follow it. Wakes `/api/poll` without costing a `bd` sweep — see `changed` there |
 | GET | `/api/presence` | — | `{devices[]}` — who is where |
 | DELETE | `/api/presence` | `{device}` | forget one device |

@@ -168,6 +168,16 @@
     pendingLimits: new Map(), // step key → the number you have dialled up, not yet sent
     applyingLimits: new Set(), // step key → a write is in flight
     limitErrors: new Map(), // step key → why the last apply was refused
+    /* The pull request board, for the one thing this page wants off it: how many merges
+       each repo is holding that are not live yet. `/api/prs`'s own payload, unaltered, so
+       the strip below draws from exactly what the PRs pane draws from. */
+    board: null,
+    boardAt: 0, // when it was last fetched, so this page is not asking on every repaint
+    /** The armed Ship, as a repo key. At most one on the page — the second tap deploys. */
+    armedShip: null,
+    /** What the last Ship said, pinned to the card it was pressed on. */
+    shipSaid: null, // { key, text, bad }
+    shipping: false,
   };
 
   function readOpen() {
@@ -805,6 +815,99 @@
     return parts.length ? parts.join('') : '<p class="subtitle">Nothing archived or swept yet.</p>';
   }
 
+  /* ----------------------------------------------------------------- shipping */
+
+  /**
+   * How long the board this page borrows may go unasked before it is asked again.
+   *
+   * `/api/prs` is a `gh` sweep per approved repo behind a 25-second cache, which is the
+   * right price for the PRs pane — a screen you are on in order to ship — and much too
+   * high a one to pay on every repaint of a page that repaints every few seconds. So the
+   * strip is refreshed on a slow clock and on the events that could have changed it (a
+   * merge, a deploy — `boardMoved` in public/stream.js), which between them cover every
+   * way the number below can move.
+   */
+  const BOARD_MS = 60000;
+
+  /** The repo key a board card is, spelled the way lib/release.js keys its entries. */
+  const cardKey = (c) => c?.key || c?.repoKey || c?.workspace || '';
+
+  /**
+   * The queue for one workspace, as cards — one per repo of it that owes a ship.
+   *
+   * A workspace and a repo are the same thing for every personal space here and are
+   * emphatically not for Climative, whose one tracker fronts forty checkouts. The
+   * advocate is per *workspace*, so its card can legitimately hold several of these, and
+   * each carries its own key: two rows arming one button would be one tap deploying the
+   * wrong service, which is the bug bc-l853.6 was.
+   */
+  const owedCards = (ws) => (state.board?.repos || []).filter((c) => c.workspace === ws && c.release?.count);
+
+  /**
+   * The Ship strip: what has merged in this repo and is not running yet.
+   *
+   * The same queue the PRs pane draws (lib/release.js decides it, `releaseFor`), on the
+   * page you are actually looking at when you want it. That is the whole argument for
+   * putting it here as well: this console is where you watch work *finish* — an advocate
+   * closing beads, sessions landing and tidying themselves — and the question that
+   * follows immediately from watching that is "is any of it live?". Answering it used to
+   * mean the PRs chip, a board that re-sweeps every repo, and finding the card again.
+   *
+   * It draws nothing at all when the queue is empty, which is the ordinary state and
+   * should look like it — the same rule the board's own strip keeps.
+   *
+   * The button is only offered where a deploy is declared. A repo beadcause cannot deploy
+   * has no one-press answer (see `shipHint` in public/prs.js), and the honest thing on a
+   * card that is not about pull requests is to say the number and send you to the board
+   * rather than to grow a second meaning for the word here.
+   */
+  function shipStrip(ws) {
+    const cards = owedCards(ws);
+    if (!cards.length) return '';
+    return cards
+      .map((c) => {
+        const key = cardKey(c);
+        const r = c.release;
+        const armed = state.armedShip === key;
+        const can = r.can === 'deploy';
+        const said =
+          state.shipSaid?.key === key
+            ? `<div class="board-said${state.shipSaid.bad ? ' bad' : ''}">${esc(state.shipSaid.text)}</div>`
+            : '';
+        const list = r.prs
+          .slice(0, 5)
+          .map((p) => `<li><a href="${esc(p.url)}" target="_blank" rel="noopener">#${esc(p.number)}</a> ${esc(p.title)}</li>`)
+          .join('');
+        const more = r.prs.length > 5 ? `<li class="release-more">…and ${r.prs.length - 5} more</li>` : '';
+        const button = can
+          ? `<button class="board-btn ship release-ship${armed ? ' armed' : ''}" data-ship="${esc(key)}"${
+              state.shipping ? ' disabled' : ''
+            }>${armed ? `Ship all ${r.count} — sure?` : 'Ship'}<span class="release-count" aria-hidden="true">${esc(
+              r.count
+            )}</span></button>`
+          : '';
+        return `<div class="release">
+          <div class="release-head">
+            ${button}
+            <p class="release-say">${
+              can
+                ? `${plural(r.count, 'merged pull request')} ${r.count === 1 ? 'is' : 'are'} on <code>origin</code> and not live${
+                    cards.length > 1 ? ` in <strong>${esc(c.repoName || key)}</strong>` : ''
+                  }. One deploy ships ${r.count === 1 ? 'it' : 'them all'}${
+                    r.hint ? ` — ${esc(r.hint).replace(/`([^`]+)`/g, '<code>$1</code>')}` : ''
+                  }.`
+                : `${plural(r.count, 'merged pull request')} ${
+                    r.count === 1 ? 'is' : 'are'
+                  } waiting to ship. This repo declares no deploy beadcause can run, so each one goes out from its own row on the <a href="/prs">PR board</a>.`
+            }</p>
+          </div>
+          <ul class="release-list">${list}${more}</ul>
+          ${said}
+        </div>`;
+      })
+      .join('');
+  }
+
   /* -------------------------------------------------------------------- cards */
 
   function advocateCard(w, a, proposals) {
@@ -918,6 +1021,13 @@
         <span class="adv-actions">${controls}</span>
       </div>
       ${domainHtml(w, a)}
+      ${
+        // What this repo has merged and not made live, above everything the advocate is
+        // doing. High on the card on purpose: it is the only control here that changes
+        // what is *running*, and a queue you have to scroll past six folds to find is a
+        // queue that stays unshipped. Empty draws nothing at all.
+        shipStrip(key)
+      }
       ${note ? `<div class="adv-note">${esc(note)}</div>` : ''}
       ${
         // A limit the global cap will not honour. Said here rather than left to the
@@ -1734,6 +1844,11 @@
       // of `cfg`, no `bd` and no disk.
       await loadSpace();
       render({ polled });
+      // Not awaited and not gated on the paint above: the Ship strip is a late addition
+      // to a card that is already correct without it, and a page that waited on a `gh`
+      // sweep per repo before drawing an advocate would be a slower page for a number
+      // that is usually zero.
+      loadBoard();
       pumpLogs().finally(scheduleLogs);
       // Only from a request that came back: warming behind a refused credential would
       // be four more refusals. See public/warm.js.
@@ -1751,6 +1866,34 @@
       // timer gone the stream is the only thing that can. Its own backoff is what stops
       // that being a request every five seconds at a daemon that is not coming back yet.
       follow();
+    }
+  }
+
+  /**
+   * The board behind the Ship strip — borrowed, never owned.
+   *
+   * Three rules, and the first two are about not making this page expensive:
+   *
+   * - **Throttled**, because a repaint is not a reason to re-sweep every repo. `force` is
+   *   for the ⟳ and for the moment after a Ship, when the number on the button is the
+   *   thing that just changed.
+   * - **Only while the pane is up.** The PRs pane and the Mirror stand their own polls
+   *   down when hidden (public/montabs.js); a board fetched for a card nobody is looking
+   *   at would be the same waste by a quieter route.
+   * - **A failure is silent and keeps what it had.** The strip is a bonus on this page,
+   *   not its subject: an error banner over the advocates because GitHub was slow would
+   *   be a worse page than one whose Ship count is a minute old.
+   */
+  async function loadBoard({ force = false } = {}) {
+    if (out.hidden) return;
+    if (!force && Date.now() - state.boardAt < BOARD_MS) return;
+    state.boardAt = Date.now();
+    try {
+      const board = await api('/api/prs');
+      state.board = board;
+      render();
+    } catch {
+      // Kept: see above. The next event or the next minute asks again.
     }
   }
 
@@ -2021,6 +2164,62 @@
   }
 
   /** List the archived sessions for a bead, or read one of them back. */
+  /**
+   * Ship what this repo has merged and not made live — one deploy, every merge on it.
+   *
+   * Two taps, like every other control in this app that restarts something: the first
+   * arms and says how many are about to go out, the second sends. `/api/release/ship` is
+   * the PRs pane's own endpoint and this asks it for exactly the same thing, so a Ship
+   * from here and a Ship from the board are one act with two doors — the daemon logs them
+   * identically and there is no second code path to keep true.
+   *
+   * A 200 is never "shipped". It means a record is on disk and a detached runner owns it;
+   * on this repo the very next thing that happens is this daemon being SIGKILLed by the
+   * deploy it just started, so the page you pressed it on may lose its connection before
+   * the sentence below is read. How it went arrives on the phone, on the PRs pane's
+   * deploy strip — and, now, as the page reloading itself when it comes back (see
+   * public/update.js).
+   */
+  async function ship(key) {
+    const card = (state.board?.repos || []).find((c) => cardKey(c) === key);
+    if (!card?.release?.count || state.shipping) return;
+    if (state.armedShip !== key) {
+      state.armedShip = key;
+      return render();
+    }
+
+    const count = card.release.count;
+    const where = card.repoName ? `${card.workspace} · ${card.repoName}` : card.workspace;
+    state.armedShip = null;
+    state.shipping = true;
+    state.shipSaid = { key, text: `Deploying ${where} — ${plural(count, 'merged pull request')}…`, bad: false };
+    render();
+
+    try {
+      const data = await api('/api/release/ship', {
+        method: 'POST',
+        // Both, exactly as public/prs.js sends them: the key is what the daemon acts on,
+        // and the workspace beside it is what an older daemon — one that has not been
+        // deployed with this bundle yet — reads instead.
+        body: JSON.stringify({ key, workspace: card.workspace }),
+      });
+      state.shipSaid = {
+        key,
+        text: `Deploying ${where} — ${data.deploy?.id || 'started'}, carrying ${plural(
+          count,
+          'merge'
+        )}. How it went lands on your phone.`,
+        bad: false,
+      };
+    } catch (err) {
+      state.shipSaid = { key, text: err.message, bad: true };
+    } finally {
+      state.shipping = false;
+      render();
+      loadBoard({ force: true });
+    }
+  }
+
   async function openArchive(ws, bead) {
     try {
       const arc = await api(`/api/session-archive?workspace=${encodeURIComponent(ws)}&id=${encodeURIComponent(bead)}`);
@@ -2044,6 +2243,16 @@
   /* ------------------------------------------------------------------- events */
 
   out.addEventListener('click', (e) => {
+    // Ship, first of all: it is the one control on this page that changes what is
+    // running, and it carries its repo on itself rather than a workspace — so nothing
+    // below, all of which reads `data-ws`, may be allowed to claim the press.
+    const shipBtn = e.target.closest('[data-ship]');
+    if (shipBtn) {
+      e.preventDefault();
+      ship(shipBtn.dataset.ship);
+      return;
+    }
+
     // The space's own settings, before the advocate controls: both draw `.adv-btn`,
     // and these carry their field on themselves rather than a workspace.
     const set = e.target.closest('[data-space-set]');
@@ -2207,7 +2416,11 @@
      `bd` for every tracker on the Mac to refresh a roster nobody is looking at, which is
      the same bill `ready` below exists to stop the stream running up. */
   document.getElementById('refresh').addEventListener('click', () => {
-    if (!out.hidden) load();
+    if (out.hidden) return;
+    load();
+    // The ⟳ means "ask everything again", and the Ship count is one of the things on this
+    // page a minute-old answer can be wrong about — a merge that landed while you read it.
+    loadBoard({ force: true });
   });
   /* The space picker moved. Which repos are drawn is decided at paint time off the
      /api/work payload already in hand — but *whose settings* the card at the top shows
@@ -2265,6 +2478,11 @@
           load({ polled: true });
           return;
         }
+        // A merge, a deploy, a declined review: the events behind the Ship strip's number,
+        // and the only things that can move it. Forced, because the whole point of hearing
+        // about a merge is that the count this page is showing is now wrong — and a deploy
+        // settling is what takes the strip back down to nothing.
+        if (window.beadcause.stream.boardMoved(events)) loadBoard({ force: true });
         // Presence is a thumb moving on somebody's phone, and an advocate saying it is
         // still surveying is the roster above. Neither is a reason to sweep `bd`.
         if (window.beadcause.stream.workMoved(events)) load({ polled: true });

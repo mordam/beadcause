@@ -132,6 +132,51 @@ object Api {
         post(conn, "/api/comment", JSONObject().put("workspace", workspace).put("id", id).put("text", text))
     }
 
+    /**
+     * What the daemon says the published APK is, and what the last deploy did.
+     *
+     * The same `/api/update` the pages read (lib/update.js). The shell asks it for one
+     * field — `apk.versionCode` — and asks for itself rather than being handed the page's
+     * copy, because the download that follows is the shell's own act: a WebView that has
+     * been talked into naming a different build is a WebView that has talked the phone
+     * into installing one.
+     */
+    fun update(conn: Conn): JSONObject = get(conn, "/api/update")
+
+    /**
+     * Pull a file off the server onto disk — the APK, and nothing else so far.
+     *
+     * Streamed rather than buffered: it is around 28 MB and the phone this runs on has no
+     * reason to hold that twice. Written to a `.part` and renamed only after the length
+     * agrees with what was advertised, so a download cut off halfway by a tailnet dropping
+     * cannot leave a plausible-looking APK behind for the installer to choke on. The
+     * caller owns both paths; this owns the bytes and the check.
+     *
+     * `expectedSize` of 0 means the caller was not told a size, which happens with a
+     * published APK that has no sidecar beside it. Then the length check is skipped —
+     * unknown is not a mismatch — and the installer's own signature and manifest checks
+     * are what stand behind it.
+     */
+    fun downloadTo(conn: Conn, path: String, dest: java.io.File, expectedSize: Long = 0): Long {
+        val u = url(conn, path).build()
+        val req = Request.Builder().url(u).header("x-beadcause-token", conn.token).build()
+        val part = java.io.File(dest.parentFile, "${dest.name}.part")
+        part.parentFile?.mkdirs()
+        client.newCall(req).execute().use { res ->
+            if (!res.isSuccessful) throw ApiException(res.code, "HTTP ${res.code} fetching $path")
+            val body = res.body ?: throw IOException("empty response fetching $path")
+            part.outputStream().use { out -> body.byteStream().copyTo(out, 64 * 1024) }
+        }
+        val got = part.length()
+        if (expectedSize > 0 && got != expectedSize) {
+            part.delete()
+            throw IOException("downloaded $got bytes of an expected $expectedSize — the link dropped")
+        }
+        dest.delete()
+        if (!part.renameTo(dest)) throw IOException("could not put the download in place at ${dest.name}")
+        return got
+    }
+
     /** File a new `human` question. Backs the share target. */
     fun ask(conn: Conn, workspace: String, title: String, body: String, priority: Int = 1): String {
         val res = post(
