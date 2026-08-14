@@ -65,6 +65,10 @@ const {
   sweepSuperseded,
   describeSuperseded,
   release,
+  mark,
+  edgeFor,
+  HOLDING_EDGE,
+  RELATED_EDGE,
 } = await import(LIB('superseded.js'));
 const { openWorkSession, workPromptFor } = await import(LIB('session.js'));
 const { toQuestion } = await import(LIB('decision.js'));
@@ -519,10 +523,13 @@ await check('the advocate asks about the duplicate instead of opening a session 
 await check('the brief tells a worker to mark a duplicate rather than write it in a comment', () => {
   // The other half of the fix, and the half that decides whether any of the above is
   // ever reached: nothing sets this marker but a worker, and a worker only knows to set
-  // it because the brief says so.
+  // it because the brief says so. Since bc-28ef it is one command rather than two lines
+  // typed by hand, because two of the three writes had a wrong version that reads as
+  // success — see the `mark` section below.
   const prompt = workPromptFor('demo', { id: 'zz-1', title: 'a bead' }, 1, null, 'Adam');
-  assert.match(prompt, /bd label add zz-1 superseded-by:<the-original>/);
-  assert.match(prompt, /bd dep add zz-1 <the-original>/);
+  assert.match(prompt, /bin\/supersede\.js -w demo -b zz-1 --original <the-original>/);
+  assert.match(prompt, /superseded-by:<the-original>/);
+  assert.doesNotMatch(prompt, /bd dep add zz-1 <the-original>/, 'and not the by-hand version it replaced');
 });
 
 await check('release takes the marker off, and is a no-op on a bead that never had one', async () => {
@@ -533,6 +540,191 @@ await check('release takes the marker off, and is a no-op on a bead that never h
   assert.equal(out.supersededBy, 'zz-orig');
   assert.deepEqual(labelsOf('zz-dup'), [], 'and only that label');
   assert.deepEqual(await release(bd, ws, 'zz-dup'), { released: false, id: 'zz-dup' }, 'idempotent');
+});
+
+/* ------------------------------------------ putting the marker on: `mark` (bc-28ef) */
+
+/**
+ * A synchronous `bd`, the shape bin/supersede.js hands `mark` — argv in, stdout out,
+ * throw on refusal. Small on purpose: the writes under test are three, and a fake that
+ * modelled the whole tracker would be asserting its own behaviour rather than `mark`'s.
+ *
+ * `refuse` is how the two failures that matter are staged: bd turning down a `blocks`
+ * edge across the epic boundary, and bd turning down any edge at all on a pair that
+ * already has one.
+ */
+function syncBd({ refuse = {} } = {}) {
+  const calls = [];
+  const run = (argv) => {
+    calls.push(argv.join(' '));
+    for (const [match, message] of Object.entries(refuse)) {
+      if (argv.join(' ').includes(match)) {
+        throw Object.assign(new Error('Command failed: bd'), { stderr: message });
+      }
+    }
+    return '';
+  };
+  run.calls = calls;
+  return run;
+}
+
+const taskRow = (id, extra = {}) => ({ id, status: 'open', issue_type: 'task', labels: [], ...extra });
+const epicRow = (id, extra = {}) => ({ id, status: 'open', issue_type: 'epic', labels: [], ...extra });
+
+await check('edgeFor is the whole rule: an epic gets a see-also, everything else gets the hold', () => {
+  assert.equal(edgeFor('task'), HOLDING_EDGE);
+  assert.equal(edgeFor('bug'), HOLDING_EDGE);
+  assert.equal(edgeFor(''), HOLDING_EDGE, 'an unreadable type is guessed as a task, as questionType does');
+  assert.equal(edgeFor('EPIC'), RELATED_EDGE);
+  assert.equal(edgeFor('epic'), RELATED_EDGE);
+});
+
+await check('an ordinary original: the label, the blocking edge, and nothing else', () => {
+  const bdx = syncBd();
+  const out = mark(bdx, 'zz-a', 'zz-b', { dupRow: taskRow('zz-a'), originalRow: taskRow('zz-b') });
+  assert.equal(out.marked, true);
+  assert.equal(out.held, true, 'a blocking edge really does hold it out of bd ready');
+  assert.equal(out.edge, HOLDING_EDGE);
+  assert.deepEqual(bdx.calls, ['label add zz-a superseded-by:zz-b', 'dep add zz-a zz-b']);
+  assert.deepEqual(out.notes, []);
+});
+
+await check('an epic original: the edge bd refuses is never attempted, and the swap is said out loud', () => {
+  // The bug. `bd dep add <task> <epic>` is refused, so what used to happen was a label
+  // and no edge at all — the relationship recorded nowhere the graph could see it.
+  const bdx = syncBd();
+  const out = mark(bdx, 'zz-a', 'zz-e', { dupRow: taskRow('zz-a'), originalRow: epicRow('zz-e') });
+  assert.equal(out.marked, true);
+  assert.equal(out.edge, RELATED_EDGE);
+  assert.deepEqual(bdx.calls, ['label add zz-a superseded-by:zz-e', 'dep relate zz-a zz-e']);
+  assert.equal(out.held, false, 'and it does not claim a hold it has not got');
+  assert.match(out.notes.join(' '), /epic/);
+  assert.match(out.notes.join(' '), /out of every queue by the marker/);
+});
+
+await check('a claimed bead is put back to open, because bd ready is open rows only', () => {
+  // The write nobody remembers. A worker reaches this having claimed its own bead, and a
+  // marked bead left in_progress is invisible to readySuperseded forever: held, with
+  // nobody ever asked. The order matters as much as the write — the label first, so a
+  // failure after it leaves the bead held rather than released and unmarked.
+  const bdx = syncBd();
+  const out = mark(bdx, 'zz-a', 'zz-b', {
+    dupRow: taskRow('zz-a', { status: 'in_progress' }),
+    originalRow: taskRow('zz-b'),
+  });
+  assert.equal(out.reopened, true);
+  assert.deepEqual(bdx.calls, ['label add zz-a superseded-by:zz-b', 'update zz-a --status=open', 'dep add zz-a zz-b']);
+});
+
+await check('it never writes the `human` label, which is the write that would kill the card', () => {
+  const bdx = syncBd();
+  mark(bdx, 'zz-a', 'zz-e', { dupRow: taskRow('zz-a', { status: 'in_progress' }), originalRow: epicRow('zz-e') });
+  assert.equal(
+    bdx.calls.some((c) => /label add \S+ human/.test(c)),
+    false,
+    'readySuperseded excludes the inbox by that label — adding it by hand prevents the card for good'
+  );
+});
+
+await check('a pair that already has an edge keeps it: provenance is not traded for a link', () => {
+  const bdx = syncBd({ refuse: { 'dep add': 'Error: dependency zz-a -> zz-b already exists with type "discovered-from"' } });
+  const out = mark(bdx, 'zz-a', 'zz-b', { dupRow: taskRow('zz-a'), originalRow: taskRow('zz-b') });
+  assert.equal(out.marked, true, 'the half that holds it landed');
+  assert.equal(out.held, false, 'and it says the hold did not');
+  assert.match(out.notes.join(' '), /already have an edge/);
+});
+
+await check('an edge bd refuses for any other reason is reported, and the marker still stands', () => {
+  const bdx = syncBd({ refuse: { 'dep add': 'Error: cycle detected' } });
+  const out = mark(bdx, 'zz-a', 'zz-b', { dupRow: taskRow('zz-a'), originalRow: taskRow('zz-b') });
+  assert.equal(out.marked, true);
+  assert.match(out.notes.join(' '), /cycle detected/);
+  assert.match(out.notes.join(' '), /which is the half that holds it/);
+});
+
+await check('a label bd refuses writes nothing else at all', () => {
+  // The inverse of the order above: if the guarantee did not land, releasing the bead
+  // back to `open` would hand it to the next advocate tick as ordinary work.
+  const bdx = syncBd({ refuse: { 'label add': 'Error: no issue found matching "zz-a"' } });
+  const out = mark(bdx, 'zz-a', 'zz-b', {
+    dupRow: taskRow('zz-a', { status: 'in_progress' }),
+    originalRow: taskRow('zz-b'),
+  });
+  assert.equal(out.marked, false);
+  assert.match(out.refused, /could not label zz-a/);
+  assert.deepEqual(bdx.calls, ['label add zz-a superseded-by:zz-b']);
+});
+
+await check('everything it refuses, it refuses before writing anything', () => {
+  const cases = [
+    ['a missing original', { dupRow: taskRow('zz-a'), originalRow: null }, /no bead zz-b here/],
+    ['a missing duplicate', { dupRow: null, originalRow: taskRow('zz-b') }, /no bead zz-a here/],
+    ['a duplicate already closed', { dupRow: taskRow('zz-a', { status: 'closed' }), originalRow: taskRow('zz-b') }, /already closed/],
+    [
+      'a duplicate already marked after something else',
+      { dupRow: taskRow('zz-a', { labels: [supersedeLabel('zz-c')] }), originalRow: taskRow('zz-b') },
+      /already carries superseded-by:zz-c/,
+    ],
+  ];
+  for (const [name, rows, why] of cases) {
+    const bdx = syncBd();
+    const out = mark(bdx, 'zz-a', 'zz-b', rows);
+    assert.equal(out.marked, false, name);
+    assert.match(out.refused, why, name);
+    assert.deepEqual(bdx.calls, [], `${name}: and nothing was written`);
+  }
+
+  const self = syncBd();
+  assert.match(mark(self, 'zz-a', 'zz-a', { dupRow: taskRow('zz-a'), originalRow: taskRow('zz-a') }).refused, /itself/);
+  const junk = syncBd();
+  assert.match(
+    mark(junk, 'zz-a', 'the one about the router', { dupRow: taskRow('zz-a'), originalRow: taskRow('zz-b') }).refused,
+    /is not a bead id/
+  );
+  assert.deepEqual([...self.calls, ...junk.calls], []);
+});
+
+await check('marking the same pair twice is a no-op rather than a second label', () => {
+  const bdx = syncBd();
+  const out = mark(bdx, 'zz-a', 'zz-b', {
+    dupRow: taskRow('zz-a', { labels: [supersedeLabel('zz-b')] }),
+    originalRow: taskRow('zz-b'),
+  });
+  assert.equal(out.marked, true);
+  assert.equal(out.alreadyMarked, true, 'and says so, because nothing else it returns means anything on a re-run');
+  assert.deepEqual(bdx.calls, []);
+  assert.match(out.notes.join(' '), /already marked/);
+});
+
+await check('and a bead marked with no holding edge is still asked about at the right moment', async () => {
+  // The consequence of the epic case, and the reason it is survivable: the sweep reads
+  // the original's status rather than trusting the queue, so a duplicate that is ready
+  // the whole time is swept over in silence until the original actually closes. Without
+  // this the fix above would trade a missing edge for a card raised weeks early.
+  fs.writeFileSync(
+    WORLD,
+    JSON.stringify({
+      comments: {},
+      issues: {
+        'zz-epic': issue('zz-epic', { issue_type: 'epic', title: 'the epic that adopted it' }),
+        // No blockedBy at all — bd would have refused the edge, which is the whole bug.
+        'zz-adopted': issue('zz-adopted', { labels: [supersedeLabel('zz-epic')] }),
+      },
+    })
+  );
+  assert.ok(
+    (await bd.readySuperseded(ws)).some((r) => r.id === 'zz-adopted'),
+    'it is in the sweep list from the moment it is marked, which is what the missing edge costs'
+  );
+  assert.deepEqual((await sweepSuperseded(bd, ws)).asked, [], 'and it is asked nothing while the epic is open');
+
+  await bd.close(ws, 'zz-epic', 'Merged #999');
+  assert.deepEqual(
+    (await sweepSuperseded(bd, ws)).asked.map((a) => a.id),
+    ['zz-adopted'],
+    'and asked the moment it closes, exactly as a blocked one would be'
+  );
+  reset();
 });
 
 /* ----------------------------------- the real endpoint, over a real socket, one tap */
