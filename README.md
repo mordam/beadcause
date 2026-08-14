@@ -1322,6 +1322,64 @@ one place, and why `scripts/land-check.mjs` presses the real `bin/deliver.js` ag
 real tracker with a real epic: a refactor that lost the rule would pass every unit test
 that models it and fail there.
 
+#### And the entry it is held over is applied on the tick
+
+A refusal that can only be answered by hand is a refusal that gets walked around. The
+gate above says *adopt them or drop them from the line*, and until bc-arj0.2 "adopt them"
+meant a person typing `bd update <bead> --parent <epic>` once per bead — ninety of them
+on the day the measurement was taken. So the daemon does it: `lib/adoptsweep.js` runs in
+the poll cycle, reads each epic's list off the same `bd export` the P0 board is already
+built from, and reparents what it names. **The list is the contract; the edges are the
+machine's job.** Write the line, wait a tick, and `bd dep tree` draws what the prose says.
+
+It runs **before the advocate tick**, which is the whole of the placement argument: the
+advocate reaches an epic's work through its children, so an epic whose list has just
+become edges dispatches as an epic with children on the same beat rather than the next.
+It costs the write lock ahead of the tick and nothing else — a settled graph writes
+nothing, and after the first pass over a workspace that is every pass.
+
+**Applying it is one line of code; the refusals are the feature.** Each is a case
+where the write would destroy something somebody decided on purpose, and a daemon on a
+thirty-second clock is the wrong thing to be deciding those:
+
+| the entry | what happens | why |
+|---|---|---|
+| names a bead with no parent | **adopted** | the ordinary case |
+| names a bead that is already its child | nothing | already applied |
+| names a bead with a *different* parent | **refused**, naming the parent | somebody decided that; a line in a description is not evidence they were wrong |
+| names a bead already linked to this epic by any other edge | **refused**, naming the type | bd holds one edge per pair, so applying it means deleting the other — and `discovered-from` is where the bead *came from*, an older fact than who claims it |
+| …except a `relates-to`, which is **replaced** | adopted, see-also dropped first | see below |
+| named by **two** epics | **refused for both**, each told about the other | there is no answer here that is not a judgement, and the order bd exports two rows in is not a way to pick one |
+| names an id no bead here has | **refused** | a typo, or another workspace's prefix — and the gate's sentence on the phone is how a typo gets found |
+| written on a closed epic, or on something that is not an epic | nothing | a closed epic's list is a record, and moving live work under a closed parent is how a bead becomes held and invisible |
+| would make the epic its own descendant | **refused** | bd refuses it too; asking is what costs the spawn |
+
+The `relates-to` exception is not a nicety — without it this applies **nothing** on any
+graph beadcause has been running against. Writing a description through beadcause runs
+[the mention hook](#every-bead-id-in-prose-is-an-edge-behind-it) over it, and the ids in an
+`Adopts:` line are bead ids in prose, so an epic filed through beadcause's own seam
+arrives already see-also'd to everything it adopts — and every adoption is then refused by
+the row above it, forever, with the close gate holding the epic open over a list that can
+never be applied. Replacing it loses nothing, which is the argument: a see-also claims
+only *mentioned near*, and a parent link says that and more. `test/adoptsweepreal.mjs`
+asserts the hook really does draw it, so the rule cannot quietly become dead code.
+
+A refusal is a standing condition rather than an event — *bc-4bet cannot adopt bc-d5sv:
+already a child of bc-xl7n.1* is true on every beat until somebody arbitrates it — so it
+is logged on the beat it appears and on the beat it goes away, the way a sync failure is,
+and not once a cycle. The phone hears about it through the gate: the epic will not close,
+and the refusal names the entries.
+
+**What proves it is the round trip, not the write.** Three files written at different
+times have to agree — `lib/adopts.js` reads the line, `lib/adoptsweep.js` applies it,
+`Bd.gateFor` refuses the close over an entry that is not a child — and the failure that
+matters is not any of them being absent but two of them disagreeing, which is an epic held
+closed over an adoption nothing believes in and no way to fix it from a phone.
+`test/adoptsweepreal.mjs` therefore closes the loop against the real binary: write a list,
+sweep once, and the gate lets the epic go. `test/adoptsweep.mjs` is where the refusals
+live, over fixtures, because a rule that can only be tested by writing to a tracker is one
+nobody re-tests after changing it.
+
 ### The best refusal is a button that was never there
 
 Refusing before anything is written fixed the damage. It did not fix the shape:
@@ -10841,6 +10899,51 @@ that would have stripped the label, a log long enough to blow the 4MB rendering 
 (because the long session is exactly the one somebody changed model in), the real
 `archiveSession` against a throwaway repo and a throwaway `$HOME`, and a real advocate
 tick — a window ending, and the label arriving on the bead — down both routes.
+
+### Where you can see it — the chip and the row
+
+Everything above happens in a log. The tier is a label, the model is chosen in the second
+before a window opens, and what the session actually ran on arrives as another label when
+it ends — and until bc-nc6o.4/.5 none of it appeared on any screen. So the two questions
+you actually have about a bill, *what is this bead set to cost* and *did something else
+happen*, were answerable only from a terminal, one bead at a time.
+
+Both cards now say it, and they say it from **one derivation**: `lib/modelcard.js` reads
+the labels once on the daemon and hands the same object to the inbox card
+(`toQuestion`, as a field beside `addressees`) and to the bead sheet (`/api/bead`, as a
+field beside `noP0`). Deriving it server-side rather than parsing the labels in the browser
+is the point of the file. A prefix is a contract a test can pin and is fine to duplicate —
+which is why `public/graph.js` keeps its own copy of `ownersOf`. A **mapping** is a
+decision, and [`MODEL_BY_TIER`](#which-model-a-session-comes-up-on--the-tier-at-spawn-time) calls itself the only copy of
+it: a second copy in a browser goes stale the first time a model ships, and goes stale
+*silently*, because both copies keep drawing confidently.
+
+**The inbox chip** sits in the card's meta row with the workspace, the id and the priority:
+`🧠 sonnet · low`. It is drawn on every card, including the untiered ones that are most of
+the tracker — an unrated bead is not unrouted, it is routed to the **expensive** model, and
+a blank there would hide exactly the beads worth tiering. So an untiered bead reads
+`🧠 opus · unrated`, a bead whose labels name two tiers reads `🧠 opus · ⚠ tier`, and a
+session that went somewhere else draws the arrow: `🧠 sonnet · low → opus`.
+
+**Everything the chip means is in its text, because a phone has no hover.** The `title`
+carries the long form for a desktop and nothing depends on it. What the *styling* carries
+is one thing only, and it is a thing you read at a scroll rather than a fact you look up:
+an outlined chip is a **plan** — nothing has run on this bead yet — and a filled one is a
+**fact**, a session that finished and left a `ran:` label behind.
+
+**The sheet row** has room for the sentence the chip compresses, so it says the three
+facts apart: what the bead is routed to, why — the tier, or `no tier — the fallback` — and
+what a finished session ran on, as its own clause rather than as a replacement for the
+first. It is drawn under the [session row](#the-way-through--what-its-session-did) and above the
+description, so on a closed bead the sheet reads in order: it closed, here is why, here is
+the session, here is what it ran on. Open or closed alike, because the sheet is the one
+surface reached for a bead that closed months ago.
+
+Neither renderer decides anything, and both draw **nothing at all** for a bead carrying no
+`model` field — which is what a page cached from a newer deploy sees against a daemon that
+predates it. `test/modelcard.mjs` covers the derivation, the field arriving on both
+payloads, both renderers run for real over the five shapes that matter, and the rule that
+every class either of them draws has a rule behind it.
 
 ### Approve, adjust, decline
 
