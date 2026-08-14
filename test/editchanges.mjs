@@ -237,12 +237,20 @@ function page() {
   return { body, card, title, act, other, kid, button };
 }
 
-/** Load the real module with a clock, capture listeners and a hit test the test drives. */
-function load(dom = page(), { data = [] } = {}) {
+/**
+ * Load the real module with a clock, capture listeners and a hit test the test drives.
+ *
+ * `post` is the daemon, for the Save half: called with the parsed body, it answers with
+ * whatever `/api/edits` would have. Left out, a POST is a fetch to a URL the fixture does
+ * not serve — which is a legitimate case in its own right and the one a phone on a dead
+ * link hits.
+ */
+function load(dom = page(), { data = [], post = null } = {}) {
   const timers = new Map();
   let nextTimer = 1;
   let hit = () => null;
   const docEvents = {};
+  const posted = [];
   const win = {
     beadcause: {},
     location: { pathname: '/' },
@@ -252,7 +260,14 @@ function load(dom = page(), { data = [] } = {}) {
       return id;
     },
     clearTimeout: (id) => timers.delete(id),
-    fetch: async (url) => {
+    fetch: async (url, opts = {}) => {
+      if (opts.method === 'POST') {
+        const body = JSON.parse(opts.body);
+        posted.push({ url, body, headers: opts.headers || {} });
+        if (!post) throw new Error('nothing is listening');
+        const reply = await post(body, posted.length);
+        return { ok: reply.status === undefined ? true : reply.status < 400, status: reply.status ?? 200, json: async () => reply.data };
+      }
       const files = { '/': '<body></body>', '/app.js': SOURCE };
       const text = files[url];
       return text === undefined ? { ok: false } : { ok: true, text: async () => text };
@@ -297,6 +312,7 @@ function load(dom = page(), { data = [] } = {}) {
     list,
     timers,
     docEvents,
+    posted,
     setHit: (fn) => {
       hit = fn;
     },
@@ -742,7 +758,174 @@ await check('clearChanges is what Save takes: the list empty and the screen back
   });
 }
 
-/* ============================================================ 6. what the page needs */
+/* ==================================================================== 6. the Save */
+
+/**
+ * The one write in the file, and every way it can go wrong without saying so.
+ *
+ * The change list is the only copy of what was said — the page it describes is gone the
+ * moment the tab is, and none of it was ever written down anywhere else. So the whole of
+ * this section is about which entries leave the list and when: an entry may only go
+ * against an id the daemon has confirmed, and everything else stays to be saved again.
+ * Filing something twice costs a duplicate bead somebody closes in a second; losing it
+ * costs the thought.
+ */
+
+/** A pass of two edits — a retype and a describe — made the way a thumb makes them. */
+async function twoEdits(opts = {}) {
+  const h = await ready(load(page(), opts));
+  down(h, h.act);
+  up(h, h.act);
+  h.act.own = 'Show me';
+  h.act.blur();
+  down(h, h.title);
+  hold(h);
+  up(h, h.title);
+  addNote(h, 'this should say who is waiting');
+  return h;
+}
+
+const filedReply = (body) => ({
+  data: {
+    ok: true,
+    workspace: 'beadcause',
+    root: { id: 'zz-1', made: false, from: 'label' },
+    session: { id: 'zz-2', title: 'Edit pass on the inbox — 2 changes' },
+    filed: body.changes.map((c, i) => ({ changeId: c.id, id: `zz-${i + 3}`, title: c.said })),
+  },
+});
+
+await check('Save posts the whole pass once, and the list empties against what came back', async () => {
+  const h = await twoEdits({ post: filedReply });
+  h.edit.showChanges(true);
+  // The rows are rebuilt on every change, so the panel takes the press and works out
+  // what was under the thumb — the same delegation the ✕ on a row goes through.
+  assert.match(h.list().innerHTML, /data-act="edit-save"/, 'there is no Save to press');
+  h.list().fire('click', { target: { closest: (sel) => (sel === '[data-act="edit-save"]' ? {} : null) } });
+  for (let i = 0; i < 6; i++) await Promise.resolve();
+  assert.equal(h.posted.length, 1, `${h.posted.length} posts for one press`);
+  assert.equal(h.posted[0].url, '/api/edits');
+  assert.equal(h.posted[0].body.changes.length, 2);
+  assert.equal(h.edit.changes().length, 0, 'the pass survived being filed');
+});
+
+await check('and what it posts is the record, not the sentence — anchor, line and all', async () => {
+  const h = await twoEdits({ post: filedReply, data: ['A bead nobody wrote in source'] });
+  await h.edit.save();
+  const [retype, describe] = h.posted[0].body.changes;
+  assert.equal(retype.kind, 'retype');
+  assert.equal(retype.from, 'Show details');
+  assert.equal(retype.to, 'Show me');
+  assert.equal(retype.anchor.source.sites[0].line, 4, `line ${retype.anchor.source.sites[0].line}`);
+  assert.equal(describe.note, 'this should say who is waiting');
+  assert.equal(describe.anchor.text.from, 'data', 'the anchor lost which side of the line it was on');
+  assert.equal(h.posted[0].body.page, '/');
+});
+
+await check('the screen goes back as each filed edit leaves the list', async () => {
+  // A retyped word still on the screen after its bead exists is the app claiming an edit
+  // that has not been made — the same lie the mode spends the rest of its time avoiding.
+  const h = await twoEdits({ post: filedReply });
+  assert.equal(h.act.textContent, 'Show me');
+  await h.edit.save();
+  assert.equal(h.act.textContent, 'Show details', 'the screen kept an edit that is now a bead');
+  assert.equal(h.title.classList.contains('editsaid'), false);
+});
+
+await check('a daemon that refuses keeps the pass, and says so rather than going quiet', async () => {
+  const h = await twoEdits({ post: () => ({ status: 502, data: { error: 'the tracker said no' } }) });
+  const out = await h.edit.save();
+  assert.equal(out.ok, false);
+  assert.equal(h.edit.changes().length, 2, 'the pass was lost to a failed save');
+  h.edit.showChanges(true);
+  assert.match(h.list().innerHTML, /Nothing was filed: the tracker said no/);
+  assert.match(h.list().innerHTML, /still here/);
+});
+
+await check('a dead link is the same answer — nothing filed, nothing lost', async () => {
+  const h = await twoEdits(); // no daemon at all
+  const out = await h.edit.save();
+  assert.equal(out.ok, false);
+  assert.equal(h.edit.changes().length, 2);
+});
+
+await check('a half-filed pass drops exactly what landed and keeps the rest', async () => {
+  // The failure that matters: two beads exist and one does not. Dropping all three would
+  // lose an edit; keeping all three files two of them a second time.
+  const h = await twoEdits({
+    post: (body) => ({
+      status: 502,
+      data: { error: 'filed 1 of 2: the tracker said no', filed: [{ changeId: body.changes[0].id, id: 'zz-3' }] },
+    }),
+  });
+  const out = await h.edit.save();
+  assert.equal(out.ok, false);
+  assert.equal(h.edit.changes().length, 1, `${h.edit.changes().length} left`);
+  assert.equal(h.edit.changes()[0].kind, 'describe', 'the wrong entry was kept');
+  h.edit.showChanges(true);
+  assert.match(h.list().innerHTML, /Filed 1, then stopped/);
+});
+
+await check('a second press while one is in flight files nothing twice', async () => {
+  // Two passes, each a whole session bead with the same edits under it, is what a double
+  // tap on a phone would otherwise buy.
+  let release = null;
+  const h = await twoEdits({ post: (body) => new Promise((res) => (release = () => res(filedReply(body)))) });
+  const first = h.edit.save();
+  assert.equal(h.edit.saving(), true);
+  assert.equal(await h.edit.save(), null, 'a second Save went out under the first');
+  release();
+  await first;
+  assert.equal(h.posted.length, 1);
+});
+
+await check('and Save is offered only when there is something to save', async () => {
+  const h = await ready(load(page(), { post: filedReply }));
+  h.edit.showChanges(true);
+  const btn = () => h.list().querySelector('[data-act="edit-save"]');
+  assert.equal(btn().getAttribute('disabled'), 'disabled', 'Save is live over an empty pass');
+  assert.equal(await h.edit.save(), null);
+  assert.equal(h.posted.length, 0);
+});
+
+await check('the foot says nothing is real yet, and afterwards says what was filed', async () => {
+  const h = await twoEdits({ post: filedReply });
+  h.edit.showChanges(true);
+  assert.match(h.list().innerHTML, /Nothing here has changed the app yet/);
+  await h.edit.save();
+  assert.match(h.list().innerHTML, /Filed as zz-2/);
+  assert.match(h.list().innerHTML, /under zz-1/);
+});
+
+await check('where in the app it was said is stamped per edit, not per pass', async () => {
+  // The inbox is four filters deep and a pass can cross them. An agent acting on the
+  // second edit needs the screen the second edit was said on.
+  const h = await ready(load(page(), { post: filedReply }));
+  let showing = 'what is waiting on you';
+  h.edit.provideContext(() => ({ view: 'the inbox', showing }));
+  down(h, h.act);
+  hold(h);
+  up(h, h.act);
+  addNote(h, 'first');
+  showing = 'both';
+  down(h, h.title);
+  hold(h);
+  up(h, h.title);
+  addNote(h, 'second');
+  const [one, two] = h.edit.changes();
+  assert.equal(one.context.showing, 'what is waiting on you');
+  assert.equal(two.context.showing, 'both');
+  await h.edit.save();
+  assert.equal(h.posted[0].body.view, 'the inbox', 'the pass does not say which surface it was');
+});
+
+await check('a page that provides no context at all still files', async () => {
+  const h = await twoEdits({ post: filedReply });
+  assert.equal(h.edit.changes()[0].context, null);
+  assert.equal((await h.edit.save()).ok, true);
+});
+
+/* ============================================================ 7. what the page needs */
 
 const CSS = read('public/style.css');
 const MODULE = read('public/editmode.js');
@@ -751,7 +934,7 @@ await check('every class the gestures put on an element is drawn by the styleshe
   // A state of the conversation nobody can see is one nobody knows they are in — a
   // picked-up element that looks exactly like a resting one is the whole gesture
   // vocabulary invisible.
-  for (const cls of ['editpick', 'editdrag', 'editretype', 'editretyped', 'editsaid', 'editnote', 'editlist', 'editbar-count']) {
+  for (const cls of ['editpick', 'editdrag', 'editretype', 'editretyped', 'editsaid', 'editnote', 'editlist', 'editlist-save', 'editbar-count']) {
     assert.match(CSS, new RegExp(`\\.${cls}[\\s,{:]`), `no rule for .${cls}`);
   }
   assert.match(CSS, /\.editmode\[data-changes\]/, 'the ✏️ has no badge to carry the pass on');
@@ -766,11 +949,14 @@ await check('and the note box and the list sit above the banner, not under it', 
   assert.ok(zOf('editnote') >= zOf('editlist'), 'the note box is under the list it came from');
 });
 
-await check('nothing in this file files anything — that is bc-p49x.3`s half', () => {
-  // The one line that matters when this file grows: a gesture that wrote to the tracker
-  // as it was made would file half a pass, with no review and no way back.
+await check('there is one write in this file, and only a press reaches it', () => {
+  // The line that matters when this file grows: a *gesture* that wrote to the tracker as
+  // it was made would file half a pass, with no review and no way back. So there is
+  // exactly one URL in here, it is Save's, and nothing else posts anywhere.
   const code = MODULE.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/^\s*\/\/.*$/gm, ' ');
   assert.equal(/\/api\/(file|bead|ask|propose)/.test(code), false, 'edit mode is filing beads by itself');
+  assert.deepEqual([...code.matchAll(/'\/api\/[\w/-]+'/g)].map((m) => m[0]), ["'/api/edits'"]);
+  assert.deepEqual([...code.matchAll(/method:\s*'(\w+)'/g)].map((m) => m[1]), ['POST']);
 });
 
 console.log(failures ? `\n${failures} of ${ran} failed\n` : `\nall ${ran} good\n`);

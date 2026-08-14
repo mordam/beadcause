@@ -5548,3 +5548,23 @@ body.editing::after {
 }
 .editlist-none { padding: 10px 0; color: var(--muted); font-size: 13px; }
 .editlist-foot { margin: 8px 0 0; color: var(--muted); font-size: 11.5px; }
+/* The one control in this mode that makes anything real, and the sentence saying nothing
+   is real yet, on one line. The sentence takes the space that is left so the button keeps
+   its width on a narrow phone — a Save that wrapped to two characters would be the least
+   findable thing on the screen. */
+.editlist-actions { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; }
+.editlist-actions .editlist-foot { flex: 1 1 auto; }
+.editlist-save {
+  flex: none;
+  min-height: 40px;
+  padding: 8px 22px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--warn);
+  color: #131313;
+  font: inherit; font-size: 14px; font-weight: 700;
+  cursor: pointer;
+}
+/* Disabled while a Save is in flight and while there is nothing to save. Faded rather
+   than hidden: a button that disappears reads as a control that failed. */
+.editlist-save[disabled] { opacity: 0.45; cursor: default; }

@@ -112,6 +112,11 @@
     /** Registered by app.js. Returns every string the page is currently drawing out of
      *  the payload — see the precedence rule above. */
     dataText: null,
+    /** Registered by app.js. Where in the app you are standing — the surface, the tab,
+     *  the filters that are on. Read at the moment an edit is recorded rather than at
+     *  Save, because a pass made across two filters is two different screens and the
+     *  agent acting on the third edit needs the one *it* was said on. */
+    context: null,
     /** Called with `true`/`false` on every change. app.js takes its catch-up repaint here. */
     listeners: [],
   };
@@ -679,6 +684,30 @@
   }
 
   /**
+   * Where in the app this was said — the surface, and whatever narrowing is on.
+   *
+   * A bare copy of what app.js hands over, and it is a *copy*: the object it returns is
+   * that page's own live state on a good day, and an edit's record has to survive the
+   * next repaint changing it. A provider that throws is a page mid-load rather than a
+   * reason to lose the edit, so it answers with nothing and the bead simply has no
+   * where-block.
+   */
+  function contextNow() {
+    try {
+      const said = mode.context?.();
+      if (!said || typeof said !== 'object') return null;
+      const out = {};
+      for (const [key, value] of Object.entries(said)) {
+        const words = String(value ?? '').trim();
+        if (words) out[key] = words;
+      }
+      return Object.keys(out).length ? out : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
    * File one edit into the pass.
    *
    * `undo` is how the screen gets back to the truth — run when the entry is dropped and
@@ -686,7 +715,10 @@
    */
   function record(rec, undo) {
     changeNo += 1;
-    const entry = { id: `e${changeNo}`, ...rec };
+    const entry = { id: `e${changeNo}`, ...rec, context: contextNow() };
+    // What the last Save said is about a pass that has now moved on. Left up, it would
+    // read as a report on the edit just made.
+    outcome = null;
     changes.push(entry);
     if (undo) undos.set(entry.id, undo);
     sayChanges();
@@ -729,6 +761,92 @@
   /** Every visual this pass has put on the screen, off — the records stay. */
   function restoreScreen() {
     for (const c of changes) undoOne(c.id);
+  }
+
+  /* ----------------------------------------------------------------- the save */
+
+  /**
+   * Save: the pass becomes beads, and this is the only thing in this file that writes.
+   *
+   * Everything above it is a conversation held entirely in one browser tab, which is the
+   * right place for it — an edit is reviewable and droppable right up to the moment it is
+   * filed, and a gesture that wrote to the tracker as it was made would file half a pass
+   * with no way back. So there is one write, it happens on a press, and it happens once.
+   *
+   * **What comes back decides what is dropped, and the direction is deliberate.** The
+   * change list is the only copy of what was said; the beads are durable the instant they
+   * exist. So an entry is dropped only against an id the daemon has confirmed, and
+   * anything else — a 502, a dead link, a daemon that filed three of five — leaves its
+   * entry sitting in the list to be saved again. Filing something twice costs a
+   * duplicate bead somebody can close; losing it costs the thought.
+   *
+   * `sending` is not politeness. A double-tapped Save is two passes filed, and the second
+   * one lands as a whole second session bead with the same edits under it.
+   */
+  const SAVE_URL = '/api/edits';
+  let sending = false;
+  /** What the last Save did, as a sentence the panel keeps until the pass moves on. */
+  let outcome = null;
+
+  const token = () => {
+    try {
+      return win.localStorage?.getItem('beadcause.token') || '';
+    } catch {
+      // A browser refusing storage still has a session cookie, which is the phone's way in.
+      return '';
+    }
+  };
+
+  /** The surface the pass happened on, as app.js names it — `the inbox`, not `/`. */
+  const viewNow = () => String(contextNow()?.view || '').trim();
+
+  async function save() {
+    if (sending || !changes.length) return null;
+    sending = true;
+    outcome = null;
+    paintList();
+    say('Filing…');
+    let data = null;
+    let error = null;
+    try {
+      const res = await win.fetch(SAVE_URL, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'content-type': 'application/json', 'x-beadcause-token': token() },
+        body: JSON.stringify({
+          page: win.location?.pathname || '/',
+          view: viewNow(),
+          at: new Date().toISOString().replace(/\.\d+Z$/, 'Z'),
+          changes: changesOf(),
+        }),
+      });
+      data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.ok) error = data?.error || `the daemon answered ${res.status}`;
+    } catch (err) {
+      error = err?.message || 'the daemon could not be reached';
+    }
+    sending = false;
+
+    // Whatever landed is gone from the list whether or not the call as a whole succeeded:
+    // those beads exist, and an entry left behind would be filed a second time by the
+    // next press.
+    const filed = Array.isArray(data?.filed) ? data.filed : [];
+    for (const one of filed) dropChange(one.changeId);
+    const left = changes.length;
+
+    if (error) {
+      outcome = filed.length
+        ? `Filed ${filed.length}, then stopped: ${error}. The other ${left} are still here — press Save again.`
+        : `Nothing was filed: ${error}. The pass is still here.`;
+      say('Save failed — the pass is still here');
+    } else {
+      outcome =
+        `Filed as ${data.session?.id || 'a pass'} — ${filed.length} bead${filed.length === 1 ? '' : 's'}` +
+        ` under ${data.root?.id || 'the standing root'}${data.root?.made ? ', which this Save created' : ''}.`;
+      say(`Filed as ${data.session?.id || 'a pass'}`);
+    }
+    paintList();
+    return { ok: !error, error, data, left };
   }
 
   /* ---------------------------------------------------------------- the note */
@@ -826,6 +944,7 @@
       panel.addEventListener?.('click', (ev) => {
         const drop = ev.target?.closest?.('[data-drop]');
         if (drop) return void dropChange(drop.getAttribute('data-drop'));
+        if (ev.target?.closest?.('[data-act="edit-save"]')) return void save();
         if (ev.target?.closest?.('[data-act="edit-list-close"]')) toggleList(false);
       });
       doc.body.appendChild(panel);
@@ -842,7 +961,17 @@
       `<div class="editlist-head"><span class="editlist-count">${changes.length} ${changes.length === 1 ? 'change' : 'changes'}</span>` +
       `<button type="button" class="editlist-close" data-act="edit-list-close">Close</button></div>` +
       `<ul class="editlist-rows">${rows || '<li class="editlist-none">Nothing yet. Tap to retype, hold to describe, hold and drag to point.</li>'}</ul>` +
-      `<p class="editlist-foot">Nothing here has changed the app. Filing them as beads is not wired up yet.</p>`;
+      // The foot is where the mode stops being honest by accident: everything above it is
+      // a conversation, and this is the one control that makes any of it real. So it says
+      // what pressing it does, in the two states it can be in, and the sentence about
+      // nothing having changed stays up until it has been pressed.
+      `<div class="editlist-actions"><p class="editlist-foot">${
+        outcome
+          ? esc(outcome)
+          : 'Nothing here has changed the app yet. Save files the pass as beads — one for the pass, one for each change.'
+      }</p><button type="button" class="editlist-save" data-act="edit-save"${
+        sending || !changes.length ? ' disabled' : ''
+      }>${sending ? 'Filing…' : 'Save'}</button></div>`;
   }
 
   function toggleList(open) {
@@ -1315,6 +1444,10 @@
     changes: changesOf,
     /** Drop one before it is saved, putting back whatever it did to the screen. */
     dropChange,
+    /** File the pass. The only write in this file, and the only one a press reaches. */
+    save,
+    /** Whether a Save is in flight — a second press must not file a second pass. */
+    saving: () => sending,
     /** All of them, gone — after they have been filed, or instead of filing them. */
     clearChanges,
     /** Told on every change to the list, with the list. The panel and the count are two
@@ -1333,6 +1466,12 @@
     /** app.js hands over what it is drawing out of the payload. See the precedence rule. */
     provideText: (fn) => {
       if (typeof fn === 'function') mode.dataText = fn;
+    },
+    /** And where in the app you are standing, which only that page can know: a flat
+     *  object of label → value. `view` is special only in that it names the surface the
+     *  pass gets titled after; everything else is carried through to the bead as it is. */
+    provideContext: (fn) => {
+      if (typeof fn === 'function') mode.context = fn;
     },
   };
 
