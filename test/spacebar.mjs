@@ -150,7 +150,9 @@ function load({ token = 'tok', fetch = async () => ({ ok: false }) } = {}) {
     JSON,
   });
   vm.runInContext(fs.readFileSync(PUBLIC('spacebar.js'), 'utf8'), ctx, { filename: 'spacebar.js' });
-  return { space: ctx.window.beadcause.space, bar, select, count, topbar };
+  // `win` so a check can hang something else off `beadcause` after the file has loaded —
+  // which is how edit mode reaches this file, and the order the page loads them in.
+  return { space: ctx.window.beadcause.space, win: ctx.window, bar, select, count, topbar };
 }
 
 /* One space with two repos, one muted space with one, and a repo in neither — every
@@ -287,6 +289,60 @@ check('inside() is the repos a page may offer to start work in', () => {
   assert.deepEqual(plain(h.space.inside()), ['beadcause', 'sophab']);
   h.space.set({ space: 'Personal', workspace: 'sophab' }, { post: false });
   assert.deepEqual(plain(h.space.inside()), ['sophab']);
+});
+
+/* ------------------------------------------- 5. the bar, while the screen is frozen */
+
+/*
+  bc-p49x.5. Edit mode (public/editmode.js) is a state in which every tap points at an
+  element rather than acting on it, and the premise only holds if the element is still
+  there when the tap is handled. bc-p49x.1 stopped the inbox's list repainting; this bar
+  sits above that list, on the same screen, and rebuilds its `<select>` from a payload
+  the poll hands it — so a repo appearing or a count moving replaces the very option a
+  thumb was aiming at, under a banner promising the screen is held still.
+
+  Checked here rather than by reading the gate as text because the half that is easy to
+  lose is the second one: *only the paint* waits. `state` has to take the new repos and
+  counts while frozen, or leaving the mode would need a refetch, and the inbox's one
+  catch-up repaint — whose last line is `publishCounts()`, which lands here as an
+  `adopt()` — would draw the numbers from before the mode.
+*/
+check('a poll that changes the repos does not rebuild the picker while the screen is frozen', () => {
+  const h = fresh();
+  const before = h.select.innerHTML;
+  const wasCount = h.count.textContent;
+  assert.ok(before.includes('value="ws:beadcause"'), 'the fixture drew a picker to freeze');
+  let frozen = true;
+  h.win.beadcause.editMode = { frozen: () => frozen };
+
+  h.space.adopt({ workspaces: [...NAMES, 'newrepo'], counts: { ...COUNTS, newrepo: 3 } });
+  assert.equal(h.select.innerHTML, before, 'the options were rebuilt under a frozen screen');
+  assert.equal(h.count.textContent, wasCount, 'the count moved under a frozen screen');
+
+  // But the payload was taken, which is what makes the catch-up free.
+  assert.equal(h.space.waiting(), 7, 'the new repo`s count never reached state');
+  assert.deepEqual(plain(h.space.inside()), [...NAMES, 'newrepo']);
+});
+
+check('and the first paint after it thaws draws everything the frozen polls carried', () => {
+  const h = fresh();
+  let frozen = true;
+  h.win.beadcause.editMode = { frozen: () => frozen };
+  h.space.adopt({ workspaces: [...NAMES, 'newrepo'], counts: { ...COUNTS, newrepo: 3 } });
+
+  frozen = false;
+  // What the inbox's catch-up render() does on its last line, and nothing more: no
+  // refetch, no second payload — the counts of the list it has just drawn.
+  h.space.adopt({ counts: { ...COUNTS, newrepo: 3 } });
+  assert.ok(h.select.innerHTML.includes('value="ws:newrepo"'), 'the catch-up never came');
+  assert.equal(h.count.textContent, '7');
+});
+
+check('a page with no edit mode on it paints exactly as it always did', () => {
+  const h = fresh();
+  assert.equal(h.win.beadcause.editMode, undefined, 'this fixture is the five other pages');
+  h.space.adopt({ workspaces: [...NAMES, 'newrepo'], counts: { ...COUNTS, newrepo: 3 } });
+  assert.ok(h.select.innerHTML.includes('value="ws:newrepo"'));
 });
 
 /* ------------------------------------------------------- the write, and the poll */
