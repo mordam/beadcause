@@ -26,6 +26,10 @@ public/vendor
 
 # Built and published by `npm run android` — 28 MB, and rebuilt from source.
 public/beadcause.apk
+# What that build writes beside it: the versionCode, the size and the digest, so the
+# daemon can say which build is published without unpacking an APK (lib/update.js).
+# Published with the file it describes and committed for the same reason it is not.
+public/beadcause.apk.json
 
 # Android build output and machine-local SDK path.
 android/.gradle/
