@@ -260,7 +260,7 @@ try {
      which is exactly the sequence somebody reaching for the ✏️ is in the middle of. So
      they are armed here, on purpose, and the frozen window below is what they run into.
      A card is opened first because the dismiss button lives under the answer box. */
-  await evalJs(s, `document.querySelector('.card[data-key] [data-act="toggle"]').click()`);
+  await evalJs(s, `document.querySelector('.card[data-key][data-act="toggle"]').click()`);
   await sleep(600);
   await evalJs(s, `document.querySelector('[data-act="log"]')?.click()`);
   await sleep(900);
