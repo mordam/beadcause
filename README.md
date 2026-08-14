@@ -5993,6 +5993,20 @@ because a tracker filling with chores is worse than no tracker at all —
   sweep after that change re-watermarks each repo of a multi-repo workspace and files
   nothing, which is the safe direction and the whole reason the watermark exists.
 
+**It is filed under the P0 the merge's own work belongs to.** The pull request is merged
+and beadcause already knows which bead it was *for* — that is the same tiered answer the
+board's rows carry (a `bead:` line in the block a delivery writes, the title, the branch
+tag, and only then a body that claims one). One lookup up from there gives the P0, and
+the follow-up sits under the epic whose reader is the person who wants to know it has not
+shipped yet. Where a pull request named no bead, or named one under nothing, it is filed
+**with no parent** rather than into the
+[unsorted backlog](#where-it-lands--a-bead-filed-under-nothing-is-unworkable-the-moment-it-exists):
+that pile means *nobody has decided where this goes*, and a bead that closes itself when
+a deploy lands is not asking anybody anything. Before this, every one of them landed flat
+and was swept into the backlog — 32 of its 83 open children, on the day it was measured,
+were `ship` beads. And if bd refuses the parent the bead is filed again without one, since
+the record that a merge is sitting unshipped is worth more than the home nothing chose.
+
 `release.beads: false` turns the filing off and leaves the number; `release.seconds`
 (300) is how often the queue is swept, which is slow on purpose — it is a `gh` call per
 repo when nobody has looked at the board recently, and "this merged and has not shipped"
@@ -9245,7 +9259,7 @@ bead goes when nobody has yet decided where it goes. The bead's notes say which 
 and invite you to move it, because a bead quietly adopted into an epic nobody named
 otherwise reads as somebody else's decision.
 
-Three things about that rule are deliberate and each is a thing that would be wrong if
+Four things about that rule are deliberate and each is a thing that would be wrong if
 reversed:
 
 **Under the P0, not under the bead that found it.** The tempting version parents each
@@ -9274,6 +9288,17 @@ refuses the parent outright — its hierarchy is its own, and a P0 that is a cra
 rather than an epic is dispatchable directly, so a session really can be working under
 one — the bead is filed again with no parent and the refusal is reported. Nothing here
 chose that parent; losing a discovery over it would be the wrong way round.
+
+**And the backlog is not for everybody.** A caller may say it must not land there, and
+one does: the [release queue](#the-release-queue--the-number-over-ship)'s per-merge `ship`
+bead. Being in the unsorted pile is a *question* — which P0 does this belong to? — and
+the pile is finished when it is empty, so it only works while everything in it is a bead
+somebody could answer that about. A ship bead is not: it closes itself when the deploy
+lands, and it carries `unendorsed`, so nothing will ever open a session on it. Thirty a
+week of those buried the beads that were genuinely asking — 40% of the pile, at one
+point. Such a caller keeps the first half of the rule and drops the fallback: the P0 above
+the merge's own bead where there is one, and no parent at all where there is not, which
+for a bead no queue carries is held by nothing.
 
 `test/homing.mjs` covers it, including the property the whole thing is for, asserted
 against the tracker after a real `fileBeads`: the bead it just filed has a P0 above it.
