@@ -2798,6 +2798,21 @@ file a report against somebody else's work, and afterwards that is indistinguish
 their having written it. A window with no bead — a ship window, a rebase window — is
 stamped with nothing, and `debrief` refuses there rather than guessing.
 
+**And that refusal caught one window it should never have applied to.** The P0 advocate is
+opened, closed and re-opened on the *same bead* for weeks, and it was the one bead-shaped
+door passing an agent and no bead — so tier 4 could not see the session that had the most
+to say to its own successor. It was not an oversight in tier 4: that agent landed after
+this store was written, and the merge took the union of the two signatures without
+extending it. `openEpicAdvocateSession` now passes `bead: row.id` beside `agent`, and its
+brief asks for a report as the *third* thing it leaves behind, next to the two it already
+did — the waiting-on sentence, which is one line of current state for a phone, and its
+notes, which are what is still true next week. What a visit actually was fitted neither,
+so it was written as a belief that went stale or not written at all. One honest delay
+comes with it: an advocate window has no worker record, `archiveSession` runs over those,
+so what it writes stays staged until the next planner or worker session on that P0 folds
+it in — the same rider the paragraph below describes for a daemon that was down, stamped
+with a plainly older time. Archiving the advocate window itself is `bc-nib3.13`.
+
 **Writes append rather than replace, and there is no key to replace by.** Two calls in one
 run are two things that happened, not a correction of the first. That is the difference
 from the other two stores and it falls out of what this one is: `note` and `remember` hold
@@ -2836,6 +2851,13 @@ names it, the way the notes section names its own.
 The epic planner gets the same section, and is arguably the reader it serves best: the
 reports its children's runs left are the only first-hand account of which parts of an epic
 turned out to be entangled, which is the exact question a plan answers.
+
+The P0 advocate gets it too, and the same graph rule narrows it further without a line of
+special-casing: a root P0 has no parent, so it has no siblings, so what arrives is the
+reports of previous runs at *that P0* and nothing else. That is the right answer twice —
+it is this agent's own account of its last visit, which a window that starts from the bead
+every time has never had, and it cannot be swamped by twenty children's afternoons the way
+its notes section would be if the same widening were tried there.
 
 `test/debrief.mjs` covers the seam, because the store is written by one module and
 consumed by another and every interesting failure is invisible from either side alone: a
@@ -7544,6 +7566,33 @@ the record that a merge is sitting unshipped is worth more than the home nothing
 repo when nobody has looked at the board recently, and "this merged and has not shipped"
 keeps for five minutes.
 
+**And the sweep says when it did not run.** On the morning of 2026-08-14 the queue filed
+nothing for roughly three hours while eight pull requests merged, and then caught the
+whole backlog up in one pass — six beads and one settle window, all at 09:23. The
+mechanism was working. What was missing was any way to notice, and it was missing twice
+over. `sweepRelease` in lib/server.js `return`ed on `board.unavailable` and said nothing
+at all, so a board that would not collect for three hours read exactly like three quiet
+hours; and `~/.config/beadcause/releases.json` — the file the gap was eventually
+diagnosed from — recorded only what each sweep *found*, so a pass that found nothing and
+a pass that never happened left the same file behind. So:
+
+- **A heartbeat in the ledger**, under `$sweep`, written on every completed pass rather
+  than only on one that changed something. It is the one key there that is not a
+  workspace, and it is on disk rather than in the poller because the gap spanned six
+  daemon restarts — a timestamp that resets at boot cannot see across one. It also makes
+  the file's own mtime mean "the sweep is alive", which is what was looked at first and
+  answered the wrong question.
+- **Three lines about a board that will not collect** (`sweepVoice` in lib/release.js):
+  the first skip of a run, a nag every thirty minutes while it goes on, and a recovery
+  naming how long it was out and how many sweeps it cost — so the catch-up burst that
+  follows reads as a catch-up rather than as a surprise. A storm rather than a tick,
+  because `gh` being absent is a legitimate permanent state and a line every five minutes
+  forever would be the same silence by other means.
+- **A line when a sweep is simply late** — more than three intervals since the last
+  completed one. That is the case a run of skips cannot cover, because the sweep can be
+  late for reasons it never sees: a cycle ahead of it that ran long, a restart before its
+  first interval elapsed, a Mac asleep.
+
 ### Auto-ship — the merge that does not wait for the tap
 
 Everything above ends at a bead that waits for you. That is the right default and it is
@@ -12074,7 +12123,7 @@ prose in a comment.
 
 `test/swbump.mjs` asks it now, on every `npm test`, about the branch you are on. It
 compares the working tree against the `main` it grew from, so the answer arrives before
-the commit rather than after it, and it says one of three things:
+the commit rather than after it, and it says one of four things:
 
 - **An advisory, which never fails the run.** Two or more files in `SHELL` changed and
   `const CACHE` did not move: here they are, decide. That over-reports on purpose. The
@@ -12091,6 +12140,12 @@ the commit rather than after it, and it says one of three things:
   or id and another newly *styles* it — the stylesheet shape, below. It does not fail
   the run; it turns "these five files moved, decide" into "`console.js` newly draws
   `.bead-dupe`, which `style.css` only gained on this branch".
+- **A file added whole that a cached page cannot load.** A new `SHELL` file whose only
+  way onto a page is a `<script src>` tag another `SHELL` file only just gained, and
+  which a third one now calls into off the window. Which side of the line that lands on
+  is decided by the caller: reached flat it is a `TypeError` and red, and reached behind
+  `&&` or `?.` it is a control that silently does not appear, and it is named inside the
+  advisory. The script-tag shape, below.
 
 The reading is deliberately narrow. Comments are stripped before a line is read, and a
 member counts as gained only if it is *defined* at head and not at base — appearing in
@@ -12111,6 +12166,11 @@ node test/swbump.mjs --base 65745de5^2 --head 65745de5   # bc-dmt: flagged
 node test/swbump.mjs --base cbfd7367^  --head cbfd7367   # bc-p38c.2: silent
 node test/swbump.mjs --base e7aa8e68^1 --head e7aa8e68^2 # bc-pzti: the stylesheet pair
 ```
+
+bc-nib3.3, the branch the script-tag half is written from, is the one that cannot be
+replayed that way — it *bumped*, so pointed at its own revisions the check is correctly
+silent. The suite pins its `const CACHE` back to the value it had first, which is the
+state the branch was actually in when swbump shrugged at it.
 
 ### The stylesheet half of the same pair
 
@@ -12149,6 +12209,52 @@ unstyled is a warning in the wrong colour on a page that otherwise works; v37's 
 unstyled is a screen with no navigation on it. The check finds the pair and names both
 halves of it; how much an unstyled name costs is the judgement, and it stays with the
 person reading the diff — who, unlike this file, can open the page.
+
+### The script tag that is the other half
+
+Both rules above pair two files the branch *modified*, and "a file added whole, with its
+callers, is never a mixed pair" is a rule with a suite of its own: a cache from before
+the branch has neither half of it, so there is nothing to disagree with.
+
+bc-nib3.3 (#247) is the shape that goes straight through the middle of that. The
+collapsing filter chrome came out of `public/inboxfilter.js` into a new
+`public/filtermenu.js` so the History tab could mount the same control instead of a
+second implementation of it. The new file is *added*, so it is neither half of a member
+pair; the thing that puts `window.beadcause.filterMenu` on the page is a `<script src>`
+tag, which is markup rather than a call; and `inboxfilter.js` — a file the cache has had
+all along — gained `window.beadcause.filterMenu.mount(host, …)`. The pair that actually
+breaks is the phone's *old* `index.html`, which has no such tag, beside the branch's new
+`inboxfilter.js`, and it takes the inbox's whole filter bar out with a `TypeError`.
+swbump printed an advisory. The bump was made anyway, argued out by hand in
+`docs/sw-cache/v51.md` — which is the hand-written version of the failure the check
+should have printed — and the next session lifting a shared browser module would have
+read "advisory" and skipped it.
+
+So the added file is not one half of this pair. The *page that loads it* is, and the
+page is a file the cache has had all along and this branch edited. `scriptSrcs` reads
+the tags a page gained, `globalInstalls` reads the surface the new file puts on the
+window — skipping the `window.beadcause = window.beadcause || {}` line every one of
+these files carries, which is nobody's surface in particular — and `globalCalls` reads
+what another modified `SHELL` file newly reaches for through it.
+
+Which strength it lands at is decided by the caller, and bc-nib3.3 has one of each in a
+single commit. `inboxfilter.js` calls `mount` flat, on a page that cannot have loaded
+the file: that is a `TypeError`, and it is red. `history.js` mounts the identical
+control behind `if (host && window.beadcause && window.beadcause.filterMenu)`, so a
+phone without the file draws a ledger with no filter bar and throws nothing — the
+"looks like a working page" failure again, named inside the advisory and left to the
+reader to price. An optional-chained `window.beadcause?.filterMenu?.mount(…)` counts as
+the same guard for the same reason.
+
+It is quiet by construction, and that is measured the way the stylesheet half was.
+Replayed over every one of the 240 merges `main` has ever had, it fires on **no unbumped
+branch at all**, and independently explains **4 of the 31 that did bump** — bc-nib3.3's
+own diff, bc-rk2o putting every view on the delta stream behind a new `stream.js`,
+bc-xqnj's `spacebar.js`, and the branch that first added `sendqueue.js`. Every one of
+those is a new shared module arriving with the tags that load it, which is exactly the
+work this fires on and exactly the work a human bumped for. `bc-p38c.2` stays silent
+under it for the reason it always did: `report.js` went onto twelve pages and nothing
+gained a call into it, so cached HTML without the tag is the app exactly as it was.
 
 ## The Android app
 
