@@ -1166,8 +1166,9 @@ Inventing a gate is the worse of the two failures here and the silent one: a bea
 would close happily becomes unanswerable from the phone, and nothing anywhere says
 why. So the rules are measured against the binary rather than described from memory —
 `test/closegatereal.mjs` builds each shape below in a throwaway workspace and asserts
-that what beadcause answers and what `bd close` then does are the same answer. Against
-bd 1.1.2:
+that what beadcause answers and what `bd close` then does are the same answer — except
+for the three rows in **bold**, which are beadcause's own rules and are asserted there as
+disagreements on purpose. Against bd 1.1.2:
 
 | the bead | bd | beadcause |
 |---|---|---|
@@ -1177,6 +1178,9 @@ bd 1.1.2:
 | **blocked** by a `blocks` dependency not closed | refuses | refuses |
 | a `related`, `parent-child` or `discovered-from` edge, open | closes | permits |
 | a **blocker** closing while what it blocks stays open | closes | permits |
+| an **epic** with an unapplied `Adopts:` entry | **closes** | **refuses** |
+| an **epic** closed with a merge as the reason | **closes** | **refuses** |
+| a **work bead** closed with a merge as the reason | closes | permits |
 
 Two rows there are worth saying out loud, because both were assumed the other way
 round and each cost somebody an afternoon:
@@ -1197,6 +1201,65 @@ it records it for the daemon to retry (`lib/owed.js`) and says so on the bead in
 own words — because by then the merge has already happened and a refusal has somewhere
 to go. A tap on a card has nowhere: it is about to write a comment it cannot take
 back, so it asks first. Same rules on both paths; bd is the thing refusing in both.
+
+The three rows in **bold** are the exception to every sentence above, and the section
+below is about them.
+
+#### An epic does not close because a branch that shared its name merged
+
+Two of the rules are beadcause's own, and bd disagrees with both. `test/closegatereal.mjs`
+asserts that disagreement as deliberately as it asserts the agreements — the same
+workspace, the same real `bd close`, and a case that passes only when the binary closes
+what beadcause refused.
+
+They exist because of a measurement taken on 2026-08-13, on a graph of 792 issues.
+**Seven epics carried an `Adopts:` line naming ninety beads between them, and not one of
+the ninety was ever reparented.** The line was prose in a description: nothing read it, so
+`bd list --parent` said the epics had no children and `bd close` had no objection to any
+of them. Six of the seven then closed on their own pull request merging, with sixty
+adoptees still open — `bc-ka5y` is the clearest, twenty-three adoptions and a close reason
+reading *Merged #212 as 72789c0b into main*. Every classification lost that day was lost
+by an epic closing, not by anyone deciding the grouping was wrong.
+
+So:
+
+- **An epic with an unapplied `Adopts:` entry cannot be closed.** A bead named on that
+  line counts as a child for the gate before the adoption is applied, and whatever its
+  status — an entry nothing applied is a piece of structure the close would destroy even
+  where the bead behind it has since finished, because nothing then records it was ever
+  part of this theme. The refusal names the entries and says what to do: adopt them, or
+  drop them from the line. `lib/adopts.js` is the parser, and it stops at the first token
+  that is not an id — the paragraph *under* a list names beads too ("bc-297u and bc-syzm
+  are the same bug filed twice") and those are explained, not claimed.
+- **An epic cannot close on a merge reason.** *Landed as #42*, *Merged #212 as 72789c0b
+  into main* — a pull request is evidence that a diff landed and no evidence at all about
+  whether a theme is finished, which is the only question an umbrella epic answers. A
+  work bead closing on exactly those words is the ordinary, correct case and is untouched.
+
+The rule is matched on the **sentence** rather than taken as a flag from the caller, and
+that is what makes it hold: `lib/owed.js` retries a refused close minutes later with
+nothing in hand but the stored reason, so a rule living in the callers would be walked
+around by the retry and by every record already in `owed-closes.json`. A merge-reason
+close owed on an epic is the one *terminal* refusal in that file — dropped rather than
+retried, because no amount of waiting turns a merge into evidence about a theme.
+
+All four doors are wired, which they have to be or the rule looks broken exactly when
+Adam happens to merge that way:
+
+| door | what happens now |
+|---|---|
+| a tap on a delivery card (`lib/server.js`) | merges, notes the merge on the epic, leaves it open, owes nothing |
+| the PR board's Merge (`lib/server.js`) | the same — both go through `finishWorkBead` |
+| a worker's own `beadcause-deliver` | merges, prints `landed #n`, comments, and says on stderr that the epic stays open |
+| the sweep that notices a merge on github.com (`lib/landed.js`) | reports the epic as a skip, and writes nothing to it |
+
+**bd itself still closes an epic over both**, and cannot be taught not to: it has no
+pre-close hook — `bd hooks` installs git hooks and nothing else — so `bd close bc-ka5y
+--reason "Merged #212"` typed at a terminal goes through. That is the honest limit of
+this. Which is why the rule sits on every path beadcause closes through rather than in
+one place, and why `scripts/land-check.mjs` presses the real `bin/deliver.js` against a
+real tracker with a real epic: a refactor that lost the rule would pass every unit test
+that models it and fail there.
 
 ### The best refusal is a button that was never there
 
