@@ -10143,7 +10143,7 @@ bead goes when nobody has yet decided where it goes. The bead's notes say which 
 and invite you to move it, because a bead quietly adopted into an epic nobody named
 otherwise reads as somebody else's decision.
 
-Four things about that rule are deliberate and each is a thing that would be wrong if
+Five things about that rule are deliberate and each is a thing that would be wrong if
 reversed:
 
 **Under the P0, not under the bead that found it.** The tempting version parents each
@@ -10172,6 +10172,27 @@ refuses the parent outright — its hierarchy is its own, and a P0 that is a cra
 rather than an epic is dispatchable directly, so a session really can be working under
 one — the bead is filed again with no parent and the refusal is reported. Nothing here
 chose that parent; losing a discovery over it would be the wrong way round.
+
+**But nothing is silent either, and for a while one thing was.** Fail-open is not the
+same promise as fail-quiet, and the difference is a bead that vanished. Three
+`beadcause-file` calls minutes apart in one session, same workspace, same `--from`: the
+third said *filed under bc-0i27, the P0 bc-0i27.4 belongs to* and the first two said
+**nothing at all** and landed with no parent — held by the rule above, and off the phone,
+reported as a success. The two failures were `bd export` not answering on a loaded Dolt,
+which is not a rare coincidence but a correlated one: the export fails when the machine
+is busy, and the machine is busy when twenty sessions are filing.
+
+What made it invisible is one seam further down than it looks. Reading the graph
+deliberately never throws — it logs, and hands back the last good answer or an empty one,
+because the inbox drawing everything and the dispatch gate withholding nothing both
+depend on it returning. But *an empty graph is a graph with no P0s in it*, which is
+exactly the case a warning must not be printed for; so "I could not look" arrived wearing
+the costume of "there is nothing here to look for", and the one filing that genuinely
+owed a warning was the one filing that could not produce one. The fix is a third state
+rather than a smarter boolean: the stand-in graph carries the reason it is a stand-in,
+`lib/homing.js` hands it out on `error`, and the failure is said once — on the filing
+session's own stderr where there is one, in the daemon log for the seven other callers
+that file unattended. The bead is still filed; only the silence is gone.
 
 **And the backlog is not for everybody.** A caller may say it must not land there, and
 one does: the [release queue](#the-release-queue--the-number-over-ship)'s per-merge `ship`
