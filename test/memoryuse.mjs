@@ -198,7 +198,14 @@ check(
   m.memory.writes === 1 && m.memory.reads === 1 && m.memory.opened === 0 && m.memory.unread === 1,
   JSON.stringify(m.memory)
 );
-check('and the worker owns no repo, so tier 3 is null rather than four zeroes', m.own === null, JSON.stringify(m.own));
+// bc-goo.12 gave the worker a repo of its own, so this now asserts the *other* half of
+// the rule it was written for: an agent that owns one gets both arms drawn even with no
+// runs behind them, and an agent that owns none gets `null` rather than four zeroes that
+// would read as a measurement.
+check('the worker owns a repo, so tier 3 is both arms rather than null', m.own?.arms?.join() === 'blind,index', JSON.stringify(m.own));
+const noRepo = (await import('../lib/agentview.js')).agentDetail;
+const consoleDetail = await noRepo(repo, 'console', { workspace: 'throwaway' });
+check('and the chat session owns none, so tier 3 is null rather than four zeroes', consoleDetail.memory.own === null, JSON.stringify(consoleDetail.memory.own));
 
 /* ------------------------------------------------- the history is about this one */
 //

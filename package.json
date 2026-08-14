@@ -34,6 +34,7 @@
     "postinstall": "node scripts/vendor.js",
     "monitor": "node bin/monitor.js",
     "timings": "node scripts/timings.mjs",
+    "agentrepo": "node scripts/agentrepo-report.mjs",
     "check": "node scripts/check-agent-log.js",
     "secrets": "node scripts/secret-scan.mjs",
     "conflicts": "node scripts/conflict-check.mjs",
