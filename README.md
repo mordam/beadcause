@@ -1167,8 +1167,8 @@ would close happily becomes unanswerable from the phone, and nothing anywhere sa
 why. So the rules are measured against the binary rather than described from memory —
 `test/closegatereal.mjs` builds each shape below in a throwaway workspace and asserts
 that what beadcause answers and what `bd close` then does are the same answer — except
-for the three rows in **bold**, which are beadcause's own rules and are asserted there as
-disagreements on purpose. Against bd 1.1.2:
+for the two **epic** rows at the bottom, which are beadcause's own rules and are asserted
+there as disagreements on purpose. Against bd 1.1.2:
 
 | the bead | bd | beadcause |
 |---|---|---|
@@ -1202,8 +1202,9 @@ own words — because by then the merge has already happened and a refusal has s
 to go. A tap on a card has nowhere: it is about to write a comment it cannot take
 back, so it asks first. Same rules on both paths; bd is the thing refusing in both.
 
-The three rows in **bold** are the exception to every sentence above, and the section
-below is about them.
+The last three rows of the table are the exception to every sentence above — the two
+where beadcause refuses what bd closes, and the one underneath them that says what is
+*not* refused — and the section below is about them.
 
 #### An epic does not close because a branch that shared its name merged
 
