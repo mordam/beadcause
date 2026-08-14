@@ -235,8 +235,13 @@ check('a session on a descendant no longer blocks an advocate on its ancestor', 
 check('the route uses the shared matcher rather than its own', () => {
   const server = read('lib/server.js');
   const route = server.slice(server.indexOf("p === '/api/bead/advocate'"), server.indexOf("p === '/api/unendorsed'"));
-  assert.match(route, /namesBead\(sn\.name, id\)/, 'the route matches sessions its own way again');
-  assert.ok(!/String\(sn\.name \|\| ''\)\.includes\(id\)/.test(route), 'the substring match is back');
+  // `advocateSession` rather than a bare `namesBead` here: bc-d6yk arrived at the same
+  // defect from the card's side and put the answer in lib/epicadvocate.js, where the door
+  // and the button in front of it can share it — which is strictly better than two call
+  // sites agreeing by coincidence. It is `namesBead` underneath, and test/epicadvocate.mjs
+  // holds that end.
+  assert.match(route, /advocateSession\(liveSessions\(cfg\), id/, 'the route matches sessions its own way again');
+  assert.ok(!/\.name \|\| ''\)\.includes\(id\)/.test(route), 'the substring match is back');
   assert.match(route, /already\.name/, 'the refusal does not name the window holding the bead, so it cannot be acted on');
 });
 
