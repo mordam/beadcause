@@ -324,7 +324,7 @@ await check('it warms the other views and never the one it is on', async () => {
   // Tabs first, and `/api/work` at the head of them: the advocates board is the
   // heaviest payload and the only other tab a thumb can reach from here, and this is a
   // sequential loop, so its place in the queue is how long that tab stays cold.
-  assert.deepEqual(t.asked, ['/api/work', '/api/admin', '/api/consoles', '/api/prs']);
+  assert.deepEqual(t.asked, ['/api/work', '/api/admin', '/api/consoles', '/api/unendorsed', '/api/prs']);
 });
 
 await check('a path two views share is fetched once, not twice', async () => {
@@ -334,7 +334,13 @@ await check('a path two views share is fetched once, not twice', async () => {
   // (inbox and advocates) are wanted by more than one view.
   warm.prewarm({ here: 'prs', api: t.api, delay: 0 });
   await tick(20);
-  assert.deepEqual(t.asked, ['/api/questions?scope=human', '/api/work', '/api/admin', '/api/consoles']);
+  assert.deepEqual(t.asked, [
+    '/api/questions?scope=human',
+    '/api/work',
+    '/api/admin',
+    '/api/consoles',
+    '/api/unendorsed',
+  ]);
   assert.equal(new Set(t.asked).size, t.asked.length, 'a `bd` sweep must not be paid for twice');
 });
 
@@ -373,7 +379,7 @@ await check('it runs once per document — a page open all afternoon does not re
   warm.forget();
   warm.prewarm({ here: 'inbox', api: t.api, delay: 0 });
   await tick(20);
-  assert.equal(t.asked.length, 4, 'a tab switch is a new document, and that is what re-warms');
+  assert.equal(t.asked.length, 5, 'a tab switch is a new document, and that is what re-warms');
 });
 
 await check('a screen that has gone dark stops it — a phone in a pocket warms nothing', async () => {
@@ -490,7 +496,7 @@ await check('past its TTL there is nothing to refresh — an entry that old is g
 /* -------------------------------------------------------------- the wiring */
 
 await check('every standing page loads the file, or that page is the one cold tab', () => {
-  for (const page of ['index.html', 'console.html', 'monitor.html', 'admin.html']) {
+  for (const page of ['index.html', 'console.html', 'monitor.html', 'admin.html', 'endorse.html']) {
     assert.ok(read(`public/${page}`).includes('/warm.js'), `${page} does not load warm.js`);
   }
 });
@@ -505,6 +511,7 @@ await check('and it is loaded before the page script that asks it for a list', (
     // page of its own, exactly as mirror.js is in test/stream.mjs.
     ['monitor.html', '/prs.js'],
     ['admin.html', '/admin.js'],
+    ['endorse.html', '/endorse.js'],
   ]) {
     const html = read(`public/${page}`);
     assert.ok(html.indexOf('/warm.js') < html.indexOf(script), `${page} loads ${script} first`);
@@ -532,10 +539,13 @@ await check('every tab the bar draws has a view — and two views are deliberate
   for (const tab of ids) assert.ok(views.includes(tab), `${tab} is a tab with no view — it stays cold`);
   // The other direction stopped being an equality when the bar lost two tabs: the PR board
   // (bc-l8jp.6) and the chat session (bc-l8jp.5) are both still standing pages, reached
-  // from a PR card, a chat row or the ＋, so both are still warmed. They are the *only*
-  // two allowed to be views without tabs — anything else here would be a payload warmed
-  // for a page nobody can get to.
-  assert.deepEqual(views.filter((v) => !ids.includes(v)), ['console', 'prs']);
+  // from a PR card, a chat row or the ＋, so both are still warmed. The endorsement queue
+  // is the third of exactly that kind and was simply missed (bc-bsgn) — it has never had
+  // a tab either (its doors are the 🗳 in the inbox's top bar and the advocate console's
+  // `N held for endorsement` pill), and it is the most expensive boot of the three. These
+  // are the *only* views allowed to have no tab — anything else here would be a payload
+  // warmed for a page nobody can get to.
+  assert.deepEqual(views.filter((v) => !ids.includes(v)), ['console', 'endorse', 'prs']);
   // And the tabs' own order still follows the bar, so the warm fills them in thumb order.
   assert.deepEqual(views.filter((v) => ids.includes(v)), ids);
   // Every tab before every page that is not one (bc-xxzz). The background warm is
