@@ -22,7 +22,9 @@ agent files a `human` bead ──► beadcause polls ──► ntfy push to phon
 macOS only — it runs as a launchd agent and drives iTerm2.
 
 **You need:** Node 20+, the [`bd`](https://github.com/steveyegge/beads) CLI with at
-least one workspace under `~/beads/<name>/.beads`, and
+least one workspace under `~/beads/<name>/.beads` — or anywhere else you point
+[`workspaceRoots`](#where-trackers-live--workspaceroots-and-the-two-shapes-a-root-can-have),
+including a repo whose own `.beads` makes the repo the workspace — and
 [Tailscale](https://tailscale.com) on the Mac and the phone, signed in as the same
 user. Optional: iTerm2 and Claude Code, for the "discuss this on the Mac" button.
 
@@ -38,7 +40,8 @@ waits for it to answer, and prints the pairing QR. It's re-runnable — run it a
 pulling. Joining a tracker somebody else already has needs one file and no questions at
 all: [installing against a team's tracker](#installing-against-a-teams-tracker).
 
-The questions, all with a safe default on Enter: **what the agents should call you**
+The questions, all with a safe default on Enter: **where your workspaces live** (the
+directories discovery reads, `~/beads` unless you say otherwise), **what the agents should call you**
 (the name every prompt, pull request body and bead note uses — guessed from your git
 identity), which workspaces are **shared with
 other people** (those get a contentless push and no unattended agents), where your
@@ -52,7 +55,10 @@ holding **more than one repo** is asked one more: which of the checkouts under i
 printed with the service token each one declares — an install where every workspace is one
 repo is asked nothing about it. Re-run them any time with `npm run configure`; nothing is
 written until the last answer — not even the client secret, which goes to a file of its
-own — so Ctrl+C is always safe.
+own — so Ctrl+C is always safe. The one exception is a machine where the first question
+finds no tracker at all: the roots you just named are saved before it stops, because they
+are what the run was worth and `bd bootstrap` is the next step, not another typing of the
+same path.
 
 **Nothing to answer? Say so.** `npm run install-service -- --non-interactive` (or
 `SKIP_CONFIGURE=1`) prints the configuration on file and changes none of it. An agent
