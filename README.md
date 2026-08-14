@@ -9324,6 +9324,50 @@ says whose it is on the card the entire time it lasts. The cases are in
 `node test/leasequeue.mjs`, including the read count, the sibling that is *not* held, the
 plain parent that holds its subtree too, and the two-machine race resolved after a sync.
 
+#### …and the window already inside it
+
+The rule above reads upward: a claim on an ancestor holds the bead. Read downward it said
+nothing, and the hole that leaves is the same duplicate stood on its head. The other Mac
+opens a window on `x-1.1`, a subtask, and claims it. `x-1` — a plain task, its parent —
+goes ready here, and every check that should have stopped a second window is looking the
+wrong way. No ready child, because the child is *claimed* and claimed beads are out of
+`bd ready` entirely. No live worker under it, because that worker is in an `a.workers` on
+the other laptop. And the `bd children` question — the one that holds an epic while
+anything under it is open — is asked only of an **epic**, which a task with subtasks is
+not. So the parent launches here, and the subtree has two windows on two branches.
+
+**What made this the half that was left out is that descendants are not in the id.**
+`ancestorsOf` is free: `x-1.2.3` is under `x-1.2` and `x-1`, and that is arithmetic on a
+string. There is no `descendantsOf`, and the honest ways to get one are a `bd children` per
+queued parent per tick, recursively, or the whole graph out of a `bd export` — a read per
+tick to learn something that changes about as often as somebody opens a window.
+
+So the question is asked the other way round. Not *what is under this bead, and is any of it
+claimed*, but **what is claimed, and is any of it under this bead** — and that second form
+needs no enumeration at all, because `isDescendantOf` answers it in the ids already in hand,
+at any depth. The list of claims comes from the in-progress rows, which [the twin
+filter](#what-counts-as-work) has read on every survey since it was built and uses only the
+titles of. This reads the labels off the same rows. **It costs nothing**, which is the
+second time that has been the answer here and for the same reason: the read was already
+being paid for and thrown away.
+
+That the rows are the *in-progress* ones leaves one gap, and the filter above it covers
+that gap. A bead the other machine's advocate has staked is claimed by its worker within
+the first minute, so the two writes ride the same sync — by the time a pull can show you the
+label at all, it shows you the status. In the window where it has not, the bead carries no
+claim here yet, so it is still in this tick's `bd ready`, and the *first* check holds a
+parent whose child is ready for exactly the reason this one holds a parent whose child is
+claimed.
+
+**And this half is a filter and never a stand-down**, which is the one place the two
+directions are deliberately not symmetric. `reconcile` withdraws a window when a claim is
+*above* it, and that asymmetry is what resolves the after-the-fact race to exactly one
+survivor: the machine above keeps its window, the machine inside gives its up. Asking the
+downward question there too would make both of them withdraw — the one above because
+somebody is below, the one below because somebody is above — and a subtree nobody is working
+is worse than the duplicate that started this. So it runs before a launch, where the answer
+is *do not open a second window*, and never after one, where the answer is already settled.
+
 #### …and the window this daemon never opened
 
 Everything above is written by the launch. The advocate stakes the claim and then opens the
@@ -10174,9 +10218,9 @@ A bead carries how hard it is, as a `complexity:low`, `complexity:medium` or
 `complexity:high` label, and it carries it because most beadcause work does not need
 the expensive model and the handful that does must not be run on the cheap one. The
 tier is what decides which model a session on that bead runs — that is bc-nc6o, and
-this section is the half that puts the tier *on* the bead. Reading it back at spawn
-time is bc-nc6o.2 and is not wired yet; until it is, the label is a fact about the
-bead that nothing acts on, which is the right order to build the two in — a router
+this section is the half that puts the tier *on* the bead.
+[The next one](#which-model-a-session-comes-up-on--the-tier-at-spawn-time) is the half
+that reads it back at spawn time. They were built in that order deliberately: a router
 reading a field nothing writes routes everything to the fallback and looks broken.
 
 **Decided when the bead is written, not guessed at when it is opened.** The dispatcher
@@ -10240,6 +10284,75 @@ being re-emitted is a tier shown to you and then thrown away), and the acceptanc
 end to end through the real `beadcause-file` against a stub `bd` — a proposal that names
 a tier files a bead carrying it, and one that names none files a bead with no
 `complexity:` label at all.
+
+### Which model a session comes up on — the tier at spawn time
+
+The other half of bc-nc6o, and the point in it where a label starts costing money. When
+the advocate opens a work session it reads the tier off the bead and turns it into
+`claude --model`:
+
+| tier | model |
+|---|---|
+| `complexity:low` | `sonnet` |
+| `complexity:medium` | `sonnet` |
+| `complexity:high` | `opus` |
+| no tier, or labels nobody can route on | `opus` |
+
+`MODEL_BY_TIER` in `lib/complexity.js` is the whole mapping and the only copy of it —
+`modelForBead` is the one call the launcher makes, and it answers `{ model, tier, problem }`
+because a model on its own cannot be explained. Aliases rather than model ids, for the
+same reason [`consoleModel`](#config--configbeadcauseconfigjson) is one: an alias tracks
+the current release of a family, and a router written with pinned ids is a router that
+quietly keeps spawning last year's model until somebody notices the dates.
+
+**The fallback is the expensive one, and it is the commonest answer rather than an edge
+case.** Everything filed before the tier existed, everything created by hand and
+everything ingested from JIRA is unrated, so this is the branch that decides most
+sessions. It goes the expensive way because the two ways of being wrong are not
+comparable: routing an easy bead to Opus costs a bill, and routing a hard one to Sonnet
+costs an unattended hour producing something that has to be thrown away and re-run
+anyway. **Nothing is logged for an untiered bead** — a line per launch saying so would be
+a warning nobody could act on and everybody would learn to scroll past. A bead whose
+labels *contradict* each other is different and is said out loud, once, naming the bead
+and what it opened on, because that one has a fix and the fix is on the bead.
+
+**Precedence, because `model` is also a foundation field.** Four sources, and each step
+is a step up in how specifically somebody said it: the
+[baseline](#what-an-agent-is--and-how-it-asks-to-be-different) in `lib/foundation.js`,
+then config where there is a key for it (`consoleModel`, which is the chat session's and
+not a worker's), then **the bead's tier**, then an
+[approved amendment](#what-an-agent-is--and-how-it-asks-to-be-different). The tier beats
+config because a deployment default is a sentence about every session and the tier is a
+fact about this one, decided by whoever wrote the bead while they were looking at the
+work — the moment it was cheapest to answer. The amendment beats the
+tier because Adam approved a sentence about which model *this agent* runs, by name — and
+a router silently ignoring it would make the approval a no-op he had no way to see. So an
+amended worker runs on what it was granted whatever the bead says, and the foundations
+screen is where that shows.
+
+**Only the worker is routed.** The
+[planner](#an-epic-is-planned-not-worked--and-each-group-gets-its-own-window) opens on an
+epic, and an epic's tier is a claim about the work underneath it rather than about the hour spent
+deciding how to cut that work up — planning a subtree of five easy beads is not an easy
+job, and it is the one window every other window then depends on. The button that opens a
+session by hand is not routed either: it is reached from a question as often as from a
+bead, you are standing there when you press it, and `/model` is one line away.
+
+**The selection is recorded on the advocate's card while the session is still running.**
+The bead does not carry it and cannot yet — what a run *actually* used is only knowable
+once it has finished, which is bc-nc6o.3 — so the worker row on the card is the only place
+"what is this window costing" is answerable in the meantime, and it carries the tier
+beside the model because `opus` is equally the answer for a bead rated `high` and a bead
+nobody rated at all. It is in the launch line in the log too, beside the permission mode
+and for the same reason: both are decisions made silently at spawn and invisible
+afterwards.
+
+`test/tiermodel.mjs` covers it, and the checks that matter run the real `openWorkSession`
+end to end and read back **the shell command the window would have run** — a mapping that
+is right and a flag that never reaches the command line look identical from a unit test.
+It drives the launcher against a copy of `lib/` with a stub AppleScript beside it, so a
+full launch happens and no window appears; the amendment case commits a real amendment to
+a real repo and watches it beat the tier all the way to the `--model`.
 
 ### Approve, adjust, decline
 
@@ -13258,6 +13371,7 @@ cookie says so), and `/auth/signout` ends the session.
 | GET | `/api/bead-links` | `?workspace=&id=` | `{children[], dependents[]}` — everything with an edge pointing at that bead, closed ones included, open work first: the `parent-child` rows as `children`, every other kind as `dependents` with its `dependency_type`. One `bd dep list --direction=up` for both, because `bd show` carries `dependent_count` and not one row behind it |
 | POST | `/api/bead/advocate` | `{workspace, id}` | opens the **P0 advocate** on this P0 — the button on the inbox's P0 card. Four refusals in front of it, all 409 with a sentence: unendorsed, superseded, closed, or not a P0 anybody owns (a crash P0 is refused by name — a stack trace is not an epic). **Never two on one P0**: a live session whose window carries this bead id is a 409 rather than a second window — matched with `namesBead`, so a session on a *child* of this P0 no longer refuses it — and so is a launch from the last ten minutes whose window has not named itself yet, since that is the gap a second tap falls through. The card in front of it reads the same rule and draws it: it links to `/session?pid=` while an advocate is up, and says one is opening until then, rather than re-offering a launch that would now be refused (`advocate` on each card of `p0board`). Blocked under `OBSERVING`, unlike the verdict routes — those are you deciding, this is the daemon opening a window |
 | POST | `/api/bead/owner` | `{workspace, id, owner}` | sets `owner:<handle>` — who is answerable for this bead — and answers `{owner, owners[], p0, changed}`. An empty `owner` hands it back to nobody, which is a thing you may say; setting the owner it already has is `changed: false` and no `bd` write at all. Every *other* owner label comes off, so resolving two machines' claims from the sheet is visible. A route of its own rather than a field of `/api/bead/adjust`, because adjust refuses a bead anybody has endorsed and ownership is most worth changing on a P0 that is live — and because the ✎ may not touch `owner:` at all (`isProtectedLabel`) |
+| POST | `/api/bead/addressee` | `{workspace, id, to}` | re-addresses a question — sets `for:<handle>`, the label that decides [whose phone rings](#who-a-question-is-for--me-and-the-for-label), and answers `{addressees[], changed, cleared}`. `to` is one handle; **empty, or `everyone`, means everyone**, which is a decision rather than the absence of one. Every *other* `for:` label comes off, because handing it to Carol means Carol and not also whoever it was addressed to before. Re-sending the handle it already carries is `changed: false` and no `bd` write at all. `cleared: true` says it also pulled the row out of this phone's notification shade, which it does on exactly one condition — the question is now addressed somewhere that is not this Mac — via the same `dismissed` event [a narrowed filter](#and-it-offers-to-tidy-up-the-noise-it-already-made) uses, and with the same honest limit: ntfy cannot recall a delivered message, so only the Android shell's own tray is reachable. A route of its own for `/api/bead/owner`'s reasons, and because the ✎ may not touch `for:` at all (`isProtectedLabel`) |
 | GET | `/api/p0s` | `?workspace=` | `{p0s[]}` — every **open** P0 in that workspace, `{id, title, owners[], mine}`, yours first. What the sheet offers a held bead to be adopted under. Every P0 and not only yours, because the dispatch gate measures against all of them; off the cached graph, and this one waits for a cold cache rather than answering "there are no P0s" |
 | POST | `/api/bead/adopt` | `{workspace, id, parent}` | moves a bead under `parent` — the fix for the one hold that never clears itself, offered on the sheet of any bead with **no P0 above it**. Answers `{parent, workable}`, where `workable` is the gate's own answer after the write rather than a promise about it. A parent with no P0 above *it* is a 409 naming that, since the adoption would not make the bead workable; an empty `parent` detaches instead, which is how an adoption into the wrong epic is undone. The cached graph is refreshed on the way out, so the next advocate tick acts on the new shape |
 | GET | `/api/history` | `?workspace=` **or** `?space=`, and `&status=&priority=&provenance=&id=&limit=&offset=&refresh=1` | `{rows[], total, limit, offset, more, workspaces[], errors[], workspace, space, query}` — [the ledger](#the-ledger-behind-the-history-tab): every bead a space has ever had, closed and deferred included, newest-**updated** first, paged. The four filters are optional and compose; each row carries `hasSession`, whether a session was archived for it, and a `closeReason` cut to 240 characters on a word boundary — two lines of the row hold 226 at the widest, and the whole sentence is on the sheet the row links to. A bad `status` or `priority` is a 400 naming the word rather than an empty list, an unknown `workspace` a 400 and an unknown `space` a 404 — but a space with no beads is `{rows: [], total: 0, more: false}` and a 200. Cached ten seconds per workspace; `refresh=1` forces the sweep |
@@ -13796,6 +13910,55 @@ Two consequences of that ordering worth knowing:
   perfectly good answer to "whose agent is this", which is the question being asked
   here.
 
+#### Handing it to somebody else, from the phone
+
+Everything above happens at the moment a question is filed, from a terminal, and until
+bc-jg0w that was the *only* moment: `--for` on `beadcause-ask`, the stamp
+`bin/deliver.js` and `bin/propose.js` put on their own cards, `Bd.create` for anything
+the daemon files. Which left the ordinary case unreachable. A question lands on your
+phone, you read it, and it is really Carol's — and the only two moves were to answer it
+yourself or to leave it sitting there. Neither of those is the true one, and an addressee
+you cannot move is most of the way to not having one.
+
+So the card carries a **📮 pill** in the same row as the workspace and the bead id,
+saying who is being asked: *you*, or a name, or *anyone*. Tap it and a panel offers one
+button per handle, plus **anyone who is free**, plus a box for somebody the graph has
+not seen yet. One tap re-addresses the question, and the tap **replaces** rather than
+adds — "it is really Carol's" means Carol, not Carol as well as you.
+
+There is no roster anywhere in beadcause: the config knows who *this* Mac is and nothing
+about the other five. So the buttons are read off the inbox itself, where every question
+another Mac filed carries its person's `for:` label — which on an install where addressing
+means anything is the roster, because everybody is asking questions. The typed field is
+what covers the person who has not asked one yet.
+
+**The pill is drawn only when `me` is set.** With it unset there is nobody a question
+could be addressed away from, so a control for it would have exactly one state — the same
+branch-that-cannot-be-entered guarantee the rest of this section makes, drawn here as an
+absence rather than as a pill saying "for everyone" on every card.
+
+**Handing a question away also clears its notification, on one condition.** If the
+question is now addressed somewhere that is not this Mac, the row goes out of the phone's
+shade — the argument [a narrowed filter](#and-it-offers-to-tidy-up-the-noise-it-already-made)
+already makes, applied to a stronger version of the same fact: a filter change is *I do
+not want to think about this right now*, and a hand-off is *this is not mine*. Same
+`dismissed` event, same honest limit (ntfy cannot recall a delivered message; the Android
+shell's tray is what is actually reachable), same promise that the bead is untouched — it
+stays open, stays unanswered, stays in everybody's inbox. Re-addressing a question to
+*yourself*, or to everyone, leaves the shade alone, because those are the two answers
+under which the phone is still being asked.
+
+**And the other phone starts being asked.** That is not automatic and it is worth saying
+why: each daemon marks every live question as notified at the end of every sweep, so
+Carol's Mac swept this bead the day it was filed, kept quiet because it was addressed to
+somebody else, and would never have looked at it again. The poller therefore treats one
+narrow case as a fresh arrival — a question it recorded as quiet *for the addressee
+reason* which is no longer addressed elsewhere — and pushes it once. A muted space and a
+narrow filter are the other two kinds of quiet and neither is undone by a label.
+
+`node test/readdress.mjs` covers the label arithmetic, the route, the shade, and that
+half of the poller.
+
 ### Whose beadcause wrote it — the byline on every daemon write
 
 The same `me`, answering a different question. `bd` records who made each write, and
@@ -13939,7 +14102,7 @@ another Mac's, and an agent's — and asserts that exactly one of them rings.
 | `advocates.holdLiveSessions` | [hold a bead out of the queue while a live session already names it](#the-bead-somebody-is-already-sitting-in) (default `true`). The claim is not the guard the brief says it is — "request changes" drops it, a timeout drops the slot, a restart forgets the worker — and without this a second window opens into a worktree somebody is still editing. No interval: the session records are files on this laptop, so it reads on every tick and again before a launch |
 | `advocates.holdClaimedFiles` | [hold a bead out of the queue while another session on this Mac is editing the files it would touch](#the-bead-whose-files-somebody-is-already-editing) (default `true`). The same register `scripts/claim-guard.sh` asks at `PreToolUse`, read at dispatch instead — where standing down costs nothing rather than a session that has already been briefed. No new state and no interval: the map is in this process |
 | `advocates.holdGuessedFiles` | whether a surface *guessed* out of the bead's prose may hold as well, or may only say so on the card (default `false`). A declared surface is a forecast somebody wrote down; a guess is the daemon having read a description, and evidence that is a resemblance errs toward doing the work twice rather than not at all — the same way the twin filter does, and the opposite of the open-pull-request one |
-| `advocates.holdLeases` | [hold a bead out of the queue while another Mac has claimed it in the shared tracker, and stand down when one claims it underneath us](#the-bead-another-mac-has-claimed) (default `true`). Inert until `me` is set, which is every one-Mac install — with no handle there is no label to write and nobody to lose to. The claim is a `held:<stamp>:<handle>` label rather than the assignee, because two labels are two rows Dolt merges rather than a cell it cannot, which is what lets both machines see both claims and agree on the winner without talking |
+| `advocates.holdLeases` | [hold a bead out of the queue while another Mac has claimed it — the bead itself, or anything above or below it in the subtree — and stand down when a claim above one of our own windows wins](#the-bead-another-mac-has-claimed) (default `true`). Inert until `me` is set, which is every one-Mac install — with no handle there is no label to write and nobody to lose to. The claim is a `held:<stamp>:<handle>` label rather than the assignee, because two labels are two rows Dolt merges rather than a cell it cannot, which is what lets both machines see both claims and agree on the winner without talking |
 | `advocates.leaseMinutes` | how long one of those claims is good for (default 60, restamped at half that by whichever advocate still holds the worker). Not a load knob: it is how long a bead stays parked when the Mac holding it goes to sleep, and a bead parked forever is worse than the duplicate window this prevents |
 | `advocates.sessionLog` | archive each finished session to `refs/beadcause/sessions/<bead>` and note its commits (default `true`) |
 | `advocates.sessionTranscripts` | also store the raw Claude Code transcript — megabytes, and it carries paths and tool output (default `false`; set per repo in `perWorkspace`) |
