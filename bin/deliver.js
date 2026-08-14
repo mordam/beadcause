@@ -78,6 +78,7 @@ import { inspectBranch, report as conflictReport } from '../lib/conflicted.js';
 import { ownerName } from '../lib/owner.js';
 import { cardsForDelivery, deliveryBody, deliveryTitle, DELIVERY_LABEL } from '../lib/delivery.js';
 import { deployFor, deployHint } from '../lib/deploy.js';
+import { EDIT_HOLD, fromEditMode } from '../lib/editwork.js';
 import { landedReason } from '../lib/landed.js';
 import { requestSweep } from '../lib/mergesweep.js';
 import { pushLanded } from '../lib/notify.js';
@@ -406,7 +407,25 @@ try {
 // do, and the two reading different answers is how a window reports work as landed over
 // a bead that says otherwise.
 const policy = prPolicyFor(cfg, ws.name);
-const autoMerge = policy.autoMerge && !review;
+/**
+ * Whether this bead may be merged by the thing that wrote it, which for one kind of bead
+ * is no.
+ *
+ * A bead filed from inside the running app (lib/edits.js) is a sentence Adam said to a
+ * screen, and the whole of its review is him looking at what came back — so the epic that
+ * built it says outright that nothing on that path reaches main without a human approval
+ * (bc-p49x.4). The worker's brief says the same thing and asks for `--review`; this is
+ * what makes it true. A brief is a promise about what a command will do, and a promise a
+ * session can forget to keep is not a guarantee: the flag going missing, or a future
+ * brief quietly dropping the sentence, must not be able to land an unreviewed in-app edit.
+ *
+ * Every bead carrying the label, not only the leaf edits — the pass and the standing root
+ * carry it too, and neither is a thing to deliver against at all. Holding one is the
+ * harmless direction.
+ */
+const editHold = fromEditMode(bead);
+if (editHold) console.error(`beadcause-deliver: ${beadId} is an in-app edit, so this delivery asks rather than merges.`);
+const autoMerge = policy.autoMerge && !review && !editHold;
 // Green checks are not enough in a space that asks for a review first. Only consulted
 // inside the `autoMerge` branch below — with auto-merge off every delivery is already a
 // question, and answering it *is* the approval.
@@ -425,7 +444,8 @@ const prBody = [
     ? `_Opened by a beadcause worker session on ${beadId}, which merges it itself once the checks report` +
       `${requireApproval ? ' and it has an approving review' : ''}. If it is ` +
       `still open, something stopped that — the reason is on ${beadId} and in ${owner}'s inbox._`
-    : `_Opened by a beadcause worker session on ${beadId}. It is not merged until ${owner} answers the question in their inbox._`,
+    : `_Opened by a beadcause worker session on ${beadId}. It is not merged until ${owner} answers the question in their inbox.` +
+      `${editHold ? ` This one was typed into the running app with edit mode on, and an in-app edit is merged by the person who asked for it.` : ''}_`,
 ]
   .filter((l) => l !== '')
   .join('\n');
@@ -880,7 +900,11 @@ const out = bd([
     // worker's own `--review`, because it is the only one of the three whose sentence
     // has to explain a *green* pull request sitting unmerged.
     approval: awaitingApproval,
-    asked: review && policy.autoMerge,
+    asked: review && policy.autoMerge && !editHold,
+    // Ahead of `asked` in the card's precedence, and it has to be: with the hold on, a
+    // worker's `--review` asked for nothing that was not already going to happen, and a
+    // card crediting it with the decision would be describing a choice it never had.
+    edit: editHold,
     ship: shipHint,
   }),
   '--json',
@@ -907,6 +931,7 @@ try {
       (superseded.length
         ? ` It replaces ${superseded.join(', ')}, which asked the same question and ${superseded.length === 1 ? 'was' : 'were'} never answered.`
         : '') +
+      (editHold ? ` It was not merged, and will not be by a worker: ${EDIT_HOLD}.` : '') +
       (refused ? ` The worker tried to merge it and could not: ${refused}` : '') +
       (awaitingApproval ? ` Its checks are green; it is waiting on an approving review, which is what answering ${questionId} gives it.` : '') +
       (owed ? ` Still owed after the merge: ${owed}.` : ''),
@@ -925,7 +950,9 @@ const prNote = refused
   ? `A beadcause worker tried to merge this and could not: ${refused}`
   : awaitingApproval
     ? `A beadcause worker opened this and stopped: its checks are green, but this space asks for an approving review before anything merges.`
-    : '';
+    : editHold
+      ? `A beadcause worker opened this and stopped on purpose: ${beadId} was typed into the running app with edit mode on, and an in-app edit is merged by the person who asked for it.`
+      : '';
 if (prNote) {
   await pr
     .comment(dir, request.number, `${prNote}\n\nIt is now ${owner}'s call — see ${questionId}.`)
