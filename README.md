@@ -566,27 +566,26 @@ selects is what the whole app is about:
 
 ```
 ┌──────────────────────────────────────────────┐
-│  ●  ▣   3 waiting          ⌨️  ⚖️  ⟳          │
-│  ┌────────────────────────────────┐  ┌───┐   │
-│  │ beadcause · 3              ▾   │  │ 3 │   │
-│  └────────────────────────────────┘  └───┘   │
+│  ●  ▣                      ⌨️  ⚖️  ⟳          │
+│  ┌──────────────────────────────────────┐    │
+│  │ beadcause                        ▾   │    │
+│  └──────────────────────────────────────┘    │
 └──────────────────────────────────────────────┘
-     Personal ─┬─ Personal — all · 4
-               ├─   beadcause · 3
+     Personal ─┬─ Personal — all
+               ├─   beadcause
                ├─   sophab
-               └─   deluvia · 1
-     Climative ─── Climative — all · 12
-                   climative · 12
-     All spaces · 16
+               └─   deluvia
+     Climative ─── Climative — all
+                   climative
+     All spaces
 ```
 
 Pick `beadcause` and it is beadcause's questions in the inbox, beadcause's advocate on
 the advocate console, beadcause's pull requests on the board, beadcause's chats in the
-launcher and beadcause's agents on the foundations screen. Nothing else, anywhere. The
-count on the right is how many beads inside the selection are asking you something,
-and it is hidden at zero; a border in the accent colour is on the picker whenever
-something is being kept off the screen, because an app that looks identical showing you
-everything and showing you one sixth of it is an app you eventually stop trusting.
+launcher and beadcause's agents on the foundations screen. Nothing else, anywhere. A
+border in the accent colour is on the picker whenever something is being kept off the
+screen, because an app that looks identical showing you everything and showing you one
+sixth of it is an app you eventually stop trusting.
 
 **Both levels are offered, because both are things you mean.** "Climative, all of it"
 is a workday; "beadcause" is an hour. Each space's repos are listed under it, so the
@@ -623,34 +622,25 @@ The admin page deliberately has no picker: it is the one screen that acts on eve
 at once, and a control it ignored would be a lie about what its buttons do.
 
 `GET /api/spaces` is what the four pages that never sweep the tracker draw the picker
-from — the spaces, the counts, the configured workspaces and the stored filter. It
-costs no `bd` call at all: the counts are cached off the last sweep, the way the "3
-waiting" chip beside it already is, so a control drawn on every page load cannot become
-a `bd human list` across every workspace on every page load.
+from — the spaces, the configured workspaces and the stored filter. It costs no `bd`
+call at all: the spaces are cached off the last sweep, so a control drawn on every page
+load cannot become a `bd human list` across every workspace on every page load. A page
+that *does* sweep feeds the bar from its own payload instead; `adopt()` records what a
+page has published and the `/api/spaces` reply is adopted **weakly**, field by field,
+yielding to anything a page already said — because that fetch is sent before the page's
+script runs and its reply lands after.
 
-**The number on the picker is the list under it, counted, and there is only one of
-them.** It read as a small thing and was not: the inbox printed "Nothing live" with a
-non-zero count in the bar directly above it, because that count had two sources and no
-rule about which won. The picker used to take a *space's* total from `spaces[].count` —
-the server's own sweep of the human-questions channel — and a *repo's* from the
-`counts` map, which the inbox overwrites with what it is actually drawing; so one
-dropdown showed two sweeps, and a scope or a kind filter made them differ by
-construction. Worse, spacebar.js's `/api/spaces` fetch is sent before the page's script
-runs, so on a warm boot its reply landed *after* the inbox had published its own numbers
-and replaced them with the wrong ones.
-
-Both halves are now rules rather than orderings, and `node test/spacebar.mjs` holds them:
-
-- **Every number on the bar is arithmetic over the one `counts` map.** A space's total is
-  its repos summed in the client; `spaces[].count` is read for the 🔕 and the shape and
-  never for a figure.
-- **A page that draws a list owns the numbers.** `adopt()` records what a page publishes
-  and the `/api/spaces` reply is adopted *weakly* — field by field, yielding to anything
-  a page has already said. A page that publishes nothing still gets all of it.
-- **The inbox counts what `render()` drew**, not what the payload said, over everything
-  except the picker's own narrowing: the scope, the kind filter, pull requests as rows.
-  So `beadcause · 3` is a promise that picking `beadcause` leaves you three things — and
-  a kind-filter tap, which fetches nothing at all, moves the number with the list.
+**The picker draws no numbers, and that is the fix rather than the omission.** It used
+to carry three: a pill beside it, a `· N` tail on every repo row, and a total on each
+space. They read as a small thing and were not — the inbox printed "Nothing live" with a
+non-zero count in the bar directly above it, because a count had two sources and no rule
+about which won. The rules that settled that argument (one `counts` map, the drawing
+page owns it, count what `render()` drew) worked, and were still a standing obligation
+on every page that had a list: keep a second copy of your own list's size in step with
+it, on every tap that fetches nothing, for ever. bc-ka5y.1 took the numbers out instead,
+along with the `counts` map, the `⚠` that marked a sum taken over a sweep with a hole in
+it, and the `counts` and `waiting` fields on `/api/spaces`. What the picker says now is
+*where you are*, which is a question about the config and cannot drift from anything.
 
 The check that earns the suite is still the one nobody can do by reading: the client's
 `matches()` and the server's `matchesFilter()` are run against each other over every
@@ -739,9 +729,9 @@ are on it:
 ```
 ┌──────────────────────────────────────────────┐
 │  ● Space                        ⚙  ⟳         │
-│  ┌────────────────────────────────┐  ┌───┐   │
-│  │ Personal · 3               ▾   │  │ 3 │   │
-│  └────────────────────────────────┘  └───┘   │
+│  ┌──────────────────────────────────────┐    │
+│  │ Personal                         ▾   │    │
+│  └──────────────────────────────────────┘    │
 ├──────────────────────────────────────────────┤
 │  Personal                    may reach you   │
 │  ▾ SETTINGS                                  │
@@ -881,62 +871,39 @@ is on Inherit and there is nothing on the card to look wrong. What is left to th
 check is what a string cannot answer — that a press reaches `config.json`, and how the
 card reads on a phone.
 
-### And it offers to tidy up the noise it already made
+### And it does not tidy up the noise it already made
 
-Narrowing the filter silences what comes *next*. It used to say nothing at all about
-the notifications already sitting unread on the phone for the beads it has just
-hidden — which are precisely the ones you have decided not to think about.
+Narrowing the filter silences what comes *next*, and says nothing at all about the
+notifications already sitting unread on the phone for the beads it has just hidden.
+**Those stay unread, silently, until the filter is widened again.** Nothing asks about
+them and nothing clears them.
 
-So when a filter change excludes beads that are currently ringing, the inbox asks,
-once, naming how many:
+That is a decision, not an omission. The inbox used to draw a pane when a filter change
+excluded beads that were currently ringing — *3 unread notifications for beads this
+filter hides*, with **Clear them** and **Leave them** — and bc-ka5y.1 deleted the whole
+feature: the pane, the `dismissAsk` field on `/api/questions` and `/api/filter`, the
+`POST /api/notifications/dismiss` endpoint behind it, and the `shadeSeen` /
+`ringingDeclined` bookkeeping that existed only to stop it asking twice. What it bought
+was never worth a standing pane above the list and a second write path to get wrong: the
+beads it was about were open, unanswered and one widening away the whole time.
 
-> **3 unread notifications for beads this filter hides**
-> Clearing them touches the phone and nothing else — the beads stay open and
-> unanswered, and they come back when you widen the filter.
->
-> [ Clear them ]  [ Leave them ]
+What survives is the `ringing` map itself — keyed `workspace/id`, one entry per bead
+whose notification this daemon actually caused — because that is what lets a bead
+leaving the inbox take its row in the tray with it. `node test/ringing.mjs` (part of
+`npm test`) covers it, including the real poller, because the one line that records that
+a bead rang is the easiest thing here to lose in a merge and the hardest to notice.
+It also asserts the absence of all three of the things above, so none of them comes back
+by accident.
 
-**Clearing is not answering, and not dismissing either.** It drops the rows from the
-Android shell's tray and stops there: `bd` is never called, the beads stay open, they
-stay in the inbox, and widening the filter shows them again — if one of them says
-something new, it rings again. That is why it travels as its own event type,
-`dismissed`, rather than reusing `answered`: every client cancels the row on
-`answered` *and* treats the bead as settled, and nothing here settles anything.
+**The honest limit, and the reason the pane could never have been much use anyway: an
+ntfy notification already delivered cannot be recalled.** ntfy is a one-way relay and
+the server has no handle on a message it has published. The only tray anything here can
+act on is the Android shell's own, because that shell holds a live connection and
+cancels on an event — so on an install where ntfy is the only surface there was nothing
+to offer in the first place.
 
-**Leave them** is an answer too, not a cancel — it is recorded, so the next poll does
-not ask again about the same beads. Widening the filter forgets that, so narrowing
-again later is a fresh question rather than a silence you inherited from last week.
-Notifications for beads still inside the filter are never touched, and a filter change
-with nothing excluded and unread prompts nothing at all.
-
-```
-[beadcause] filter narrowed to Work — asking about 2 unread notification(s): sophab/sp-4kd, deluvia/dv-1x9
-[beadcause] cleared 2 notification(s) the filter excludes: sophab/sp-4kd, deluvia/dv-1x9 — the beads are untouched
-```
-
-**The honest limit: an ntfy notification already delivered cannot be recalled.** ntfy
-is a one-way relay and the server has no handle on a message it has published. What
-can actually be cleared is the Android shell's own tray, because that shell holds a
-live connection and cancels on the event. So the prompt only appears when a client
-that *owns* a tray has been seen — the shell passes `shade=1` on its long-poll, and
-nothing else does, so a terminal monitor parked on the same endpoint cannot be
-mistaken for a phone. If ntfy is your only surface, this offers nothing and therefore
-says nothing, rather than showing a button that reports success and clears nothing.
-Two weeks without a shade client counts as an app that has been uninstalled.
-
-There is deliberately no in-app unread marker to clear alongside it. The badge counts
-beads that are **open**, clearing leaves them open, and a count that dropped would be
-claiming a decision nobody made.
-
-`node test/ringing.mjs` (part of `npm test`) covers the server half — including the
-real poller, because the one line that records that a bead rang is the easiest thing
-here to lose in a merge and the hardest to notice: losing it makes the prompt simply
-never appear. `node scripts/shade-check.mjs` is the half that lives in a thumb, in
-headless Chrome at phone size: that the pane lands **inside `#list`** so its buttons
-are delegated to at all, that each one reaches `/api/notifications/dismiss` with the
-right `confirm` and the keys it was shown, and that a poll landing under an unanswered
-prompt does not take it away. `--baseline` runs it against the committed `app.js`,
-where 13 of the 17 fail.
+There is deliberately no in-app unread marker either. The badge counts beads that are
+**open**, and a count that dropped would be claiming a decision nobody made.
 
 **A quiet space is quiet, not hidden.** Its questions still arrive, still appear in
 the list, still count towards the badge — they just don't light up your phone, and
@@ -3421,27 +3388,25 @@ Beadcause. It is the app mark now, the same artwork as the home-screen icon, sti
 inside the `<h1>` with the name as the image's `alt` so the header is labelled and a
 reader still hears which app this is.
 
-What the reclaimed width is spent on is the premise itself:
+What the reclaimed width is spent on is the space picker, and nothing else:
 
 ```
-  ●  ◔  ( 8 waiting )                       ⌨️  ⚖️  ⟳
-  [ Human | Both | Agent ]  Climative 59  Personal 4
+  ●  ◔                                      ⌨️  ⚖️  ⟳
+  [ beadcause                          ▾ ]
 ```
 
-**8 waiting** is how many beads are asking you something, and tapping it is the way
-back to the `human` scope — the count *is* the filter. It is hidden at zero, because
-an empty inbox should look empty rather than report itself, and under 360px the word
-drops and the number stays.
+**There is no count up here.** An **N waiting** pill sat beside the mark until
+bc-ka5y.1 — how many beads were asking you something, hidden at zero, dropping its word
+under 360px, and a tap on it was a shortcut back to the `human` scope. It went because
+the list under it *is* that number: the pill spent the widest part of the bar restating
+what you were already looking at, and cost a reconciliation between a server-held figure
+and a locally-swept one on every repaint to do it. The shortcut is no loss either — the
+scope chips in the filter panel are the same tap.
 
-The other two numbers in that picture — agents running, advocates waiting — are
-**badges on the tabs that answer them**, not chips up here: the number and the way to
-act on it end up as the same tap target. See [the tab bar](#getting-around--the-tab-bar).
-
-The count is drawn from the rows on screen whenever the scope actually swept them, so
-answering a question drops it on the tap rather than on the next poll. In the `agent`
-scope — which sweeps no questions at all — it falls back to the count the server
-holds from the last sweep, for the same reason the advocate badge does: a zero there
-would read as "nothing is asking you anything" when the truth is "you did not ask".
+The two numbers that remain — agents running, advocates waiting — are **badges on the
+tabs that answer them**, not chips up here: the number and the way to act on it end up
+as the same tap target, and neither is a count of the list you are looking at. See
+[the tab bar](#getting-around--the-tab-bar).
 
 ## What a question is blocking
 
@@ -13920,7 +13885,7 @@ cookie says so), and `/auth/signout` ends the session.
 | Method | Path | Body / params | Returns |
 |---|---|---|---|
 | GET | `/api/health` | — | `{ok, workspaces[]}` · **no token** |
-| GET | `/api/questions` | `?scope=human\|both\|agent` | `{questions[], requests[], workspaces[], spaces[], filter, dismissAsk, summary, scope, seq}` — `scope` defaults to `human`, and an unrecognised value falls back to it rather than erroring. `summary` is `{sessions, proposals, questions}`, the three counts the inbox's chrome draws. `seq` is where in `/api/poll`'s log this list was true, which is what lets a client park on the poll instead of asking again — see [loaded once](#loaded-once-and-kept--what-a-tab-tap-actually-costs) |
+| GET | `/api/questions` | `?scope=human\|both\|agent` | `{questions[], requests[], workspaces[], spaces[], filter, summary, scope, seq}` — `scope` defaults to `human`, and an unrecognised value falls back to it rather than erroring. `summary` is `{sessions, proposals}`, the two counts the inbox's tab badges draw. `seq` is where in `/api/poll`'s log this list was true, which is what lets a client park on the poll instead of asking again — see [loaded once](#loaded-once-and-kept--what-a-tab-tap-actually-costs) |
 | GET | `/api/question` | `?workspace=&id=` | one question **plus `comments[]`** |
 | GET | `/api/poll` | `?since=<seq>&wait=<s>` | long-poll: `{seq, resync, events[], advocates, presence, observing}` **plus the whole `/api/questions` screen** when something moved — the same `inboxPayload()` builds both, so a client can refresh itself from either and get the same inbox. `questions`, `requests` and `spaces` are `null` rather than `[]` when nothing moved: an empty array means the channel is empty, and a poll that timed out never asked. `want=presence` says the questions are not wanted, which is what makes a quiet poll cost no `bd` at all |
 | POST | `/api/respond` | `{workspace, id, response, create?, edits?}` | comments, then closes the bead. `create` is the 1-based indices of a proposal's beads to file; without it, `CREATE:` in the text means all and `CREATE: 1,3` means those. `edits` is `{n: {title, type, priority, description, acceptance}}` keyed by the same numbers, applied before creating. A `MERGE:` / `CHANGES:` / `DECLINE:` response on a delivery question acts on its pull request first — see [Landing work](#landing-work--a-branch-a-pull-request-and-the-workers-own-merge) |
@@ -13935,11 +13900,10 @@ cookie says so), and `/auth/signout` ends the session.
 | POST | `/api/pr/conflicts` | `{key, number}` | opens an iTerm session on the branch whose job is to merge the base into it, resolve, run the repo's own gate and push — then stop. `409` unless GitHub reports it `CONFLICTING` right now, so a resolved conflict cannot leave a window somebody has to close. Refused on an observer, and on a daemon with `openSessions` off. Two resolvers run at a time: past that it answers `{queued, place}` and the window opens when one frees, with GitHub asked again first — [the cap](#two-windows-at-a-time-and-the-rest-in-line) |
 | POST | `/api/comment` | `{workspace, id, text, agent?}` | comments, sets `human-replied`, dispatches that agent to reply (default when absent or unknown) |
 | POST | `/api/dismiss` | `{workspace, id, reason?}` | takes the card off the screen and **closes nothing**. Writes your note if you typed one, writes nothing at all if you did not, and never touches the status — "I am not dealing with this now" is not "this is decided" |
-| POST | `/api/filter` | `{space, workspace}` | which slice the inbox is, remembered server-side so every client agrees and the notifications match. Each is a name or `all`, bounded at 120 characters. Widening forgets what you had declined |
-| GET | `/api/spaces` | — | what the [space picker](#one-space-at-a-time--the-picker-in-the-top-bar) draws: `{spaces, workspaces[], counts, filter, waiting}`. Costs no `bd` call — the counts are cached off the last sweep — because it is fetched on every page load of every standing view |
+| POST | `/api/filter` | `{space, workspace}` | which slice the inbox is, remembered server-side so every client agrees and the notifications match. Each is a name or `all`, bounded at 120 characters. Notifications already unread for beads the new filter excludes are left exactly as they are — [nothing tidies them](#and-it-does-not-tidy-up-the-noise-it-already-made) |
+| GET | `/api/spaces` | — | what the [space picker](#one-space-at-a-time--the-picker-in-the-top-bar) draws: `{spaces, workspaces[], filter}`. Costs no `bd` call — the spaces are cached off the last sweep — because it is fetched on every page load of every standing view. **No counts**: the picker draws none |
 | GET | `/api/space` | `?space=` | one space's own configuration, for the [space details](#space-details--the-page-the-advocate-console-became) screen: `{settings, effective, repos[], defaults, missing[]}`. `settings` is `null` per field for "inherit"; `repos[]` is what each workspace actually resolves to, which is not always what the space says. 404 for anything that is not a configured space, the synthetic `Other` group included |
 | POST | `/api/space` | `{space, workspace?, settings}` | change that space's settings from the app. A patch — only the keys sent are touched, and `null` clears one back to the global default. `name` and `workspaces` are not settable: moving a repo between spaces decides which questions may reach you and stays a config-file act. With a `workspace`, it writes that **repo's own** override instead — `autoEndorse` only, and a repo the named space does not contain is a 400. Either way the reply is the whole `spaceDetail`, and it writes the live `cfg` *and* `config.json`, so the running daemon and the next restart agree. Refused on an observer |
-| POST | `/api/notifications/dismiss` | `{keys[], confirm}` | clears the phone's notification rows for beads the filter excludes. `confirm: false` records the decline, which is what stops the next sweep asking again. The beads are untouched either way |
 | POST | `/api/ask` | `{workspace, title, body, priority}` | `{id, key}` — files a new `human` bead |
 | POST | `/api/error` | `{message, source?, line?, column?, stack?, url?, userAgent?, at?, kind?, workspace?}` | `{ok, action, id, key, fingerprint}` — an error the app hit, filed as a **P0 bug** or commented onto the bead that already covers it. `action` is `created` · `commented` · `regressed`. **`message` is the only required field**: a cross-origin `window.onerror` is handed `"Script error."` and nothing else, and that is still worth more than a red toast nobody saw. `workspace` defaults to the first configured one — the reporter is a page, which has no idea which repo it is looking at. **Never answers 5xx**, because it is called by error handling: a tracker that is down comes back `200 {ok: false, reason}`. See [an error the app hits files itself as a P0](#an-error-the-app-hits-files-itself-as-a-p0) |
 | POST | `/api/edits` | `{changes[], page?, view?, at?, workspace?}` | `{ok, workspace, root, session, filed[], dropped[]}` — a pass made with [edit mode](#editing-the-app-from-inside-the-app) on, filed as one P1 session bead and one P2 child per change, under a standing P0 root that is found by its `edit-root` marker or created here. The workspace is **this checkout's own**, not the one on screen: an edit typed into this screen is a change to *this app*. `400` on an empty pass, and `502` carries `filed[]` — the phone drops exactly those entries and keeps the rest, because the change list is the only copy of what was said. See [Save files the pass](#save-files-the-pass) |
@@ -13955,7 +13919,7 @@ cookie says so), and `/auth/signout` ends the session.
 | GET | `/api/bead-links` | `?workspace=&id=` | `{children[], dependents[]}` — everything with an edge pointing at that bead, closed ones included, open work first: the `parent-child` rows as `children`, every other kind as `dependents` with its `dependency_type`. One `bd dep list --direction=up` for both, because `bd show` carries `dependent_count` and not one row behind it |
 | POST | `/api/bead/advocate` | `{workspace, id}` | opens the **P0 advocate** on this P0 — the button on the inbox's P0 card. Four refusals in front of it, all 409 with a sentence: unendorsed, superseded, closed, or not a P0 anybody owns (a crash P0 is refused by name — a stack trace is not an epic). **Never two on one P0**: a live session whose window carries this bead id is a 409 rather than a second window — matched with `namesBead`, so a session on a *child* of this P0 no longer refuses it — and so is a launch from the last ten minutes whose window has not named itself yet, since that is the gap a second tap falls through. The card in front of it reads the same rule and draws it: it links to `/session?pid=` while an advocate is up, and says one is opening until then, rather than re-offering a launch that would now be refused (`advocate` on each card of `p0board`). Blocked under `OBSERVING`, unlike the verdict routes — those are you deciding, this is the daemon opening a window |
 | POST | `/api/bead/owner` | `{workspace, id, owner}` | sets `owner:<handle>` — who is answerable for this bead — and answers `{owner, owners[], p0, changed}`. An empty `owner` hands it back to nobody, which is a thing you may say; setting the owner it already has is `changed: false` and no `bd` write at all. Every *other* owner label comes off, so resolving two machines' claims from the sheet is visible. A route of its own rather than a field of `/api/bead/adjust`, because adjust refuses a bead anybody has endorsed and ownership is most worth changing on a P0 that is live — and because the ✎ may not touch `owner:` at all (`isProtectedLabel`) |
-| POST | `/api/bead/addressee` | `{workspace, id, to}` | re-addresses a question — sets `for:<handle>`, the label that decides [whose phone rings](#who-a-question-is-for--me-and-the-for-label), and answers `{addressees[], changed, cleared}`. `to` is one handle; **empty, or `everyone`, means everyone**, which is a decision rather than the absence of one. Every *other* `for:` label comes off, because handing it to Carol means Carol and not also whoever it was addressed to before. Re-sending the handle it already carries is `changed: false` and no `bd` write at all. `cleared: true` says it also pulled the row out of this phone's notification shade, which it does on exactly one condition — the question is now addressed somewhere that is not this Mac — via the same `dismissed` event [a narrowed filter](#and-it-offers-to-tidy-up-the-noise-it-already-made) uses, and with the same honest limit: ntfy cannot recall a delivered message, so only the Android shell's own tray is reachable. A route of its own for `/api/bead/owner`'s reasons, and because the ✎ may not touch `for:` at all (`isProtectedLabel`) |
+| POST | `/api/bead/addressee` | `{workspace, id, to}` | re-addresses a question — sets `for:<handle>`, the label that decides [whose phone rings](#who-a-question-is-for--me-and-the-for-label), and answers `{addressees[], changed, cleared}`. `to` is one handle; **empty, or `everyone`, means everyone**, which is a decision rather than the absence of one. Every *other* `for:` label comes off, because handing it to Carol means Carol and not also whoever it was addressed to before. Re-sending the handle it already carries is `changed: false` and no `bd` write at all. `cleared: true` says it also pulled the row out of this phone's notification shade, which it does on exactly one condition — the question is now addressed somewhere that is not this Mac — via a `dismissed` event, and with the honest limit [narrowing the filter](#and-it-does-not-tidy-up-the-noise-it-already-made) ran into: ntfy cannot recall a delivered message, so only the Android shell's own tray is reachable. A route of its own for `/api/bead/owner`'s reasons, and because the ✎ may not touch `for:` at all (`isProtectedLabel`) |
 | GET | `/api/p0s` | `?workspace=` | `{p0s[]}` — every **open** P0 in that workspace, `{id, title, owners[], mine}`, yours first. What the sheet offers a held bead to be adopted under. Every P0 and not only yours, because the dispatch gate measures against all of them; off the cached graph, and this one waits for a cold cache rather than answering "there are no P0s" |
 | POST | `/api/bead/adopt` | `{workspace, id, parent}` | moves a bead under `parent` — the fix for the one hold that never clears itself, offered on the sheet of any bead with **no P0 above it**. Answers `{parent, workable}`, where `workable` is the gate's own answer after the write rather than a promise about it. A parent with no P0 above *it* is a 409 naming that, since the adoption would not make the bead workable; an empty `parent` detaches instead, which is how an adoption into the wrong epic is undone. The cached graph is refreshed on the way out, so the next advocate tick acts on the new shape |
 | GET | `/api/history` | `?workspace=` **or** `?space=`, and `&status=&priority=&provenance=&id=&limit=&offset=&refresh=1` | `{rows[], total, limit, offset, more, workspaces[], errors[], workspace, space, query}` — [the ledger](#the-ledger-behind-the-history-tab): every bead a space has ever had, closed and deferred included, newest-**updated** first, paged. The four filters are optional and compose; each row carries `hasSession`, whether a session was archived for it, and a `closeReason` cut to 240 characters on a word boundary — two lines of the row hold 226 at the widest, and the whole sentence is on the sheet the row links to. A bad `status` or `priority` is a 400 naming the word rather than an empty list, an unknown `workspace` a 400 and an unknown `space` a 404 — but a space with no beads is `{rows: [], total: 0, more: false}` and a 200. Cached ten seconds per workspace; `refresh=1` forces the sweep |
@@ -14523,9 +14487,10 @@ absence rather than as a pill saying "for everyone" on every card.
 
 **Handing a question away also clears its notification, on one condition.** If the
 question is now addressed somewhere that is not this Mac, the row goes out of the phone's
-shade — the argument [a narrowed filter](#and-it-offers-to-tidy-up-the-noise-it-already-made)
-already makes, applied to a stronger version of the same fact: a filter change is *I do
-not want to think about this right now*, and a hand-off is *this is not mine*. Same
+shade. Narrowing the filter deliberately does *not* do this
+([why](#and-it-does-not-tidy-up-the-noise-it-already-made)), and the difference is the
+strength of the fact: a filter change is *I do not want to think about this right now*,
+and a hand-off is *this is not mine*. Same
 `dismissed` event, same honest limit (ntfy cannot recall a delivered message; the Android
 shell's tray is what is actually reachable), same promise that the bead is untouched — it
 stays open, stays unanswered, stays in everybody's inbox. Re-addressing a question to
@@ -14908,8 +14873,8 @@ which is where it gets read.
 
 **They are rows, not beads.** Synthesised at render time and never merged into
 `state.questions`, exactly as the pull requests and the chat sessions are, for the reason
-that array is read by things a ticket is none of: the waiting count above the list, the
-space picker's per-repo numbers, the answer path, the "N waiting" the monitor draws. A
+that array is read by things a ticket is none of: the kind filter's counts, the P0 board,
+the answer path, the "N waiting" the monitor draws. A
 ticket is **never** a bead here: the ticket gets [an epic of its own](#an-epic-per-ticket--filed-once-forever-and-held),
 and that bead is the thing you act on, while the row stays a row. Counting the row as work
 asking you something would be a number that no tap can bring down.
@@ -15250,7 +15215,7 @@ payload in a **field of their own** and are drawn as one shut disclosure under t
 rows, saying nothing but a count.
 
 They are emphatically **not rows**. Nothing counts them: not the JIRA chip, not the summary
-line, not the space picker's per-repo numbers, not the monitor's *N waiting*. A number on
+line, not the kind filter, not the monitor's *N waiting*. A number on
 this screen that no tap can bring down is the failure the whole ticket section is written
 to avoid, and a ticket you have decided about is the clearest case of one. The fold obeys
 the space and workspace pickers like everything else — a phone narrowed to one space must
@@ -16747,9 +16712,9 @@ regex that stops matching returns an empty table and every caller carries on ser
 
 **But running them is not the problem this was written for.** These checks do not rot by
 failing. They rot by pressing something that is no longer there, and then not being run.
-Working bc-xqnj the inbox's `[data-space]` chips were removed; `shade-check.mjs` pressed
-those chips to narrow the filter, so it broke outright, and two assertions in
-`launcher-check.mjs` went with it. `npm test` was green through all of it. Both were
+Working bc-xqnj the inbox's `[data-space]` chips were removed; `shade-check.mjs` — since
+deleted with the feature it covered, in bc-ka5y.1 — pressed those chips to narrow the
+filter, so it broke outright, and two assertions in `launcher-check.mjs` went with it. `npm test` was green through all of it. Both were
 found by *reading the scripts*, which is not a mechanism — nothing bounds how long that
 gap can be, and a check that has silently not passed for a month is worse than no check,
 because the next person to run it reads its failures as their own change breaking

@@ -106,20 +106,12 @@
     // know where to start a conversation, and "the repos in the selected space" is a
     // question about the config rather than about the beads on screen.
     workspaces: [],
-    // The counts the chrome draws — beads asking you something, agents running,
-    // advocates waiting. Server-held rather than counted out of the rows above,
-    // because two of the three are about things that are not in this list at all
-    // and the third has to survive a scope that never fetched it. See summaryNow()
-    // in lib/server.js.
+    // The counts the tab badges draw — agents running, advocates waiting. Server-held
+    // rather than counted out of the rows above, because neither is about anything in
+    // this list at all. See summaryNow() in lib/server.js.
     summary: {},
     space: 'all',
     workspace: 'all',
-    // `{ count, keys }` when narrowing the filter has left unread notifications on the
-    // phone for beads it now excludes, else null. Server-decided, both halves: whether
-    // to ask at all, and how many — see lib/ringing.js. Held here rather than drawn on
-    // the spot because the prompt has to survive the 25s poll that lands while you are
-    // reading it.
-    dismissAsk: null,
     open: new Set(),
     armed: null, // key of the control awaiting its confirm tap
     armedTimer: null,
@@ -1719,8 +1711,7 @@
       pull request could be in the list at all** — the kind filter answers that, and
       reading `Questions` for an hour costs nothing.
     - **They are rows, not `state.questions`.** Nearly everything reading that array is
-      about beads: the waiting count, the picker's per-repo numbers, the answer path, the
-      write. A pull request is none of those, and it is synthesised at render time from the
+      about beads: the kind filter's counts, `byKey`, the answer path, the write. A pull request is none of those, and it is synthesised at render time from the
       board — the same shape the chat rows use.
     - **Unmerged, unless you ask.** The status sub-filter's default (public/inboxfilter.js).
       Thirty pull requests merged in the last three weeks and five are open; a list that
@@ -3192,50 +3183,6 @@
     </section>`;
   }
 
-  /**
-   * "You have just hidden three beads that are still buzzing on your phone."
-   *
-   * Narrowing the filter silences what comes next, and used to say nothing about the
-   * notifications already sitting unread for the beads it now excludes — which are
-   * exactly the ones you have just decided not to think about.
-   *
-   * Three things about the shape:
-   *
-   * - **It asks; it does not act.** Clearing notifications you did not ask to have
-   *   cleared is the kind of silent tidying that makes an inbox untrustworthy, and
-   *   the count is in the sentence because "some" is not enough to decide on.
-   * - **Both buttons are answers**, and *Leave them* is not a cancel: it is recorded,
-   *   which is what stops the next poll asking again. So neither is styled as the
-   *   dangerous one — there is nothing to undo either way.
-   * - **It is drawn inside `#list`**, above the foundation channel, for the same
-   *   reason that channel is: every handler on this page is delegated from that
-   *   element, so a pane in a sibling container would render and do nothing.
-   *
-   * Nothing here says "dismissed" or "answered" about the beads, because none of that
-   * is true: they stay open, unanswered and in the inbox, and widening the filter
-   * brings them straight back.
-   */
-  function dismissAskHtml() {
-    const ask = state.dismissAsk;
-    if (!ask?.count) return '';
-    const n = ask.count;
-    const many = n !== 1;
-    return `<section class="shade-ask" aria-label="Unread notifications the filter excludes">
-      <header>
-        <span class="shade-icon" aria-hidden="true">🔔</span>
-        <div>
-          <h2>${n} unread notification${many ? 's' : ''} for bead${many ? 's' : ''} this filter hides</h2>
-          <p>Clearing them touches the phone and nothing else — the bead${many ? 's stay' : ' stays'}
-            open and unanswered, and ${many ? 'they come' : 'it comes'} back when you widen the filter.</p>
-        </div>
-      </header>
-      <div class="shade-actions">
-        <button class="primary" data-act="shade-clear">Clear ${many ? 'them' : 'it'}</button>
-        <button class="secondary" data-act="shade-leave">Leave ${many ? 'them' : 'it'}</button>
-      </div>
-    </section>`;
-  }
-
   /** How many requests are waiting, on the ⚖️ in the header. */
   function paintRequestBadge() {
     const badge = $('#req-badge');
@@ -3246,50 +3193,22 @@
   }
 
   /**
-   * The three counts in the chrome: what is waiting on you, and what is waiting
-   * elsewhere.
+   * The count in the chrome: what is waiting elsewhere.
    *
-   * Where each one goes is the whole argument. "Waiting on you" is the app's
-   * premise and has no icon of its own, so it takes the space the wordmark used
-   * to; the other two already have a tab apiece, so they become badges on those
-   * tabs rather than a second row of chips — the number and the way to act on it
-   * end up the same tap target.
+   * There used to be a second one — an **N waiting** pill in the top bar, counting
+   * the beads asking you something. It is gone (bc-ka5y.1), and the reason is that
+   * the list under it *is* that number: the rows on screen are the beads waiting on
+   * you, so the pill spent the widest part of the bar restating what you were already
+   * looking at, and cost a local-versus-served reconciliation every repaint to do it.
+   * Its tap was a shortcut to the `human` scope, which the scope chips in the filter
+   * panel still do.
    *
-   * The waiting number is counted off the rows on screen whenever this scope
-   * actually swept them, so answering a question drops it on the tap rather than
-   * on the next poll. The `agent` scope sweeps no questions at all, and there the
-   * server's held count is the only honest answer — a zero would read as "nothing
-   * is asking you anything" when the truth is "you did not ask".
+   * What is left already has a tab of its own, so it is a badge on that tab rather
+   * than a chip in the bar — the number and the way to act on it end up the same tap
+   * target.
    */
   function paintSummary() {
     const s = state.summary || {};
-    const swept = state.scope !== 'agent';
-    const held = Number(s.questions);
-    // The kind filter narrows this too, and has to: it sits directly above the list
-    // and the number is the list's own count. The server's held figure cannot know
-    // about it, so a kind filter forces the local sweep — which is available for
-    // exactly the scopes that can have questions in them.
-    const narrowed = Boolean(window.beadcause?.inboxFilter?.selected?.().length);
-    // And the P0 board narrows it for the same reason the kind filter does — it sits
-    // above the same list and hides rows from it, so a count that ignored it would say
-    // forty over a list of six. `boarded` forces the local sweep the same way `narrowed`
-    // does: the server's held figure is a count of questions, not of descendants.
-    const boarded = isBoarded();
-    const local = underOwnedP0s(state.questions).filter((q) => !q.agent && (!narrowed || inKind(q))).length;
-    const waiting = swept || narrowed || boarded || !Number.isFinite(held) ? local : held;
-
-    const el = $('#waiting');
-    if (el) {
-      el.hidden = !waiting;
-      // The word is a separate element so a narrow phone can drop it and keep the
-      // number — see .waiting in style.css.
-      el.innerHTML = `${waiting}<span class="word">waiting</span>`;
-      el.setAttribute(
-        'aria-label',
-        `${waiting} bead${waiting === 1 ? '' : 's'} waiting on you${state.scope === 'human' ? '' : ' — show only these'}`
-      );
-    }
-
     // The tabs live at the foot of every page, but only this one has the numbers:
     // they ride the inbox's poll. A page that never sets a badge shows none, which
     // is better than a number it has no way to refresh.
@@ -3428,9 +3347,9 @@
    * They arrive on the same payload as everything else (`/api/questions` →
    * `consoles`) and are turned into rows here rather than merged into
    * `state.questions`, because nearly everything that reads that array is about beads:
-   * the waiting count, the space picker's per-repo numbers, `byKey`, the answer path,
-   * the flight the answer takes into the mark. A chat session would be counted by all
-   * of them and could be answered by none.
+   * the kind filter's counts, the P0 board, `byKey`, the answer path, the flight the
+   * answer takes into the mark. A chat session would be counted by all of them and
+   * could be answered by none.
    *
    * What a row does carry is exactly what the two filters above it read — `workspace`
    * and `space` for the picker, and `session` for the kind table, which is the field
@@ -3514,9 +3433,9 @@
    * The third thing in this file that is not a bead, and it follows the two above it
    * exactly (bc-0i27.3). They ride the inbox payload (`tickets`), they are turned into
    * rows here rather than merged into `state.questions`, and the reason is the one
-   * `chatRows` gives: nearly everything reading that array is about beads — the waiting
-   * count, the picker's per-repo numbers, `byKey`, the answer path, the flight an answer
-   * takes into the mark. A JIRA ticket would be counted by all of them and answered by
+   * `chatRows` gives: nearly everything reading that array is about beads — the kind
+   * filter's counts, the P0 board, `byKey`, the answer path, the flight an answer takes
+   * into the mark. A JIRA ticket would be counted by all of them and answered by
    * none, and unlike a chat session it is not even a thing this app owns yet.
    *
    * **What a held ticket is**, and it is fixed by bc-0i27.2 rather than by this file:
@@ -3554,8 +3473,8 @@
    * The cancelled ones, as the same rows — the contents of the fold and nothing else.
    *
    * Deliberately *not* merged into `jiraRows`. Everything downstream of that function
-   * counts what it returns: the JIRA chip, the summary line, the kind filter, the space
-   * picker's numbers. A cancelled ticket is the one thing in this app that has been
+   * counts what it returns: the JIRA chip, the summary line, the kind filter. A
+   * cancelled ticket is the one thing in this app that has been
    * decided about and is still on the wire, so counting it would put a number on the
    * screen that no tap can bring down — which is the same argument that keeps a ticket
    * out of `state.questions` one level up.
@@ -3976,8 +3895,8 @@
    * all that offered to.
    *
    * **Counted by nothing.** It is one chunk of its own rather than a run of cards, it is
-   * outside `rows`, and so the JIRA chip, the summary line, the space picker's numbers
-   * and the monitor's "N waiting" are all exactly as they were. A number on this screen
+   * outside `rows`, and so the JIRA chip, the summary line and the monitor's "N waiting"
+   * are all exactly as they were. A number on this screen
    * that no tap can bring down is the failure the whole ticket section is written to
    * avoid.
    *
@@ -4154,12 +4073,9 @@
    * The spaces, the configured repos and the stored filter — the last of them because
    * this payload is also how a change made on the laptop reaches the phone.
    *
-   * **The counts are not here**, and used to be: they were counted off the payload, and
-   * the payload is not what is on screen. A kind-filter tap changes the list without
-   * fetching anything, pull requests arrive on a clock of their own, and a render can be
-   * deferred behind a half-written answer — so counting here put a number on the bar that
-   * the list under it had not agreed with since the last poll. `publishCounts` counts
-   * what render() actually drew, which is the only figure that cannot drift from it.
+   * **No numbers**, and there is no longer anywhere for one to go: the picker drew a
+   * pill and a `· N` tail per row, and bc-ka5y.1 took both out. What is left is the
+   * shape of the thing — which repos, in which spaces, and which one is selected.
    */
   function publishSpaces(data) {
     window.beadcause?.space?.adopt({
@@ -4167,32 +4083,8 @@
       // Configured workspaces, not the ones with something in them: the picker is how
       // you reach a quiet repo.
       workspaces: Array.isArray(data.workspaces) ? data.workspaces : undefined,
-      // So the picker's own numbers carry the same caveat the pane above the list
-      // does. `state.trouble` rather than `data.trouble`: this is called with a
-      // reconciled filter and one payload behind it, and the two must not be able to
-      // disagree about which repos answered. The numbers themselves are not here: the
-      // render that drew the list is what sends those, at the end of render().
-      trouble: state.trouble,
       filter: data.filter,
     });
-  }
-
-  /**
-   * Tell the picker what the list is showing, per repo.
-   *
-   * Called from render() with the rows that survived everything except the picker itself
-   * — the scope, the kind filter, the pull requests as rows in the list — because the
-   * picker's own narrowing is what these numbers exist to let you undo: `beadcause · 3`
-   * is a promise that picking it leaves you three things, so it has to be counted before
-   * that pick is applied and after everything else is.
-   *
-   * Which makes the invariant structural rather than remembered: the bar cannot count a
-   * bead the list will not show you, in any scope, under any filter, warm boot included.
-   */
-  function publishCounts(rows) {
-    const counts = {};
-    for (const q of rows) counts[q.workspace] = (counts[q.workspace] || 0) + 1;
-    window.beadcause?.space?.adopt({ counts });
   }
 
   let pendingRender = false;
@@ -4820,8 +4712,6 @@
     // The `@` keys are the panes that are not beads. A bead key is `workspace/id` and
     // can never begin with one, so the two namespaces cannot collide.
     const chunks = [];
-    const ask = dismissAskHtml();
-    if (ask) chunks.push({ key: '@shade', html: ask });
     const reqs = requestsHtml();
     if (reqs) chunks.push({ key: '@requests', html: reqs });
     // Under the foundation pane and above everything the sweep produced, including the
@@ -4953,16 +4843,6 @@
     // conversation you left open, or a JIRA ticket nobody has decided about yet is one
     // of those.
     publishView(visible.filter((q) => !q.pr && !q.session && !q.jira));
-    // Last, and deliberately: the picker's numbers are a statement about the list that
-    // has just been drawn, and adopting them can announce a filter to this same listener
-    // on the very first paint of a cold page. Nothing below it to leave half-done.
-    //
-    // Every filter between the sweep and the screen is applied here except the picker's
-    // own — `underOwnedP0s` because the list below an owned board is its descendants and
-    // nothing else, `inKind` because the chips above the list are a filter too. The
-    // space and repo narrowing is deliberately *not*: these are per-workspace counts for
-    // every workspace, which is what the dropdown draws a row of.
-    publishCounts(underOwnedP0s(rows).filter(inKind));
   }
 
   /**
@@ -5504,49 +5384,6 @@
         btn.disabled = false;
         btn.textContent = was;
         toast(err.message, 'refused');
-      }
-      return;
-    }
-
-    /**
-     * Both answers to the notification prompt — see dismissAskHtml().
-     *
-     * The keys go back up with the tap rather than the server re-deciding on its own,
-     * so what is cleared is exactly what the sentence you read was counting. A bead
-     * that started ringing in between is not covered by it.
-     *
-     * The pane goes on the tap, before the write. If the write fails the server state
-     * is unchanged, so the next poll brings the same ask straight back — which is the
-     * right way round: a prompt that reappears is recoverable, a prompt that hangs
-     * about after you answered it is not.
-     */
-    if (act === 'shade-clear' || act === 'shade-leave') {
-      const ask = state.dismissAsk;
-      const clear = act === 'shade-clear';
-      state.dismissAsk = null;
-      render(true);
-      if (!ask?.keys?.length) return;
-      // Counted for exactly the reason the filter's own writes are: the 25s poll is
-      // very likely to be in flight when you tap, and its payload was assembled before
-      // this write landed. Without the guard, answering the prompt would be followed by
-      // the same prompt sliding back onto the screen a second later.
-      shadeWrites += 1;
-      try {
-        const res = await api('/api/notifications/dismiss', {
-          method: 'POST',
-          body: JSON.stringify({ confirm: clear, keys: ask.keys }),
-        });
-        const n = clear ? res.cleared ?? 0 : res.left ?? 0;
-        toast(
-          clear
-            ? `Cleared ${n} notification${n === 1 ? '' : 's'} — the bead${n === 1 ? '' : 's'} stay${n === 1 ? 's' : ''} open`
-            : `Left ${n === 1 ? 'it' : 'them'} on the phone`
-        );
-      } catch (err) {
-        // The server state is unchanged, so the next poll offers the same ask again.
-        toast(err.message, true);
-      } finally {
-        shadeWrites -= 1;
       }
       return;
     }
@@ -6773,16 +6610,12 @@
     if (pendingRender && !isAnswering()) render();
   });
 
-  /** How many answers to the notification prompt are in flight. See the `shade-clear`
-   *  handler. The filter's own writes are the picker's now — `space.writing()`. */
-  let shadeWrites = 0;
-
   /** Conversations dismissed here that the server has not yet been seen to agree are
-   *  gone. A set rather than a counter, unlike `shadeWrites` above, because what has
-   *  to be suppressed is one named row out of a list that is adopted whole — and it
-   *  has to stay suppressed past the write, not only during it: the poll that was in
-   *  flight when you tapped answers with the row still on it. Emptied by adopt(), one
-   *  id at a time, on the first payload that no longer carries it. */
+   *  gone. A set rather than a counter, because what has to be suppressed is one named
+   *  row out of a list that is adopted whole — and it has to stay suppressed past the
+   *  write, not only during it: the poll that was in flight when you tapped answers
+   *  with the row still on it. Emptied by adopt(), one id at a time, on the first
+   *  payload that no longer carries it. */
   const dismissedChats = new Set();
 
   /**
@@ -6793,21 +6626,8 @@
    * a mirror keeps the diff honest — but the picker is the only writer, both to the
    * server and to here.
    *
-   * The `ask` source is the same tap, arriving a round trip later: the write that
-   * narrows the filter is what asks about the notifications the new filter excludes,
-   * because "at the moment of the change" is the only moment where clearing them is
-   * obviously part of the same act. The inbox is the only page that can draw that
-   * prompt, so it is the only page that listens for it.
    */
-  window.beadcause?.space?.onChange(({ filter, source, dismissAsk }) => {
-    if (source === 'ask') {
-      // Nothing to ask and nothing being asked is not a repaint. Widening away from a
-      // prompt that *is* up is, which is the whole reason `null` is announced at all.
-      if (!dismissAsk && !state.dismissAsk) return;
-      state.dismissAsk = dismissAsk || null;
-      render(true);
-      return;
-    }
+  window.beadcause?.space?.onChange(({ filter }) => {
     state.space = filter.space || 'all';
     state.workspace = filter.workspace || 'all';
     render(true);
@@ -6830,11 +6650,11 @@
   /**
    * Switch which slice of the tracker the list is.
    *
-   * Out of the chip row's click handler because the count in the top bar is the other
-   * way in: tapping "3 waiting" means "show me those three", which is this, and a
-   * second copy of it would be a second place for the reset-and-refetch to drift.
-   * Already-there is a no-op rather than a reload — the count you tapped is a
-   * count of what is already on screen.
+   * Out of the chip row's click handler on purpose: it is the reset-and-refetch, and
+   * a second copy of it would be a second place for that to drift. The top bar's
+   * **N waiting** pill used to be a second way in — tapping it meant "show me those
+   * three" — and it is gone (bc-ka5y.1); the chips are the only way now.
+   * Already-there is a no-op rather than a reload.
    */
   function chooseScope(next) {
     if (!SCOPES.includes(next) || next === state.scope) return;
@@ -6871,10 +6691,6 @@
     }
     load();
   }
-
-  // The count is the second way to the same chip: it says how many beads are asking
-  // you something, so tapping it shows you exactly those.
-  $('#waiting')?.addEventListener('click', () => chooseScope('human'));
 
   /* ----------------------------------------------------------------- load */
 
@@ -7006,13 +6822,6 @@
     if (data.filter && !window.beadcause?.space?.writing?.()) {
       state.space = data.filter.space || 'all';
       state.workspace = data.filter.workspace || 'all';
-      // The prompt travels with the filter and is adopted on the same terms, because
-      // it is a fact about that filter: the laptop can narrow it, and then this phone
-      // is the device holding the notifications and the only one that can be asked.
-      // Skipped while a write of our own is in flight for the same reason as above —
-      // this payload was assembled before the tap that changed it. `shadeWrites`
-      // covers the second tap that can be in flight here: the answer to the prompt.
-      if (!shadeWrites) state.dismissAsk = data.dismissAsk?.count ? data.dismissAsk : null;
     }
     // A space that has been renamed or removed in config would otherwise leave the
     // filter pinned to something that no longer exists, showing an empty list.
@@ -7106,10 +6915,10 @@
     // event log and the presence list as well — none of which this page draws, all of
     // which would be sat in the phone's storage for nothing, and one of which is a list
     // of devices. What is stored is exactly what would be painted back.
-    const { questions, requests, workspaces, spaces, filter, dismissAsk, summary } = data;
+    const { questions, requests, workspaces, spaces, filter, summary } = data;
     window.beadcause?.warm?.write?.(
       questionsPath(scope),
-      { questions, requests, workspaces, spaces, filter, dismissAsk, summary },
+      { questions, requests, workspaces, spaces, filter, summary },
       Number(data.seq) || 0
     );
   }

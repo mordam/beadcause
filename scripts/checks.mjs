@@ -5,7 +5,7 @@
  *     npm run checks                 # audit, then run every scripts/*-check.mjs
  *     npm run checks -- --audit      # the static half only: no Chrome, milliseconds
  *     npm run checks -- --list       # what would run, without running it
- *     npm run checks -- --only tabbar,shade
+ *     npm run checks -- --only tabbar,drawer
  *     npm run checks -- --jobs 6     # how many Chromes at once (default 4)
  *     npm run checks -- --timeout 90 # per check, seconds; 0 to take the leash off
  *     npm run checks -- --no-retry   # the parallel pass raw, without the serial retry

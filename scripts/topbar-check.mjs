@@ -74,8 +74,8 @@ if (!fs.existsSync(CHROME)) {
 
 /* Six repos in two spaces, because the bar hides itself under two (`el.hidden` in
    public/spacebar.js) and because the widest row in the dropdown is what has to fit,
-   not the shortest. `climative` and `beadcause` carry the counts, so the `· N` tails
-   the labels are measured with are the ones that ship. */
+   not the shortest. The rows carry no numbers at all since bc-ka5y.1 — a repo name is
+   the whole of a label now — so what is measured here is what ships. */
 const WORKSPACES = ['beadcause', 'climative', 'adam.life', 'deluvia', 'ehatt', 'sophab'];
 const SPACES = [
   { name: 'Personal', workspaces: ['beadcause', 'adam.life', 'deluvia', 'ehatt', 'sophab'], count: 3, quiet: false },
@@ -84,8 +84,6 @@ const SPACES = [
 const SPACEPAY = {
   spaces: SPACES,
   workspaces: WORKSPACES,
-  counts: { beadcause: 3, climative: 2 },
-  trouble: [],
   filter: { space: 'all', workspace: 'all' },
 };
 
@@ -106,11 +104,11 @@ function serve() {
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(JSON.stringify(b));
     };
-    /* Every page's own payload carries the picker's four fields, because a page that
+    /* Every page's own payload carries the picker's three fields, because a page that
        has a sweep of its own feeds the bar from it rather than fetching twice. */
     if (p === '/api/spaces') return json(SPACEPAY);
     if (p === '/api/questions')
-      return json({ questions: [], consoles: [], ...SPACEPAY, scope: 'human', summary: { sessions: 0, proposals: 0, questions: 3 } });
+      return json({ questions: [], consoles: [], ...SPACEPAY, scope: 'human', summary: { sessions: 0, proposals: 0 } });
     if (p === '/api/work') return json({ workspaces: [], advocates: [], elsewhere: [], ...SPACEPAY });
     if (p === '/api/prs') return json({ unavailable: null, build: null, counts: {}, repos: [], ...SPACEPAY });
     if (p === '/api/consoles') return json({ consoles: [], ...SPACEPAY });
@@ -211,10 +209,8 @@ const PROBE = `(() => {
 
   const brand = document.querySelector('.brand');
   const acts = document.querySelector('.sheet-actions');
-  const countEl = document.querySelector('#space-count');
   const brandW = brand ? Math.round(brand.getBoundingClientRect().width) : 0;
   const actsW = acts && acts.getBoundingClientRect().width ? Math.round(acts.getBoundingClientRect().width) : 0;
-  const countW = countEl && !countEl.hidden ? Math.round(countEl.getBoundingClientRect().width) + gap : 0;
   const tab = document.querySelector('.tabbar');
 
   return {
@@ -235,7 +231,7 @@ const PROBE = `(() => {
        browser has scaled (see \`content\`). The trailing gap is the one a picker joining
        this row would need in front of it. */
     spare: Math.round(bar.clientWidth - pad - brandW - (actsW ? actsW + gap : 0) - gap),
-    need: label ? label.widest + Math.round(parseFloat(getComputedStyle(sel).paddingLeft) + parseFloat(getComputedStyle(sel).paddingRight)) + countW : null,
+    need: label ? label.widest + Math.round(parseFloat(getComputedStyle(sel).paddingLeft) + parseFloat(getComputedStyle(sel).paddingRight)) : null,
     brandW,
     actsW,
     tabH: tab ? Math.round(tab.getBoundingClientRect().height) : 0,
@@ -359,12 +355,6 @@ try {
          these pages draw the bar from a payload this fixture also answers, and waiting
          on whichever path each one takes would be measuring the fixture. */
       await evalJs(s, `window.beadcause && window.beadcause.space && window.beadcause.space.adopt(${JSON.stringify(SPACEPAY)}), 1`);
-      /* The inbox's chip, with a real number in it. The first row's width is the whole
-         question and an empty inbox hides 75px of it. */
-      await evalJs(
-        s,
-        `(() => { const w = document.querySelector('.waiting'); if (w) { w.innerHTML = '3 <span class="word">waiting</span>'; w.hidden = false; } return 1; })()`
-      );
       await sleep(250);
       const m = await evalJs(s, PROBE);
       const at = `${page} @${size.width}`;
