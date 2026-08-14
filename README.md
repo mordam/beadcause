@@ -3283,11 +3283,12 @@ And the picker stops reporting a confident zero: a space holding an unreadable r
 draws `⚠` beside whatever count it does have. The number is still the best answer
 available. It just stops being presented as a fact.
 
-### One list, six kinds — and the sub-filter for pull requests
+### One list, seven kinds — and the sub-filter for pull requests
 
 The inbox is not one list. An advocate asking to create beads, a worker asking you to
-merge, a plain question, a **pull request**, a **JIRA ticket** assigned to you, and —
-under `Both` and `Agent` — the live beads nobody is asking you about, are six different
+merge, a plain question, a **pull request**, a **JIRA ticket** assigned to you, a bead
+**held for endorsement**, and —
+under `Both` and `Agent` — the live beads nobody is asking you about, are seven different
 jobs that happen to arrive at the same address. `KINDS` in `public/inboxfilter.js` is the table that names them, and it is
 the only place that knows which row is which: one row of it buys a chip, a count, a
 predicate and a place in the summary line. The chips live in the same collapsed
@@ -3301,7 +3302,44 @@ produce is dropped rather than kept and ignored. `any` is the third value: a pul
 comes off `gh`, a chat session off no sweep at all and a JIRA ticket off JIRA, so for none
 of the three is there a scope that could have failed to fetch one.
 
-**Three of the six are not beads**, and that is the table earning its keep rather than a
+**Endorsements are the cheapest row the table has ever taken**, and the only one that
+added a chip without adding a fetch. A bead an agent filed mid-task carries the
+`unendorsed` marker and nothing may open a session on it until you say so — but it is an
+ordinary open bead as far as `bd list` is concerned, so it was *already* in the agent
+sweep, drawing as one more **Unclaimed**. Splitting it out cost one row here, a `held`
+flag on the row that `agentBeads` in `lib/server.js` computes with a label test, and
+`!q.held` in the three predicates it is being taken out of. Nothing new is queried, which
+is what made it affordable: the count is a free by-product of a sweep the poller already
+makes, exactly like the other chips, where a badge in the chrome would have cost a
+`bd list --label unendorsed` per workspace on every poll. That bill is why [the 🗳️ in the
+top bar carried no number](#the-endorsement-queue--a-group-tap-or-a-row-at-a-time) — and
+now the icon is gone too, because a door in the chrome to a list the inbox is already
+carrying is a fifth place to look for something in front of you. The page it led to is
+still there and still reached from the rows themselves.
+
+**The chip is on the `agent` side, and that is about where the rows come from rather than
+what they are.** A held bead is a decision waiting on you, which by every other measure
+puts it under `Human` — but the human sweep is `bd human list`, a query on a different
+label, and it has never returned one. Making the chip work under `Human` means paying for
+a second query per workspace per poll, which is the bill above, so it is a decision rather
+than an oversight; `bc-w156.4` is where it is being asked.
+
+**A held bead also says so on its own card.** Under `All kinds` it would otherwise sit in
+a list of forty looking exactly like an open one, and "open" is the one thing it is not,
+so the status pill gets a neighbour reading `held for endorsement` — a link, deep-linked
+to that bead on the endorsement page, in the same words the advocate console's pill uses.
+The four verdicts stay on that page: an agent card is read-only on purpose, and the
+decision *is* reading the bead.
+
+**A ship bead is not one of these.** `lib/release.js` files one per merged pull request
+carrying the same marker, and it is waiting on a deploy rather than on a judgement. The
+rule that separates them is `awaitingEndorsement` in `lib/endorsequeue.js` — held, and not
+a ship bead — and it is one predicate rather than two tests at each call site because the
+second half is the half that gets forgotten. See [Endorse all could reach
+one](#a-ship-bead-is-not-a-proposal-and-endorse-all-could-reach-one) for what it cost the
+last time it was spelled out twice.
+
+**Three of the seven are not beads**, and that is the table earning its keep rather than a
 special case. A pull request, a chat session and a JIRA ticket each cost exactly one row
 here — a chip, a count, a predicate and a word in the summary line — plus one word in the
 `question` kind's predicate, which is the only one written as *none of the above* and
@@ -4172,7 +4210,7 @@ towards a chip, the tap that pins the panel open, the `pointerdown` that closes 
 the tap lands on the row underneath rather than after. Each of those is a decision somebody
 made once after using the thing on a phone, and none of them is visible by reading the
 second copy. So the inbox kept its half — which kinds of thing it carries, the counts, the
-[PR sub-filter](#one-list-six-kinds--and-the-sub-filter-for-pull-requests) — and the panel
+[PR sub-filter](#one-list-seven-kinds--and-the-sub-filter-for-pull-requests) — and the panel
 became shared. `test/inboxkinds.mjs` passed over the seam unchanged, which is the whole
 evidence that the split moved no behaviour.
 
@@ -7750,19 +7788,28 @@ is the one you have not reached yet.
 
 ### Where it lives, and the tab it is not
 
-Two doors, and neither of them is a sixth tab. The bottom bar is full at five and what
-gives up its place is its own decision (bc-j0zl); a screen that settled that by
-squeezing itself in would be answering a question nobody asked it.
+Never a sixth tab. The bottom bar is full at five and what gives up its place is its own
+decision (bc-j0zl); a screen that settled that by squeezing itself in would be answering a
+question nobody asked it. What the page is reached *from* has changed once, and the change
+was a deletion:
 
 - **The advocate console's `N held for endorsement` pill is a link.** That is the
   number you were already reading, and it was the thing with no door behind it.
-- **🗳️ in the inbox's top bar**, beside ⚖️.
+- **Every held bead in the inbox is a link**, from the `held for endorsement` pill on its
+  own card, deep-linked with `?bead=<workspace>/<id>` so the page opens on the row you
+  tapped.
+- **🗳️ in the inbox's top bar is gone** (bc-w156). It was a door in the chrome to a list
+  the inbox turned out to be carrying already: held beads ride the agent sweep like any
+  other open bead, so they now have [an Endorsements chip of their
+  own](#one-list-seven-kinds--and-the-sub-filter-for-pull-requests) rather than a fifth
+  destination to remember. Nothing replaced the icon.
 
-The inbox door carries **no badge**, deliberately, and it is the one thing on this page
-that has an obvious one and should not: the count would cost a `bd list --label
-unendorsed` per workspace on every thirty-second poll, where the three counts already
-in that bar are free by-products of a sweep the poller was making anyway. The number
-lives where it is already computed.
+That icon carried **no badge**, deliberately, and it was the one thing on this page that
+had an obvious one and should not: the count would have cost a `bd list --label
+unendorsed` per workspace on every thirty-second poll, where the counts already in that
+bar are free by-products of a sweep the poller was making anyway. The argument is worth
+keeping because it is what the replacement had to beat — and the chip's count clears it,
+being a label test on a row already in hand rather than a query of its own.
 
 ### Checking it
 
@@ -15276,7 +15323,7 @@ The tickets assigned to you arrive as **rows in the inbox**, under a `JIRA` chip
 their own, and never mixed into the questions. Not a screen and not a tab: the inbox is
 already the one list that sorts incoming work, and a sixth tab claiming a ticket queue
 is somewhere you *live* would cost a fifth of the bar to say something untrue. What it
-cost instead was one row in [the kinds table](#one-list-six-kinds--and-the-sub-filter-for-pull-requests),
+cost instead was one row in [the kinds table](#one-list-seven-kinds--and-the-sub-filter-for-pull-requests),
 which is where a chip, a count and a place in the summary line come from for free.
 
 A row says the ticket key, the summary, the status and when it last moved — enough to
