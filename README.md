@@ -16696,6 +16696,19 @@ them (`3 cancelled — 1 with no ticket left`), which is the one number in the t
 section allowed to name them, since unlike the live rows it is a number a tap *can* bring
 down.
 
+**And unlike every other list on this payload, it is not filtered to the account you are
+in (bc-0i27.24).** [Accounts](#accounts--one-life-at-a-time) says a bead in the account
+you are not in "goes quiet, and is never lost" — it is on the screen the moment you
+switch. That promise depends on some account claiming the workspace, and the commonest
+way a record ends up here is the opposite: the workspace was dropped from the config
+entirely, which usually drops it out of every account's `workspaces` list too. There is
+then no account switch that reaches it, and — unlike a question or a live ticket — this
+record has no other surface to be found on. So `strandedCancels` skips `inAccount`
+altogether and every account sees the list whole, the same exemption `requests` already
+has for its own reason. It can afford to: each line already names the workspace it came
+from, so a record for a workspace you would not otherwise see reads as *this is where it
+came from*, not as another account's business on your screen.
+
 The one control is **Drop**, `POST /api/jira/forget`, and it is not Beadify. Beadify means
 *put this ticket back*: it reopens the closed epic and expects the row to return on the
 next sweep, and here neither is true, so it would strand a held bead instead of a record.
