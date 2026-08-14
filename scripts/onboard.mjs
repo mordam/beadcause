@@ -177,7 +177,8 @@ if (!team.exists) {
   say(`no ${bold('team.json')} in this checkout — nothing to point at a shared tracker.`);
   console.log(
     dim(
-      `  A solo install needs none: workspaces under ~/beads are discovered on their own.\n` +
+      `  A solo install needs none: workspaces under any workspaceRoots entry — ~/beads by\n` +
+        `  default — are discovered on their own.\n` +
         `  See "Onboarding a second engineer" in the README for the file, if this is a team.`
     )
   );
