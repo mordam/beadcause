@@ -315,7 +315,7 @@ async function tick({
   const advocates_ = [];
   const workers_ = [];
   const planners_ = [];
-  const calls = { graph: 0, comments: [] };
+  const calls = { graph: 0, cached: 0, comments: [] };
   const bd = {
     ready: async () => ready,
     listLabel: async () => [],
@@ -326,8 +326,26 @@ async function tick({
       calls.comments.push(id);
       return [];
     },
-    graph: async () => {
-      calls.graph += 1;
+    /**
+     * Counted in two piles, because two unrelated things read the graph on a tick and
+     * one counter cannot answer for both — which is the whole of bc-68ou.7.
+     *
+     * `reenter` reads it *waiting*: it wants the export, and it is that cost the
+     * interval gate and the off switch exist to bound. `rosterFor` reads it with
+     * `wait: false` on every tick, taking whatever `Bd.graph`'s one-minute cache has
+     * on hand and never blocking — the roster is a display, and it is deliberately
+     * rebuilt whole rather than accumulated. The two landed a day apart on branches
+     * neither of which could see the other, so this suite's single `calls.graph`
+     * started counting the roster's reads as the sweep's and reported four exports in
+     * three ticks where the sweep had made one.
+     *
+     * So `graph` is the sweep's pile and `cached` is the roster's, and the cases below
+     * assert both: an assertion that ignored the roster would go quietly wrong again
+     * the day the roster starts waiting.
+     */
+    graph: async (_ws, opts = {}) => {
+      if (opts.wait === false) calls.cached += 1;
+      else calls.graph += 1;
       return graph;
     },
   };
@@ -392,6 +410,7 @@ await check('a child closing re-opens the advocate, with the reason on the brief
 await check('the sweep looks on an interval, not on every tick', async () => {
   const r = await tick({ graph: subtree({ 'x-1.1': { status: 'closed' } }), advocated: { 'x-1': SEEN }, ticks: 3 });
   assert.equal(r.calls.graph, 1, 'three ticks, one export — the tick is every 30 seconds');
+  assert.equal(r.calls.cached, 3, 'the roster still rebuilds every tick, off the cache, and pays no export for it');
   assert.equal(r.opened.length, 1);
 });
 
@@ -509,6 +528,10 @@ await check('the off switch is off', async () => {
   });
   assert.deepEqual(r.opened, [], 'and beadcause is back to a button');
   assert.equal(r.calls.graph, 0, 'off costs nothing, not even the export');
+  // The roster's read is not the sweep's and is not switched off with it: an advocate
+  // with `reenterAdvocates: false` still draws its EpicAdvocate section, and that read
+  // costs whatever the cache already holds. See the note on the fake's `graph`.
+  assert.equal(r.calls.cached, 1, 'and the roster is unaffected — it is a different feature');
 });
 
 await check('a refused launch backs off for the cooldown and keeps the event', async () => {
