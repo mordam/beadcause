@@ -2947,6 +2947,60 @@ narrowed. `node test/inboxkinds.mjs` covers the table (every row matches exactly
 kind, in both directions), the scope rule, the sub-filter's defaults and the chrome on
 both a pointer and a touchscreen.
 
+### Your P0s, and the tree each one carries
+
+The section at the top of the inbox is the P0s **you** own — open, `owner:<you>`, at
+priority 0 — and `p0board` on `/api/questions` is where it comes from. Each card says
+what is left under it (`open`, `inFlight`), what it is waiting on once a P0 advocate has
+written one (`lib/epicadvocate.js`, and the 🧭 button on the card is
+[`POST /api/bead/advocate`](#http-api)), and, since bc-rfnr.9.1, **`tree`: every
+descendant of that P0 at any depth**.
+
+The tree is not the row filter seen from the other end, and that is the whole reason it
+exists. `p0board.under` is a fact about the *inbox rows* — one string per row naming the
+P0 it descends from, which is what lets the list narrow itself to your work. It is keyed
+by row, and most of a P0's descendants have no row, because nobody is being asked about
+them: `bc-rfnr` had 16 descendants and one pending question the day this landed. A card
+drawn from `under` would have said "16 open" over a tree of three.
+
+So the tree is built from the graph instead, and it arrives **flat**:
+
+| field | what it is |
+|---|---|
+| `id`, `title`, `issue_type`, `status`, `priority` | what a row draws |
+| `assignee` | who claimed it — not `owner`, which is the git identity that created the bead and is the same one on most of the tracker |
+| `parent` | the id it hangs off. Always the P0 itself or a row **earlier in the array** |
+| `depth` | 1 for a child, 2 for a grandchild — an indent with no walk at all |
+| `key` | `<workspace>/<id>`, the same key the inbox rows are filed under |
+| `pending` | whether this bead is itself asking you something — open, and carrying `human` |
+
+Pre-order, parents before children, so a client nests it with one loop and a map. Real
+nested objects would cost a recursive renderer on a phone and could not be reconciled by
+key, which is how every other list in this app repaints.
+
+`pending` is read off the label rather than off the rows below, and that is deliberate:
+`/api/questions?scope=agent` sweeps no questions at all, and the board is drawn in every
+scope, so a rows-derived answer would go quiet about a bead that is genuinely waiting on
+you — a question on a screen that will not show it, which is the one failure this app
+exists to prevent. An open bead carrying `human` *is* a question here; answering one
+takes the label back off.
+
+**Closed descendants are in it.** The counts on the card are of what is left, but the
+tree is the board, and the one status filter over the whole board (bc-rfnr.9.6) can only
+default to not-closed if the closed ones were sent. Measured on this tracker on
+2026-08-13: 18 owned P0s, 152 descendants between them, **31KB** of JSON, half of it
+rows that have closed.
+
+It costs no extra `bd`. The whole board — the cards, `under`, and every tree — comes off
+one `bd export` per workspace, cached for a minute by `Bd.graph` and **never built on
+the request path**: nine of those measured 7.3 seconds cold, and bc-1kwl's budget is a
+page under a second. So a cold daemon answers with an empty `p0s` for a repaint or two
+and then fills in, which the client already reads as "do not narrow anything" — the flat
+inbox, briefly, rather than an empty one. A workspace whose tracker cannot be read
+contributes no cards and hides nothing, for the same reason. `node test/p0tree.mjs`
+holds all of that, including the one assertion that separates the feature from `under`
+renamed: a descendant with no pending question is in the tree.
+
 ### The top bar says who is asking, not what the app is called
 
 The widest part of the bar used to be the word **Beadcause** — on a screen you
