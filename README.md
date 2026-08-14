@@ -13007,6 +13007,7 @@ cookie says so), and `/auth/signout` ends the session.
 | GET | `/api/bead-links` | `?workspace=&id=` | `{children[], dependents[]}` — everything with an edge pointing at that bead, closed ones included, open work first: the `parent-child` rows as `children`, every other kind as `dependents` with its `dependency_type`. One `bd dep list --direction=up` for both, because `bd show` carries `dependent_count` and not one row behind it |
 | POST | `/api/bead/advocate` | `{workspace, id}` | opens the **P0 advocate** on this P0 — the button on the inbox's P0 card. Four refusals in front of it, all 409 with a sentence: unendorsed, superseded, closed, or not a P0 anybody owns (a crash P0 is refused by name — a stack trace is not an epic). **Never two on one P0**: a live session whose window carries this bead id is a 409 rather than a second window — matched with `namesBead`, so a session on a *child* of this P0 no longer refuses it — and so is a launch from the last ten minutes whose window has not named itself yet, since that is the gap a second tap falls through. The card in front of it reads the same rule and draws it: it links to `/session?pid=` while an advocate is up, and says one is opening until then, rather than re-offering a launch that would now be refused (`advocate` on each card of `p0board`). Blocked under `OBSERVING`, unlike the verdict routes — those are you deciding, this is the daemon opening a window |
 | POST | `/api/bead/owner` | `{workspace, id, owner}` | sets `owner:<handle>` — who is answerable for this bead — and answers `{owner, owners[], p0, changed}`. An empty `owner` hands it back to nobody, which is a thing you may say; setting the owner it already has is `changed: false` and no `bd` write at all. Every *other* owner label comes off, so resolving two machines' claims from the sheet is visible. A route of its own rather than a field of `/api/bead/adjust`, because adjust refuses a bead anybody has endorsed and ownership is most worth changing on a P0 that is live — and because the ✎ may not touch `owner:` at all (`isProtectedLabel`) |
+| POST | `/api/bead/addressee` | `{workspace, id, to}` | re-addresses a question — sets `for:<handle>`, the label that decides [whose phone rings](#who-a-question-is-for--me-and-the-for-label), and answers `{addressees[], changed, cleared}`. `to` is one handle; **empty, or `everyone`, means everyone**, which is a decision rather than the absence of one. Every *other* `for:` label comes off, because handing it to Carol means Carol and not also whoever it was addressed to before. Re-sending the handle it already carries is `changed: false` and no `bd` write at all. `cleared: true` says it also pulled the row out of this phone's notification shade, which it does on exactly one condition — the question is now addressed somewhere that is not this Mac — via the same `dismissed` event [a narrowed filter](#and-it-offers-to-tidy-up-the-noise-it-already-made) uses, and with the same honest limit: ntfy cannot recall a delivered message, so only the Android shell's own tray is reachable. A route of its own for `/api/bead/owner`'s reasons, and because the ✎ may not touch `for:` at all (`isProtectedLabel`) |
 | GET | `/api/p0s` | `?workspace=` | `{p0s[]}` — every **open** P0 in that workspace, `{id, title, owners[], mine}`, yours first. What the sheet offers a held bead to be adopted under. Every P0 and not only yours, because the dispatch gate measures against all of them; off the cached graph, and this one waits for a cold cache rather than answering "there are no P0s" |
 | POST | `/api/bead/adopt` | `{workspace, id, parent}` | moves a bead under `parent` — the fix for the one hold that never clears itself, offered on the sheet of any bead with **no P0 above it**. Answers `{parent, workable}`, where `workable` is the gate's own answer after the write rather than a promise about it. A parent with no P0 above *it* is a 409 naming that, since the adoption would not make the bead workable; an empty `parent` detaches instead, which is how an adoption into the wrong epic is undone. The cached graph is refreshed on the way out, so the next advocate tick acts on the new shape |
 | GET | `/api/history` | `?workspace=` **or** `?space=`, and `&status=&priority=&provenance=&id=&limit=&offset=&refresh=1` | `{rows[], total, limit, offset, more, workspaces[], errors[], workspace, space, query}` — [the ledger](#the-ledger-behind-the-history-tab): every bead a space has ever had, closed and deferred included, newest-**updated** first, paged. The four filters are optional and compose; each row carries `hasSession`, whether a session was archived for it, and a `closeReason` cut to 240 characters on a word boundary — two lines of the row hold 226 at the widest, and the whole sentence is on the sheet the row links to. A bad `status` or `priority` is a 400 naming the word rather than an empty list, an unknown `workspace` a 400 and an unknown `space` a 404 — but a space with no beads is `{rows: [], total: 0, more: false}` and a 200. Cached ten seconds per workspace; `refresh=1` forces the sweep |
@@ -13441,6 +13442,55 @@ Two consequences of that ordering worth knowing:
   lives is this about", and a constitutional request has no answer to that. It has a
   perfectly good answer to "whose agent is this", which is the question being asked
   here.
+
+#### Handing it to somebody else, from the phone
+
+Everything above happens at the moment a question is filed, from a terminal, and until
+bc-jg0w that was the *only* moment: `--for` on `beadcause-ask`, the stamp
+`bin/deliver.js` and `bin/propose.js` put on their own cards, `Bd.create` for anything
+the daemon files. Which left the ordinary case unreachable. A question lands on your
+phone, you read it, and it is really Carol's — and the only two moves were to answer it
+yourself or to leave it sitting there. Neither of those is the true one, and an addressee
+you cannot move is most of the way to not having one.
+
+So the card carries a **📮 pill** in the same row as the workspace and the bead id,
+saying who is being asked: *you*, or a name, or *anyone*. Tap it and a panel offers one
+button per handle, plus **anyone who is free**, plus a box for somebody the graph has
+not seen yet. One tap re-addresses the question, and the tap **replaces** rather than
+adds — "it is really Carol's" means Carol, not Carol as well as you.
+
+There is no roster anywhere in beadcause: the config knows who *this* Mac is and nothing
+about the other five. So the buttons are read off the inbox itself, where every question
+another Mac filed carries its person's `for:` label — which on an install where addressing
+means anything is the roster, because everybody is asking questions. The typed field is
+what covers the person who has not asked one yet.
+
+**The pill is drawn only when `me` is set.** With it unset there is nobody a question
+could be addressed away from, so a control for it would have exactly one state — the same
+branch-that-cannot-be-entered guarantee the rest of this section makes, drawn here as an
+absence rather than as a pill saying "for everyone" on every card.
+
+**Handing a question away also clears its notification, on one condition.** If the
+question is now addressed somewhere that is not this Mac, the row goes out of the phone's
+shade — the argument [a narrowed filter](#and-it-offers-to-tidy-up-the-noise-it-already-made)
+already makes, applied to a stronger version of the same fact: a filter change is *I do
+not want to think about this right now*, and a hand-off is *this is not mine*. Same
+`dismissed` event, same honest limit (ntfy cannot recall a delivered message; the Android
+shell's tray is what is actually reachable), same promise that the bead is untouched — it
+stays open, stays unanswered, stays in everybody's inbox. Re-addressing a question to
+*yourself*, or to everyone, leaves the shade alone, because those are the two answers
+under which the phone is still being asked.
+
+**And the other phone starts being asked.** That is not automatic and it is worth saying
+why: each daemon marks every live question as notified at the end of every sweep, so
+Carol's Mac swept this bead the day it was filed, kept quiet because it was addressed to
+somebody else, and would never have looked at it again. The poller therefore treats one
+narrow case as a fresh arrival — a question it recorded as quiet *for the addressee
+reason* which is no longer addressed elsewhere — and pushes it once. A muted space and a
+narrow filter are the other two kinds of quiet and neither is undone by a label.
+
+`node test/readdress.mjs` covers the label arithmetic, the route, the shade, and that
+half of the poller.
 
 ## Config — `~/.config/beadcause/config.json`
 

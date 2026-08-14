@@ -86,6 +86,21 @@
     // otherwise leave a card saying "opening" about a window that never came up.
     p0opening: new Map(),
     spaces: [],
+    // Every handle this Mac's person answers to — `cfg.me`, off the payload. `[]` on
+    // every install that has never set it, and `[]` is what makes an addressee pill read
+    // as a name rather than as "you": with nobody to be, no question can be somebody
+    // else's. See lib/addressee.js.
+    me: [],
+    // The key of the card whose 📮 panel is open, and what has been typed into its
+    // handle box — at most one of each, like `menu` above. The draft is held here rather
+    // than in the DOM for the reason every other typed field on this page is: a poll
+    // landing between the first character and the tap would otherwise wipe it.
+    address: null,
+    addressDraft: new Map(),
+    // The key currently being written, so both a second tap and the repaint under it are
+    // refused while a `bd` write is in flight. One at a time is enough — the panel is
+    // open on one card.
+    addressBusy: null,
     // Every configured workspace, which the inbox needs for one thing only: ＋ has to
     // know where to start a conversation, and "the repos in the selected space" is a
     // question about the config rather than about the beads on screen.
@@ -417,7 +432,8 @@
   // the card's own repaints: a poll rebuilds the list every 25 seconds, and a comment or
   // a close reason half-typed into an open pull request is exactly as worth keeping as a
   // half-typed answer. See prActionsHtml.
-  const TYPING_IN = '[data-role="answer"], [data-role="edit-field"], [data-role="pr-comment"], [data-role="pr-reason"]';
+  const TYPING_IN =
+    '[data-role="answer"], [data-role="edit-field"], [data-role="pr-comment"], [data-role="pr-reason"], [data-role="address-input"]';
 
   const isTyping = () => !!document.activeElement?.matches?.(TYPING_IN);
 
@@ -828,6 +844,132 @@
         href="/console?ws=${encodeURIComponent(ws)}&amp;seed=${encodeURIComponent(id)}">
         <span class="glyph">🧾</span> Work out the next beads from this
       </a>
+    </div>`;
+  }
+
+  /* ------------------------------------------------------- who this is for */
+
+  /**
+   * Short enough for a pill: the local part of an address, or the whole handle.
+   *
+   * `carol@example.com` is nineteen characters of which the last twelve are the same on
+   * every handle in the graph, and a pill in a meta row that already carries a workspace,
+   * a bead id and a priority does not have nineteen characters to give. The full handle
+   * is on the panel's buttons, where there is room and where you are about to hand a
+   * question to somebody and want to be sure which somebody.
+   */
+  const shortHandle = (h) => String(h || '').split('@')[0] || String(h || '');
+
+  /** Is this question addressed to the person whose Mac this is? */
+  const addressedToMe = (q) => (q.addressees || []).some((h) => state.me.includes(h));
+
+  /**
+   * Every handle this phone can offer as a one-tap hand-off.
+   *
+   * Read off the inbox rather than from a roster endpoint, and that is a deliberate
+   * trade rather than a shortcut. There is no list of people anywhere in this app — the
+   * config knows who *this* Mac is and nothing about the other five — so the only honest
+   * source is the graph itself, where every question another Mac filed carries its
+   * person's `for:` label (see `ownAddresseeLabels`). In practice that is the roster: on
+   * an install where addressing means anything at all, everybody is asking questions.
+   * The typed field below the buttons is what covers the person who has not asked one
+   * yet, and it is why this list being short is a slower path rather than a dead end.
+   *
+   * Own handles first, because "give it back to me" is the second most likely tap after
+   * "give it to Carol", and the one you reach for when you have handed it to the wrong
+   * person.
+   */
+  function knownHandles() {
+    const out = [];
+    const add = (h) => {
+      const v = String(h || '').trim().toLowerCase();
+      if (v && !out.includes(v)) out.push(v);
+    };
+    for (const h of state.me) add(h);
+    for (const q of state.questions || []) for (const h of q.addressees || []) add(h);
+    return out;
+  }
+
+  /**
+   * The pill that says whose question this is, and the way to change the answer.
+   *
+   * **Nothing at all on an install with no `cfg.me`**, which is every install that has
+   * never heard of this — the same branch-that-cannot-be-entered guarantee lib/addressee.js
+   * makes on the daemon side, drawn here as an absence rather than as a pill saying "for
+   * everyone" on all eleven cards. With nobody to be, there is nobody a question could be
+   * addressed away from, and a control for it would be a control with one state.
+   *
+   * Three readings, and the middle one is the whole feature: **you** (it is yours, and
+   * the phone rang), **a name** (it is theirs, and this card arrived quietly — the pill
+   * agrees with the postmark line above it), **anyone** (unaddressed, which is most
+   * questions and is what a single-person graph looks like).
+   *
+   * In the meta row with the workspace and the id rather than under the question,
+   * because it is the same kind of fact as those two — who and where, not what — and
+   * because the row is already the place your eye goes to decide whether this card is
+   * yours to open.
+   */
+  function addresseeHtml(q) {
+    if (!state.me.length) return '';
+    const to = q.addressees || [];
+    const mine = addressedToMe(q);
+    const label = !to.length
+      ? 'anyone'
+      : mine
+        ? 'you'
+        : `${shortHandle(to[0])}${to.length > 1 ? ` +${to.length - 1}` : ''}`;
+    const on = state.address === q.key;
+    return `<button class="pill for${mine ? ' mine' : ''}${to.length ? '' : ' any'}${on ? ' on' : ''}"
+      data-act="address" data-key="${esc(q.key)}" aria-expanded="${on}"
+      aria-label="For ${esc(to.length ? to.join(', ') : 'anyone')} — change who is asked">📮 ${esc(label)}</button>`;
+  }
+
+  /**
+   * The panel behind the pill: hand this question over, or hand it to everybody.
+   *
+   * One tap per person and the tap *replaces* rather than adds, which is the whole
+   * sentence the bead was filed for — "it is really Carol's" means Carol, not Carol as
+   * well as you. `addresseeUpdate` on the server does the same thing from the other end,
+   * so there is one rule and not two spellings of it.
+   *
+   * **Everyone is a button and not the absence of one.** Taking every `for:` label off is
+   * a decision — it is how a question filed against the wrong person is put back in front
+   * of whoever is free — and a decision you can only express by never having pressed
+   * anything is one nobody discovers.
+   *
+   * The typed field is the escape hatch for a handle the graph has not seen yet (see
+   * `knownHandles`). It writes to `state.addressDraft` on every keystroke rather than
+   * being read out of the DOM at the tap, because the 25-second poll repaints this card
+   * and a field held in the DOM loses whatever you typed between two of them — the same
+   * discipline the answer box and the space card's channel field both keep.
+   */
+  function addressPanelHtml(q) {
+    if (state.address !== q.key) return '';
+    const to = q.addressees || [];
+    const busy = state.addressBusy === q.key;
+    const draft = state.addressDraft.get(q.key) || '';
+    const btn = (handle, text, pressed) =>
+      `<button class="address-btn${pressed ? ' picked' : ''}" type="button" data-act="address-set"
+        data-key="${esc(q.key)}" data-to="${esc(handle)}" aria-pressed="${pressed}"${
+        busy || pressed ? ' disabled' : ''
+      }>${esc(text)}</button>`;
+    const people = knownHandles().map((h) => btn(h, h, to.length === 1 && to[0] === h));
+    return `<div class="address-panel" role="group" aria-label="Who is asked about this question">
+      <p class="address-say">Whoever this is for is the only one whose phone rings. Everyone still sees it.</p>
+      <div class="address-row">
+        ${people.join('')}
+        ${btn('everyone', 'anyone who is free', !to.length)}
+      </div>
+      <label class="address-typed">
+        <span class="prop-label">Somebody else</span>
+        <input type="email" inputmode="email" autocapitalize="off" autocorrect="off" spellcheck="false"
+          data-role="address-input" data-key="${esc(q.key)}" value="${esc(draft)}"
+          placeholder="name@example.com"${busy ? ' disabled' : ''}>
+      </label>
+      <button class="linkish" type="button" data-act="address-set" data-key="${esc(q.key)}"
+        data-to="" data-typed="1"${busy || !draft.trim() ? ' disabled' : ''}>${
+        busy ? 'Handing it over…' : 'Hand it to them'
+      }</button>
     </div>`;
   }
 
@@ -2414,9 +2556,11 @@
           <span class="pill id">${esc(q.id)}</span>
           ${q.priority != null ? `<span class="pill p${q.priority}">P${q.priority}</span>` : ''}
           ${q.dependentCount ? `<span class="pill">blocks ${q.dependentCount}</span>` : ''}
+          ${addresseeHtml(q)}
           ${draft && !open ? '<span class="draft-flag">draft saved</span>' : ''}
           <time>${esc(relTime(q.createdAt))}</time>
         </div>
+        ${addressPanelHtml(q)}
         ${arrivedQuietHtml(q)}
         ${activityHtml(q)}
         <p class="q">${esc(q.question || q.title)}</p>
@@ -5599,6 +5743,71 @@
       return;
     }
 
+    /**
+     * The 📮 pill: show, or hide, the panel that hands this question to somebody.
+     *
+     * A render() rather than the DOM surgery the ⋮ menu does, and the difference is what
+     * the two are. The menu is an overlay hanging off a corner and it must survive a
+     * half-typed answer under it; this panel is part of the card head, it changes the
+     * pill it hangs from, and the state it reads (`state.address`) is what the next
+     * repaint would draw anyway. Doing it by hand would mean two code paths that can
+     * disagree about whether the panel is open.
+     */
+    if (act === 'address') {
+      closeMenu();
+      state.address = state.address === key ? null : key;
+      render(true);
+      return;
+    }
+
+    /**
+     * Hand it over — one `bd` write, and the card repaints from what the bead now says.
+     *
+     * `data-to` is the handle, empty for everyone; the typed variant reads
+     * `state.addressDraft` instead, because what is in that field is state rather than
+     * DOM (see the input listener). Either way the server is the authority on the
+     * result: `addressees` comes back off the labels the bead actually carries, and the
+     * card is repainted from that rather than from what was asked for — the two differ
+     * whenever somebody else moved it first, and a card that drew the request would show
+     * a hand-off that never happened.
+     *
+     * The panel stays open on failure and closes on success. A refused write you cannot
+     * see the buttons for is a write you cannot retry, and a panel still sitting there
+     * over a hand-off that worked reads as one that did not.
+     */
+    if (act === 'address-set') {
+      const q = byKey(key);
+      if (!q || state.addressBusy) return;
+      const to = btn.dataset.typed ? (state.addressDraft.get(key) || '').trim() : btn.dataset.to || '';
+      state.addressBusy = key;
+      render(true);
+      try {
+        const res = await api('/api/bead/addressee', {
+          method: 'POST',
+          body: JSON.stringify({ workspace: q.workspace, id: q.id, to }),
+        });
+        q.addressees = res.addressees || [];
+        state.address = null;
+        state.addressDraft.delete(key);
+        const who = q.addressees.length ? q.addressees.join(', ') : 'anyone who is free';
+        // `cleared` is the server saying it also took the row out of your notification
+        // shade, which it only does when the question has stopped being yours. Worth a
+        // word: it is the half of the tap you cannot see happen, and on the phone you
+        // are holding it is the half you would otherwise go looking for.
+        toast(
+          addressedToMe(q)
+            ? `Asked of you now`
+            : `Asked of ${who}${res.cleared ? ' — cleared it from your phone' : ''}`
+        );
+      } catch (err) {
+        toast(err.message, true);
+      } finally {
+        state.addressBusy = null;
+        render(true);
+      }
+      return;
+    }
+
     if (act === 'toggle') {
       closeMenu();
       closeAgentMenu();
@@ -6350,6 +6559,21 @@
     const field = ev.target.closest('[data-role="edit-field"]');
     if (field) return recordEdit(field);
 
+    // A handle typed into the 📮 panel, into `state.addressDraft` on every keystroke.
+    // Not out of the DOM at the tap, for `recordEdit`'s reason: the poll rebuilds this
+    // card every 25 seconds and a value living only in the input is lost by whichever
+    // one lands first. The button under it enables itself off the same state, so it is
+    // repainted here rather than left for the next render — a render() on a keystroke
+    // would rebuild the field under the caret.
+    const handle = ev.target.closest('[data-role="address-input"]');
+    if (handle) {
+      const key = handle.dataset.key;
+      state.addressDraft.set(key, handle.value);
+      const send = handle.closest('.address-panel')?.querySelector('[data-typed="1"]');
+      if (send) send.disabled = state.addressBusy === key || !handle.value.trim();
+      return;
+    }
+
     const box = ev.target.closest('[data-role="answer"]');
     if (!box) return;
     const key = box.closest('.card')?.dataset.key;
@@ -6665,6 +6889,11 @@
     // What the ＋ offers when the space holds more than one repo. Kept here rather
     // than read off `data` at the tap, because the tap can happen between polls.
     if (Array.isArray(data.workspaces)) state.workspaces = data.workspaces;
+    // Who this Mac's person is, for the cards that draw an addressee. Same rule as the
+    // two above and for the same reason: absent means a daemon that predates the field,
+    // and keeping the last value is what stops a phone behind a cached service worker
+    // from suddenly calling your own questions somebody else's.
+    if (Array.isArray(data.me)) state.me = data.me;
     state.spaces = data.spaces || [];
     // Absent means a server that predates the counts — keep the last ones rather
     // than blanking the chrome, exactly as the requests pane does above.
