@@ -826,6 +826,7 @@
         <span class="pill id">${esc(q.id)}</span>
         ${q.priority != null ? `<span class="pill p${q.priority}">P${q.priority}</span>` : ''}
         ${q.agent ? `<span class="pill st-${esc(q.status)}">${esc(STATUS_LABEL[q.status] || q.status)}</span>` : ''}
+        ${heldPillHtml(q)}
         ${q.dependentCount ? `<span class="pill">blocks ${q.dependentCount}</span>` : ''}
         <time>${esc(relTime(time))}</time>
       </div>
@@ -2988,6 +2989,26 @@
   const STATUS_LABEL = { in_progress: 'claimed', blocked: 'blocked', open: 'open' };
 
   /**
+   * The pill on a bead nobody may work yet, and the way through to deciding.
+   *
+   * The kind filter gives an endorsement its own chip, its own count and its own word in
+   * the summary line — but under `All kinds` a held bead sits in a list of forty and looks
+   * exactly like an open one, and "open" is the one thing it is not: nothing may claim it
+   * until you say so (lib/endorse.js). So the status pill gets a neighbour that contradicts
+   * it, in the same words the advocate console uses.
+   *
+   * A link rather than a label, and deep-linked to this bead, for the reason the console's
+   * pill is one: it used to be a number with no way through it. The verdicts themselves
+   * stay on public/endorse.js — four buttons that rewrite six fields do not belong on a card
+   * whose whole premise is that it is read-only (see `agentCardHtml`), and the decision
+   * *is* reading the bead, which is the page built for it.
+   */
+  const heldPillHtml = (q) =>
+    q.held
+      ? `<a class="pill muted" href="/endorse?bead=${encodeURIComponent(q.key)}">held for endorsement</a>`
+      : '';
+
+  /**
    * A bead nobody is asking you about.
    *
    * Read-only on purpose. There is no decision block, so there are no options — and
@@ -3010,6 +3031,7 @@
           <span class="pill id">${esc(q.id)}</span>
           ${q.priority != null ? `<span class="pill p${q.priority}">P${q.priority}</span>` : ''}
           <span class="pill st-${esc(q.status)}">${esc(STATUS_LABEL[q.status] || q.status)}</span>
+          ${heldPillHtml(q)}
           ${q.dependentCount ? `<span class="pill">blocks ${q.dependentCount}</span>` : ''}
           <time>${esc(relTime(q.since))}</time>
         </div>
