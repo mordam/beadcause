@@ -5636,12 +5636,33 @@ the words surviving a refusal, a dropped connection and a repaint; the box disap
 when a send comes back saying the session is out of reach; the reply arriving through
 the transcript pane rather than through the send's own response; and, since `bc-75q2`,
 the line breaks reaching the wire with nothing on the page claiming they were closed up.
-`--baseline` fails all of them, because before this there was no box. The delivery itself
-is the one part no test does — `write text` into a live window would type a fixture
-string into whatever session answered — so `test/session.mjs` covers the rules around it
-instead: reach refusing a pid with no terminal, the length refused on the message as
-typed rather than on a flattened one, and the AppleScript matching a tty as well as an id
-and sending its paste with `newline no` and exactly one Return after it.
+
+**The composer keeps what you had picked out when it redraws itself, selection and all.**
+It redraws on its own more often than it looks: a poll that finds the reach or the status
+changed, a send starting, a send answering, and the line-break hint appearing under the box
+the moment a message gains a newline. Each of those replaces the textarea — the transcript
+below is a `<pre>` thousands of lines long and rebuilding the page to move a line of small
+text would take the keyboard down with it on iOS — so where you were in the box is carried
+across by hand. **Both ends of the selection are carried, not just the near one.** A caret
+is the case where the two are equal, so carrying only `selectionStart` gave every selection
+back as a caret at its left edge: you picked out the sentence you were about to type over
+and the next poll left you in front of it (bc-nh19 — the same one-ended restore as
+[bc-c3ve in the Mirror](#the-mirror--whatever-the-phone-has-open-with-room-to-read-it)).
+The direction goes with them, because it is the end the next Shift-arrow extends from. The
+check drives it rather than reading for it: it types through the real `input` listener,
+selects part of what it typed backwards, flips the hint to force the repaint, and asks the
+box afterwards where the selection is.
+
+`--baseline` serves HEAD's `public/session.js` instead of the working one, which is how you
+tell a real failure from a flake: the cases the branch in hand is about must fail there and
+pass on the working copy, and nothing else should move. It used to fail everything, because
+before this there was no box at all — that stopped being true the day the box landed.
+
+The delivery itself is the one part no test does — `write text` into a live window would
+type a fixture string into whatever session answered — so `test/session.mjs` covers the
+rules around it instead: reach refusing a pid with no terminal, the length refused on the
+message as typed rather than on a flattened one, and the AppleScript matching a tty as
+well as an id and sending its paste with `newline no` and exactly one Return after it.
 
 ### …and then go and find it on the Mac
 
@@ -6540,6 +6561,21 @@ to nothing else, that a merged pull request refuses to be closed, and that the c
 refuses everything but a live conflict. It runs with `openSessions: false`, so nothing in it
 can open a window — the brief is asserted off `conflictPromptFor` directly.
 `node scripts/prfull-check.mjs` is the phone's half in headless Chrome.
+
+**The card repaints in place, and takes neither the comment nor the selection in it.** A
+pull request card is redrawn on its own several times while it is open: arming a button,
+the timer six seconds later that disarms it, a request going out and its answer coming
+back. `render()` would rebuild the whole list and take the keyboard with it, so
+`paintPrCard` replaces the one card — which still replaces the textarea under the button
+you pressed. The words come back because they live in `state.prDraft` rather than in the
+DOM; where you were in them is carried across by hand, and **both ends of the selection
+are carried, not just the near one**. A caret is the case where the two are equal, so
+carrying only `selectionStart` handed every selection back as a caret at its left edge —
+the sentence you had picked out to type over, gone the moment an arm timer expired
+(bc-nh19; the same one-ended restore that was in the Mirror's composer as bc-c3ve and in
+the session's say box). The direction rides along because it is the end the next
+Shift-arrow extends from. The check drives it at the arming press, which is the repaint
+nobody asked for.
 
 **A lamp has three states, not two.** On, off, and *unknown* — a hollow, dashed ring:
 
