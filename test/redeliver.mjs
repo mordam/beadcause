@@ -443,32 +443,50 @@ console.log('\nre-delivering the same branch\n');
   commit('four');
   const out = deliver();
 
-  check('it reports a merge, not a question', out.startsWith('landed #'), out);
+  // bc-r941: this used to be "and then the worker merges it after all". The worker does
+  // not merge any more, so the delivery that follows an unanswered card is the one that
+  // puts the work on the queue — and the thing being pinned is unchanged and is the whole
+  // point of the file: **the card it replaces must close.** An open card is a blocker on
+  // the work bead, and the queue's close of that bead will be refused by it.
+  check('it reports a queue entry, not a question', out.startsWith('queued #'), out);
   check(
     'the card left over from the earlier delivery is closed',
     openCards().map((c) => c.id).join(',') === 'zz-other',
     openCards().map((c) => c.id).join(',')
   );
-  check('the work bead closed with the merge', world().issues['zz-work'].status === 'closed', world().issues['zz-work'].status);
+  check('the work bead is open — it closes when the queue merges, not when it queues', world().issues['zz-work'].status !== 'closed', world().issues['zz-work'].status);
   check(
-    'and its close reason names the pull request',
-    /#25/.test(world().issues['zz-work'].close_reason || ''),
-    world().issues['zz-work'].close_reason
+    'and it is blocked by exactly one thing: the merge-bead',
+    blockers('zz-work').length === 1 && blockers('zz-work')[0].id === out.split(' ').pop(),
+    JSON.stringify(blockers('zz-work'))
   );
   check(
-    'nothing is owed once the close went through',
+    'nothing is owed — nothing has merged, so no close has been refused',
     !fs.existsSync(path.join(CONFIG_DIR, 'owed-closes.json')) ||
       Object.keys(JSON.parse(fs.readFileSync(path.join(CONFIG_DIR, 'owed-closes.json'), 'utf8'))).length === 0,
     fs.existsSync(path.join(CONFIG_DIR, 'owed-closes.json')) ? fs.readFileSync(path.join(CONFIG_DIR, 'owed-closes.json'), 'utf8') : ''
   );
 }
 
-/* ------------------------------------- a close refused is a close written down */
+/* ------------- a close refused is a close written down — moved with the merge */
+
+// This scenario drove `bin/deliver.js` into the one case lib/owed.js exists for:
+// something *else* blocks the work bead, so the merge lands and the close cannot. It had
+// to be reported as refused and written down for the daemon to retry, never reported as
+// done — bc-ec6 stayed open over a merged pull request with two comments claiming
+// otherwise, and what made it hard to see is that everything upstream said it had worked.
+//
+// bc-r941 moved the merge and the close to the daemon, so `bin/deliver.js` can no longer
+// reach this state at all: it closes nothing. The handling moved with it, verbatim —
+// `finish` in lib/mergequeue.js catches the refused close, calls `oweClose`, and says so
+// on the bead in bd's own words — and it is asserted there, in test/mergequeue.mjs,
+// against a tracker that can refuse.
+//
+// What is still worth pinning *here* is that the delivery leaves the bead in a state the
+// queue can act on when something else is already blocking it: the merge-bead is filed
+// and parked beside the other blocker rather than instead of it.
 
 {
-  // The one case the sweep exists for: something *else* blocks the work bead, so the
-  // merge lands and the close cannot. It must be reported as refused and recorded for
-  // the daemon to retry — never reported as done.
   writeConfig({ pr: { autoMerge: true, base: 'main', mergeMethod: 'merge' } });
   reset();
   const w = world();
@@ -480,20 +498,19 @@ console.log('\nre-delivering the same branch\n');
   git(repo, 'checkout', '--quiet', '-b', 'work-two');
   commit('five');
   const out = deliver();
+  const queued = out.split(' ').pop();
 
-  check('it still lands', out.startsWith('landed #'), out);
-  check('the work bead stays open, because bd said no', world().issues['zz-work'].status !== 'closed', world().issues['zz-work'].status);
+  check('it still queues over a bead something else is blocking', out.startsWith('queued #'), out);
+  check('the work bead stays open', world().issues['zz-work'].status !== 'closed', world().issues['zz-work'].status);
   check(
-    'and the bead is told so in bd’s own words',
-    (world().issues['zz-work'].comments || []).some((c) => /did \*\*not\*\* close/.test(c) && /blocked by open issues/.test(c)),
-    JSON.stringify(world().issues['zz-work'].comments)
+    'and is now blocked by both — the merge-bead is filed beside the other, not instead of it',
+    blockers('zz-work').some((b) => b.id === 'zz-blocker') && blockers('zz-work').some((b) => b.id === queued),
+    JSON.stringify(blockers('zz-work'))
   );
-  const owed = JSON.parse(fs.readFileSync(path.join(CONFIG_DIR, 'owed-closes.json'), 'utf8'));
-  check('the close is written down to be retried', Boolean(owed['demo/zz-work']), JSON.stringify(owed));
   check(
-    'with the reason it should carry when it finally goes through',
-    /#26/.test(owed['demo/zz-work']?.reason || ''),
-    owed['demo/zz-work']?.reason
+    'nothing is owed — a delivery that merges nothing has no close to have refused',
+    !fs.existsSync(path.join(CONFIG_DIR, 'owed-closes.json')),
+    fs.existsSync(path.join(CONFIG_DIR, 'owed-closes.json')) ? fs.readFileSync(path.join(CONFIG_DIR, 'owed-closes.json'), 'utf8') : ''
   );
 }
 
