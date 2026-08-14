@@ -616,7 +616,7 @@ await check('the tree is descendants only, so a discovered-from trail cannot dra
 await check('the service worker ships the changed files on a version a cached phone will notice', () => {
   const sw = read('public/sw.js');
   const version = Number(sw.match(/const CACHE = 'beadcause-v(\d+)'/)?.[1]);
-  assert.ok(version >= 56, `CACHE is still v${version} — a cached filtermenu.js would draw no box`);
+  assert.ok(version >= 57, `CACHE is still v${version} — a cached filtermenu.js would draw no box`);
   assert.ok(sw.includes("'/filtermenu.js'"), 'the file the box lives in is not in SHELL');
 });
 
