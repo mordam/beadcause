@@ -16798,16 +16798,16 @@ really open a window?" can only be answered by opening one. That is the incident
 this flag exists because of, so the suite proves the guards are *conditional* and
 stops there.
 
-`test/summary.mjs` covers the three counts on `/api/questions`, against a stub `bd`
+`test/summary.mjs` covers the two counts on `/api/questions`, against a stub `bd`
 that logs every invocation and a temp `~/.claude/sessions`. The arithmetic is not the
-risk; four quieter things are. That the counts start costing a `bd` call — the log
+risk; three quieter things are. That the counts start costing a `bd` call — the log
 is asserted to be one `human list` per workspace and nothing else, so a sweep added
 by accident fails here rather than turning up as a slower inbox months later. That a
-count empties in a scope that sweeps no questions. That the waiting count claims the
-other channel's beads as well as its own — the fixture holds a `foundation` bead, and
-it is asserted into `requests` and out of the count. And that the response stopped
+count empties in a scope that sweeps no questions. And that the response stopped
 being additive — every field an older client reads is asserted still present and
-unchanged.
+unchanged. There was a third count, `questions`, behind the top bar's **N waiting**
+pill; bc-ka5y.1 deleted both, and its *absence* is asserted here now — a served count
+nobody draws is one that quietly goes wrong.
 
 `test/terminal.mjs` covers what a terminal remembers across a restart, at the record
 layer and nothing below it: that one which was running comes back `resumable` with the
