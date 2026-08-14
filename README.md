@@ -16369,6 +16369,23 @@ and the next read takes it back. A rename is logged in full, both titles, and sa
 comment on the bead; it emits no bus event, for the reason filing does not, but it *does*
 drop the endorsement queue's cache, because that screen is the one drawing the old title.
 
+**The status line and the assignee inside the body stay frozen forever, and that is a
+decision, not the gap bc-yc16 left behind.** bc-yc16 answered only the title; bc-0i27.22
+is the rest of that question, and the answer is: leave the body exactly as it arrived. Not
+because nobody thought to keep it live, but because it does not need to be — the row this
+ticket draws (`jiraRowHtml`) and the ticket view behind it (`/api/jira/ticket`) both read
+the status off the poller's own answer, refreshed on every inbox poll, so nobody reading
+where a ticket stands today is reading it off the bead; the bead is not the only place, or
+even the current one. The assignee is narrower still: the whole query this epic exists
+because of is *assigned to you*, so for as long as the ticket keeps arriving, the name the
+body would show and the name the poll is filtering on are the same fact twice over. The one
+way they could diverge — the ticket reassigned to somebody else — is the case bc-uz6e
+already decided: nothing here reacts to a ticket that stops arriving, the epic is left
+exactly as it was, branch and all, and a frozen assignee line is that same abandonment
+already chosen for the rest of the epic, not a new one. Widening `renameFor`'s "is this
+still ours" test to a body a person may have appended to would cost the guarantee bc-yc16
+built it to protect, for a line whose live value is already on screen somewhere better.
+
 **Who owns it is not the JIRA assignee, and that is deliberate.** `bd` takes `owner` from
 the git identity of the directory the command runs in, which for a work workspace is
 already the work address. So nothing tries to force one: the assignee is recorded *on* the
