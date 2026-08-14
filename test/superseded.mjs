@@ -691,6 +691,7 @@ await check('marking the same pair twice is a no-op rather than a second label',
     originalRow: taskRow('zz-b'),
   });
   assert.equal(out.marked, true);
+  assert.equal(out.alreadyMarked, true, 'and says so, because nothing else it returns means anything on a re-run');
   assert.deepEqual(bdx.calls, []);
   assert.match(out.notes.join(' '), /already marked/);
 });

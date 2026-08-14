@@ -98,6 +98,13 @@ if (result.refused) {
   process.exit(1);
 }
 
+// A re-run wrote nothing, so it says nothing — including nothing about what is holding
+// the bead, which this call did not look at.
+if (result.alreadyMarked) {
+  console.log(result.notes[0]);
+  process.exit(0);
+}
+
 try {
   bd(['comment', dup, `Superseded by ${original} — ${why}`]);
 } catch (err) {

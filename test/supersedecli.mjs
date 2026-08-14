@@ -214,6 +214,21 @@ check('a comment that will not land is a warning, not a failure — the marker i
   assert.deepEqual(world().issues['zz-dup'].labels, ['superseded-by:zz-orig']);
 });
 
+check('running it twice is a no-op that says so, rather than a second comment', () => {
+  reset();
+  supersede(['-b', 'zz-dup', '--original', 'zz-orig']);
+  const before = world().calls.length;
+  const { status, out } = supersede(['-b', 'zz-dup', '--original', 'zz-orig']);
+  assert.equal(status, 0, out);
+  assert.match(out, /already marked superseded-by:zz-orig/);
+  assert.equal(world().comments['zz-dup'].length, 1, 'and no second copy of the reason on the thread');
+  assert.equal(
+    world().calls.length - before,
+    2,
+    `only the two reads on the second run: ${world().calls.slice(before).join(' | ')}`
+  );
+});
+
 check('a missing argument prints the usage and names the workspaces', () => {
   reset();
   const { status, err } = supersede(['-b', 'zz-dup']);
