@@ -9991,6 +9991,79 @@ tracker. Including the two states that are only visible from outside the process
 question whose id is still on stdout with one plain sentence, and no stack frame, on
 stderr.
 
+### How hard a bead is — `complexity:<tier>`
+
+A bead carries how hard it is, as a `complexity:low`, `complexity:medium` or
+`complexity:high` label, and it carries it because most beadcause work does not need
+the expensive model and the handful that does must not be run on the cheap one. The
+tier is what decides which model a session on that bead runs — that is bc-nc6o, and
+this section is the half that puts the tier *on* the bead. Reading it back at spawn
+time is bc-nc6o.2 and is not wired yet; until it is, the label is a fact about the
+bead that nothing acts on, which is the right order to build the two in — a router
+reading a field nothing writes routes everything to the fallback and looks broken.
+
+**Decided when the bead is written, not guessed at when it is opened.** The dispatcher
+sees a title and a description three days later; the agent that proposed the bead had
+just read the files, and you, endorsing it, had just read the proposal. That is the
+moment the answer is cheap, and it is the only moment it is cheap *once* — a guess made
+at spawn time has to be re-made, identically, every time the bead is opened. So
+`complexity` is a field on a proposal, beside `type` and `priority`:
+
+```yaml
+- title: Cache-bust site.js
+  type: task
+  priority: 2
+  complexity: low
+  description: |
+    No ?v= on the script tag, so a shipped header change looks absent.
+```
+
+It is the same field in both places a bead is written: the block an advocate's survey
+emits, and the YAML a worker pipes into `beadcause-file` when it trips over something
+mid-task. Both prompts now ask for it, in the same words — rate the *work*, not how much
+it matters. A one-file change with an obvious fix is `low` even when it is urgent;
+anything turning on a design decision, spanning several files that have to agree, or
+needing a migration is `high`. Priority already carries "how much this matters" and
+carrying it twice would make the two disagree.
+
+**A label, and deliberately the same shape as [`repo:<token>`](#how-a-bead-says-which-repo-it-is-about--repotoken).**
+It is the only per-bead thing beads itself will carry, sync and filter on without
+beadcause owning a schema: `bd create --label complexity:high`, `bd label add bc-9f2
+complexity:low` and `bd list --label complexity:high` all work today and go through Dolt
+to every other machine on the workspace. The alternative — a line in the description
+that beadcause parses — is prose, and prose is what a routing decision must not be.
+
+**No tier is a legal answer and stays one.** Every bead created by hand, ingested from
+JIRA, or filed before this landed carries none, which is most of the tracker; `lib/complexity.js`
+answers `{ tier: '', problem: null }` for those rather than treating it as an error, and
+the router's fallback for an untiered bead is the **expensive** model, because an unrated
+bead is an unknown bead and the cost of that fallback is a bill rather than a botched
+session. Which is also why nothing invents a tier: a word that is not one of the three
+is dropped, so a proposal saying `complexity: medium-high` files unrated rather than
+being rounded to something plausible.
+
+**Two tiers on one bead is refused, the way two `repo:` labels are.** `beadComplexity`
+answers with a problem rather than a tier, and picking the first would route by whichever
+label sorted first — a coin toss dressed up as a decision. Two labels naming the *same*
+tier is not a conflict, it is one answer written twice. A bare `complexity:` with nothing
+after it is a problem too, and not "no tier": somebody typed that label meaning something
+by it, and treating it as unrated would make a typo indistinguishable from the one case
+that is supposed to be invisible.
+
+**You are the last reader before it spends anything.** The tier is printed on the
+proposal row beside the type and the priority, and it is the sixth thing
+[the ✎ control](#approve-adjust-decline) lets you change — the only field on that card
+that costs money, and the one where "this is harder than it thinks" would otherwise have
+nowhere to go but declining a good bead. `unrated` is one of the four choices in that
+picker rather than a blank, because clearing a tier you disagree with is a decision too.
+
+`test/complexity.mjs` covers it: the label's own vocabulary and its two refusals, the
+round trip through the `beadproposal` block (a tier that renders but does not survive
+being re-emitted is a tier shown to you and then thrown away), and the acceptance itself
+end to end through the real `beadcause-file` against a stub `bd` — a proposal that names
+a tier files a bead carrying it, and one that names none files a bead with no
+`complexity:` label at all.
+
 ### Approve, adjust, decline
 
 Every proposal row has had ✓ and ✕ since proposals existed. The third control is new,
@@ -10000,8 +10073,8 @@ P1 and not a P3. Without a third option that lands as a decline — and the work
 back next week phrased exactly the same way, because nothing recorded what was
 actually wrong with it.
 
-**✎ opens the row for editing**: title, description, what done looks like, type and
-priority. Tapping it also approves the row, which is not a shortcut — adjusting a bead
+**✎ opens the row for editing**: title, description, what done looks like, type,
+priority and [complexity](#how-hard-a-bead-is--complexitytier). Tapping it also approves the row, which is not a shortcut — adjusting a bead
 is the strongest possible statement that you want it, and making you rewrite the title
 and *then* hunt for the ✓ is how a considered edit turns into an accidental decline.
 
