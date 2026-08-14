@@ -5670,13 +5670,39 @@ a.pill { text-decoration: none; }
 .owner-btn.is-clear { color: var(--muted); }
 .owner-err { font-size: 12px; color: var(--danger); }
 
-/* Your P0s, as a section rather than as the top of the list — see `p0SectionHtml`. The
+/* The epics assigned to you, as a section rather than as the top of the list — see
+   `p0SectionHtml`, and bc-eevn for why the heading no longer says "Your P0s". The
    distinction is the point of bc-rfnr.2: sorted to the top, six self-filed crash P0s
    (lib/errors.js files every daemon crash at P0) push your epics below the fold with
    nothing on screen to say they moved. A section cannot be pushed down by its own list. */
 .p0-board { display: flex; flex-direction: column; gap: 8px; margin: 0 0 14px; }
+/* The heading is the fold (bc-eevn): one button across the width of the section, so the
+   tap that puts the board away is the whole line rather than a chevron you have to hit —
+   the same bargain `.p0-tap` makes one level down. A button because that is what it is:
+   `aria-expanded`, Enter and the keyboard come free, and the shared `.chev` rule above
+   turns the chevron down when it is open. Kept at the size and weight it had as a div,
+   because it is still a section label; nothing about it should read as a control until
+   you look for one. `--tap` tall so a thumb can find it on a phone. */
 .p0-kind {
+  display: flex; align-items: center; gap: 6px;
+  width: 100%;
+  min-height: var(--tap);
+  margin: 0; padding: 0;
+  border: 0; background: none;
+  text-align: left; cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  font-family: inherit;
   font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--muted);
+}
+/* The count, and it is on the *shut* line as much as the open one — a fold that hid the
+   fact there was anything behind it would be a section you forget you own. Pushed to the
+   far end, where `.p0-open` on each card already puts its number, so folded and unfolded
+   the counts sit in one column. Not upper-cased or tracked out with the label: it is a
+   number, and letter-spacing on a number reads as two numbers. */
+.p0-kind-n {
+  margin-left: auto;
+  letter-spacing: 0; font-size: 11.5px; font-weight: 600;
   color: var(--muted);
 }
 /* A card, not a row: these are the four or five things the week is about and they are

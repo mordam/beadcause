@@ -164,6 +164,24 @@
      * is a screen you have to fold up before you can read it.
      */
     p0open: new Set(),
+    /**
+     * Is the whole board folded away? bc-eevn.
+     *
+     * The opposite of `p0open` on both counts, and deliberately.
+     *
+     * **It is stored shut-side-true**, so the default — an absent key, an older page,
+     * a test's state object that predates the field — is the board *open*. The board is
+     * the point of bc-rfnr.2; a field whose falsy default hid it would be one typo away
+     * from an inbox that silently lost its epics.
+     *
+     * **And it is persisted, where `p0open` is not.** Which epic you have unfolded is
+     * where you are looking now; whether you want the board over your list at all is a
+     * standing preference, like the kind filter — you fold it because this phone is for
+     * answering questions, and having to fold it again at every reload is the fold not
+     * working. Read synchronously here rather than after the first poll, so the first
+     * frame is already the shape you left it in.
+     */
+    p0shut: localStorage.getItem('beadcause.p0shut') === '1',
     armed: null, // key of the control awaiting its confirm tap
     armedTimer: null,
     // Which option each card's answer is currently making — `key → option id`.
@@ -5021,6 +5039,19 @@
   const P0_INDENT_CAP = 3;
 
   /**
+   * What the board calls itself — and it stopped calling itself "Your P0s" in bc-eevn.
+   *
+   * Every card on it is an epic that carries your `owner:<handle>` (see `p0Board` in
+   * lib/server.js), so that is what the heading says. "P0" is beads' word for the
+   * priority the board happens to select on; it is not what the reader is looking at,
+   * and a heading naming a priority field reads as a filter you set rather than as the
+   * work you are answerable for. The internals keep the name — `p0board`, `p0open`,
+   * `.p0-card` — because they are about the priority and renaming them would be a
+   * rewrite of four files to change one line of screen text.
+   */
+  const P0_SECTION_LABEL = 'Epics assigned to you';
+
+  /**
    * The line under the title saying what a tap does, and how much there is.
    *
    * It carries the *total* where the count above it carries what is open, which is the
@@ -5112,6 +5143,14 @@
    * `.p0-graph` beside the advocate. What is open lives in `state.p0open` and the section
    * is rebuilt from it every render — and that is not a style choice, it is the only
    * shape that survives the chunk above being replaced whole 25 seconds later.
+   *
+   * **And the section itself folds (bc-eevn).** The heading is a second disclosure, one
+   * level up from the cards': it puts the whole board away, because on a phone four
+   * epics is the entire first screen and there are days when what you came for is the
+   * questions underneath. Two things keep that from being a way to lose the board — the
+   * count stays on the shut line, and the fold is display only, so the list below is
+   * narrowed to your epics' descendants exactly as it was. See `state.p0shut`, which is
+   * stored shut-side-true so that every default there has ever been reads as open.
    */
   /**
    * The one control on a P0 card, in its three states — and the point of bc-d6yk is that
@@ -5194,7 +5233,17 @@
         </div>`;
       })
       .join('');
-    return `<section class="p0-board" aria-label="Your P0s"><div class="p0-kind">Your P0s</div>${cards}</section>`;
+    // Shut, the heading is the whole section — but it still carries the count, because a
+    // fold that hides *that there is anything folded* is a section you forget you own.
+    // The label is drawn once and used twice, so the thing a screen reader announces for
+    // the region and the thing printed on the control cannot drift apart.
+    const shut = !!state.p0shut;
+    return `<section class="p0-board" aria-label="${P0_SECTION_LABEL}">
+      <button type="button" class="p0-kind" data-act="p0-fold" aria-expanded="${shut ? 'false' : 'true'}">
+        <span class="chev" aria-hidden="true">›</span>
+        ${P0_SECTION_LABEL}
+        <span class="p0-kind-n">${mine.length}</span>
+      </button>${shut ? '' : cards}</section>`;
   }
 
   function render(force = false) {
@@ -5994,6 +6043,30 @@
       closeAgentMenu();
       if (state.p0open.has(p0)) state.p0open.delete(p0);
       else state.p0open.add(p0);
+      render(true);
+      return;
+    }
+
+    /**
+     * Fold the whole board away, or bring it back. bc-eevn.
+     *
+     * Written to `localStorage` on the tap rather than at some later save, because the
+     * next thing that happens to this page is usually a poll and there is no later:
+     * the only record that the fold happened is `state.p0shut`, and a reload before it
+     * was persisted is the fold undoing itself.
+     *
+     * It does **not** touch `state.p0open`. Folding the board is putting it away, not
+     * closing the epic you had open inside it — bring the board back and the tree you
+     * were reading is still unfolded, which is the behaviour a drawer has.
+     *
+     * And it does not touch the list below either. `underOwnedP0s` narrows the inbox to
+     * what descends from your epics whether or not the board is on screen: the board is
+     * a display of what you are answerable for, and hiding a display must not change
+     * what is in the list under it.
+     */
+    if (act === 'p0-fold') {
+      state.p0shut = !state.p0shut;
+      localStorage.setItem('beadcause.p0shut', state.p0shut ? '1' : '0');
       render(true);
       return;
     }
