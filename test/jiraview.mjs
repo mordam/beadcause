@@ -401,9 +401,18 @@ vm.runInContext(
     lift('function jiraRowHtml(row)'),
     lift('const cancelledTicketRows = ()'),
     lift('function cancelledTicketsHtml()'),
+    lift('function strandedCancelsHtml(stranded)'),
   ].join('\n'),
   Object.assign(sandbox, {
-    state: { armed: null, open: new Set(), cancelledTickets: [], space: 'all', workspace: 'all', cancelledFold: false },
+    state: {
+      armed: null,
+      open: new Set(),
+      cancelledTickets: [],
+      strandedCancels: [],
+      space: 'all',
+      workspace: 'all',
+      cancelledFold: false,
+    },
     jiraSaid: new Map(),
     jiraBusy: new Set(),
     // Only reached for a row whose own `space` is null, which no fixture here has.
@@ -546,6 +555,76 @@ await check('it obeys the space picker, so one space cannot put back another’s
   assert.ok(sandbox.cancelledTicketsHtml());
   sandbox.state.cancelledTickets = [];
   assert.equal(sandbox.cancelledTicketsHtml(), '', 'an empty fold is no fold, not an empty box');
+});
+
+/*
+ * bc-0i27.19. The fold's second list: the cancel records the poller can no longer match.
+ * Until this they were the one thing in the app with no surface at all — the fold above
+ * is a filter over what the poller answered, so it could not show them, and nothing else
+ * reads the store.
+ */
+
+const STRANDED = { workspace: 'alpha', key: 'TECH-4', bead: 'aa-old', at: '2026-08-01T00:00:00Z', by: null, space: 'Work' };
+
+await check('a record with no ticket left is drawn, and the count says so', () => {
+  sandbox.state.cancelledTickets = [{ ...CANCELLED, workspace: 'alpha', space: 'Work' }];
+  sandbox.state.strandedCancels = [STRANDED];
+  sandbox.state.cancelledFold = true;
+  const html = sandbox.cancelledTicketsHtml();
+  assert.match(html, /2 cancelled — 1 with no ticket left/, 'one number would have hidden the half nothing counted');
+  assert.match(html, /TECH-4/);
+  assert.match(html, /aa-old closed with it/, 'which bead it is NOT touching is the thing to say');
+  assert.match(html, /data-act="jira-forget"/);
+  assert.doesNotMatch(html.split('jira-orphans')[1], /jira-beadify/, 'beadify would reopen an epic for a dead ticket');
+});
+
+await check('and the fold exists for them alone — with no live cancelled ticket at all', () => {
+  sandbox.state.cancelledTickets = [];
+  sandbox.state.strandedCancels = [STRANDED];
+  sandbox.state.cancelledFold = false;
+  const shut = sandbox.cancelledTicketsHtml();
+  assert.ok(shut, 'the whole bead is that this record had no screen');
+  assert.match(shut, /1 cancelled — 1 with no ticket left/);
+  assert.doesNotMatch(shut, /jira-forget/, 'shut is still one line');
+  sandbox.state.cancelledFold = true;
+  assert.match(sandbox.cancelledTicketsHtml(), /jira-forget/);
+});
+
+await check('they obey the space picker too, for the reason the rows above it do', () => {
+  sandbox.state.cancelledTickets = [];
+  sandbox.state.strandedCancels = [STRANDED];
+  sandbox.state.space = 'Home';
+  assert.equal(sandbox.cancelledTicketsHtml(), '');
+  sandbox.state.space = 'all';
+  assert.ok(sandbox.cancelledTicketsHtml());
+  sandbox.state.strandedCancels = [];
+  assert.equal(sandbox.cancelledTicketsHtml(), '', 'and an empty pair is no fold');
+  sandbox.state.cancelledFold = false;
+});
+
+await check('the workspace rides each line, because two can carry the same ticket key', () => {
+  sandbox.state.strandedCancels = [STRANDED, { ...STRANDED, workspace: 'beta' }];
+  sandbox.state.cancelledFold = true;
+  const html = sandbox.cancelledTicketsHtml();
+  assert.match(html, /jira-orphan-ws">alpha/);
+  assert.match(html, /jira-orphan-ws">beta/);
+  assert.match(html, /data-ws="beta"/, 'and the drop has to name which of the two it means');
+  sandbox.state.strandedCancels = [];
+  sandbox.state.cancelledFold = false;
+});
+
+await check('the drop posts to its own route and moves nothing until the server agrees', () => {
+  // Unlike beadify, which moves the row on the tap. This deletes the only surface there
+  // is: an optimistic removal that then failed would leave the record off the screen with
+  // nothing anywhere that could bring it back until the next payload.
+  const at = APP.indexOf("act === 'jira-forget'");
+  assert.notEqual(at, -1, 'the handler has gone');
+  const fn = APP.slice(at, at + 1400);
+  assert.match(fn, /'\/api\/jira\/forget'/);
+  assert.ok(
+    fn.indexOf('state.strandedCancels =') > fn.indexOf('await api('),
+    'the line is dropped after the answer, not before the request'
+  );
 });
 
 await check('and it opens itself when the card you are reading is one of its own', () => {

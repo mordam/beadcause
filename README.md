@@ -15308,6 +15308,7 @@ cookie says so), and `/auth/signout` ends the session.
 | POST | `/api/jira/approve` | `{workspace, key}` | endorses the epic behind a JIRA ticket **and its open children**, in one act — see [approve, discuss, cancel](#approve-discuss-and-cancel-on-the-row--and-a-cancel-that-never-expires). Aimed at the *ticket key*, because which beads make up a ticket is a `bd list --parent` at this end of the wire. Answers the verdict shape (`applied[]`, `failed[]`) plus `{epic, children, truncated}`. A ticket whose epic has not been filed yet is a `409`; a closed child is left closed |
 | POST | `/api/jira/cancel` | `{workspace, key}` | earmarks the ticket so it is never proposed again — a keyed record in `state.json` that **nothing prunes** — and closes its epic with a reason that names the ticket, marker left on. An epic that has already been approved is left completely alone (`bead: 'endorsed'`), because by then it is real work. The earmark is written even if `bd` will not answer, since letting the ticket come back next sweep is the failure this prevents. Nothing is written to JIRA |
 | POST | `/api/jira/beadify` | `{workspace, key}` | the reverse: lifts the earmark, **reopens** the epic that was closed with it, drops the filer's memory of the workspace so the next sweep re-reads, and drops the *ingester's* memory of this one ticket so a reading that had failed is tried again rather than remembered forever. Reopening rather than re-filing is what makes it one epic and not two — the `external_ref` survives a close, so a fresh sweep would find the closed bead and raise nothing. A ticket that was never cancelled is `restored: false`, not an error |
+| POST | `/api/jira/forget` | `{workspace, key}` | drops a cancel record whose ticket the poller can no longer find, and **leaves its closed epic closed** — see [the records with no ticket left](#the-records-with-no-ticket-left). Not beadify: nothing is being put back, so reopening the epic would leave a held bead for a ticket nobody is assigned. The only route here that does not resolve `workspace` against the config, because a workspace that has left the config is the commonest way to strand a record; the name is taken as stored and validated only for being non-empty and slash-free. A ticket the current sweep still returns is a `409` naming beadify — that is the rule that a drop can never un-cancel a live ticket. A record already gone is `forgotten: false`, not an error. Nothing is written to JIRA |
 | GET | `/api/work` | — | `{workspaces[], elsewhere[], advocates[], service, router}` — per workspace: claimed beads, live `claude` sessions, counts, errors. `service` is what launchd is running; `router` is whether that program is actually serving anything, or is on an older build than the disk — see the router section. `router` is `null` under `npm run start:bare`, where there is no router |
 | GET | `/api/agents` | — | `{agents[], default}` — the roster you can address a comment to |
 | POST | `/api/agents` | `{name, description}` | creates one and returns the new roster. `tools` is never accepted here |
@@ -16477,9 +16478,64 @@ somebody decides it explicitly and with an allowlist.
 
 `node test/jiracancel.mjs` covers the record — keyed by the ticket, on disk, unpruned
 across a ticket leaving and re-entering the inbox, both filters, and the reversal.
-`node test/jiragate.mjs` covers the three acts, the three routes, and the row: that it
+`node test/jiragate.mjs` covers the acts, their routes, and the row: that it
 never offers a button that would be refused, and that the second tap on cancel says what
 it will not take back.
+
+### The records with no ticket left
+
+The rule above — **nothing prunes a cancel record** — is right, and it has a cost that
+took a while to show up. The fold at the foot of the ticket section is a *filter over
+what the poller answered*, deliberately: a record for a ticket nobody is assigned cannot
+be put back as a row anyway, and filtering is one `state.json` read for the whole list
+rather than one per ticket per parked phone.
+
+So a ticket that is cancelled and then **resolved, reassigned, or moved into a project
+this workspace is no longer pointed at** stops being returned, drops out of the fold, and
+its record stays on disk for ever. Nothing listed it, nothing counted it, and nothing
+could drop it. Over years that is a quietly growing object in `state.json` that no screen
+in the app could account for.
+
+**The answer is to list them, not to expire them.** An absence rule would have to prove
+it can never fire on a ticket that is merely missing from one sweep — a JIRA outage, a
+project moved out of the configured list, a paging bug — and the whole reason this record
+has no clock is that a record which expires is a ticket that comes back. Listing needs to
+prove nothing: a record you can see and drop by hand cannot un-cancel a live ticket,
+because a live ticket is not on the list.
+
+`strandedCancels` in `lib/jiracancel.js` is the one list here that **walks the store**
+rather than filtering the tickets, which is the only way to see something the poller never
+mentions. It is still one read, and still nothing at all when there are no records. A
+workspace JIRA could not be asked this minute does not appear, because `lib/jirapoll.js`
+serves that workspace's last good answer rather than an empty one; a workspace switched
+off, or dropped from the config, does — and that is the case it exists for.
+
+They ride the inbox payload as `strandedCancels`, and the fold draws them under a line of
+their own. **Lines rather than cards**, because there is no summary, no status and no link
+to JIRA to be had — the record is all beadcause ever kept. The fold's own label counts
+them (`3 cancelled — 1 with no ticket left`), which is the one number in the ticket
+section allowed to name them, since unlike the live rows it is a number a tap *can* bring
+down.
+
+The one control is **Drop**, `POST /api/jira/forget`, and it is not Beadify. Beadify means
+*put this ticket back*: it reopens the closed epic and expects the row to return on the
+next sweep, and here neither is true, so it would strand a held bead instead of a record.
+Drop lifts the earmark and leaves the epic closed, which is what the history of a
+cancelled ticket should look like. It is the only route in this path that does not resolve
+its workspace against the config, because a workspace that has left the config is the
+commonest way to strand a record and every other route would answer `400` on exactly the
+records this is here to clear. And it re-asks the poller at the moment of the write: a
+ticket assigned back to you since the payload was drawn is a `409` naming beadify, never a
+silent un-cancel.
+
+Records too broken to key — no workspace, or no ticket — are not on the list and need no
+button. `readCancelled` drops them on read, and every write in that file saves the
+normalised map back, so the first cancel or drop after one appears prunes it; a record
+that matches no ticket was never suppressing one.
+
+`node test/jiracancel.mjs` covers the list and the live-ticket guard; `node
+test/jiragate.mjs` covers the drop, including the workspace that is no longer configured
+and the `409`; `node test/jiraview.mjs` covers the fold.
 
 ### Reading the ticket — the children under the epic, and what the row says while it happens
 

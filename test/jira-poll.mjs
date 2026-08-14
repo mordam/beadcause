@@ -418,6 +418,16 @@ console.log('\nwired into the poll cycle');
     'a cancelled ticket has no way back — the beadify button has nowhere to live'
   );
   check(
+    'and the records the poller cannot match ride a third field, off the same read',
+    // bc-0i27.19. `strandedCancels(held)` rather than `strandedCancels(jira.tickets())`:
+    // the whole reason `held` exists is that the poller is asked once for a payload every
+    // parked phone rebuilds, and a third caller asking again is the shape that turns a
+    // free thing costly. It is also the only one of the three that would be *wrong* asked
+    // twice — two reads a moment apart could disagree about a ticket and strand a live one.
+    /strandedCancels\(held\)/.test(src),
+    'a cancel record whose ticket JIRA stopped returning has no screen anywhere'
+  );
+  check(
     'each one stamped with its space, or the inbox filter files it under Other',
     // The `space:` line rather than the whole expression around it: bc-0i27.5 added a
     // second stamped field (`ingest`) and broke this row apart across several lines, and
