@@ -35,6 +35,12 @@
        other script, because it can only catch what loads after it — and it is purely
        additive, so a page that fails to load it behaves exactly as it did before. -->
   <script src="/report.js"></script>
+  <!-- The account switcher in the top bar — which of your lives every screen is about,
+       and the menu the page's own top-right buttons live in. Before the page's own
+       script, because it *moves* those buttons rather than copying them: a page that
+       wires one by id afterwards is still wiring the element the thumb lands on. See
+       public/accountbar.js. -->
+  <script src="/accountbar.js"></script>
   <!-- The queue you were last shown, drawn before this page's own request has left.
        Before endorse.js, which asks it for that frame in the first lines of its IIFE. -->
   <script src="/warm.js"></script>
