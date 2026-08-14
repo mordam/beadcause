@@ -607,6 +607,11 @@ await check('every swallowed failure in the poll cycle reports', () => {
       'the conflict sweep',
       'the cycle',
       'the deploy sweep',
+      // lib/mergequeue.js. Its own guard rather than the advocate tick's, though it runs
+      // beside it: a queue that cannot reach GitHub and an advocate that cannot open
+      // windows fail for different reasons, and one crash card naming both would send
+      // whoever reads it to the wrong half.
+      'the merge queue',
       'the owed-close sweep',
       'the poll',
       'the release sweep',

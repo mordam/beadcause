@@ -818,7 +818,7 @@ in an editor, on the Mac, with the daemon running. That was fine while a space w
 lines of quiet hours written once. It stopped being fine when a space became the unit
 that decides whether an unattended agent may answer a comment (`autoDispatch`), whether a
 bead an agent filed may be worked before you have read it (`autoEndorse`), whether a
-worker merges its own pull request without asking you (`autoMerge`, `requireApproval`),
+a delivery is merged without asking you (`autoMerge`, `requireApproval`),
 and whether that merge then deploys itself (`autoShip`) — because the moment you know one
 of those is set wrong is the moment you are looking at what it did, on a phone, at the
 weekend.
@@ -1022,7 +1022,7 @@ and for the same reason.
 
 **A space also decides who merges.** `autoMerge` and `requireApproval` are given here for
 a group of repos, the way the two above are, and they are the two halves of
-[landing work](#landing-work--a-branch-a-pull-request-and-the-workers-own-merge) — but
+[landing work](#landing-work--a-branch-a-pull-request-and-a-merge-queue) — but
 unlike the two above, one repo inside the space
 [may answer for itself](#one-repo-may-answer-for-itself-on-the-four-settings-where-it-matters):
 
@@ -1107,7 +1107,7 @@ notification detail:
 | for one workspace | `true` | `false` | absent |
 |---|---|---|---|
 | `autoEndorse` | its agents' discoveries are ready work immediately | they are held for your tap | follows the space, then the global |
-| `autoMerge` | a worker merges its own pull request | every delivery hands you the pull request | ” |
+| `autoMerge` | a delivery goes on the merge queue | every delivery hands you the pull request | ” |
 | `requireApproval` | green checks are not enough — it needs an approving review | green checks are enough | ” |
 | `autoShip` | its merges run its declared deploy without waiting for **Ship** | merges wait for the button | ” |
 
@@ -5621,8 +5621,9 @@ it could and there are still three candidates — and both are named in the brie
 `beadcause-ask --blocks <bead>` beside them. A session with no sanctioned way to stop
 guesses, unattended, at three in the morning, in a repo nobody is reading.
 
-**And it stops at the pull request.** Every other worker here merges its own work through
-GitHub, and that is right for a bead somebody decided was work. An in-app edit had none of
+**And it stops at the pull request.** Every other worker here hands its work to the merge
+queue, which merges it through GitHub, and that is right for a bead somebody decided was
+work. An in-app edit had none of
 that review: it is a sentence said to a screen, and the whole of the review is you looking
 at what came back — so the tap is **Merge** on its delivery card. The brief asks for
 `--review` and the card says which of the four reasons it is, but neither is the
@@ -5635,10 +5636,11 @@ deliver against at all. They get a shorter section of their own for the same rea
 planner or a batch head does open on a pass — saying what the beads under it are and that
 none of them is that window's to merge.
 
-That is the whole of it, because a worker's own merge is the only
-[door into `main`](#landing-work--a-branch-a-pull-request-and-the-workers-own-merge) that
-nobody taps: the delivery card, the PR board's **Merge**, and a merge made on github.com
-are all already you. The pull request says why it is sitting there, and so does the bead's
+That is the whole of it, because the merge queue is the only
+[door into `main`](#landing-work--a-branch-a-pull-request-and-a-merge-queue) that nobody
+taps: the delivery card, the PR board's **Merge**, and a merge made on github.com are all
+already you. An in-app edit never reaches the queue at all — `bin/deliver.js` files the
+card instead, whatever the space says. The pull request says why it is sitting there, and so does the bead's
 thread — a green pull request open for two days with nothing on it to explain itself is
 the state this whole fallback exists not to be mysterious about.
 
@@ -6431,7 +6433,7 @@ says as much in a line rather than showing an empty frame.
 
 A delivery question asks *may I merge this?* and is gone the moment you answer it — and
 most work never raises one, because [the worker merged it
-itself](#landing-work--a-branch-a-pull-request-and-the-workers-own-merge). Either way the
+itself](#landing-work--a-branch-a-pull-request-and-a-merge-queue). Either way the
 question that starts once the merge has happened had nowhere to be asked from a phone:
 **it merged — did it reach origin, did anything deploy it, and is it running?** Those are
 four different facts. They go true at four different times, and the gap between them is
@@ -6672,8 +6674,8 @@ four ways into `main` here:
 - a tap on a **delivery card** in the inbox, which is how work a worker could not merge
   itself lands;
 - a tap on **Merge** on the [PR board](#where-you-read-it-an-inbox-card-and-the-board);
-- **`beadcause-deliver`**, which is how most work lands — a worker merges its own pull
-  request as its last act;
+- **the merge queue**, which is how most work lands — a worker files a merge-bead as its
+  last act and the daemon merges it (`lib/mergequeue.js`);
 - the **merge button on github.com**, from a phone browser or from somebody else, which
   nothing here performs and `reconcileLanded` notices afterwards.
 
@@ -7399,7 +7401,7 @@ hand, with no bead and no delivery block, is on the board like any other. Beads 
 then matched back to it in **tiers**, strongest first, and the first tier that
 resolves to a real bead wins outright:
 
-1. the `bead:` line inside a [`beadpr` block](#landing-work--a-branch-a-pull-request-and-the-workers-own-merge),
+1. the `bead:` line inside a [`beadpr` block](#landing-work--a-branch-a-pull-request-and-a-merge-queue),
    or an id in the **title** or the **branch name**;
 2. the branch's trailing tag — `worktree-launcher-repo-tabs-jin` ends in the bead's
    own suffix, because that is where the tag comes from;
@@ -7423,7 +7425,7 @@ says **no bead named** rather than borrowing one.
   `<base>` up with it, and it **will not touch a checkout with edited work in
   it** — it says so instead, naming the paths in the way. Untracked residue it steps
   past, and says so
-  ([why](#landing-work--a-branch-a-pull-request-and-the-workers-own-merge)). Both halves are always reported separately: a merge that
+  ([why](#landing-work--a-branch-a-pull-request-and-a-merge-queue)). Both halves are always reported separately: a merge that
   landed and a fast-forward refused because you have files open is a good outcome, and
   one flat word over the pair would send you to the Mac to find out which happened.
   It takes **two taps**, with the consequence written into the button between them —
@@ -7549,8 +7551,9 @@ one word to add from anywhere.
 
 What none of those four levels can do is skip the gate, and that is structural rather
 than a check written anywhere: the release queue only ever sees a merge that is already
-on `origin/main`, and the only ways to get there are a worker's own merge — which waits
-for the pull request's checks and refuses over a red one — or your thumb. Auto-ship
+on `origin/main`, and the only ways to get there are the merge queue — which waits for the
+pull request's checks and refuses over any red one the base does not already have — or
+your thumb. Auto-ship
 deploys work that already passed; there is no path by which it deploys work that has not.
 
 Four properties make it safe to leave running while nobody is watching:
@@ -7610,7 +7613,7 @@ residue is stepped past and left on disk, one edited file stops it however much 
 sits beside it, and an untracked file the incoming commit would have written is refused
 by git and reported with the path. `landParent` — the same fast-forward asked for
 from inside a worktree, which is how [a worker's own
-delivery](#landing-work--a-branch-a-pull-request-and-the-workers-own-merge) ends — has
+delivery](#landing-work--a-branch-a-pull-request-and-a-merge-queue) ends — has
 its own real worktree there, because the only thing it adds is *which checkout moves*,
 and it has to be the one the next `git worktree add` will branch from. `node scripts/prs-check.mjs` covers the
 phone's half in headless Chrome with every POST recorded: that the first tap on merge
@@ -7817,7 +7820,7 @@ edited work in it stops the whole deploy before anything is built, because six s
 edit these checkouts and a deploy that quietly stashed one of them would be the worst
 kind of helpful. Edited work, read with `--untracked-files=no` — untracked files are
 nobody's unsaved edit, and the fast-forward the delivery path does
-([above](#landing-work--a-branch-a-pull-request-and-the-workers-own-merge)) now draws
+([above](#landing-work--a-branch-a-pull-request-and-a-merge-queue)) now draws
 the same line for the same reason.
 
 #### Restarting a label is not the same as deploying a tree
@@ -9084,7 +9087,7 @@ with no honest exit invents one, and the one it invents is "close it and hope".
 Landed is the ordinary ending. Handed over is what happens when the merge was refused or
 the session asked for a human; closing its own bead over a local commit is what it is
 told to do only where there is nowhere to open a pull request at all — see
-[Landing work](#landing-work--a-branch-a-pull-request-and-the-workers-own-merge), which
+[Landing work](#landing-work--a-branch-a-pull-request-and-a-merge-queue), which
 is where the rest of that lives.
 
 ### It will not create beads
@@ -9833,7 +9836,7 @@ fast-forwards the main checkout after its own merge, and the tap on the pull req
 has always done it — which left this one door into `main` not doing it, and it is the door
 this sweep exists for. So the bead closed, the board drew merged, and local `main` stayed
 behind until something else happened to fetch: every worktree cut afterwards branched from
-before the merge, which is [the staleness the delivery path already fixed](#landing-work--a-branch-a-pull-request-and-the-workers-own-merge) arriving by the one route it did not cover. It is the same
+before the merge, which is [the staleness the delivery path already fixed](#landing-work--a-branch-a-pull-request-and-a-merge-queue) arriving by the one route it did not cover. It is the same
 `landLocally`, including its refusal to touch a checkout with edited work in it — one
 line naming the paths, and `main` left exactly where it was. Only when the sweep actually
 closed a bead or a card, because that is the moment the answer is known to be worth a
@@ -10302,7 +10305,7 @@ silently takes a bead the other already has a window open on.
 There is nowhere to move it to, either. beadcause solved the same problem in the other
 direction once — five sessions racing to merge into a local `main`, fixed by handing the
 merge to GitHub *because GitHub serialises it*, which is why [the merge does not happen in
-this checkout](#landing-work--a-branch-a-pull-request-and-the-workers-own-merge). Dolt
+this checkout](#landing-work--a-branch-a-pull-request-and-a-merge-queue). Dolt
 offers nothing of the sort. So this is honestly eventually consistent, and it says so out
 loud:
 
@@ -10863,11 +10866,10 @@ setting that keeps applying as you add repos to a shared space, instead of being
 forgotten. A quiet space's advocate **watches without launching**: the same asymmetry
 as the notifications, where quiet means "not into my evening", never "hidden".
 
-## Landing work — a branch, a pull request, and the worker's own merge
+## Landing work — a branch, a pull request, and a merge queue
 
 An advocate opens sessions on ready work. What happens to that work afterwards has now
-had three answers, and the third one is only defensible because of what the first two
-taught.
+had four answers, and each one is only defensible because of what the last one taught.
 
 **It merged into `main` on the laptop.** The session did it and closed its bead, so the
 first Adam saw of a change was in `git log`, after it had shipped. That worked while one
@@ -10884,38 +10886,72 @@ the same file started from a `main` that did not have it. Reviewing a diff from 
 is a real thing to want; doing it forty times a week at the pace an advocate can produce
 them is not, and what the gate was actually doing was waiting.
 
-**So the worker merges its own pull request** — and the pull request stays, because the
-pull request is what solved the race. There is exactly one route into `main`: push a
-branch, open a PR, ask GitHub to merge it. GitHub serialises the merges and refuses what
-cannot land, which is precisely the property a laptop with five concurrent sessions does
-not have.
+**Then the worker merged its own pull request.** That fixed the waiting, kept the pull
+request — the thing that had solved the race — and left one problem standing, which took a
+while to see because nothing about it looks like a bug: **the agent that wrote the code
+was also the one deciding the code was done.** It decided from inside a single worktree,
+with no view of any other open branch, no memory of the last five merges, and no ability
+to fix what it found. So every judgement it could not make became a card in the inbox
+anyway, and every judgement it could make it made alone, five times over in five separate
+processes, each spending five minutes waiting on checks for branches that were about to
+conflict with one another.
+
+**So there is a merge queue, and the worker hands the pull request to it.** The route into
+`main` has not changed at all — push a branch, open a PR, ask GitHub to merge it — and
+neither has the reason for it. What changed is who walks through that door. A worker's
+last act is to file a **merge-bead** carrying its pull request, park its own work bead
+behind that bead, and stop; the queue runs in the daemon, sees every open branch at once,
+merges one at a time, and closes both beads when the merge lands.
 
 ```
 session finishes ──► beadcause-deliver ──► pushes the branch ──► gh pr create
                                                                      │
-                                                       waits for the checks
+                                                    files the merge-bead, parks its own
+                                                    work bead behind it, and exits
                                                                      │
-                        ┌────────── they went green ────────────────┴───── they did not ─────────┐
-                        ▼                                                                        ▼
-              gh pr merge --merge                                                    question with the PR link
-              bead closes: it landed                                                        ──► your phone
-              ✅ push, nothing to answer                                   Merge · Ship · Request changes · Decline
-                        │
-                        └──► 🔀 PR board: merged, on origin, not yet running → Ship
+                                                         🚦 the merge queue, in the daemon
+                                                                     │
+                        ┌──── behind main? ── update-branch ────┐    │
+                        │                                       ▼    ▼
+                        │                       checks green, or red only where
+                        │                       main is already red (bc-y738)
+                        │                                       │
+                        └──── conflicted? ──► a resolver        ▼
+                              red? out of tries?        gh pr merge --merge
+                                    │                   both beads close
+                                    ▼                   ✅ push, nothing to answer
+                        the same card as before                  │
+                        ──► your phone                            └──► 🔀 PR board → Ship
+              Merge · Ship · Request changes · Decline
 ```
 
-Seven things follow, and they are the whole of the change:
+Eight things follow, and they are the whole of the change:
 
-- **A worker merges, and only ever through a pull request.** Not `git merge`, not
+- **The merge is still only ever through a pull request.** Not `git merge`, not
   `git push origin main`, not "just this once because it is trivial". There is still no
   `push` anywhere in `lib/pr.js` — it opens, reads, comments on, merges and closes pull
-  requests, and that is all it can do. What changed is who asks for the merge, not where
-  the merge happens.
-- **It brings `main` into its branch before delivering.** `main` moves while a session
-  works — that is the whole premise — and GitHub refuses a merge that conflicts. The
-  branch is the only place that conflict can be resolved by whoever wrote the code, while
-  the reasons are still on their screen, so the brief asks for the downmerge *and* for the
-  tests to be re-run after it: a clean merge of two working branches is not a working tree.
+  requests, and that is all it can do.
+- **A worker cannot close its own work, and that is structural rather than a rule.** The
+  work bead is made to *depend* on the merge-bead, and the close gate refuses a bead with
+  an open blocker. So a session that tries is refused by the tracker, not by its own good
+  behaviour — and a future brief that forgets to say so cannot re-open the hole.
+- **The downmerge is the queue's, and it happens at the last possible moment.** The worker
+  used to be asked to `git merge origin/main` before delivering, which was unverifiable
+  after the fact and stale again by the time GitHub saw it. The queue asks GitHub to
+  update the branch instead — the same merge, server-side, against `main` as it stands
+  right then — which also means it still works after the worker's worktree has been
+  retired, which is usually.
+- **A red check `main` already has does not count against the branch.** This is bc-y738,
+  and it is the difference between a gate and a wall: CI on `main` here was red for five
+  consecutive pushes, and under the strict reading nothing would ever have merged again.
+  The queue compares the branch's failing checks against the base's and refuses only what
+  is *new* — and says out loud, on the bead and in the notification, what it merged over.
+  A baseline that is silent is indistinguishable from no gate at all.
+- **A conflict opens a resolver, and a resolver that cannot settle it hands it back.** The
+  window is the existing one, with the existing one-per-pull-request registry. What the
+  agent in it is told is the thing that makes this job different from every other agent
+  here: *you did not write this code*, so resolving a conflict by keeping whichever side
+  makes the merge go through is the one failure that looks exactly like success.
 - **And it brings the merge back down to this Mac afterwards.** The merge is at GitHub, so
   `origin/main` has it the instant it lands and the laptop's own `main` does not — until
   something happens to fetch: a deploy, a merge from the board, a person. Nothing
@@ -10957,14 +10993,19 @@ Seven things follow, and they are the whole of the change:
   checkout now draw the same line. Nothing is ever cleared: stepping past residue leaves
   it exactly where it was, which is why the note says *past untracked …* rather than
   claiming a clean tree.
-- **It will not merge over a red check, and it will not wait forever for a green one.**
-  Failing checks stop it and become a card in your inbox — the button there *does* let
-  you merge over red, because a red check is sometimes a flake and judging that is what
-  a human is for. Checks that never report are the same: five minutes, then it asks.
-- **The bead closes because the merge happened**, in the same breath, with the PR number
-  and the merge commit in its close reason. A session does not close its own bead here;
-  the delivery does, and the advocate reads that reason back so the sessions page can say
-  *landed #42* rather than the older and much weaker "closed by the session".
+- **It will not merge over a check the branch broke, and it does not sit and wait.** A
+  new red check stops it and, after three attempts, becomes a card in your inbox — the
+  button there *does* let you merge over red, because a red check is sometimes a flake and
+  judging that is what a human is for. Checks that are still running cost nothing at all:
+  the queue leaves the branch where it is and looks again next tick, and a wait never
+  spends one of those three attempts. That is why slow CI does not turn into a card.
+- **Both beads close because the merge happened**, in the same breath, with the PR number
+  and the merge commit in the close reason — the merge-bead first, because the work bead
+  depends on it. Neither the session nor the delivery closes anything; the queue does, and
+  the advocate reads that reason back so the sessions page can say *landed #42* rather
+  than the older and much weaker "closed by the session". An **epic** work bead is the one
+  exception and stays open: an epic is finished when its theme is, not when a branch
+  sharing its name merges.
 - **Deploying is still yours to ask for.** The merge is on `origin`; whether that is
   *running* is a different fact with a different button. The notification says what
   landed and what is still owed, and links to
@@ -10974,12 +11015,13 @@ Seven things follow, and they are the whole of the change:
   to you, the two are one tap apart: **Merge** and **Ship it** sit next to each other,
   and the difference between them is the whole of [the next section](#ship-it--the-same-merge-and-then-the-deploy).
 
-**The old ending is intact, and it is the fallback.** Everything below about the card,
-the three answers and the markers is still exactly what happens when the merge does not
-— GitHub refused it, a check went red, the checks never reported, the space
+**The card is intact, and it is where every ending that is not a merge arrives.**
+Everything below about the card, the three answers and the markers is still exactly what
+happens when the merge does not — GitHub refused it, a check the branch broke went red
+three times over, a conflict nobody could settle, the space
 [asks for an approving review](#spaces--keeping-work-out-of-your-evening) and there is
 none, auto-merge is off, the session passed `--review` because it wanted a human on
-this one, or the bead was
+this one — the two of those never reach the queue at all — or the bead was
 [typed into the running app](#the-worker-at-the-far-end-and-the-one-thing-it-may-not-do)
 — the one kind of work a worker here may not merge, whatever the space says. It went from
 being every delivery to being the interesting ones.
@@ -14904,7 +14946,7 @@ cookie says so), and `/auth/signout` ends the session.
 | GET | `/api/questions` | `?scope=human\|both\|agent` | `{questions[], requests[], workspaces[], spaces[], filter, summary, scope, seq}` — `scope` defaults to `human`, and an unrecognised value falls back to it rather than erroring. `summary` is `{sessions, proposals}`, the two counts the inbox's tab badges draw. `seq` is where in `/api/poll`'s log this list was true, which is what lets a client park on the poll instead of asking again — see [loaded once](#loaded-once-and-kept--what-a-tab-tap-actually-costs) |
 | GET | `/api/question` | `?workspace=&id=` | one question **plus `comments[]`** |
 | GET | `/api/poll` | `?since=<seq>&wait=<s>` | long-poll: `{seq, resync, events[], advocates, presence, observing}` **plus the whole `/api/questions` screen** when something moved — the same `inboxPayload()` builds both, so a client can refresh itself from either and get the same inbox. `questions`, `requests` and `spaces` are `null` rather than `[]` when nothing moved: an empty array means the channel is empty, and a poll that timed out never asked. `want=presence` says the questions are not wanted, which is what makes a quiet poll cost no `bd` at all |
-| POST | `/api/respond` | `{workspace, id, response, create?, edits?}` | comments, then closes the bead. `create` is the 1-based indices of a proposal's beads to file; without it, `CREATE:` in the text means all and `CREATE: 1,3` means those. `edits` is `{n: {title, type, priority, description, acceptance}}` keyed by the same numbers, applied before creating. A `MERGE:` / `CHANGES:` / `DECLINE:` response on a delivery question acts on its pull request first — see [Landing work](#landing-work--a-branch-a-pull-request-and-the-workers-own-merge) |
+| POST | `/api/respond` | `{workspace, id, response, create?, edits?}` | comments, then closes the bead. `create` is the 1-based indices of a proposal's beads to file; without it, `CREATE:` in the text means all and `CREATE: 1,3` means those. `edits` is `{n: {title, type, priority, description, acceptance}}` keyed by the same numbers, applied before creating. A `MERGE:` / `CHANGES:` / `DECLINE:` response on a delivery question acts on its pull request first — see [Landing work](#landing-work--a-branch-a-pull-request-and-a-merge-queue) |
 | GET | `/api/pr` | `?workspace=&id=` | `{delivery, pr, unavailable}` — the live diffstat, check rollup and mergeability of a delivery question's PR. Every failure is an answer rather than a 500: no `gh`, no remote, GitHub unreachable all come back with `pr: null` and a sentence in `unavailable` |
 | GET | `/api/prs` | `?refresh=1` | the PR board: every pull request in every repo with its Merged · Pushed · Deployed · Live lamps and its rung of [the ladder](#the-ladder-in-one-place), plus `observing`. One card per **repo** — `key` is `beadcause` or `climative/athena-service`, and it is what every row and every button below is addressed by, because a pull request number is only unique inside a repo. `workspace` is still accepted everywhere `key` is and means the same thing for a workspace that is one repo; see [why](#a-deploy-is-a-fact-about-a-repo-and-a-workspace-may-be-forty-of-them). Read by the board *and* by the inbox, which draws a card per row. Cached 25s on the daemon; `refresh=1` forces the `gh` sweep |
 | POST | `/api/pr/merge` | `{key, number, method?}` | merges it at GitHub, fast-forwards this Mac's `main`, and retires the inbox's own "Merge #N?" card if a worker filed one. Three halves report separately — `{pr, alreadyMerged, land, cards}` — because a merge that landed and a fast-forward refused over open files is a *good* outcome and one flat failure over both would send you to GitHub to find out which. Only *edited* files refuse it: untracked residue is stepped past and named, because this checkout is shared with every session on the Mac and one stray `.DS_Store` used to stop all of them. The card is **closed**, never answered: merging a pull request is a fact, and the card is spent because of that fact rather than because anything wrote `MERGE:` under your name |
@@ -15443,7 +15485,7 @@ in the loop.
 
 **It is stamped where the answer is actually known.** You will not normally type
 `--for`: a question filed on this Mac is addressed to this Mac's person automatically —
-by `beadcause-ask`, by a worker's [delivery card](#landing-work--a-branch-a-pull-request-and-the-workers-own-merge),
+by `beadcause-ask`, by a worker's [delivery card](#landing-work--a-branch-a-pull-request-and-a-merge-queue),
 by `beadcause-propose`, and by every question the daemon files itself. That is a write-time
 decision rather than a read-time one because `created_by` cannot answer it. It is
 `actor` — a *byline*, which since [bc-lx3k](#whose-beadcause-wrote-it--the-byline-on-every-daemon-write)
@@ -15646,10 +15688,10 @@ another Mac's, and an agent's — and asserts that exactly one of them rings.
 | `autoMergePerWorkspace` | whether **one workspace's** workers merge their own pull requests, same shape and same precedence (default `{}`). It moves who presses merge and nothing else: a worker still waits for the checks and still refuses over a red one |
 | `requireApprovalPerWorkspace` | whether **one workspace** needs an approving review first, same shape and same precedence (default `{}`). Only meaningful while its `autoMerge` is on — with that off, every delivery is already a question and answering it *is* the approval |
 | `autoShipPerWorkspace` | whether **one workspace's** merges run its declared deploy without waiting for **Ship**, same shape and same precedence (default `{}`). The setting this layer most needed: only one repo in a space of six here has a deploy this Mac can run, and saying so through the space armed the other five. An [epic may still override it in either direction](#auto-ship--the-merge-that-does-not-wait-for-the-tap) |
-| `pr.enabled` | land finished work as [a pull request the worker merges](#landing-work--a-branch-a-pull-request-and-the-workers-own-merge) (default `true`). `false` puts every workspace back on the oldest ending — work the bead, close the bead. A workspace with no `gh` or no GitHub remote gets that ending anyway, without needing to be named |
+| `pr.enabled` | land finished work as [a pull request the worker merges](#landing-work--a-branch-a-pull-request-and-a-merge-queue) (default `true`). `false` puts every workspace back on the oldest ending — work the bead, close the bead. A workspace with no `gh` or no GitHub remote gets that ending anyway, without needing to be named |
 | `pr.base` | what a PR is opened against and merged into (default `main`). In a workspace with an [approved repo list](#and-which-branch-its-pull-request-is-opened-into) this is the *fallback*, and each repo's own default branch is the answer |
 | `pr.mergeMethod` | `merge` (default), `squash` or `rebase`. A merge commit because a squash-merged branch is never an ancestor of `main`, and the worktree cleanup will not remove a worktree that fails that test |
-| `pr.autoMerge` | the worker merges its own pull request once the checks report (default `true`). `false` stops it after opening the PR and makes the merge your tap, which is what every delivery used to do. A worker can choose the same for one delivery with `--review`. **A [space](#spaces--keeping-work-out-of-your-evening) overrides this either way**, so this is the default rather than the answer |
+| `pr.autoMerge` | a delivery goes on the merge queue, which merges it once the checks report (default `true`). `false` stops it after opening the PR and makes the merge your tap, which is what every delivery used to do. A worker can choose the same for one delivery with `--review`. **A [space](#spaces--keeping-work-out-of-your-evening) overrides this either way**, so this is the default rather than the answer. Since bc-r941 the worker never merges under either setting — what this picks is which of the two things receives the pull request |
 | `pr.requireApproval` | a pull request needs an `APPROVED` review before a worker may merge it (default `false`). Green but unapproved becomes a merge card saying so, rather than a merge — the setting for a repo other people work in. Per space, like `autoMerge` |
 | `pr.mergeWaitMs` | how long a worker waits for its checks before handing the PR over instead (default 15 min — the suite takes about five on a runner). A PR is at its most pending the second after it is opened, so without this a repo with CI would ask you about every delivery |
 | `pr.tidyMerged` | let the worktree sweep ask GitHub whether a branch's PR merged, since a squash-merge never makes it an ancestor of main (default `true`; belt beside `mergeMethod`'s braces) |
