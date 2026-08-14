@@ -275,6 +275,33 @@ check('…and a computable comparison says so', /computable for all of them/.tes
 const empty = agentrepo.report({}, { expect: ['worker'] });
 check('an empty log is a sentence rather than a table of zeroes', /NOTHING HAS EVER RUN/.test(empty) && !/runs 0/.test(empty));
 
+// bc-goo.6, the first time this report was read for its answer: both arms full, and the
+// comparison still empty. Nothing had ever been written, so `index` had only ever had
+// "It is empty" to list — the arms differed by one sentence and by no information, and
+// `readFirst 0` under `index` is then a treatment that was never applied.
+const untouched = {
+  worker: { blind: { runs: 14, touched: 0, read: 0, wrote: 0, readFirst: 0, commands: 0 }, index: { runs: 13, touched: 0, read: 0, wrote: 0, readFirst: 0, commands: 0 } },
+};
+const flat = agentrepo.report(untouched, { expect: ['worker'] });
+check('both arms full and never written to is not a comparison', /have not yet differed for: worker/.test(flat));
+check('…and it must not be reported as computable', !/computable for all of them/.test(flat));
+check('…and the numbers are still printed, because the runs are real', /blind\s+runs 14/.test(flat) && /index\s+runs 13/.test(flat));
+
+// One write in either arm is enough: it is content in the repo, so the next `index` run
+// has a listing to be shown. `blind` is the arm that puts it there as often as not.
+const wroteBlind = {
+  worker: { blind: { runs: 3, touched: 1, read: 0, wrote: 1, readFirst: 0, commands: 1 }, index: { runs: 3, touched: 0, read: 0, wrote: 0, readFirst: 0, commands: 0 } },
+};
+check('a write in the blind arm alone still differentiates them', !/have not yet differed/.test(agentrepo.report(wroteBlind, { expect: ['worker'] })));
+
+// An arm with no runs is the louder problem and already says so; naming the same agent
+// twice would be two sentences that disagree about which half of it is missing.
+const oneArm = {
+  advocate: { blind: { runs: 1, touched: 0, read: 0, wrote: 0, readFirst: 0, commands: 0 }, index: { runs: 0, touched: 0, read: 0, wrote: 0, readFirst: 0, commands: 0 } },
+};
+const half = agentrepo.report(oneArm, { expect: ['advocate'] });
+check('a starved agent is not also reported as undifferentiated', /cannot be computed for: advocate/.test(half) && !/have not yet differed/.test(half));
+
 check('the usage log is owner-only', (fs.statSync(USAGE_LOG).mode & 0o077) === 0);
 check('the log lives beside the repos, never inside one', !USAGE_LOG.startsWith(`${dir}${path.sep}`));
 
