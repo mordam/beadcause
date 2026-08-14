@@ -27,6 +27,9 @@
  *    leave a card whose only control had been taken away for good.
  * 3. **The card and the door agree.** They are one rule read twice, and the failure of
  *    disagreeing is specific: a card that offers a button whose only outcome is a refusal.
+ *    There are two doors now rather than one — bc-goo.15 gave the advocate an automatic
+ *    re-entry on child events (lib/reenter.js) — so the "opening" record is module state
+ *    shared by both, and both are asserted to write it.
  *
  * The wiring is asserted against the source, the way test/beadsession.mjs asserts that
  * page never makes a non-GET. A unit test of `advocateSession` passes just as happily
@@ -134,7 +137,20 @@ check('the launch door and the card read the same rule', () => {
   const route = src.slice(src.indexOf("if (p === '/api/bead/advocate'"));
   assert.ok(!/name \|\| ''\)\.includes\(id\)/.test(route), 'the prefix-matching refusal is what this replaced');
   assert.match(route.slice(0, 2000), /advocateSession\(liveSessions\(cfg\), id/);
-  assert.match(route.slice(0, 3000), /advocateOpened\.set\(/, 'a launch that worked has to be remembered');
+  assert.match(route.slice(0, 3000), /rememberAdvocateOpened\(/, 'a launch that worked has to be remembered');
+});
+
+check('and so does the other door, through the same record', () => {
+  // bc-goo.15 gave this a second caller: lib/reenter.js's sweep re-opens the advocate on
+  // child events, from the advocate tick. The record of "a window is on its way up" is
+  // module state in lib/epicadvocate.js rather than a `Map` in lib/server.js for exactly
+  // that reason — a card that showed "opening" for the button's launch and re-offered the
+  // button for the sweep's would be offering a control whose only outcome is a 409.
+  const adv = read('lib', 'advocate.js');
+  assert.match(adv, /rememberAdvocateOpened\(`\$\{a\.name\}\/\$\{p0\.id\}`\)/, 'the sweep forgets its own launch');
+  assert.match(adv, /advocateSession\(sessions, p0\.id, \{ openedAt: openedRecently\(/, 'and it refuses a second one by the same rule');
+  const epicadv = read('lib', 'epicadvocate.js');
+  assert.match(epicadv, /const OPENED = new Map\(\)/, 'the record has moved back into one importer');
 });
 
 check('the card links to the session page, and only when there is a pid', () => {

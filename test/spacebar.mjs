@@ -149,7 +149,9 @@ function load({ token = 'tok', fetch = async () => ({ ok: false }) } = {}) {
     JSON,
   });
   vm.runInContext(fs.readFileSync(PUBLIC('spacebar.js'), 'utf8'), ctx, { filename: 'spacebar.js' });
-  return { space: ctx.window.beadcause.space, bar, select, topbar };
+  // `win` so a check can hang something else off `beadcause` after the file has loaded —
+  // which is how edit mode reaches this file, and the order the page loads them in.
+  return { space: ctx.window.beadcause.space, win: ctx.window, bar, select, topbar };
 }
 
 /* One space with two repos, one muted space with one, and a repo in neither — every
@@ -290,6 +292,84 @@ check('inside() is the repos a page may offer to start work in', () => {
   assert.deepEqual(plain(h.space.inside()), ['sophab']);
 });
 
+/* ------------------------------------------- 5. the bar, while the screen is frozen */
+
+/*
+  bc-p49x.5. Edit mode (public/editmode.js) is a state in which every tap points at an
+  element rather than acting on it, and the premise only holds if the element is still
+  there when the tap is handled. bc-p49x.1 stopped the inbox's list repainting; this bar
+  sits above that list, on the same screen, and rebuilds its `<select>` from a payload
+  the poll hands it — so a repo appearing replaces the very option a thumb was aiming at,
+  under a banner promising the screen is held still.
+
+  Checked here rather than by reading the gate as text because the half that is easy to
+  lose is the second one: *only the paint* waits, and the paint that was skipped still
+  has to happen. `state` takes the new repos while frozen, so leaving the mode needs no
+  refetch — and this file registers a one-shot `editMode.onChange` from inside its own
+  freeze to repaint on the way out.
+
+  **That listener is bc-ka5y.1's, and it replaced something that used to be free.** The
+  catch-up was structural while the inbox's `render()` ended in `publishCounts()`, which
+  was a `space.adopt()`, which landed here — so the repaint that thawed the list repainted
+  this bar in the same tick. Those counts are gone and so is that call, and nothing else
+  reaches this file on a repaint, so the bar would have sat holding its pre-freeze options
+  until the next poll's payload.
+*/
+const editStub = () => {
+  const listeners = [];
+  let frozen = true;
+  return {
+    // The shape public/editmode.js exports, narrowed to what this file asks of it.
+    mode: { frozen: () => frozen, onChange: (fn) => listeners.push(fn) },
+    thaw() {
+      frozen = false;
+      for (const fn of listeners) fn();
+    },
+    listeners,
+  };
+};
+
+check('a poll that changes the repos does not rebuild the picker while the screen is frozen', () => {
+  const h = fresh();
+  const before = h.select.innerHTML;
+  assert.ok(before.includes('value="ws:beadcause"'), 'the fixture drew a picker to freeze');
+  const edit = editStub();
+  h.win.beadcause.editMode = edit.mode;
+
+  h.space.adopt({ workspaces: [...NAMES, 'newrepo'] });
+  assert.equal(h.select.innerHTML, before, 'the options were rebuilt under a frozen screen');
+
+  // But the payload was taken, which is what makes the catch-up free.
+  assert.deepEqual(plain(h.space.inside()), [...NAMES, 'newrepo'], 'the new repo never reached state');
+});
+
+check('and the thaw itself draws everything the frozen polls carried', () => {
+  const h = fresh();
+  const edit = editStub();
+  h.win.beadcause.editMode = edit.mode;
+  h.space.adopt({ workspaces: [...NAMES, 'newrepo'] });
+  assert.ok(!h.select.innerHTML.includes('value="ws:newrepo"'), 'it was drawn while frozen');
+
+  // No refetch and no second payload: leaving the mode is the whole of the catch-up.
+  edit.thaw();
+  assert.ok(h.select.innerHTML.includes('value="ws:newrepo"'), 'the catch-up never came');
+});
+
+check('and it registers one listener however many polls land under the freeze', () => {
+  const h = fresh();
+  const edit = editStub();
+  h.win.beadcause.editMode = edit.mode;
+  for (let i = 0; i < 5; i += 1) h.space.adopt({ workspaces: [...NAMES, `r${i}`] });
+  assert.equal(edit.listeners.length, 1, 'a listener per skipped paint is a leak on a long edit');
+});
+
+check('a page with no edit mode on it paints exactly as it always did', () => {
+  const h = fresh();
+  assert.equal(h.win.beadcause.editMode, undefined, 'this fixture is the five other pages');
+  h.space.adopt({ workspaces: [...NAMES, 'newrepo'] });
+  assert.ok(h.select.innerHTML.includes('value="ws:newrepo"'));
+});
+
 /* ------------------------------------------------------- the write, and the poll */
 
 check('a pick writes both halves to /api/filter', async () => {
@@ -416,7 +496,10 @@ check('and no page publishes counts to it any more', () => {
   // rather than only at the paint: `publishCounts` in the inbox and the per-workspace
   // tally the advocate console used to build are both gone.
   const app = read('public/app.js');
-  assert.ok(!app.includes('publishCounts'), 'the inbox still publishes counts');
+  // The definition and the call, rather than the word: the freeze paragraph in app.js
+  // names `publishCounts()` in prose, explaining what its removal cost.
+  assert.ok(!/function publishCounts/.test(app), 'the inbox still defines publishCounts');
+  assert.ok(!/^\s*publishCounts\(/m.test(app), 'the inbox still calls publishCounts');
   const publish = app.slice(app.indexOf('function publishSpaces'), app.indexOf('function publishSpaces') + 1200);
   assert.ok(!publish.includes('counts'), 'publishSpaces sends counts');
   assert.ok(!read('public/monitor.js').includes('counts,'), 'the advocate console still publishes counts');

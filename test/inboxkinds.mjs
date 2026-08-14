@@ -758,7 +758,9 @@ await check('nothing beside the list counts it a second time', () => {
   // saying 5 above a list showing 1 is the two halves of one screen disagreeing about
   // the same beads, and the cheapest way to never disagree is to say nothing.
   const app = read('public/app.js');
-  assert.ok(!app.includes('publishCounts'), 'the space picker is being sent counts again');
+  // The call, rather than the word: app.js's edit-mode freeze paragraph names
+  // `publishCounts()` in prose, explaining what its removal cost.
+  assert.ok(!/^\s*publishCounts\(/m.test(app), 'the space picker is being sent counts again');
   assert.ok(!app.includes("$('#waiting')"), 'the "N waiting" pill is back in the top bar');
   const summary = app.slice(app.indexOf('function paintSummary'), app.indexOf('function paintArmed'));
   assert.ok(!summary.includes('inKind(q)'), 'paintSummary is counting the list again');

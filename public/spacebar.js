@@ -217,6 +217,27 @@
     `<option value="${esc(value)}"${on ? ' selected' : ''}>${esc(text)}</option>`;
 
   /**
+   * Repaint once the screen is let go of again.
+   *
+   * Registered from inside the freeze rather than at load, for one reason: this file runs
+   * ahead of every page script, and public/editmode.js may not have defined
+   * `window.beadcause.editMode` yet. Inside the guard it certainly has — `frozen()` just
+   * answered true. One listener at most, ever; it repaints on the change that turns edit
+   * mode off and does nothing on the one that turns it on, which `paint()`'s own guard
+   * already handles.
+   */
+  let thawWatching = false;
+  function thawFirst() {
+    if (thawWatching) return;
+    const mode = window.beadcause?.editMode;
+    if (typeof mode?.onChange !== 'function') return;
+    thawWatching = true;
+    mode.onChange(() => {
+      if (!mode.frozen?.()) paint();
+    });
+  }
+
+  /**
    * The dropdown: All, then each space with its repos under it.
    *
    * Every *configured* workspace gets a row whether or not anything is waiting in it —
@@ -226,6 +247,21 @@
    * look like a repo with nothing in it.
    */
   function paint() {
+    // Not while the page is deliberately holding still. Edit mode (public/editmode.js)
+    // is a state in which every tap points at an element rather than acting on it, so a
+    // poll that rebuilds this `<select>`'s options has moved the chrome above the list
+    // out from under a thumb that was aiming at it.
+    //
+    // Only the paint waits. `adopt()` above has already taken the new spaces, repos and
+    // selection into `state`, so nothing is lost and no refetch is owed — and the skipped
+    // paint is *remembered*, so the thaw repaints the bar rather than leaving it holding
+    // whatever it drew before the freeze. It used to be able to rely on the inbox instead:
+    // the last line of `render()` was `publishCounts()`, which was a `space.adopt()`,
+    // which ended here — so the repaint that thawed the list repainted this bar in the
+    // same tick. bc-ka5y.1 deleted those counts and with them that call, so the catch-up
+    // is owned here now. A page with no edit mode, or one served before the file existed,
+    // answers undefined and paints as it always did.
+    if (window.beadcause?.editMode?.frozen?.()) return void thawFirst();
     const now = valueOf(state.filter);
     const rows = [option(ALL, 'All spaces', now === ALL)];
 
