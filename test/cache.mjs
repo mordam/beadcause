@@ -198,6 +198,34 @@ cache.clear();
   await check(() => assert.equal(healed.error, null), 'with the failure cleared off the envelope');
 }
 
+/* A failure that lands on an entry still INSIDE its window stays there, and a read will not
+   shift it — the warm path answers from memory without producing, so only a `refresh`, a
+   `drop` or the window running out can clear it. That is a property of a cache and not a
+   bug, but it is a trap for any caller that treats `error` as "report this and move on":
+   lib/prboard.js does, because a red PR card must not outlive the `gh` outage that caused
+   it, which is why it drops the key on the way out rather than only rethrowing. Written
+   down here because this is where somebody will look for it. */
+cache.clear();
+{
+  const p = producer('good');
+  await cache.read('prs:/repo', p.run, FRESH);
+  p.fail = 'gh: could not connect to github.com';
+  await quiet(async () => {
+    await cache.read('prs:/repo', p.run, { ...FRESH, refresh: true });
+  });
+
+  p.fail = null;
+  p.value = 'healed';
+  const warm = await cache.read('prs:/repo', p.run, FRESH);
+  await check(() => assert.match(warm.error || '', /could not connect/), 'a failure on a still-fresh entry is not shifted by a read');
+  await check(() => assert.equal(p.calls, 2), 'because a warm read produces nothing — nothing is asking whether it healed');
+
+  cache.drop('prs:/repo');
+  const after = await cache.read('prs:/repo', p.run, FRESH);
+  await check(() => assert.equal(after.error, null), 'dropping it is what makes the next read find out');
+  await check(() => assert.equal(after.value, 'healed'), 'and the answer is the one from after the outage');
+}
+
 cache.clear();
 {
   const p = producer('never');
