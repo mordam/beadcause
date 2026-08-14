@@ -1022,11 +1022,17 @@
    * "waits on 1", because bd counts the edge to its parent among them.
    *
    * So the array is split rather than counted, and each edge goes to the group whose
-   * label is true of it. `discovered-from` and `related` get their own group instead
-   * of being folded into "waits on": neither blocks anything, and a bead that says it
-   * is waiting on something it is not is worse than one that says nothing.
+   * label is true of it. `discovered-from` and the see-alsos get their own group
+   * instead of being folded into "waits on": neither blocks anything, and a bead that
+   * says it is waiting on something it is not is worse than one that says nothing.
+   *
+   * **`relates-to` is the spelling bd writes and `related` is the one this file had.**
+   * The set held only the second until bc-arj0.4, because the whole tracker held one
+   * see-also and it was made by hand with the older name. It is the same word here as
+   * lib/mentions.js's `RELATED_EDGES` — repeated rather than imported, because this
+   * file is served to a browser and imports nothing at all.
    */
-  const RELATED = new Set(['discovered-from', 'related']);
+  const RELATED = new Set(['discovered-from', 'related', 'relates-to']);
 
   function relations(b) {
     const known = Array.isArray(b.dependencies);
@@ -1075,6 +1081,13 @@
    * one dependent and no children, so it paid for a call that drew nothing. That case is
    * the Blocks list now, which is what makes this gate tight in both directions — the
    * only bead that asks and gets nothing back is one whose count and edges disagree.
+   *
+   * Since bc-arj0.4 there is a second such bead and it is no longer rare: a see-also is
+   * counted here and then dropped by `dependentsHtml`, because it is already drawn above
+   * the description. So a bead whose only incoming edges are see-alsos pays for a call
+   * that renders an empty div. Tightening it would mean a count of edges *by type*, which
+   * bd does not offer without the rows this call is fetching — and the empty div has no
+   * height, so what it costs is one request and nothing on the screen.
    */
   const hasDependents = (b) => Boolean(b && b.dependent_count);
 
@@ -1136,10 +1149,18 @@
    *  - **`discovered-from`** is work that came *out* of this bead. It waits on nothing —
    *    "Discovered here" is what it is, and calling it blocked would be a queue that
    *    does not exist.
-   *  - **`related`** is the same word from either end; bd stores that edge once, on
+   *  - **`related`** is the same word from either end; bd stores *that* edge once, on
    *    whichever bead it was created from, so it shows up above the description on one of
    *    the pair and down here on the other. Same label both ways, because it means the
    *    same thing both ways.
+   *  - **`relates-to`** is the same relationship under the name `bd dep relate` actually
+   *    writes, and it is the one exception here: bd stores it **twice**, one row at each
+   *    end. So the row is already up above the description under Related, drawn from
+   *    `bd show`'s own dependencies, and printing the incoming half as well would put the
+   *    same neighbour on the card twice under one heading — the exact duplication the
+   *    `parent-child` rule above exists to prevent. Dropped, therefore, rather than
+   *    grouped. The older one-ended `related` is not dropped, because on that end it is
+   *    the only row there is.
    *
    * Everything left blocks — including an edge with no type at all, which is the same
    * benefit of the doubt `relations` gives a typeless dependency going the other way.
@@ -1149,7 +1170,9 @@
    * not. Pure, like `childrenHtml`, so the whole block can be rendered in a test.
    */
   function dependentsHtml(dependents) {
-    const rows = (dependents || []).filter(Boolean).filter((r) => r.dependency_type !== 'parent-child');
+    const rows = (dependents || [])
+      .filter(Boolean)
+      .filter((r) => r.dependency_type !== 'parent-child' && r.dependency_type !== 'relates-to');
     if (!rows.length) return '';
     const of = (type) => rows.filter((r) => r.dependency_type === type);
     const groups = [
@@ -1461,7 +1484,9 @@
       // Carries an id because it does not survive the rows: `loadLinks` takes it off the
       // moment the edges land, the same way `waits on` is not drawn once they have. It is
       // here at all because the count is what can be said at first paint — and it is only
-      // ever a count of edges, so on an epic every one of them is a child.
+      // ever a count of edges, so on an epic every one of them is a child, and since
+      // bc-arj0.4 some of them are see-alsos to beads that merely named this one. There is
+      // no count bd offers that would be better; the rows say it properly a moment later.
       b.dependent_count ? `<span class="pill" id="pill-blocks">blocks ${esc(b.dependent_count)}</span>` : '',
       // Only when the rows are not there to say it better. A count and the list it
       // counts, one above the other, is the sheet saying the same thing twice — and
