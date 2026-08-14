@@ -8281,6 +8281,52 @@ a bead, and that is all it knows. So:
   the brief asks it to do. Where it didn't, the row says when the window was opened
   and nothing more.
 
+#### The claim a window leaves behind
+
+A worker claims its bead as its first act, because that is what stops a second window
+being opened on top of it. Every ending in the table above takes the claim off again: a
+delivery closes the bead, "request changes" reopens it, `bin/plan.js` hands an epic back
+explicitly. The endings *nobody* chose — exited unfinished, timed out, asked to check in
+and never answered — used to take it off nowhere. The slot went back, the attempt was
+charged, and `in_progress` stayed on the bead for good.
+
+A claimed bead is not in `bd ready`, and `bd ready` is the whole of what an advocate can
+see. So a window shut by hand at midnight took its bead out of every queue this daemon
+builds, permanently, on the strength of a session that did nothing — and counted the
+attempt, which is the tell: counting attempts against `maxAttemptsPerBead` on work that
+can never be attempted again is counting nothing.
+
+**Where it bit hardest was an epic.** A planner claims its epic like any other window, and
+`bin/plan.js` un-claims it as its last act, precisely because the advocate reads plans off
+epics **in `bd ready`** — a claimed epic makes its own plan invisible. A planner that died
+before that step left the epic claimed, the plan it had already written unread, and the
+epic's children falling back to one window each. Degraded rather than stuck, self-healing
+the moment anybody reopened the epic by hand, and silent: nothing anywhere said "this
+epic's plan is unreadable because a window that is gone is still holding it".
+
+So `reconcile` now puts the claim back, on those three endings only, and only where
+nothing is sitting in the bead:
+
+- **a busy window keeps its claim** — `timeout` and `silent` are both endings a session can
+  reach mid-sentence, and un-claiming under a live one is how two windows end up on a bead
+  that spans ten repos;
+- **an idle window counts as gone** — a worker's window holds exactly one turn, the brief,
+  so the moment that turn is over the session is finished. This is the case that matters:
+  a window whose agent fell over does not vanish, it sits there idle, and a rule that
+  waited for the window to *disappear* would hold the claim for as long as nobody happened
+  to close it;
+- **the three endings the session reached for itself change nothing** — closed, delivered
+  and handed back all want the bead exactly where it is, and a delivered bead reopened
+  would be handed to a fresh window while the pull request it is waiting on sits there;
+- **`stood-down` changes nothing either**, because that claim is one row both Macs can see
+  and dropping it here would drop the winner's;
+- **a tracker that refuses the write is not an error** — the bead stays claimed, which is
+  where it already was, and the next window to reach one of these endings tries again.
+
+The hand-back runs before the same tick's survey, so a bead freed this way is workable
+immediately rather than thirty seconds later — and where the dead window is still on
+screen, the live-session filter is what stops a second one opening over it.
+
 #### Closing the window — a session that has finished should not still be on screen
 
 The `exit` above only runs **when `claude` exits**, and a session that has finished its
@@ -9217,6 +9263,119 @@ comes off when that worker ends, expires on `leaseMinutes` if the Mac went to sl
 says whose it is on the card the entire time it lasts. The cases are in
 `node test/leasequeue.mjs`, including the read count, the sibling that is *not* held, the
 plain parent that holds its subtree too, and the two-machine race resolved after a sync.
+
+#### …and the window already inside it
+
+The rule above reads upward: a claim on an ancestor holds the bead. Read downward it said
+nothing, and the hole that leaves is the same duplicate stood on its head. The other Mac
+opens a window on `x-1.1`, a subtask, and claims it. `x-1` — a plain task, its parent —
+goes ready here, and every check that should have stopped a second window is looking the
+wrong way. No ready child, because the child is *claimed* and claimed beads are out of
+`bd ready` entirely. No live worker under it, because that worker is in an `a.workers` on
+the other laptop. And the `bd children` question — the one that holds an epic while
+anything under it is open — is asked only of an **epic**, which a task with subtasks is
+not. So the parent launches here, and the subtree has two windows on two branches.
+
+**What made this the half that was left out is that descendants are not in the id.**
+`ancestorsOf` is free: `x-1.2.3` is under `x-1.2` and `x-1`, and that is arithmetic on a
+string. There is no `descendantsOf`, and the honest ways to get one are a `bd children` per
+queued parent per tick, recursively, or the whole graph out of a `bd export` — a read per
+tick to learn something that changes about as often as somebody opens a window.
+
+So the question is asked the other way round. Not *what is under this bead, and is any of it
+claimed*, but **what is claimed, and is any of it under this bead** — and that second form
+needs no enumeration at all, because `isDescendantOf` answers it in the ids already in hand,
+at any depth. The list of claims comes from the in-progress rows, which [the twin
+filter](#what-counts-as-work) has read on every survey since it was built and uses only the
+titles of. This reads the labels off the same rows. **It costs nothing**, which is the
+second time that has been the answer here and for the same reason: the read was already
+being paid for and thrown away.
+
+That the rows are the *in-progress* ones leaves one gap, and the filter above it covers
+that gap. A bead the other machine's advocate has staked is claimed by its worker within
+the first minute, so the two writes ride the same sync — by the time a pull can show you the
+label at all, it shows you the status. In the window where it has not, the bead carries no
+claim here yet, so it is still in this tick's `bd ready`, and the *first* check holds a
+parent whose child is ready for exactly the reason this one holds a parent whose child is
+claimed.
+
+**And this half is a filter and never a stand-down**, which is the one place the two
+directions are deliberately not symmetric. `reconcile` withdraws a window when a claim is
+*above* it, and that asymmetry is what resolves the after-the-fact race to exactly one
+survivor: the machine above keeps its window, the machine inside gives its up. Asking the
+downward question there too would make both of them withdraw — the one above because
+somebody is below, the one below because somebody is above — and a subtree nobody is working
+is worse than the duplicate that started this. So it runs before a launch, where the answer
+is *do not open a second window*, and never after one, where the answer is already settled.
+
+#### …and the window this daemon never opened
+
+Everything above is written by the launch. The advocate stakes the claim and then opens the
+window, so every session **it** opens is visible on the other Macs — which is most of them,
+and was all of them for as long as the only thing that opened a window on a bead was an
+advocate. It is not. A bead opened from the phone or the console opens a session on the
+Mac; so does a terminal seeded on one; so does opening iTerm yourself and starting a
+session on a bead by hand, which is the oldest way of all. None of those goes past the
+launch, so none of them staked anything.
+
+On one laptop that has never shown, and the reason is the filter two sections up: [a window
+already open on a bead](#the-bead-somebody-is-already-sitting-in) holds it, on the evidence
+of the process alone, whoever opened it. Across two Macs there is no process to see. The
+other machine reads a bead that is ready, unclaimed as far as the shared graph knows, and
+opens a second window on it — bc-bllw's incident exactly, reached through the one door
+bc-bllw did not close. That is bc-3p53.
+
+So the same evidence is **published**. Every tick already reads the session records to
+decide which beads a window is open on; each one that names a bead this workspace has, and
+that no worker of this advocate is on, now gets this Mac's claim written on it. The other
+machine's filter reads it like any other claim, and holds the bead.
+
+**And the terminals, which are the same fact from a register rather than an inference.** An
+[in-app terminal](#the-terminal--driving-a-session-from-the-phone) seeded on a bead is briefed
+for a phone-sized screen and told outright *not to rename itself*, so no session record
+will ever carry its id and the sweep over names is blind to every one of them. It does not
+need a name: this daemon starts the pty and this daemon ends it, so `live` is not something
+inferred from a process table. Live ones only — a **resumable** terminal is a conversation
+waiting to be picked up, with no process behind it and possibly days before anybody does,
+and a claim held across that is the park this whole mechanism is trying not to cause.
+
+**The release is what made this a bead rather than a line, and it is why the claim follows
+the window rather than the door that opened it.** A hand-opened window is not a worker: no
+slot, no reconcile, nothing that would ever renew or drop a label on its behalf. Staking
+where the window is opened is one line of code and leaves only `leaseMinutes` to end it —
+so closing a window you had open for five minutes would park that bead on every other Mac
+for an hour, which is the trade [the lease itself](#the-bead-another-mac-has-claimed) calls
+strictly worse than the duplicate window the whole thing exists to prevent. The window is
+the better signal and it is free: it arrives every tick, in the same snapshot every other
+filter here already reads. So the claim is staked while a session names the bead, restamped
+at half the lease for as long as one does, and **taken off on the first tick after the last
+one has gone**. Expiry stays underneath for the single case this cannot see — a daemon that
+was down when the window closed — which is what expiry was always for.
+
+Three windows it deliberately says nothing about, and each would otherwise have cost a
+duplicate label:
+
+- **A worker**, or a window on a bead beneath one. The launch staked that claim and the
+  reconcile renews it; a second mechanism writing a second label from the same handle is a
+  second row to sync and a bead the tracker reports as contested by a machine that is not
+  contesting anything.
+- **A window whose name says `DONE-`.** A session finished by its own account is not
+  working the bead, and its window can sit there for an hour before the sweep closes it.
+- **A bead another Mac already holds.** A claim of ours would be later and would lose the
+  tiebreak anyway — and writing it would only tell the holder's card the bead is contested
+  when nothing here is going to stand down. This window is a person at a keyboard, and no
+  advocate closes one of those.
+
+It costs one `bd show` per hand-opened window per half a lease: the read that says whether
+the id in a window's title is a bead this workspace has at all, since a title can carry a
+hyphenated word in exactly an id's shape. The answer is remembered either way, including
+the negative, and ages rather than sticking, because every one of those answers can change.
+It is off wherever the lease is off — `holdLeases: false`, or no `me` at all, which is every
+single-person install and costs not so much as a read — and off with `holdLiveSessions:
+false` as well: a window is the only evidence it has, so an advocate told not to treat an
+open window as a bead being worked has no business telling the other machines that it is.
+`node test/handlease.mjs` covers it, including the release, the adoption of a claim a
+restarted daemon left behind, and the other Mac holding the bead after a sync.
 
 ### The bead whose files somebody is already editing
 
@@ -13825,7 +13984,7 @@ another Mac's, and an agent's — and asserts that exactly one of them rings.
 | `advocates.holdLiveSessions` | [hold a bead out of the queue while a live session already names it](#the-bead-somebody-is-already-sitting-in) (default `true`). The claim is not the guard the brief says it is — "request changes" drops it, a timeout drops the slot, a restart forgets the worker — and without this a second window opens into a worktree somebody is still editing. No interval: the session records are files on this laptop, so it reads on every tick and again before a launch |
 | `advocates.holdClaimedFiles` | [hold a bead out of the queue while another session on this Mac is editing the files it would touch](#the-bead-whose-files-somebody-is-already-editing) (default `true`). The same register `scripts/claim-guard.sh` asks at `PreToolUse`, read at dispatch instead — where standing down costs nothing rather than a session that has already been briefed. No new state and no interval: the map is in this process |
 | `advocates.holdGuessedFiles` | whether a surface *guessed* out of the bead's prose may hold as well, or may only say so on the card (default `false`). A declared surface is a forecast somebody wrote down; a guess is the daemon having read a description, and evidence that is a resemblance errs toward doing the work twice rather than not at all — the same way the twin filter does, and the opposite of the open-pull-request one |
-| `advocates.holdLeases` | [hold a bead out of the queue while another Mac has claimed it in the shared tracker, and stand down when one claims it underneath us](#the-bead-another-mac-has-claimed) (default `true`). Inert until `me` is set, which is every one-Mac install — with no handle there is no label to write and nobody to lose to. The claim is a `held:<stamp>:<handle>` label rather than the assignee, because two labels are two rows Dolt merges rather than a cell it cannot, which is what lets both machines see both claims and agree on the winner without talking |
+| `advocates.holdLeases` | [hold a bead out of the queue while another Mac has claimed it — the bead itself, or anything above or below it in the subtree — and stand down when a claim above one of our own windows wins](#the-bead-another-mac-has-claimed) (default `true`). Inert until `me` is set, which is every one-Mac install — with no handle there is no label to write and nobody to lose to. The claim is a `held:<stamp>:<handle>` label rather than the assignee, because two labels are two rows Dolt merges rather than a cell it cannot, which is what lets both machines see both claims and agree on the winner without talking |
 | `advocates.leaseMinutes` | how long one of those claims is good for (default 60, restamped at half that by whichever advocate still holds the worker). Not a load knob: it is how long a bead stays parked when the Mac holding it goes to sleep, and a bead parked forever is worse than the duplicate window this prevents |
 | `advocates.sessionLog` | archive each finished session to `refs/beadcause/sessions/<bead>` and note its commits (default `true`) |
 | `advocates.sessionTranscripts` | also store the raw Claude Code transcript — megabytes, and it carries paths and tool output (default `false`; set per repo in `perWorkspace`) |
