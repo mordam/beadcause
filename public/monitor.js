@@ -1980,14 +1980,11 @@
    * copy of it is how the warm pane would come to disagree with the fetched one.
    */
   function adoptQuestions(questions) {
-    // This page sweeps the inbox for the proposals, so it has the picker's numbers
-    // for free — fresher than /api/spaces, which is one poll behind by design.
-    const counts = {};
-    for (const q of questions.questions || []) counts[q.workspace] = (counts[q.workspace] || 0) + 1;
+    // This page sweeps the inbox for the proposals, so it has the picker's shape for
+    // free — fresher than /api/spaces, which is one poll behind by design.
     window.beadcause?.space?.adopt({
       spaces: questions.spaces,
       workspaces: questions.workspaces,
-      counts,
       filter: questions.filter,
     });
     state.proposals = new Map();

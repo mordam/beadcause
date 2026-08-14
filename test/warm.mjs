@@ -292,10 +292,10 @@ await check('a repeated key bails to a whole-list rebuild rather than guessing',
 });
 
 await check('the panes that are not beads have keys a bead can never collide with', () => {
-  // `@shade`, `@requests`, `@empty` against `workspace/id`. One `@` is what keeps the
-  // two namespaces apart, so it is asserted rather than left to a comment.
+  // `@requests`, `@empty` against `workspace/id`. One `@` is what keeps the two
+  // namespaces apart, so it is asserted rather than left to a comment.
   const app = read('public/app.js');
-  for (const key of ['@shade', '@requests', '@empty']) {
+  for (const key of ['@requests', '@empty']) {
     assert.ok(app.includes(`key: '${key}'`), `${key} is no longer the key the inbox uses`);
   }
 });
@@ -657,14 +657,13 @@ const cold = await get('/api/poll');
 await check('/api/poll answers with the same screen /api/questions does', () => {
   // The whole reason the inbox can refresh itself from the poll. A field on one and
   // not the other is a refresh that draws a subtly different inbox from a reload —
-  // no counts on the chrome, or a filter it does not obey — and nothing would say so.
+  // no badges on the tabs, or a filter it does not obey — and nothing would say so.
   const missing = Object.keys(questions.body)
     .filter((k) => k !== 'scope' && k !== 'seq')
     .filter((k) => !(k in cold.body));
   assert.deepEqual(missing, [], `the poll is missing ${missing.join(', ')}`);
   assert.deepEqual(cold.body.filter, questions.body.filter);
   assert.deepEqual(cold.body.summary, questions.body.summary);
-  assert.ok('dismissAsk' in cold.body, 'the notification prompt has to survive a poll-driven refresh');
 });
 
 await check('and both build it from one function, so they cannot drift apart quietly', () => {
