@@ -12291,9 +12291,10 @@ cookie says so), and `/auth/signout` ends the session.
 | POST | `/api/bead/changes` | `{workspace, ids[], note}` | your objection on the thread and nothing else — the bead stays held, so the next session that touches it reads what is wrong instead of re-filing it next week. The note is required, because a changes-requested with nothing said is indistinguishable from having done nothing |
 | POST | `/api/bead/discuss` | `{workspace, id, text, agent?}` | your question on the thread, and a reply agent sent to answer it — the one thing you can do to a held bead that is **not** a verdict. The comment is the only write: no label moves, the `unendorsed` marker stays, and a bead endorsed since the queue was drawn is a `409`. One id only, never a list. Answers `{thread[], dispatched, agent, reason}`, and `reason` is why nobody was sent when nobody was |
 | GET | `/api/bead/thread` | `?workspace=&id=` | `{thread[], running, activity}` — the comments on one bead with each author resolved against the roster, plus whether an agent is still writing. What the discussion panel polls, because nothing pushes a reply on a bead that is not a `human` question |
+| GET | `/api/jira/ticket` | `?workspace=&key=&epic=` | `{read, epic, children[], childrenError, cancelled}` — what the [ticket view](#the-ticket-opened-over-the-tab--and-the-way-back-from-a-cancelled-one) opens with, and deliberately *not* the whole ticket: the summary, the status and when it moved are on the row already and refresh on the inbox poll. `read` is the description, the thread (newest 40, with `omitted`), the type, the priority, the labels and the ticket's JIRA parent — or `{ok: false, error}`, because a JIRA that will not answer must not take the view with it. `epic` is passed *in*, since the row has it and the server would otherwise pay a `bd list --all` for it. The only `GET` of the four: nothing about opening a ticket decides anything |
 | POST | `/api/jira/approve` | `{workspace, key}` | endorses the epic behind a JIRA ticket **and its open children**, in one act — see [approve, discuss, cancel](#approve-discuss-and-cancel-on-the-row--and-a-cancel-that-never-expires). Aimed at the *ticket key*, because which beads make up a ticket is a `bd list --parent` at this end of the wire. Answers the verdict shape (`applied[]`, `failed[]`) plus `{epic, children, truncated}`. A ticket whose epic has not been filed yet is a `409`; a closed child is left closed |
 | POST | `/api/jira/cancel` | `{workspace, key}` | earmarks the ticket so it is never proposed again — a keyed record in `state.json` that **nothing prunes** — and closes its epic with a reason that names the ticket, marker left on. An epic that has already been approved is left completely alone (`bead: 'endorsed'`), because by then it is real work. The earmark is written even if `bd` will not answer, since letting the ticket come back next sweep is the failure this prevents. Nothing is written to JIRA |
-| POST | `/api/jira/beadify` | `{workspace, key}` | the reverse: lifts the earmark, **reopens** the epic that was closed with it, and drops the filer's memory of the workspace so the next sweep re-reads. Reopening rather than re-filing is what makes it one epic and not two — the `external_ref` survives a close, so a fresh sweep would find the closed bead and raise nothing. A ticket that was never cancelled is `restored: false`, not an error |
+| POST | `/api/jira/beadify` | `{workspace, key}` | the reverse: lifts the earmark, **reopens** the epic that was closed with it, drops the filer's memory of the workspace so the next sweep re-reads, and drops the *ingester's* memory of this one ticket so a reading that had failed is tried again rather than remembered forever. Reopening rather than re-filing is what makes it one epic and not two — the `external_ref` survives a close, so a fresh sweep would find the closed bead and raise nothing. A ticket that was never cancelled is `restored: false`, not an error |
 | GET | `/api/work` | — | `{workspaces[], elsewhere[], advocates[], service, router}` — per workspace: claimed beads, live `claude` sessions, counts, errors. `service` is what launchd is running; `router` is whether that program is actually serving anything, or is on an older build than the disk — see the router section. `router` is `null` under `npm run start:bare`, where there is no router |
 | GET | `/api/agents` | — | `{agents[], default}` — the roster you can address a comment to |
 | POST | `/api/agents` | `{name, description}` | creates one and returns the new roster. `tools` is never accepted here |
@@ -13011,7 +13012,10 @@ carries the workspace it came off, because JIRA is configured per workspace and 
 alone does not say which project you are looking at. The assignee is *not* drawn: the
 query is "assigned to you", so a name on every row would be the same name on every row.
 Under that line sit the three things you can say about it —
-[approve, discuss and cancel](#approve-discuss-and-cancel-on-the-row--and-a-cancel-that-never-expires).
+[approve, discuss and cancel](#approve-discuss-and-cancel-on-the-row--and-a-cancel-that-never-expires)
+— and tapping the row itself
+[opens the ticket over the tab](#the-ticket-opened-over-the-tab--and-the-way-back-from-a-cancelled-one),
+which is where it gets read.
 
 **They are rows, not beads.** Synthesised at render time and never merged into
 `state.questions`, exactly as the pull requests and the chat sessions are, for the reason
@@ -13160,7 +13164,10 @@ bead may never have existed: a ticket can be cancelled in the minute between arr
 its epic being filed, or on a machine whose `bd create` has been failing all morning.
 Beadify has to find the record with nothing in hand but the ticket, which is the one
 thing that is always there. The bead id is *carried* on the record, because that is what
-beadify reopens; it is a field, never the key.
+beadify reopens; it is a field, never the key. And the way back to a cancelled ticket is
+[a fold at the foot of the section](#the-ticket-opened-over-the-tab--and-the-way-back-from-a-cancelled-one),
+because beadify lives on a ticket's own view and a view with no way in is a button that
+does not exist.
 
 **Both halves are filtered, and only one of them is visible.** The cancelled ticket is
 dropped from the inbox payload *and* from the list the epic filer acts on. Filtering only
@@ -13181,8 +13188,9 @@ else.
 **Beadify reopens rather than re-files**, and that is not tidiness. The `external_ref`
 survives a close, so a sweep over a beadified ticket finds the closed epic by ref and
 raises nothing — which means without the reopen the ticket would come back with a dead
-bead that no sweep would ever replace. The button belongs to the ticket view
-(bc-0i27.6); the act is `POST /api/jira/beadify` and it is the other half of this record.
+bead that no sweep would ever replace. The button belongs to
+[the ticket view](#the-ticket-opened-over-the-tab--and-the-way-back-from-a-cancelled-one);
+the act is `POST /api/jira/beadify` and it is the other half of this record.
 
 **No request in this whole path is anything but a GET against JIRA.** The earmark is local
 for that reason and not as a shortcut: no label, no transition, no comment. Making
@@ -13280,6 +13288,100 @@ tries again.
 v3 description into text, what a child bead actually is, the once-only question and its
 cost, the four failure paths, the concurrency cap, and the row — the renderer lifted out of
 `public/app.js` and run for real, the way `test/jirarow.mjs` runs it.
+
+### The ticket, opened over the tab — and the way back from a cancelled one
+
+A row says the key, the summary, the status and when it last moved, which is exactly
+enough to decide *whether to open it*. Tapping it opens the ticket itself — its
+description, its thread, and the beads written under its epic — and the row that used to
+be a link out to atlassian.net is a **button** now, for the two reasons
+[the pull request row](#tapping-one-opens-it-full-screen) became one: the reading this row
+exists for happens here rather than on somebody else's site, and the whole row is one tap
+target where an `<a>` inside it was a nested interactive element a phone could resolve
+either way. The link out is not lost; the open view puts it back on the title, which is
+where it belongs once there is a screen to leave.
+
+**It opens over the tab, not instead of it** — the rule this whole app has
+[one of](#detail-opens-over-the-tab-not-instead-of-it), and this is one of those rather
+than a new pattern. Mechanically it is `.card.open`, the same fixed full-screen sheet a
+question and a pull request open into: a `.card-top` that stays, a `.card-head` saying
+what this is, a `.brief` that scrolls and a pinned `.freeform` holding the buttons.
+Nothing new was laid out for it, and the ✕ question does not arise — a card that collapses
+back into the list *is* the view it opened over.
+
+**It is tappable before the ingestion has finished, which is the point of it.** The
+decomposition takes minutes and the ticket is what you read to decide either way, so the
+view draws from what is already in hand and waits on nothing. The two halves arrive on
+two clocks:
+
+- **The bead half** — the epic's id, whether it is still held, how the reading is going —
+  is on the row already and refreshes on the ordinary inbox poll. A ticket opened in the
+  minute before its epic is filed says *its bead is still being filed* and then says the
+  id, with nothing on this screen polling for it. That is why this is a screen rather
+  than a spinner: the unknown half arrives on a clock that was already running.
+- **The ticket half** — the description and the thread — is one `GET /api/jira/ticket`,
+  issued after the sheet is up and once per card for the life of the tab. A description
+  does not move, and a phone parked on the inbox must not be issuing a JIRA read every
+  twenty-five seconds.
+
+The one thing that could not ride the row is **which beads it decomposed into**: that is a
+`bd list --parent`, the most expensive call in the app, and it has no business on a payload
+every parked phone rebuilds. Behind a tap it is fine. Closed children are drawn struck
+through rather than dropped, because an epic whose children were revoked is a different
+picture from one with none, and it is the picture you would decide differently about.
+
+**A JIRA that will not answer is a sentence, not an empty card.** The row's own facts, the
+epic, the children and all three buttons are still true and still act; the one thing lost
+is the description. The reverse holds too — a tracker that will not answer costs the
+children and not the ticket. The failure that would matter is a view that refused to open
+because a token expired, taking the decision with it.
+
+**Beadify is here, and it is the only thing a cancelled ticket's view offers.** Not also
+approve: the epic behind it is closed and the earmark is on, so approving would endorse a
+closed bead and the very next sweep would take the ticket away again. One tap rather than
+two, unlike the cancel it undoes — cancel arms because it writes
+[the one record with no expiry](#approve-discuss-and-cancel-on-the-row--and-a-cancel-that-never-expires)
+and a thumb in a pocket must not be able to, and an undo behind two taps is a decision you
+have to make twice.
+
+It does four things, and the fourth is this step's: the earmark comes off, the closed epic
+is *reopened* rather than a second one filed, the epic filer's memory of the workspace is
+dropped — and so is **the ingester's memory of this one ticket**. That last one has no
+visible symptom and is the reason the sentence is here: the ingester skips any ticket it
+already has an answer about, and `failed` is an answer, so a ticket cancelled while its
+reading had failed would come back with the failure still in memory, saying *could not be
+read* forever with nothing anywhere that would retry it. One ticket rather than the
+workspace, because every other ticket in it would otherwise cost a `bd list --parent` to
+find out nothing had changed.
+
+**How you reach a cancelled ticket at all: a fold at the foot of the section.** This is the
+part that made the button possible — beadify lives on a ticket's own view, and a view with
+no way into it is a button that does not exist. So the cancelled tickets ride the inbox
+payload in a **field of their own** and are drawn as one shut disclosure under the live
+rows, saying nothing but a count.
+
+They are emphatically **not rows**. Nothing counts them: not the JIRA chip, not the summary
+line, not the space picker's per-repo numbers, not the monitor's *N waiting*. A number on
+this screen that no tap can bring down is the failure the whole ticket section is written
+to avoid, and a ticket you have decided about is the clearest case of one. The fold obeys
+the space and workspace pickers like everything else — a phone narrowed to one space must
+not offer to put back another's ticket — and it opens itself when the card you are reading
+is one of its own, because a repaint that hid the thing you were looking at would be the
+fold eating the view. Only the tickets JIRA *still* says are assigned to you appear: the
+list is a filter over the poller's answer rather than a walk of the records, so a cancelled
+ticket since reassigned to somebody else drops out of it, and the record stays on disk for
+the day it comes back.
+
+A cancel taken from inside a ticket's own view moves the card into that fold in the same
+breath, rather than a poll later. Two things need it — the view must not blink out from
+under the thumb that cancelled, and the toast has promised a way back that has to exist by
+the time it is read.
+
+`node test/jiraview.mjs` covers all of it: the read (the description, the thread capped at
+its newest forty with the omission counted, the two failures that are fields rather than
+throws), the route, the renderer lifted out of `public/app.js` and run over fixtures the
+way `test/jirarow.mjs` runs the shut row, the cancelled view's single button, the fold's
+three behaviours, and the ingester forget that nothing else would notice.
 
 ### One credential rule and one wire, shared by JIRA and Confluence
 

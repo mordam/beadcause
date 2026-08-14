@@ -36,6 +36,25 @@
     // until that lands the field is simply absent and this stays empty, which is the
     // same thing an install with no JIRA configured will always see.
     tickets: [],
+    // And the ones you cancelled, which are deliberately **not** in the array above and
+    // are not rows at all: nothing counts them, no chip draws them, the list does not
+    // sort them. They exist for one reason (bc-0i27.6) — beadify lives on a ticket's own
+    // view, and a view with no way in is a button that does not exist — so they fill a
+    // fold at the foot of the ticket section and nothing else. Empty on every install
+    // that has never cancelled one, which is most of them.
+    cancelledTickets: [],
+    // The half of a ticket a row cannot carry: `jira:<ws>/<KEY>` → { loading, read,
+    // children, cancelled, unavailable }. The description, the thread and the beads
+    // written under the epic — fetched when a ticket is opened and never on the poll,
+    // exactly as `prDetail` is. The row's own half (the bead id, whether it is still
+    // held, how the reading is going) is *not* in here on purpose: it rides the inbox
+    // payload and so fills itself in on the ordinary poll, which is the whole of what
+    // makes a ticket readable before its ingestion has finished.
+    ticketDetail: new Map(),
+    // Is the cancelled-tickets fold open? On the page rather than in `localStorage`,
+    // deliberately: it is a drawer you open to find one ticket and it should be shut
+    // again next time, unlike the kind filter, which is a standing preference.
+    cancelledFold: false,
     // The repos the last sweep could not read, each with what `bd` said (lib/sweep.js).
     // Its own array for the same reason `requests` is one, and drawn as a pane above
     // the list rather than folded into the empty state: a failed sweep is a fact about
@@ -3281,6 +3300,39 @@
   const cancelledTickets = new Set();
 
   /**
+   * The cancelled ones, as the same rows — the contents of the fold and nothing else.
+   *
+   * Deliberately *not* merged into `jiraRows`. Everything downstream of that function
+   * counts what it returns: the JIRA chip, the summary line, the kind filter, the space
+   * picker's numbers. A cancelled ticket is the one thing in this app that has been
+   * decided about and is still on the wire, so counting it would put a number on the
+   * screen that no tap can bring down — which is the same argument that keeps a ticket
+   * out of `state.questions` one level up.
+   *
+   * They carry the same shape a live row does, because the view that opens over them is
+   * the same view (`jiraFullHtml`), and the only thing that tells them apart is the
+   * `cancelled` record the server stamps on the ticket.
+   */
+  const cancelledTicketRows = () =>
+    (state.cancelledTickets || []).map((t) => ({
+      jira: t,
+      key: `jira:${t.workspace || ''}/${t.key}`,
+      workspace: t.workspace,
+      space: t.space || null,
+    }));
+
+  /**
+   * One ticket row by key, whichever list it is in.
+   *
+   * Both, in that order, because a cancel taken on this page moves a ticket from the
+   * first to the second and the view over it must not blink out in between: `jiraRows`
+   * drops it the moment the tap lands, and the optimistic append below puts it in the
+   * cancelled list in the same breath.
+   */
+  const ticketRowFor = (key) =>
+    jiraRows().find((r) => r.key === key) || cancelledTicketRows().find((r) => r.key === key) || null;
+
+  /**
    * What happened to a ticket row, pinned under its buttons: row key → `{ text, bad }`.
    *
    * Pinned rather than toasted, unlike the ✕ on a chat row, and the difference is what
@@ -3308,14 +3360,17 @@
    * borrow it from each other — a fourth shape of row is a fourth thing to recognise in
    * a list you scan — and the `.card` around it is what makes it one item in a stack.
    *
-   * **The link goes to JIRA, and that is still the interim.** bc-0i27.6 replaces it with
-   * the ticket view opened over the tab, which is where the ticket itself gets read; the
-   * *decision* is no longer waiting on that, because `jiraActsHtml` below puts approve,
-   * discuss and cancel on the row under it (bc-0i27.7). `openLinksInNewTab` does not
-   * reach the anchor (it sweeps `.md`, `.links` and `.docs` only), so the attributes are
-   * written here.
+   * **Tapping it opens the ticket over the tab** (bc-0i27.6), which is where the ticket
+   * itself gets read — so shut, the row is a **button** rather than the link to JIRA it
+   * used to be. That is the pull request row's move (bc-l8jp.7) and it is made for the
+   * same two reasons: the reading this row exists for happens here now rather than on
+   * atlassian.net, and mechanically the whole row is one tap target, where an `<a>`
+   * inside it was a nested interactive element a phone could resolve either way. The
+   * link out is not lost — the open view puts it back on the title, which is where it
+   * belongs once there is something on screen to leave.
    */
   function jiraRowHtml(row) {
+    if (state.open.has(row.key)) return jiraFullHtml(row);
     const t = row.jira;
     const bits = [];
     if (t.status) bits.push(String(t.status));
@@ -3323,7 +3378,8 @@
     // its repo: with two workspaces configured, the ticket key alone does not say which
     // project you are looking at.
     return `<div class="card jira-card" data-key="${esc(row.key)}">
-      <a class="work-row" href="${esc(t.url || '#')}" target="_blank" rel="noopener noreferrer">
+      <button class="work-row" type="button" data-act="jira-open" data-key="${esc(row.key)}"
+        aria-expanded="false">
         <span class="work-phase">🎫</span>
         <span class="work-main">
           <span class="work-title">${esc(t.summary || t.key || 'Untitled')}</span>
@@ -3332,10 +3388,177 @@
           }${esc(bits.join(' · '))}</span>
         </span>
         <time>${esc(relTime(t.updated))}</time>
-      </a>
+        <span class="chev" aria-hidden="true">›</span>
+      </button>
       ${jiraIngestHtml(row)}
       ${jiraActsHtml(row)}
     </div>`;
+  }
+
+  /**
+   * The ticket, open over the tab — what you read to decide (bc-0i27.6).
+   *
+   * `.card.open` is the fixed full-screen sheet a question and a pull request open into,
+   * and the four rows are the ones its layout is already built around: a `.card-top`
+   * that stays, a `.card-head` carrying what this *is*, a `.brief` that scrolls, and a
+   * pinned `.freeform` holding the buttons. Nothing new is laid out for it, which is
+   * most of the argument for a card over a fifth page — and the ✕ question does not
+   * arise, because a card that collapses back into the list *is* the tab it opened over.
+   *
+   * **It draws before the reading has finished, and that is the point of the step.**
+   * Two halves arrive on two clocks and neither holds the screen:
+   *
+   *   - **The bead half** — the epic's id, whether it is still held, how the ingestion
+   *     is going — is on the row and refreshes on the ordinary inbox poll. A ticket
+   *     opened in the minute before its epic is filed says so, and fills the id in when
+   *     the next payload carries it. There is nothing to poll here and nothing to wait
+   *     for, which is why this is a screen rather than a spinner.
+   *   - **The ticket half** — the description and the thread — is fetched once when the
+   *     card opens (`ensureTicketDetail`) and never again, exactly as a pull request's
+   *     description is. It is the slow half, and everything above it is readable while
+   *     it lands.
+   *
+   * A cancelled ticket opens into the same view. The only difference is what the buttons
+   * say, and `jiraActsHtml` is the one place that decides it.
+   */
+  function jiraFullHtml(row) {
+    const t = row.jira;
+    const detail = state.ticketDetail.get(row.key);
+    const bits = [];
+    if (t.status) bits.push(String(t.status));
+    return `<article class="card jira-card open" data-key="${esc(row.key)}">
+      <div class="card-top">
+        <button class="collapse" data-act="collapse" data-key="${esc(row.key)}">↑ Collapse</button>
+      </div>
+      <div class="card-head">
+        <div class="work-row">
+          <span class="work-phase">🎫</span>
+          <span class="work-main">
+            <span class="work-title"><a href="${esc(t.url || '#')}" target="_blank"
+              rel="noopener noreferrer">${esc(t.summary || t.key || 'Untitled')}</a></span>
+            <span class="work-sub"><span class="pill id">${esc(t.key || '')}</span>${
+              row.workspace ? `<span class="pill">${esc(row.workspace)}</span>` : ''
+            }${esc(bits.join(' · '))}</span>
+          </span>
+          <time>${esc(relTime(t.updated))}</time>
+        </div>
+      </div>
+      <div class="brief">
+        ${jiraBeadsHtml(row, detail)}
+        ${jiraReadHtml(detail)}
+      </div>
+      <div class="freeform jira-freeform">
+        ${jiraActsHtml(row)}
+      </div>
+    </article>`;
+  }
+
+  /**
+   * What beadcause has made of the ticket so far — the epic, and the beads under it.
+   *
+   * The epic comes off the **row**, not off the fetch, which is what lets this line fill
+   * itself in while the card is open: `bead` is stamped on every ticket in the inbox
+   * payload from the minute lib/jiraepic.js files one, so a ticket opened before that
+   * happened says *its bead is still being filed* and then says the id, on the poll,
+   * with nothing here doing anything about it.
+   *
+   * The **children** are the one thing that needed a request: which beads a ticket
+   * decomposed into is a `bd list --parent`, which is the most expensive call in the app
+   * and has no business on a payload every parked phone rebuilds. Drawn with their
+   * status, because an epic whose children were revoked is a different picture from one
+   * whose children are waiting, and both are things you would decide differently about.
+   *
+   * The ingestion's own state is said here rather than by `jiraIngestHtml` — the row's
+   * version of the same sentence — because in this card it would be the second epic pill
+   * on one screen, and the same bead id twice reads as two beads. The row keeps its
+   * line; the view says it once, next to the children it is producing.
+   */
+  function jiraBeadsHtml(row, detail) {
+    const t = row.jira;
+    if (!t.bead) return '<p class="jira-wait">its bead is still being filed…</p>';
+    const link = `<a class="pill id" href="${esc(graphUrl({ workspace: row.workspace, id: t.bead }))}&amp;open=1"
+      target="_blank" rel="noopener">${esc(t.bead)}</a>`;
+    const ing = t.ingest;
+    const reading =
+      !ing || ing.state === 'reading' || ing.state === 'queued'
+        ? `<p class="jira-reading">${ing?.state === 'queued' ? 'waiting to be read…' : 'reading it into beads…'}</p>`
+        : ing.state === 'failed'
+          ? `<p class="jira-said bad">it could not be read into beads — ${esc(ing.error || 'no reason given')}</p>`
+          : '';
+    const kids = detail?.children || [];
+    const rows = kids
+      .map(
+        (c) => `<li class="jira-kid${String(c.status) === 'closed' ? ' shut' : ''}">
+          <a class="pill id" href="${esc(graphUrl({ workspace: row.workspace, id: c.id }))}&amp;open=1"
+            target="_blank" rel="noopener">${esc(c.id)}</a>
+          <span>${esc(c.title || '')}</span>
+          <span class="jira-kid-status">${esc(c.status || '')}</span>
+        </li>`
+      )
+      .join('');
+    return `<div class="jira-beads">
+      <p class="jira-beads-head">${link}<span>${
+        t.held === false ? 'approved — this is work now' : 'held: nothing opens a session on it until you approve'
+      }</span></p>
+      ${reading}
+      ${rows ? `<ul class="jira-kids">${rows}</ul>` : ''}
+      ${detail?.childrenError ? `<p class="jira-said bad">${esc(detail.childrenError)}</p>` : ''}
+    </div>`;
+  }
+
+  /**
+   * The ticket's own words — the description and the thread, as JIRA holds them.
+   *
+   * Plain text on purpose. `adfText` in lib/jira.js flattens Atlassian's document format
+   * one way only — everything becomes text or becomes nothing, and nothing becomes markup
+   * — so what arrives is already the safe shape, and rendering it as markdown here would
+   * be inventing structure the ticket did not have. Escaped and wrapped, which is what
+   * `white-space: pre-wrap` is for.
+   *
+   * **A JIRA that would not answer is a sentence, not an empty card.** Everything above
+   * this — the ticket's own row facts, the epic, the children — is still true and still
+   * on screen, and the one thing lost is the description. The reverse of the failure
+   * that matters: a view that refused to open because a token expired would take the
+   * decision with it.
+   */
+  function jiraReadHtml(detail) {
+    if (!detail || detail.loading) return '<p class="jira-reading">reading the ticket…</p>';
+    if (detail.unavailable) return `<p class="jira-said bad">${esc(detail.unavailable)}</p>`;
+    const read = detail.read || {};
+    if (!read.ok) {
+      return `<p class="jira-said bad">the ticket could not be read — ${esc(read.error || 'no reason given')}</p>`;
+    }
+    const facts = [];
+    if (read.type) facts.push(`<span class="pill">${esc(read.type)}</span>`);
+    if (read.priority) facts.push(`<span class="pill">${esc(read.priority)}</span>`);
+    for (const l of read.labels || []) facts.push(`<span class="pill">${esc(l)}</span>`);
+    // The epic or story it sits under *in JIRA*, which is a different thing from the
+    // epic beadcause filed for it — said as such, because two things called the parent
+    // on one screen is how somebody ends up approving the wrong one.
+    const parent = read.parent
+      ? `<p class="jira-parent">under ${esc(read.parent.key)} in JIRA${
+          read.parent.summary ? ` — ${esc(read.parent.summary)}` : ''
+        }</p>`
+      : '';
+    const thread = (read.comments || [])
+      .map(
+        (c) => `<li class="jira-comment">
+          <p class="jira-who">${esc(c.author || 'someone')}${c.at ? ` · ${esc(relTime(c.at))}` : ''}</p>
+          <div class="jira-text">${esc(c.text || '')}</div>
+        </li>`
+      )
+      .join('');
+    return `${facts.length ? `<p class="jira-facts">${facts.join('')}</p>` : ''}
+      ${parent}
+      <div class="jira-text jira-desc">${esc(read.description || 'No description on this ticket.')}</div>
+      ${
+        read.omitted
+          ? `<p class="jira-omitted">${read.omitted} older comment${
+              read.omitted === 1 ? '' : 's'
+            } not shown — the ticket has the lot.</p>`
+          : ''
+      }
+      ${thread ? `<ul class="jira-thread">${thread}</ul>` : ''}`;
   }
 
   /**
@@ -3360,6 +3583,11 @@
    *  - **endorsed already** — approve is spent, and the row says which bead it became
    *    rather than offering a second tap on work that is already being done.
    *
+   *  - **cancelled** — the fourth, and the only one where the set is different rather
+   *    than smaller: one **Beadify**, which is the way back and the whole reason cancel
+   *    can be absolute. Reached from the fold at the foot of the ticket section and from
+   *    the view it opens (bc-0i27.6), because a cancelled ticket is not a row.
+   *
    * Cancel is offered in all three, including after an approve: "stop showing me this
    * ticket" stays meaningful once the work has started, and the server leaves an
    * endorsed epic completely alone precisely so that it can be (lib/jiragate.js).
@@ -3376,6 +3604,31 @@
     const armed = state.armed === `${row.key}|jira-cancel`;
     const at = `data-key="${esc(row.key)}" data-ws="${esc(row.workspace || '')}" data-tkt="${esc(t.key || '')}"`;
     const acts = [];
+    // A cancelled ticket has exactly one thing you can do with it, and this is the whole
+    // of the way back (bc-0i27.6). Not *also* approve: the epic behind it is closed and
+    // the earmark is on, so approving would endorse a closed bead and the very next
+    // sweep would take the ticket away again. Beadify first, decide afterwards — which
+    // is also the order that leaves the record honest if you change your mind twice.
+    //
+    // No arming. Cancel arms because it writes the one record with no expiry on it and
+    // a stray thumb must not be able to; this is the undo of that, and an undo behind
+    // two taps is a decision you have to make twice.
+    if (t.cancelled) {
+      // `.jira-back` rather than a bare `.secondary`: that class is `flex: 1`, which is
+      // right for the pair of buttons on a live row and wrong for a lone one — a single
+      // control stretched across a phone reads as the whole card being a button.
+      acts.push(
+        `<button class="secondary jira-back" data-act="jira-beadify" ${at} ${busy ? 'disabled' : ''}>Beadify</button>`
+      );
+      acts.push(
+        `<span class="jira-wait">cancelled${t.cancelled.at ? ` ${esc(relTime(t.cancelled.at))}` : ''}${
+          t.cancelled.by ? ` by ${esc(t.cancelled.by)}` : ''
+        } — it stopped coming back</span>`
+      );
+      return `<div class="jira-acts">${acts.join('')}${
+        said ? `<p class="jira-said${said.bad ? ' bad' : ''}">${esc(said.text)}</p>` : ''
+      }</div>`;
+    }
     if (!t.bead) {
       acts.push('<span class="jira-wait">its bead is still being filed…</span>');
     } else if (t.held === false) {
@@ -3404,6 +3657,110 @@
 
   /** What the cancel button says. The second tap has to say what it will not take back. */
   const jiraCancelLabel = (armed) => (armed ? 'Tap again — it stops coming back' : 'Cancel');
+
+  /**
+   * The ticket's own text, fetched once per card for the life of the tab.
+   *
+   * The same bargain `ensurePrDetail` strikes and for the same reason: the card is up
+   * and readable before this is asked for, so a JIRA round trip costs the description
+   * arriving a moment later rather than a spinner in a tunnel. Never on the poll —
+   * a description does not move, and a phone parked on the inbox must not be issuing a
+   * JIRA read every twenty-five seconds.
+   *
+   * `epic` rides the query because the row has it and the server would otherwise pay a
+   * `bd list --all` to find out what the client already knew. A ticket whose epic has not
+   * been filed yet sends none, gets no children back, and says so — and the *next* open
+   * asks again, which is why the cache is dropped on collapse rather than kept forever.
+   */
+  async function ensureTicketDetail(row) {
+    if (!row?.jira) return;
+    if (state.ticketDetail.has(row.key)) return;
+    state.ticketDetail.set(row.key, { loading: true });
+    paintTicketCard(row.key);
+    const q = `workspace=${encodeURIComponent(row.workspace || '')}&key=${encodeURIComponent(
+      row.jira.key || ''
+    )}${row.jira.bead ? `&epic=${encodeURIComponent(row.jira.bead)}` : ''}`;
+    try {
+      const res = await api(`/api/jira/ticket?${q}`);
+      state.ticketDetail.set(row.key, {
+        loading: false,
+        read: res.read || null,
+        children: res.children || [],
+        childrenError: res.childrenError || null,
+      });
+    } catch (err) {
+      // An unreachable daemon must not blank the sheet: the row's own facts, the epic
+      // and the buttons are all still on screen and all still act.
+      state.ticketDetail.set(row.key, { loading: false, unavailable: err.message });
+    }
+    paintTicketCard(row.key);
+  }
+
+  /**
+   * Repaint one ticket card in place, without a render().
+   *
+   * `paintPrCard`'s shape minus the draft and caret bookkeeping, because this card has
+   * no box to type in: there is nothing on it a rebuild could lose. It exists at all so
+   * that the description landing does not rebuild forty other cards behind an open one.
+   */
+  function paintTicketCard(key) {
+    const el = listEl.querySelector(`.card[data-key="${CSS.escape(key)}"]`);
+    const row = ticketRowFor(key);
+    if (!el || !row) return;
+    const wrap = document.createElement('div');
+    wrap.innerHTML = jiraRowHtml(row);
+    const fresh = wrap.firstElementChild;
+    if (fresh) el.replaceWith(fresh);
+  }
+
+  /**
+   * The cancelled tickets, folded away at the foot of the list — the way back in.
+   *
+   * A fold rather than rows, and shut rather than open, because everything about a
+   * cancel says these are not asking you anything: the record does not expire, the epic
+   * behind each one is closed, and the whole point of the decision was to get them off
+   * this screen. What they are is *findable*. Beadify lives on a ticket's own view, and
+   * a view with no way into it is a button that does not exist — which is what this
+   * feature was until now, with a toast that said "Beadify puts it back" and nowhere at
+   * all that offered to.
+   *
+   * **Counted by nothing.** It is one chunk of its own rather than a run of cards, it is
+   * outside `rows`, and so the JIRA chip, the summary line, the space picker's numbers
+   * and the monitor's "N waiting" are all exactly as they were. A number on this screen
+   * that no tap can bring down is the failure the whole ticket section is written to
+   * avoid.
+   *
+   * It obeys the space and workspace pickers like everything else, which is not
+   * cosmetic: a phone narrowed to one space must not offer to put back a ticket that
+   * belongs to another. And it opens itself when the card open on this page is one of
+   * its own — a repaint that hid the thing you were reading would be the fold eating
+   * the view.
+   */
+  function cancelledTicketsHtml() {
+    const mine = cancelledTicketRows().filter(
+      (r) =>
+        (state.space === 'all' || (r.space || spaceForWorkspace(r.workspace)) === state.space) &&
+        (state.workspace === 'all' || r.workspace === state.workspace)
+    );
+    if (!mine.length) return '';
+    const openHere = mine.some((r) => state.open.has(r.key));
+    const shown = state.cancelledFold || openHere;
+    // Most recently cancelled first: the one you are looking for is almost always the
+    // one you just took back, and a list ordered by ticket key would bury it.
+    const rows = shown
+      ? mine
+          .sort((a, b) => String(b.jira.cancelled?.at || '').localeCompare(String(a.jira.cancelled?.at || '')))
+          .map((r) => jiraRowHtml(r))
+          .join('')
+      : '';
+    return `<section class="jira-cancelled">
+      <button class="jira-fold" type="button" data-act="jira-cancelled-fold" aria-expanded="${shown ? 'true' : 'false'}">
+        <span class="chev" aria-hidden="true">›</span>
+        ${mine.length} cancelled ticket${mine.length === 1 ? '' : 's'}
+      </button>
+      ${rows}
+    </section>`;
+  }
 
   /**
    * What became of the ticket — step 5 of bc-0i27, and the only part of a ticket row
@@ -4288,6 +4645,13 @@
       for (const q of tickets) chunks.push({ key: q.key, html: jiraRowHtml(q) });
       for (const q of replied) chunks.push({ key: q.key, html: cardHtml(q) });
     }
+    // Outside the branch above, and that is on purpose: an inbox with nothing waiting in
+    // it can still hold a ticket you cancelled last week and want back, and a fold that
+    // only existed when there was something else on screen would be unreachable exactly
+    // when the list is quiet enough to go looking. One chunk, at the foot, counted by
+    // nothing — see `cancelledTicketsHtml`.
+    const cancelled = cancelledTicketsHtml();
+    if (cancelled) chunks.push({ key: '@jira-cancelled', html: cancelled });
     paintList(chunks);
 
     paintRequestBadge();
@@ -4492,7 +4856,12 @@
   const byKey = (key) =>
     (state.requests || []).find((q) => q.key === key) ||
     state.questions.find((q) => q.key === key) ||
-    (String(key).startsWith('pr:') ? prRows().find((r) => r.key === key) : null);
+    (String(key).startsWith('pr:') ? prRows().find((r) => r.key === key) : null) ||
+    // And a ticket, in either list — which is what keeps a ticket view open across a
+    // poll. `state.open` is pruned every refresh to the keys this function can still
+    // find, so without this line an open ticket collapsed itself every twenty-five
+    // seconds, mid-read, and the fold's cards could never be opened at all.
+    (String(key).startsWith('jira:') ? ticketRowFor(key) : null);
 
   function disarm() {
     state.armed = null;
@@ -5017,6 +5386,88 @@
     }
 
     /**
+     * Tapping a ticket row: open it over the list (bc-0i27.6).
+     *
+     * `openOnly`, so this obeys the same accordion as every other card — `.card.open` is
+     * a fixed full-screen layer and a second one just stacks on the first. The fetch
+     * comes after the sheet is up rather than before it, for the reason a pull request's
+     * does: the row is already worth reading, and the half that is slow is the half you
+     * read last.
+     */
+    if (act === 'jira-open') {
+      closeMenu();
+      closeAgentMenu();
+      disarm();
+      const row = ticketRowFor(key);
+      if (!row) return;
+      openOnly(key);
+      const cached = state.ticketDetail.get(key);
+      // A first open before the epic existed asked for no children and could not have
+      // been given any. Once the id has landed on the row that answer is stale in the
+      // one way that matters, so it is dropped and asked again — which is the whole of
+      // "it fills in the bead half when it arrives" for the half a poll cannot carry.
+      if (cached && !cached.loading && row.jira.bead && !(cached.children || []).length) {
+        state.ticketDetail.delete(key);
+      }
+      render(true);
+      ensureTicketDetail(row);
+      return;
+    }
+
+    /** The fold at the foot of the ticket section. Nothing but a disclosure. */
+    if (act === 'jira-cancelled-fold') {
+      state.cancelledFold = !state.cancelledFold;
+      render(true);
+      return;
+    }
+
+    /**
+     * Beadify: put a cancelled ticket back, and put it back through ingestion.
+     *
+     * One tap, unlike the cancel it undoes. Cancel arms because it writes the record
+     * with no expiry on it and a thumb in a pocket must not be able to; this is the way
+     * out of that, and an undo you have to confirm is a decision made twice.
+     *
+     * The row is moved back optimistically — out of `state.cancelledTickets`, and its
+     * key un-suppressed — so the fold loses it under the thumb that tapped rather than
+     * on the next poll. The ticket itself comes back as an ordinary row when the sweep
+     * next answers, which is up to a minute away (lib/jirapoll.js): the toast says so,
+     * because a screen that simply lost the row would read as the tap having deleted it.
+     */
+    if (act === 'jira-beadify') {
+      if (jiraBusy.has(key)) return;
+      jiraBusy.add(key);
+      jiraSaid.delete(key);
+      render(true);
+      try {
+        const res = await api('/api/jira/beadify', {
+          method: 'POST',
+          body: JSON.stringify({ workspace: btn.dataset.ws, key: btn.dataset.tkt }),
+        });
+        state.cancelledTickets = (state.cancelledTickets || []).filter(
+          (t) => `jira:${t.workspace || ''}/${t.key}` !== key
+        );
+        cancelledTickets.delete(key);
+        state.open.delete(key);
+        state.ticketDetail.delete(key);
+        toast(
+          res.restored
+            ? `${btn.dataset.tkt} is back${res.reopened ? ` — ${res.bead} reopened` : ''}${
+                res.error ? ` — but ${res.error}` : ''
+              }. It returns as a row on the next sweep.`
+            : `${btn.dataset.tkt} was not cancelled — nothing to put back.`
+        );
+      } catch (err) {
+        jiraSaid.set(key, { text: err.message, bad: true });
+        if (err.message !== 'token rejected') toast(err.message, true);
+      } finally {
+        jiraBusy.delete(key);
+        render(true);
+      }
+      return;
+    }
+
+    /**
      * Cancel a JIRA ticket: it stops being proposed, and it does not come back.
      *
      * Two taps, unlike approve, because this is the one record in the app with no
@@ -5058,6 +5509,20 @@
           failed: `its bead could not be closed — ${res.error || 'no reason given'}`,
           none: 'it never got as far as a bead',
         };
+        // Into the fold in the same breath as out of the list, rather than a poll later
+        // (bc-0i27.6). Two things need it: a cancel taken from inside the ticket's own
+        // view must not blink the view out from under you — `ticketRowFor` finds it here
+        // once `jiraRows` has dropped it — and the toast below promises a way back that
+        // has to exist by the time it is read. `by` is left off: the record the server
+        // wrote names whoever this device is, and inventing a name here to be replaced
+        // by the real one on the next payload is a line that flickers.
+        const was = (state.tickets || []).find((x) => `jira:${x.workspace || ''}/${x.key}` === key);
+        if (was) {
+          state.cancelledTickets = [
+            { ...was, cancelled: { workspace: was.workspace, key: was.key, bead: res.epic || null, at: new Date().toISOString(), by: null } },
+            ...(state.cancelledTickets || []).filter((t) => `jira:${t.workspace || ''}/${t.key}` !== key),
+          ];
+        }
         toast(`${btn.dataset.tkt} cancelled — ${fate[res.bead] || res.bead}. Beadify puts it back.`);
       } catch (err) {
         // Nothing was written, so the row comes back rather than being left hidden by a
@@ -6155,6 +6620,11 @@
         if (!data.tickets.some((t) => `jira:${t.workspace || ''}/${t.key}` === key)) cancelledTickets.delete(key);
       }
     }
+    // The cancelled ones, on exactly the same terms and from a field of their own. Its
+    // own `if` rather than folded into the one above, because a daemon that predates
+    // bc-0i27.6 sends `tickets` and not this — and taking the fold's rows away on that
+    // payload would be the mixed-fleet flicker the comment above is written against.
+    if (Array.isArray(data.cancelledTickets)) state.cancelledTickets = data.cancelledTickets;
     // Taken whole, and taken even when empty — unlike `requests` and `consoles` above.
     // An empty list here is the good news ("every repo answered this time") and it has
     // to be able to clear the pane, which is the whole reason the record is rebuilt on
