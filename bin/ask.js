@@ -28,6 +28,7 @@ import { execFileSync } from 'node:child_process';
 import { loadConfig } from '../lib/config.js';
 import { beadRow, park, questionType } from '../lib/park.js';
 import { addresseeLabel, meHandles } from '../lib/addressee.js';
+import { bylineFor } from '../lib/byline.js';
 
 function arg(...names) {
   for (const n of names) {
@@ -51,11 +52,13 @@ const blocks = arg('--blocks', '-b');
  * the bead, and every phone that can see the graph rings exactly as it always has.
  *
  * On a shared tracker it is the whole feature, and it is derived here rather than read
- * back later for a reason worth stating: the daemon reading the graph cannot tell whose
- * session filed a bead — `created_by` is `cfg.actor`, which is the literal string
- * `beadcause` on every machine — but the machine doing the *asking* knows perfectly
- * well who it belongs to. So the addressee is stamped at the moment the question is
- * written, by the only process that has the answer.
+ * back later for a reason worth stating: the daemon reading the graph cannot route on
+ * `created_by`. It is `cfg.actor`, a byline — bare `beadcause` until this machine sets
+ * `me`, `beadcause (carol@example.com)` after (lib/byline.js), bare on every bead filed
+ * before that, and a field an agent can write anything into. The machine doing the
+ * *asking* knows perfectly well who the question belongs to, so the addressee is
+ * stamped at the moment the question is written, by the only process that has the
+ * answer — as a label, which every bd client can read.
  *
  * `--for` overrides it, in both directions: a name to put the question on somebody
  * else's phone, or `--for everyone` to put it on all of them, which is what a question
@@ -75,8 +78,25 @@ if (!ws || !title) {
 
 const body = file ? fs.readFileSync(file, 'utf8') : fs.readFileSync(0, 'utf8');
 
-const env = { ...process.env, BEADS_DIR: ws.dir, BEADS_ACTOR: cfg.actor };
-const bd = (args) => execFileSync(cfg.bdBin, args, { env, cwd: ws.dir, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 });
+/**
+ * The byline, and why it is on the argv as well as in the environment.
+ *
+ * `bylineFor` is the same string the daemon writes under — `beadcause`, or
+ * `beadcause (carol@example.com)` on a machine that has said who it is — so a question
+ * asked from a session on one engineer's Mac says whose Mac it was (lib/byline.js).
+ *
+ * `BEADS_ACTOR` alone is not enough to make it stick: a workspace `config.yaml` with an
+ * `actor:` in it beats the environment variable, and the flag beats both. lib/bd.js has
+ * carried the flag since that was measured; the three CLIs did not, so a workspace
+ * pinning an actor silently overwrote the byline on everything they filed. Appended to
+ * every call rather than to the writes, exactly as `Bd.run` does it, because the reads
+ * take it harmlessly and a helper with two shapes is a helper somebody uses the wrong
+ * one of.
+ */
+const byline = bylineFor(cfg);
+const env = { ...process.env, BEADS_DIR: ws.dir, BEADS_ACTOR: byline };
+const bd = (args) =>
+  execFileSync(cfg.bdBin, [...args, '--actor', byline], { env, cwd: ws.dir, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 });
 
 /**
  * Everything that can still refuse the whole command happens here, before the create.

@@ -9997,6 +9997,79 @@ tracker. Including the two states that are only visible from outside the process
 question whose id is still on stdout with one plain sentence, and no stack frame, on
 stderr.
 
+### How hard a bead is — `complexity:<tier>`
+
+A bead carries how hard it is, as a `complexity:low`, `complexity:medium` or
+`complexity:high` label, and it carries it because most beadcause work does not need
+the expensive model and the handful that does must not be run on the cheap one. The
+tier is what decides which model a session on that bead runs — that is bc-nc6o, and
+this section is the half that puts the tier *on* the bead. Reading it back at spawn
+time is bc-nc6o.2 and is not wired yet; until it is, the label is a fact about the
+bead that nothing acts on, which is the right order to build the two in — a router
+reading a field nothing writes routes everything to the fallback and looks broken.
+
+**Decided when the bead is written, not guessed at when it is opened.** The dispatcher
+sees a title and a description three days later; the agent that proposed the bead had
+just read the files, and you, endorsing it, had just read the proposal. That is the
+moment the answer is cheap, and it is the only moment it is cheap *once* — a guess made
+at spawn time has to be re-made, identically, every time the bead is opened. So
+`complexity` is a field on a proposal, beside `type` and `priority`:
+
+```yaml
+- title: Cache-bust site.js
+  type: task
+  priority: 2
+  complexity: low
+  description: |
+    No ?v= on the script tag, so a shipped header change looks absent.
+```
+
+It is the same field in both places a bead is written: the block an advocate's survey
+emits, and the YAML a worker pipes into `beadcause-file` when it trips over something
+mid-task. Both prompts now ask for it, in the same words — rate the *work*, not how much
+it matters. A one-file change with an obvious fix is `low` even when it is urgent;
+anything turning on a design decision, spanning several files that have to agree, or
+needing a migration is `high`. Priority already carries "how much this matters" and
+carrying it twice would make the two disagree.
+
+**A label, and deliberately the same shape as [`repo:<token>`](#how-a-bead-says-which-repo-it-is-about--repotoken).**
+It is the only per-bead thing beads itself will carry, sync and filter on without
+beadcause owning a schema: `bd create --label complexity:high`, `bd label add bc-9f2
+complexity:low` and `bd list --label complexity:high` all work today and go through Dolt
+to every other machine on the workspace. The alternative — a line in the description
+that beadcause parses — is prose, and prose is what a routing decision must not be.
+
+**No tier is a legal answer and stays one.** Every bead created by hand, ingested from
+JIRA, or filed before this landed carries none, which is most of the tracker; `lib/complexity.js`
+answers `{ tier: '', problem: null }` for those rather than treating it as an error, and
+the router's fallback for an untiered bead is the **expensive** model, because an unrated
+bead is an unknown bead and the cost of that fallback is a bill rather than a botched
+session. Which is also why nothing invents a tier: a word that is not one of the three
+is dropped, so a proposal saying `complexity: medium-high` files unrated rather than
+being rounded to something plausible.
+
+**Two tiers on one bead is refused, the way two `repo:` labels are.** `beadComplexity`
+answers with a problem rather than a tier, and picking the first would route by whichever
+label sorted first — a coin toss dressed up as a decision. Two labels naming the *same*
+tier is not a conflict, it is one answer written twice. A bare `complexity:` with nothing
+after it is a problem too, and not "no tier": somebody typed that label meaning something
+by it, and treating it as unrated would make a typo indistinguishable from the one case
+that is supposed to be invisible.
+
+**You are the last reader before it spends anything.** The tier is printed on the
+proposal row beside the type and the priority, and it is the sixth thing
+[the ✎ control](#approve-adjust-decline) lets you change — the only field on that card
+that costs money, and the one where "this is harder than it thinks" would otherwise have
+nowhere to go but declining a good bead. `unrated` is one of the four choices in that
+picker rather than a blank, because clearing a tier you disagree with is a decision too.
+
+`test/complexity.mjs` covers it: the label's own vocabulary and its two refusals, the
+round trip through the `beadproposal` block (a tier that renders but does not survive
+being re-emitted is a tier shown to you and then thrown away), and the acceptance itself
+end to end through the real `beadcause-file` against a stub `bd` — a proposal that names
+a tier files a bead carrying it, and one that names none files a bead with no
+`complexity:` label at all.
+
 ### Approve, adjust, decline
 
 Every proposal row has had ✓ and ✕ since proposals existed. The third control is new,
@@ -10006,8 +10079,8 @@ P1 and not a P3. Without a third option that lands as a decline — and the work
 back next week phrased exactly the same way, because nothing recorded what was
 actually wrong with it.
 
-**✎ opens the row for editing**: title, description, what done looks like, type and
-priority. Tapping it also approves the row, which is not a shortcut — adjusting a bead
+**✎ opens the row for editing**: title, description, what done looks like, type,
+priority and [complexity](#how-hard-a-bead-is--complexitytier). Tapping it also approves the row, which is not a shortcut — adjusting a bead
 is the strongest possible statement that you want it, and making you rewrite the title
 and *then* hunt for the ✓ is how a considered edit turns into an accidental decline.
 
@@ -12451,7 +12524,8 @@ Two rules keep it honest:
 - **A caller with no session is written exactly as it always was.** An ntfy action
   button, `lib/notify.js`, the Android app, `curl` — none of them can hold a cookie and
   none of them has an identity to name, so all of them still write as `actor` from
-  `config.json`. A request carrying **both** a token and a session is a signed-in
+  `config.json` — which on a machine that has set `me` names *that* machine's person,
+  see [whose beadcause wrote it](#whose-beadcause-wrote-it--the-byline-on-every-daemon-write). A request carrying **both** a token and a session is a signed-in
   browser (the phone sends its pairing token on every fetch), and the session wins;
   otherwise the attribution would never once apply to the device it was built for.
 - **Only what you *said or decided* gets your name.** The answer, the comment, the
@@ -13289,6 +13363,113 @@ here builds a path out of a workspace's name — the `cd` a failure notification
 comes off the workspace's own directory, and the one place that guess was made is the
 one place it would have been wrong first.
 
+### Where a workspace lives, when it is not under `~/beads`
+
+Two settings answer this, and the one below is the narrower of them.
+[`workspaceRoots`](#where-trackers-live--workspaceroots-and-the-two-shapes-a-root-can-have)
+says *where to look*, so everything under a root is found without naming any of it;
+`workspaceDirs` names *one workspace* and is the only way to say `null`. Reach for a root
+when a directory holds trackers, or is one you would happily have read for new ones;
+reach for a name when neither is true, or when the point is to take a name out.
+
+That paragraph was true of the sync code and false of everything upstream of it.
+`discoverWorkspaces()` in `lib/config.js` reads `~/beads/*/.beads` and takes what is in
+it, and for a long time that was the whole of how beadcause knew a workspace existed —
+so a tracker living anywhere else was not merely un-synced, it was **not in the list at
+all**. Nothing polled it, nothing queued it, nothing drew it.
+
+That is not a hypothetical, and the two halves of it happened to the same tracker on the
+same afternoon. On 2026-08-12 Climative's `cl-` graph — the one wired to JIRA, the one
+forty service repos file into, and the only workspace on this Mac with a Dolt remote —
+was moved out of `~/beads/climative` and into the `architecture` checkout, for the reason
+the section above gives: a tracker a team shares belongs in the repo the team already
+clones. beadcause stopped seeing it that evening and said nothing, because there is
+nothing to say. **A workspace nothing polls is indistinguishable from a workspace with
+nothing in it**: an empty inbox, a zero on the tab, and an advocate with no ready beads
+is exactly what a quiet Friday looks like.
+
+The copy left behind was the other half, and it is the worse one. It sat at
+`~/beads/climative.retired-20260812`, which is still under `~/beads`, so it was still
+discovered and still swept — and its questions, frozen on the day it was set aside, were
+drawn as current ones on the phone. A stale question you cannot see is a question that
+goes unanswered; a stale question you *can* see is one that gets answered, into a graph
+nobody reads. The only way to stop it was to move the directory out of `~/beads`
+entirely, which is a person remembering a rule about this program while doing something
+else.
+
+So there is one key, `workspaceDirs`, and it says both:
+
+```json
+{
+  "workspaceDirs": {
+    "climative": "~/climative.dev/architecture",
+    "climative.retired-20260812": null
+  }
+}
+```
+
+A **directory** serves a workspace from wherever it actually is. Write it as the checkout
+or as the `.beads` inside it — the checkout is the thing a person has in their head and
+the `.beads` is beads' business, and both name the same workspace. `~` expands, because
+this is a hand-edited line that gets copied onto a second Mac. **`null`** takes a name out
+and keeps it out, however it was found; nothing is deleted and nothing moves, which is
+the point — the directory being *there* is the whole state being talked about, so "drop
+what no longer exists" could never have expressed it.
+
+`~/beads` is still the rule and this is still the exception. An install that has never
+configured anything finds its workspaces exactly as it always did, which is what makes a
+first run work at all; a name that appears in both places resolves to the one that was
+named, because two entries called `climative` pointing at two graphs is the one outcome
+nothing downstream could make sense of. A named directory that is not there is a
+**warning, not a refusal** — the entry is dropped, a line naming the key goes to the log,
+and `~/beads` still answers for that name if it has one. A typo must be loud, since a
+workspace silently not served is the exact failure this key exists to end; it must not
+also take out a workspace that was working.
+
+The half worth being precise about is that this is a **rule, re-applied on every load**,
+and not a list. Before it existed the workaround was to hand-edit `workspaces` — the
+saved list, which was auto-discovered but persisted so it *could* be edited. That works
+until the first time it doesn't. `workspaces` is reconciled against the disk on every
+start: entries whose directory has gone are dropped and the shorter list is written back.
+For a discovered workspace that is self-healing, because the next start finds it again.
+For a hand-added one it was **one-way** — a single start while the checkout was moved,
+re-cloned, or on a volume that had not mounted yet lost it for good, with a log line
+saying `no longer exists` at a moment when that was perfectly true. An entry in
+`workspaceDirs` comes back on its own the moment the directory does, and that — surviving
+a restart — is the whole difference between the two.
+
+Reconciliation applies the exclusions too, so a retired workspace already sitting in a
+saved `workspaces` list is evicted on the next start rather than only kept out of future
+discovery. Every drop names its reason, and the three reasons are different sentences:
+`workspaceDirs.<name> is null`, `workspaceDirs.<name> names <dir> instead`, and the
+original `<dir> no longer exists`.
+
+Which leaves the installs that had already worked around this by hand, and they get the
+migration rather than a note telling them to make one. Any saved `workspaces` entry that
+**cannot have come from discovery** — its directory is not `~/beads/<its name>/.beads` —
+is copied into `workspaceDirs` on the next start. Nothing changes about what is served:
+the entry was already in the list and already pointed there, and this only writes down
+*why*, so that it survives the directory going away for an afternoon. It is bounded by
+reading the config rather than by a spent flag — a name already in `workspaceDirs` is
+never touched, so an explicit `null` cannot be undone by it, and a directory that is not
+there is left for reconciliation to drop rather than pinned as a rule that would warn on
+every start forever.
+
+**It says nothing while doing it**, and the drop and pick-up notices moved to stderr —
+neither is a matter of taste, and both were measured. `loadConfig` is not the daemon's:
+it is every `bin/*.js` in the repo, and both of a CLI's streams are contracts. **stdout
+is parsed** — `bin/file.js` prints the id it filed and callers read it with
+`stdout.trim()`, so a notice there does not appear *beside* the id, it becomes *part of*
+it, and the caller reports that nothing was filed over a bead sitting in the tracker
+(`test/autoendorse.mjs` and `test/filing.mjs`, both red). **stderr is asserted empty on
+the happy path** — "nothing was reported, because nothing went wrong" is
+`test/park.mjs`, which is how the adoption notice went red immediately after being moved
+off stdout to fix the first one. So a normalisation nothing went wrong in is not news,
+and it leaves its own record: the key it writes is in the config file. A write that
+*fails* is news, and is warned about. This is the same argument [the base URL
+makes](#the-url-you-are-given-and-what-happens-to-a-phone-that-already-has-one) for its
+own notice, arrived at from the other end.
+
 ### Where the remote goes, and why beadcause will not choose for you
 
 **beadcause never adds a remote.** It syncs one that exists and it never invents one, and
@@ -13408,9 +13589,12 @@ in the loop.
 `--for`: a question filed on this Mac is addressed to this Mac's person automatically —
 by `beadcause-ask`, by a worker's [delivery card](#landing-work--a-branch-a-pull-request-and-the-workers-own-merge),
 by `beadcause-propose`, and by every question the daemon files itself. That is a write-time
-decision rather than a read-time one because `created_by` cannot answer it: it is
-`actor`, the literal string `beadcause`, identical on all six machines. The machine
-doing the asking is the only thing that knows.
+decision rather than a read-time one because `created_by` cannot answer it. It is
+`actor` — a *byline*, which since [bc-lx3k](#whose-beadcause-wrote-it--the-byline-on-every-daemon-write)
+does name this Mac's person, and which is still the wrong thing to route on: it is bare
+on every install that has not set `me`, bare on every bead filed before that, and a
+field an agent can write whatever it likes into. The machine doing the asking is the
+only thing that knows, and a label is how it says so.
 
 **Set `me` on each machine, to that machine's person.** It takes one handle or a list,
 for a person who answers to two addresses in the same graph:
@@ -13448,11 +13632,68 @@ Two consequences of that ordering worth knowing:
   perfectly good answer to "whose agent is this", which is the question being asked
   here.
 
+### Whose beadcause wrote it — the byline on every daemon write
+
+The same `me`, answering a different question. `bd` records who made each write, and
+beadcause told it `beadcause`: `cfg.actor` is that string, `Bd.run` appends it as
+`--actor` to every single command, and `beadcause-ask`, `beadcause-propose` and
+`beadcause-deliver` each exported it as `BEADS_ACTOR`. One Mac, one beadcause, a perfectly
+good byline. **Six Macs, and it is the same string on all of them** — so `created_by` on
+every bead and `author` on every comment says `beadcause`, the history ledger and every
+comment thread agree, and nothing anywhere records which engineer did anything.
+
+It cannot be recovered afterwards, either. `owner` comes from the git identity of the
+workspace directory, which is the same for everyone working a shared checkout;
+`updated_at` says when, not who. So the byline is written with the person in it:
+
+```
+created_by: beadcause (carol@example.com)
+```
+
+**The base comes first on purpose.** It still reads as beadcause at a glance and as a
+*particular* beadcause on inspection, and it survives being truncated in a narrow list
+as the thing it is rather than as a person. Suffix-first — `carol@example.com via
+beadcause` — would have got that exactly backwards.
+
+**With `me` unset it is the bare `beadcause` it always was**, and not as a default that
+happens to match: there is no handle to put in the parenthesis, so the branch cannot be
+entered. The token callers `test/attribution.mjs` exists to protect — the ntfy action
+button, the Android app, `curl` — write byte-for-byte what they wrote before.
+
+Three things this deliberately is not:
+
+- **It is not authorisation, and it is not provenance.** `--actor` is a field an agent
+  can write anything it likes into, so the byline is display only. What an agent filed
+  is the `agent-filed` label, which is stamped by lib/filing.js and survives endorsement
+  and revocation — see [the ledger behind the History tab](#the-ledger-behind-the-history-tab).
+- **It does not change what a person's own writes say.** A signed-in browser still puts
+  its own address on the bead, unwrapped, because that is a person speaking and not a
+  daemon — see [whose answer it is](#whose-answer-it-is).
+- **It does not touch what an agent's own `bd comment` says.** That is the shell's
+  `BEADS_ACTOR` — already that engineer's address, so it says *which* engineer and not
+  whether it was them or something they started. Left alone here for two reasons: it is
+  exactly what the reply detection below tells apart, and `[address]` on a comment
+  meaning "an agent typed this" is a convention already being read. bc-y3qk.1 is where
+  that is picked up.
+
+**The one thing that had to not break is the reply test.** When you answer a question
+from the phone, beadcause watches the thread and pushes the agent's answer back to you —
+and it decided "is this an agent talking back?" by asking whether the comment's author
+differed from `cfg.actor`. A byline that no longer equals `cfg.actor` would make the
+daemon's own relayed comments read as agent replies and buzz your phone about its own
+bookkeeping. So that comparison is `writtenByDaemon` now, which compares the *base*
+rather than the string — and, as a consequence it could not have had before, recognises
+the other five machines' bylines too, so a second engineer's tap on a shared thread stays
+bookkeeping rather than arriving on your phone as an answer. `node test/byline.mjs` drives
+the real poller over three comments that differ only in their author — this Mac's byline,
+another Mac's, and an agent's — and asserts that exactly one of them rings.
+
 ## Config — `~/.config/beadcause/config.json`
 
 | key | meaning |
 |---|---|
 | `owner` | what the agents call you. It goes into every agent prompt ("*<name>* is not at the keyboard", "*<name>* approves every bead before it exists"), the body of every pull request an agent opens, and the notes that land on a bead. Asked first by `npm run configure`; guessed from your git `user.name` (first word) when it has never been set |
+| `actor` | the **base** of the byline every write this daemon makes carries (default `beadcause`). What lands on the bead is that string on its own, or `beadcause (carol@example.com)` once `me` says who this Mac is — an identical `beadcause` on six machines recorded which engineer did nothing at all. Display only: `--actor` is a field an agent can write anything into, and provenance is the `agent-filed` label. A signed-in browser overrides it per call with its own address. See [whose beadcause wrote it](#whose-beadcause-wrote-it--the-byline-on-every-daemon-write) |
 | `me` | who this Mac's person **is**, in the tracker — the handle a question is addressed to, or a list of them for somebody who answers to two addresses (default `null`). Not the same thing as `owner`, which is what agents call you in prose. `null` means this daemon is everybody and every question rings it, which is what a one-Mac install has always done; set it only on a tracker more than one person reads, and set it per machine. See [Who a question is for](#who-a-question-is-for--me-and-the-for-label) |
 | `port`, `host` | listens on `127.0.0.1` **and** the Tailscale IP only — never the LAN. The *address* is what gets bound; `baseUrl` is what gets handed out, and they differ on purpose |
 | `baseUrl` | the origin every generated link is built from — the pairing QR, the APK code, every notification's click target and action button, the terminal's `wss://`. Maintained for you: `https://<host>.<tailnet>.ts.net:<port>` when there is a certificate to serve it, the Tailscale address over plain http when there is not, and moved between the two on its own. Set it to something else — a real domain, a proxy — and it is never rewritten. See [the URL you are given](#the-url-you-are-given-and-what-happens-to-a-phone-that-already-has-one) |
@@ -13465,8 +13706,9 @@ Two consequences of that ordering worth knowing:
 | `auth.google.redirectUri` | the callback registered with Google. Derived from the certificate's MagicDNS name and normally left `null`; sign-in cannot switch on without one, because Google refuses a plain-http callback |
 | `auth.google.sessionDays` | how long a signed-in browser stays signed in (default `30`) |
 | `auth.google.enabled` | `false` turns sign-in off while leaving the rest of the block configured (default `true`) |
-| `workspaceRoots` | where to look for trackers (default: `~/beads` and nothing else). A **container** root holds one workspace per subdirectory, which is what `~/beads` is; a root with its own `.beads` **is** one workspace, named after the directory it sits in, which is what a tracker living inside the repo it tracks looks like — `["~/beads", "~/climative.dev/architecture"]`. Rediscovered on every start, so adding a root is the only edit; two roots reaching the same directory are one workspace, and two workspaces that would share a *name* are refused with the second named in the log. See [Where trackers live](#where-trackers-live--workspaceroots-and-the-two-shapes-a-root-can-have) |
-| `workspaces` | auto-discovered under `workspaceRoots`, and **reconciled on every start** — entries whose directory has gone are dropped and new ones picked up, both logged. Renaming a workspace directory used to leave a stale entry that failed on every poll tick, silently hiding that whole workspace from the phone |
+| `workspaceRoots` | where to look for trackers (default: `~/beads` and nothing else). A **container** root holds one workspace per subdirectory, which is what `~/beads` is; a root with its own `.beads` **is** one workspace, named after the directory it sits in, which is what a tracker living inside the repo it tracks looks like — `["~/beads", "~/climative.dev/architecture"]`. Rediscovered on every start, so adding a root is the only edit and a workspace *created* under it later arrives on its own. Two roots reaching the same directory are one workspace; two workspaces that would share a *name* are refused with the second named in the log. Use this when the answer is "and look here too", and `workspaceDirs` below when it is one particular workspace. See [Where trackers live](#where-trackers-live--workspaceroots-and-the-two-shapes-a-root-can-have) |
+| `workspaces` | auto-discovered under `workspaceRoots`, and **reconciled on every start** — entries whose directory has gone are dropped and new ones picked up, both logged. Renaming a workspace directory used to leave a stale entry that failed on every poll tick, silently hiding that whole workspace from the phone. Do not hand-edit this to add a workspace that lives elsewhere: an entry here survives only while its directory does, and one start with the checkout away drops it for good. Add a root, or use `workspaceDirs` |
+| `workspaceDirs` | the workspaces the roots cannot answer for, keyed by name and empty by default — `{"climative": "~/climative.dev/architecture", "climative.retired-20260812": null}`. A **directory** serves a workspace from wherever it actually lives (the checkout or the `.beads` inside it, `~` expands); **`null`** takes a name out of the list and keeps it out, which is the retired-tracker case and the one thing neither "drop what no longer exists" nor a root can say. Applied on every load rather than baked into `workspaces` once, so a named workspace comes back on its own when its checkout does. A name a root also turns up resolves to the one named here; a named directory that is not there is a logged warning, not a refusal. See [Where a workspace lives](#where-a-workspace-lives-when-it-is-not-under-beads) |
 | `repos` | the checkouts **one workspace** may be worked in, keyed by workspace name — `{"climative": {"root": "~/climative.dev", "default": "architecture", "approved": ["architecture", "athena-service"]}}`. Empty by default, and a workspace not named here costs nothing: it is one repo, as every workspace was before this existed. `approved` is a list you write and nothing discovers — a directory under `root` that is not in it resolves to nothing; `npm run configure` prints the tree with each repo's token for you to tick, which is not the same thing as approving one. Each repo's identity is the **service token** it declares in its own `config/config.yaml`, read from the checkout rather than restated here; `default` is the repo a bead carrying no token belongs to, and `tokenPath` / `tokenKey` override where the token is read from. A bead says which repo it is about by carrying that token as a `repo:<token>` label. See [Many repos, one workspace](#many-repos-one-workspace--the-approved-list-and-the-token-that-names-each) and [how a bead names one](#how-a-bead-says-which-repo-it-is-about--repotoken) |
 | `edits.workspace` | which tracker a pass from [edit mode](#save-files-the-pass) is filed into (default `null`). Null is not "none": it means the workspace whose sessions open in *this* checkout, because an edit typed into this screen is a change to this app whichever tracker's beads happen to be drawn on it. Set it only where that answer is wrong |
 | `edits.root` | the standing P0 every pass lands under (default `null`). Null means found by its `edit-root` label, or created on the first Save — so an install that has configured nothing still files under a P0 that exists, without which nothing under it would be workable at all. Name one here to override that; a root named here and since **closed** is ignored rather than used |
@@ -14155,6 +14397,13 @@ words. `node test/atlassian.mjs` covers the rules; the two suites beside it stil
 their own sentences.
 
 ### Where trackers live — `workspaceRoots`, and the two shapes a root can have
+
+There are two settings here and they answer different questions. This one says **where
+to look**, and everything under a root is found for as long as it is there.
+[`workspaceDirs`](#where-a-workspace-lives-when-it-is-not-under-beads) names **one
+workspace**, wherever it is, and is also the only way to say `null` — take this name out
+and keep it out. Roots are read first; a name pinned there wins over anything a root
+turned up under it; an excluded name is dropped however it arrived.
 
 `~/beads/sophab/.beads`, `~/beads/deluvia/.beads`, `~/beads/ehatt/.beads`. One directory
 holding one subdirectory per workspace, each with a `.beads` in it — that is what
