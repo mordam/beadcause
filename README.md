@@ -3699,9 +3699,10 @@ not to trust.
 **All four live in the query string and nowhere else.** No localStorage half, no
 server-side memory, nothing to disagree with the address bar — because a narrowed ledger is
 a *link*. `/history?status=closed&priority=P0` is a home screen shortcut to the P0s that
-landed, it is the same screen for whoever you send it to, and a `/closed` entry point is
-that same URL under a shorter name — which is the whole of what bc-nib3.7 has left to do,
-and stays that small only because the state is addressable rather than kept somewhere. The
+landed, it is the same screen for whoever you send it to, and
+[`/closed`](#closed-and-done--what-got-finished-as-a-place) is that same URL under a
+shorter name — a whole entry point that costs one redirect, and stays that small only
+because the state is addressable rather than kept somewhere. The
 inbox's kinds go the other way and stay on the device, because *I am reading merges this
 hour* is not a place. Every chip is a `replaceState` — a filter is not somewhere you go
 back *to*, and a panel of them would otherwise fill the back stack with steps between you
@@ -3727,6 +3728,53 @@ id box waits 250ms for you to stop typing, since `bc-nib3` is otherwise seven sw
 clearing the last chip is a bare address, a request with none of the four parameters on it,
 and the whole list back with no reload — which is the acceptance criterion this was built
 against.
+
+### `/closed` and `/done` — what got finished, as a place
+
+Every surface in this app is about work that is **not** done. The inbox is what needs
+answering, the advocate console is what is running this minute, the board is what is
+waiting to land, and even the ledger opens on everything the space has ever had. The one
+question none of them takes is *what shipped* — and it is a question you ask constantly,
+because the close reasons here are the best record of it that exists.
+
+The filters above already answer it. `/history?status=closed` is that screen, exactly, and
+it has been since they landed. What it is not is somewhere you can **go**: it is a query
+string you have to know the shape of, typed into an address bar, on a phone. So `/closed`
+and `/done` are that URL under a name — two words because which one comes to mind depends
+on whether you are thinking about beads or about work, and the same bargain every
+multi-path page here makes with its aliases.
+
+**It is a redirect, and that is the only interesting thing about it.** Every other short
+name in `serveStatic` is a rewrite — `/queue` becomes `endorse.html` and the browser never
+finds out — and a rewrite is exactly what does not work here. Those lines change the path
+and leave the query string as the browser sent it, so `/closed` rewritten to
+`history.html` arrives with no `status=` on it and the page has no way at all to tell it
+came in by that door: the whole unfiltered ledger, under a name that promised otherwise.
+That is the failure nobody reports, because a plausible list of the wrong beads looks like
+data. A **302 to `/history?status=closed`** is the mechanism instead, and it is better than
+a rewrite would have been even if a rewrite had worked: after the hop the address bar says
+what is on screen, the chips are drawn from it already pressed, clearing them is a tap, and
+what you send somebody is the screen you are looking at.
+
+Everything else on the incoming URL is carried across and only `status` is overruled.
+`?t=` in particular — an ntfy action button and a home-screen shortcut both arrive with the
+pairing token on them, and a door that dropped it would turn the very next navigation into
+a login screen. `/closed?priority=P0` is *what P0s landed*, which is the second-most useful
+address in the app. `/closed?status=open` is a contradiction, and the name of the door is
+the half of it that is not a typo.
+
+The one thing that looks like an oversight and is not: **neither path is in the service
+worker's shell**, though every other multi-name page precaches all of its names. They
+cannot be. `Cache.put` rejects a redirected response outright, and the shell is installed as
+a single all-or-nothing `addAll` — so adding them would leave *nothing* cached on every
+phone, for as long as that worker lives, and the symptom would be an app that had merely
+got slower. Nothing is lost by it either: `/closed` with no signal falls through to the
+index page, which is already what `/history?status=closed` does, because the offline
+fallback matches on the whole URL and no query string has ever matched anything in that
+list. That is one gap, in one function, rather than two paths missing from a list.
+`test/pagepaths.mjs` asserts the hop and where it lands — including both halves of what the
+door does with a query string — beside every other path a phone still has on its home
+screen.
 
 ### The door from the advocate console — `N closed`
 
