@@ -3631,14 +3631,14 @@ before the next comparison. It worked, and it was a second implementation of wha
 disagree with the other. `ledgerWorkspaces` resolves all three picker states including the
 synthetic `Other` group, which is what makes one request enough; the client merge is gone.
 
-Three things it does **not** do. It does not filter — status, priority, provenance and an
-id substring are the server's already and the controls for them are their own work. It does
-not stream: every other standing view mounts `stream.js`, and one more long poll parked
-against a page about what already happened would be paying for liveness nobody asked for,
-so ⟳ is the refresh and a record that reordered itself while your thumb was travelling
-would be worse than one that did not. And **nothing on it writes** — which is also why it
-is the one standing view with no `⦿ observing` chip: that chip warns you that a button
-might reach a Mac you are not looking at, and there is no such button on a ledger.
+Two things it does **not** do. It does not stream: every other standing view mounts
+`stream.js`, and one more long poll parked against a page about what already happened would
+be paying for liveness nobody asked for, so ⟳ is the refresh and a record that reordered
+itself while your thumb was travelling would be worse than one that did not. And **nothing
+on it writes** — which is also why it is the one standing view with no `⦿ observing` chip:
+that chip warns you that a button might reach a Mac you are not looking at, and there is no
+such button on a ledger. It *does* filter, which it did not at first —
+[four of them, in the query string](#narrowing-the-ledger--four-filters-that-live-in-the-url).
 
 A repo that will not answer is named above the list rather than taking the other repos down
 with it, and the total is drawn only when nothing is in `errors[]` — a count over the repos
@@ -3665,6 +3665,68 @@ would look like a bug in the page:
   0}` is a perfectly good answer for a repo nobody has filed anything in and the two are
   otherwise the same blank card. ⟳ sends `refresh=1` and forces a fresh sweep — once per
   press, not once per page of the scroll that follows it.
+
+### Narrowing the ledger — four filters that live in the URL
+
+Five hundred beads newest-first is a record rather than an answer. The four things you
+actually arrive wanting to say are **status**, **priority**, **who filed it** and *some of
+the id* — and `GET /api/history` took all four from the day it landed, so the work here was
+the controls and where their state lives.
+
+They are in **the same collapsing panel the inbox uses**, and that is the point of the
+control rather than a saving: `public/filtermenu.js` is the panel — the one line at rest,
+the chips, the hover-on-a-laptop and tap-on-a-phone state machine — lifted out of
+`public/inboxfilter.js` when the History tab became the second list in the app to narrow.
+Two copies of it would not have looked like two copies. They would have looked like one
+control that behaves subtly differently on two screens: the grace period on a diagonal exit
+towards a chip, the tap that pins the panel open, the `pointerdown` that closes it *before*
+the tap lands on the row underneath rather than after. Each of those is a decision somebody
+made once after using the thing on a phone, and none of them is visible by reading the
+second copy. So the inbox kept its half — which kinds of thing it carries, the counts, the
+[PR sub-filter](#one-list-six-kinds--and-the-sub-filter-for-pull-requests) — and the panel
+became shared. `test/inboxkinds.mjs` passed over the seam unchanged, which is the whole
+evidence that the split moved no behaviour.
+
+The three chip groups are `Status`, `Priority` and `Filed by`; the fourth is a text box for
+a **substring of the bead id**, which is deliberately not a title search. `nib3` should be
+the five beads under that epic, not every bead whose title mentions history — titles are
+what `bd search` is for, and one box next to three pickers that matched both would answer
+neither question. `Filed by` is the **`agent-filed` label** and never `created_by`, which
+is a field an agent writes whatever it likes into; the chip says so, because *Agent* over a
+list that disagreed with a byline you can read on the sheet is a screen you would be right
+not to trust.
+
+**All four live in the query string and nowhere else.** No localStorage half, no
+server-side memory, nothing to disagree with the address bar — because a narrowed ledger is
+a *link*. `/history?status=closed&priority=P0` is a home screen shortcut to the P0s that
+landed, it is the same screen for whoever you send it to, and a `/closed` entry point is
+that same URL under a shorter name — which is the whole of what bc-nib3.7 has left to do,
+and stays that small only because the state is addressable rather than kept somewhere. The
+inbox's kinds go the other way and stay on the device, because *I am reading merges this
+hour* is not a place. Every chip is a `replaceState` — a filter is not somewhere you go
+back *to*, and a panel of them would otherwise fill the back stack with steps between you
+and the page you arrived from — and the `?t=` token is dropped on the way past, because a
+filter link is a thing you send to a phone rather than a credential.
+
+Which makes the URL something a person can type, so the four are **sent as written and
+refused out loud**. `parseQuery` 400s on a word it does not know and
+[names it](#the-ledger-behind-the-history-tab), rather than dropping the parameter — a
+dropped filter is the whole ledger under chips claiming otherwise, and an empty one is
+indistinguishable from a space nobody has filed in. The page draws that sentence under the
+control, verbatim, and it does one more thing that matters more on a phone than it sounds:
+a value the chips cannot represent becomes **a chip of its own, pressed, labelled with the
+word**. So `?status=close` arrives as a refusal *and* as something to tap off, and the way
+out of a mistyped link is never the address bar.
+
+The rest is arithmetic that has to stay honest. `total` is what the filters matched rather
+than what the space holds, so the count line says *2 beads match in beadcause* while
+anything is narrowed and *4 beads in beadcause* when nothing is; an empty narrowed list
+says *nothing matches* rather than *nothing here yet*, because those blame two different
+things and only one of them sends you looking for a bead that is sitting under `All`. The
+id box waits 250ms for you to stop typing, since `bc-nib3` is otherwise seven sweeps. And
+clearing the last chip is a bare address, a request with none of the four parameters on it,
+and the whole list back with no reload — which is the acceptance criterion this was built
+against.
 
 ### The door from the advocate console — `N closed`
 
