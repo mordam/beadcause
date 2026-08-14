@@ -66,7 +66,7 @@ const T0 = Date.parse('2026-08-11T13:45:00Z');
 const MIN = 60000;
 
 /** A press. `launch` records that a window would have opened and hands back a handle. */
-function press(state, { number = 115, workspace = 'beadcause', now = T0, term = 'iterm-1', say, fail = null } = {}) {
+function press(state, { number = 115, workspace = 'beadcause', now = T0, term = 'iterm-1', say, fail = null, sweptAfter = null, instruction = '' } = {}) {
   return resolveFor(
     workspace,
     number,
@@ -79,6 +79,8 @@ function press(state, { number = 115, workspace = 'beadcause', now = T0, term = 
       branch: 'worktree-chat-tabs-dmt',
       owner: 'Adam',
       now,
+      sweptAfter,
+      instruction,
       say:
         say ||
         (async (handle, text) => {
@@ -271,6 +273,57 @@ await check('the nudge says a press happened and that nothing new is being opene
   assert.match(text, /no second session is being opened/, text);
   assert.match(text, /starting a second merge in this tree/, text);
   assert.equal(text.includes('\n'), false, 'one line — it lands in a window somebody is working in');
+});
+
+/**
+ * bc-9d37.6. The sweep is now the *common* caller of this line, and until it carried a
+ * reason the window was told a person had pressed a button — which is the falsehood
+ * bc-9d37.2 removed from the brief one file over, arriving by the other door.
+ */
+await check('a swept nudge names the merge and never claims a press', async () => {
+  const text = nudgeMessage(115, 'Adam', { sweptAfter: 204 });
+  assert.match(text, /^\*\* BEADCAUSE \*\*/, text);
+  assert.match(text, /Nobody pressed anything/, text);
+  assert.match(text, /#204 merged/, text);
+  assert.doesNotMatch(text, /pressed Resolve conflicts/, text);
+  assert.match(text, /no second session is being opened/, text);
+  assert.equal(text.includes('\n'), false, 'one line');
+});
+
+await check('a swept nudge that cannot name the merge invents no number', async () => {
+  // `Number(true)` is 1, and "#1 merged" is the confident falsehood the guard is for.
+  const text = nudgeMessage(115, 'Adam', { sweptAfter: true });
+  assert.match(text, /Nobody pressed anything/, text);
+  assert.match(text, /A pull request merged/, text);
+  assert.doesNotMatch(text, /#1 merged/, text);
+});
+
+/**
+ * The third case, and the one the two beads in this group share: Adam answered the sweep
+ * card about a pull request that already has a live resolver. That *is* new work, so it
+ * must not fall through to "there is nothing new to do".
+ */
+await check('an answered nudge carries the instruction and does not say there is nothing to do', async () => {
+  const text = nudgeMessage(115, 'Adam', { sweptAfter: 204, instruction: 'take main’s renderRow\nand keep our tests' });
+  assert.match(text, /answered the sweep card about #115/, text);
+  assert.match(text, /take main’s renderRow and keep our tests/, text, 'newlines folded — this lands in a window');
+  assert.doesNotMatch(text, /nothing new to do/, text);
+  assert.doesNotMatch(text, /pressed Resolve conflicts/, text);
+  assert.equal(text.includes('\n'), false, 'one line');
+});
+
+await check('resolveFor hands the reason it was given to the session that already has it', async () => {
+  const state = { opened: [], said: [] };
+  await press(state);
+  const out = await press(state, { now: T0 + 5 * MIN, sweptAfter: 204 });
+  assert.ok(out.reused, JSON.stringify(out));
+  assert.match(state.said[0].text, /Nobody pressed anything/, state.said[0].text);
+  assert.match(out.note, /told it the sweep found this one again/, out.note);
+
+  const answered = await press(state, { now: T0 + 6 * MIN, instruction: 'take main’s renderRow' });
+  assert.ok(answered.reused, JSON.stringify(answered));
+  assert.match(state.said[1].text, /take main’s renderRow/, state.said[1].text);
+  assert.match(answered.note, /gave it your answer/, answered.note);
 });
 
 await cleanupTmp(tmp);

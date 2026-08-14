@@ -83,6 +83,7 @@ const acheck = async (name, fn) => {
 };
 
 const history = await import(LIB('history.js'));
+const cache = await import(LIB('cache.js'));
 const { Bd, BD_TIMEOUT } = await import(LIB('bd.js'));
 const { archivedBeads } = await import(LIB('sessionlog.js'));
 const { ledger, matches, newestUpdatedFirst, parseQuery, toRow, forget, PAGE_DEFAULT, PAGE_MAX, CLOSE_REASON_MAX } =
@@ -853,6 +854,96 @@ await (async () => {
   });
 })();
 
+/* ============================================== nothing waits on a sweep it could keep */
+
+console.log('\nstale-while-revalidate: the ten-second cliff is gone');
+
+await (async () => {
+  const c = clock();
+
+  /**
+   * The property the whole of bc-1kwl.2 is for, stated as a check that can hang.
+   *
+   * Before the shared layer, the eleventh second after a sweep was a cliff: whoever asked
+   * next waited for `bd list --all` — ~1s idle on the largest workspace here and 28.6s
+   * measured under a load average of 33 — for a list that had barely moved. So the sweep
+   * below **never returns at all**, and the assertion is simply that the request does.
+   */
+  await acheck('past the window the rows come back without waiting on the sweep at all', async () => {
+    forget();
+    const bd = fakeBd();
+    await ledger(bd, [WS], {}, { now: c.now });
+    c.advance(history.CACHE_MS + 1);
+
+    bd.run = () => new Promise(() => {});
+    const out = await ledger(bd, [WS], {}, { now: c.now });
+    assert.equal(out.total, 6, 'the kept rows are the answer');
+    assert.equal(out.kept.stale, true, 'and it says outright that they are kept');
+    assert.equal(out.kept.refreshing, true, 'with a sweep on its way');
+    assert.ok(out.kept.ageMs >= history.CACHE_MS, `ageMs ${out.kept.ageMs}`);
+  });
+
+  await acheck('and the sweep it started behind the response lands for the next reader', async () => {
+    forget();
+    const bd = fakeBd();
+    await ledger(bd, [WS], {}, { now: c.now });
+    c.advance(history.CACHE_MS + 1);
+    bd.run = async (workspace, args) => {
+      bd.calls.push(`${workspace.name}: ${args.join(' ')}`);
+      return JSON.stringify(ROWS.slice(0, 2));
+    };
+    await ledger(bd, [WS], {}, { now: c.now });
+    await new Promise((r) => setImmediate(r));
+    const after = await ledger(bd, [WS], {}, { now: c.now });
+    assert.equal(after.total, 2, 'the refreshed sweep is what is served now');
+    assert.equal(after.kept.stale, false, 'and it is fresh again');
+    assert.equal(bd.calls.length, 2, bd.calls.join(' | '));
+  });
+
+  /**
+   * A `bd` that has started refusing is the case the old code could not express: the rows
+   * it swept ten seconds ago are still perfectly good, and the only honest thing to do is
+   * draw them *and* say the tracker has stopped answering. Silence there would be a page
+   * that looks live and is frozen.
+   */
+  await acheck('a refresh that fails keeps the rows and names the repo anyway', async () => {
+    forget();
+    const bd = fakeBd();
+    await ledger(bd, [WS], {}, { now: c.now });
+    c.advance(history.CACHE_MS + 1);
+    bd.run = async () => {
+      throw new Error('dolt: database is locked');
+    };
+    await ledger(bd, [WS], {}, { now: c.now });
+    await new Promise((r) => setImmediate(r));
+    const out = await ledger(bd, [WS], {}, { now: c.now });
+    assert.equal(out.total, 6, 'the rows are still drawn');
+    assert.equal(out.errors.length, 1, JSON.stringify(out.errors));
+    assert.match(out.errors[0].error, /database is locked/);
+    assert.equal(out.errors[0].stale, true, 'flagged as a stale-with-a-failure, not as a repo that read as empty');
+  });
+
+  await acheck('the staleness of a page is the staleness of its stalest repo', async () => {
+    forget();
+    const bd = fakeBd();
+    await ledger(bd, [WS], {}, { now: c.now });
+    c.advance(history.CACHE_MS + 1);
+    await ledger(bd, [OTHER], {}, { now: c.now });
+    const both = await ledger(bd, [WS, OTHER], {}, { now: c.now });
+    assert.equal(both.kept.stale, true, 'one stale repo makes the answer a kept one');
+    assert.ok(both.kept.ageMs > history.CACHE_MS, `ageMs ${both.kept.ageMs}`);
+  });
+
+  await acheck('and `forget` still drops it — a re-read, not a wait for the window', async () => {
+    forget();
+    const bd = fakeBd();
+    await ledger(bd, [WS], {}, { now: c.now });
+    forget('demo');
+    await ledger(bd, [WS], {}, { now: c.now });
+    assert.equal(bd.calls.length, 2, bd.calls.join(' | '));
+  });
+})();
+
 /* ================================================================== the real server */
 
 console.log('\nthe real server answers it');
@@ -948,7 +1039,7 @@ const ask = (query) =>
           } catch {
             /* a non-JSON body is the assertion's problem, not this function's */
           }
-          resolve({ status: res.statusCode, body: json, raw: body });
+          resolve({ status: res.statusCode, body: json, raw: body, headers: res.headers });
         });
       }
     );
@@ -1063,6 +1154,39 @@ await acheck('and it needs the token like everything else under /api', async () 
     req.end();
   });
   assert.equal(status, 401);
+});
+
+/* ------------------------------------------------- how old the answer is, on the wire */
+
+/**
+ * The convention the four routes converting after this one will copy (bc-1kwl.3): a
+ * header, because not every route on the layer answers with an object and a body-level
+ * field would need an envelope at each call site. See `KEPT_HEADER` in lib/cache.js.
+ *
+ * The clock is not waited out — the kept entry is aged by hand through `peek`, which
+ * hands back the live record. Ten seconds of `setTimeout` in a suite is ten seconds every
+ * run, forever, to prove something a subtraction proves.
+ */
+await acheck('a fresh answer says so on the wire, and says how old it is', async () => {
+  forget();
+  const { status, headers, body } = await ask('?workspace=demo');
+  assert.equal(status, 200);
+  assert.match(headers['x-beadcause-kept'] || '', /^fresh; age=0$/, headers['x-beadcause-kept']);
+  assert.equal('kept' in body, false, 'the staleness is on the header — a second copy in the body is a second convention');
+});
+
+await acheck('and a kept one says it is kept, how old, and that a sweep is on its way', async () => {
+  const entry = cache.peek('ledger:demo');
+  assert.ok(entry, 'the daemon should have kept the sweep from the request above');
+  entry.at -= 41_000;
+  const { headers, body } = await ask('?workspace=demo');
+  assert.match(headers['x-beadcause-kept'] || '', /^stale; age=41; refreshing$/, headers['x-beadcause-kept']);
+  assert.equal(body.rows.length > 0, true, 'and the rows are drawn from the keep rather than waited for');
+});
+
+await acheck('⟳ pays the cost and comes back fresh', async () => {
+  const { headers } = await ask('?workspace=demo&refresh=1');
+  assert.match(headers['x-beadcause-kept'] || '', /^fresh; age=0$/, headers['x-beadcause-kept']);
 });
 
 for (const s of servers) s.close();

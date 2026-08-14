@@ -81,6 +81,14 @@
   const esc = (s) =>
     String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 
+  // A comment author with any `(who)` taken back off, so `beadcause (carol@example.com)`
+  // is recognised as beadcause. The rule is `writtenByDaemon` in lib/byline.js; it is
+  // restated here rather than imported because nothing under public/ imports from lib/.
+  const bylineBase = (author) => {
+    const m = /^(.*?)\s*\(([^()]*)\)$/.exec(String(author || '').trim());
+    return (m ? m[1] : String(author || '')).trim();
+  };
+
   /* ------------------------------------------------------------------ ages */
 
   // Every age on this page is measured from the *server's* clock, sent with the
@@ -1338,6 +1346,57 @@
   }
 
   /**
+   * "Model · opus · complexity:high · ran on opus" — the routing decision, in full.
+   *
+   * bc-nc6o.5, and the sibling of the inbox chip in public/app.js. The chip has a meta
+   * row to fit in and says the short form; this has a sheet, so it says the three facts
+   * separately rather than compressing them: what it is **routed to**, **why** — the
+   * tier, or the absence of one — and what a finished session **actually ran on**.
+   *
+   * **Those last two are a different fact and the row exists to keep them apart.** A
+   * model chosen a second before a window opens is a plan; the hour inside it was billed
+   * to whatever the session was really on, and they come apart for at least four ordinary
+   * reasons (see lib/ranmodel.js). Showing one number for both is the failure this whole
+   * sub-epic is against, because the wrong one is entirely plausible.
+   *
+   * **Drawn on every bead, open or closed**, directly under the session row: that row
+   * leads to what ran, and this says what it ran *on*, so on a closed bead the sheet
+   * reads in order — it closed, here is why, here is the session, here is the model. The
+   * unworked case is not a gap either: every bead is routed somewhere, and an untiered
+   * one is routed to the expensive model, which is worth seeing before somebody opens a
+   * window on it rather than after the bill.
+   *
+   * Reads `b.model`, derived once on the daemon in lib/modelcard.js and handed to the
+   * inbox card as the same object — not worked out here from `b.labels`. The tier is a
+   * label but the model is a *mapping* over it, and a browser copy of that mapping is
+   * one that keeps drawing confidently after the router has moved on.
+   */
+  function modelRowHtml(b) {
+    const m = b?.model;
+    if (!m?.model) return '';
+    const ran = (m.ran || []).filter(Boolean);
+    const bits = [
+      `<span class="model-kind">Model</span>`,
+      `<span class="model-picked">${esc(m.model)}</span>`,
+      m.problem
+        ? `<span class="model-why is-bad">⚠ ${esc(m.problem)}</span>`
+        : m.tier
+          ? `<span class="model-why">complexity:${esc(m.tier)}</span>`
+          : // Not "unknown": nothing failed, nobody rated it, and that is the state most
+            // of this tracker is in. The row says which way the silence is resolved.
+            `<span class="model-why is-none">no tier — the fallback</span>`,
+    ];
+    if (ran.length) {
+      bits.push(
+        m.diverged
+          ? `<span class="model-ran is-diverged">⚠ ran on ${esc(ran.join(', '))}</span>`
+          : `<span class="model-ran">ran on ${esc(ran.join(', '))}</span>`
+      );
+    }
+    return `<div class="model-row" id="sheet-model">${bits.join('')}</div>`;
+  }
+
+  /**
    * Owner handles on a bead, off its labels — the client's copy of `ownersOf`.
    *
    * Duplicated rather than shared because there is no module boundary between a browser
@@ -1524,6 +1583,11 @@
     // started reading, which is the cost `loadLinks` accepts and this one need not:
     // one row is a known height, where a list of children is not.
     parts.push(sessionRowHtml(b.id, null));
+    // And directly under it: what that session was routed to, and what it ran on. Under
+    // rather than over because the session row is the one that leaves the tracker, and
+    // splitting the two would put a fact about the run above the link to the run itself.
+    const model = modelRowHtml(b);
+    if (model) parts.push(model);
     // Above the description, because "what is this under, and what is it stuck
     // behind" is the question you have before you read a word of it — and because
     // a bead with neither draws nothing here, so it looks exactly as it did before.
@@ -1569,7 +1633,12 @@
       parts.push(
         `<div class="comments">${b.comments
           .map(
-            (c) => `<div class="comment${c.author && c.author !== 'beadcause' ? ' from-agent' : ''}">
+            // On the *base* of the byline: a daemon that knows who it is writes
+            // `beadcause (carol@example.com)`, and an "an agent said this" stripe over
+            // beadcause's own comment is the wrong sentence. Same rule as
+            // `writtenByDaemon` in lib/byline.js, restated because nothing under
+            // public/ imports from lib/.
+            (c) => `<div class="comment${c.author && bylineBase(c.author) !== 'beadcause' ? ' from-agent' : ''}">
               <span class="who">${esc(c.author || '')}</span>
               <div class="md">${md(c.text || '')}</div>
             </div>`

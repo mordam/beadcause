@@ -29,6 +29,11 @@
 //   • **A poll does not eat what you typed.** The inbox repaints every 25 seconds; a
 //     half-written comment on an open pull request must survive it, and the sheet must not
 //     collapse under it.
+//   • **Nor does a repaint of the card itself eat where you were in it.** Arming a button
+//     redraws this one card in place, and so does the timer six seconds later that disarms
+//     it. A selection in the comment box has to come back with *both* ends and its
+//     direction — carrying only `selectionStart` hands it back as a caret at its left
+//     edge, which is a repaint undoing something you did (bc-nh19).
 //
 // `--baseline` serves HEAD's app.js and style.css instead of the working copy, which is how
 // you tell a real failure from a flake: against a main without the full view, every case
@@ -38,6 +43,7 @@ import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { aliasPage, pageAliases } from '../lib/pagealias.js';
 import { CHROME, launchChrome } from './helpers/chrome.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -212,9 +218,18 @@ const TYPES = {
 
 const committed = (rel) => execFileSync('git', ['show', `HEAD:${rel}`], { cwd: ROOT });
 const BASELINED = ['/app.js', '/style.css', '/prcard.js'];
+const ALIASES = pageAliases();
 
-/** Every write the page attempted. `/api/presence` is the page reporting where it is. */
+/**
+ * Every write the page attempted. `/api/presence` is the page reporting where it is.
+ *
+ * `/api/error` is held apart rather than merely ignored (bc-zjep): it is the page saying
+ * it threw, which earns the line of its own at the foot of this run. Counted among the
+ * writes it read as the board posting to the daemon — "the first press sends nothing —
+ * ["/api/error"]" is a sentence about a merge button, and the write was a service worker.
+ */
 const writes = [];
+const errors = [];
 const real = () => writes.filter((w) => w.path !== '/api/presence');
 
 function serve() {
@@ -239,7 +254,7 @@ function serve() {
       let body = '';
       req.on('data', (c) => (body += c));
       return void req.on('end', () => {
-        writes.push({ path: p, ...JSON.parse(body || '{}') });
+        (p === '/api/error' ? errors : writes).push({ path: p, ...JSON.parse(body || '{}') });
         // Enough of each answer for the card to say what happened.
         if (p === '/api/pr/merge') return json({ ok: true, pr: { number: 42 }, land: { note: 'fast-forwarded main' }, cards: [] });
         if (p === '/api/pr/close') return json({ ok: true, number: 42, reason: 'not the one', beads: ['bc-abc'] });
@@ -249,7 +264,10 @@ function serve() {
     }
     if (p.startsWith('/api/')) return json({});
 
-    const rel = p === '/' ? 'index.html' : p.replace(/^\/+/, '');
+    /* Through the daemon's own alias table, so a shell path with no file behind it
+       serves the page it serves in the app rather than a 404 — see lib/pagealias.js
+       for what one 404 there costs this check. */
+    const rel = aliasPage(p, ALIASES).replace(/^\/+/, '');
     if (BASELINE && BASELINED.includes(`/${rel}`)) {
       res.writeHead(200, { 'content-type': TYPES[path.extname(rel)] });
       return res.end(committed(`public/${rel}`));
@@ -414,14 +432,58 @@ try {
   check('the authoring agent is named', /session deadbeef · done · 7 commits/.test(sheet.facts.agent || ''), JSON.stringify(sheet.facts.agent));
   check('and the datetimes are', Boolean(sheet.facts.opened && sheet.facts.touched), JSON.stringify(sheet.facts));
 
-  /* ---- 3. merge is armed: the first press sends nothing ---- */
+  /* ---- 3. merge is armed: the first press sends nothing, and takes nothing either ---- */
   check('merge is offered', /Merge & push #42/.test(sheet.merge), JSON.stringify(sheet.merge));
+  /* Half a comment first, with part of it picked out — and picked out *backwards*, so the
+     direction is a claim about the selection rather than the default a collapsed caret
+     would answer with anyway. Arming redraws this one card in place (paintPrCard), and so
+     does the timer that disarms it six seconds later: a repaint nobody asked for, landing
+     while you are mid-sentence in the box under the button. The draft is read out of the
+     box by keepPrDrafts, so nothing here needs the `input` listener — it is dispatched
+     anyway, because that is what typing into it does. */
+  const SEL = [4, 12];
+  await evalJs(
+    s,
+    `(() => {
+      const box = ${CARD(42)}.querySelector('[data-role="pr-comment"]');
+      if (!box) return;
+      box.value = 'the sentence I meant to type over';
+      box.dispatchEvent(new Event('input', { bubbles: true }));
+      box.focus();
+      box.setSelectionRange(${SEL[0]}, ${SEL[1]}, 'backward');
+    })()`
+  );
   await evalJs(s, `${CARD(42)}.querySelector('[data-act="pr-merge-go"]')?.click()`);
   await sleep(300);
   const armed = await evalJs(s, SHEET(42));
   await shot('armed');
   check('the first press sends nothing', real().length === 0, JSON.stringify(real().map((w) => w.path)));
   check('and says what the second one will do', /Tap again/.test(armed.merge), JSON.stringify(armed.merge));
+  /* Re-queried rather than held: the arming repaint replaced the card, so a reference
+     from before it is a detached node that would answer about nothing. */
+  const kept = await evalJs(
+    s,
+    `(() => {
+      const box = ${CARD(42)}.querySelector('[data-role="pr-comment"]');
+      if (!box) return null;
+      return {
+        focused: box === document.activeElement,
+        value: box.value,
+        start: box.selectionStart,
+        end: box.selectionEnd,
+        dir: box.selectionDirection,
+      };
+    })()`
+  );
+  check('arming keeps the comment you were writing under it', kept?.value === 'the sentence I meant to type over', JSON.stringify(kept?.value ?? null));
+  check(
+    'and the selection in it, both ends — not a caret at its left edge',
+    kept?.focused === true && kept?.start === SEL[0] && kept?.end === SEL[1],
+    JSON.stringify(kept)
+  );
+  /* Split out, because a lost direction is a smaller thing than a lost selection and the
+     two should not be reported as one failure. */
+  check('and which end the next Shift-arrow extends from', kept?.dir === 'backward', `selectionDirection is ${JSON.stringify(kept?.dir ?? null)}`);
   await evalJs(s, `${CARD(42)}.querySelector('[data-act="pr-merge-go"]')?.click()`);
   await sleep(600);
   const merged = real().filter((w) => w.path === '/api/pr/merge');
@@ -520,6 +582,13 @@ try {
   check('a refresh leaves the sheet open', survived.open === true, String(survived.open));
   check('and the comment you were writing with it', survived.draft === 'half a thought', JSON.stringify(survived.draft));
   check('none of that wrote anything', real().length === 0, JSON.stringify(real().map((w) => w.path)));
+  /* Last, because an error can arrive at any point in the run and this is the only
+     assertion that has seen all of them. `writes.length = 0` never touches `errors`. */
+  check(
+    'and the page reported no errors of its own',
+    errors.length === 0,
+    errors.map((e) => `${e.kind || 'error'} — ${e.message || JSON.stringify(e)}`).join(' · ')
+  );
 } finally {
   close();
   server.close();

@@ -175,7 +175,6 @@
    * @param {function} o.api        the page's own fetch wrapper — `(path, {signal}) => Promise<data>`
    * @param {number} [o.seq]        where in the log the screen is; 0 means "we do not know"
    * @param {string} [o.want]       `'presence'` to park without asking the daemon to sweep `bd`
-   * @param {boolean} [o.shade]     claim the notification shade (the Android shell, and only it)
    * @param {number} [o.wait]       seconds to let the daemon hold each request
    * @param {boolean} [o.cold]      may the first request omit `since` to learn a sequence?
    * @param {number} [o.retryMs]    how long after a broken poll to try again; 0 to stop instead
@@ -189,7 +188,6 @@
     api,
     seq = 0,
     want = null,
-    shade = false,
     wait = WAIT_S,
     cold = false,
     retryMs = 5000,
@@ -244,7 +242,6 @@
         q.set('wait', String(wait));
       }
       if (want) q.set('want', want);
-      if (shade) q.set('shade', '1');
       return `/api/poll?${q.toString()}`;
     }
 

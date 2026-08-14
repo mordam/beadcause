@@ -17,6 +17,11 @@
  *   stops the whole deploy before anything is built or restarted. Six sessions edit
  *   these checkouts; a deploy that quietly stashed one of them would be the worst
  *   kind of helpful.
+ * - **Deploy the commit that was asked for.** With `pin` on the record that is a
+ *   particular hash, checked to be on the branch before it is merged to; without one it
+ *   is the branch as this process's own fetch finds it. The difference is who is
+ *   waiting: a person tapping Ship means *now*, and the release queue means *the batch
+ *   whose window closed*. See lib/release.js.
  * - **Record before doing, not after.** The status on disk says which step is in
  *   flight, so a runner that is killed — which is the expected ending of a restart —
  *   leaves behind the step it died at rather than a blank. lib/deploy.js's sweep is
@@ -172,10 +177,37 @@ async function main() {
     const fetched = await git('git fetch', ['fetch', '--quiet', 'origin', rec.base], opts);
     if (fetched.code !== 0) fail(`could not fetch origin/${rec.base}`);
 
+    /*
+     * What this deploy is *for*: a pinned commit, or the branch as the fetch above just
+     * found it.
+     *
+     * The branch is what a tapped Ship means — somebody pressed a button that says
+     * everything that is owed, and the fetch a second ago is the freshest answer to that
+     * there is. A pin is what the release queue means: it closed a settle window over a
+     * particular batch of merges, stamped every one of them, and what has landed in the
+     * seconds since is the *next* batch's. Fast-forwarding to the branch there would ship
+     * a merge nothing recorded, under a deploy that never considered it.
+     *
+     * The pin is checked against the branch rather than merely merged into. `merge
+     * --ff-only <sha>` on a commit the fetch did not bring would fail on a missing object
+     * with git's own wording, and one that arrived on some *other* branch would succeed
+     * — deploying, from this branch's checkout, a commit that is not on this branch. The
+     * ancestry check is the difference between those two and it is cheap.
+     */
+    const target = rec.pin || `origin/${rec.base}`;
+    if (rec.pin) {
+      const onBranch = await git('git merge-base --is-ancestor', ['merge-base', '--is-ancestor', rec.pin, `origin/${rec.base}`], opts);
+      if (onBranch.code !== 0) {
+        fail(
+          `${rec.pin.slice(0, 8)} is not on origin/${rec.base} — the branch was rewritten, or that commit never reached it, so nothing was deployed`
+        );
+      }
+    }
+
     // Fast-forward only. Anything that would need a real merge is a checkout that has
     // diverged from the branch it deploys, and resolving that is a session's job.
-    const merged = await git('git merge --ff-only', ['merge', '--ff-only', `origin/${rec.base}`], opts);
-    if (merged.code !== 0) fail(`local ${rec.base} in ${rec.dir} cannot fast-forward to origin/${rec.base}`);
+    const merged = await git('git merge --ff-only', ['merge', '--ff-only', target], opts);
+    if (merged.code !== 0) fail(`local ${rec.base} in ${rec.dir} cannot fast-forward to ${target}`);
 
     const after = await git('git rev-parse', ['rev-parse', 'HEAD'], opts);
     const to = after.code === 0 ? after.output.trim().split('\n').pop() : null;
