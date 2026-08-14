@@ -21,7 +21,10 @@ agent files a `human` bead ──► beadcause polls ──► ntfy push to phon
 
 macOS only — it runs as a launchd agent and drives iTerm2.
 
-**You need:** Node 20+, the [`bd`](https://github.com/steveyegge/beads) CLI with at
+**You need:** Node 20+, the [`bd`](https://github.com/steveyegge/beads) CLI at **1.2.1
+or newer** (`brew upgrade beads`; 1.2.1 is where cross-type blocking dependencies
+arrived, and `test/epicedgereal.mjs` skips itself with a loud line on anything older
+rather than failing the repo) with at
 least one workspace under `~/beads/<name>/.beads` — or anywhere else you point
 [`workspaceRoots`](#where-trackers-live--workspaceroots-and-the-two-shapes-a-root-can-have),
 including a repo whose own `.beads` makes the repo the workspace — and
@@ -3387,6 +3390,61 @@ narrowed. `node test/inboxkinds.mjs` covers the table (every row matches exactly
 kind, in both directions), the scope rule, the sub-filter's defaults and the chrome on
 both a pointer and a touchscreen.
 
+### Finding one bead
+
+The chips answer "what *kind* of thing"; the box under them answers "which one". It sits
+in the same collapsed panel, below the scope switch, and it is a typeahead: type any part
+of a bead id — or any part of a title — and the matches drop down, narrowing as you type.
+Click one and it becomes a pill with an × beside it, and the inbox is that bead and every
+bead under it. Take the × off and the list comes back. Several pills at once mean the
+union of their trees, which is the only reading a pill with its own × supports: removing
+one has to leave the other's rows on screen.
+
+Four things about it are decisions rather than defaults.
+
+**It searches every workspace at once, not the selected one.** You type `rfnr` because
+you know the bead, not because you have first remembered which tracker it is in. Every
+suggestion carries its own `workspace/id`, so a pick is unambiguous even where two
+trackers hold the same id.
+
+**It matches titles as well as ids**, and it ranks the id matches first — exact id, then
+ids starting with what you typed, then ids containing it, then titles. The dropdown shows
+the title beside every id either way, and a box that displayed a title and then refused to
+match it would read as broken rather than as scoped. The ordering is `lib/beadsearch.js`
+and `node test/beadsearch.mjs` is the whole of it.
+
+**A picked bead means that bead and its descendants**, following `parent-child` edges
+alone — a `discovered-from` trail does not drag half the backlog in. That is the answer
+the rest of the app already gives: the P0 board keys rows by the P0 they descend from and
+a P0 card expands to every descendant at any depth, so a filter that showed one bead and
+hid its six children would be the only place in the inbox where "this piece of work"
+meant one row. It is also the answer that **replaces** the P0 board's own narrowing rather
+than stacking on it — half the beads worth searching for are under somebody else's P0 or
+under none at all, and stacked, the commonest search on a shared tracker would end in an
+empty list with a pill on screen naming the bead it was hiding. An explicit filter
+outranks an implicit one.
+
+**Nothing is stored.** The kind chips live in `localStorage` because "I read merges" is a
+standing preference; a picked bead is not one, and an inbox that opened narrowed to a bead
+you had forgotten about would be worse than one that opened wide. It is also why the box
+empties itself on a pick: the question it asked has been answered, and the next word you
+type is a *second* bead rather than a correction of the first.
+
+Two routes behind it, and the split is about cost. [`GET
+/api/beads?q=`](#http-api) is the dropdown — it is the one route in the app that can be
+asked once per keystroke, so it reads the graph `Bd.graph` already caches and never waits
+on a `bd export` (nine of those were measured at 7.3 seconds on this Mac). It reports
+`warming` for any workspace it has not read yet, so a cold daemon says *still reading the
+trackers* rather than telling you a bead you filed a minute ago does not exist. [`GET
+/api/bead/tree`](#http-api) is the pick — one request, once, and it waits, because a cold
+cache answering "nothing is under this" would narrow the list to a single row and look
+exactly like a working filter.
+
+Shipping the id-and-title index with the inbox payload and matching on the phone was the
+obvious alternative and it is much more expensive than it looks: 938 beads in `beadcause`
+alone on 2026-08-14, 97KB of `{id,title}` JSON, times nine workspaces, on every 25-second
+poll, to answer a question that is asked for about four seconds a week.
+
 ### Your P0s, and the tree each one carries
 
 The section at the top of the inbox is the P0s **you** own — open, `owner:<you>`, at
@@ -3653,6 +3711,53 @@ The two numbers that remain — agents running, advocates waiting — are **badg
 tabs that answer them**, not chips up here: the number and the way to act on it end up
 as the same tap target, and neither is a count of the list you are looking at. See
 [the tab bar](#getting-around--the-tab-bar).
+
+### The card is the control — tap it anywhere to open it
+
+Every collapsed card used to carry a **Show details** button hard left in its top bar.
+It said *this card can be opened*, next to a card that can be opened, on the one screen
+in this app where vertical space is the scarce thing — and it was a 38px target inside a
+row that was already 120px tall and doing nothing with any of it. So it is gone. **The
+body of a shut card is the way into it**: the title, the pills, the whitespace beside
+them. A pull request row and a JIRA row already worked this way, and now the question
+card, the proposal, the delivery and the read-only agent bead do too.
+
+Mechanically it is one attribute. A shut card's `<article>` carries the `data-act` the
+button used to, so the list's existing delegated handler — one listener on `#list`,
+`closest('[data-act]')` — resolves a tap on the body to the same branch. It is only
+there while the card is shut: an open card is a full-screen sheet whose way out is
+**↑ Collapse**, unchanged and in the same corner, and an article that still answered to
+the act would close the sheet under the first tap on a paragraph of the brief.
+
+**What a card contains is the whole difficulty**, and it is the half that does not show
+when it is wrong. A tap on the graph link, on a proposal's ✓, on the answer box, on the
+session log you are dragging sideways, on the bead id you are trying to select and copy
+— every one of those must do its own job and *not* also open the card underneath it, and
+when it goes wrong the control still fires: the card opening over it just reads as the
+app being keen. Two rules keep it right, and they divide the work:
+
+- **`closest()` does most of it for free.** Every control drawn on a card carries its own
+  `data-act`, so it is *nearer* than the article and the card never hears about the tap.
+  That is not a list to maintain — it is the same delegation the app already had.
+- **`cardBodyOpens` covers what carries none**: links, the native form elements and the
+  `<label>` that stands for a checkbox, and the `<pre>` a session log is read in. Plus
+  the one that is not an element at all — **a live text selection**. Selecting a bead id
+  to copy ends in a click, and a card that expanded under every attempt to copy the one
+  line worth copying would be worse than the button ever was. Nothing sets `user-select:
+  none`; the tap is dropped, the selection is kept.
+
+Saying so, on a screen with no hover and no cursor, is a **press tint**: the card goes
+down under the finger, which is what every native list row does. It is suppressed while
+a control *on* the card is the thing being pressed, because a ✓ tinting the whole card
+would say the card was about to open, which is the one thing that tap does not do.
+`cursor: pointer` is beside it for the desktop half — and on iOS it is also what makes
+`:active` fire on a non-button element at all, so the two rules are load-bearing in that
+order.
+
+`node test/cardtap.mjs` (part of `npm test`) holds it: both renderers run for real in a
+`node:vm`, the guard driven case by case over a fake tap, and a source read that no
+`<button>` anywhere in `public/app.js` answers to the act any more — a second emitter of
+it would be the old control grown back somewhere else in the file.
 
 ## What a question is blocking
 
@@ -6436,12 +6541,17 @@ daemon's poll cycle sweeps it a few seconds later.
 
 **The reason is where the resolvers are counted.** One resolver per pull request, two on
 this Mac at once, and a queue for the rest are all guarantees held in the daemon's memory
-(`lib/resolvers.js`, deliberately: a window handle is worth exactly as long as the iTerm
-holding it). `beadcause-deliver` is a *different process*. A sweep run there starts from an
-empty registry — it cannot see the resolver the daemon opened ten minutes ago, so it would
-open a second window on the same branch, which is the incident the whole file exists to
-prevent — and then it exits, taking any queue it had built with it. The registry has to be
-one registry, and only the daemon holds it.
+(`lib/resolvers.js`). `beadcause-deliver` is a *different process*. It would open a second
+window on the same branch, which is the incident that whole file exists to prevent — and
+then exit, taking any queue it had built with it. The registry has to be one registry, and
+only the daemon holds it.
+
+Since bc-9d37.11 the *keys* of that registry outlive the process, so a restart no longer
+starts from nothing — but that does not make a second process safe, and it is worth being
+precise about why. What survives is enough to know a branch is taken; the iTerm handle is
+not, and cannot be. A daemon reading those keys back can refuse to open a second window,
+which is the guarantee that matters. It cannot nudge, cannot count toward another
+process's cap, and cannot drain another process's queue.
 
 Three things fall out of recording rather than sweeping, and each of them was wanted:
 
@@ -6537,11 +6647,33 @@ Three states, not two, and the third is the point:
 **Everything for one pull request is serialised**, which is not belt-and-braces — it is the
 actual shape of the incident. One press produced two requests a moment apart, and a
 check-then-launch with an `await` in the middle is a check both of them pass. Under the
-lock the second request arrives after the first has a handle to hand it. The state is in
-memory and never on disk, for the reason a phone's whereabouts is: a handle is worth
-exactly as long as the iTerm holding it, and a record that survived a restart would only
-ever be a claim about a window nobody can address. `node test/resolvers.mjs` asserts all of
-it — including ten simultaneous presses producing one window and nine nudges.
+lock the second request arrives after the first has a handle to hand it.
+
+**The keys are on disk; the handles are not** — and until bc-9d37.11 neither was. The old
+rule was *in memory, never on disk*, on the reasoning that a record surviving a restart
+"would only ever be a claim about a window nobody can address". Every clause of that is
+still true; the conclusion assumed the thing asking again is **a press**, arriving hours
+later with no memory of its own. The sweep is not. It runs because a merge landed, and a
+merge landing is what kickstarts this daemon — so the restart happens *immediately before*
+the caller asks, every time. On 2026-08-14 that was 475 boots against 19 sweeps, and PR
+#243 was handed to `resolveFor` by eighteen consecutive sweeps over seven hours, thirteen
+of which opened or queued a window for it. Thirteen resolvers, one branch, over a green
+suite — because every assertion in it was about a single process.
+
+So the keys survive and the handle does not, which is not a compromise: a record read back
+after a restart is exactly the third state above — *something is on it and cannot be
+asked*. The file already refuses to open a second window for that, and already lets go of
+it after half an hour. The daemon says so at boot (`2 windows restored from the last
+daemon`), the sweep logs those branches as `left #243 to the window already on it` rather
+than as failures, and the card calls them **working**, because that is what they are.
+
+The queue still lives only in memory, and that is now written down as a decision rather
+than an omission: a waiting entry carries a closure that opens a window and a `recheck`
+that asks GitHub, neither of which can be serialised — and the next sweep re-derives it
+from GitHub anyway. A lost queue costs a delay; a lost registry costs a second window in
+the same tree, which is bc-utyr. `node test/resolvers.mjs` asserts all of it — including
+ten simultaneous presses producing one window and nine nudges, and six cases that call
+`restart()` because nothing inside one process can see this.
 
 **And that line said *Adam pressed Resolve conflicts again* whatever asked**, which is the
 same falsehood the brief above carries a `sweptAfter` to avoid, arriving by the other door
@@ -8858,7 +8990,8 @@ all-or-nothing is what makes an agent's suggestions annoying: one good bead in t
 is an ordinary outcome, and having to decline all three to avoid the two bad ones
 teaches you to decline everything. So the card draws a row per bead — approve,
 decline, or leave it undecided — and **Approve** / **Decline** sit up in the top bar
-beside an undecided count, hard right of the details toggle. Two taps to commit, like
+beside an undecided count, hard right. (They are the only thing left in that bar on a
+shut card: [reading is the card itself now](#the-card-is-the-control--tap-it-anywhere-to-open-it).) Two taps to commit, like
 every other answer here. The YAML block no longer renders on the phone at all; it is
 parsed out and drawn as those rows.
 
@@ -9669,7 +9802,7 @@ EOF
 That is `bin/supersede.js`, and it writes the label, the graph edge, the reason as a
 comment, and the status the sweep needs the bead left in. It used to be two lines a
 worker typed by hand, and [three of the ways to get them wrong read as
-success](#an-epic-cannot-block-a-bead-so-the-marker-holds-it-alone).
+success](#an-epic-adopting-its-own-child-cannot-block-it-so-the-marker-holds-it-alone).
 
 `superseded-by:<id>` is [endorsement](#the-endorsement-queue--a-group-tap-or-a-row-at-a-time)'s shape with a different ending. Same two layers: the marked bead is out
 of `bd ready` and out of every advocate queue, and `openWorkSession` asks the tracker
@@ -9712,7 +9845,7 @@ verdict on.
 looks, defaulting to 10. The worker's brief carries the command, which is what makes any
 of it reachable — nothing but a worker ever sets this marker.
 
-### An epic cannot block a bead, so the marker holds it alone
+### An epic adopting its own child cannot block it, so the marker holds it alone
 
 The command above was two hand-typed `bd` lines for about a day, and then somebody marked
 a bead whose original was an **epic**:
@@ -9722,19 +9855,29 @@ $ bd dep add bc-nqrr bc-4m2j
 Error: tasks can only block other tasks, not epics
 ```
 
-bd will not let a task be blocked by an epic. That is [the same one-line rule
+bd would not let a task be blocked by an epic. That was [the same one-line rule
 `lib/park.js` is built around](#parking-an-epic-which-bd-refused-outright), seen from the other
-side, and it matters more here than it looks, because adoption by an epic is how this
+side, and it mattered more here than it looks, because adoption by an epic is how this
 tracker gathers duplicates in the first place — bc-4m2j named eighteen beads under an
 `Adopts:` heading. So the marking took the label and drew no edge at all, and nothing
 said so. Three beads were marked that way on 2026-08-12 before anybody noticed.
 
+**bd 1.2.1 deleted that rule, and the conclusion survives it for a different reason.**
+Cross-type blocking is allowed since 1.2.1 — so the blocking edge onto an arm's-length
+epic would now go in — but the same release added a hierarchy deadlock guard, and the
+case this section is about walks into it: adoption by an epic is usually an epic adopting
+its **own child**, and `bd dep add <child> <its parent>` is refused because children
+already inherit the parent's completion. `edgeFor` therefore still draws the see-also,
+now as a choice rather than a wall, and `mark` still says out loud that the bead is held
+by its label. Making it take the blocking edge where it can is real work with a case
+split in it; it has not been done.
+
 **There is no second-choice edge.** Of the ten types `bd dep add --type` accepts, `blocks`
-is the only one bd polices across the epic boundary — and it is also the only one that
-takes a bead out of `bd ready`. `tracks`, `relates-to`, `supersedes`, `parent-child` and
-the rest all go in against an epic and every one of them leaves the bead exactly as ready
-as it was. The refusal and the hold are the same property, measured against the real
-binary in `test/epicedgereal.mjs` rather than reasoned about.
+is the only one that takes a bead out of `bd ready`. `tracks`, `relates-to`, `supersedes`,
+`parent-child` and the rest all go in against an epic — they always did — and every one of
+them leaves the bead exactly as ready as it was. That half is untouched by 1.2.1: what the
+release moved is whether the blocking edge is *offered*, never which edge *holds*. Measured
+against the real binary in `test/epicedgereal.mjs` rather than reasoned about.
 
 Which is survivable, because **the edge was never what timed the card**. The sweep reads
 the original and asks nothing until it is `closed`, so a marked bead with no blocking edge
@@ -10997,10 +11140,21 @@ with one line, `bd dep add <the work> <the question>`. On an epic, bd refuses:
 Error: epics can only block other epics, not tasks
 ```
 
-**bd will not let an epic be blocked by anything that is not itself an epic.** Every
-other pair is fine — a bug blocked by a task, a chore blocked by a decision — so the
-rule is narrower than it reads and it is exactly one line: epic-ness has to match. The
-same sentence with the nouns swapped comes back for a task blocked by an epic.
+**bd would not let an epic be blocked by anything that is not itself an epic.** Every
+other pair was fine — a bug blocked by a task, a chore blocked by a decision — so the
+rule was narrower than it reads and it was exactly one line: epic-ness has to match. The
+same sentence with the nouns swapped came back for a task blocked by an epic.
+
+**That rule is gone as of bd 1.2.1** (2026-08-11): "cross-type blocking dependencies are
+now allowed" replaced the blanket same-type rule with a hierarchy deadlock guard that
+refuses only gating an issue on its own ancestor or its own descendant. Sibling edges —
+every edge a park draws — go in whatever the two types are, and `test/epicedgereal.mjs`
+pins that against the real binary, skipping itself with a loud line on anything older.
+Everything below is kept anyway: it is right under both rules, it costs a string
+comparison, and a machine still on 1.1.x gets the working behaviour rather than the stack
+trace. What the bump buys that no amount of typing could is that **one question can now
+park an epic and a non-epic at once** — the failure that put one decision bead back into
+`bd ready` three times, because the question holding its epic could not also hold it.
 
 What made that expensive is the order. The question is created *first*, and
 `bin/ask.js` added the edge afterwards without catching anything, so a session asking
@@ -14528,6 +14682,8 @@ cookie says so), and `/auth/signout` ends the session.
 | GET | `/api/graph` | `?workspace=&id=` | `{nodes, links}` — the whole workspace with no `id` |
 | GET | `/api/bead` | `?workspace=&id=` | one issue in full, plus `comments[]` — for the graph's detail sheet |
 | GET | `/api/bead-links` | `?workspace=&id=` | `{children[], dependents[]}` — everything with an edge pointing at that bead, closed ones included, open work first: the `parent-child` rows as `children`, every other kind as `dependents` with its `dependency_type`. One `bd dep list --direction=up` for both, because `bd show` carries `dependent_count` and not one row behind it |
+| GET | `/api/beads` | `?q=` | `{beads[], warming, q}` — what [the inbox's bead search box](#finding-one-bead) drops down: up to 12 `{key, workspace, id, title, status}`, ranked exact id → id prefix → id substring → title, open before closed. **Every workspace at once**, because you type an id knowing the bead rather than knowing its tracker. The one route that can be asked once per keystroke, so it reads the graph `Bd.graph` already caches and **never waits on a `bd export`** — `warming` counts the workspaces it has not read yet, which is what lets the box say *still reading the trackers* instead of claiming a bead does not exist |
+| GET | `/api/bead/tree` | `?workspace=&id=` | `{workspace, id, title, keys[]}` — that bead's key and every descendant's, at any depth, `parent-child` edges only. What a pick in the search box narrows the inbox to. 404 for a bead the graph has never heard of. Unlike `/api/beads` this one **waits** for a cold cache: it is one request per pick, and answering "nothing is under this" from an unread graph would narrow the list to a single row and look exactly like a working filter |
 | POST | `/api/bead/advocate` | `{workspace, id}` | opens the **P0 advocate** on this P0 — the button on the inbox's P0 card, and the first one: the window it opens writes the waiting-on sentence that [enrols the P0 for automatic re-entry](#the-advocate-that-comes-back--what-re-opens-a-p0-advocate-and-what-it-costs), so this is where the loop starts rather than a weaker version of it. Four refusals in front of it, all 409 with a sentence: unendorsed, superseded, closed, or not a P0 anybody owns (a crash P0 is refused by name — a stack trace is not an epic). **Never two on one P0**: a live session whose window carries this bead id is a 409 rather than a second window — matched with `namesBead`, so a session on a *child* of this P0 no longer refuses it — and so is a launch from the last ten minutes whose window has not named itself yet, since that is the gap a second tap falls through. The card in front of it reads the same rule and draws it: it links to `/session?pid=` while an advocate is up, and says one is opening until then, rather than re-offering a launch that would now be refused (`advocate` on each card of `p0board`). Blocked under `OBSERVING`, unlike the verdict routes — those are you deciding, this is the daemon opening a window |
 | POST | `/api/bead/owner` | `{workspace, id, owner}` | sets `owner:<handle>` — who is answerable for this bead — and answers `{owner, owners[], p0, changed}`. An empty `owner` hands it back to nobody, which is a thing you may say; setting the owner it already has is `changed: false` and no `bd` write at all. Every *other* owner label comes off, so resolving two machines' claims from the sheet is visible. A route of its own rather than a field of `/api/bead/adjust`, because adjust refuses a bead anybody has endorsed and ownership is most worth changing on a P0 that is live — and because the ✎ may not touch `owner:` at all (`isProtectedLabel`) |
 | POST | `/api/bead/addressee` | `{workspace, id, to}` | re-addresses a question — sets `for:<handle>`, the label that decides [whose phone rings](#who-a-question-is-for--me-and-the-for-label), and answers `{addressees[], changed, cleared}`. `to` is one handle; **empty, or `everyone`, means everyone**, which is a decision rather than the absence of one. Every *other* `for:` label comes off, because handing it to Carol means Carol and not also whoever it was addressed to before. Re-sending the handle it already carries is `changed: false` and no `bd` write at all. `cleared: true` says it also pulled the row out of this phone's notification shade, which it does on exactly one condition — the question is now addressed somewhere that is not this Mac — via a `dismissed` event, and with the honest limit [narrowing the filter](#and-it-does-not-tidy-up-the-noise-it-already-made) ran into: ntfy cannot recall a delivered message, so only the Android shell's own tray is reachable. A route of its own for `/api/bead/owner`'s reasons, and because the ✎ may not touch `for:` at all (`isProtectedLabel`) |

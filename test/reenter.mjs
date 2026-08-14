@@ -589,7 +589,16 @@ await check('the sweep is below the three lines that stop the tick', async () =>
   assert.ok(body.indexOf('if (a.quiet) {') < at, 'quiet hours mean it too');
   // And above the queue: a P0 advocate takes no worker slot, so a repo at its limit — the
   // state where supervision is worth the most — must still be able to get one.
-  assert.ok(at < body.indexOf('const free = a.limit - a.workers.length'), 'it has become queue work');
+  //
+  // Matched on `const free = a.limit -` rather than on the whole line, because the whole
+  // line is not what this check is about and pinning it made the suite red for a rename
+  // that was entirely correct: `a.workers.length` became `codersOf(a).length` on main,
+  // `indexOf` returned -1, and `at < -1` failed while `reenter` was still sitting exactly
+  // where it belongs. A static read should name the thing it means and no more of the
+  // line than that.
+  const queueAt = body.indexOf('const free = a.limit -');
+  assert.ok(queueAt > 0, 'the worker-slot arithmetic has moved or been renamed — re-point this check');
+  assert.ok(at < queueAt, 'it has become queue work');
 });
 
 await check('the default for the injectable is the real door', async () => {

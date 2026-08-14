@@ -273,7 +273,7 @@ try {
     closed.chips.length ? `${closed.chips.length} on a closed card` : ''
   );
 
-  await evalJs(s, `document.querySelector('${card(KEY)} [data-act="toggle"]').click()`);
+  await evalJs(s, `document.querySelector('${card(KEY)}[data-act="toggle"]').click()`);
   if (!(await waitFor(s, `!!document.querySelector('${card(KEY)} [data-role="answer"]')`)))
     throw new Error('the answer box never rendered');
   await sleep(200);
@@ -386,7 +386,7 @@ try {
   // it again from the list, and an open card no longer carries one.
   await evalJs(s, `document.querySelector('${card(KEY)} [data-act="collapse"]').click()`);
   await sleep(200);
-  await evalJs(s, `document.querySelector('${card(KEY)} [data-act="toggle"]').click()`);
+  await evalJs(s, `document.querySelector('${card(KEY)}[data-act="toggle"]').click()`);
   if (!(await waitFor(s, `!!document.querySelector('${card(KEY)} [data-role="answer"]')`)))
     throw new Error('the box never came back');
   await sleep(200);
@@ -418,7 +418,7 @@ try {
 
   /* -------------------------------------------------- the block is untouched */
 
-  await evalJs(s, `document.querySelector('${card(BLOCK_KEY)} [data-act="toggle"]').click()`);
+  await evalJs(s, `document.querySelector('${card(BLOCK_KEY)}[data-act="toggle"]').click()`);
   if (!(await waitFor(s, `!!document.querySelector('${card(BLOCK_KEY)} [data-role="answer"]')`)))
     throw new Error('the second card never opened');
   await sleep(200);

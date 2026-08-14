@@ -55,6 +55,31 @@
   id substring is not a set of chips, and a second control somewhere else on the page
   would be the two-rows-of-chrome problem all over again.
 
+  A **typeahead** is that same text group with three more functions on it, and it is one
+  shape rather than a second kind of group on purpose — the input, the 16px that stops
+  iOS zooming the panel out from under itself, and the never-write-while-focused rule are
+  the same decisions either way, and a control that had two of them would have had two
+  answers to each:
+
+      { text: true, value(), set(v), suggestions(), picks(), pick(id), unpick(id), note?() }
+
+  - **`suggestions()`** is asked on every paint and returns `{ id, label, note? }`. The
+    list under the input is drawn from it, and it is drawn **whenever `value()` is not
+    empty** — there is no open/closed flag here, because the query is the page's state and
+    a dropdown that could be open over an empty box would be a second source of truth
+    about whether you are searching.
+  - **`picks()`** returns `{ id, label, note? }` for what has been chosen, drawn as pills
+    above the input, each with an X that calls `unpick(id)`.
+  - **`note()`** is the one line to draw when `suggestions()` is empty and the box is not.
+    The words belong to the page because only the page knows the difference between "no
+    bead matches that" and "the tracker has not been read yet", and drawing the first over
+    the second is a search box calling a bead you filed a minute ago non-existent.
+
+  **A typeahead's summary line says its picks, never its query.** The two are not the same
+  claim: a half-typed word narrows nothing until you click something, and a summary line
+  that showed it would be the control announcing a filter that is not applied — the same
+  failure as `said()` hiding one that is, in the other direction.
+
   ## What it deliberately does not do
 
   **It does not store anything.** No localStorage, no URL. The inbox keeps its kinds on
@@ -134,7 +159,17 @@
       return groupsOf()
         .filter(said)
         .map((g) => {
-          if (g.text) return String(g.value() || '') || g.all || 'Any';
+          if (g.text) {
+            // A typeahead says what has been picked. Its query is not a narrowing — see
+            // the header — so a group with `picks` never falls through to `value()`.
+            if (typeof g.picks === 'function') {
+              const picks = g.picks();
+              if (!picks.length) return g.all || 'Any';
+              if (picks.length <= 2) return picks.map((p) => p.label).join(', ');
+              return `${picks.length} ${g.legend.toLowerCase()}`;
+            }
+            return String(g.value() || '') || g.all || 'Any';
+          }
           const on = g.options().filter((o) => o.on);
           if (!on.length) return g.all || 'All';
           if (on.length <= 2) return on.map((o) => o.label).join(', ');
@@ -187,11 +222,212 @@
       if (g.placeholder) input.placeholder = g.placeholder;
       input.value = String(g.value() || '');
       input.addEventListener('input', () => {
+        // A fresh word is a fresh list, so nothing is highlighted until you arrow into
+        // it. Without this, typing one more letter would leave the third row of the old
+        // list selected and Enter would pick whatever had moved into that slot.
+        row.active = -1;
         g.set(String(input.value || ''));
         paint();
       });
+      if (typeof g.suggestions === 'function') {
+        // The whole combobox pattern or none of it: `role="combobox"` on its own tells a
+        // screen reader there is a list to expect and then never says whether it is open
+        // or what is in it, which is worse than an ordinary search field. `aria-expanded`
+        // is written on every paint, beside the list's own `hidden`.
+        input.setAttribute('role', 'combobox');
+        input.setAttribute('aria-expanded', 'false');
+        input.setAttribute('aria-controls', `filter-suggest-${g.id}`);
+        input.setAttribute('aria-autocomplete', 'list');
+        // The browser's own autofill drawer over a dropdown of our own is two lists of
+        // suggestions on one field, and only one of them knows what a bead is.
+        input.setAttribute('autocomplete', 'off');
+        input.addEventListener('keydown', (ev) => onSuggestKey(g, row, ev));
+      }
       row.input = input;
       return input;
+    }
+
+    /**
+     * The whole of a text group: pills, the input, and the list under it.
+     *
+     * Built once, like the input it wraps and for the same reason — an input replaced
+     * mid-word is a word you have to type again, and the pills and the list are its
+     * siblings rather than its parents so that replacing either can never take it with
+     * them. A plain text group gets neither and is one input in a wrapper, which is what
+     * the History tab has always drawn.
+     */
+    function makeText(g, row) {
+      const wrap = document.createElement('div');
+      wrap.className = 'filter-typeahead';
+      const input = makeInput(g, row);
+      if (typeof g.picks === 'function') {
+        row.pills = document.createElement('div');
+        row.pills.className = 'pill-row';
+        row.pills.hidden = true;
+        // Above the input: what you have chosen, then the box you choose more in. The
+        // other order would put the answer below the question.
+        wrap.append(row.pills);
+      }
+      wrap.append(input);
+      if (typeof g.suggestions === 'function') {
+        row.list = document.createElement('div');
+        row.list.className = 'suggest';
+        row.list.id = `filter-suggest-${g.id}`;
+        row.list.setAttribute('role', 'listbox');
+        row.list.setAttribute('aria-label', g.legend);
+        row.list.hidden = true;
+        wrap.append(row.list);
+      }
+      return wrap;
+    }
+
+    /** One selection, and the X that takes it back off. */
+    function makePill(g, p) {
+      const pill = document.createElement('span');
+      pill.className = 'pill';
+      pill.dataset.pick = p.id;
+      if (p.note) pill.title = p.note;
+      const label = document.createElement('span');
+      label.className = 'pill-label';
+      label.textContent = p.label;
+      const x = document.createElement('button');
+      x.type = 'button';
+      x.className = 'pill-x';
+      x.textContent = '×';
+      // The glyph is a multiplication sign and reads as nothing at all to a screen
+      // reader, so the accessible name has to carry both the verb and which one.
+      x.setAttribute('aria-label', `Remove ${p.label}`);
+      x.addEventListener('click', () => {
+        g.unpick(p.id);
+        paint();
+      });
+      pill.append(label, x);
+      return pill;
+    }
+
+    /** The pills, rebuilt only when the *set* of them changes — as with the chips. */
+    function paintPicks(g, row) {
+      if (!row.pills) return;
+      const picks = g.picks() || [];
+      const ids = picks.map((p) => p.id).join(',');
+      row.pills.hidden = picks.length === 0;
+      if (row.pickIds === ids) return;
+      row.pickIds = ids;
+      row.pills.replaceChildren(...picks.map((p) => makePill(g, p)));
+    }
+
+    /** One row of the dropdown. A button, so it is reachable and pressable as one. */
+    function makeSuggestion(g, row, o) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'suggest-row';
+      btn.dataset.suggest = o.id;
+      btn.setAttribute('role', 'option');
+      btn.setAttribute('aria-selected', 'false');
+      const label = document.createElement('span');
+      label.className = 'suggest-id';
+      label.textContent = o.label;
+      btn.append(label);
+      if (o.note) {
+        const note = document.createElement('span');
+        note.className = 'suggest-note';
+        note.textContent = o.note;
+        btn.append(note);
+      }
+      // `pointerdown` and not `click`: the document-level close in this file runs on
+      // pointerdown, and a tap that took the panel away before this button heard about
+      // it would be a suggestion you cannot click on a phone.
+      btn.addEventListener('pointerdown', (ev) => {
+        ev?.preventDefault?.();
+        choose(g, row, o.id);
+      });
+      btn.addEventListener('click', () => choose(g, row, o.id));
+      return btn;
+    }
+
+    /**
+     * The list under the input.
+     *
+     * Drawn whenever the box is not empty — there is no open flag here, because the query
+     * *is* the state and the page owns it. An empty result with a query in the box draws
+     * the group's own `note()` instead, so "nothing matches" and "not read yet" can be
+     * different sentences; with no note to draw, the list is simply hidden.
+     */
+    function paintSuggestions(g, row) {
+      if (!row.list) return;
+      const asked = String(g.value() || '').trim().length > 0;
+      const items = asked ? g.suggestions() || [] : [];
+      const note = asked && !items.length ? String((typeof g.note === 'function' && g.note()) || '') : '';
+      row.list.hidden = !items.length && !note;
+      const ids = `${items.map((o) => o.id).join(',')}|${note}`;
+      if (row.suggestIds !== ids) {
+        row.suggestIds = ids;
+        if (row.active >= items.length) row.active = -1;
+        row.items = items.map((o) => makeSuggestion(g, row, o));
+        if (note) {
+          const line = document.createElement('div');
+          line.className = 'suggest-note-line';
+          line.textContent = note;
+          row.list.replaceChildren(line);
+        } else {
+          row.list.replaceChildren(...row.items);
+        }
+      }
+      row.input.setAttribute('aria-expanded', String(items.length > 0));
+      for (let i = 0; i < row.items.length; i += 1) {
+        const on = i === row.active;
+        row.items[i].setAttribute('aria-selected', String(on));
+        row.items[i].classList.toggle('active', on);
+        // Which row the arrow keys are on, said to a screen reader — the caret never
+        // leaves the input, so `aria-selected` alone would move nothing it announces.
+        if (on) row.items[i].id = row.items[i].id || `${row.list.id}-${i}`;
+      }
+      const active = row.active >= 0 ? row.items[row.active] : null;
+      if (active) row.input.setAttribute('aria-activedescendant', active.id);
+      else row.input.removeAttribute?.('aria-activedescendant');
+    }
+
+    /**
+     * A suggestion taken. Never through `pick()` — a typeahead must not close the panel,
+     * because the next thing you may want is a second bead and the box is in here.
+     *
+     * **By id and not by position.** A repaint can land between the list being drawn and
+     * the tap arriving, and an index would then pick whatever had moved into that slot —
+     * an id either finds the row you tapped or finds nothing, and nothing is the right
+     * answer to a tap on a suggestion that no longer exists.
+     */
+    function choose(g, row, id) {
+      if (!(g.suggestions() || []).some((o) => o.id === id)) return;
+      row.active = -1;
+      g.pick(id);
+      paint();
+    }
+
+    /**
+     * Arrows and Enter over the list.
+     *
+     * Enter with nothing highlighted takes the first, because the list is already ordered
+     * best-first and somebody who typed a whole id and pressed Enter has said which bead
+     * they mean. Escape is deliberately not here: it belongs to the panel, and a key that
+     * closed the list on the first press and the panel on the second would be two
+     * different controls behind one key.
+     */
+    function onSuggestKey(g, row, ev) {
+      const key = ev?.key;
+      if (key !== 'ArrowDown' && key !== 'ArrowUp' && key !== 'Enter') return;
+      const items = g.suggestions() || [];
+      if (!items.length || !String(g.value() || '').trim()) return;
+      ev?.preventDefault?.();
+      if (key === 'Enter') {
+        const chosen = items[row.active >= 0 ? row.active : 0];
+        if (chosen) choose(g, row, chosen.id);
+        return;
+      }
+      const step = key === 'ArrowDown' ? 1 : -1;
+      // -1 is "nothing highlighted" and is a real position: arrowing back up off the top
+      // returns the caret to the word you typed rather than wrapping to the bottom.
+      row.active = Math.max(-1, Math.min(items.length - 1, (row.active ?? -1) + step));
+      paint();
     }
 
     /** A group's chips: their pressed state and their counts, in place where it can be. */
@@ -202,12 +438,23 @@
       // still there, still painted, for the summary line to read.
       if (row.box) row.box.hidden = !shown(g);
       if (g.text) {
-        if (!row.input) row.el.replaceChildren(makeInput(g, row));
+        if (!row.input) row.el.replaceChildren(makeText(g, row));
         const want = String(g.value() || '');
         // Never while it has the caret: the page can rewrite the filter — a Clear, a
         // back button — but a repaint that reset the field mid-word would be a control
         // fighting the person using it.
-        if (row.input.value !== want && document.activeElement !== row.input) row.input.value = want;
+        //
+        // A typeahead is the one place the page *does* rewrite it and mean to: picking a
+        // suggestion clears the box, and it does so while the caret is still in there. So
+        // the emptying is allowed through — an unconditional write would fight the typing,
+        // and refusing this one would leave the word you just turned into a pill sitting
+        // in the box underneath it.
+        const clearing = typeof g.picks === 'function' && want === '' && row.input.value !== '';
+        if (row.input.value !== want && (clearing || document.activeElement !== row.input)) {
+          row.input.value = want;
+        }
+        paintPicks(g, row);
+        paintSuggestions(g, row);
         return;
       }
       const options = g.options();
@@ -307,7 +554,23 @@
       panel.append(box);
       // The box as well as the chip row: a group is hidden legend and all, and paint()
       // needs the node to hide.
-      ui.rows.set(g.id, { el: row, box, ids: '', chips: new Map(), input: null });
+      // `pills`, `list`, `items` and `active` belong to a typeahead and stay null for
+      // every other group — `active` is the highlighted suggestion, and it is the one
+      // piece of state this file does keep, because which row of a dropdown the arrow
+      // keys are on is a fact about the widget rather than about anybody's filter.
+      ui.rows.set(g.id, {
+        el: row,
+        box,
+        ids: '',
+        chips: new Map(),
+        input: null,
+        pills: null,
+        pickIds: '',
+        list: null,
+        items: [],
+        suggestIds: '',
+        active: -1,
+      });
     }
 
     root.append(summary, panel);

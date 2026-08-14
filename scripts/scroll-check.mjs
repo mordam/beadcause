@@ -223,7 +223,7 @@ try {
   if (!(await evalJs(s, `!!document.querySelector('.card[data-key]')`))) throw new Error('the list never rendered');
 
   // Open the long brief and let mermaid finish, the way a reader would.
-  await evalJs(s, `document.querySelector('.card[data-key=${JSON.stringify(KEY)}] [data-act="toggle"]').click()`);
+  await evalJs(s, `document.querySelector('.card[data-key=${JSON.stringify(KEY)}][data-act="toggle"]').click()`);
   await sleep(2500);
   const drew = await evalJs(s, `!!document.querySelector('.card svg[id^="mmd-"]')`);
   check('the diagram draws at all', drew, drew ? '' : 'no mermaid svg — the rest of this proves nothing');
@@ -310,7 +310,7 @@ try {
      it means the draft outlived the card that held it, is marked on the collapsed
      card so you can see which question you left half-answered, and comes back in the
      box when you open it again. */
-  await evalJs(s, `document.querySelector('.card[data-key=${JSON.stringify(OTHER_KEY)}] [data-act="toggle"]').click()`);
+  await evalJs(s, `document.querySelector('.card[data-key=${JSON.stringify(OTHER_KEY)}][data-act="toggle"]').click()`);
   await sleep(1500);
   const accordion = await evalJs(
     s,
@@ -333,7 +333,7 @@ try {
   check('and marks it as half-answered', accordion.marked, JSON.stringify(accordion.marked));
 
   // Open it again: the draft has to be back in the box, not merely in localStorage.
-  await evalJs(s, `document.querySelector('.card[data-key=${JSON.stringify(KEY)}] [data-act="toggle"]').click()`);
+  await evalJs(s, `document.querySelector('.card[data-key=${JSON.stringify(KEY)}][data-act="toggle"]').click()`);
   await sleep(1500);
   const draft = await evalJs(
     s,

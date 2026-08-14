@@ -304,7 +304,10 @@ const groupBox = (h, id) => panel(h).children.find((b) => b.dataset.group === id
 const chipsOf = (h, id) => groupBox(h, id).children[1].children;
 const chipIn = (h, gid, cid) => chipsOf(h, gid).find((c) => c.dataset.chip === cid);
 const pressed = (h, gid) => chipsOf(h, gid).filter((c) => c.getAttribute('aria-pressed') === 'true').map((c) => c.dataset.chip);
-const idBox = (h) => groupBox(h, 'beadid').children[1].children[0];
+/* By class rather than by position: bc-0xil put the input inside a wrapper so that a
+   typeahead's pills and dropdown could be its siblings, and a helper that counts
+   children would break every time the box grows a neighbour it does not care about. */
+const idBox = (h) => groupBox(h, 'beadid').all('filter-text')[0];
 
 /** A ledger the daemon would answer with, filtered the way lib/history.js filters. */
 const ledgerOf = (rows) => async (call) => {

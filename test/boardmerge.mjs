@@ -203,6 +203,13 @@ if (args[0] === 'list') {
   const label = flag('--label');
   let rows = Object.values(w.issues);
   if (label) rows = rows.filter((i) => (i.labels || []).includes(label));
+  // \`--parent\` has to be honoured or a *children* question is answered with the whole
+  // workspace. Nothing asked one until bd 1.2.1 made the close gate apply to every
+  // parent rather than only to epics (bc-xl7n.39), at which point \`Bd.gateFor\` started
+  // asking on every close this file drives and each one came back gated by beads that
+  // are not its children.
+  const parent = flag('--parent');
+  if (parent) rows = rows.filter((i) => i.parent === parent);
   // \`--limit 1\` with no label is \`prefixFor\` asking what ids look like here.
   if (flag('--limit') === '1') rows = rows.slice(0, 1);
   process.stdout.write(JSON.stringify(rows.filter(live).map(hydrate)));
