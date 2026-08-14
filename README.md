@@ -7722,7 +7722,8 @@ session that trips over something mid-work proposes it *then*, with
 card, same buttons, nothing created until you tap. What follows is the other way: what
 happens when a repo runs *out* of work and something has to go looking.
 
-So when a repo runs out of ready work, the advocate spawns a **read-only** survey
+So when a repo [runs out of ready work](#when-it-actually-goes-looking--what-out-of-ready-work-has-to-mean),
+which is a narrower condition than it sounds, the advocate spawns a **read-only** survey
 agent (`bd`, `git log`, read, grep, and the [web lookups](#looking-something-up--and-why-it-is-not-bashcurl) — nothing that can create, close or delete a bead) which reads the recent
 closes, the blocked beads, any `## Discovered` notes left in comments by sessions
 older than the propose command, and the repo's own docs. If it finds nothing worth filing it says so and the advocate
@@ -7814,6 +7815,57 @@ beads. The app sends both — the sentence for you, the indices as a field — a
 field wins. Free text can never create a bead by accident: *"yeah go on then"* is a
 comment, which is exactly what it looks like. One open proposal per repo at a time,
 and at most one every `proposeCooldownHours`.
+
+### When it actually goes looking — what "out of ready work" has to mean
+
+The paragraph above says *when a repo runs out of ready work*, and that sentence hides
+the whole mechanism. Six things have to be true in the same tick before `propose` is
+even entered, and every one of them is a filter somebody added for its own incident:
+
+- **the advocate is not paused**, and is not inside quiet hours — pausing means "open
+  no more sessions", and proposing is one;
+- **it has no window open on this repo**, because an advocate that proposed new work
+  while it was doing old work would be doing the easy half of its job;
+- **`bd ready` is empty** of anything it could take;
+- **and empty for no *reason*** — none of the eight holds fired. A queue emptied by a
+  hold is not a clear one: `heldByChildren`, `heldByRepo`, `heldByTwin`, `heldByPr`,
+  `heldByLive`, `heldByLease`, `heldByClaim` and `heldByNoP0` each stand for work that
+  *is* there and cannot be started yet, and an advocate that said "clear" over one and
+  then filed new beads beside it would be burying the one sentence that says what to
+  fix. This is the condition that does most of the stopping, and the card says which:
+  *"nothing ready · 1 already in an open pull request"* is not the same sentence as
+  *"clear — no ready beads"*, on purpose;
+- **`propose` is on**;
+- **and `proposeCooldownHours` has elapsed** since the last survey. The stamp goes on
+  *both* outcomes, including "nothing worth proposing", so an advocate that found
+  nothing does not spend another ten agent-minutes finding nothing again before lunch.
+
+Then one more, inside `propose` itself: **no proposal is already waiting on you**. Two
+asks in an inbox is how an advocate starts reading as noise, and the second would be
+written without the answer to the first.
+
+**That conjunction is rare by design, and for a while it looked broken instead.** On
+2026-08-11 it had never once been true on this laptop: `lastProposalAt` was null for
+all six advocates and no `<workspace>_advocate.log` existed, so the entire survey half
+of the advocate had run only in its own tests. Three of the eight holds were added
+*after* `propose` was written, and each one makes "clear" rarer — which is a reasonable
+thing to be suspicious of. It fired for real the next day: the `architecture` advocate
+surveyed on 2026-08-12, wrote its transcript, stamped `lastProposalAt`, proposed two
+beads and asked to change its own foundation. So the gate opens; it opens for a repo
+that is genuinely idle. Four of those six advocates were *paused*, which is a stop long
+above the queue and says nothing about the gate at all. `beadcause`'s own still has a
+null stamp, and that is the gate working rather than the gate stuck: this repo has not
+had an empty, unheld queue and no open window in the same tick since the advocate was
+switched on. A queue that is never dry is a queue that never needs proposals.
+
+`test/proposegate.mjs` is that measurement turned into something that can fail, because
+one reading of one file on one laptop does not stay true and the next filter added above
+`propose` would close the door again with nothing to say so. It drives a clear queue
+through a real tick and asserts the survey is reached, then takes away one condition at
+a time — a worker, a hold, the pause, the cooldown, the switch — and asserts it is not.
+The positive case is the point: `test/repoqueue.mjs` already covers a queue that must
+*not* propose over itself, and a gate only ever tested shut cannot tell "correctly
+closed" from "welded shut".
 
 ### What you see, and where
 
