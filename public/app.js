@@ -3641,6 +3641,28 @@
   }
 
   window.beadcause?.editMode?.provideText?.(payloadText);
+  /**
+   * And where on this page you were standing when you said it.
+   *
+   * The other half of what a bead filed from inside the app has to carry. An anchor says
+   * which element; this says which *screen* — and on the inbox those are not the same
+   * question, because the list is four filters deep and the element only exists at all
+   * under some of them. "The P0 title is too quiet" is a different bead depending on
+   * whether the P0 section was showing, and an agent that opens the app to look will see
+   * whichever narrowing it happens to load with.
+   *
+   * Read at the moment each edit is recorded rather than at Save, so a pass made across
+   * two filters carries both. Values that are off are empty strings and drop out on the
+   * way through — a where-block listing every filter as `all` is noise around the one
+   * that was actually set.
+   */
+  window.beadcause?.editMode?.provideContext?.(() => ({
+    view: 'the inbox',
+    showing: { human: 'what is waiting on you', agent: 'what agents are on', both: 'both' }[state.scope] || state.scope,
+    space: state.space === 'all' ? '' : state.space,
+    workspace: state.workspace === 'all' ? '' : state.workspace,
+    kinds: window.beadcause?.inboxFilter?.label?.() || '',
+  }));
   // The catch-up repaint, and the reason a frozen screen is safe to leave frozen: every
   // poll that landed while the mode was on has been adopted into `state` and only the
   // paint was held, so one forced render() here is the whole of the arrears — no cold

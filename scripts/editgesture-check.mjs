@@ -105,6 +105,9 @@ function committed(rel) {
 }
 const BASELINED = ['/index.html', '/app.js', '/editmode.js', '/style.css'];
 
+/** Every pass this run posted to `/api/edits`, in the order it posted them. */
+const filed = [];
+
 function serve() {
   const server = http.createServer((req, res) => {
     const url = new URL(req.url, 'http://x');
@@ -115,6 +118,27 @@ function serve() {
     };
     if (p === '/api/questions') {
       return json({ questions: asQuestions(BEADS), workspaces: ['demo'], spaces: [], scope: 'human' });
+    }
+    /**
+     * Save's daemon, as far as this check is concerned: it keeps what was posted and
+     * answers what `/api/edits` answers. A real `bd` is test/editsave.mjs's business —
+     * what is being proved here is that a thumb can reach the button at all, and that
+     * what leaves the phone is the record rather than the sentence on the screen.
+     */
+    if (p === '/api/edits' && req.method === 'POST') {
+      let body = '';
+      req.on('data', (chunk) => (body += chunk));
+      return void req.on('end', () => {
+        const pass = JSON.parse(body || '{}');
+        filed.push(pass);
+        json({
+          ok: true,
+          workspace: 'demo',
+          root: { id: 'demo-root', made: false, from: 'label' },
+          session: { id: 'demo-pass', title: 'Edit pass on the inbox' },
+          filed: (pass.changes || []).map((c, i) => ({ changeId: c.id, id: `demo-${i + 1}`, title: c.said })),
+        });
+      });
     }
     if (p.startsWith('/api/')) return json({});
 
@@ -428,6 +452,35 @@ try {
     done.badge === String(left.length) && /unsaved/.test(done.label),
     `badge ${done.badge}, “${done.label}”`
   );
+
+  /* 7. Save — the one press in this mode that makes any of it real */
+  await tap(s, await at(s, '#editmode'));
+  await sleep(400);
+  await tap(s, await at(s, '[data-act="edit-list"]'));
+  await sleep(200);
+  const savable = await evalJs(s, `document.querySelector('.editlist-save')?.disabled === false`);
+  check('the pass is still there on the way back in, and Save is live over it', savable);
+  await tap(s, await at(s, '.editlist-save'));
+  for (let i = 0; i < 40 && !filed.length; i++) await sleep(100);
+  await sleep(400);
+  check('Save takes a tap from a thumb and the whole pass leaves the phone', filed.length === 1 && (filed[0]?.changes || []).length === left.length, `${filed.length} post(s), ${filed[0]?.changes?.length} change(s) of ${left.length}`);
+  const sent = filed[0]?.changes || [];
+  check(
+    'and what it sent is the record an agent needs, not the sentence on the screen',
+    sent.every((c) => c.anchor?.selector && c.anchor?.text) && sent.some((c) => c.anchor?.source?.sites?.[0]?.line > 0),
+    JSON.stringify(sent.map((c) => `${c.kind}@${c.anchor?.source?.sites?.[0]?.line ?? '—'}`))
+  );
+  check(
+    'with where in the app it was said, which the anchor alone cannot carry',
+    sent.every((c) => c.context?.view === 'the inbox') && Boolean(filed[0]?.view),
+    JSON.stringify(sent[0]?.context || null)
+  );
+  const after7 = await evalJs(
+    s,
+    `({ held: JSON.parse(JSON.stringify(window.beadcause.editMode.changes())).length,
+        foot: document.querySelector('.editlist-foot')?.textContent || '' })`
+  );
+  check('the list empties against what came back, and says where it went', after7.held === 0 && /demo-pass/.test(after7.foot), `${after7.held} left · "${after7.foot.slice(0, 70)}"`);
 
   const errors = await evalJs(s, `(window.__egErrors || []).slice(0, 3)`);
   check('nothing threw along the way', errors.length === 0, errors.join(' · '));
