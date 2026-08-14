@@ -32,7 +32,7 @@
  *    unrelated histories — the conflict lib/sync.js says nothing has ever retried its way
  *    out of. The plan for those states is empty and carries a sentence naming the fix.
  * 3. **Holding Enter through `npm run configure` no longer un-shares a workspace.** The
- *    default for question 2 was the literal `'none'`, and `ask` turns an empty line into
+ *    default for question 3 was the literal `'none'`, and `ask` turns an empty line into
  *    the default — so a re-run withdrew `autoDispatchExclude` and `ntfy.minimalWorkspaces`
  *    from every workspace, in silence, and the summary printed afterwards read as a fact
  *    about the machine rather than as something the last keystroke had just done.
@@ -405,7 +405,7 @@ check('npm run onboard exists', () => {
   assert.equal(JSON.parse(read('package.json')).scripts.onboard, 'node scripts/onboard.mjs');
 });
 
-check("configure.js no longer defaults question 2 to 'none'", () => {
+check("configure.js no longer defaults question 3 to 'none'", () => {
   const js = read('scripts/configure.js');
   assert.doesNotMatch(js, /ask\('   shared:', 'none'\)/, "holding Enter would un-share every workspace");
   assert.match(js, /ask\('   shared:', sharedDefault\)/);

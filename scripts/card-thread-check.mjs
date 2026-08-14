@@ -35,6 +35,7 @@ import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { toQuestion } from '../lib/decision.js';
+import { aliasPage, pageAliases } from '../lib/pagealias.js';
 import { CHROME, launchChrome } from './helpers/chrome.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -184,14 +185,22 @@ const TYPES = {
 
 const committed = (rel) => execFileSync('git', ['show', `HEAD:${rel}`], { cwd: ROOT });
 const BASELINED = ['/app.js', '/style.css'];
+const ALIASES = pageAliases();
 
 /**
  * Every write the page attempted — nothing here should write anything.
  *
  * `/api/presence` is not a write in that sense: it is the page telling the daemon
  * which card is on screen, it happens on every open, and the monitor depends on it.
+ *
+ * Neither is `/api/error`, and that one is kept separately rather than merely ignored
+ * (bc-zjep). It is the page saying it threw, which is worth a line of its own at the foot
+ * of this run — "the page reported no errors" names what happened, where "none of this
+ * wrote anything — ["/api/error"]" reads as the card writing to the tracker and sent two
+ * sessions looking for a write that was never there.
  */
 const writes = [];
+const errors = [];
 const real = () => writes.filter((w) => w.path !== '/api/presence');
 
 function serve() {
@@ -213,13 +222,17 @@ function serve() {
       let body = '';
       req.on('data', (c) => (body += c));
       return void req.on('end', () => {
-        writes.push({ path: p, ...JSON.parse(body || '{}') });
+        const record = { path: p, ...JSON.parse(body || '{}') };
+        (p === '/api/error' ? errors : writes).push(record);
         json({ ok: true });
       });
     }
     if (p.startsWith('/api/')) return json({});
 
-    const rel = p === '/' ? 'index.html' : p.replace(/^\/+/, '');
+    /* Through the daemon's own alias table, so a shell path with no file behind it
+       serves the page it serves in the app rather than a 404 — see lib/pagealias.js
+       for what one 404 there costs this check. */
+    const rel = aliasPage(p, ALIASES).replace(/^\/+/, '');
     if (BASELINE && BASELINED.includes(`/${rel}`)) {
       res.writeHead(200, { 'content-type': TYPES[path.extname(rel)] });
       return res.end(committed(`public/${rel}`));
@@ -567,6 +580,14 @@ try {
   );
   check('and the draft with it', survived.draft === DRAFT, JSON.stringify(survived.draft));
   check('none of this wrote anything', real().length === 0, JSON.stringify(real().map((w) => w.path)));
+  /* Last, because an error can arrive at any point in the run — the install that used to
+     fail here landed during the very first page load — and this is the assertion that has
+     seen all of them. */
+  check(
+    'and the page reported no errors of its own',
+    errors.length === 0,
+    errors.map((e) => `${e.kind || 'error'} — ${e.message || JSON.stringify(e)}`).join(' · ')
+  );
 } finally {
   if (!KEEP) close();
   server.close();

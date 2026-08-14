@@ -74,6 +74,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { ownAddresseeLabels } from '../lib/addressee.js';
+import { bylineFor } from '../lib/byline.js';
 import { isMergeReason, parseJson } from '../lib/bd.js';
 import { loadConfig } from '../lib/config.js';
 import { inspectBranch, report as conflictReport } from '../lib/conflicted.js';
@@ -279,8 +280,13 @@ if (ahead) {
 
 /* ------------------------------------------------------------------- the bead */
 
-const env = { ...process.env, BEADS_DIR: ws.dir, BEADS_ACTOR: cfg.actor };
-const bd = (args) => execFileSync(cfg.bdBin, args, { env, cwd: ws.dir, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 });
+// The byline this machine files under, on the argv as well as in the environment — a
+// workspace `config.yaml` with an `actor:` in it beats `BEADS_ACTOR` and the flag beats
+// both, which is why `Bd.run` has always appended it. See bin/ask.js and lib/byline.js.
+const byline = bylineFor(cfg);
+const env = { ...process.env, BEADS_DIR: ws.dir, BEADS_ACTOR: byline };
+const bd = (args) =>
+  execFileSync(cfg.bdBin, [...args, '--actor', byline], { env, cwd: ws.dir, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 });
 
 let bead = null;
 try {
@@ -673,8 +679,9 @@ async function landHere(landed, { external = false } = {}) {
    *
    * The act itself is `landLocally`'s, unchanged, aimed at the main checkout rather
    * than this worktree — including the part that matters most, which is that it does
-   * **not** touch a checkout with uncommitted work in it. Adam edits in these while
-   * sessions run.
+   * **not** touch a checkout with edited work in it. Adam edits in these while
+   * sessions run. Untracked residue is the exception it steps past, named in the note
+   * either way (bc-45g8).
    *
    * Nothing about it can fail a delivery. The merge has already happened, the work is
    * on `origin` whatever this checkout does, and a laptop that is a commit behind is
@@ -728,8 +735,8 @@ async function landHere(landed, { external = false } = {}) {
     `Landed as [${where}](${request.url}) — ${how}, on \`${branch}\`.${owed ? ` Still owed: ${owed}.` : ''}` +
     // What this Mac's checkout did about it, in landLocally's own words. On the bead
     // rather than only in a session log because "left main where it is — there is
-    // uncommitted work in beadcause" is the one outcome somebody has to act on, and a
-    // session log is read by nobody once its window is closed.
+    // uncommitted work in beadcause: lib/foo.js" is the one outcome somebody has to act
+    // on, and a session log is read by nobody once its window is closed.
     (followed?.note ? ` This Mac's checkout: ${followed.note}.` : '');
   try {
     bd(['comment', beadId, note]);

@@ -156,14 +156,14 @@ function serve() {
         workspaces: WORKSPACES,
       });
     }
-    if (p === '/api/spaces') return json({ spaces: [], workspaces: WORKSPACES, counts: {}, filter, waiting: 0 });
+    if (p === '/api/spaces') return json({ spaces: [], workspaces: WORKSPACES, filter });
     if (p === '/api/filter' && req.method === 'POST') {
       let body = '';
       req.on('data', (c) => (body += c));
       return void req.on('end', () => {
         const parsed = JSON.parse(body || '{}');
         filter = { space: parsed.space || 'all', workspace: parsed.workspace || 'all' };
-        json({ ok: true, filter, dismissAsk: null });
+        json({ ok: true, filter });
       });
     }
     if (p === '/api/console' && req.method === 'GET') {

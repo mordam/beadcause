@@ -1344,6 +1344,13 @@
    * A total outage is not visible from a page the daemon cannot serve — bin/router.js
    * answers that one itself, in the 503 body and in a push to the phone.
    *
+   * The third state is newer and reads the other way round (bc-0i27.16): the backends
+   * are perfect and the *router* is the old process, because it cannot swap itself and
+   * has to be restarted by hand. That one used to make this line green — it names the
+   * backend's build, which really was current — while a fix that had merged a day
+   * earlier was not running on this Mac and nothing on any screen said so. So the ✓
+   * here now means both halves are current, and the amber block below covers all three.
+   *
    * Amber rather than red: the app is up and answering on all of these, which is a
    * different sentence from HOT-SWAP IS NOT LIVE above it, and colour is how you tell
    * "look at this soon" from "nothing you are reading is current".
@@ -1356,13 +1363,20 @@
         <span>serving build <code>${esc(r.build || '?')}</code>${r.pid ? ` from pid ${esc(r.pid)}` : ''}</span>
       </div>`;
     }
+    // Three headlines, not two. `THE PHONE IS ON AN OLDER BUILD` is true of every
+    // degraded state the backends can be in and false of the third one: when the
+    // *router* is the stale process, the phone is on the current build and the thing
+    // behind the port is exactly right — what is old is the program in front of it,
+    // which is why nothing anywhere said so. And the verb changes with it: `force it`
+    // means `npm run swap`, and a swap is precisely the thing that cannot fix this.
+    const stale = r.code === 'router-source';
     return `<div class="svc warn">
       <div class="svc-head"><span class="svc-dot">⚠</span>${
-        r.serving ? 'THE PHONE IS ON AN OLDER BUILD' : 'NOTHING IS BEING SERVED'
+        stale ? 'THE ROUTER IS RUNNING OLDER CODE' : r.serving ? 'THE PHONE IS ON AN OLDER BUILD' : 'NOTHING IS BEING SERVED'
       }<span class="pill id">${esc(r.code)}</span></div>
       <div class="svc-what">${esc(r.summary)}</div>
       ${r.detail ? `<div class="svc-line">${esc(r.detail)}</div>` : ''}
-      ${r.fix ? `<div class="svc-fix">force it: <code>${esc(r.fix)}</code></div>` : ''}
+      ${r.fix ? `<div class="svc-fix">${stale ? 'restart it' : 'force it'}: <code>${esc(r.fix)}</code></div>` : ''}
       <div class="svc-foot">disk ${esc(r.disk || '?')}</div>
     </div>`;
   }
@@ -2027,14 +2041,11 @@
    * copy of it is how the warm pane would come to disagree with the fetched one.
    */
   function adoptQuestions(questions) {
-    // This page sweeps the inbox for the proposals, so it has the picker's numbers
-    // for free — fresher than /api/spaces, which is one poll behind by design.
-    const counts = {};
-    for (const q of questions.questions || []) counts[q.workspace] = (counts[q.workspace] || 0) + 1;
+    // This page sweeps the inbox for the proposals, so it has the picker's shape for
+    // free — fresher than /api/spaces, which is one poll behind by design.
     window.beadcause?.space?.adopt({
       spaces: questions.spaces,
       workspaces: questions.workspaces,
-      counts,
       filter: questions.filter,
     });
     state.proposals = new Map();

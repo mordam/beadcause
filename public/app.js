@@ -67,8 +67,9 @@
     // the screen, because the two are opposite claims about the list below them — see
     // `syncTroubleHtml`.
     syncTrouble: [],
-    // The P0 board (bc-rfnr.2): `{ p0s[], under, owned }` — which P0s carry your
-    // `owner:<handle>`, and for every other row the id of the P0 it descends from.
+    // The P0 board (bc-rfnr.2): `{ p0s[], under, unhomed, owned }` — which P0s carry your
+    // `owner:<handle>`, and for every other row the id of the P0 it descends from, or
+    // (bc-i7tw) the fact that no P0 anywhere has it, which is drawn rather than hidden.
     // `owned: false` is what an install with no `me` answers, and it means the whole
     // section and the whole filter are off: the inbox is the flat list it always was.
     // **`p0board`, not `board`** — `state.board` is the *pull request* board (`prRows`
@@ -77,7 +78,7 @@
     // Its own object rather than fields on the rows, because the *absence* of a row from
     // `under` is the filter — and a row that arrived before the board did must not read
     // as one with no P0 above it. See `p0Board` in lib/server.js.
-    p0board: { p0s: [], under: {}, owned: false },
+    p0board: { p0s: [], under: {}, unhomed: {}, owned: false },
     // P0s this phone has just launched an advocate on, `key -> ms`. The server records
     // the same fact (`advocateOpened` in lib/server.js) and is the authority the moment
     // its answer arrives; this covers the seconds before it does, so the card cannot
@@ -86,25 +87,47 @@
     // otherwise leave a card saying "opening" about a window that never came up.
     p0opening: new Map(),
     spaces: [],
+    // Every handle this Mac's person answers to — `cfg.me`, off the payload. `[]` on
+    // every install that has never set it, and `[]` is what makes an addressee pill read
+    // as a name rather than as "you": with nobody to be, no question can be somebody
+    // else's. See lib/addressee.js.
+    me: [],
+    // The key of the card whose 📮 panel is open, and what has been typed into its
+    // handle box — at most one of each, like `menu` above. The draft is held here rather
+    // than in the DOM for the reason every other typed field on this page is: a poll
+    // landing between the first character and the tap would otherwise wipe it.
+    address: null,
+    addressDraft: new Map(),
+    // The key currently being written, so both a second tap and the repaint under it are
+    // refused while a `bd` write is in flight. One at a time is enough — the panel is
+    // open on one card.
+    addressBusy: null,
     // Every configured workspace, which the inbox needs for one thing only: ＋ has to
     // know where to start a conversation, and "the repos in the selected space" is a
     // question about the config rather than about the beads on screen.
     workspaces: [],
-    // The counts the chrome draws — beads asking you something, agents running,
-    // advocates waiting. Server-held rather than counted out of the rows above,
-    // because two of the three are about things that are not in this list at all
-    // and the third has to survive a scope that never fetched it. See summaryNow()
-    // in lib/server.js.
+    // The counts the tab badges draw — agents running, advocates waiting. Server-held
+    // rather than counted out of the rows above, because neither is about anything in
+    // this list at all. See summaryNow() in lib/server.js.
     summary: {},
     space: 'all',
     workspace: 'all',
-    // `{ count, keys }` when narrowing the filter has left unread notifications on the
-    // phone for beads it now excludes, else null. Server-decided, both halves: whether
-    // to ask at all, and how many — see lib/ringing.js. Held here rather than drawn on
-    // the spot because the prompt has to survive the 25s poll that lands while you are
-    // reading it.
-    dismissAsk: null,
     open: new Set(),
+    /**
+     * Which P0 cards are showing their tree, by card key (`workspace/id`). bc-rfnr.9.2.
+     *
+     * Page state rather than DOM state, and that is the whole of how an open tree
+     * survives a poll. The board is one reconcile chunk keyed `@p0` (see
+     * `p0SectionHtml`), so every sweep that moves a single count replaces the whole
+     * section's HTML — a `hidden` toggled on a node, or an `open` on a `<details>`,
+     * would fold up under your thumb every 25 seconds. Rebuilt from this set on each
+     * render instead, so a repaint redraws exactly what was open.
+     *
+     * Not persisted across a reload, unlike the filter: which epics are unfolded is
+     * where you are looking *now*, and a phone that comes back to four expanded trees
+     * is a screen you have to fold up before you can read it.
+     */
+    p0open: new Set(),
     armed: null, // key of the control awaiting its confirm tap
     armedTimer: null,
     // Which option each card's answer is currently making — `key → option id`.
@@ -417,7 +440,8 @@
   // the card's own repaints: a poll rebuilds the list every 25 seconds, and a comment or
   // a close reason half-typed into an open pull request is exactly as worth keeping as a
   // half-typed answer. See prActionsHtml.
-  const TYPING_IN = '[data-role="answer"], [data-role="edit-field"], [data-role="pr-comment"], [data-role="pr-reason"]';
+  const TYPING_IN =
+    '[data-role="answer"], [data-role="edit-field"], [data-role="pr-comment"], [data-role="pr-reason"], [data-role="address-input"]';
 
   const isTyping = () => !!document.activeElement?.matches?.(TYPING_IN);
 
@@ -625,14 +649,24 @@
   /**
    * Written from here, rather than by something on the other end.
    *
-   * Every comment beadcause files carries `--actor beadcause` (see bd.js), so this
-   * is exact rather than a guess — and it is the same test `.from-agent` has always
-   * been painted from, which is why the collapse and the jump below agree with the
-   * accent stripe down the side of the bubble. A comment typed into `bd` on the Mac
-   * is somebody else's as far as this screen is concerned, because that is not a
-   * message this app sent.
+   * Every comment beadcause files carries `--actor` with its byline on it (see
+   * lib/bd.js), so this is exact rather than a guess — and it is the same test
+   * `.from-agent` has always been painted from, which is why the collapse and the jump
+   * below agree with the accent stripe down the side of the bubble. A comment typed
+   * into `bd` on the Mac is somebody else's as far as this screen is concerned, because
+   * that is not a message this app sent.
+   *
+   * The byline is `beadcause`, or `beadcause (carol@example.com)` on a machine that has
+   * said who it is, so the test is on the *base* — the same rule as `writtenByDaemon`
+   * in lib/byline.js, restated here because nothing under public/ imports from lib/.
+   * Deliberately blind to *which* beadcause: this stripe means "this app said it"
+   * rather than "an agent did", and another engineer's daemon is not an agent.
    */
-  const fromMe = (c) => !c.author || c.author === 'beadcause';
+  const bylineBase = (author) => {
+    const m = /^(.*?)\s*\(([^()]*)\)$/.exec(String(author || '').trim());
+    return (m ? m[1] : String(author || '')).trim();
+  };
+  const fromMe = (c) => !c.author || bylineBase(c.author) === 'beadcause';
 
   /** Enough of a collapsed comment to recognise it by, on one line. */
   const peek = (text) => {
@@ -831,6 +865,185 @@
     </div>`;
   }
 
+  /* ------------------------------------------------------- who this is for */
+
+  /**
+   * Short enough for a pill: the local part of an address, or the whole handle.
+   *
+   * `carol@example.com` is nineteen characters of which the last twelve are the same on
+   * every handle in the graph, and a pill in a meta row that already carries a workspace,
+   * a bead id and a priority does not have nineteen characters to give. The full handle
+   * is on the panel's buttons, where there is room and where you are about to hand a
+   * question to somebody and want to be sure which somebody.
+   */
+  const shortHandle = (h) => String(h || '').split('@')[0] || String(h || '');
+
+  /** Is this question addressed to the person whose Mac this is? */
+  const addressedToMe = (q) => (q.addressees || []).some((h) => state.me.includes(h));
+
+  /**
+   * Every handle this phone can offer as a one-tap hand-off.
+   *
+   * Read off the inbox rather than from a roster endpoint, and that is a deliberate
+   * trade rather than a shortcut. There is no list of people anywhere in this app — the
+   * config knows who *this* Mac is and nothing about the other five — so the only honest
+   * source is the graph itself, where every question another Mac filed carries its
+   * person's `for:` label (see `ownAddresseeLabels`). In practice that is the roster: on
+   * an install where addressing means anything at all, everybody is asking questions.
+   * The typed field below the buttons is what covers the person who has not asked one
+   * yet, and it is why this list being short is a slower path rather than a dead end.
+   *
+   * Own handles first, because "give it back to me" is the second most likely tap after
+   * "give it to Carol", and the one you reach for when you have handed it to the wrong
+   * person.
+   */
+  function knownHandles() {
+    const out = [];
+    const add = (h) => {
+      const v = String(h || '').trim().toLowerCase();
+      if (v && !out.includes(v)) out.push(v);
+    };
+    for (const h of state.me) add(h);
+    for (const q of state.questions || []) for (const h of q.addressees || []) add(h);
+    return out;
+  }
+
+  /**
+   * "🧠 sonnet · low" — which model a session on this bead runs on, and what it ran on.
+   *
+   * bc-nc6o.4. The epic routes workers by a `complexity:<tier>` label, and the router is
+   * the only thing that had ever said so out loud: the tier lives on the bead, the model
+   * is decided in the second before a window opens, and neither of them appeared on any
+   * screen. So the two questions you actually have about a bill — *what is this one set
+   * to cost, and did anything else happen* — were answerable only from a log.
+   *
+   * **Everything it means is in the text, because a phone has no hover.** The title is
+   * there for a desktop and carries the long form, but nothing on this chip depends on
+   * it: an unrated bead says `unrated` rather than leaving the tier silently missing, a
+   * bead whose labels contradict says `⚠ tier`, and a session that went somewhere else
+   * says where with an arrow. A chip that needed a mouse to be read would be a chip that
+   * said nothing at all on the device this app is for.
+   *
+   * **Drawn on every card**, including the untiered ones that are most of the tracker.
+   * That is the acceptance criterion and it is the interesting half: an unrated bead is
+   * not unrouted, it is routed to the *expensive* model by `FALLBACK_MODEL`, and a blank
+   * where the chip should be would hide exactly the beads worth tiering.
+   *
+   * The field is derived on the daemon (lib/modelcard.js) and arrives on the question, so
+   * this draws and decides nothing — the bead sheet on /graph is handed the same object
+   * and cannot disagree with what you read here.
+   */
+  function modelChipHtml(q) {
+    const m = q.model;
+    if (!m?.model) return '';
+    const ran = (m.ran || []).filter(Boolean);
+    // The tier is the *reason* for the model, so it is drawn beside it rather than
+    // instead of it — and its absence is drawn too. "opus" alone reads as a decision
+    // somebody made; "opus · unrated" reads as the decision nobody made, which is the
+    // one a person looking at this list can fix.
+    const why = m.problem ? '⚠ tier' : m.tier || 'unrated';
+    // Only when they differ, which `ranDiverged` answers false to unless both halves
+    // are known — so a bead nothing has run on never grows an arrow.
+    const went = m.diverged ? ` → ${ran.join('/')}` : '';
+    const cls = m.problem ? ' bad' : m.diverged ? ' diverged' : ran.length ? ' ran' : '';
+    const note = m.problem
+      ? `${m.problem} — it runs on ${m.model} until that is fixed`
+      : m.tier
+        ? `complexity:${m.tier}, so a session on it runs on ${m.model}`
+        : `No complexity tier, so a session on it runs on ${m.model} — the fallback`;
+    const said = ran.length
+      ? m.diverged
+        ? `. A session ran on ${ran.join(', ')} instead.`
+        : `. A session ran on ${ran.join(', ')}.`
+      : '';
+    return `<span class="pill model${cls}" title="${esc(`${note}${said}`)}">🧠 ${esc(m.model)} · ${esc(
+      why
+    )}${esc(went)}</span>`;
+  }
+
+  /**
+   * The pill that says whose question this is, and the way to change the answer.
+   *
+   * **Nothing at all on an install with no `cfg.me`**, which is every install that has
+   * never heard of this — the same branch-that-cannot-be-entered guarantee lib/addressee.js
+   * makes on the daemon side, drawn here as an absence rather than as a pill saying "for
+   * everyone" on all eleven cards. With nobody to be, there is nobody a question could be
+   * addressed away from, and a control for it would be a control with one state.
+   *
+   * Three readings, and the middle one is the whole feature: **you** (it is yours, and
+   * the phone rang), **a name** (it is theirs, and this card arrived quietly — the pill
+   * agrees with the postmark line above it), **anyone** (unaddressed, which is most
+   * questions and is what a single-person graph looks like).
+   *
+   * In the meta row with the workspace and the id rather than under the question,
+   * because it is the same kind of fact as those two — who and where, not what — and
+   * because the row is already the place your eye goes to decide whether this card is
+   * yours to open.
+   */
+  function addresseeHtml(q) {
+    if (!state.me.length) return '';
+    const to = q.addressees || [];
+    const mine = addressedToMe(q);
+    const label = !to.length
+      ? 'anyone'
+      : mine
+        ? 'you'
+        : `${shortHandle(to[0])}${to.length > 1 ? ` +${to.length - 1}` : ''}`;
+    const on = state.address === q.key;
+    return `<button class="pill for${mine ? ' mine' : ''}${to.length ? '' : ' any'}${on ? ' on' : ''}"
+      data-act="address" data-key="${esc(q.key)}" aria-expanded="${on}"
+      aria-label="For ${esc(to.length ? to.join(', ') : 'anyone')} — change who is asked">📮 ${esc(label)}</button>`;
+  }
+
+  /**
+   * The panel behind the pill: hand this question over, or hand it to everybody.
+   *
+   * One tap per person and the tap *replaces* rather than adds, which is the whole
+   * sentence the bead was filed for — "it is really Carol's" means Carol, not Carol as
+   * well as you. `addresseeUpdate` on the server does the same thing from the other end,
+   * so there is one rule and not two spellings of it.
+   *
+   * **Everyone is a button and not the absence of one.** Taking every `for:` label off is
+   * a decision — it is how a question filed against the wrong person is put back in front
+   * of whoever is free — and a decision you can only express by never having pressed
+   * anything is one nobody discovers.
+   *
+   * The typed field is the escape hatch for a handle the graph has not seen yet (see
+   * `knownHandles`). It writes to `state.addressDraft` on every keystroke rather than
+   * being read out of the DOM at the tap, because the 25-second poll repaints this card
+   * and a field held in the DOM loses whatever you typed between two of them — the same
+   * discipline the answer box and the space card's channel field both keep.
+   */
+  function addressPanelHtml(q) {
+    if (state.address !== q.key) return '';
+    const to = q.addressees || [];
+    const busy = state.addressBusy === q.key;
+    const draft = state.addressDraft.get(q.key) || '';
+    const btn = (handle, text, pressed) =>
+      `<button class="address-btn${pressed ? ' picked' : ''}" type="button" data-act="address-set"
+        data-key="${esc(q.key)}" data-to="${esc(handle)}" aria-pressed="${pressed}"${
+        busy || pressed ? ' disabled' : ''
+      }>${esc(text)}</button>`;
+    const people = knownHandles().map((h) => btn(h, h, to.length === 1 && to[0] === h));
+    return `<div class="address-panel" role="group" aria-label="Who is asked about this question">
+      <p class="address-say">Whoever this is for is the only one whose phone rings. Everyone still sees it.</p>
+      <div class="address-row">
+        ${people.join('')}
+        ${btn('everyone', 'anyone who is free', !to.length)}
+      </div>
+      <label class="address-typed">
+        <span class="prop-label">Somebody else</span>
+        <input type="email" inputmode="email" autocapitalize="off" autocorrect="off" spellcheck="false"
+          data-role="address-input" data-key="${esc(q.key)}" value="${esc(draft)}"
+          placeholder="name@example.com"${busy ? ' disabled' : ''}>
+      </label>
+      <button class="linkish" type="button" data-act="address-set" data-key="${esc(q.key)}"
+        data-to="" data-typed="1"${busy || !draft.trim() ? ' disabled' : ''}>${
+        busy ? 'Handing it over…' : 'Hand it to them'
+      }</button>
+    </div>`;
+  }
+
   /** What you have said about each proposed bead so far. */
   const picksFor = (key) => {
     if (!state.picks.has(key)) state.picks.set(key, new Map());
@@ -869,15 +1082,24 @@
   ];
 
   const TYPES = ['task', 'bug', 'feature', 'epic', 'chore', 'decision'];
+  /** Matches `TIERS` in lib/complexity.js, plus the empty one: no tier is a real answer. */
+  const TIERS = ['', 'low', 'medium', 'high'];
 
   /**
    * The row, in edit mode.
    *
-   * Deliberately the same five things the chat session lets you change — title, type,
-   * priority, description, acceptance — and deliberately not labels or dependencies.
-   * Those are structural, they are rarely what is wrong with a proposed bead, and a
-   * chip editor is not something to build on a card you are trying to keep short.
-   * What you do not adjust is created exactly as proposed.
+   * The five things the chat session lets you change — title, type, priority,
+   * description, acceptance — and deliberately not labels or dependencies. Those are
+   * structural, they are rarely what is wrong with a proposed bead, and a chip editor is
+   * not something to build on a card you are trying to keep short. What you do not
+   * adjust is created exactly as proposed.
+   *
+   * Complexity is the sixth, and it is here for a reason none of the other five have:
+   * it is the only field on the row that spends money. An agent rated its own work, you
+   * are the last reader before a session runs on that rating, and "this is harder than
+   * it thinks" is a correction with nowhere else to go — the alternative is declining a
+   * good bead over a wrong tier. `unrated` is a real choice and not a blank: it is what
+   * every bead filed before bc-nc6o carries, and it takes the expensive model.
    *
    * Values come out of `state.edits`, never out of the DOM, so a background poll
    * that does manage to repaint cannot lose a word of it — the same discipline the
@@ -912,6 +1134,14 @@
             ${[0, 1, 2, 3, 4]
               .map((p) => `<option value="${p}"${p === Number(cur.priority) ? ' selected' : ''}>P${p}</option>`)
               .join('')}
+          </select>
+        </label>
+        <label class="edit-field small">
+          <span class="prop-label">Complexity</span>
+          <select data-role="edit-field" data-key="${esc(key)}" data-idx="${n}" data-field="complexity">
+            ${TIERS.map(
+              (t) => `<option value="${t}"${t === (cur.complexity || '') ? ' selected' : ''}>${t || 'unrated'}</option>`
+            ).join('')}
           </select>
         </label>
       </div>
@@ -1044,7 +1274,15 @@
                 ? propEditHtml(q.key, raw, n)
                 : `<div class="prop-body">
               <div class="prop-meta">
-                <span class="pill">${esc(b.type)}</span><span class="pill p${b.priority}">P${b.priority}</span>
+                <span class="pill">${esc(b.type)}</span><span class="pill p${b.priority}">P${b.priority}</span>${
+                  // How hard the agent thinks it is, which is what picks the model a
+                  // session on it will run (bc-nc6o). Beside the type and the priority
+                  // because it is the same kind of fact, and shown only when it was
+                  // named: an untiered bead is the ordinary case for everything that
+                  // predates this, and a pill saying "unrated" on most of the tracker
+                  // is a pill nobody reads.
+                  b.complexity ? `<span class="pill">${esc(b.complexity)} complexity</span>` : ''
+                }
               </div>
               ${propFieldsHtml(b)}
               ${
@@ -1155,6 +1393,9 @@
    * them.
    */
   function paintPicks(key) {
+    // Held while the screen is — this is one of the four in-place painters an arm timer
+    // can reach six seconds after the mode began. See `isFrozen`.
+    if (isFrozen()) return;
     const q = byKey(key);
     const beads = q?.proposal?.beads || [];
     const card = listEl.querySelector(`.card[data-key="${CSS.escape(key)}"]`);
@@ -1443,6 +1684,8 @@
 
   /** Repaint one delivery's live half in place — never a render(), same as paintPicks. */
   function paintPr(key) {
+    // Held while the screen is. See `isFrozen`.
+    if (isFrozen()) return;
     const q = byKey(key);
     const block = listEl.querySelector(`.delivery[data-key="${CSS.escape(key)}"]`);
     if (!block || !q?.delivery) return;
@@ -1488,8 +1731,8 @@
       pull request could be in the list at all** — the kind filter answers that, and
       reading `Questions` for an hour costs nothing.
     - **They are rows, not `state.questions`.** Nearly everything reading that array is
-      about beads: the waiting count, the picker's per-repo numbers, the answer path, the
-      write. A pull request is none of those, and it is synthesised at render time from the
+      about beads: the kind filter's counts, `byKey`, the answer path, the write. A
+      pull request is none of those, and it is synthesised at render time from the
       board — the same shape the chat rows use.
     - **Unmerged, unless you ask.** The status sub-filter's default (public/inboxfilter.js).
       Thirty pull requests merged in the last three weeks and five are open; a list that
@@ -1868,6 +2111,10 @@
    * list and take the caret and the keyboard with it.
    */
   function paintPrCard(key) {
+    // Held while the screen is, and this is the one that matters most of the four: it
+    // ends in `el.replaceWith(fresh)`, so a card you are pointing at would not merely
+    // change its words but stop being the element the anchor named. See `isFrozen`.
+    if (isFrozen()) return;
     const el = listEl.querySelector(`.card[data-key="${CSS.escape(key)}"]`);
     const row = prRows().find((r) => r.key === key);
     if (!el || !row) return;
@@ -1877,8 +2124,20 @@
     // And where the caret was, but only if it was in *this* card's box. An arm timer expiring
     // six seconds after you armed merge is a repaint you did not ask for, and it must not
     // take the sentence you have since started typing with it.
+    //
+    // Both ends of the selection, not just the near one, and the direction with them: a
+    // caret is the case where the two ends are equal, so carrying only `selectionStart`
+    // hands back a caret at the left edge of everything you had picked out — and a
+    // backward selection restored as a forward one grows out of the wrong end on the next
+    // Shift-arrow. Same three fields as public/mirror.js's composer (bc-c3ve); the answer
+    // box further down this file carries the two ends but not yet the direction.
     const focused = el.contains(document.activeElement)
-      ? { role: document.activeElement.dataset?.role || '', at: document.activeElement.selectionStart ?? null }
+      ? {
+          role: document.activeElement.dataset?.role || '',
+          at: document.activeElement.selectionStart ?? null,
+          to: document.activeElement.selectionEnd ?? null,
+          way: document.activeElement.selectionDirection || 'none',
+        }
       : null;
     const html = prCardHtml(row);
     if (!html) return;
@@ -1891,7 +2150,9 @@
     const box = fresh.querySelector(`[data-role="${focused.role}"]`);
     if (!box) return;
     box.focus();
-    if (focused.at !== null && box.setSelectionRange) box.setSelectionRange(focused.at, focused.at);
+    if (focused.at !== null && box.setSelectionRange) {
+      box.setSelectionRange(focused.at, focused.to ?? focused.at, focused.way);
+    }
   }
 
   /** Read whatever is in this card's two boxes back into state, before it is replaced. */
@@ -2414,9 +2675,12 @@
           <span class="pill id">${esc(q.id)}</span>
           ${q.priority != null ? `<span class="pill p${q.priority}">P${q.priority}</span>` : ''}
           ${q.dependentCount ? `<span class="pill">blocks ${q.dependentCount}</span>` : ''}
+          ${modelChipHtml(q)}
+          ${addresseeHtml(q)}
           ${draft && !open ? '<span class="draft-flag">draft saved</span>' : ''}
           <time>${esc(relTime(q.createdAt))}</time>
         </div>
+        ${addressPanelHtml(q)}
         ${arrivedQuietHtml(q)}
         ${activityHtml(q)}
         <p class="q">${esc(q.question || q.title)}</p>
@@ -2958,50 +3222,6 @@
     </section>`;
   }
 
-  /**
-   * "You have just hidden three beads that are still buzzing on your phone."
-   *
-   * Narrowing the filter silences what comes next, and used to say nothing about the
-   * notifications already sitting unread for the beads it now excludes — which are
-   * exactly the ones you have just decided not to think about.
-   *
-   * Three things about the shape:
-   *
-   * - **It asks; it does not act.** Clearing notifications you did not ask to have
-   *   cleared is the kind of silent tidying that makes an inbox untrustworthy, and
-   *   the count is in the sentence because "some" is not enough to decide on.
-   * - **Both buttons are answers**, and *Leave them* is not a cancel: it is recorded,
-   *   which is what stops the next poll asking again. So neither is styled as the
-   *   dangerous one — there is nothing to undo either way.
-   * - **It is drawn inside `#list`**, above the foundation channel, for the same
-   *   reason that channel is: every handler on this page is delegated from that
-   *   element, so a pane in a sibling container would render and do nothing.
-   *
-   * Nothing here says "dismissed" or "answered" about the beads, because none of that
-   * is true: they stay open, unanswered and in the inbox, and widening the filter
-   * brings them straight back.
-   */
-  function dismissAskHtml() {
-    const ask = state.dismissAsk;
-    if (!ask?.count) return '';
-    const n = ask.count;
-    const many = n !== 1;
-    return `<section class="shade-ask" aria-label="Unread notifications the filter excludes">
-      <header>
-        <span class="shade-icon" aria-hidden="true">🔔</span>
-        <div>
-          <h2>${n} unread notification${many ? 's' : ''} for bead${many ? 's' : ''} this filter hides</h2>
-          <p>Clearing them touches the phone and nothing else — the bead${many ? 's stay' : ' stays'}
-            open and unanswered, and ${many ? 'they come' : 'it comes'} back when you widen the filter.</p>
-        </div>
-      </header>
-      <div class="shade-actions">
-        <button class="primary" data-act="shade-clear">Clear ${many ? 'them' : 'it'}</button>
-        <button class="secondary" data-act="shade-leave">Leave ${many ? 'them' : 'it'}</button>
-      </div>
-    </section>`;
-  }
-
   /** How many requests are waiting, on the ⚖️ in the header. */
   function paintRequestBadge() {
     const badge = $('#req-badge');
@@ -3012,50 +3232,22 @@
   }
 
   /**
-   * The three counts in the chrome: what is waiting on you, and what is waiting
-   * elsewhere.
+   * The count in the chrome: what is waiting elsewhere.
    *
-   * Where each one goes is the whole argument. "Waiting on you" is the app's
-   * premise and has no icon of its own, so it takes the space the wordmark used
-   * to; the other two already have a tab apiece, so they become badges on those
-   * tabs rather than a second row of chips — the number and the way to act on it
-   * end up the same tap target.
+   * There used to be a second one — an **N waiting** pill in the top bar, counting
+   * the beads asking you something. It is gone (bc-ka5y.1), and the reason is that
+   * the list under it *is* that number: the rows on screen are the beads waiting on
+   * you, so the pill spent the widest part of the bar restating what you were already
+   * looking at, and cost a local-versus-served reconciliation every repaint to do it.
+   * Its tap was a shortcut to the `human` scope, which the scope chips in the filter
+   * panel still do.
    *
-   * The waiting number is counted off the rows on screen whenever this scope
-   * actually swept them, so answering a question drops it on the tap rather than
-   * on the next poll. The `agent` scope sweeps no questions at all, and there the
-   * server's held count is the only honest answer — a zero would read as "nothing
-   * is asking you anything" when the truth is "you did not ask".
+   * What is left already has a tab of its own, so it is a badge on that tab rather
+   * than a chip in the bar — the number and the way to act on it end up the same tap
+   * target.
    */
   function paintSummary() {
     const s = state.summary || {};
-    const swept = state.scope !== 'agent';
-    const held = Number(s.questions);
-    // The kind filter narrows this too, and has to: it sits directly above the list
-    // and the number is the list's own count. The server's held figure cannot know
-    // about it, so a kind filter forces the local sweep — which is available for
-    // exactly the scopes that can have questions in them.
-    const narrowed = Boolean(window.beadcause?.inboxFilter?.selected?.().length);
-    // And the P0 board narrows it for the same reason the kind filter does — it sits
-    // above the same list and hides rows from it, so a count that ignored it would say
-    // forty over a list of six. `boarded` forces the local sweep the same way `narrowed`
-    // does: the server's held figure is a count of questions, not of descendants.
-    const boarded = isBoarded();
-    const local = underOwnedP0s(state.questions).filter((q) => !q.agent && (!narrowed || inKind(q))).length;
-    const waiting = swept || narrowed || boarded || !Number.isFinite(held) ? local : held;
-
-    const el = $('#waiting');
-    if (el) {
-      el.hidden = !waiting;
-      // The word is a separate element so a narrow phone can drop it and keep the
-      // number — see .waiting in style.css.
-      el.innerHTML = `${waiting}<span class="word">waiting</span>`;
-      el.setAttribute(
-        'aria-label',
-        `${waiting} bead${waiting === 1 ? '' : 's'} waiting on you${state.scope === 'human' ? '' : ' — show only these'}`
-      );
-    }
-
     // The tabs live at the foot of every page, but only this one has the numbers:
     // they ride the inbox's poll. A page that never sets a badge shows none, which
     // is better than a number it has no way to refresh.
@@ -3128,6 +3320,8 @@
    * what the next tap does.
    */
   function paintArmed() {
+    // Held while the screen is. See `isFrozen`.
+    if (isFrozen()) return;
     for (const btn of listEl.querySelectorAll('.dismiss')) {
       const armed = state.armed === `${btn.dataset.key}|dismiss`;
       btn.classList.toggle('confirm', armed);
@@ -3194,9 +3388,9 @@
    * They arrive on the same payload as everything else (`/api/questions` →
    * `consoles`) and are turned into rows here rather than merged into
    * `state.questions`, because nearly everything that reads that array is about beads:
-   * the waiting count, the space picker's per-repo numbers, `byKey`, the answer path,
-   * the flight the answer takes into the mark. A chat session would be counted by all
-   * of them and could be answered by none.
+   * the kind filter's counts, the P0 board, `byKey`, the answer path, the flight the
+   * answer takes into the mark. A chat session would be counted by all of them and
+   * could be answered by none.
    *
    * What a row does carry is exactly what the two filters above it read — `workspace`
    * and `space` for the picker, and `session` for the kind table, which is the field
@@ -3280,9 +3474,9 @@
    * The third thing in this file that is not a bead, and it follows the two above it
    * exactly (bc-0i27.3). They ride the inbox payload (`tickets`), they are turned into
    * rows here rather than merged into `state.questions`, and the reason is the one
-   * `chatRows` gives: nearly everything reading that array is about beads — the waiting
-   * count, the picker's per-repo numbers, `byKey`, the answer path, the flight an answer
-   * takes into the mark. A JIRA ticket would be counted by all of them and answered by
+   * `chatRows` gives: nearly everything reading that array is about beads — the kind
+   * filter's counts, the P0 board, `byKey`, the answer path, the flight an answer takes
+   * into the mark. A JIRA ticket would be counted by all of them and answered by
    * none, and unlike a chat session it is not even a thing this app owns yet.
    *
    * **What a held ticket is**, and it is fixed by bc-0i27.2 rather than by this file:
@@ -3320,8 +3514,8 @@
    * The cancelled ones, as the same rows — the contents of the fold and nothing else.
    *
    * Deliberately *not* merged into `jiraRows`. Everything downstream of that function
-   * counts what it returns: the JIRA chip, the summary line, the kind filter, the space
-   * picker's numbers. A cancelled ticket is the one thing in this app that has been
+   * counts what it returns: the JIRA chip, the summary line, the kind filter. A
+   * cancelled ticket is the one thing in this app that has been
    * decided about and is still on the wire, so counting it would put a number on the
    * screen that no tap can bring down — which is the same argument that keeps a ticket
    * out of `state.questions` one level up.
@@ -3742,8 +3936,8 @@
    * all that offered to.
    *
    * **Counted by nothing.** It is one chunk of its own rather than a run of cards, it is
-   * outside `rows`, and so the JIRA chip, the summary line, the space picker's numbers
-   * and the monitor's "N waiting" are all exactly as they were. A number on this screen
+   * outside `rows`, and so the JIRA chip, the summary line and the monitor's "N waiting"
+   * are all exactly as they were. A number on this screen
    * that no tap can bring down is the failure the whole ticket section is written to
    * avoid.
    *
@@ -3920,12 +4114,9 @@
    * The spaces, the configured repos and the stored filter — the last of them because
    * this payload is also how a change made on the laptop reaches the phone.
    *
-   * **The counts are not here**, and used to be: they were counted off the payload, and
-   * the payload is not what is on screen. A kind-filter tap changes the list without
-   * fetching anything, pull requests arrive on a clock of their own, and a render can be
-   * deferred behind a half-written answer — so counting here put a number on the bar that
-   * the list under it had not agreed with since the last poll. `publishCounts` counts
-   * what render() actually drew, which is the only figure that cannot drift from it.
+   * **No numbers**, and there is no longer anywhere for one to go: the picker drew a
+   * pill and a `· N` tail per row, and bc-ka5y.1 took both out. What is left is the
+   * shape of the thing — which repos, in which spaces, and which one is selected.
    */
   function publishSpaces(data) {
     window.beadcause?.space?.adopt({
@@ -3933,32 +4124,8 @@
       // Configured workspaces, not the ones with something in them: the picker is how
       // you reach a quiet repo.
       workspaces: Array.isArray(data.workspaces) ? data.workspaces : undefined,
-      // So the picker's own numbers carry the same caveat the pane above the list
-      // does. `state.trouble` rather than `data.trouble`: this is called with a
-      // reconciled filter and one payload behind it, and the two must not be able to
-      // disagree about which repos answered. The numbers themselves are not here: the
-      // render that drew the list is what sends those, at the end of render().
-      trouble: state.trouble,
       filter: data.filter,
     });
-  }
-
-  /**
-   * Tell the picker what the list is showing, per repo.
-   *
-   * Called from render() with the rows that survived everything except the picker itself
-   * — the scope, the kind filter, the pull requests as rows in the list — because the
-   * picker's own narrowing is what these numbers exist to let you undo: `beadcause · 3`
-   * is a promise that picking it leaves you three things, so it has to be counted before
-   * that pick is applied and after everything else is.
-   *
-   * Which makes the invariant structural rather than remembered: the bar cannot count a
-   * bead the list will not show you, in any scope, under any filter, warm boot included.
-   */
-  function publishCounts(rows) {
-    const counts = {};
-    for (const q of rows) counts[q.workspace] = (counts[q.workspace] || 0) + 1;
-    window.beadcause?.space?.adopt({ counts });
   }
 
   let pendingRender = false;
@@ -3974,6 +4141,58 @@
    * is what takes the one repaint that catches up.
    *
    * A page served without the file answers false, which is the app exactly as it was.
+   *
+   * ## Every writer of the screen asks this, not only the poll — bc-p49x.5
+   *
+   * bc-p49x.1 gated `render()` and `paintList()`, which is the whole of the poll and is
+   * the only path that runs on its own every twenty-five seconds. It is not the only path
+   * that writes to the screen. Two of the three below need a deliberate tap *just before*
+   * the mode is entered to be live at all — which is exactly the sequence someone reaching
+   * for edit mode is in the middle of — and the third needs nothing but a poll.
+   *
+   * - **The six arm timers.** Every armed control in this app — merge, ship, dismiss, a
+   *   proposal's two bulk buttons, a JIRA cancel, and `armFirst` on the full PR card —
+   *   sets a six-second `setTimeout` whose handler disarms and then repaints in place,
+   *   through one of `render`, `paintPrCard`, `paintPr`, `paintPicks` or `paintArmed`.
+   *   Arm one, enter the mode, and six seconds later the card under your thumb is
+   *   rewritten — and in `paintPrCard`'s case `replaceWith`-ed, so the element the anchor
+   *   named stops existing.
+   *
+   *   **The gate is on the painters, not on the timers, and that is the whole reason
+   *   arming still means what it meant.** The timeout fires on time and `disarm()` runs on
+   *   time; only the pixels are late. So a hot button cannot be finished by a knee an hour
+   *   later — the thing the six seconds exist for — even though it still *reads* armed. It
+   *   cannot be finished at all, in fact: in this mode public/editmode.js swallows every
+   *   tap that is not a gesture, so the stale "Tap again" is a word on a frozen photograph
+   *   and not a control. Leaving takes the catch-up repaint, and what comes back is
+   *   unarmed, which is the truth.
+   *
+   * - **The log tail.** `pollLogs` writes an agent's output straight into the open `<pre>`
+   *   on its own two-second clock, deliberately never through `render()`. Only the write
+   *   is held: the fetch keeps running and `state.logText` keeps moving, so the pane is
+   *   one repaint behind rather than stopped, and the mode's exit rebuilds it from that
+   *   state at whatever the log has since reached. A pane that has stopped tailing does
+   *   look like an agent that has stopped working — which is why the banner across the top
+   *   of this screen says the screen is frozen, and why the arrears are taken in full one
+   *   tap later.
+   *
+   * - **The picker.** `publishSpaces` runs inside `adopt()` on every poll and hands
+   *   public/spacebar.js a fresh payload; its `paint()` rebuilds the `<select>`'s options
+   *   whenever the configured repos move. That gate lives in spacebar.js, because the bar
+   *   is on six pages and only that file knows when it is redrawing — and so does its
+   *   catch-up, which is a one-shot `editMode.onChange` registered from inside the freeze.
+   *   It used to be free instead: the last line of `render()` was `publishCounts()`, which
+   *   was a `space.adopt()`, which ended in `paint()`, so the repaint that thawed the list
+   *   repainted the bar above it in the same tick. bc-ka5y.1 deleted the picker's counts
+   *   and with them that call, and nothing else on this page reaches spacebar.js on a
+   *   repaint — so the bar would have thawed still holding its pre-freeze options.
+   *
+   * **What is deliberately still allowed to move**, because none of it is a thing you can
+   * point at: the toast (an overlay, on nothing, raised only by an act that was already in
+   * flight when the mode began), the scroll-position pip, and the `.editbar` this mode
+   * draws itself. And one thing that is not a repaint at all and so cannot be fixed here:
+   * public/update.js reloads the whole page when a deploy lands, which takes the pass with
+   * it. Its `busy()` does not know about this mode. See bc-p49x.10.
    */
   const isFrozen = () => Boolean(window.beadcause?.editMode?.frozen?.());
 
@@ -4084,6 +4303,12 @@
             ? 'No output yet — the agent is starting.'
             : 'No log for this bead — no agent has run on it.');
         state.logText.set(key, text);
+        // After the state and before the screen, which is the whole shape of the freeze:
+        // the log keeps being read and `state.logText` keeps moving, so the pane is one
+        // repaint behind rather than stopped, and the card the mode's exit rebuilds draws
+        // this same string at whatever it has reached by then. `continue` rather than
+        // `return` — the other open panes are still worth reading. See `isFrozen`.
+        if (isFrozen()) continue;
         const pre = listEl.querySelector(`[data-log="${CSS.escape(key)}"]`);
         if (pre) {
           const atBottom = pre.scrollHeight - pre.scrollTop - pre.clientHeight < 40;
@@ -4408,6 +4633,16 @@
    * in `under`; what decides it is whether any bead it names is. A pull request that names
    * no bead stays visible, deliberately: it is a decision somebody is waiting on, and the
    * failure mode of hiding one is worse than the failure mode of showing one too many.
+   *
+   * **And a question with no P0 above it at all is drawn** — `unhomed`, bc-i7tw, and it is
+   * that same failure mode taken seriously rather than a fourth exception. `under` says
+   * which of *your* P0s a row hangs off, so a row under nobody's P0 and a row under a
+   * colleague's are the same absence to it, and hiding both meant a question filed with no
+   * parent went to no screen at all: `/api/ask` is the phone's share target, so the sharpest
+   * case is a question you asked from your own phone thirty seconds ago and cannot find. The
+   * server draws the distinction the client cannot (see `p0Board`), and this line is what it
+   * is for. A row under *somebody's* P0 is still hidden — that is bc-rfnr.2 working, and it
+   * is on a screen, just not this one.
    */
   /** Is the board actually narrowing anything? The three no-op cases, asked once. */
   function isBoarded() {
@@ -4419,6 +4654,7 @@
     const board = state.p0board;
     if (!isBoarded()) return rows;
     const under = board.under || {};
+    const unhomed = board.unhomed || {};
     return rows.filter((q) => {
       if (q.session) return true;
       // And a JIRA ticket, on the same rule and for a stronger reason: it has no bead
@@ -4431,8 +4667,90 @@
         const named = q.pr.beads || [];
         return !named.length || named.some((b) => under[`${q.workspace}/${b.id || b}`]);
       }
-      return Boolean(under[q.key]);
+      return Boolean(under[q.key] || unhomed[q.key]);
     });
+  }
+
+  /**
+   * How far the tree indents before it stops indenting — see `.p0-row` in style.css.
+   *
+   * Three steps, so a fourth generation draws level with the third rather than another
+   * notch in from it. A phone is 360px wide and a bead title needs most of them: an
+   * indent that kept stepping would put the sixth level's titles off the right edge of
+   * a card, and this tracker nests six deep in places (bc-rfnr.9.2 is itself a
+   * grandchild). Depth past the cap is not lost — the rows are still in parent order,
+   * and the row above a deeper one is its parent.
+   */
+  const P0_INDENT_CAP = 3;
+
+  /**
+   * The line under the title saying what a tap does, and how much there is.
+   *
+   * It carries the *total* where the count above it carries what is open, which is the
+   * one number the collapsed card was missing: "9 open" says nothing about whether the
+   * epic is nine of ten or nine of sixty. And it is the honest place to say a P0 has
+   * nothing under it at all — a card promising a tree and opening on one sentence is a
+   * worse read than a card that said so with its mouth shut.
+   */
+  function p0HintText(on, total) {
+    if (on) return 'Tap to fold it up';
+    if (!total) return 'Nothing filed under it yet';
+    return `Tap for ${total === 1 ? 'the one bead' : `all ${total} beads`} under it`;
+  }
+
+  /**
+   * One descendant, as a row in its P0's tree.
+   *
+   * A link to the graph rather than a control, for now: bc-rfnr.9.4 turns this into an
+   * expansion in place with the bead's details, its PRs and its session under it, and
+   * until it does, a row that swallowed the tap and did nothing would be worse than the
+   * one destination this app already has for a bead nobody is asking about.
+   *
+   * `pending` is the server's word for "this bead is itself a question" (see `p0Card`),
+   * and it is drawn because it is the reason to scroll a tree at all — bc-rfnr.9.7 takes
+   * the flat list of questions away, and this pill is where they go.
+   *
+   * Only a non-open status is drawn. There can be sixty rows here, and sixty pills all
+   * saying `open` is the default restated sixty times.
+   */
+  function p0RowHtml(card, row) {
+    const status = String(row.status || 'open');
+    const closed = status === 'closed';
+    // `depth` arrives 1-based from `treeUnder` — a direct child is 1 — so the indent is
+    // one step per level *below* the first, capped as above.
+    const step = Math.min(Math.max(Number(row.depth) || 1, 1), P0_INDENT_CAP + 1) - 1;
+    return `<a class="p0-row${closed ? ' done' : ''}${row.pending ? ' asks' : ''}" style="--d:${step}" href="${esc(
+      `${graphUrl({ workspace: card.workspace, id: row.id })}&open=1`
+    )}">
+      <span class="p0-row-id">${esc(row.id)}</span>
+      ${row.pending ? '<span class="pill p0-asks">asks you</span>' : ''}
+      ${
+        status === 'open'
+          ? ''
+          : `<span class="pill st-${esc(status)}">${esc(STATUS_LABEL[status] || status)}</span>`
+      }
+      <span class="p0-row-title">${esc(row.title || '')}</span>
+    </a>`;
+  }
+
+  /**
+   * Everything under one P0, drawn off the `tree` the server already built (bc-rfnr.9.1):
+   * every descendant at any depth, flat and pre-order with a `depth` on each row. Nesting
+   * is therefore an indent and never a walk — the client does no graph work at all.
+   *
+   * **A P0 with nothing under it says so.** An epic that has not been broken down yet is
+   * the single most likely card to be tapped, and a tap that opens a blank gap reads as a
+   * tree that failed to load — which is a bug report about the poll rather than the true
+   * answer, which is that nobody has filed anything under it.
+   */
+  function p0TreeHtml(card) {
+    const rows = card.tree || [];
+    if (!rows.length) {
+      return `<div class="p0-none">Nothing under this one yet — no beads hang off ${esc(card.id)}.</div>`;
+    }
+    return `<div class="p0-tree" id="p0tree-${cardId(card.key || `${card.workspace}/${card.id}`)}">${rows
+      .map((row) => p0RowHtml(card, row))
+      .join('')}</div>`;
   }
 
   /**
@@ -4450,6 +4768,13 @@
    * `waitingOn` is drawn only when it is there. It is the EpicAdvocate's sentence to write
    * (bc-rfnr.3) and is null until that lands — a placeholder saying "nothing" would be a
    * claim, where an absent line is honestly nothing yet.
+   *
+   * **The summary is the control (bc-rfnr.9.2).** Everything above the tree is one
+   * `<button>` that opens the card, which is why the id and the title are no longer
+   * anchors: an anchor inside a button is not valid, and the way to the graph moved to
+   * `.p0-graph` beside the advocate. What is open lives in `state.p0open` and the section
+   * is rebuilt from it every render — and that is not a style choice, it is the only
+   * shape that survives the chunk above being replaced whole 25 seconds later.
    */
   /**
    * The one control on a P0 card, in its three states — and the point of bc-d6yk is that
@@ -4503,16 +4828,34 @@
     );
     if (!mine.length) return '';
     const cards = mine
-      .map(
-        (c) => `<div class="p0-card">
-          <div class="p0-head"><a class="pill id" href="${esc(`${graphUrl(c)}&open=1`)}">${esc(c.id)}</a>${
-            c.inFlight ? `<span class="p0-flight">${c.inFlight} in flight</span>` : ''
-          }<span class="p0-open">${c.open === 1 ? '1 open' : `${c.open} open`}</span></div>
-          <a class="p0-title" href="${esc(`${graphUrl(c)}&open=1`)}">${esc(c.title || '')}</a>
-          ${c.waitingOn ? `<div class="p0-waiting">${esc(c.waitingOn)}</div>` : ''}
-          ${p0Control(c)}
-        </div>`
-      )
+      .map((c) => {
+        // The card's own key, with the same fallback the server's shape makes
+        // unnecessary — `p0Card` sends one — because it is the identity the open set is
+        // held by, and a card whose key came back undefined would make every card on the
+        // board expand and collapse together.
+        const key = c.key || `${c.workspace}/${c.id}`;
+        const on = state.p0open.has(key);
+        const tree = c.tree || [];
+        return `<div class="p0-card${on ? ' on' : ''}" data-key="${esc(key)}">
+          <button type="button" class="p0-tap" data-act="p0" data-p0="${esc(key)}" aria-expanded="${on}"${
+            on ? ` aria-controls="p0tree-${cardId(key)}"` : ''
+          }>
+            <span class="p0-head"><span class="pill id">${esc(c.id)}</span>${
+              c.inFlight ? `<span class="p0-flight">${c.inFlight} in flight</span>` : ''
+            }<span class="p0-open">${c.open === 1 ? '1 open' : `${c.open} open`}</span><span class="p0-caret" aria-hidden="true">${
+              on ? '▾' : '▸'
+            }</span></span>
+            <span class="p0-title">${esc(c.title || '')}</span>
+            ${c.waitingOn ? `<span class="p0-waiting">${esc(c.waitingOn)}</span>` : ''}
+            <span class="p0-hint">${p0HintText(on, tree.length)}</span>
+          </button>
+          ${on ? p0TreeHtml(c) : ''}
+          <div class="p0-acts">
+            ${p0Control(c)}
+            <a class="p0-graph" href="${esc(`${graphUrl(c)}&open=1`)}">🕸 Graph</a>
+          </div>
+        </div>`;
+      })
       .join('');
     return `<section class="p0-board" aria-label="Your P0s"><div class="p0-kind">Your P0s</div>${cards}</section>`;
   }
@@ -4575,8 +4918,6 @@
     // The `@` keys are the panes that are not beads. A bead key is `workspace/id` and
     // can never begin with one, so the two namespaces cannot collide.
     const chunks = [];
-    const ask = dismissAskHtml();
-    if (ask) chunks.push({ key: '@shade', html: ask });
     const reqs = requestsHtml();
     if (reqs) chunks.push({ key: '@requests', html: reqs });
     // Under the foundation pane and above everything the sweep produced, including the
@@ -4708,16 +5049,6 @@
     // conversation you left open, or a JIRA ticket nobody has decided about yet is one
     // of those.
     publishView(visible.filter((q) => !q.pr && !q.session && !q.jira));
-    // Last, and deliberately: the picker's numbers are a statement about the list that
-    // has just been drawn, and adopting them can announce a filter to this same listener
-    // on the very first paint of a cold page. Nothing below it to leave half-done.
-    //
-    // Every filter between the sweep and the screen is applied here except the picker's
-    // own — `underOwnedP0s` because the list below an owned board is its descendants and
-    // nothing else, `inKind` because the chips above the list are a filter too. The
-    // space and repo narrowing is deliberately *not*: these are per-workspace counts for
-    // every workspace, which is what the dropdown draws a row of.
-    publishCounts(underOwnedP0s(rows).filter(inKind));
   }
 
   /**
@@ -5264,6 +5595,28 @@
     }
 
     /**
+     * Open a P0's tree, or fold it up. bc-rfnr.9.2.
+     *
+     * On its own `data-p0` for the same reason the advocate button is on `data-bead`:
+     * a P0 card is not an inbox row and `data-key` on the branches below means a bead
+     * key. The set is the only record of what is open — see `state.p0open` — so this
+     * is a state write and a repaint, with no DOM poked directly at all. That is what
+     * makes it survive the poll: the next sweep re-renders from the same set.
+     *
+     * `render(true)` because a tap is a tap: forced past the half-typed-answer guard,
+     * the way the card toggles above already are.
+     */
+    if (act === 'p0') {
+      const p0 = btn.dataset.p0;
+      closeMenu();
+      closeAgentMenu();
+      if (state.p0open.has(p0)) state.p0open.delete(p0);
+      else state.p0open.add(p0);
+      render(true);
+      return;
+    }
+
+    /**
      * Both answers to the notification prompt — see dismissAskHtml().
      *
      * The keys go back up with the tap rather than the server re-deciding on its own,
@@ -5596,6 +5949,71 @@
       btn.classList.add('on');
       btn.setAttribute('aria-expanded', 'true');
       btn.parentElement.insertAdjacentHTML('beforeend', menuHtml(key));
+      return;
+    }
+
+    /**
+     * The 📮 pill: show, or hide, the panel that hands this question to somebody.
+     *
+     * A render() rather than the DOM surgery the ⋮ menu does, and the difference is what
+     * the two are. The menu is an overlay hanging off a corner and it must survive a
+     * half-typed answer under it; this panel is part of the card head, it changes the
+     * pill it hangs from, and the state it reads (`state.address`) is what the next
+     * repaint would draw anyway. Doing it by hand would mean two code paths that can
+     * disagree about whether the panel is open.
+     */
+    if (act === 'address') {
+      closeMenu();
+      state.address = state.address === key ? null : key;
+      render(true);
+      return;
+    }
+
+    /**
+     * Hand it over — one `bd` write, and the card repaints from what the bead now says.
+     *
+     * `data-to` is the handle, empty for everyone; the typed variant reads
+     * `state.addressDraft` instead, because what is in that field is state rather than
+     * DOM (see the input listener). Either way the server is the authority on the
+     * result: `addressees` comes back off the labels the bead actually carries, and the
+     * card is repainted from that rather than from what was asked for — the two differ
+     * whenever somebody else moved it first, and a card that drew the request would show
+     * a hand-off that never happened.
+     *
+     * The panel stays open on failure and closes on success. A refused write you cannot
+     * see the buttons for is a write you cannot retry, and a panel still sitting there
+     * over a hand-off that worked reads as one that did not.
+     */
+    if (act === 'address-set') {
+      const q = byKey(key);
+      if (!q || state.addressBusy) return;
+      const to = btn.dataset.typed ? (state.addressDraft.get(key) || '').trim() : btn.dataset.to || '';
+      state.addressBusy = key;
+      render(true);
+      try {
+        const res = await api('/api/bead/addressee', {
+          method: 'POST',
+          body: JSON.stringify({ workspace: q.workspace, id: q.id, to }),
+        });
+        q.addressees = res.addressees || [];
+        state.address = null;
+        state.addressDraft.delete(key);
+        const who = q.addressees.length ? q.addressees.join(', ') : 'anyone who is free';
+        // `cleared` is the server saying it also took the row out of your notification
+        // shade, which it only does when the question has stopped being yours. Worth a
+        // word: it is the half of the tap you cannot see happen, and on the phone you
+        // are holding it is the half you would otherwise go looking for.
+        toast(
+          addressedToMe(q)
+            ? 'Asked of you now'
+            : `Asked of ${who}${res.cleared ? ' — cleared it from your phone' : ''}`
+        );
+      } catch (err) {
+        toast(err.message, true);
+      } finally {
+        state.addressBusy = null;
+        render(true);
+      }
       return;
     }
 
@@ -6350,6 +6768,21 @@
     const field = ev.target.closest('[data-role="edit-field"]');
     if (field) return recordEdit(field);
 
+    // A handle typed into the 📮 panel, into `state.addressDraft` on every keystroke.
+    // Not out of the DOM at the tap, for `recordEdit`'s reason: the poll rebuilds this
+    // card every 25 seconds and a value living only in the input is lost by whichever
+    // one lands first. The button under it enables itself off the same state, so it is
+    // repainted here rather than left for the next render — a render() on a keystroke
+    // would rebuild the field under the caret.
+    const handle = ev.target.closest('[data-role="address-input"]');
+    if (handle) {
+      const key = handle.dataset.key;
+      state.addressDraft.set(key, handle.value);
+      const send = handle.closest('.address-panel')?.querySelector('[data-typed="1"]');
+      if (send) send.disabled = state.addressBusy === key || !handle.value.trim();
+      return;
+    }
+
     const box = ev.target.closest('[data-role="answer"]');
     if (!box) return;
     const key = box.closest('.card')?.dataset.key;
@@ -6448,16 +6881,12 @@
     if (pendingRender && !isAnswering()) render();
   });
 
-  /** How many answers to the notification prompt are in flight. See the `shade-clear`
-   *  handler. The filter's own writes are the picker's now — `space.writing()`. */
-  let shadeWrites = 0;
-
   /** Conversations dismissed here that the server has not yet been seen to agree are
-   *  gone. A set rather than a counter, unlike `shadeWrites` above, because what has
-   *  to be suppressed is one named row out of a list that is adopted whole — and it
-   *  has to stay suppressed past the write, not only during it: the poll that was in
-   *  flight when you tapped answers with the row still on it. Emptied by adopt(), one
-   *  id at a time, on the first payload that no longer carries it. */
+   *  gone. A set rather than a counter, because what has to be suppressed is one named
+   *  row out of a list that is adopted whole — and it has to stay suppressed past the
+   *  write, not only during it: the poll that was in flight when you tapped answers
+   *  with the row still on it. Emptied by adopt(), one id at a time, on the first
+   *  payload that no longer carries it. */
   const dismissedChats = new Set();
 
   /**
@@ -6468,21 +6897,8 @@
    * a mirror keeps the diff honest — but the picker is the only writer, both to the
    * server and to here.
    *
-   * The `ask` source is the same tap, arriving a round trip later: the write that
-   * narrows the filter is what asks about the notifications the new filter excludes,
-   * because "at the moment of the change" is the only moment where clearing them is
-   * obviously part of the same act. The inbox is the only page that can draw that
-   * prompt, so it is the only page that listens for it.
    */
-  window.beadcause?.space?.onChange(({ filter, source, dismissAsk }) => {
-    if (source === 'ask') {
-      // Nothing to ask and nothing being asked is not a repaint. Widening away from a
-      // prompt that *is* up is, which is the whole reason `null` is announced at all.
-      if (!dismissAsk && !state.dismissAsk) return;
-      state.dismissAsk = dismissAsk || null;
-      render(true);
-      return;
-    }
+  window.beadcause?.space?.onChange(({ filter }) => {
     state.space = filter.space || 'all';
     state.workspace = filter.workspace || 'all';
     render(true);
@@ -6505,11 +6921,11 @@
   /**
    * Switch which slice of the tracker the list is.
    *
-   * Out of the chip row's click handler because the count in the top bar is the other
-   * way in: tapping "3 waiting" means "show me those three", which is this, and a
-   * second copy of it would be a second place for the reset-and-refetch to drift.
-   * Already-there is a no-op rather than a reload — the count you tapped is a
-   * count of what is already on screen.
+   * Out of the chip row's click handler on purpose: it is the reset-and-refetch, and
+   * a second copy of it would be a second place for that to drift. The top bar's
+   * **N waiting** pill used to be a second way in — tapping it meant "show me those
+   * three" — and it is gone (bc-ka5y.1); the chips are the only way now.
+   * Already-there is a no-op rather than a reload.
    */
   function chooseScope(next) {
     if (!SCOPES.includes(next) || next === state.scope) return;
@@ -6546,10 +6962,6 @@
     }
     load();
   }
-
-  // The count is the second way to the same chip: it says how many beads are asking
-  // you something, so tapping it shows you exactly those.
-  $('#waiting')?.addEventListener('click', () => chooseScope('human'));
 
   /* ----------------------------------------------------------------- load */
 
@@ -6665,6 +7077,11 @@
     // What the ＋ offers when the space holds more than one repo. Kept here rather
     // than read off `data` at the tap, because the tap can happen between polls.
     if (Array.isArray(data.workspaces)) state.workspaces = data.workspaces;
+    // Who this Mac's person is, for the cards that draw an addressee. Same rule as the
+    // two above and for the same reason: absent means a daemon that predates the field,
+    // and keeping the last value is what stops a phone behind a cached service worker
+    // from suddenly calling your own questions somebody else's.
+    if (Array.isArray(data.me)) state.me = data.me;
     state.spaces = data.spaces || [];
     // Absent means a server that predates the counts — keep the last ones rather
     // than blanking the chrome, exactly as the requests pane does above.
@@ -6676,13 +7093,6 @@
     if (data.filter && !window.beadcause?.space?.writing?.()) {
       state.space = data.filter.space || 'all';
       state.workspace = data.filter.workspace || 'all';
-      // The prompt travels with the filter and is adopted on the same terms, because
-      // it is a fact about that filter: the laptop can narrow it, and then this phone
-      // is the device holding the notifications and the only one that can be asked.
-      // Skipped while a write of our own is in flight for the same reason as above —
-      // this payload was assembled before the tap that changed it. `shadeWrites`
-      // covers the second tap that can be in flight here: the answer to the prompt.
-      if (!shadeWrites) state.dismissAsk = data.dismissAsk?.count ? data.dismissAsk : null;
     }
     // A space that has been renamed or removed in config would otherwise leave the
     // filter pinned to something that no longer exists, showing an empty list.
@@ -6776,10 +7186,10 @@
     // event log and the presence list as well — none of which this page draws, all of
     // which would be sat in the phone's storage for nothing, and one of which is a list
     // of devices. What is stored is exactly what would be painted back.
-    const { questions, requests, workspaces, spaces, filter, dismissAsk, summary } = data;
+    const { questions, requests, workspaces, spaces, filter, summary } = data;
     window.beadcause?.warm?.write?.(
       questionsPath(scope),
-      { questions, requests, workspaces, spaces, filter, dismissAsk, summary },
+      { questions, requests, workspaces, spaces, filter, summary },
       Number(data.seq) || 0
     );
   }

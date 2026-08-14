@@ -1,12 +1,10 @@
 /**
- * The three counts /api/questions carries for the inbox's top bar.
+ * The two counts /api/questions carries for the inbox's chrome.
  *
- * The bar draws "beads waiting on you" where the wordmark used to be, and "agents
- * running" and "advocate proposals waiting" as badges on the tabs that answer
- * them. All three come off the poll every client already makes — which is the
- * only reason they are on this endpoint and not on /api/work. So the things worth
- * being sure about are not the arithmetic; they are the three ways this could be
- * quietly wrong:
+ * "Agents running" and "advocate proposals waiting", as badges on the tabs that answer
+ * them. Both come off the poll every client already makes — which is the only reason
+ * they are on this endpoint and not on /api/work. So the things worth being sure about
+ * are not the arithmetic; they are the three ways this could be quietly wrong:
  *
  * 1. **It costs a `bd` call.** The poll runs every thirty seconds on a phone, and
  *    /api/work is three `bd` calls per workspace. A stub `bd` here logs every
@@ -18,6 +16,11 @@
  * 3. **The response stopped being additive.** The installed Android build and a
  *    cached service worker both read this endpoint and have never heard of the new
  *    field; every field they did read has to still be there, unchanged.
+ *
+ * **There was a third count, `questions`, and it is gone** — the number behind the top
+ * bar's **N waiting** pill, which bc-ka5y.1 deleted along with the pill. Its absence is
+ * asserted below rather than left to the diff: nothing draws it, and a served count
+ * nobody draws is one that quietly goes wrong.
  *
  * Nothing here touches the network beyond loopback, spawns an agent, or writes
  * outside a temp directory. `npm test`.
@@ -219,13 +222,10 @@ try {
     assert.equal(human.summary.proposals, 2, 'two repos are waiting on an answer, not three beads');
   });
 
-  await check('counts the beads asking you something, and not the other channel', () => {
-    assert.equal(human.summary.questions, 4, 'four questions are waiting — the foundation bead is not one');
-    assert.equal(
-      human.summary.questions,
-      human.questions.length,
-      'in the scope that sweeps them, the count and the list must agree'
-    );
+  await check('does not count the beads asking you something — nothing draws that', () => {
+    assert.ok(!('questions' in human.summary), `the N waiting count is back: ${JSON.stringify(human.summary)}`);
+    // The list is still there, and it is what the number used to restate.
+    assert.equal(human.questions.length, 4, 'four questions are waiting — the foundation bead is not one');
   });
 
   await check('adds no bd call to the poll', () => {
@@ -258,18 +258,12 @@ try {
     );
     assert.equal(agent.summary.proposals, 2, 'the badge must not empty out when you switch tabs');
     assert.equal(agent.summary.sessions, 2, 'sessions come off the filesystem, so every scope has them');
-    assert.equal(
-      agent.summary.questions,
-      4,
-      'the waiting count is held from the last sweep — a zero here would read as "nothing is asking you"'
-    );
   });
 
   await check('an unknown scope still gets the summary', async () => {
     const old = await get('?scope=nonsense');
     assert.equal(old.scope, 'human', 'an unrecognised scope falls back rather than failing');
     assert.equal(old.summary.proposals, 2);
-    assert.equal(old.summary.questions, 4);
   });
 } finally {
   for (const s of servers) s.close();
