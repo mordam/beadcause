@@ -917,6 +917,59 @@
   }
 
   /**
+   * "🧠 sonnet · low" — which model a session on this bead runs on, and what it ran on.
+   *
+   * bc-nc6o.4. The epic routes workers by a `complexity:<tier>` label, and the router is
+   * the only thing that had ever said so out loud: the tier lives on the bead, the model
+   * is decided in the second before a window opens, and neither of them appeared on any
+   * screen. So the two questions you actually have about a bill — *what is this one set
+   * to cost, and did anything else happen* — were answerable only from a log.
+   *
+   * **Everything it means is in the text, because a phone has no hover.** The title is
+   * there for a desktop and carries the long form, but nothing on this chip depends on
+   * it: an unrated bead says `unrated` rather than leaving the tier silently missing, a
+   * bead whose labels contradict says `⚠ tier`, and a session that went somewhere else
+   * says where with an arrow. A chip that needed a mouse to be read would be a chip that
+   * said nothing at all on the device this app is for.
+   *
+   * **Drawn on every card**, including the untiered ones that are most of the tracker.
+   * That is the acceptance criterion and it is the interesting half: an unrated bead is
+   * not unrouted, it is routed to the *expensive* model by `FALLBACK_MODEL`, and a blank
+   * where the chip should be would hide exactly the beads worth tiering.
+   *
+   * The field is derived on the daemon (lib/modelcard.js) and arrives on the question, so
+   * this draws and decides nothing — the bead sheet on /graph is handed the same object
+   * and cannot disagree with what you read here.
+   */
+  function modelChipHtml(q) {
+    const m = q.model;
+    if (!m?.model) return '';
+    const ran = (m.ran || []).filter(Boolean);
+    // The tier is the *reason* for the model, so it is drawn beside it rather than
+    // instead of it — and its absence is drawn too. "opus" alone reads as a decision
+    // somebody made; "opus · unrated" reads as the decision nobody made, which is the
+    // one a person looking at this list can fix.
+    const why = m.problem ? '⚠ tier' : m.tier || 'unrated';
+    // Only when they differ, which `ranDiverged` answers false to unless both halves
+    // are known — so a bead nothing has run on never grows an arrow.
+    const went = m.diverged ? ` → ${ran.join('/')}` : '';
+    const cls = m.problem ? ' bad' : m.diverged ? ' diverged' : ran.length ? ' ran' : '';
+    const note = m.problem
+      ? `${m.problem} — it runs on ${m.model} until that is fixed`
+      : m.tier
+        ? `complexity:${m.tier}, so a session on it runs on ${m.model}`
+        : `No complexity tier, so a session on it runs on ${m.model} — the fallback`;
+    const said = ran.length
+      ? m.diverged
+        ? `. A session ran on ${ran.join(', ')} instead.`
+        : `. A session ran on ${ran.join(', ')}.`
+      : '';
+    return `<span class="pill model${cls}" title="${esc(`${note}${said}`)}">🧠 ${esc(m.model)} · ${esc(
+      why
+    )}${esc(went)}</span>`;
+  }
+
+  /**
    * The pill that says whose question this is, and the way to change the answer.
    *
    * **Nothing at all on an install with no `cfg.me`**, which is every install that has
@@ -2607,6 +2660,7 @@
           <span class="pill id">${esc(q.id)}</span>
           ${q.priority != null ? `<span class="pill p${q.priority}">P${q.priority}</span>` : ''}
           ${q.dependentCount ? `<span class="pill">blocks ${q.dependentCount}</span>` : ''}
+          ${modelChipHtml(q)}
           ${addresseeHtml(q)}
           ${draft && !open ? '<span class="draft-flag">draft saved</span>' : ''}
           <time>${esc(relTime(q.createdAt))}</time>

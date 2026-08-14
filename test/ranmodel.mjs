@@ -36,7 +36,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { removeTreeSync } from './helpers/tmp.mjs';
+import { quiesce, removeTree, removeTreeSync } from './helpers/tmp.mjs';
 
 let failures = 0;
 const ok = (name) => console.log(`  ✓ ${name}`);
@@ -370,7 +370,12 @@ const { createAdvocates } = await import('../lib/advocate.js');
 
 async function tick({ sessionLog, workerDir = dir }) {
   const cfgDir = process.env.BEADCAUSE_CONFIG_DIR;
-  for (const f of fs.readdirSync(cfgDir)) fs.rmSync(path.join(cfgDir, f), { recursive: true, force: true });
+  // `quiesce` + `removeTree` rather than a bare recursive `rmSync`: every write of
+  // `advocates.json` schedules a common-repo commit 2000ms out whose `git init` lands in
+  // `CONFIG_DIR`, and rmdir on a directory that gained a file since it was read is
+  // ENOTEMPTY. test/tmpadoption.mjs fails the repo for the bare form (bc-9d37.9).
+  await quiesce();
+  for (const f of fs.readdirSync(cfgDir)) await removeTree(path.join(cfgDir, f));
 
   const cfg = {
     projectRoot: path.join(tmp, 'projects'),

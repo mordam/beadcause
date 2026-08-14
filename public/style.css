@@ -807,6 +807,36 @@ body {
 }
 .pill.p0, .pill.p1 { background: color-mix(in srgb, var(--warn) 22%, transparent); color: var(--warn); }
 .pill.id { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; text-transform: none; letter-spacing: 0; }
+/*
+  "🧠 sonnet · low" — which model this bead is routed to (bc-nc6o.4, `modelChipHtml`).
+
+  Lowercase where every other pill shouts, because the contents are *names* rather than
+  labels: `sonnet` and `opus` are what the CLI is called and what a log will say, and
+  `SONNET` is a word this app invented. Uppercasing them would make the chip harder to
+  match against the thing it is about.
+
+  Outlined rather than filled, and that carries the meaning: a bordered chip is a **plan**
+  — nothing has run yet, this is where a window would go — and the filled `.ran` state is a
+  **fact**, a session that finished and left a `ran:` label behind. So a list scrolled past
+  at speed separates the beads that have been worked from the beads that are merely routed,
+  without either of them needing a word for it.
+*/
+.pill.model {
+  text-transform: none; letter-spacing: 0;
+  background: transparent;
+  border: 1px solid var(--line);
+  color: var(--muted);
+}
+.pill.model.ran { background: var(--surface-2); border-color: transparent; color: var(--text); }
+/* The two that are worth a second look, in the colour this app already uses for "a state
+   somebody has to resolve" rather than for an error: a bead whose labels name two tiers is
+   quietly on the expensive model, and a session that ran somewhere other than where it was
+   sent is the one case the plan on its own would have lied about. Neither is a failure. */
+.pill.model.diverged, .pill.model.bad {
+  background: color-mix(in srgb, var(--warn) 16%, transparent);
+  border-color: color-mix(in srgb, var(--warn) 45%, transparent);
+  color: var(--warn);
+}
 .meta time { font-size: 12px; color: var(--muted); margin-left: auto; }
 
 /*
@@ -5343,6 +5373,38 @@ a.pill { text-decoration: none; }
 }
 .adopt-btn[disabled] { opacity: 0.5; }
 .adopt-none, .adopt-err { color: var(--muted); font-size: 12px; }
+
+/* What a session on this bead runs on — the model row on the bead sheet (bc-nc6o.5,
+   `modelRowHtml`). Shaped like `.owner-row` and `.sheet-session` because it sits directly
+   under them and three differently-shaped rows in a column would read as three kinds of
+   thing; toned quieter than either, because on most beads it is saying the ordinary thing
+   (untiered, never worked) and only earns attention in its two warn states. */
+.model-row {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  min-height: 44px;
+  margin-bottom: 14px;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-2);
+  font-size: 14px;
+}
+.model-kind {
+  flex: none;
+  font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--muted);
+}
+/* The routed model is the answer, so it is the only thing on the row drawn at full
+   strength — the tier beside it is the reason for it, and the run behind it is a footnote
+   until the two disagree. */
+.model-picked { font-weight: 650; }
+.model-why { min-width: 0; color: var(--muted); overflow: hidden; text-overflow: ellipsis; }
+/* No tier is a state, not a fault — the same quiet italic `.owner-who.is-none` gives
+   "unowned", and for the same reason: it is what most of a tracker looks like. */
+.model-why.is-none { font-style: italic; }
+.model-why.is-bad { color: var(--warn); font-style: normal; }
+.model-ran { margin-left: auto; color: var(--muted); }
+.model-ran.is-diverged { color: var(--warn); }
 
 .owner-row {
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap;

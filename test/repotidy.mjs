@@ -60,7 +60,7 @@ fs.mkdirSync(process.env.BEADCAUSE_CONFIG_DIR, { recursive: true });
 
 const { createAdvocates } = await import(LIB('advocate.js'));
 const { forgetRepos } = await import(LIB('repos.js'));
-const { cleanupTmp } = await import(path.join(HERE, 'helpers', 'tmp.mjs'));
+const { cleanupTmp, quiesce, removeTree } = await import(path.join(HERE, 'helpers', 'tmp.mjs'));
 
 /* --------------------------------------------------------------------- harness */
 
@@ -179,7 +179,12 @@ const retiredIn = (repo) => {
  */
 async function tick({ repos, sessionDirs = {}, workspaces }) {
   const dir = process.env.BEADCAUSE_CONFIG_DIR;
-  for (const f of fs.readdirSync(dir)) fs.rmSync(path.join(dir, f), { recursive: true, force: true });
+  // `quiesce` + `removeTree` rather than a bare recursive `rmSync`: every write of
+  // `advocates.json` schedules a common-repo commit 2000ms out whose `git init` lands in
+  // `CONFIG_DIR`, and rmdir on a directory that gained a file since it was read is
+  // ENOTEMPTY. test/tmpadoption.mjs fails the repo for the bare form (bc-9d37.9).
+  await quiesce();
+  for (const f of fs.readdirSync(dir)) await removeTree(path.join(dir, f));
   // Memoised against the block and the token files' mtimes, and two cases a millisecond
   // apart can share a stamp. Nothing in the daemon needs this; a suite rewriting the
   // same paths in the same second does.
