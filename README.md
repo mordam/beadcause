@@ -22,7 +22,9 @@ agent files a `human` bead ──► beadcause polls ──► ntfy push to phon
 macOS only — it runs as a launchd agent and drives iTerm2.
 
 **You need:** Node 20+, the [`bd`](https://github.com/steveyegge/beads) CLI with at
-least one workspace under `~/beads/<name>/.beads`, and
+least one workspace under `~/beads/<name>/.beads` — or anywhere else you point
+[`workspaceRoots`](#where-trackers-live--workspaceroots-and-the-two-shapes-a-root-can-have),
+including a repo whose own `.beads` makes the repo the workspace — and
 [Tailscale](https://tailscale.com) on the Mac and the phone, signed in as the same
 user. Optional: iTerm2 and Claude Code, for the "discuss this on the Mac" button.
 
@@ -38,7 +40,8 @@ waits for it to answer, and prints the pairing QR. It's re-runnable — run it a
 pulling. Joining a tracker somebody else already has needs one file and no questions at
 all: [installing against a team's tracker](#installing-against-a-teams-tracker).
 
-The questions, all with a safe default on Enter: **what the agents should call you**
+The questions, all with a safe default on Enter: **where your workspaces live** (the
+directories discovery reads, `~/beads` unless you say otherwise), **what the agents should call you**
 (the name every prompt, pull request body and bead note uses — guessed from your git
 identity), which workspaces are **shared with
 other people** (those get a contentless push and no unattended agents), where your
@@ -54,7 +57,10 @@ holding **more than one repo** is asked one more: which of the checkouts under i
 printed with the service token each one declares — an install where every workspace is one
 repo is asked nothing about it. Re-run them any time with `npm run configure`; nothing is
 written until the last answer — not even the two credentials, which go to files of their
-own — so Ctrl+C is always safe.
+own — so Ctrl+C is always safe. The one exception is a machine where the first question
+finds no tracker at all: the roots you just named are saved before it stops, because they
+are what the run was worth and `bd bootstrap` is the next step, not another typing of the
+same path.
 
 **Nothing to answer? Say so.** `npm run install-service -- --non-interactive` (or
 `SKIP_CONFIGURE=1`) prints the configuration on file and changes none of it. An agent
@@ -178,7 +184,7 @@ as narrow as the slowest machine's) and not true of `autoDispatch`, whose global
 governs your own private workspaces.
 
 What the shared trackers *do* set, without anybody being asked, is the three protections
-that used to depend on question 2: no unattended agent comments on them
+that used to depend on question 3: no unattended agent comments on them
 (`autoDispatchExclude`), their questions push a contentless nudge rather than the text
 (`ntfy.minimalWorkspaces`), and beads an agent files itself keep waiting for a tap
 (`autoEndorsePerWorkspace`). All three are additive — a name you added yourself is never
@@ -1048,7 +1054,7 @@ A boolean per repo rather than a list of names, because both directions have to 
 sayable: a repo held inside a space that endorses is the same kind of exception as the
 other way round, and a list can only ever say one of them. Keyed by workspace name like
 `jira` and `advocates.perWorkspace`, and deliberately not a field on a `workspaces` entry
-— that array is rediscovered from `~/beads/*/.beads` on every start, so anything written
+— that array is rediscovered under [`workspaceRoots`](#where-trackers-live--workspaceroots-and-the-two-shapes-a-root-can-have) on every start, so anything written
 onto it by hand is gone at the next restart.
 
 **None of the three new ones loosens a gate**, which is worth being exact about, because
@@ -5815,12 +5821,33 @@ the words surviving a refusal, a dropped connection and a repaint; the box disap
 when a send comes back saying the session is out of reach; the reply arriving through
 the transcript pane rather than through the send's own response; and, since `bc-75q2`,
 the line breaks reaching the wire with nothing on the page claiming they were closed up.
-`--baseline` fails all of them, because before this there was no box. The delivery itself
-is the one part no test does — `write text` into a live window would type a fixture
-string into whatever session answered — so `test/session.mjs` covers the rules around it
-instead: reach refusing a pid with no terminal, the length refused on the message as
-typed rather than on a flattened one, and the AppleScript matching a tty as well as an id
-and sending its paste with `newline no` and exactly one Return after it.
+
+**The composer keeps what you had picked out when it redraws itself, selection and all.**
+It redraws on its own more often than it looks: a poll that finds the reach or the status
+changed, a send starting, a send answering, and the line-break hint appearing under the box
+the moment a message gains a newline. Each of those replaces the textarea — the transcript
+below is a `<pre>` thousands of lines long and rebuilding the page to move a line of small
+text would take the keyboard down with it on iOS — so where you were in the box is carried
+across by hand. **Both ends of the selection are carried, not just the near one.** A caret
+is the case where the two are equal, so carrying only `selectionStart` gave every selection
+back as a caret at its left edge: you picked out the sentence you were about to type over
+and the next poll left you in front of it (bc-nh19 — the same one-ended restore as
+[bc-c3ve in the Mirror](#the-mirror--whatever-the-phone-has-open-with-room-to-read-it)).
+The direction goes with them, because it is the end the next Shift-arrow extends from. The
+check drives it rather than reading for it: it types through the real `input` listener,
+selects part of what it typed backwards, flips the hint to force the repaint, and asks the
+box afterwards where the selection is.
+
+`--baseline` serves HEAD's `public/session.js` instead of the working one, which is how you
+tell a real failure from a flake: the cases the branch in hand is about must fail there and
+pass on the working copy, and nothing else should move. It used to fail everything, because
+before this there was no box at all — that stopped being true the day the box landed.
+
+The delivery itself is the one part no test does — `write text` into a live window would
+type a fixture string into whatever session answered — so `test/session.mjs` covers the
+rules around it instead: reach refusing a pid with no terminal, the length refused on the
+message as typed rather than on a flattened one, and the AppleScript matching a tty as
+well as an id and sending its paste with `newline no` and exactly one Return after it.
 
 ### …and then go and find it on the Mac
 
@@ -6719,6 +6746,21 @@ to nothing else, that a merged pull request refuses to be closed, and that the c
 refuses everything but a live conflict. It runs with `openSessions: false`, so nothing in it
 can open a window — the brief is asserted off `conflictPromptFor` directly.
 `node scripts/prfull-check.mjs` is the phone's half in headless Chrome.
+
+**The card repaints in place, and takes neither the comment nor the selection in it.** A
+pull request card is redrawn on its own several times while it is open: arming a button,
+the timer six seconds later that disarms it, a request going out and its answer coming
+back. `render()` would rebuild the whole list and take the keyboard with it, so
+`paintPrCard` replaces the one card — which still replaces the textarea under the button
+you pressed. The words come back because they live in `state.prDraft` rather than in the
+DOM; where you were in them is carried across by hand, and **both ends of the selection
+are carried, not just the near one**. A caret is the case where the two are equal, so
+carrying only `selectionStart` handed every selection back as a caret at its left edge —
+the sentence you had picked out to type over, gone the moment an arm timer expired
+(bc-nh19; the same one-ended restore that was in the Mirror's composer as bc-c3ve and in
+the session's say box). The direction rides along because it is the end the next
+Shift-arrow extends from. The check drives it at the arming press, which is the repaint
+nobody asked for.
 
 **A lamp has three states, not two.** On, off, and *unknown* — a hollow, dashed ring:
 
@@ -10012,6 +10054,23 @@ that "would holding on a guess have helped?" is a question the screen can answer
 `holdGuessedFiles: true` turns the guess into a hold for a workspace whose beads are written
 with their files named; `holdClaimedFiles: false` takes the whole filter out.
 
+**And the session it dispatches anyway is told.** That was the hole left in the paragraph
+above: the near miss reached the card and the log, and the one party it never reached was
+the window being opened into it. That session then learned the same fact at its first
+`Write`, from `scripts/claim-guard.sh`'s denial — after it had read the tree, chosen an
+approach and started typing, which is exactly the lateness reading the register at dispatch
+exists to end. One step earlier for the dispatcher, unchanged for the agent. So the entry
+the filter built rides the queue row into the launch, and the brief `workPromptFor` writes
+carries a section naming the files, the worktree holding them and the three things worth doing about
+it — start where those files are not, go and read what that branch is doing first, or, if
+it turns out to be the same job, say so. It is worded as a warning and not as a boundary,
+deliberately: the evidence is a resemblance, and a brief that told the session to stand
+down would put back in prose precisely the hold `holdGuessedFiles` is off in order not to
+take. A bead with no collision gets a brief unchanged to the character, and the row's copy
+is stripped back out of the wire — the card already draws the same sentence once, and two
+places saying one thing is how they come to disagree. `node test/land.mjs` asserts the
+words; `node test/claimqueue.mjs` asserts the seam.
+
 **Nothing here has to be released**, which is the property worth the most. The hold is not a
 record — it is recomputed from the register on every survey, and `claims.list()` prunes what
 has expired and what belongs to a worktree no longer on disk as it reads. So a session that
@@ -12045,6 +12104,78 @@ far more than the warning is worth.
 negative: the `bc-qsj6`/`bc-nib3` pair is *not* caught, because catching two
 independently worded epics needs their children or their acceptance compared rather
 than their titles, and a green run must not read as "duplicates are impossible now".
+
+### And the same check runs at `bd create`, whoever filed it
+
+Every net above sits on the **proposal** path — an advocate writing one, you approving
+one, a chat session drafting one — because that is where the pair they were built from
+collided: `bc-j6x` and `bc-ec6`, byte-identical titles, proposed twice on one day, both
+approved, both opened, one worker window wasted finding the fix already committed on
+somebody else's branch.
+
+The duplicates that kept arriving afterwards were not proposals. Three pairs, each filed
+by a **worker mid-session** with a plain create, hours apart, none linked to its twin
+until an advocate pass found all three by reading titles weeks later:
+
+| the pair | what it was |
+|---|---|
+| `bc-297u` / `bc-syzm` | `.chip` declared twice in the stylesheet |
+| `bc-767a` / `bc-giuc` | the disarm that never runs |
+| `bc-zjep` / `bc-zflo` | the `/api/error` write |
+
+A session filing mid-flight is the likeliest thing in beadcause to file a duplicate: it
+is deep in one bead, it has not read the tracker, and what it just tripped over may well
+be what another window tripped over this morning. Telling it to check first is the
+approach that already failed — the advocate's survey prompt has said "check `bd list
+--status=open` before you propose" since the beginning, and it proposed anyway. A prompt
+is a request, and a request loses.
+
+So the check now runs at **`Bd.create`** as well: the one seam every bead beadcause files
+is born in, whether it came from a worker's `beadcause-file`, an approved proposal, a
+chat draft, a JIRA sweep, a crash the daemon filed on itself, or an edit filed from the
+app. A call site added next month is covered without knowing it exists, which is the same
+argument the addressee and owner stamps beside it are made on.
+
+**It links, it does not refuse.** That was the open question and this is the answer:
+a refusal is right exactly once — at proposal approval, where the question goes back to
+somebody holding the phone who can settle it — and everywhere else there is nobody to
+send it back to. A worker that has just found a real bug at 02:00 must not be stopped by
+a resemblance, and 0.9 title similarity is a resemblance rather than proof. So the bead
+is filed, its notes gain a **Looks like a duplicate — already open as bc-297u — "…"**
+paragraph, and the pair gets a `relates-to` edge, which is what makes each reachable from
+the other on the graph page and in any brief.
+
+Three details do the work:
+
+- **The edge is drawn *by* the paragraph, not beside it.** The sentence names the twin's
+  id, and [the write-time mention hook](#every-bead-id-in-prose-is-an-edge-behind-it) already
+  turns a bead id in a new bead's own words into an edge. So the record and the sentence
+  explaining it arrive in one write and neither can exist without the other — no second
+  `bd` call, no half-linked pair if the daemon dies in between.
+- **Nothing is said twice.** A caller that already named the twin — `beadcause-file`
+  writes its own sentence from a fuller read, pending proposals included — is left alone.
+  This seam speaks only where nothing else did.
+- **A question is not checked at all.** The sweep card, the stranded-branch finding and
+  the merge card have formulaic titles by construction, each already refuses to file its
+  own twin, and a resemblance paragraph on an inbox card would be noise on the one screen
+  where noise costs most. Anything carrying `human` is skipped, and costs no read.
+
+The candidates come from the workspace shape that is already cached for the P0 board and
+for filing a bead under a P0 (lib/homing.js), so on a running
+daemon the steady-state cost is a map walk and no `bd` call at all. Held for a minute on
+a timer of its own — the parent cache is dropped every time a bead is filed under a
+parent, and reading titles out of that entry would have made a session filing three
+discoveries pay three full reads. A bead filed inside that minute is remembered by hand,
+so a batch that words the same discovery twice catches its own second bead.
+
+And it can never fail the create. A tracker that could not be read is exactly the state
+every bead was filed in before this existed; losing a discovery over a see-also would be
+the wrong trade in the direction the filing seam already refuses.
+
+`node test/createdupe.mjs` (in `npm test`) drives the real `Bd` against a fake `bd`
+binary, so it sees what actually reached the command line: the paragraph, the
+`bd dep relate` behind it, the caller that is not talked over, the question that is not
+checked, the batch that catches itself, and the unreadable tracker that still files.
 
 ### What you just filed, one tap away
 
@@ -14471,6 +14602,13 @@ one place it would have been wrong first.
 
 ### Where a workspace lives, when it is not under `~/beads`
 
+Two settings answer this, and the one below is the narrower of them.
+[`workspaceRoots`](#where-trackers-live--workspaceroots-and-the-two-shapes-a-root-can-have)
+says *where to look*, so everything under a root is found without naming any of it;
+`workspaceDirs` names *one workspace* and is the only way to say `null`. Reach for a root
+when a directory holds trackers, or is one you would happily have read for new ones;
+reach for a name when neither is true, or when the point is to take a name out.
+
 That paragraph was true of the sync code and false of everything upstream of it.
 `discoverWorkspaces()` in `lib/config.js` reads `~/beads/*/.beads` and takes what is in
 it, and for a long time that was the whole of how beadcause knew a workspace existed —
@@ -14854,8 +14992,9 @@ another Mac's, and an agent's — and asserts that exactly one of them rings.
 | `auth.google.redirectUri` | the callback registered with Google. Derived from the certificate's MagicDNS name and normally left `null`; sign-in cannot switch on without one, because Google refuses a plain-http callback |
 | `auth.google.sessionDays` | how long a signed-in browser stays signed in (default `30`) |
 | `auth.google.enabled` | `false` turns sign-in off while leaving the rest of the block configured (default `true`) |
-| `workspaces` | auto-discovered from `~/beads/*/.beads`, and **reconciled on every start** — entries whose directory has gone are dropped and new ones picked up, both logged. Renaming a workspace directory used to leave a stale entry that failed on every poll tick, silently hiding that whole workspace from the phone. Do not hand-edit this to add a workspace that lives elsewhere: an entry here survives only while its directory does, and one start with the checkout away drops it for good. Use `workspaceDirs` |
-| `workspaceDirs` | the workspaces `~/beads` cannot answer for, keyed by name and empty by default — `{"climative": "~/climative.dev/architecture", "climative.retired-20260812": null}`. A **directory** serves a workspace from wherever it actually lives (the checkout or the `.beads` inside it, `~` expands); **`null`** takes a name out of the list and keeps it out, which is the retired-tracker case and the one thing "drop what no longer exists" cannot say. Applied on every load rather than baked into `workspaces` once, so a named workspace comes back on its own when its checkout does. A name in both places resolves to the one named here; a named directory that is not there is a logged warning, not a refusal. See [Where a workspace lives](#where-a-workspace-lives-when-it-is-not-under-beads) |
+| `workspaceRoots` | where to look for trackers (default: `~/beads` and nothing else). A **container** root holds one workspace per subdirectory, which is what `~/beads` is; a root with its own `.beads` **is** one workspace, named after the directory it sits in, which is what a tracker living inside the repo it tracks looks like — `["~/beads", "~/climative.dev/architecture"]`. Rediscovered on every start, so adding a root is the only edit and a workspace *created* under it later arrives on its own. Two roots reaching the same directory are one workspace; two workspaces that would share a *name* are refused with the second named in the log. Use this when the answer is "and look here too", and `workspaceDirs` below when it is one particular workspace. See [Where trackers live](#where-trackers-live--workspaceroots-and-the-two-shapes-a-root-can-have) |
+| `workspaces` | auto-discovered under `workspaceRoots`, and **reconciled on every start** — entries whose directory has gone are dropped and new ones picked up, both logged. Renaming a workspace directory used to leave a stale entry that failed on every poll tick, silently hiding that whole workspace from the phone. Do not hand-edit this to add a workspace that lives elsewhere: an entry here survives only while its directory does, and one start with the checkout away drops it for good. Add a root, or use `workspaceDirs` |
+| `workspaceDirs` | the workspaces the roots cannot answer for, keyed by name and empty by default — `{"climative": "~/climative.dev/architecture", "climative.retired-20260812": null}`. A **directory** serves a workspace from wherever it actually lives (the checkout or the `.beads` inside it, `~` expands); **`null`** takes a name out of the list and keeps it out, which is the retired-tracker case and the one thing neither "drop what no longer exists" nor a root can say. Applied on every load rather than baked into `workspaces` once, so a named workspace comes back on its own when its checkout does. A name a root also turns up resolves to the one named here; a named directory that is not there is a logged warning, not a refusal. See [Where a workspace lives](#where-a-workspace-lives-when-it-is-not-under-beads) |
 | `repos` | the checkouts **one workspace** may be worked in, keyed by workspace name — `{"climative": {"root": "~/climative.dev", "default": "architecture", "approved": ["architecture", "athena-service"]}}`. Empty by default, and a workspace not named here costs nothing: it is one repo, as every workspace was before this existed. `approved` is a list you write and nothing discovers — a directory under `root` that is not in it resolves to nothing; `npm run configure` prints the tree with each repo's token for you to tick, which is not the same thing as approving one. Each repo's identity is the **service token** it declares in its own `config/config.yaml`, read from the checkout rather than restated here; `default` is the repo a bead carrying no token belongs to, and `tokenPath` / `tokenKey` override where the token is read from. A bead says which repo it is about by carrying that token as a `repo:<token>` label. See [Many repos, one workspace](#many-repos-one-workspace--the-approved-list-and-the-token-that-names-each) and [how a bead names one](#how-a-bead-says-which-repo-it-is-about--repotoken) |
 | `edits.workspace` | which tracker a pass from [edit mode](#save-files-the-pass) is filed into (default `null`). Null is not "none": it means the workspace whose sessions open in *this* checkout, because an edit typed into this screen is a change to this app whichever tracker's beads happen to be drawn on it. Set it only where that answer is wrong |
 | `edits.root` | the standing P0 every pass lands under (default `null`). Null means found by its `edit-root` label, or created on the first Save — so an install that has configured nothing still files under a P0 that exists, without which nothing under it would be workable at all. Name one here to override that; a root named here and since **closed** is ignored rather than used |
@@ -14985,8 +15124,8 @@ behind it or it does not, and the setting that says so is a boolean and an addre
 ```
 
 Keyed by workspace name, like `sessionDirs` and `advocates.perWorkspace`. It is
-deliberately **not** a field on a `workspaces` entry: that array is discovered from
-`~/beads/*/.beads` and reconciled on every start, so anything written onto it by hand
+deliberately **not** a field on a `workspaces` entry: that array is discovered under
+[`workspaceRoots`](#where-trackers-live--workspaceroots-and-the-two-shapes-a-root-can-have) and reconciled on every start, so anything written onto it by hand
 disappears at the next restart — which would present as JIRA quietly switching itself
 off overnight.
 
@@ -15223,6 +15362,41 @@ changing its mind. The good consequence: a ticket handed *back* to you finds its
 ref and files nothing new, because the ref is in the tracker whether or not the ticket was
 in the last sweep.
 
+**A summary that is rewritten follows onto the title — while the title is still ours.**
+A ticket being renamed is ordinary: a placeholder is triaged into a real title, a summary
+is corrected, a component changes its name. The poller sees it within the minute and the
+inbox row redraws, so an epic filed once and never touched again ends up disagreeing with
+the row above it about what the same ticket is called — and the bead is the thing
+everything else hangs off. bc-yc16 asked whether the epic should follow, and the answer is
+**yes, under three refusals**:
+
+1. **Only a title beadcause wrote.** That is recorded when the epic is filed and inferred
+   at every authoritative read: a bead whose title is *already exactly* what would be
+   written for the ticket in hand is one nobody has edited. A title that differs at that
+   moment is somebody's — or belongs to a bead adopted by nets 2 and 3, which never
+   carried ours — and it is never rewritten, on that tick or any later one.
+2. **Only an epic nobody is working.** `open` and nothing else. A closed epic's title is
+   history; an in-progress one is the name on the window of a session running right now,
+   and a container that renames itself halfway through reads as a different bead.
+3. **Only against the tracker.** The drift is *noticed* in memory, which is what keeps a
+   quiet minute free, and then decided against a fresh `bd list --all` — because the title
+   in memory is up to a minute old and a minute is long enough for somebody to have
+   retitled the bead by hand.
+
+The description is deliberately **not** rewritten. That body is the ticket as it arrived —
+its status line, its assignee, the prose beside them — and a sweep that rewrote it would
+eventually eat something a person had added. The title is what every list, card and queue
+draws, and it is the whole of what was asked for.
+
+One gap is left open on purpose: **a summary rewritten while the daemon was down.** The
+first read after a restart then finds a bead that disagrees with JIRA and no memory of who
+wrote it, which is indistinguishable from a hand edit — so it refuses, and the epic keeps
+the name it had. That is the same staleness this paragraph exists to fix, accepted in the
+one case where fixing it might overwrite a person. Retitle the bead to match the ticket
+and the next read takes it back. A rename is logged in full, both titles, and says so in a
+comment on the bead; it emits no bus event, for the reason filing does not, but it *does*
+drop the endorsement queue's cache, because that screen is the one drawing the old title.
+
 **Who owns it is not the JIRA assignee, and that is deliberate.** `bd` takes `owner` from
 the git identity of the directory the command runs in, which for a work workspace is
 already the work address. So nothing tries to force one: the assignee is recorded *on* the
@@ -15245,7 +15419,9 @@ queue's fifteen-second cache, because that screen is the one place the new epic 
 it is fetched on its own.
 
 `node test/jiraepic.mjs` covers the three nets, the hold and its refusal, the free path, the
-backoff and where the epic lands. `node test/jiraepicreal.mjs` asks the **real** `bd` the
+backoff, where the epic lands, and every refusal the rename owes — a title edited by hand,
+an adopted bead, an epic being worked, one that is closed, and a refusal that must not be
+re-decided (and re-read) every minute for as long as the ticket exists. `node test/jiraepicreal.mjs` asks the **real** `bd` the
 one question a fake cannot answer: that a ref written on the way in comes back out on the
 way past, on create, on update, and on a bead that has since been closed. If it did not,
 every sweep would look up a ticket, find nothing, and file another perfectly well-formed
@@ -15548,6 +15724,88 @@ it is in one place: a reader that knew one shape would silently drop the other p
 words. `node test/atlassian.mjs` covers the rules; the two suites beside it still own
 their own sentences.
 
+### Where trackers live — `workspaceRoots`, and the two shapes a root can have
+
+There are two settings here and they answer different questions. This one says **where
+to look**, and everything under a root is found for as long as it is there.
+[`workspaceDirs`](#where-a-workspace-lives-when-it-is-not-under-beads) names **one
+workspace**, wherever it is, and is also the only way to say `null` — take this name out
+and keep it out. Roots are read first; a name pinned there wins over anything a root
+turned up under it; an excluded name is dropped however it arrived.
+
+`~/beads/sophab/.beads`, `~/beads/deluvia/.beads`, `~/beads/ehatt/.beads`. One directory
+holding one subdirectory per workspace, each with a `.beads` in it — that is what
+`bd init` in `~/beads/<name>` produces, what the installer tells a fresh Mac to make, and
+what discovery read for as long as there was only one shape to read.
+
+There is a second shape, and it is the one a *team* tracker has. Climative's `cl-` graph
+moved into `~/climative.dev/architecture/.beads` on 2026-08-12, because forty service
+checkouts and the issues about them should arrive in one clone: the repo the team already
+has is the repo the tracker ships in. Nothing about that is exotic — it is what beads
+itself recommends for a shared graph — and the root there **is** the workspace rather than
+holding one.
+
+`workspaceRoots` is the list of places to look, and it understands both:
+
+```json
+"workspaceRoots": ["~/beads", "~/climative.dev/architecture"]
+```
+
+A root with its own `.beads` is one workspace, named after the directory it sits in
+(`architecture`). A root without one is a container, and every subdirectory of it that has
+a `.beads` is a workspace named after that subdirectory. The default is `["~/beads"]`
+alone, so an install that has never heard of this setting discovers exactly what it
+discovered before — the whole compatibility story is that one default.
+
+**It is discovery and not a list, on purpose, and that is what makes it one edit.**
+`workspaces` below it is written by the daemon on every start and reconciled against the
+disk: a root added here is picked up at the next restart, a renamed directory is dropped
+with a log line, and neither needs a second edit. Until this existed the only way to serve
+an out-of-tree tracker was to hand-write a `workspaces` entry, which *worked* — the
+reconciler keeps any saved entry whose directory exists — but worked by accident. Nothing
+documented it, nothing tested it, and `npm run configure` said in as many words that the
+directory was "not a workspace under ~/beads".
+
+Two things are refused rather than guessed at:
+
+- **Two roots reaching one directory are one workspace.** A symlinked container, or the
+  same path written twice, is deduped by directory and nothing is said about it — there is
+  nothing to say.
+- **Two workspaces that would share a name are not.** The second one found is dropped and
+  named in the log. Almost everything else in this config is keyed by workspace name —
+  `sessionDirs`, `jira`, `advocates.perWorkspace`, a space's `workspaces` list — so two
+  trackers called `climative` would silently share every one of those answers, and which
+  one won would depend on the order the roots were typed in.
+
+**A container root is excluded from the repo search; a root that is a workspace is not.**
+`candidateRoot` guesses where a multi-repo workspace's checkouts live, and it has always
+refused to offer `~/beads`: that is the tracker's own tree, `~/beads/<workspace>` is named
+after the workspace by construction, and nothing in it is a checkout anybody works in.
+Every one of those sentences is false about `~/climative.dev/architecture`, which is a
+checkout somebody works in every day — so the exclusion follows the *container* roots and
+leaves the in-repo ones alone.
+
+**And a session opens in an out-of-tree workspace without pinning `sessionDirs`.** With
+`projectRoot` configured, beadcause reimplements the shell's own rule to work out which
+tracker a directory resolves to, and that rule named `~/beads/<repo>/.beads` outright. On
+an install whose tracker is somewhere else it therefore never matched anything: no
+directory mapped back to the `architecture` workspace, and every session opened on one of
+its beads refused with *"a shell there would use a different issue graph"* until
+`sessionDirs.architecture` was set by hand. The rule now resolves a name through
+`workspaces` and keeps `~/beads/<name>/.beads` only as the guess for a name nothing knows
+— and the workspace's own directory is one of the candidates checked, so the session opens
+in the checkout the tracker lives in. It is still *checked* rather than assumed: where a
+shell in that directory really would write to a different graph, the refusal stands, which
+is the entire reason the check is there.
+
+`npm run configure` asks this first, before anything else, because every question after it
+that names a workspace — which are shared, which go in which space, which get an advocate
+— is asked over the list discovery produced. It is also the only question that can be
+answered on a machine with no tracker at all, which is why "no workspaces found" now comes
+*after* it: the install this setting exists for used to be met with *"No beads workspaces
+found under ~/beads. Create one and re-run"*, which is advice to build the wrong thing in
+the wrong place.
+
 ### Many repos, one workspace — the approved list, and the token that names each
 
 Every other part of beadcause assumes a workspace **is** a repo: one tracker, one
@@ -15586,7 +15844,8 @@ one default:
 
 Keyed by workspace name, like `sessionDirs`, `advocates.perWorkspace` and
 [`jira`](#jira-per-workspace--read-only-and-one-setting) — and deliberately **not** a
-field on a `workspaces` entry, because that array is discovered from `~/beads/*/.beads`
+field on a `workspaces` entry, because that array is discovered under
+[`workspaceRoots`](#where-trackers-live--workspaceroots-and-the-two-shapes-a-root-can-have)
 and reconciled on every start, so anything written onto it by hand disappears at the
 next restart.
 
@@ -15639,7 +15898,7 @@ JSON, which is worse than it sounds, because both facts that decide an entry are
 from the file you are editing: whether the repo is cloned at all, and what token its own
 `config/config.yaml` declares. Forty-odd directories means opening forty YAML files and
 hoping — and a token typed from memory is a bead that resolves to nothing at three in the
-morning. So the tenth question of the wizard reads the root and shows you what is there:
+morning. So the last question of the wizard reads the root and shows you what is there:
 
 ```
    48 directories under ~/climative.dev, ✓ marking what is approved today:

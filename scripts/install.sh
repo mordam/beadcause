@@ -84,13 +84,25 @@ BD="$(command -v bd || true)"
 # Said as a warning rather than a failure, because the tracker step below may be about to
 # create one — a second engineer's Mac has no ~/beads at all, and on that machine this is
 # a note about what is coming rather than a problem with the install.
-if [ ! -d "$HOME/beads" ]; then
+#
+# `~/beads` is only the *default* root: an install can serve any directory named in
+# `workspaceRoots`, including a repo whose own `.beads` makes the repo the workspace. So a
+# config that already names roots is not warned at — it has answered this question — and
+# the warning that is left says the setting's name rather than only the default path.
+CONFIGURED_ROOTS=""
+if [ -f "$HOME/.config/beadcause/config.json" ]; then
+  CONFIGURED_ROOTS="$(node -e 'try{const c=require(process.argv[1]);process.stdout.write((c.workspaceRoots||[]).join(" "))}catch{}' \
+    "$HOME/.config/beadcause/config.json" 2>/dev/null || true)"
+fi
+if [ ! -d "$HOME/beads" ] && [ -z "$CONFIGURED_ROOTS" ]; then
   if [ -f "$ROOT/team.json" ]; then
     say "no ~/beads yet — the team's tracker is named in team.json and comes next"
   else
-    warn "no ~/beads directory: beadcause serves every ~/beads/*/.beads workspace and will find none."
-    warn "make one (bd init in ~/beads/<name>), or name the team's tracker in team.json — see"
-    warn "\"Onboarding a second engineer\" in the README."
+    warn "no ~/beads directory: beadcause serves every <root>/*/.beads workspace under the"
+    warn "roots in workspaceRoots, which defaults to ~/beads alone, and will find none."
+    warn "make one (bd init in ~/beads/<name>); or, if your tracker lives inside the repo it"
+    warn "tracks, name that repo when \`npm run configure\` asks where workspaces live; or name"
+    warn "the team's tracker in team.json — see \"Onboarding a second engineer\" in the README."
   fi
 fi
 

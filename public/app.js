@@ -2117,8 +2117,20 @@
     // And where the caret was, but only if it was in *this* card's box. An arm timer expiring
     // six seconds after you armed merge is a repaint you did not ask for, and it must not
     // take the sentence you have since started typing with it.
+    //
+    // Both ends of the selection, not just the near one, and the direction with them: a
+    // caret is the case where the two ends are equal, so carrying only `selectionStart`
+    // hands back a caret at the left edge of everything you had picked out — and a
+    // backward selection restored as a forward one grows out of the wrong end on the next
+    // Shift-arrow. Same three fields as public/mirror.js's composer (bc-c3ve); the answer
+    // box further down this file carries the two ends but not yet the direction.
     const focused = el.contains(document.activeElement)
-      ? { role: document.activeElement.dataset?.role || '', at: document.activeElement.selectionStart ?? null }
+      ? {
+          role: document.activeElement.dataset?.role || '',
+          at: document.activeElement.selectionStart ?? null,
+          to: document.activeElement.selectionEnd ?? null,
+          way: document.activeElement.selectionDirection || 'none',
+        }
       : null;
     const html = prCardHtml(row);
     if (!html) return;
@@ -2131,7 +2143,9 @@
     const box = fresh.querySelector(`[data-role="${focused.role}"]`);
     if (!box) return;
     box.focus();
-    if (focused.at !== null && box.setSelectionRange) box.setSelectionRange(focused.at, focused.at);
+    if (focused.at !== null && box.setSelectionRange) {
+      box.setSelectionRange(focused.at, focused.to ?? focused.at, focused.way);
+    }
   }
 
   /** Read whatever is in this card's two boxes back into state, before it is replaced. */

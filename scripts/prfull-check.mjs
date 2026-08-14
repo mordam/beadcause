@@ -29,6 +29,11 @@
 //   • **A poll does not eat what you typed.** The inbox repaints every 25 seconds; a
 //     half-written comment on an open pull request must survive it, and the sheet must not
 //     collapse under it.
+//   • **Nor does a repaint of the card itself eat where you were in it.** Arming a button
+//     redraws this one card in place, and so does the timer six seconds later that disarms
+//     it. A selection in the comment box has to come back with *both* ends and its
+//     direction — carrying only `selectionStart` hands it back as a caret at its left
+//     edge, which is a repaint undoing something you did (bc-nh19).
 //
 // `--baseline` serves HEAD's app.js and style.css instead of the working copy, which is how
 // you tell a real failure from a flake: against a main without the full view, every case
@@ -427,14 +432,58 @@ try {
   check('the authoring agent is named', /session deadbeef · done · 7 commits/.test(sheet.facts.agent || ''), JSON.stringify(sheet.facts.agent));
   check('and the datetimes are', Boolean(sheet.facts.opened && sheet.facts.touched), JSON.stringify(sheet.facts));
 
-  /* ---- 3. merge is armed: the first press sends nothing ---- */
+  /* ---- 3. merge is armed: the first press sends nothing, and takes nothing either ---- */
   check('merge is offered', /Merge & push #42/.test(sheet.merge), JSON.stringify(sheet.merge));
+  /* Half a comment first, with part of it picked out — and picked out *backwards*, so the
+     direction is a claim about the selection rather than the default a collapsed caret
+     would answer with anyway. Arming redraws this one card in place (paintPrCard), and so
+     does the timer that disarms it six seconds later: a repaint nobody asked for, landing
+     while you are mid-sentence in the box under the button. The draft is read out of the
+     box by keepPrDrafts, so nothing here needs the `input` listener — it is dispatched
+     anyway, because that is what typing into it does. */
+  const SEL = [4, 12];
+  await evalJs(
+    s,
+    `(() => {
+      const box = ${CARD(42)}.querySelector('[data-role="pr-comment"]');
+      if (!box) return;
+      box.value = 'the sentence I meant to type over';
+      box.dispatchEvent(new Event('input', { bubbles: true }));
+      box.focus();
+      box.setSelectionRange(${SEL[0]}, ${SEL[1]}, 'backward');
+    })()`
+  );
   await evalJs(s, `${CARD(42)}.querySelector('[data-act="pr-merge-go"]')?.click()`);
   await sleep(300);
   const armed = await evalJs(s, SHEET(42));
   await shot('armed');
   check('the first press sends nothing', real().length === 0, JSON.stringify(real().map((w) => w.path)));
   check('and says what the second one will do', /Tap again/.test(armed.merge), JSON.stringify(armed.merge));
+  /* Re-queried rather than held: the arming repaint replaced the card, so a reference
+     from before it is a detached node that would answer about nothing. */
+  const kept = await evalJs(
+    s,
+    `(() => {
+      const box = ${CARD(42)}.querySelector('[data-role="pr-comment"]');
+      if (!box) return null;
+      return {
+        focused: box === document.activeElement,
+        value: box.value,
+        start: box.selectionStart,
+        end: box.selectionEnd,
+        dir: box.selectionDirection,
+      };
+    })()`
+  );
+  check('arming keeps the comment you were writing under it', kept?.value === 'the sentence I meant to type over', JSON.stringify(kept?.value ?? null));
+  check(
+    'and the selection in it, both ends — not a caret at its left edge',
+    kept?.focused === true && kept?.start === SEL[0] && kept?.end === SEL[1],
+    JSON.stringify(kept)
+  );
+  /* Split out, because a lost direction is a smaller thing than a lost selection and the
+     two should not be reported as one failure. */
+  check('and which end the next Shift-arrow extends from', kept?.dir === 'backward', `selectionDirection is ${JSON.stringify(kept?.dir ?? null)}`);
   await evalJs(s, `${CARD(42)}.querySelector('[data-act="pr-merge-go"]')?.click()`);
   await sleep(600);
   const merged = real().filter((w) => w.path === '/api/pr/merge');
