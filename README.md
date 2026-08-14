@@ -10031,6 +10031,12 @@ that "would holding on a guess have helped?" is a question the screen can answer
 `holdGuessedFiles: true` turns the guess into a hold for a workspace whose beads are written
 with their files named; `holdClaimedFiles: false` takes the whole filter out.
 
+The sentence on the pill names the branch the holder is on and, where the daemon managed to
+[resolve one](#one-granularity-down-which-file-somebody-is-already-editing), the bead in
+brackets after it — `lib/advocate.js on worktree-queue-filter-8kq (bc-8kq)`. Both, in that
+order, because they answer different questions: the branch is where the work is and is what
+you would go and look at, and the bead is what you would type into `bd show`.
+
 **Nothing here has to be released**, which is the property worth the most. The hold is not a
 record — it is recomputed from the register on every survey, and `claims.list()` prunes what
 has expired and what belongs to a worktree no longer on disk as it reads. So a session that

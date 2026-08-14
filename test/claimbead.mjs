@@ -239,6 +239,13 @@ await check('a branch name in another repo is another branch', async () => {
   assert.equal(claims.attribute(CHECKOUT, '', 'zz-p49x.5'), 0, 'and a write missing any of the three is not a write');
 });
 
+await check('the advocate’s hold says it too — the field’s other reader', async () => {
+  const { busyWhy } = await import(LIB('beadfiles.js'));
+  const rec = { file: 'lib/foo.js', branch: 'worktree-t-p49x5', bead: 'zz-p49x.5', state: 'held' };
+  assert.match(busyWhy([rec], 'declared'), /worktree-t-p49x5 \(zz-p49x\.5\)/, 'the branch to look at, the bead to type');
+  assert.match(busyWhy([{ ...rec, bead: '' }], 'declared'), /on worktree-t-p49x5 —/, 'and it degrades to what it always said');
+});
+
 /* ------------------------------------------------------------- through the daemon */
 //
 // The half no unit test reaches: a real `Bd` over a stub binary, a real claim over HTTP,
