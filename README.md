@@ -8571,6 +8571,83 @@ in some GUIs — everything else ignores them. And nothing is pushed unless you 
 `git push origin 'refs/beadcause/*:refs/beadcause/*'` and `refs/notes/beadcause` are
 explicit acts, and on a shared repo they should stay that way.
 
+### Which requirement a change was for — `refs/beadcause/requirements`
+
+Climative records acceptance criteria as **requirements**: `resources/reqs/{product,technical}/*.yaml`
+in the architecture repo, today 34 files and 335 ids of the shape `TOKEN.Feature.Thing`,
+each with a definition and often a link to the Playwright spec that covers it. Nothing
+joined that vocabulary to code. JIRA has tickets, beads has beads, git has commits, and
+none of the three can answer either direction of the only question that matters here:
+
+- **requirement → files** — what implements `EN.HomeownerPortal.HiddenData`?
+- **files → requirements** — I am about to edit this file; what acceptance does it already
+  carry, and which of the e2e suite has to still pass?
+
+The second is the one that changes how a session works, and it is nearly free: the corpus
+*already* names the spec against most product requirements, so inverting the first answer
+produces the second with no new data at all.
+
+**The id usually does not exist yet, and that is the design constraint.** Requirements get
+written down when a ticket ships, so a bead filed on Monday names none — and an agent asked
+for one anyway will invent it. A fabricated `EN.HomeownerPortal.Hidden` sitting beside the
+real `EN.HomeownerPortal.HiddenData` is two nodes in the graph forever with nothing to tell
+them apart, which is the same silent failure lib/edits.js argues about with matching an epic
+by its title. So there are three states, all of them normal:
+
+| The AC says | What is recorded | Where |
+|---|---|---|
+| an id that exists | the id, validated against the corpus | `lib/beadreqs.js`, in the bead's notes |
+| something requirement-shaped, no id | a **candidate**: token, name, one definition sentence | the same block, in a separate list |
+| nothing requirement-shaped | the bead is labelled `req-glean` at landing, and the P0 advocate is asked what shipped | `lib/reqglean.js` |
+
+An id is refused at the door if the corpus does not have it — and the refusal is *said out
+loud* in the next brief, because an advocate that is not told writes the same invented id
+every run and from outside that is indistinguishable from the feature not working.
+
+**The note is the truth and the index is a cache.** At the moment a merge lands,
+`noteMerge` already writes to `refs/notes/beadcause`; it now carries the requirement ids and
+the files that merge actually changed. That is the strongest evidence this system can have —
+not "an agent thought this bead was about X" but "this diff, in main, changed these files
+while closing a bead that named X". The lookup index is
+`refs/beadcause/requirements/<token>` in the *common* repo (tier 2, because the edge spans
+repos by construction: the requirement is in `architecture`, the files are in one of forty
+service checkouts), one ref per product token so two landings in two products never contend
+on one compare-and-swap. Everything in it is rebuildable from the notes, and
+`node test/reqindex.mjs` asserts exactly that by wiping the store and rebuilding.
+
+```bash
+beadcause-requirements files lib/auth.js     # what these files have carried before
+beadcause-requirements show AS.verify        # one requirement, and every commit for it
+beadcause-requirements coverage              # how much of the corpus has any edge at all
+beadcause-requirements rebuild <repo>        # the repair, and the proof
+```
+
+**Edges are keyed on commits, not paths.** A commit is immutable; a path is renamed next
+month. Paths ride along and are existence-checked when they are read, exactly as
+lib/beadfiles.js checks a guessed path — a dead path drops out of the answer rather than out
+of the record, since it was true of that commit and still is. No line ranges: lines rot
+within days, and if finer ever earns its place the honest unit is an exported symbol.
+
+**It is a hint and never a gate.** Coverage is partial by construction — an edge exists only
+where a merge landed naming a requirement — so `/requirements` leads with the denominator
+rather than the list, provenance is kept per edge (`declared`, `observed-from-diff`,
+`human-confirmed`) so a forecast is never counted as proof, and no dispatch, hold or edit
+path consults the index at all. That last one is asserted at the import boundary in
+`test/requirements.mjs`, because it is a property about what is *not* wired up: the first
+person to reach for `edgesForFiles` inside a hold predicate has to change that list and say
+why. It is lib/beadfiles.js's rule — a guess must not withhold work — applied to something
+with considerably less evidence behind it.
+
+**Promotion is a proposal.** A candidate becomes a real requirement only by being written
+into `resources/reqs/**`, which is a repo the whole team clones, so the daemon renders the
+exact YAML block it would add and a person applies it with
+`beadcause-requirements promote <workspace> <bead>`. It refuses an unknown token outright —
+a token that does not exist is a question for a human, not a file to create — and it never
+rewrites a definition it did not add.
+
+An install with no architecture checkout has no corpus, every path above switches itself
+off, and a landing writes byte-for-byte the note it wrote before any of this existed.
+
 ### Reading it back on the phone — `/bead-session`
 
 Storing all of that and then needing `git cat-file` to see it is half a feature. There
@@ -12177,6 +12254,7 @@ cookie says so), and `/auth/signout` ends the session.
 | POST | `/api/claims` | `{session, repo, file, dir?, branch?, bead?}` | claim the file a session is about to edit, and be told in the same answer who else holds it — see [one granularity down](#one-granularity-down-which-file-somebody-is-already-editing). `decision` is `held` or `conflict`, and a `conflict` carries the `reason` `scripts/claim-guard.sh` prints as a denial. The asking *is* the taking: it decides and records in one synchronous call, so two edits a moment apart cannot both find the file free. On the bus deliberately never — an event per claim would hang a `bd` sweep off every keystroke |
 | GET | `/api/claims` | — | `{claims[], collisions[]}` — every live claim, and the files more than one session is holding |
 | DELETE | `/api/claims` | `{session, files?}` | let go of one file, or of everything that session held. Sent on `SessionEnd`, so a finished session stops holding files without waiting out the TTL |
+| GET | `/api/requirements` | `?id=` | `{corpus, dir, tokens[], totals, orphans[], graph, summary}` — the requirement graph and, first, how much of it is missing: how many of the corpus's requirements have any edge at all, how many of those a merge proved rather than an advocate forecast, and how many edges are recorded against ids the corpus no longer has. `?id=` returns one requirement and its edges instead. `{corpus: null}` and a 200 on an install with no architecture checkout, which is every personal one — a state, not an error. Read-only: promotion into the corpus is a proposal a human applies from `beadcause-requirements promote` |
 | POST | `/api/session-say` | `{pid, text}` | says one line into a live session's own iTerm window. `413` with the words left in the box if it is past `SAY_MAX` — the message rides to `osascript` as an argument, and past `ARG_MAX` the failure reads as "the session is gone", which is the one thing this must not lie about |
 | POST | `/api/session-focus` | `{pid, action}` | `focus` raises that session's iTerm window and doubles it in place; `restore` puts it back at the bounds it was read at. Focusing is gated on the same `reach` as the composer and on the pid still being live; restoring is gated on neither, because it arrives by `sendBeacon` from a page being torn down and must work for a window whose session has since exited |
 

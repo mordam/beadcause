@@ -5568,3 +5568,37 @@ body.editing::after {
 /* Disabled while a Save is in flight and while there is nothing to save. Faded rather
    than hidden: a button that disappears reads as a control that failed. */
 .editlist-save[disabled] { opacity: 0.45; cursor: default; }
+
+/* ---------------------------------------------------------------- requirements
+   The coverage view (bc-fvmx.8). Deliberately a short block: the page reuses
+   `.lede`, `.section-label`, `.pill` and `.empty` from the rest of the app, and adds
+   only the row and the two-length bar, which is the one thing here nothing else draws.
+
+   The bar carries two claims stacked in one track — how many requirements have any
+   edge, and how many of those a merge actually proved — because drawing only the
+   first would say a forecast and a landed diff are the same evidence. */
+.req-list { padding: 12px 12px 0; display: flex; flex-direction: column; gap: 10px; }
+.req-row {
+  display: flex; flex-direction: column; gap: 8px; width: 100%;
+  padding: 12px 14px; text-align: left;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+  color: inherit; font: inherit;
+}
+.req-row.is-detail { cursor: default; }
+.req-top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.req-meta { color: var(--muted); font-size: 12px; }
+.req-files { display: flex; flex-wrap: wrap; gap: 6px; font-size: 12px; color: var(--muted); }
+.req-files code { font-size: 11px; }
+.reqbar {
+  position: relative; height: 6px; border-radius: 3px;
+  background: var(--line); overflow: hidden;
+}
+/* Covered sits under proved, so the darker proved length reads as a subset rather
+   than as a second, competing measurement. */
+.reqbar-covered, .reqbar-observed { position: absolute; inset: 0 auto 0 0; border-radius: 3px; }
+.reqbar-covered { background: var(--accent); opacity: 0.35; }
+.reqbar-observed { background: var(--accent); }
+.req-back {
+  margin: 12px; padding: 10px 14px; border-radius: 10px;
+  background: transparent; border: 1px solid var(--line); color: var(--muted); font: inherit;
+}
