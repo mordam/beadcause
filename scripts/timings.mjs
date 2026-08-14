@@ -90,10 +90,17 @@ console.log(dim(head));
 const cell = (s, n) => String(s).padStart(n);
 const blank = (n) => dim('·'.padStart(n));
 
+// Which routes are over budget is the daemon's answer, not one recomputed here — it is
+// `max(cold p95, warm p95)` against the budget, and a row reddened by a rule of its own
+// can disagree with the list printed below it. It did: a route that is only ever warm
+// and takes a second and a half (a transcript read spawns nothing, so it is warm by the
+// derivation) was named in the list and left black in the table.
+const overBudget = new Set(snap.overBudget);
+
 for (const r of rows) {
   const c = r.cold;
   const h = r.warm;
-  const over = c && c.p95Ms > snap.budgetMs;
+  const over = overBudget.has(r.route);
   const name = r.parked ? dim(`${r.route} (parked)`.padEnd(w)) : (over ? red : (s) => s)(r.route.padEnd(w));
   const cold = c
     ? `${cell(c.n, 5)} ${cell(secs(c.p50Ms), 7)} ${cell(secs(c.p95Ms), 7)} ${cell(secs(c.maxMs), 7)} ${cell(c.subShare.toFixed(2), 5)} ${cell(c.fanout ? `${c.fanout}×` : '·', 5)}`
@@ -105,7 +112,7 @@ for (const r of rows) {
 if (!rows.length) console.log(dim('  nothing has been asked for yet'));
 
 if (snap.overBudget.length) {
-  console.log(`\n${red('over budget')} — cold p95 past ${snap.budgetMs}ms:`);
+  console.log(`\n${red('over budget')} — p95 past ${snap.budgetMs}ms, cold or warm:`);
   for (const route of snap.overBudget) console.log(`  ${route}`);
 } else if (snap.requests) {
   console.log(`\nevery route inside the ${snap.budgetMs}ms budget.`);
