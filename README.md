@@ -9997,9 +9997,9 @@ A bead carries how hard it is, as a `complexity:low`, `complexity:medium` or
 `complexity:high` label, and it carries it because most beadcause work does not need
 the expensive model and the handful that does must not be run on the cheap one. The
 tier is what decides which model a session on that bead runs — that is bc-nc6o, and
-this section is the half that puts the tier *on* the bead. Reading it back at spawn
-time is bc-nc6o.2 and is not wired yet; until it is, the label is a fact about the
-bead that nothing acts on, which is the right order to build the two in — a router
+this section is the half that puts the tier *on* the bead.
+[The next one](#which-model-a-session-comes-up-on--the-tier-at-spawn-time) is the half
+that reads it back at spawn time. They were built in that order deliberately: a router
 reading a field nothing writes routes everything to the fallback and looks broken.
 
 **Decided when the bead is written, not guessed at when it is opened.** The dispatcher
@@ -10063,6 +10063,75 @@ being re-emitted is a tier shown to you and then thrown away), and the acceptanc
 end to end through the real `beadcause-file` against a stub `bd` — a proposal that names
 a tier files a bead carrying it, and one that names none files a bead with no
 `complexity:` label at all.
+
+### Which model a session comes up on — the tier at spawn time
+
+The other half of bc-nc6o, and the point in it where a label starts costing money. When
+the advocate opens a work session it reads the tier off the bead and turns it into
+`claude --model`:
+
+| tier | model |
+|---|---|
+| `complexity:low` | `sonnet` |
+| `complexity:medium` | `sonnet` |
+| `complexity:high` | `opus` |
+| no tier, or labels nobody can route on | `opus` |
+
+`MODEL_BY_TIER` in `lib/complexity.js` is the whole mapping and the only copy of it —
+`modelForBead` is the one call the launcher makes, and it answers `{ model, tier, problem }`
+because a model on its own cannot be explained. Aliases rather than model ids, for the
+same reason [`consoleModel`](#config--configbeadcauseconfigjson) is one: an alias tracks
+the current release of a family, and a router written with pinned ids is a router that
+quietly keeps spawning last year's model until somebody notices the dates.
+
+**The fallback is the expensive one, and it is the commonest answer rather than an edge
+case.** Everything filed before the tier existed, everything created by hand and
+everything ingested from JIRA is unrated, so this is the branch that decides most
+sessions. It goes the expensive way because the two ways of being wrong are not
+comparable: routing an easy bead to Opus costs a bill, and routing a hard one to Sonnet
+costs an unattended hour producing something that has to be thrown away and re-run
+anyway. **Nothing is logged for an untiered bead** — a line per launch saying so would be
+a warning nobody could act on and everybody would learn to scroll past. A bead whose
+labels *contradict* each other is different and is said out loud, once, naming the bead
+and what it opened on, because that one has a fix and the fix is on the bead.
+
+**Precedence, because `model` is also a foundation field.** Four sources, and each step
+is a step up in how specifically somebody said it: the
+[baseline](#what-an-agent-is--and-how-it-asks-to-be-different) in `lib/foundation.js`,
+then config where there is a key for it (`consoleModel`, which is the chat session's and
+not a worker's), then **the bead's tier**, then an
+[approved amendment](#what-an-agent-is--and-how-it-asks-to-be-different). The tier beats
+config because a deployment default is a sentence about every session and the tier is a
+fact about this one, decided by whoever wrote the bead while they were looking at the
+work — the moment it was cheapest to answer. The amendment beats the
+tier because Adam approved a sentence about which model *this agent* runs, by name — and
+a router silently ignoring it would make the approval a no-op he had no way to see. So an
+amended worker runs on what it was granted whatever the bead says, and the foundations
+screen is where that shows.
+
+**Only the worker is routed.** The
+[planner](#an-epic-is-planned-not-worked--and-each-group-gets-its-own-window) opens on an
+epic, and an epic's tier is a claim about the work underneath it rather than about the hour spent
+deciding how to cut that work up — planning a subtree of five easy beads is not an easy
+job, and it is the one window every other window then depends on. The button that opens a
+session by hand is not routed either: it is reached from a question as often as from a
+bead, you are standing there when you press it, and `/model` is one line away.
+
+**The selection is recorded on the advocate's card while the session is still running.**
+The bead does not carry it and cannot yet — what a run *actually* used is only knowable
+once it has finished, which is bc-nc6o.3 — so the worker row on the card is the only place
+"what is this window costing" is answerable in the meantime, and it carries the tier
+beside the model because `opus` is equally the answer for a bead rated `high` and a bead
+nobody rated at all. It is in the launch line in the log too, beside the permission mode
+and for the same reason: both are decisions made silently at spawn and invisible
+afterwards.
+
+`test/tiermodel.mjs` covers it, and the checks that matter run the real `openWorkSession`
+end to end and read back **the shell command the window would have run** — a mapping that
+is right and a flag that never reaches the command line look identical from a unit test.
+It drives the launcher against a copy of `lib/` with a stub AppleScript beside it, so a
+full launch happens and no window appears; the amendment case commits a real amendment to
+a real repo and watches it beat the tier all the way to the `--model`.
 
 ### Approve, adjust, decline
 
