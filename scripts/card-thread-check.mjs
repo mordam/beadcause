@@ -292,7 +292,7 @@ const openCard = async (id) => {
   const card = CARD(id);
   if (!(await evalJs(s, `!!${card}`))) throw new Error(`no card for ${id}`);
   if (!(await evalJs(s, `${card}.querySelector('[data-role="answer"]') !== null`))) {
-    await evalJs(s, `${card}.querySelector('[data-act="toggle"]').click()`);
+    await evalJs(s, `${card}.click()`);
     await waitFor(`${card}.querySelector('[data-role="answer"]') !== null`);
   }
   await sleep(900);

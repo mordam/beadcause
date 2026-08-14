@@ -340,7 +340,7 @@ try {
 
   console.log('an approved proposal — four beads, and a slow write to watch them over');
 
-  await tap(s, `#list .card[data-key=${JSON.stringify(PROP_KEY)}] [data-act="toggle"]`);
+  await tap(s, `#list .card[data-key=${JSON.stringify(PROP_KEY)}][data-act="toggle"]`);
   await waitFor(s, `!!document.querySelector('.proposal[data-key=${JSON.stringify(PROP_KEY)}]')`);
   // Approve files everything not explicitly declined, so with nothing picked it is
   // the whole proposal — and it is in the card's top bar, not under the rows.
@@ -438,7 +438,7 @@ try {
   write.delay = 900;
   write.fail = true;
 
-  await tap(s, `#list .card[data-key=${JSON.stringify(PLAIN_KEY)}] [data-act="toggle"]`);
+  await tap(s, `#list .card[data-key=${JSON.stringify(PLAIN_KEY)}][data-act="toggle"]`);
   await waitFor(s, `!!document.querySelector('#list .card[data-key=${JSON.stringify(PLAIN_KEY)}] [data-role="answer"]')`);
   await evalJs(
     s,
