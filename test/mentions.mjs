@@ -5,11 +5,12 @@
  *     npm test
  *     node test/mentions.mjs
  *
- * The tracker held 609 edges and 1,597 references from one bead's prose to another, and
- * exactly **one** see-also edge in the whole graph. "The same defect as bc-767a", "see
- * also bc-rcrt", "sits in bc-42ow's neighbourhood" were real relationships that `bd
- * show`, `bd dep tree`, the graph page and every dispatch brief were blind to, so each
- * session rebuilt the neighbourhood by reading — and mostly did not.
+ * Measured on 2026-08-13 over 850 beads, the tracker held **1,633** references from one
+ * bead's prose to another and **two** see-also edges in the whole graph. "The same
+ * defect as bc-767a", "see also bc-rcrt", "sits in bc-42ow's neighbourhood" were real
+ * relationships that `bd show`, `bd dep tree`, the graph page and every dispatch brief
+ * were blind to, so each session rebuilt the neighbourhood by reading — and mostly did
+ * not.
  *
  * Three things are checked, and the middle one is the one that would have gone wrong
  * quietly:
@@ -18,7 +19,7 @@
  *    a bead's own id never, a pair the graph already joins never, and an id that does
  *    not exist never — that last one because bulk wiring validates the whole batch and
  *    rejects **every** line of it over one bad id, so a single typo in a description
- *    could cost a sweep of a thousand good edges.
+ *    could cost a sweep of thirteen hundred good edges.
  * 2. **That the hook cannot break the write it hangs off.** A comment is what the caller
  *    was asked to record; the edge is a courtesy. A `bd dep relate` that fails — a bead
  *    deleted since the id was typed, an edge somebody else drew a second ago — must
@@ -32,7 +33,7 @@
  *
  * There is a fourth, in test/graphwaits.mjs rather than here: `bd dep relate` writes the
  * type `relates-to` and every reader in this repo was written against `related`. Left
- * alone that would have put eight hundred fresh edges on cards counted as live blockers.
+ * alone that would have put 1,308 fresh edges on cards counted as live blockers.
  *
  * Nothing here touches a tracker: `Bd` is pointed at a fake `bd` that records its argv.
  */
@@ -45,6 +46,7 @@ import {
   MENTION_CAP,
   RELATED_EDGE,
   RELATED_EDGES,
+  WRITE_CAP,
   edgeRows,
   isRelated,
   linkedIds,
@@ -181,6 +183,13 @@ check('the cap is above every real description and far below a queue dump', () =
   assert.ok(MENTION_CAP >= 30 && MENTION_CAP <= 60, `cap is ${MENTION_CAP}`);
 });
 
+check('and one write gets a much lower one, because somebody is holding a phone', () => {
+  // The hook runs inside `bd.respond`, awaited on the request path, at about a second
+  // and a half per `bd dep relate`. Forty of those is a minute of waiting for an answer
+  // that was recorded before the first edge was drawn.
+  assert.ok(WRITE_CAP < MENTION_CAP / 2, `${WRITE_CAP} against ${MENTION_CAP}`);
+});
+
 check('an edge is written at both ends, because that is what bd does', () => {
   assert.deepEqual(edgeRows('bc-a', ['bc-b']), [
     { from: 'bc-a', to: 'bc-b', type: RELATED_EDGE },
@@ -262,6 +271,14 @@ await check('a comment naming a bead draws the edge', async () => {
   );
   // The comment itself still went first, and unchanged.
   assert.equal(calls()[0][0], 'comment');
+});
+
+await check('one write stops at the write cap, however long the list is', async () => {
+  reset();
+  const bd = fakeBd('bd-capped');
+  const ids = Array.from({ length: WRITE_CAP + 6 }, (_, i) => `bc-w${String(i).padStart(3, '0')}`);
+  await bd.comment(WS, 'bc-arj0.4', `all of: ${ids.join(' ')}`);
+  assert.equal(relates().length, WRITE_CAP);
 });
 
 await check('a comment naming nothing spawns nothing beyond the comment', async () => {
