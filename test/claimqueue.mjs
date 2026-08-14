@@ -127,6 +127,10 @@ async function tick({ ready = [], overrides = {} } = {}) {
   fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify(cfg, null, 2));
 
   const opened = [];
+  // The rows as the launcher got them, not just their ids: the queue row IS the object
+  // `launch` hands to `openWorkSession` as the bead, so what rides it is the whole of what
+  // the brief can say about the dispatch (bc-b9vt).
+  const launched = [];
   const bd = {
     ready: async () => ready,
     listLabel: async () => [],
@@ -140,12 +144,13 @@ async function tick({ ready = [], overrides = {} } = {}) {
     bus: { emit() {} },
     open: async (_cfg, _ws, b) => {
       opened.push(b.id);
+      launched.push(b);
       return { dir: REPO, mode: 'test', term: null };
     },
     prs: async () => ({ ok: true, reason: '', checked: 0, beads: new Map() }),
   });
   await advocates.tick();
-  return { opened, advocates, card: advocates.snapshot().find((a) => a.workspace === 'alpha') };
+  return { opened, launched, advocates, card: advocates.snapshot().find((a) => a.workspace === 'alpha') };
 }
 
 const heldIds = (card) => (card.heldByClaim || []).map((h) => h.id);
@@ -235,6 +240,47 @@ await test('a surface guessed from the bead text does NOT withhold the work', as
   assert.deepEqual(busyIds(card), ['bc-1'], 'but the collision is on the card all the same');
   assert.match(card.filesBusy[0].why, /lib\/advocate\.js/, card.filesBusy[0].why);
   assert.match(card.filesBusy[0].why, /text names/, "and it says the surface was this daemon's reading");
+});
+
+/**
+ * bc-b9vt. The case above is the one this daemon deliberately dispatches, and until this
+ * it dispatched it *silently*: the session found out at its first `Write`, from
+ * scripts/claim-guard.sh's refusal, once it had read the tree and made a plan. That is the
+ * lateness the whole dispatch-time read exists to end, arriving one step earlier for the
+ * dispatcher and unchanged for the agent.
+ *
+ * The fix is a sentence in the brief, and the seam it travels along is the queue row —
+ * which is the object `launch` hands to `openWorkSession` as the bead. So what is asserted
+ * here is the seam; test/land.mjs asserts the words the other end makes of it.
+ */
+await test('the collision rides the launch payload, so the brief can name it', async () => {
+  holding('lib/advocate.js');
+  const { opened, launched, card } = await tick({
+    ready: [bead('bc-1', { description: 'The filter chain in lib/advocate.js is where this belongs.' })],
+  });
+  assert.deepEqual(opened, ['bc-1'], 'still dispatched — this changes what the window is told, not whether it opens');
+  const row = launched[0];
+  assert.ok(row.filesBusy, 'the row is what openWorkSession gets as the bead; nothing else reaches the brief');
+  assert.deepEqual(row.filesBusy.files, ['lib/advocate.js'], 'the files, because they are the only part the session can check');
+  assert.equal(row.filesBusy.branch, 'worktree-something-else', 'and the tree, so it can go and look before it edits');
+  assert.equal(row.filesBusy.source, 'guessed');
+  assert.equal(row.filesBusy.why, card.filesBusy[0].why, 'one sentence, said to the card and to the session — not two');
+  // And not onto the wire a second time: the card already draws `filesBusy` per advocate,
+  // and a copy per queue row would be two places saying one thing. `next` strips it the
+  // way it strips `labels` and `repoProblem` — fields the launch wants and the card does not.
+  for (const n of card.next || []) {
+    assert.ok(!('filesBusy' in n), `a queue row on the wire must not carry it: ${JSON.stringify(n)}`);
+  }
+  assert.ok((card.next || []).some((n) => n.id === 'bc-1'), 'and the row really was on the wire, or the check above proves nothing');
+});
+
+await test('a bead nothing is colliding with carries nothing extra into the launch', async () => {
+  holding('lib/claims.js');
+  const { opened, launched } = await tick({
+    ready: [bead('bc-1', { description: 'The filter chain in lib/advocate.js is where this belongs.' })],
+  });
+  assert.deepEqual(opened, ['bc-1']);
+  assert.equal(launched[0].filesBusy, undefined, 'the ordinary brief must not shift by a character');
 });
 
 await test('holdGuessedFiles is the gate: turn it on and the guess holds too', async () => {
