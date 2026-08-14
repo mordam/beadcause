@@ -38,7 +38,7 @@ import { fileURLToPath } from 'node:url';
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const LIB = (f) => path.join(HERE, '..', 'lib', f);
 
-const { MERGE_ADVOCATE, newlyFailing, gateVerdict, baselineNote, queueFor, mergeAdvocatePrompt } = await import(
+const { MERGE_ADVOCATE, newlyFailing, gateVerdict, baselineNote, queueFor, anyQueued, mergeAdvocatePrompt } = await import(
   LIB('mergeadvocate.js')
 );
 const { MERGE_LABEL, MERGE_ASSIGNEE, MAX_ATTEMPTS, mergeBeadBody, withQueueBlock } = await import(LIB('mergebead.js'));
@@ -264,6 +264,26 @@ check('a bead whose block will not parse is reported, not skipped in silence', (
   assert.deepEqual(queued, []);
   assert.equal(broken.length, 1);
   assert.ok(broken[0].why, 'nothing says why it is not being merged');
+});
+
+/* ------------------------------------------------------------- the cheap no */
+
+check('anyQueued answers off the graph cache, which carries labels and assignee', () => {
+  const index = (rows) => ({ beads: new Map(rows.map((r) => [r.id, r])) });
+  assert.equal(anyQueued(index([{ id: 'zz-1', status: 'open', labels: [MERGE_LABEL], assignee: MERGE_ASSIGNEE }])), true);
+  assert.equal(anyQueued(index([{ id: 'zz-1', status: 'open', labels: ['tracker'], assignee: MERGE_ASSIGNEE }])), false);
+  assert.equal(anyQueued(index([{ id: 'zz-1', status: 'closed', labels: [MERGE_LABEL], assignee: MERGE_ASSIGNEE }])), false);
+  assert.equal(anyQueued(index([{ id: 'zz-1', status: 'open', labels: [MERGE_LABEL], assignee: 'adam' }])), false);
+  assert.equal(anyQueued(index([])), false);
+});
+
+check('A FAILED GRAPH READ IS A YES — unknown must not stop the queue in silence', () => {
+  // `graph()` hands back `{ error }` rather than throwing, and reading that as "nothing
+  // queued" would stop merges on exactly the loaded Dolt where things are most likely to
+  // be waiting. Falling through costs a subprocess; the alternative costs a merge.
+  assert.equal(anyQueued({ error: 'bd export timed out', beads: new Map() }), true);
+  assert.equal(anyQueued(null), true);
+  assert.equal(anyQueued({}), true);
 });
 
 /* ----------------------------------------------------------------- the brief */
