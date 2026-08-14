@@ -161,16 +161,23 @@ const rows = rowsOf(
     handed: [row(14)],
     queued: [row(11), { ...row(9), note: '#9 is 2nd in line' }],
     reused: [{ ...row(12), note: 'told the session already on it' }],
+    unreachable: [{ ...row(13), why: 'a session was opened on #13 4 minutes ago and this daemon has restarted since' }],
     failed: [{ ...row(20), why: 'iTerm refused the Apple event' }],
   })
 );
-check('every pull request the sweep acted on is a row', rows.length === 5, JSON.stringify(rows.map((r) => r.number)));
-check('in number order, so the card does not shuffle between amendments', String(rows.map((r) => r.number)) === '9,11,12,14,20');
+check('every pull request the sweep acted on is a row', rows.length === 6, JSON.stringify(rows.map((r) => r.number)));
+check('in number order, so the card does not shuffle between amendments', String(rows.map((r) => r.number)) === '9,11,12,13,14,20');
 check('a window that opened is working', rows.find((r) => r.number === 14).state === 'working');
 check('a queued one is queued', rows.find((r) => r.number === 11).state === 'queued');
 // A session that already had it and a session just opened for it are the same fact to
 // somebody reading the card: something is happening, nothing is needed.
 check('a session that was already on it is working too', rows.find((r) => r.number === 12).state === 'working');
+// bc-9d37.11. A daemon restart takes the handle with it, so the sweep can neither nudge
+// the window nor open a second one — but the window is there and working. Calling that
+// `failed` would put it in NEEDS_ADAM and hand Adam back a branch that is perfectly fine,
+// once per merge, which is the amplification bc-xl7n.36 was filed for.
+check('a window this daemon can no longer reach is still working, not failed', rows.find((r) => r.number === 13).state === 'working');
+check('and the card says why it cannot be spoken to', /restarted/.test(rows.find((r) => r.number === 13).note || ''), JSON.stringify(rows.find((r) => r.number === 13)));
 check('a window that would not open is a failure from the start', rows.find((r) => r.number === 20).state === 'failed');
 check('and it carries why', rows.find((r) => r.number === 20).note === 'iTerm refused the Apple event');
 check('the beads travel with the row', String(rows.find((r) => r.number === 14).beads) === 'bc-14');

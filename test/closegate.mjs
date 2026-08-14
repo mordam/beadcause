@@ -168,22 +168,27 @@ console.log('\nclose gate\n');
 }
 
 {
-  // Children are only ever asked about for an epic — one extra `bd` call per answer
-  // on every other bead in the tracker is not worth a gate that cannot apply.
+  // Children are asked about for **every** type since bd 1.2.1 (bc-xl7n.39). This used
+  // to assert the opposite — one extra `bd` call per answer on every non-epic in the
+  // tracker was not worth a gate that could not apply — and the trade changed when the
+  // gate started applying: 1.2.1 refuses any close over an open child whatever the
+  // parent's type, so not asking meant offering a close bd would refuse. The call is
+  // the price; see the note in `gateFor` for why there is no cheap way to skip it.
   const bd = fakeBd({ show: [issue({ issue_type: 'task' })], list: [{ id: 'dm-1.1', status: 'open' }] });
   await bd.closeGate(WS, 'dm-1');
-  check('children are not asked about for anything but an epic', !bd.calls.some((c) => c.includes('list')), bd.calls.join(' | '));
+  check('children are asked about for a task too, not only an epic', bd.calls.some((c) => c.includes('list')), bd.calls.join(' | '));
 }
 
 {
-  // And the answer that follows from it, said out loud because it is the one somebody
-  // will read as a bug: bd's parent gate is on the word `epic`, so a **feature** with
-  // open children closes without complaint and this must not hold it. bc-5864 was
-  // filed on bc-rk2o — a feature, closed by a delivery over an open child — read as bd
-  // and this file disagreeing. test/closegatereal.mjs asks bd itself.
+  // And the answer that follows from it. This is the one somebody will read as a bug in
+  // the other direction now: bc-5864 was filed on bc-rk2o — a **feature**, closed by a
+  // delivery over an open child — read as bd and this file disagreeing, on a binary
+  // where bd's parent gate really was the word `epic` and both were right. On 1.2.1 the
+  // same close is refused, so the gate holds it. test/closegatereal.mjs asks bd itself.
   const bd = fakeBd({ show: [issue({ issue_type: 'feature' })], list: [{ id: 'dm-1.1', status: 'open' }] });
   const gate = await bd.closeGate(WS, 'dm-1');
-  check('a feature with open children is not gated — only an epic is', gate === null, JSON.stringify(gate));
+  check('a feature with open children is gated too', gate?.kind === 'epic', JSON.stringify(gate));
+  check('and the sentence says parent rather than epic', /a parent with 1 open child/.test(gate?.reason || ''), JSON.stringify(gate));
 }
 
 /* ------------------------------- and two gates bd has no idea about (bc-arj0.3) */

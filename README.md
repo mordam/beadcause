@@ -21,7 +21,10 @@ agent files a `human` bead ──► beadcause polls ──► ntfy push to phon
 
 macOS only — it runs as a launchd agent and drives iTerm2.
 
-**You need:** Node 20+, the [`bd`](https://github.com/steveyegge/beads) CLI with at
+**You need:** Node 20+, the [`bd`](https://github.com/steveyegge/beads) CLI at **1.2.1
+or newer** (`brew upgrade beads`; 1.2.1 is where cross-type blocking dependencies
+arrived, and `test/epicedgereal.mjs` skips itself with a loud line on anything older
+rather than failing the repo) with at
 least one workspace under `~/beads/<name>/.beads` — or anywhere else you point
 [`workspaceRoots`](#where-trackers-live--workspaceroots-and-the-two-shapes-a-root-can-have),
 including a repo whose own `.beads` makes the repo the workspace — and
@@ -6538,12 +6541,17 @@ daemon's poll cycle sweeps it a few seconds later.
 
 **The reason is where the resolvers are counted.** One resolver per pull request, two on
 this Mac at once, and a queue for the rest are all guarantees held in the daemon's memory
-(`lib/resolvers.js`, deliberately: a window handle is worth exactly as long as the iTerm
-holding it). `beadcause-deliver` is a *different process*. A sweep run there starts from an
-empty registry — it cannot see the resolver the daemon opened ten minutes ago, so it would
-open a second window on the same branch, which is the incident the whole file exists to
-prevent — and then it exits, taking any queue it had built with it. The registry has to be
-one registry, and only the daemon holds it.
+(`lib/resolvers.js`). `beadcause-deliver` is a *different process*. It would open a second
+window on the same branch, which is the incident that whole file exists to prevent — and
+then exit, taking any queue it had built with it. The registry has to be one registry, and
+only the daemon holds it.
+
+Since bc-9d37.11 the *keys* of that registry outlive the process, so a restart no longer
+starts from nothing — but that does not make a second process safe, and it is worth being
+precise about why. What survives is enough to know a branch is taken; the iTerm handle is
+not, and cannot be. A daemon reading those keys back can refuse to open a second window,
+which is the guarantee that matters. It cannot nudge, cannot count toward another
+process's cap, and cannot drain another process's queue.
 
 Three things fall out of recording rather than sweeping, and each of them was wanted:
 
@@ -6639,11 +6647,33 @@ Three states, not two, and the third is the point:
 **Everything for one pull request is serialised**, which is not belt-and-braces — it is the
 actual shape of the incident. One press produced two requests a moment apart, and a
 check-then-launch with an `await` in the middle is a check both of them pass. Under the
-lock the second request arrives after the first has a handle to hand it. The state is in
-memory and never on disk, for the reason a phone's whereabouts is: a handle is worth
-exactly as long as the iTerm holding it, and a record that survived a restart would only
-ever be a claim about a window nobody can address. `node test/resolvers.mjs` asserts all of
-it — including ten simultaneous presses producing one window and nine nudges.
+lock the second request arrives after the first has a handle to hand it.
+
+**The keys are on disk; the handles are not** — and until bc-9d37.11 neither was. The old
+rule was *in memory, never on disk*, on the reasoning that a record surviving a restart
+"would only ever be a claim about a window nobody can address". Every clause of that is
+still true; the conclusion assumed the thing asking again is **a press**, arriving hours
+later with no memory of its own. The sweep is not. It runs because a merge landed, and a
+merge landing is what kickstarts this daemon — so the restart happens *immediately before*
+the caller asks, every time. On 2026-08-14 that was 475 boots against 19 sweeps, and PR
+#243 was handed to `resolveFor` by eighteen consecutive sweeps over seven hours, thirteen
+of which opened or queued a window for it. Thirteen resolvers, one branch, over a green
+suite — because every assertion in it was about a single process.
+
+So the keys survive and the handle does not, which is not a compromise: a record read back
+after a restart is exactly the third state above — *something is on it and cannot be
+asked*. The file already refuses to open a second window for that, and already lets go of
+it after half an hour. The daemon says so at boot (`2 windows restored from the last
+daemon`), the sweep logs those branches as `left #243 to the window already on it` rather
+than as failures, and the card calls them **working**, because that is what they are.
+
+The queue still lives only in memory, and that is now written down as a decision rather
+than an omission: a waiting entry carries a closure that opens a window and a `recheck`
+that asks GitHub, neither of which can be serialised — and the next sweep re-derives it
+from GitHub anyway. A lost queue costs a delay; a lost registry costs a second window in
+the same tree, which is bc-utyr. `node test/resolvers.mjs` asserts all of it — including
+ten simultaneous presses producing one window and nine nudges, and six cases that call
+`restart()` because nothing inside one process can see this.
 
 **And that line said *Adam pressed Resolve conflicts again* whatever asked**, which is the
 same falsehood the brief above carries a `sweptAfter` to avoid, arriving by the other door
@@ -9772,7 +9802,7 @@ EOF
 That is `bin/supersede.js`, and it writes the label, the graph edge, the reason as a
 comment, and the status the sweep needs the bead left in. It used to be two lines a
 worker typed by hand, and [three of the ways to get them wrong read as
-success](#an-epic-cannot-block-a-bead-so-the-marker-holds-it-alone).
+success](#an-epic-adopting-its-own-child-cannot-block-it-so-the-marker-holds-it-alone).
 
 `superseded-by:<id>` is [endorsement](#the-endorsement-queue--a-group-tap-or-a-row-at-a-time)'s shape with a different ending. Same two layers: the marked bead is out
 of `bd ready` and out of every advocate queue, and `openWorkSession` asks the tracker
@@ -9815,7 +9845,7 @@ verdict on.
 looks, defaulting to 10. The worker's brief carries the command, which is what makes any
 of it reachable — nothing but a worker ever sets this marker.
 
-### An epic cannot block a bead, so the marker holds it alone
+### An epic adopting its own child cannot block it, so the marker holds it alone
 
 The command above was two hand-typed `bd` lines for about a day, and then somebody marked
 a bead whose original was an **epic**:
@@ -9825,19 +9855,29 @@ $ bd dep add bc-nqrr bc-4m2j
 Error: tasks can only block other tasks, not epics
 ```
 
-bd will not let a task be blocked by an epic. That is [the same one-line rule
+bd would not let a task be blocked by an epic. That was [the same one-line rule
 `lib/park.js` is built around](#parking-an-epic-which-bd-refused-outright), seen from the other
-side, and it matters more here than it looks, because adoption by an epic is how this
+side, and it mattered more here than it looks, because adoption by an epic is how this
 tracker gathers duplicates in the first place — bc-4m2j named eighteen beads under an
 `Adopts:` heading. So the marking took the label and drew no edge at all, and nothing
 said so. Three beads were marked that way on 2026-08-12 before anybody noticed.
 
+**bd 1.2.1 deleted that rule, and the conclusion survives it for a different reason.**
+Cross-type blocking is allowed since 1.2.1 — so the blocking edge onto an arm's-length
+epic would now go in — but the same release added a hierarchy deadlock guard, and the
+case this section is about walks into it: adoption by an epic is usually an epic adopting
+its **own child**, and `bd dep add <child> <its parent>` is refused because children
+already inherit the parent's completion. `edgeFor` therefore still draws the see-also,
+now as a choice rather than a wall, and `mark` still says out loud that the bead is held
+by its label. Making it take the blocking edge where it can is real work with a case
+split in it; it has not been done.
+
 **There is no second-choice edge.** Of the ten types `bd dep add --type` accepts, `blocks`
-is the only one bd polices across the epic boundary — and it is also the only one that
-takes a bead out of `bd ready`. `tracks`, `relates-to`, `supersedes`, `parent-child` and
-the rest all go in against an epic and every one of them leaves the bead exactly as ready
-as it was. The refusal and the hold are the same property, measured against the real
-binary in `test/epicedgereal.mjs` rather than reasoned about.
+is the only one that takes a bead out of `bd ready`. `tracks`, `relates-to`, `supersedes`,
+`parent-child` and the rest all go in against an epic — they always did — and every one of
+them leaves the bead exactly as ready as it was. That half is untouched by 1.2.1: what the
+release moved is whether the blocking edge is *offered*, never which edge *holds*. Measured
+against the real binary in `test/epicedgereal.mjs` rather than reasoned about.
 
 Which is survivable, because **the edge was never what timed the card**. The sweep reads
 the original and asks nothing until it is `closed`, so a marked bead with no blocking edge
@@ -11177,10 +11217,21 @@ with one line, `bd dep add <the work> <the question>`. On an epic, bd refuses:
 Error: epics can only block other epics, not tasks
 ```
 
-**bd will not let an epic be blocked by anything that is not itself an epic.** Every
-other pair is fine — a bug blocked by a task, a chore blocked by a decision — so the
-rule is narrower than it reads and it is exactly one line: epic-ness has to match. The
-same sentence with the nouns swapped comes back for a task blocked by an epic.
+**bd would not let an epic be blocked by anything that is not itself an epic.** Every
+other pair was fine — a bug blocked by a task, a chore blocked by a decision — so the
+rule was narrower than it reads and it was exactly one line: epic-ness has to match. The
+same sentence with the nouns swapped came back for a task blocked by an epic.
+
+**That rule is gone as of bd 1.2.1** (2026-08-11): "cross-type blocking dependencies are
+now allowed" replaced the blanket same-type rule with a hierarchy deadlock guard that
+refuses only gating an issue on its own ancestor or its own descendant. Sibling edges —
+every edge a park draws — go in whatever the two types are, and `test/epicedgereal.mjs`
+pins that against the real binary, skipping itself with a loud line on anything older.
+Everything below is kept anyway: it is right under both rules, it costs a string
+comparison, and a machine still on 1.1.x gets the working behaviour rather than the stack
+trace. What the bump buys that no amount of typing could is that **one question can now
+park an epic and a non-epic at once** — the failure that put one decision bead back into
+`bd ready` three times, because the question holding its epic could not also hold it.
 
 What made that expensive is the order. The question is created *first*, and
 `bin/ask.js` added the edge afterwards without catching anything, so a session asking

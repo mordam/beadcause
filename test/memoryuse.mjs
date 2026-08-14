@@ -332,6 +332,31 @@ check(
   readBack.slice(-600)
 );
 
+// bc-goo.6: the shape the real log actually has — both arms full, and nothing ever
+// written. The `index` arm's subtitle claims the agent was told what is in the repo,
+// which is true and empty: it was told it was empty, every time. Two full columns of
+// zeroes under that subtitle read as the prediction confirmed, so the pane has to say
+// what it is instead.
+const untouched = draw({
+  workspace: 'throwaway',
+  repo,
+  notes: { ...blank, ref: 'r' },
+  memory: { ...blank },
+  bus: { reads: 0, topics: 0, lastReadAt: null },
+  debriefs: { reads: 0, lastReadAt: null },
+  readByOthers: 0,
+  own: {
+    arms: ['blind', 'index'],
+    summary: {
+      blind: { runs: 14, touched: 0, read: 0, wrote: 0, readFirst: 0, commands: 0 },
+      index: { runs: 13, touched: 0, read: 0, wrote: 0, readFirst: 0, commands: 0 },
+    },
+  },
+});
+check('both arms full and never written to is not drawn as a null result', /never applied/.test(untouched), untouched.slice(-800));
+check('…and the index arm stops claiming it was told anything', /only ever been "it is empty"/.test(untouched), untouched.slice(-1400));
+check('…and the runs are still drawn, because they happened', /14 runs/.test(untouched) && /13 runs/.test(untouched), untouched.slice(-1400));
+
 /* ------------------------------------------------------------------------ done */
 
 console.log(failures ? `\n${failures} check${failures === 1 ? '' : 's'} failed` : '\nall checks passed');

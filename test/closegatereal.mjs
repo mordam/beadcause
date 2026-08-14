@@ -15,12 +15,21 @@
  * bc-5864 was filed believing that had happened, on evidence that looked conclusive:
  * bc-rk2o closed by bin/deliver.js at a moment its child bc-rk2o.1 was still open, so
  * bd had apparently permitted a close the gate would have refused. It had not. bc-rk2o
- * is a **feature**, and bd's parent gate is on the word `epic` alone — a feature, task,
- * bug or chore closes over as many open children as it likes. The gate agrees, because
- * `gateFor` asks about children only for `issue_type === 'epic'`. Both were right and
- * the evidence was misread, which is a thing a fixture cannot tell you and this file
- * can. Hence: same shapes, real workspace, and every case asserts the gate's answer
- * **and** what the binary then does with the same close.
+ * is a **feature**, and on bd 1.1.x the parent gate was the word `epic` alone — a
+ * feature, task, bug or chore closed over as many open children as it liked. The gate
+ * agreed, because `gateFor` asked about children only for `issue_type === 'epic'`. Both
+ * were right and the evidence was misread, which is a thing a fixture cannot tell you
+ * and this file can. Hence: same shapes, real workspace, and every case asserts the
+ * gate's answer **and** what the binary then does with the same close.
+ *
+ * **And then it caught the other failure it was built for.** bd 1.2.1 widened the rule
+ * to every parent — `N open child issue(s); close children first or use --force` — and
+ * this file went red on the bump with `gateFor` still stopping at the word `epic`,
+ * which is *under*-gating: the phone would have offered a close bd then refuses, having
+ * already written the comment it cannot take back. Both were fixed together in
+ * bc-xl7n.39. The two non-epic-parent cases below still carry the shape they had when
+ * they read the other way, because what makes them worth having is that they are the
+ * assertion that noticed.
  *
  * **Two cases at the bottom assert the opposite**, and they are the reason `agree` can
  * stay strict: beadcause refuses an epic with an unapplied `Adopts:` entry and an epic
@@ -166,23 +175,29 @@ async function agree(name, id, refused, { reason = null } = {}) {
   await agree('an epic with no children at all', epic, false);
 }
 
-/* ------------------------------------- a parent that is not an epic, which is not */
+/* ---------------------------- a parent that is not an epic, which since 1.2.1 also is */
 
 {
-  // **The bc-5864 case.** bc-rk2o was a feature with five children and bin/deliver.js
-  // closed it over an open one; that read as bd contradicting the gate, and it is bd
-  // being consistent with it. Both stop at the word `epic`. If bd ever widens the rule
-  // to any parent, this is the assertion that says so — and the day it fails, `gateFor`
-  // is under-gating and answers from the phone start throwing again.
+  // **bd widened the rule, and this is the assertion that said so.** It used to read
+  // `false` on both cases below with a comment predicting exactly this: "if bd ever
+  // widens the rule to any parent, this is the assertion that says so — and the day it
+  // fails, `gateFor` is under-gating and answers from the phone start throwing again."
+  // bd 1.2.1 widened it (`N open child issue(s); close children first or use --force`),
+  // this file went red on the bump, and `gateFor` was widened to match (bc-xl7n.39). The
+  // history is worth keeping because it is also **the bc-5864 case**: bc-rk2o was a
+  // feature with five children that bin/deliver.js closed over an open one, read as bd
+  // contradicting the gate and really bd agreeing with it, on a binary where both
+  // stopped at the word `epic`. On 1.2.1 that close is refused. Same shapes, opposite
+  // answer, and the only thing that moved is the tracker.
   const feature = await make({ type: 'feature', title: 'a feature with a child still open' });
   await make({ type: 'task', parent: feature, title: 'the open child of a feature' });
-  await agree('a feature with an open child', feature, false);
+  await agree('a feature with an open child', feature, true, { reason: /open child/i });
 }
 
 {
   const parent = await make({ type: 'task', title: 'a task with a subtask still open' });
   await make({ type: 'task', parent, title: 'the open subtask' });
-  await agree('a task with an open subtask', parent, false);
+  await agree('a task with an open subtask', parent, true, { reason: /open child/i });
 }
 
 /* -------------------------------------------------------- blockers, which are gated */
@@ -191,7 +206,7 @@ async function agree(name, id, refused, { reason = null } = {}) {
   const blocked = await make({ title: 'a bead behind an open blocker' });
   const blocker = await make({ title: 'the blocker' });
   await bd.addDep(ws, blocked, blocker);
-  await agree('a bead blocked by an open issue', blocked, true, { reason: /blocked by open issues/i });
+  await agree('a bead blocked by an open issue', blocked, true, { reason: /blocked by/i });
 }
 
 {
@@ -200,7 +215,7 @@ async function agree(name, id, refused, { reason = null } = {}) {
   const blocker = await make({ title: 'the deferred blocker' });
   await bd.addDep(ws, blocked, blocker);
   await bd.run(ws, ['defer', blocker, '--until=2099-01-01']);
-  await agree('a bead blocked by a deferred issue', blocked, true, { reason: /blocked by open issues/i });
+  await agree('a bead blocked by a deferred issue', blocked, true, { reason: /blocked by/i });
 }
 
 {
