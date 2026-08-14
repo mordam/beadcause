@@ -1338,7 +1338,7 @@ become edges dispatches as an epic with children on the same beat rather than th
 It costs the write lock ahead of the tick and nothing else — a settled graph writes
 nothing, and after the first pass over a workspace that is every pass.
 
-**Applying it is one line of code; the six refusals are the feature.** Each is a case
+**Applying it is one line of code; the refusals are the feature.** Each is a case
 where the write would destroy something somebody decided on purpose, and a daemon on a
 thirty-second clock is the wrong thing to be deciding those:
 
