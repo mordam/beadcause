@@ -93,32 +93,6 @@ body {
   box-shadow: 0 0 0 1px var(--line);
 }
 
-/* What the reclaimed width is spent on: how many beads are asking you something.
-   A chip rather than a badge — it is a number with a word, and the word is what
-   makes "3" mean something. Tapping it narrows the list to those three. */
-.waiting {
-  display: inline-flex; align-items: baseline; gap: 5px;
-  flex: 0 1 auto; min-width: 0;
-  padding: 5px 10px;
-  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--accent) 14%, transparent);
-  color: var(--accent);
-  font: 650 13px/1 inherit;
-  white-space: nowrap;
-  cursor: pointer;
-}
-.waiting[hidden] { display: none; }
-.waiting .word { font-weight: 600; opacity: 0.85; }
-
-/* Two icons, a dot, a chip and three more icons on a 320px phone is one thing too
-   many, and the number is the part that matters. Under 360px the word goes and the
-   count stays, which still reads as a count because of where it sits. */
-@media (max-width: 359px) {
-  .waiting .word { display: none; }
-  .waiting { padding: 5px 9px; }
-}
-
 .dot {
   width: 9px; height: 9px; border-radius: 50%;
   background: var(--accent);
@@ -455,21 +429,6 @@ body {
   background: color-mix(in srgb, var(--accent) 10%, var(--surface));
 }
 
-/* How many beads inside the selection are asking you something. Hidden at zero: the
-   picker's job is to say where you are, and a nought beside it would read as a
-   complaint. */
-.spacepick-count {
-  flex: 0 0 auto;
-  min-width: 22px;
-  padding: 3px 7px;
-  border-radius: 999px;
-  background: var(--accent);
-  color: var(--accent-ink);
-  font: 700 12px/1.4 inherit;
-  text-align: center;
-}
-.spacepick-count[hidden] { display: none; }
-
 .list { padding: 12px 12px 0; display: flex; flex-direction: column; gap: 12px; }
 
 /*
@@ -508,39 +467,14 @@ body {
   color: var(--muted);
 }
 
-/* The prompt that appears when narrowing the filter leaves unread notifications on
-   the phone for beads it now hides. See dismissAskHtml() in app.js.
-
-   --warn rather than --accent, and that is the whole of the visual decision: --accent
-   is this app's colour for a bead being decided, and nothing here decides anything.
-   This is the app noticing something it is about to leave in a mess and saying so,
-   which is the same voice as an unsent draft and a gate — so it borrows their orange
-   rather than inventing a fourth colour for one pane. */
-.shade-ask {
-  display: flex;
-  flex-direction: column;
-  gap: 11px;
-  padding: 12px;
-  border: 1px solid color-mix(in srgb, var(--warn) 55%, transparent);
-  border-radius: var(--radius);
-  background: color-mix(in srgb, var(--warn) 8%, var(--surface));
-}
-.shade-ask header { display: flex; gap: 11px; align-items: flex-start; }
-.shade-icon { font-size: 20px; line-height: 1.3; }
-.shade-ask h2 { margin: 0; font-size: 15.5px; line-height: 1.3; color: var(--text); }
-.shade-ask p { margin: 4px 0 0; font-size: 12.5px; line-height: 1.45; color: var(--muted); }
-/* Both buttons full width and side by side, because both are answers — Leave them is
-   recorded, not a cancel, so making it the smaller target would misdescribe it. */
-.shade-actions { display: flex; gap: 8px; }
-
 /* The repos this sweep could not read, above the list. See troubleHtml() in app.js.
 
    --danger and not --warn, which is the one place this app steps outside the orange
-   the pane above it uses. The orange means "something is about to be left in a mess";
-   this means the screen under it is *incomplete*, and every count on it is arithmetic
-   over a sweep with a hole in it. A caveat about whether you can believe the list is
-   not the same voice as an unsent draft, and drawing it in the same colour would let
-   it be read as one more thing to tidy. */
+   an unsent draft and a gate use. That orange means "something is about to be left in
+   a mess"; this means the screen under it is *incomplete*, and every count on it is
+   arithmetic over a sweep with a hole in it. A caveat about whether you can believe
+   the list is not the same voice as an unsent draft, and drawing it in the same colour
+   would let it be read as one more thing to tidy. */
 .trouble {
   padding: 11px 12px;
   border: 1px solid color-mix(in srgb, var(--danger) 55%, transparent);

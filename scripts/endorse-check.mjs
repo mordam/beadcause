@@ -29,7 +29,7 @@
 //     looking at still being there afterwards. It arms too, for the same negative
 //     assertion Revoke gets.
 //
-// Same shape as scripts/shade-check.mjs and its siblings: the real public/*.js in a
+// Same shape as scripts/launcher-check.mjs and its siblings: the real public/*.js in a
 // headless Chrome the size of a phone, against a fixture server in this process. No
 // daemon, no bd, no bead is touched. The fixture records every write, so "which
 // endpoint, with what body" is an assertion rather than something you read in a log.
@@ -240,7 +240,7 @@ function serve() {
     }
     // The picker draws itself from this on a page that has not swept the tracker.
     if (p === '/api/spaces') {
-      return json({ spaces: SPACES, workspaces: ['alpha', 'beta'], counts: { alpha: 2, beta: 1 }, filter: { space: 'all', workspace: 'all' }, waiting: 0 });
+      return json({ spaces: SPACES, workspaces: ['alpha', 'beta'], filter: { space: 'all', workspace: 'all' } });
     }
     // Who you can put a question to. Four chips, as the daemon's own roster hands them
     // over — the page draws them and sends the id of whichever is pressed.

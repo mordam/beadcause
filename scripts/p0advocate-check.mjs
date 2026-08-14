@@ -22,7 +22,7 @@
 //     drawer opens, the iframe points at the pid, and the tab underneath never
 //     navigated.
 //
-// Same shape as shade-check.mjs and its siblings: the real public/app.js in a headless
+// Same shape as endorse-check.mjs and its siblings: the real public/app.js in a headless
 // Chrome the size of a phone, against fixtures served from this process, so it never
 // touches a daemon, a bead or iTerm. `--baseline` serves the committed app.js, which
 // has never heard of any of this, so it must fail.
@@ -127,9 +127,8 @@ function serve() {
         workspaces: [WS],
         spaces: [{ name: 'Work', workspaces: [WS], quiet: false, muted: false, count: 1 }],
         filter: { space: 'all', workspace: 'all' },
-        dismissAsk: null,
         p0board: board(),
-        summary: { questions: QUESTIONS.length, sessions: 0, proposals: 0 },
+        summary: { sessions: 0, proposals: 0 },
         scope: 'human',
       });
     }

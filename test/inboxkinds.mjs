@@ -751,27 +751,19 @@ await check('app.js filters the list through it, rather than only drawing it', (
   assert.ok(app.includes('surveyKinds('), 'the chips are never told what is on screen');
 });
 
-await check('the counts beside the list are counted over the same filter as the list', () => {
-  // A picker saying 5 above a list showing 1 is the two halves of one screen
-  // disagreeing about the same beads.
+await check('nothing beside the list counts it a second time', () => {
+  // There used to be two: a `· N` per repo on the space picker and an **N waiting**
+  // pill in the top bar, both counted off the render that drew the list so they could
+  // follow a kind-filter tap that fetches nothing. bc-ka5y.1 deleted both — a picker
+  // saying 5 above a list showing 1 is the two halves of one screen disagreeing about
+  // the same beads, and the cheapest way to never disagree is to say nothing.
   const app = read('public/app.js');
-  // Off the render that drew the list rather than off the payload: a kind-filter tap
-  // fetches nothing, so a count taken when the rows arrived cannot follow it. The
-  // invariant itself is test/spacebar.mjs's; this is the wiring that gives the picker
-  // any chance of holding it.
-  //
-  // Every filter between the sweep and the screen, and named here one by one so that
-  // adding a sixth kind of row without adding it to the count fails this rather than
-  // being noticed on a phone: `underOwnedP0s` because the list under an owned board is
-  // its descendants and nothing else, `inKind` because the chips are a filter too. The
-  // space and repo narrowing is deliberately absent — these are per-workspace counts
-  // for every workspace, which is exactly the row-per-repo the dropdown draws.
-  assert.ok(
-    /publishCounts\(underOwnedP0s\(rows\)\.filter\(inKind\)\)/.test(app),
-    'the space picker counts rows the list is hiding'
-  );
+  // The call, rather than the word: app.js's edit-mode freeze paragraph names
+  // `publishCounts()` in prose, explaining what its removal cost.
+  assert.ok(!/^\s*publishCounts\(/m.test(app), 'the space picker is being sent counts again');
+  assert.ok(!app.includes("$('#waiting')"), 'the "N waiting" pill is back in the top bar');
   const summary = app.slice(app.indexOf('function paintSummary'), app.indexOf('function paintArmed'));
-  assert.ok(summary.includes('inKind(q)'), 'the "N waiting" count ignores the kind filter');
+  assert.ok(!summary.includes('inKind(q)'), 'paintSummary is counting the list again');
 });
 
 await check('the panel says [hidden] twice, because display:flex beats the UA rule', () => {

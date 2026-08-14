@@ -114,13 +114,12 @@ function load({ token = 'tok', fetch = async () => ({ ok: false }) } = {}) {
   });
 
   const select = el('space-pick');
-  const count = el('space-count');
   const bar = {
     className: '',
     hidden: true,
     innerHTML: '',
     classes: new Set(),
-    querySelector: (sel) => (sel === '#space-pick' ? select : sel === '#space-count' ? count : null),
+    querySelector: (sel) => (sel === '#space-pick' ? select : null),
     classList: {
       toggle(name, on) {
         if (on) bar.classes.add(name);
@@ -152,7 +151,7 @@ function load({ token = 'tok', fetch = async () => ({ ok: false }) } = {}) {
   vm.runInContext(fs.readFileSync(PUBLIC('spacebar.js'), 'utf8'), ctx, { filename: 'spacebar.js' });
   // `win` so a check can hang something else off `beadcause` after the file has loaded —
   // which is how edit mode reaches this file, and the order the page loads them in.
-  return { space: ctx.window.beadcause.space, win: ctx.window, bar, select, count, topbar };
+  return { space: ctx.window.beadcause.space, win: ctx.window, bar, select, topbar };
 }
 
 /* One space with two repos, one muted space with one, and a repo in neither — every
@@ -172,11 +171,10 @@ const QUESTIONS = [
   { workspace: 'stray' },
 ];
 const SPACES = summarise(CFG, QUESTIONS);
-const COUNTS = { beadcause: 2, climative: 1, stray: 1 };
 
 const fresh = (opts) => {
   const h = load(opts);
-  h.space.adopt({ spaces: SPACES, workspaces: NAMES, counts: COUNTS, filter: { space: 'all', workspace: 'all' } });
+  h.space.adopt({ spaces: SPACES, workspaces: NAMES, filter: { space: 'all', workspace: 'all' } });
   return h;
 };
 
@@ -251,27 +249,30 @@ check('every configured repo is in the dropdown, quiet ones and empty ones inclu
   assert.ok(select.innerHTML.includes('<optgroup label="Other">'));
 });
 
-check('the count on the bar is the selection`s, not the whole Mac`s', () => {
+check('the picker draws no numbers — not on the bar, and not on a row', () => {
+  // bc-ka5y.1 deleted every count this control had: the pill beside it, the `· N` tail
+  // on a repo row, the total on a space, and the ⚠ that marked a sum taken over a sweep
+  // with a hole in it. They were a second count of a list already on screen, and every
+  // page drawing one had to keep them in step with what it was showing.
   const h = fresh();
-  assert.equal(h.space.waiting(), 4, 'everything');
-  h.space.set({ space: 'Personal', workspace: 'all' }, { post: false });
-  assert.equal(h.space.waiting(), 2, 'one space');
-  h.space.set({ space: 'Climative', workspace: 'climative' }, { post: false });
-  assert.equal(h.space.waiting(), 1, 'one repo');
-  assert.equal(h.count.textContent, '1');
-  assert.equal(h.count.hidden, false);
+  assert.equal(typeof h.space.waiting, 'undefined', 'waiting() is still exported');
+  assert.ok(!h.bar.innerHTML.includes('space-count'), `the bar still has a count element: ${h.bar.innerHTML}`);
+  assert.ok(!h.select.innerHTML.includes('·'), `a row still carries a number: ${h.select.innerHTML}`);
+  assert.ok(!h.select.innerHTML.includes('⚠'), `a row still carries a ⚠: ${h.select.innerHTML}`);
 });
 
-check('and it is hidden at zero rather than drawing a nought', () => {
+check('and a page handing it counts and trouble anyway changes nothing it draws', () => {
+  // Both fields were adoptable and are not any more. A page that has not been swept
+  // yet — or a daemon still serving them — must be ignored rather than crash the paint.
   const h = fresh();
-  h.space.set({ space: 'Personal', workspace: 'sophab' }, { post: false });
-  assert.equal(h.space.waiting(), 0);
-  assert.equal(h.count.hidden, true);
+  const before = h.select.innerHTML;
+  h.space.adopt({ counts: { beadcause: 9, climative: 4 }, trouble: [{ workspace: 'beadcause' }] });
+  assert.equal(h.select.innerHTML, before, 'a number got back in through adopt()');
 });
 
 check('one repo is no choice at all, so the bar does not draw', () => {
   const h = load();
-  h.space.adopt({ spaces: [], workspaces: ['only'], counts: {}, filter: { space: 'all', workspace: 'all' } });
+  h.space.adopt({ spaces: [], workspaces: ['only'], filter: { space: 'all', workspace: 'all' } });
   assert.equal(h.bar.hidden, true);
 });
 
@@ -298,50 +299,74 @@ check('inside() is the repos a page may offer to start work in', () => {
   element rather than acting on it, and the premise only holds if the element is still
   there when the tap is handled. bc-p49x.1 stopped the inbox's list repainting; this bar
   sits above that list, on the same screen, and rebuilds its `<select>` from a payload
-  the poll hands it — so a repo appearing or a count moving replaces the very option a
-  thumb was aiming at, under a banner promising the screen is held still.
+  the poll hands it — so a repo appearing replaces the very option a thumb was aiming at,
+  under a banner promising the screen is held still.
 
   Checked here rather than by reading the gate as text because the half that is easy to
-  lose is the second one: *only the paint* waits. `state` has to take the new repos and
-  counts while frozen, or leaving the mode would need a refetch, and the inbox's one
-  catch-up repaint — whose last line is `publishCounts()`, which lands here as an
-  `adopt()` — would draw the numbers from before the mode.
+  lose is the second one: *only the paint* waits, and the paint that was skipped still
+  has to happen. `state` takes the new repos while frozen, so leaving the mode needs no
+  refetch — and this file registers a one-shot `editMode.onChange` from inside its own
+  freeze to repaint on the way out.
+
+  **That listener is bc-ka5y.1's, and it replaced something that used to be free.** The
+  catch-up was structural while the inbox's `render()` ended in `publishCounts()`, which
+  was a `space.adopt()`, which landed here — so the repaint that thawed the list repainted
+  this bar in the same tick. Those counts are gone and so is that call, and nothing else
+  reaches this file on a repaint, so the bar would have sat holding its pre-freeze options
+  until the next poll's payload.
 */
+const editStub = () => {
+  const listeners = [];
+  let frozen = true;
+  return {
+    // The shape public/editmode.js exports, narrowed to what this file asks of it.
+    mode: { frozen: () => frozen, onChange: (fn) => listeners.push(fn) },
+    thaw() {
+      frozen = false;
+      for (const fn of listeners) fn();
+    },
+    listeners,
+  };
+};
+
 check('a poll that changes the repos does not rebuild the picker while the screen is frozen', () => {
   const h = fresh();
   const before = h.select.innerHTML;
-  const wasCount = h.count.textContent;
   assert.ok(before.includes('value="ws:beadcause"'), 'the fixture drew a picker to freeze');
-  let frozen = true;
-  h.win.beadcause.editMode = { frozen: () => frozen };
+  const edit = editStub();
+  h.win.beadcause.editMode = edit.mode;
 
-  h.space.adopt({ workspaces: [...NAMES, 'newrepo'], counts: { ...COUNTS, newrepo: 3 } });
+  h.space.adopt({ workspaces: [...NAMES, 'newrepo'] });
   assert.equal(h.select.innerHTML, before, 'the options were rebuilt under a frozen screen');
-  assert.equal(h.count.textContent, wasCount, 'the count moved under a frozen screen');
 
   // But the payload was taken, which is what makes the catch-up free.
-  assert.equal(h.space.waiting(), 7, 'the new repo`s count never reached state');
-  assert.deepEqual(plain(h.space.inside()), [...NAMES, 'newrepo']);
+  assert.deepEqual(plain(h.space.inside()), [...NAMES, 'newrepo'], 'the new repo never reached state');
 });
 
-check('and the first paint after it thaws draws everything the frozen polls carried', () => {
+check('and the thaw itself draws everything the frozen polls carried', () => {
   const h = fresh();
-  let frozen = true;
-  h.win.beadcause.editMode = { frozen: () => frozen };
-  h.space.adopt({ workspaces: [...NAMES, 'newrepo'], counts: { ...COUNTS, newrepo: 3 } });
+  const edit = editStub();
+  h.win.beadcause.editMode = edit.mode;
+  h.space.adopt({ workspaces: [...NAMES, 'newrepo'] });
+  assert.ok(!h.select.innerHTML.includes('value="ws:newrepo"'), 'it was drawn while frozen');
 
-  frozen = false;
-  // What the inbox's catch-up render() does on its last line, and nothing more: no
-  // refetch, no second payload — the counts of the list it has just drawn.
-  h.space.adopt({ counts: { ...COUNTS, newrepo: 3 } });
+  // No refetch and no second payload: leaving the mode is the whole of the catch-up.
+  edit.thaw();
   assert.ok(h.select.innerHTML.includes('value="ws:newrepo"'), 'the catch-up never came');
-  assert.equal(h.count.textContent, '7');
+});
+
+check('and it registers one listener however many polls land under the freeze', () => {
+  const h = fresh();
+  const edit = editStub();
+  h.win.beadcause.editMode = edit.mode;
+  for (let i = 0; i < 5; i += 1) h.space.adopt({ workspaces: [...NAMES, `r${i}`] });
+  assert.equal(edit.listeners.length, 1, 'a listener per skipped paint is a leak on a long edit');
 });
 
 check('a page with no edit mode on it paints exactly as it always did', () => {
   const h = fresh();
   assert.equal(h.win.beadcause.editMode, undefined, 'this fixture is the five other pages');
-  h.space.adopt({ workspaces: [...NAMES, 'newrepo'], counts: { ...COUNTS, newrepo: 3 } });
+  h.space.adopt({ workspaces: [...NAMES, 'newrepo'] });
   assert.ok(h.select.innerHTML.includes('value="ws:newrepo"'));
 });
 
@@ -350,7 +375,7 @@ check('a page with no edit mode on it paints exactly as it always did', () => {
 check('a pick writes both halves to /api/filter', async () => {
   const sent = [];
   const h = load({ fetch: async (url, opts) => (sent.push({ url, body: JSON.parse(opts.body) }), { ok: true, json: async () => ({ ok: true }) }) });
-  h.space.adopt({ spaces: SPACES, workspaces: NAMES, counts: COUNTS, filter: { space: 'all', workspace: 'all' } });
+  h.space.adopt({ spaces: SPACES, workspaces: NAMES, filter: { space: 'all', workspace: 'all' } });
   h.select.value = 'ws:beadcause';
   h.select.events.change();
   await new Promise((r) => setTimeout(r, 10));
@@ -362,7 +387,7 @@ check('a pick writes both halves to /api/filter', async () => {
 check('while that write is out, writing() is true — a poll must not undo the tap', async () => {
   let release;
   const h = load({ fetch: () => new Promise((r) => (release = () => r({ ok: true, json: async () => ({}) }))) });
-  h.space.adopt({ spaces: SPACES, workspaces: NAMES, counts: COUNTS, filter: { space: 'all', workspace: 'all' } });
+  h.space.adopt({ spaces: SPACES, workspaces: NAMES, filter: { space: 'all', workspace: 'all' } });
   assert.equal(h.space.writing(), false);
   h.select.value = 'ws:beadcause';
   h.select.events.change();
@@ -375,7 +400,7 @@ check('while that write is out, writing() is true — a poll must not undo the t
 check('and a payload assembled before it lands does not snap the picker back', async () => {
   let release;
   const h = load({ fetch: () => new Promise((r) => (release = () => r({ ok: true, json: async () => ({}) }))) });
-  h.space.adopt({ spaces: SPACES, workspaces: NAMES, counts: COUNTS, filter: { space: 'all', workspace: 'all' } });
+  h.space.adopt({ spaces: SPACES, workspaces: NAMES, filter: { space: 'all', workspace: 'all' } });
   h.select.value = 'ws:beadcause';
   h.select.events.change();
   // The poll, arriving with the value the tap just replaced.
@@ -395,16 +420,15 @@ check('a change made on the other device arrives through adopt and is announced 
   assert.deepEqual(plain(h.space.filter), { space: 'Personal', workspace: 'sophab' });
 });
 
-/* ------------------------------- one set of numbers, and whose they are */
+/* ------------------------------- whose picture the bar is, now there are no numbers */
 
 /**
- * The reported screen, both halves of it.
+ * A page publishes what it knows; our own `/api/spaces` fetch fills in the rest.
  *
- * The inbox printed "Nothing live" while the picker beside it showed a non-zero count —
- * two sources for one number. The page publishes what it is drawing; our own
- * `/api/spaces` fetch was sent from the top of spacebar.js, before that page's script
- * ran, so its reply lands *after* — carrying the human-questions channel as of the last
- * poll, in whatever scope the list is not showing. Whichever landed last used to win.
+ * The fetch is sent from the top of spacebar.js, before the page's own script runs — so
+ * on the inbox, which warm-boots out of cache in the same tick, its reply lands *after*
+ * the page has already published. It is adopted weakly for exactly that reason:
+ * whatever the page said for itself wins, field by field.
  */
 const late = (() => {
   let land = () => {};
@@ -418,8 +442,7 @@ const late = (() => {
                 json: async () => ({
                   spaces: SPACES,
                   workspaces: NAMES,
-                  counts: COUNTS,
-                  filter: { space: 'all', workspace: 'all' },
+                  filter: { space: 'Climative', workspace: 'climative' },
                 }),
               });
           })
@@ -427,21 +450,17 @@ const late = (() => {
   });
   return { h, land: () => land() };
 })();
-// The inbox, warm-booted from cache in the same tick: the agent scope, nothing live in
-// any repo. It publishes an empty set of counts because that is what it is showing.
+// The page, publishing its own filter in the same tick the fetch is still in flight.
 late.h.space.adopt({
   spaces: SPACES,
   workspaces: NAMES,
-  counts: {},
-  filter: { space: 'all', workspace: 'all' },
+  filter: { space: 'Personal', workspace: 'all' },
 });
 late.land();
 await new Promise((r) => setTimeout(r, 20));
 
-check('an /api/spaces reply landing after a page has published its own counts is ignored', () => {
-  assert.equal(late.h.space.waiting(), 0, 'the picker is counting beads the list is not showing');
-  assert.equal(late.h.count.hidden, true, 'a count is drawn over an empty list');
-  assert.ok(!late.h.select.innerHTML.includes('·'), `a number survived: ${late.h.select.innerHTML}`);
+check('an /api/spaces reply landing after a page has published is ignored', () => {
+  assert.deepEqual(plain(late.h.space.filter), { space: 'Personal', workspace: 'all' });
 });
 
 /* The other side of the same rule: a page that sweeps nothing — the PR board, the
@@ -452,7 +471,6 @@ const quiet = load({
     json: async () => ({
       spaces: SPACES,
       workspaces: NAMES,
-      counts: COUNTS,
       filter: { space: 'Personal', workspace: 'all' },
     }),
   }),
@@ -460,64 +478,31 @@ const quiet = load({
 await new Promise((r) => setTimeout(r, 20));
 
 check('but it is still the whole payload for a page that publishes nothing of its own', () => {
-  assert.equal(quiet.space.waiting(), 2, 'Personal, from the fetch alone');
   assert.deepEqual(plain(quiet.space.filter), { space: 'Personal', workspace: 'all' });
   assert.ok(quiet.select.innerHTML.includes('value="ws:sophab"'), 'no repos: the bar cannot be used');
 });
 
-check('a space`s number is its repos summed, never a second count from the server', () => {
-  const h = load();
-  // `SPACES` says 2 in Personal — its own sweep of the questions channel. The page has
-  // published 1, because the kind filter on screen hides the other. The row in the
-  // dropdown and the badge on the bar are both the number under the list.
-  h.space.adopt({ spaces: SPACES, workspaces: NAMES, counts: { beadcause: 1 }, filter: { space: 'all', workspace: 'all' } });
-  assert.ok(h.select.innerHTML.includes('Personal — all · 1'), h.select.innerHTML);
-  assert.ok(h.select.innerHTML.includes('All spaces · 1'), h.select.innerHTML);
-  h.space.set({ space: 'Personal', workspace: 'all' }, { post: false });
-  assert.equal(h.space.waiting(), 1);
-  assert.equal(h.count.textContent, '1');
-  // Including the synthetic group, which the server emits only when its own sweep found
-  // a stray: `SPACES` has an "Other" row counting one, and the list is showing none.
-  h.space.set({ space: 'Other', workspace: 'all' }, { post: false });
-  assert.equal(h.space.waiting(), 0, 'Other is counting a bead the list is not showing');
-});
-
-check('and a space with nothing in it draws no number at all, whatever the server said', () => {
-  const h = load();
-  h.space.adopt({ spaces: SPACES, workspaces: NAMES, counts: {}, filter: { space: 'all', workspace: 'all' } });
-  assert.ok(!h.select.innerHTML.includes('·'), h.select.innerHTML);
-  h.space.set({ space: 'Climative', workspace: 'all' }, { post: false });
-  assert.equal(h.space.waiting(), 0);
-});
-
-check('a settings write that refreshes the spaces does not resurrect their counts', () => {
+check('a settings write that refreshes the spaces leaves the selection alone', () => {
   // public/monitor.js adopts `{spaces}` alone after writing a space's flags, to move the
-  // 🔕 without waiting for a poll. Those rows carry the server's counts, and the page's
-  // own are still the ones on screen.
-  const h = load();
-  h.space.adopt({ spaces: SPACES, workspaces: NAMES, counts: { beadcause: 1 }, filter: { space: 'all', workspace: 'all' } });
+  // 🔕 without waiting for a poll.
+  const h = fresh();
+  h.space.set({ space: 'Personal', workspace: 'sophab' }, { post: false });
   h.space.adopt({ spaces: SPACES });
-  h.space.set({ space: 'Personal', workspace: 'all' }, { post: false });
-  assert.equal(h.space.waiting(), 1);
+  assert.deepEqual(plain(h.space.filter), { space: 'Personal', workspace: 'sophab' });
 });
 
-check('the inbox publishes the counts from the render that drew the list', () => {
+check('and no page publishes counts to it any more', () => {
+  // The publish path is what would put a number back, so it is asserted at the source
+  // rather than only at the paint: `publishCounts` in the inbox and the per-workspace
+  // tally the advocate console used to build are both gone.
   const app = read('public/app.js');
-  // Not from the payload: a kind-filter tap changes the list and fetches nothing, pull
-  // requests arrive on a clock of their own, and a render can be deferred behind a
-  // half-written answer. Counted before the picker's own narrowing and after everything
-  // else, which is what makes `beadcause · 3` a promise about what picking it leaves you.
-  //
-  // "Everything else" is named rather than implied: `underOwnedP0s` because the list
-  // under an owned board is its descendants and nothing else, `inKind` because the chips
-  // above the list are a filter too. A sixth kind of row added to one and not the other
-  // fails here rather than on a phone.
-  assert.ok(
-    /publishCounts\(underOwnedP0s\(rows\)\.filter\(inKind\)\)/.test(app),
-    'render() does not publish the counts'
-  );
-  const publish = app.slice(app.indexOf('function publishSpaces'), app.indexOf('function publishCounts'));
-  assert.ok(!publish.includes('counts'), 'publishSpaces counts too — that is the second source back');
+  // The definition and the call, rather than the word: the freeze paragraph in app.js
+  // names `publishCounts()` in prose, explaining what its removal cost.
+  assert.ok(!/function publishCounts/.test(app), 'the inbox still defines publishCounts');
+  assert.ok(!/^\s*publishCounts\(/m.test(app), 'the inbox still calls publishCounts');
+  const publish = app.slice(app.indexOf('function publishSpaces'), app.indexOf('function publishSpaces') + 1200);
+  assert.ok(!publish.includes('counts'), 'publishSpaces sends counts');
+  assert.ok(!read('public/monitor.js').includes('counts,'), 'the advocate console still publishes counts');
 });
 
 /* ================================================================ the wiring */
@@ -615,7 +600,10 @@ check('/api/spaces answers with no `bd` on the machine at all', () => {
   assert.equal(spaces.status, 200);
   const d = JSON.parse(spaces.body);
   assert.deepEqual(d.workspaces, ['beadcause']);
-  assert.deepEqual(d.counts, {}, 'no sweep has run, so nothing is counted');
+  // Nothing is counted anywhere any more — the picker draws no numbers, so the payload
+  // that feeds it carries none. See bc-ka5y.1.
+  assert.ok(!('counts' in d), `counts is still served: ${spaces.body}`);
+  assert.ok(!('waiting' in d), `waiting is still served: ${spaces.body}`);
 });
 
 check('and it names the configured spaces before any sweep has landed', () => {
