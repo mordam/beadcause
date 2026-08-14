@@ -641,14 +641,24 @@
   /**
    * Written from here, rather than by something on the other end.
    *
-   * Every comment beadcause files carries `--actor beadcause` (see bd.js), so this
-   * is exact rather than a guess — and it is the same test `.from-agent` has always
-   * been painted from, which is why the collapse and the jump below agree with the
-   * accent stripe down the side of the bubble. A comment typed into `bd` on the Mac
-   * is somebody else's as far as this screen is concerned, because that is not a
-   * message this app sent.
+   * Every comment beadcause files carries `--actor` with its byline on it (see
+   * lib/bd.js), so this is exact rather than a guess — and it is the same test
+   * `.from-agent` has always been painted from, which is why the collapse and the jump
+   * below agree with the accent stripe down the side of the bubble. A comment typed
+   * into `bd` on the Mac is somebody else's as far as this screen is concerned, because
+   * that is not a message this app sent.
+   *
+   * The byline is `beadcause`, or `beadcause (carol@example.com)` on a machine that has
+   * said who it is, so the test is on the *base* — the same rule as `writtenByDaemon`
+   * in lib/byline.js, restated here because nothing under public/ imports from lib/.
+   * Deliberately blind to *which* beadcause: this stripe means "this app said it"
+   * rather than "an agent did", and another engineer's daemon is not an agent.
    */
-  const fromMe = (c) => !c.author || c.author === 'beadcause';
+  const bylineBase = (author) => {
+    const m = /^(.*?)\s*\(([^()]*)\)$/.exec(String(author || '').trim());
+    return (m ? m[1] : String(author || '')).trim();
+  };
+  const fromMe = (c) => !c.author || bylineBase(c.author) === 'beadcause';
 
   /** Enough of a collapsed comment to recognise it by, on one line. */
   const peek = (text) => {
@@ -1011,15 +1021,24 @@
   ];
 
   const TYPES = ['task', 'bug', 'feature', 'epic', 'chore', 'decision'];
+  /** Matches `TIERS` in lib/complexity.js, plus the empty one: no tier is a real answer. */
+  const TIERS = ['', 'low', 'medium', 'high'];
 
   /**
    * The row, in edit mode.
    *
-   * Deliberately the same five things the chat session lets you change — title, type,
-   * priority, description, acceptance — and deliberately not labels or dependencies.
-   * Those are structural, they are rarely what is wrong with a proposed bead, and a
-   * chip editor is not something to build on a card you are trying to keep short.
-   * What you do not adjust is created exactly as proposed.
+   * The five things the chat session lets you change — title, type, priority,
+   * description, acceptance — and deliberately not labels or dependencies. Those are
+   * structural, they are rarely what is wrong with a proposed bead, and a chip editor is
+   * not something to build on a card you are trying to keep short. What you do not
+   * adjust is created exactly as proposed.
+   *
+   * Complexity is the sixth, and it is here for a reason none of the other five have:
+   * it is the only field on the row that spends money. An agent rated its own work, you
+   * are the last reader before a session runs on that rating, and "this is harder than
+   * it thinks" is a correction with nowhere else to go — the alternative is declining a
+   * good bead over a wrong tier. `unrated` is a real choice and not a blank: it is what
+   * every bead filed before bc-nc6o carries, and it takes the expensive model.
    *
    * Values come out of `state.edits`, never out of the DOM, so a background poll
    * that does manage to repaint cannot lose a word of it — the same discipline the
@@ -1054,6 +1073,14 @@
             ${[0, 1, 2, 3, 4]
               .map((p) => `<option value="${p}"${p === Number(cur.priority) ? ' selected' : ''}>P${p}</option>`)
               .join('')}
+          </select>
+        </label>
+        <label class="edit-field small">
+          <span class="prop-label">Complexity</span>
+          <select data-role="edit-field" data-key="${esc(key)}" data-idx="${n}" data-field="complexity">
+            ${TIERS.map(
+              (t) => `<option value="${t}"${t === (cur.complexity || '') ? ' selected' : ''}>${t || 'unrated'}</option>`
+            ).join('')}
           </select>
         </label>
       </div>
@@ -1186,7 +1213,15 @@
                 ? propEditHtml(q.key, raw, n)
                 : `<div class="prop-body">
               <div class="prop-meta">
-                <span class="pill">${esc(b.type)}</span><span class="pill p${b.priority}">P${b.priority}</span>
+                <span class="pill">${esc(b.type)}</span><span class="pill p${b.priority}">P${b.priority}</span>${
+                  // How hard the agent thinks it is, which is what picks the model a
+                  // session on it will run (bc-nc6o). Beside the type and the priority
+                  // because it is the same kind of fact, and shown only when it was
+                  // named: an untiered bead is the ordinary case for everything that
+                  // predates this, and a pill saying "unrated" on most of the tracker
+                  // is a pill nobody reads.
+                  b.complexity ? `<span class="pill">${esc(b.complexity)} complexity</span>` : ''
+                }
               </div>
               ${propFieldsHtml(b)}
               ${
