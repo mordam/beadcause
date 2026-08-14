@@ -5,13 +5,15 @@
  *
  *   npm run configure
  *
- * Run by the installer, and re-runnable at any time. Only four things genuinely
+ * Run by the installer, and re-runnable at any time. Only five things genuinely
  * need a human: which workspaces are shared with other people (that decides what a
  * public relay is allowed to see and where unattended agents may comment), where
  * your code lives (so questions can show you files from it), whether your shell
- * derives BEADS_DIR from the working directory, and the Google sign-in credentials,
- * which cannot be guessed from anything on this machine — see lib/signinsetup.js,
- * which owns that last block so a test can drive it.
+ * derives BEADS_DIR from the working directory, and the two sets of credentials that
+ * cannot be guessed from anything on this machine — Confluence and Google sign-in.
+ * Those two live in lib/confluencesetup.js and lib/signinsetup.js, which own the last
+ * two blocks so that a test can drive them; both write a `.key` file rather than a
+ * field, and nothing they take reaches this file.
  *
  * Every question offers a default that is the conservative choice, so holding Enter
  * through the whole thing produces a safe configuration. With no TTY — CI, a piped
@@ -26,6 +28,8 @@ import { globalWorkerCap } from '../lib/advocate.js';
 import { ownerName } from '../lib/owner.js';
 import { signinStatus } from '../lib/auth.js';
 import { askSignin } from '../lib/signinsetup.js';
+import { confluenceStatus } from '../lib/confluence.js';
+import { askConfluence } from '../lib/confluencesetup.js';
 import { repoList, repoStatusLine, forgetRepos, expandHome } from '../lib/repos.js';
 import { scanTargets, scanRoot, parseApproved, resolveDefaultChoice, tildeHome } from '../lib/reposcan.js';
 import { readTeam } from '../lib/team.js';
@@ -101,6 +105,10 @@ function summary(c) {
         ? `${c.slack.channel}${c.slack.detail === 'minimal' ? ' (minimal)' : ''}`
         : 'disabled'
     }`,
+    // Both halves in one line — see `confluenceStatus`. A line that reported publishing
+    // alone would say Confluence was on about an install whose agents read nothing, which
+    // is the state `readSpaces` deliberately starts every install in.
+    `  confluence        : ${confluenceStatus(c).text}`,
     `  auto-dispatch     : ${c.autoDispatch === false ? 'off' : 'on'}`,
     // Both numbers, always: "advocates: sophab" without the session count reads as
     // an unbounded thing, and that is the number people want to be sure of.
@@ -715,6 +723,24 @@ if (repoTargets.length) {
   }
 }
 
+/* ---------------------------------------------------------------- confluence */
+
+// Second-to-last, beside sign-in rather than beside Slack, because the two of them are
+// the two questions that take a credential: both write a `.key` file the config repo
+// refuses and neither puts anything in config.json, and having them adjacent means the
+// two prompts with the echo turned off are the last thing setup does rather than one of
+// them being buried in the middle. lib/confluencesetup.js owns the block so a test can
+// drive it — the same arrangement, and the same reason, as sign-in below.
+await askConfluence(cfg, {
+  ask,
+  yes,
+  secret,
+  heading: '13. Publish and read Confluence pages?',
+  log: console.log,
+  bold,
+  dim,
+});
+
 /* ------------------------------------------------------------------- sign-in */
 
 // Last, and the only question that can be answered *nearly*: see lib/signinsetup.js,
@@ -724,7 +750,7 @@ await askSignin(cfg, {
   ask,
   yes,
   secret,
-  heading: '12. Sign in with Google in the browser?',
+  heading: '14. Sign in with Google in the browser?',
   log: console.log,
   bold,
   dim,
