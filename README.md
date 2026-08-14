@@ -12422,7 +12422,8 @@ Two rules keep it honest:
 - **A caller with no session is written exactly as it always was.** An ntfy action
   button, `lib/notify.js`, the Android app, `curl` — none of them can hold a cookie and
   none of them has an identity to name, so all of them still write as `actor` from
-  `config.json`. A request carrying **both** a token and a session is a signed-in
+  `config.json` — which on a machine that has set `me` names *that* machine's person,
+  see [whose beadcause wrote it](#whose-beadcause-wrote-it--the-byline-on-every-daemon-write). A request carrying **both** a token and a session is a signed-in
   browser (the phone sends its pairing token on every fetch), and the session wins;
   otherwise the attribution would never once apply to the device it was built for.
 - **Only what you *said or decided* gets your name.** The answer, the comment, the
@@ -13379,9 +13380,12 @@ in the loop.
 `--for`: a question filed on this Mac is addressed to this Mac's person automatically —
 by `beadcause-ask`, by a worker's [delivery card](#landing-work--a-branch-a-pull-request-and-the-workers-own-merge),
 by `beadcause-propose`, and by every question the daemon files itself. That is a write-time
-decision rather than a read-time one because `created_by` cannot answer it: it is
-`actor`, the literal string `beadcause`, identical on all six machines. The machine
-doing the asking is the only thing that knows.
+decision rather than a read-time one because `created_by` cannot answer it. It is
+`actor` — a *byline*, which since [bc-lx3k](#whose-beadcause-wrote-it--the-byline-on-every-daemon-write)
+does name this Mac's person, and which is still the wrong thing to route on: it is bare
+on every install that has not set `me`, bare on every bead filed before that, and a
+field an agent can write whatever it likes into. The machine doing the asking is the
+only thing that knows, and a label is how it says so.
 
 **Set `me` on each machine, to that machine's person.** It takes one handle or a list,
 for a person who answers to two addresses in the same graph:
@@ -13419,11 +13423,65 @@ Two consequences of that ordering worth knowing:
   perfectly good answer to "whose agent is this", which is the question being asked
   here.
 
+### Whose beadcause wrote it — the byline on every daemon write
+
+The same `me`, answering a different question. `bd` records who made each write, and
+beadcause told it `beadcause`: `cfg.actor` is that string, `Bd.run` appends it as
+`--actor` to every single command, and `beadcause-ask`, `beadcause-propose` and
+`beadcause-deliver` each exported it as `BEADS_ACTOR`. One Mac, one beadcause, a perfectly
+good byline. **Six Macs, and it is the same string on all of them** — so `created_by` on
+every bead and `author` on every comment says `beadcause`, the history ledger and every
+comment thread agree, and nothing anywhere records which engineer did anything.
+
+It cannot be recovered afterwards, either. `owner` comes from the git identity of the
+workspace directory, which is the same for everyone working a shared checkout;
+`updated_at` says when, not who. So the byline is written with the person in it:
+
+```
+created_by: beadcause (carol@example.com)
+```
+
+**The base comes first on purpose.** It still reads as beadcause at a glance and as a
+*particular* beadcause on inspection, and it survives being truncated in a narrow list
+as the thing it is rather than as a person. Suffix-first — `carol@example.com via
+beadcause` — would have got that exactly backwards.
+
+**With `me` unset it is the bare `beadcause` it always was**, and not as a default that
+happens to match: there is no handle to put in the parenthesis, so the branch cannot be
+entered. The token callers `test/attribution.mjs` exists to protect — the ntfy action
+button, the Android app, `curl` — write byte-for-byte what they wrote before.
+
+Three things this deliberately is not:
+
+- **It is not authorisation, and it is not provenance.** `--actor` is a field an agent
+  can write anything it likes into, so the byline is display only. What an agent filed
+  is the `agent-filed` label, which is stamped by lib/filing.js and survives endorsement
+  and revocation — see [the ledger behind the History tab](#the-ledger-behind-the-history-tab).
+- **It does not change what a person's own writes say.** A signed-in browser still puts
+  its own address on the bead, unwrapped, because that is a person speaking and not a
+  daemon — see [whose answer it is](#whose-answer-it-is).
+- **It does not touch what an agent's own `bd comment` says.** That is the shell's
+  `BEADS_ACTOR`, which is already that engineer's address; wrapping it would be worse
+  than useless, because it is exactly what the reply detection below tells apart.
+
+**The one thing that had to not break is the reply test.** When you answer a question
+from the phone, beadcause watches the thread and pushes the agent's answer back to you —
+and it decided "is this an agent talking back?" by asking whether the comment's author
+differed from `cfg.actor`. A byline that no longer equals `cfg.actor` would make the
+daemon's own relayed comments read as agent replies and buzz your phone about its own
+bookkeeping. So that comparison is `writtenByDaemon` now, which compares the *base*
+rather than the string — and, as a consequence it could not have had before, recognises
+the other five machines' bylines too, so a second engineer's tap on a shared thread stays
+bookkeeping rather than arriving on your phone as an answer. `node test/byline.mjs` drives
+the real poller over three comments that differ only in their author — this Mac's byline,
+another Mac's, and an agent's — and asserts that exactly one of them rings.
+
 ## Config — `~/.config/beadcause/config.json`
 
 | key | meaning |
 |---|---|
 | `owner` | what the agents call you. It goes into every agent prompt ("*<name>* is not at the keyboard", "*<name>* approves every bead before it exists"), the body of every pull request an agent opens, and the notes that land on a bead. Asked first by `npm run configure`; guessed from your git `user.name` (first word) when it has never been set |
+| `actor` | the **base** of the byline every write this daemon makes carries (default `beadcause`). What lands on the bead is that string on its own, or `beadcause (carol@example.com)` once `me` says who this Mac is — an identical `beadcause` on six machines recorded which engineer did nothing at all. Display only: `--actor` is a field an agent can write anything into, and provenance is the `agent-filed` label. A signed-in browser overrides it per call with its own address. See [whose beadcause wrote it](#whose-beadcause-wrote-it--the-byline-on-every-daemon-write) |
 | `me` | who this Mac's person **is**, in the tracker — the handle a question is addressed to, or a list of them for somebody who answers to two addresses (default `null`). Not the same thing as `owner`, which is what agents call you in prose. `null` means this daemon is everybody and every question rings it, which is what a one-Mac install has always done; set it only on a tracker more than one person reads, and set it per machine. See [Who a question is for](#who-a-question-is-for--me-and-the-for-label) |
 | `port`, `host` | listens on `127.0.0.1` **and** the Tailscale IP only — never the LAN. The *address* is what gets bound; `baseUrl` is what gets handed out, and they differ on purpose |
 | `baseUrl` | the origin every generated link is built from — the pairing QR, the APK code, every notification's click target and action button, the terminal's `wss://`. Maintained for you: `https://<host>.<tailnet>.ts.net:<port>` when there is a certificate to serve it, the Tailscale address over plain http when there is not, and moved between the two on its own. Set it to something else — a real domain, a proxy — and it is never rewritten. See [the URL you are given](#the-url-you-are-given-and-what-happens-to-a-phone-that-already-has-one) |

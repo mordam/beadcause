@@ -26,9 +26,11 @@
  *    when it is also outside the filter and also in a muted space, because that is the
  *    only one of the three that no chip on this Mac can undo — reporting it as
  *    `'filtered'` sends somebody to press **All** for a card that was never hidden.
- * 4. **The stamp happens where the answer is known.** `created_by` is `cfg.actor` —
- *    the literal string `beadcause` on every machine — so the addressee cannot be
- *    derived by the daemon reading the graph. `bin/ask.js` is driven end to end against
+ * 4. **The stamp happens where the answer is known.** `created_by` is `cfg.actor`, a
+ *    byline — bare `beadcause` until this machine sets `me`, and only then
+ *    `beadcause (carol@example.com)` (lib/byline.js, test/byline.mjs) — so the
+ *    addressee is not something the daemon reading the graph can derive.
+ *    `bin/ask.js` is driven end to end against
  *    a stub `bd` for that reason: what is under test is the argv it builds, and a unit
  *    test of `addresseeLabel` would pass just as happily against an ask.js that never
  *    called it.
