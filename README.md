@@ -9921,9 +9921,17 @@ Seven things follow, and they are the whole of the change:
   calls the most destructive thing in this codebase. bc-45g8 settled it: **a fast-forward
   may proceed when every dirty line is `??`, and any tracked modification still stops it
   dead.** The reason the guard exists is unsaved edits, and an untracked file is not an
-  edit to anything; the two paths that actually recur here are a `.DS_Store` and a root
-  `.idea/`, which the Finder and a JetBrains IDE put back as fast as anyone clears them.
-  What makes it safe rather than a hole is that the destructive case is covered twice:
+  edit to anything; the two paths that actually recurred here were a `.DS_Store` and a
+  root `.idea/`, which the Finder and a JetBrains IDE put back as fast as anyone cleared
+  them. Those two are now in `.gitignore` (bc-0i27.18) and no longer appear at all —
+  three separate sessions filed them as a bug in the days either side of bc-45g8, which
+  is the measure of how much a permanently dirty shared checkout costs to keep
+  re-diagnosing. `test/gitignoreresidue.mjs` is what keeps them ignored, and it asserts
+  the rule comes from the repo's own `.gitignore` rather than from a `core.excludesFile`
+  on somebody's laptop, since a machine that ignores `.DS_Store` globally is precisely
+  the one this would go unnoticed on. That does **not** make the relaxation redundant: it is what covers the
+  residue nobody has thought of yet, and the residue in the *next* checkout. What makes
+  it safe rather than a hole is that the destructive case is covered twice:
   `git merge --ff-only` refuses outright rather than overwrite an untracked file an
   incoming commit would write, and *that* refusal is reported with the paths like any
   other. `scripts/deploy-runner.mjs` has always read its own dirt with
