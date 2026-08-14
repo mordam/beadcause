@@ -655,29 +655,30 @@ instead: at 360×640 the row is **43px** — a 31px control and the bar's 12px g
 takes the bar from 61px to 104px and the bar plus the tab bar from 116px to 159px, 18%
 of the screen to **25%**.
 
-It keeps the row, and the reason is arithmetic rather than taste. 360px less the bar's
-padding is 328px; on the inbox the brand is 133px with the "3 waiting" chip in it and
-the icon buttons are 172px, which with the gaps is 329px — the first row is already
-full before a picker is mentioned, and inline the picker needs 184px (148px for its
-widest row, 36px for the count beside it). Hiding the chip while a repo is picked does
-not rescue it: measured, the inbox stays two lines with the chip gone, because the icon
-buttons are 172 of the 328 on their own. Collapsing onto the first row *where it fits*
-(`flex: 1 1 <basis>`) works on `/console`, `/monitor` and `/endorse` and on none of the
-three you are on most — so the picker would be a title on one tab and a clipped chip on
-the next, which is the four-controls-in-one-coat this replaced. Hiding it on scroll means
-a fixed, translated header on six pages, because a sticky bar that shrinks mid-scroll
-moves every card up 43px under your thumb — and the row is back the moment you scroll
-up, which is when you were reading it. Folding it into the mark is the only one that
-gets a single row at 360px, and it pays with the picker's whole job: the repo name is
-exactly what does not fit, so what is left is a control whose current value is invisible.
+It keeps the row, and the reason is arithmetic rather than taste — though the arithmetic
+moved under it once and is worth stating in its current form. bc-ka5y.1 took the "N
+waiting" chip out of the brand and the count out of the picker, which is 89px off the
+inbox's first row and 55px off what a picker needs on it. Measured now, at 360px with
+the bar's padding off (328px of content): the inbox's brand is **44px** and its icon
+buttons **128px**, leaving 132px spare, and the picker needs **129px**. So on five of the
+six pages the picker would now fit inline — and on `/foundations` it is 111px short,
+because that page carries a 123px brand and 163px of actions.
 
-What settles it is how far the first row would have to be cleared to hold the picker
-instead: at 360px, two of the four icon buttons gone leaves 87px; two gone *and* the
-chip hidden leaves 176px, still 8px short; it takes three of the four buttons and the
-chip to reach the 184px, at 220px. That is not a layout trick, it is emptying the bar.
+Which is exactly the case that settles it, and it is unchanged: collapsing onto the first
+row *where it fits* (`flex: 1 1 <basis>`) makes the picker a full-width control on five
+tabs and a missing one on the sixth. That is the four-controls-in-one-coat this replaced,
+and it is worse now than when three pages could not hold it, because a control that moves
+on one page in six is a control you stop looking for. The other two options are no better
+than they were: hiding it on scroll means a fixed, translated header on six pages, because
+a sticky bar that shrinks mid-scroll moves every card up 43px under your thumb — and the
+row is back the moment you scroll up, which is when you were reading it. Folding it into
+the mark pays with the picker's whole job: the repo name is exactly what does not fit, so
+what is left is a control whose current value is invisible.
 
 `node scripts/topbar-check.mjs [--out=DIR]` is what stops this being decided once and
-forgotten. Two widths, every page with a picker: the bar is at most two lines, the
+forgotten — and it is where those numbers come from: it prints the spare-versus-needed
+arithmetic per page on every run, which is how the change above was noticed rather than
+inherited. Two widths, every page with a picker: the bar is at most two lines, the
 picker has the last line to itself at the full width of the bar, no label in the
 dropdown is clipped, and the bar plus the tab bar stays inside a **170px** budget — a
 third row is +43px and fails it on the spot. It also prints the first-row arithmetic per
