@@ -101,7 +101,23 @@ class MainActivity : AppCompatActivity() {
     private fun startUp() {
         askForNotifications()
         WatchService.start(this)
+        // Everything the updater does is drawn by the page — the button in the top bar,
+        // the ask once the download has landed. This is the one wire between them, and it
+        // is pushed rather than polled because a download finishing is an event the page
+        // has no other way to hear. See public/update.js and Updater.
+        Updater.watch(::tellPage)
         load(intent.getStringExtra(EXTRA_KEY))
+    }
+
+    /** Hand the updater's state to the page, whichever page is loaded. */
+    private fun tellPage(json: String) {
+        val quoted = JSONObject.quote(json)
+        runOnUiThread {
+            binding.webView.evaluateJavascript(
+                "window.beadcause && window.beadcause.update && window.beadcause.update.native($quoted);",
+                null,
+            )
+        }
     }
 
     private fun askForNotifications() {
@@ -192,6 +208,46 @@ class MainActivity : AppCompatActivity() {
 
         @JavascriptInterface
         fun version(): String = BuildConfig.VERSION_NAME
+
+        /* ------------------------------------------------------ replacing the shell */
+
+        /**
+         * Which build this is, as a number the daemon can compare against.
+         *
+         * public/update.js asks this before it asks for anything else, and an APK that
+         * predates the feature simply does not have the method — so the page finds no
+         * version, concludes it cannot tell, and never offers an update. That is the
+         * right behaviour for an old shell: it would not know how to install one either.
+         */
+        @JavascriptInterface
+        fun updateVersion(): Int = Updater.installedVersion()
+
+        /** What the shell is doing about the update, for a page that has just loaded. */
+        @JavascriptInterface
+        fun updateState(): String = Updater.state()
+
+        /**
+         * A deploy rebuilt the APK — go and see.
+         *
+         * The argument is deliberately ignored. The page knows *that* something was
+         * published; what it is, and whether it is newer than this build, [Updater] reads
+         * from `/api/update` itself over the paired connection. A bridge that installed
+         * whatever the WebView named would be one URL in one rendered page away from
+         * installing something else.
+         */
+        @JavascriptInterface
+        fun downloadUpdate(@Suppress("UNUSED_PARAMETER") ignored: String?) {
+            Updater.download(this@MainActivity)
+        }
+
+        /** Apply it. This is the tap that restarts the app, so it is never called unasked. */
+        @JavascriptInterface
+        fun installUpdate() {
+            // startActivity — for the platform's confirm screen, and for the settings
+            // screen when the permission is missing — wants the main thread, and a
+            // @JavascriptInterface method arrives on the JavaBridge one.
+            runOnUiThread { Updater.install(this@MainActivity) }
+        }
 
         /**
          * Whether the answer box draws a mic at all.
@@ -319,6 +375,10 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         binding.webView.onResume()
+        // "Beadcause updated — tap to reopen" has done its job the moment this is on
+        // screen, whether the tap or the relaunch got us here. See UpdateReceiver for why
+        // it is posted even when the relaunch is expected to work.
+        Notifications.clearUpdated(this)
         // Came back from the shade or from a doc; pull fresh questions. `refresh` is
         // exported by app.js for exactly this. It's a no-op if a card is mid-answer.
         if (loaded) binding.webView.evaluateJavascript("window.beadcause && window.beadcause.refresh();", null)
@@ -335,6 +395,10 @@ class MainActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         dictation.destroy()
+        // The updater outlives this activity — a download runs on its own scope, and an
+        // install deliberately survives the process — so what is dropped here is only the
+        // wire to a WebView that is about to stop existing.
+        Updater.unwatch()
         binding.webView.destroy()
         super.onDestroy()
     }

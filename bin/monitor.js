@@ -411,6 +411,10 @@ function advocateRows(now) {
       const idle = a.paused || a.quiet;
       const left = seg().add(a.workspace.padEnd(nameW), idle ? C.dim : C.bold).add('  ');
       const ready = a.queue ? ` · ${a.queue} ready` : '';
+      // The same split the console makes, for the same reason: two populations, two
+      // budgets. `planning` is the field the daemon already sends per worker row.
+      const coders = (a.workers || []).filter((w) => !w.planning);
+      const planners = (a.workers || []).filter((w) => w.planning);
 
       // `state` is the word the note is checked against below, so the two can't
       // both say "paused" and eat half the line saying it twice.
@@ -418,8 +422,18 @@ function advocateRows(now) {
       if (a.paused) left.add((state = `⏸ paused${ready}`), C.yellow);
       else if (a.quiet) left.add((state = `🔇 quiet${ready} — watching`), C.yellow);
       else if (a.surveying) left.add((state = '🔍 surveying for work to propose'), C.magenta);
-      else if (a.workers.length)
-        left.add((state = `▶ ${a.workers.length}/${a.limit} session${a.workers.length === 1 ? '' : 's'}${ready}`), C.green);
+      // Coders against `limit`, planners counted beside it rather than into it — an
+      // EpicAdvocate comes out of `maxEpicAdvocates` and would otherwise make this line
+      // read `2/1 sessions`, which is a frame claiming the daemon broke its own cap.
+      else if (coders.length)
+        left.add(
+          (state = `▶ ${coders.length}/${a.limit} session${coders.length === 1 ? '' : 's'}${
+            planners.length ? ` +${planners.length} planning` : ''
+          }${ready}`),
+          C.green
+        );
+      else if (planners.length)
+        left.add((state = `${planners.length} epic${planners.length === 1 ? '' : 's'} being planned${ready}`), C.magenta);
       else if (a.queue) left.add((state = `${a.queue} ready`), C.yellow);
       else left.add(state, C.dim);
 

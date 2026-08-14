@@ -39,7 +39,9 @@
  *    does it, in the main checkout rather than this worktree, and **will not touch a
  *    checkout with uncommitted work in it**.
  * 6. Closes the work bead, because the merge is what made it true, and pushes a
- *    notification with nothing to answer.
+ *    notification with nothing to answer. **Unless the bead is an epic**, which this
+ *    leaves open and says so: an umbrella epic is finished when its theme is, and a
+ *    branch that shared its name merging is no evidence about that. See the close below.
  *
  * **One card per pull request, whichever ending this takes.** Both endings begin by
  * closing any merge card already open on this request — a re-delivery replaces the
@@ -72,12 +74,14 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { ownAddresseeLabels } from '../lib/addressee.js';
-import { parseJson } from '../lib/bd.js';
+import { bylineFor } from '../lib/byline.js';
+import { isMergeReason, parseJson } from '../lib/bd.js';
 import { loadConfig } from '../lib/config.js';
 import { inspectBranch, report as conflictReport } from '../lib/conflicted.js';
 import { ownerName } from '../lib/owner.js';
 import { cardsForDelivery, deliveryBody, deliveryTitle, DELIVERY_LABEL } from '../lib/delivery.js';
 import { deployFor, deployHint } from '../lib/deploy.js';
+import { EDIT_HOLD, fromEditMode } from '../lib/editwork.js';
 import { landedReason } from '../lib/landed.js';
 import { requestSweep } from '../lib/mergesweep.js';
 import { pushLanded } from '../lib/notify.js';
@@ -276,8 +280,13 @@ if (ahead) {
 
 /* ------------------------------------------------------------------- the bead */
 
-const env = { ...process.env, BEADS_DIR: ws.dir, BEADS_ACTOR: cfg.actor };
-const bd = (args) => execFileSync(cfg.bdBin, args, { env, cwd: ws.dir, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 });
+// The byline this machine files under, on the argv as well as in the environment — a
+// workspace `config.yaml` with an `actor:` in it beats `BEADS_ACTOR` and the flag beats
+// both, which is why `Bd.run` has always appended it. See bin/ask.js and lib/byline.js.
+const byline = bylineFor(cfg);
+const env = { ...process.env, BEADS_DIR: ws.dir, BEADS_ACTOR: byline };
+const bd = (args) =>
+  execFileSync(cfg.bdBin, [...args, '--actor', byline], { env, cwd: ws.dir, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 });
 
 let bead = null;
 try {
@@ -406,7 +415,25 @@ try {
 // do, and the two reading different answers is how a window reports work as landed over
 // a bead that says otherwise.
 const policy = prPolicyFor(cfg, ws.name);
-const autoMerge = policy.autoMerge && !review;
+/**
+ * Whether this bead may be merged by the thing that wrote it, which for one kind of bead
+ * is no.
+ *
+ * A bead filed from inside the running app (lib/edits.js) is a sentence Adam said to a
+ * screen, and the whole of its review is him looking at what came back — so the epic that
+ * built it says outright that nothing on that path reaches main without a human approval
+ * (bc-p49x.4). The worker's brief says the same thing and asks for `--review`; this is
+ * what makes it true. A brief is a promise about what a command will do, and a promise a
+ * session can forget to keep is not a guarantee: the flag going missing, or a future
+ * brief quietly dropping the sentence, must not be able to land an unreviewed in-app edit.
+ *
+ * Every bead carrying the label, not only the leaf edits — the pass and the standing root
+ * carry it too, and neither is a thing to deliver against at all. Holding one is the
+ * harmless direction.
+ */
+const editHold = fromEditMode(bead);
+if (editHold) console.error(`beadcause-deliver: ${beadId} is an in-app edit, so this delivery asks rather than merges.`);
+const autoMerge = policy.autoMerge && !review && !editHold;
 // Green checks are not enough in a space that asks for a review first. Only consulted
 // inside the `autoMerge` branch below — with auto-merge off every delivery is already a
 // question, and answering it *is* the approval.
@@ -425,7 +452,8 @@ const prBody = [
     ? `_Opened by a beadcause worker session on ${beadId}, which merges it itself once the checks report` +
       `${requireApproval ? ' and it has an approving review' : ''}. If it is ` +
       `still open, something stopped that — the reason is on ${beadId} and in ${owner}'s inbox._`
-    : `_Opened by a beadcause worker session on ${beadId}. It is not merged until ${owner} answers the question in their inbox._`,
+    : `_Opened by a beadcause worker session on ${beadId}. It is not merged until ${owner} answers the question in their inbox.` +
+      `${editHold ? ` This one was typed into the running app with edit mode on, and an in-app edit is merged by the person who asked for it.` : ''}_`,
 ]
   .filter((l) => l !== '')
   .join('\n');
@@ -651,8 +679,9 @@ async function landHere(landed, { external = false } = {}) {
    *
    * The act itself is `landLocally`'s, unchanged, aimed at the main checkout rather
    * than this worktree — including the part that matters most, which is that it does
-   * **not** touch a checkout with uncommitted work in it. Adam edits in these while
-   * sessions run.
+   * **not** touch a checkout with edited work in it. Adam edits in these while
+   * sessions run. Untracked residue is the exception it steps past, named in the note
+   * either way (bc-45g8).
    *
    * Nothing about it can fail a delivery. The merge has already happened, the work is
    * on `origin` whatever this checkout does, and a laptop that is a commit behind is
@@ -706,8 +735,8 @@ async function landHere(landed, { external = false } = {}) {
     `Landed as [${where}](${request.url}) — ${how}, on \`${branch}\`.${owed ? ` Still owed: ${owed}.` : ''}` +
     // What this Mac's checkout did about it, in landLocally's own words. On the bead
     // rather than only in a session log because "left main where it is — there is
-    // uncommitted work in beadcause" is the one outcome somebody has to act on, and a
-    // session log is read by nobody once its window is closed.
+    // uncommitted work in beadcause: lib/foo.js" is the one outcome somebody has to act
+    // on, and a session log is read by nobody once its window is closed.
     (followed?.note ? ` This Mac's checkout: ${followed.note}.` : '');
   try {
     bd(['comment', beadId, note]);
@@ -731,21 +760,52 @@ async function landHere(landed, { external = false } = {}) {
   const closeReason = external
     ? `${landedReason(request, base)}${owed ? ` — still owed: ${owed}` : ''}`
     : `Landed as ${where}${owed ? ` — still owed: ${owed}` : ''}`;
-  try {
-    bd(['close', beadId, '--reason', closeReason]);
-  } catch (err) {
-    // A refused close is a state, not a rumour: it is written down where the daemon
-    // will retry it once whatever is blocking it clears (lib/owed.js), and said on the
-    // bead in bd's own words. Reporting it as done — which is what the tap on the phone
-    // used to do — is how bc-ec6 stayed open over a merged pull request with two
-    // separate comments claiming otherwise.
-    const why = bdSaid(err);
-    console.error(`beadcause-deliver: merged ${where}, but could not close ${beadId} — ${why}`);
-    oweClose({ workspace: ws.name, id: beadId, reason: closeReason, why });
+  // An epic is the one bead this close is wrong about, and bd will not say so: `Adopts:`
+  // is prose, so an epic that claims twenty-three beads still has no children as far as
+  // bd is concerned and closes on any reason at all. That is how bc-ka5y closed as
+  // "Merged #212 as 72789c0b into main" with twenty-one adoptees open, taking its
+  // classification of them with it. An umbrella epic is finished when its theme is, which
+  // this merge says nothing about — so the merge is left as the comment written above and
+  // the epic stays open. Not owed either (lib/owed.js): the retry would carry the same
+  // sentence into the same refusal every thirty seconds for as long as the machine runs.
+  //
+  // The claim is left on it deliberately. A worker's bead is `in_progress` and assigned
+  // by the time it gets here, and `bd ready` skips an assigned bead — so an epic left
+  // open *and claimed* stays out of the advocate's queue, where an open unclaimed one
+  // would be handed straight to another session to deliver and be refused again. Closing
+  // it was the old way out of that loop, and it is the thing this rule exists to stop.
+  const epicStaysOpen = bead.issue_type === 'epic' && isMergeReason(closeReason);
+  if (epicStaysOpen) {
+    console.error(
+      `beadcause-deliver: merged ${where}, and left ${beadId} open — an epic does not close on a merge. ` +
+        `Close it when its theme is done.`
+    );
     try {
-      bd(['comment', beadId, `This is merged and this bead did **not** close: ${why}. beadcause retries the close once that clears.`]);
+      bd([
+        'comment',
+        beadId,
+        `This epic stays **open** over ${where}: an epic closes when its theme is done, not when a branch sharing its name merges.`,
+      ]);
     } catch {
-      /* The record above is the part that matters; the comment is the courtesy. */
+      /* The comment above this block already says what landed; this one is why it is still open. */
+    }
+  } else {
+    try {
+      bd(['close', beadId, '--reason', closeReason]);
+    } catch (err) {
+      // A refused close is a state, not a rumour: it is written down where the daemon
+      // will retry it once whatever is blocking it clears (lib/owed.js), and said on the
+      // bead in bd's own words. Reporting it as done — which is what the tap on the phone
+      // used to do — is how bc-ec6 stayed open over a merged pull request with two
+      // separate comments claiming otherwise.
+      const why = bdSaid(err);
+      console.error(`beadcause-deliver: merged ${where}, but could not close ${beadId} — ${why}`);
+      oweClose({ workspace: ws.name, id: beadId, reason: closeReason, why });
+      try {
+        bd(['comment', beadId, `This is merged and this bead did **not** close: ${why}. beadcause retries the close once that clears.`]);
+      } catch {
+        /* The record above is the part that matters; the comment is the courtesy. */
+      }
     }
   }
 
@@ -880,7 +940,11 @@ const out = bd([
     // worker's own `--review`, because it is the only one of the three whose sentence
     // has to explain a *green* pull request sitting unmerged.
     approval: awaitingApproval,
-    asked: review && policy.autoMerge,
+    asked: review && policy.autoMerge && !editHold,
+    // Ahead of `asked` in the card's precedence, and it has to be: with the hold on, a
+    // worker's `--review` asked for nothing that was not already going to happen, and a
+    // card crediting it with the decision would be describing a choice it never had.
+    edit: editHold,
     ship: shipHint,
   }),
   '--json',
@@ -907,6 +971,7 @@ try {
       (superseded.length
         ? ` It replaces ${superseded.join(', ')}, which asked the same question and ${superseded.length === 1 ? 'was' : 'were'} never answered.`
         : '') +
+      (editHold ? ` It was not merged, and will not be by a worker: ${EDIT_HOLD}.` : '') +
       (refused ? ` The worker tried to merge it and could not: ${refused}` : '') +
       (awaitingApproval ? ` Its checks are green; it is waiting on an approving review, which is what answering ${questionId} gives it.` : '') +
       (owed ? ` Still owed after the merge: ${owed}.` : ''),
@@ -925,7 +990,9 @@ const prNote = refused
   ? `A beadcause worker tried to merge this and could not: ${refused}`
   : awaitingApproval
     ? `A beadcause worker opened this and stopped: its checks are green, but this space asks for an approving review before anything merges.`
-    : '';
+    : editHold
+      ? `A beadcause worker opened this and stopped on purpose: ${beadId} was typed into the running app with edit mode on, and an in-app edit is merged by the person who asked for it.`
+      : '';
 if (prNote) {
   await pr
     .comment(dir, request.number, `${prNote}\n\nIt is now ${owner}'s call — see ${questionId}.`)

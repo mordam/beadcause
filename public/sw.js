@@ -39,7 +39,7 @@
   directory, and re-read the line: git may well have merged it silently. `node
   test/swcache.mjs` checks precisely that, in about a second.
 */
-const CACHE = 'beadcause-v49';
+const CACHE = 'beadcause-v56';
 const SHELL = [
   '/',
   '/index.html',
@@ -57,10 +57,21 @@ const SHELL = [
   // without it now — it is the only way off a page — so it belongs in the shell
   // rather than being fetched once per page over a phone link.
   '/tabbar.js',
+  // How the app finds out that what it is made of has moved — the reload after a deploy
+  // that changed public/, and the download-ask-install-restart the shell does when one
+  // rebuilt the APK. In the shell rather than network-first because the moment it is
+  // wanted is the moment a deploy has just ended: a page fetching it over a tailnet the
+  // daemon is restarting on would miss the one event it exists to hear.
+  '/update.js',
   // The space picker in the top bar, on the same five pages and for the same reason: a
   // page cached without it is a page with no way to change which repo the app is about,
   // and on the inbox it is what the space and workspace chip rows became.
   '/spacebar.js',
+  // The panel every filter bar in the app is drawn in — the collapsed line, the chips,
+  // the hover-and-tap state machine. In the shell because two pages mount it and
+  // neither has any control on it at all without it: the inbox loses the scope switch
+  // and the kinds, the History tab loses all four of its filters.
+  '/filtermenu.js',
   // The inbox's own filter — the scope switch and the kind chips, in one collapsed
   // line. In the shell for the same reason the picker is: without it the inbox has no
   // control on it at all to say which slice of the tracker you are looking at.
@@ -153,6 +164,23 @@ const SHELL = [
   '/history',
   '/history.html',
   '/history.js',
+  // And `/closed` and `/done` are **deliberately not here**, which is the one place in
+  // this list where leaving a path out is a decision rather than an oversight.
+  //
+  // They are the ledger under a shorter name (bc-nib3.7) and every other multi-path page
+  // above precaches all of its names, so the obvious next line is to add them. It would
+  // break the entire shell. Those two are a **302** on the daemon, not an alias — they
+  // have to be, because the filter they set lives in the query string and a rewrite
+  // cannot touch that — and `Cache.put` rejects a redirected response outright. `install`
+  // below is one all-or-nothing `addAll`, so a single unstoreable path in this list means
+  // *nothing* is cached, on every phone, for as long as this worker lives. It would look
+  // like an app that had merely got slower.
+  //
+  // What that costs is small and is not made worse by leaving them out: `/closed` with no
+  // signal falls through to the index page, which is exactly what `/history?status=closed`
+  // — the URL it redirects to, and the one a home-screen shortcut would actually hold —
+  // already does, because `fallback` matches on the full URL and no query string in this
+  // list has ever matched anything. That is one gap, in `fallback`, and not two here.
   // Pause all / resume all. In the shell for the reason the terminal is: you open
   // it because something needs stopping now, and that is often the moment the link
   // is worst. The page is useless without the daemon — but it says so instantly

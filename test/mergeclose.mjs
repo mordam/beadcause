@@ -423,6 +423,69 @@ console.log('\nmerging from the phone\n');
   check('and the record is gone', Object.keys(readOwed()).length === 0, JSON.stringify(readOwed()));
 }
 
+/* ------------------------------------ an epic, which a merge does not close (bc-arj0.3) */
+
+{
+  // The bead behind the card is an epic. bc-ka5y closed exactly this way — on the merge
+  // of a branch that shared its name, with twenty-one adoptees still open — and bd had
+  // no objection, because an `Adopts:` line is prose and the epic had no children.
+  reset();
+  const w = world();
+  w.issues['zz-work'].issue_type = 'epic';
+  writeWorld(w);
+
+  const res = await post('/api/respond', { workspace: 'demo', id: 'zz-pr', response: MERGE });
+  check('the answer is still taken — the merge is not in doubt', res.status === 200, JSON.stringify(res.json));
+  check('and the pull request merged', JSON.parse(fs.readFileSync(PR_STATE, 'utf8')).state === 'MERGED');
+  check('the epic stays open', world().issues['zz-work'].status !== 'closed', world().issues['zz-work'].status);
+  check(
+    'and it is told why, on the epic itself',
+    (world().issues['zz-work'].comments || []).some((c) => /stays open/.test(c)),
+    JSON.stringify(world().issues['zz-work'].comments)
+  );
+  check(
+    'nothing is owed, because no retry would ever make a merge the right evidence',
+    Object.keys(readOwed()).length === 0,
+    JSON.stringify(readOwed())
+  );
+  check('and the card does not claim it closed it', !(world().issues['zz-pr'].comments || []).some((c) => /— closed zz-work/.test(c)), JSON.stringify(world().issues['zz-pr'].comments));
+}
+
+{
+  // And the backstop, for a record written before this rule existed — or by anything
+  // that owes a close without asking. The retry has nothing in hand but the stored
+  // sentence, so it is the sentence the gate is asked about.
+  const bd = new Bd({ bin: FAKE_BD, actor: 'beadcause-test' });
+  reset();
+  const w = world();
+  w.issues['zz-work'].issue_type = 'epic';
+  w.issues['zz-work'].dependencies = [];
+  writeWorld(w);
+  oweClose({ workspace: 'demo', id: 'zz-work', reason: 'Merged #7 as c5004cce into main on GitHub', why: 'blocked by zz-sib' });
+
+  const swept = await sweepOwed(bd, cfg.workspaces);
+  check('the retry refuses a merge-reason close on an epic', swept[0]?.status === 'refused', JSON.stringify(swept));
+  check('the epic is still open after it', world().issues['zz-work'].status !== 'closed', world().issues['zz-work'].status);
+  check('and the record is dropped rather than retried forever', Object.keys(readOwed()).length === 0, JSON.stringify(readOwed()));
+}
+
+{
+  // The same epic, owed a close somebody decided on. Nothing here holds an epic open
+  // against a reason that is *about the theme* — that is what closing an epic is for.
+  const bd = new Bd({ bin: FAKE_BD, actor: 'beadcause-test' });
+  reset();
+  const w = world();
+  w.issues['zz-work'].issue_type = 'epic';
+  w.issues['zz-work'].dependencies = [];
+  writeWorld(w);
+  oweClose({ workspace: 'demo', id: 'zz-work', reason: 'The theme is finished — every piece of it shipped.', why: 'the lock' });
+
+  const swept = await sweepOwed(bd, cfg.workspaces);
+  check('an epic owed a close on its theme still closes', swept[0]?.status === 'closed', JSON.stringify(swept));
+  check('and it really is closed', world().issues['zz-work'].status === 'closed', world().issues['zz-work'].status);
+  fs.rmSync(OWED_PATH, { force: true });
+}
+
 /* ------------------------------------------------- what the sweep must not do */
 
 console.log('\nthe retry, unattended\n');

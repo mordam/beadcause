@@ -25,12 +25,20 @@
  * a check that cries wolf on every second branch gets ignored, which is worse than not
  * having it. Only the call-on-a-member-the-other-half-lacks case is red, because that
  * one is a `TypeError` rather than an opinion.
+ *
+ * The stylesheet pair (bc-jdwc) sits inside that advisory rather than beside the red,
+ * and the reason is a count. Replayed over the last 75 pull requests to merge, it names
+ * a pair on exactly one unbumped branch — bc-pzti's `.bead-dupe`, pinned below — and
+ * independently finds the coupling on 12 of the 13 branches that did bump. So it raises
+ * no alarm the advisory was not already raising and it agrees with almost every bump a
+ * human made; what it cannot do is say how much an unstyled name costs, which is the
+ * difference between a warning in the wrong colour and v37's nav of naked links.
  */
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { analyse, cacheVersion, memberCalls, memberDefs, report, shellFiles } from '../lib/swbump.js';
+import { analyse, cacheVersion, markupSelectorUses, memberCalls, memberDefs, report, shellFiles, styleCouplings, styleSelectors } from '../lib/swbump.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(HERE, '..');
@@ -170,10 +178,122 @@ check('a call is a call and a bare read is not', () => {
   if (calls.has('pending')) throw new Error('a bare .pending read was counted as a call');
 });
 
-// ------------------------------------------------------------------------- the verdict
-
+/** A `public/sw.js` with a version and a SHELL, which is all `analyse` reads out of it. */
 const SW = (version, extra = []) =>
   [`const CACHE = '${version}';`, 'const SHELL = [', "  '/console.js',", "  '/sendqueue.js',", "  '/report.js',", ...extra, '];'].join('\n');
+
+// ------------------------------------------------------- the stylesheet half (bc-jdwc)
+
+check('a stylesheet is read for what it styles, not for what it declares', () => {
+  const css = [
+    '/* .commented-out is prose about a class, not a rule */',
+    ':root { --bg: #0b0f14; --line: #263140; }',
+    '.chip-row { display: flex; background: #141a22; }',
+    '@media (prefers-color-scheme: light) { #board .chip-row { color: #fff; } }',
+  ].join('\n');
+  const sel = styleSelectors(css);
+  if (!sel.has('.chip-row')) throw new Error('a class in a selector was not read');
+  if (!sel.has('#board')) throw new Error('an id in a selector inside @media was not read');
+  for (const junk of ['#0b0f14', '#141a22', '#fff', '#263140', '.commented-out']) {
+    if (sel.has(junk)) throw new Error(`${junk} was read as something the sheet styles`);
+  }
+});
+
+check('the four shapes this app puts a class on the page with', () => {
+  const uses = markupSelectorUses([
+    '  <div class="chip-row" id="board">',
+    '    return `<p class="hint ${tone}">${text}</p>`;',
+    '    el.className = "card open";',
+    "    el.classList.add('flash');",
+    "    el.classList.toggle('shut', !open);",
+    "    el.classList.remove('flash-old');",
+  ]);
+  for (const want of ['.chip-row', '#board', '.hint', '.card', '.open', '.flash', '.shut']) {
+    if (!uses.has(want)) throw new Error(`${want} was not read as drawn`);
+  }
+  if (uses.has('.flash-old')) throw new Error('classList.remove was read as drawing a class');
+  const past = markupSelectorUses([
+    '  <a href="https://beads.example/x" class="ref-link">go</a>',
+    '  // <div class="dead-code">',
+    '  <!-- <div class="commented-out"> -->',
+  ]);
+  if (!past.has('.ref-link')) throw new Error('a class after a URL was lost to the // in it');
+  for (const junk of ['.dead-code', '.commented-out']) {
+    if (past.has(junk)) throw new Error(`${junk} was read out of a comment`);
+  }
+  if ([...uses].some((u) => u.includes('$'))) throw new Error(`an interpolated token was read as a name: ${[...uses]}`);
+});
+
+const CSS = (rules) => rules.map((r) => `${r} { display: block; }`).join('\n');
+
+check('a class newly drawn in one shell file and newly styled in another is a pair', () => {
+  const found = styleCouplings([
+    { path: 'public/style.css', status: 'M', base: CSS(['.card']), head: CSS(['.card', '.bead-dupe']), added: [] },
+    { path: 'public/console.js', status: 'M', base: 'const a = 1;\n', head: '', added: ['  return `<p class="bead-dupe">${text}</p>`;'] },
+  ]);
+  if (found.length !== 1) throw new Error(`expected one pair, got ${JSON.stringify(found)}`);
+  const [c] = found;
+  if (c.selector !== '.bead-dupe' || c.styles !== 'public/style.css' || c.draws !== 'public/console.js') {
+    throw new Error(`the pair names the wrong halves: ${JSON.stringify(c)}`);
+  }
+});
+
+check('restyling a class the page already drew is merely older, not broken', () => {
+  const found = styleCouplings([
+    { path: 'public/style.css', status: 'M', base: CSS(['.card']), head: CSS(['.card', '.card:active']), added: [] },
+    { path: 'public/app.js', status: 'M', base: '<div class="card">\n', head: '', added: ['    html += `<div class="card">${row}</div>`;'] },
+  ]);
+  if (found.length) throw new Error(`an existing class was reported as a pair: ${JSON.stringify(found)}`);
+});
+
+check('a class the sheet already styled is not a pair either', () => {
+  const found = styleCouplings([
+    { path: 'public/style.css', status: 'M', base: CSS(['.chip']), head: CSS(['.chip', '.chip:hover']), added: [] },
+    { path: 'public/app.js', status: 'M', base: 'const a = 1;\n', head: '', added: ['    html += `<b class="chip">${n}</b>`;'] },
+  ]);
+  if (found.length) throw new Error(`a class the cached sheet already knows was reported: ${JSON.stringify(found)}`);
+});
+
+check('a page added whole, styles and all, is never a mixed pair', () => {
+  const r = analyse({
+    swBase: SW('beadcause-v37', ["  '/style.css',", "  '/graph.html',"]),
+    swHead: SW('beadcause-v37', ["  '/style.css',", "  '/graph.html',"]),
+    files: [
+      { path: 'public/graph.html', status: 'A', base: '', head: '<div class="node-card">', added: ['<div class="node-card">'] },
+      { path: 'public/style.css', status: 'M', base: CSS(['.card']), head: CSS(['.card', '.node-card']), added: ['.node-card { display: block; }'] },
+    ],
+  });
+  if (r.styles.length) throw new Error(`an added page was treated as a cached older half: ${JSON.stringify(r.styles)}`);
+});
+
+check('the pair is silent once the version moves', () => {
+  const files = [
+    { path: 'public/style.css', status: 'M', base: CSS(['.card']), head: CSS(['.card', '.bead-dupe']), added: [] },
+    { path: 'public/console.js', status: 'M', base: '', head: '', added: ['  `<p class="bead-dupe">x</p>`'] },
+  ];
+  const shell = ["  '/style.css',"];
+  const unbumped = analyse({ swBase: SW('beadcause-v37', shell), swHead: SW('beadcause-v37', shell), files });
+  if (unbumped.styles.length !== 1) throw new Error('the unbumped branch was not flagged');
+  const bumped = analyse({ swBase: SW('beadcause-v37', shell), swHead: SW('beadcause-v38', shell), files });
+  if (bumped.styles.length) throw new Error('a bumped branch was still flagged');
+});
+
+check('the advisory names the pair when it has one', () => {
+  const lines = report({
+    bumped: false,
+    version: { after: 'beadcause-v37' },
+    changed: ['public/style.css', 'public/console.js'],
+    advisory: true,
+    couplings: [],
+    styles: [{ selector: '.bead-dupe', styles: 'public/style.css', draws: 'public/console.js' }],
+  });
+  const text = lines.join('\n');
+  for (const want of ['.bead-dupe', 'public/style.css', 'public/console.js', 'looks like a working page']) {
+    if (!text.includes(want)) throw new Error(`the advisory does not name ${want}`);
+  }
+});
+
+// ------------------------------------------------------------------------- the verdict
 
 check('a member gained in one shell file and called in another fails, unbumped', () => {
   const r = analyse({
@@ -289,10 +409,35 @@ if (hasRev(DMT) && hasRev(`${DMT}^2`)) {
   note(`bc-dmt (${DMT.slice(0, 7)}) is not in this clone — skipped`);
 }
 
+/**
+ * bc-pzti (#209): the one branch in the last 75 pull requests the stylesheet half fires
+ * on, and it is a true one — `console.js` gained a `class="bead-dupe"` duplicate warning,
+ * `style.css` gained the block that lays it out, and `public/sw.js` was not touched at
+ * all. A phone on the cached older sheet draws that warning as an underlined blue link
+ * at body size. That is the whole measurement in one commit, so it is pinned here.
+ */
+const PZTI = 'e7aa8e68';
+
+if (hasRev(`${PZTI}^1`) && hasRev(`${PZTI}^2`)) {
+  check(`bc-pzti (${PZTI.slice(0, 7)}) is named: console.js draws .bead-dupe, style.css only just styles it`, () => {
+    const mergeBase = (gitQuiet(['merge-base', `${PZTI}^1`, `${PZTI}^2`]) || '').trim();
+    const r = analyse(collect(mergeBase, `${PZTI}^2`));
+    const hit = r.styles.find((c) => c.selector === '.bead-dupe');
+    if (!hit) throw new Error(`the .bead-dupe pair was not found; styles: ${JSON.stringify(r.styles)}`);
+    if (hit.styles !== 'public/style.css' || hit.draws !== 'public/console.js') throw new Error(`wrong halves: ${JSON.stringify(hit)}`);
+    if (r.couplings.length) throw new Error('the member rule fired on a branch that gains no member call');
+    const text = report(r).join('\n');
+    if (!text.includes('.bead-dupe')) throw new Error('the advisory did not name the pair it found');
+  });
+} else {
+  note(`bc-pzti (${PZTI.slice(0, 7)}) is not in this clone — skipped`);
+}
+
 if (hasRev(P38C)) {
   check(`bc-p38c.2 (${P38C.slice(0, 7)}) adding report.js to every page fails nothing`, () => {
     const r = analyse(collect(`${P38C}^`, P38C));
     if (r.couplings.length) throw new Error(`a purely additive branch was failed: ${JSON.stringify(r.couplings)}`);
+    if (r.styles.length) throw new Error(`a purely additive branch was named a stylesheet pair: ${JSON.stringify(r.styles)}`);
   });
 } else {
   note(`bc-p38c.2 (${P38C.slice(0, 7)}) is not in this clone — skipped`);

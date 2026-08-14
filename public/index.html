@@ -31,11 +31,11 @@
            It stays an <h1> with the name as the image's alt text, so the header is
            still labelled and a reader still hears which app this is. -->
       <h1 class="mark"><img src="/icon.svg" alt="Beadcause" width="26" height="26" decoding="async"></h1>
-      <!-- What the width bought: how many beads are asking you something. It sits in
-           the brand space because it *is* the app's premise and has no icon of its
-           own — the other two counts hang off the tabs that answer them. Hidden at
-           zero: an empty inbox should look empty, not report itself. -->
-      <button id="waiting" class="waiting" hidden></button>
+      <!-- An "N waiting" pill used to sit beside the mark, counting the beads asking
+           you something. It is gone (bc-ka5y.1): the list under it is that number, so
+           the pill spent the widest part of the bar restating what you were already
+           looking at. Its tap was a shortcut to the `human` scope, which the scope
+           chips in the filter panel still are. -->
     </div>
     <div class="sheet-actions">
       <!-- The chat session, the sessions and the advocates used to hang here. They are
@@ -194,6 +194,12 @@
   <script src="/stream.js"></script>
   <script src="/presence.js"></script>
   <script src="/tabbar.js"></script>
+  <!-- The app keeping itself in step with what was just deployed: reloads the page when
+       a deploy moved public/, and drives the Android shell's own update when one
+       rebuilt the APK. On every standing view, because the "Update app" button belongs to
+       the app rather than to a screen — and after stream.js, whose events it listens on
+       rather than opening a second parked poll of its own. -->
+  <script src="/update.js"></script>
   <!-- The space picker in the top bar — which repo the whole app is about. Before
        app.js, because app.js registers its repaint on it at the top of its own IIFE;
        and it is what the two chip rows that used to be in #filters became, so the list
@@ -203,6 +209,11 @@
        the board at /prs. Before the filter, which reads the status ladder off it to
        build the sub-filter's chips, and therefore before app.js too. -->
   <script src="/prcard.js"></script>
+  <!-- The panel the filter lives in — the collapsed line, the chips, and the open-and-
+       close state machine, shared with the History tab's own filter bar. Before
+       inboxfilter.js, which mounts it rather than drawing one: without this file the
+       inbox has no control on it at all. -->
+  <script src="/filtermenu.js"></script>
   <!-- The inbox's filter: the scope and a chip per kind of incoming thing, behind one
        collapsed line. Before app.js, because app.js hands it the scope group and asks
        it whether each row is in view as it renders — and a page that drops it falls

@@ -157,6 +157,20 @@ function load({ token = 'tok', filter = ALL, respond } = {}) {
   };
 
   const window = { beadcause: { space } };
+  /* The address bar. The filters live in it and nowhere else (bc-nib3.3), so the page
+     reads it before its first request and writes it back on every chip — which means a
+     realm without one throws on load. `hist-filters` answers null here on purpose: this
+     suite is about the picker and the paging, and a page with no filter host mounts no
+     control and takes its filters from the URL alone, which is the supported path for a
+     phone holding history.html from a cache older than filtermenu.js. The control
+     itself is test/historyfilter.mjs. */
+  const location = { pathname: '/history', search: '', hash: '' };
+  const history = {
+    replaceState: (_s, _t, url) => {
+      const at = String(url).indexOf('?');
+      location.search = at === -1 ? '' : String(url).slice(at);
+    },
+  };
   const ctx = vm.createContext({
     window,
     document: {
@@ -165,6 +179,10 @@ function load({ token = 'tok', filter = ALL, respond } = {}) {
     },
     localStorage: { getItem: (k) => store.get(k) ?? null },
     fetch: fetchStub,
+    location,
+    history,
+    setTimeout,
+    clearTimeout,
     URLSearchParams,
     URL,
     Object,
@@ -172,6 +190,10 @@ function load({ token = 'tok', filter = ALL, respond } = {}) {
     Date,
     Number,
     Array,
+    Boolean,
+    String,
+    Set,
+    RegExp,
     Promise,
     console,
   });

@@ -12,8 +12,8 @@
  *
  * **A check does not rot by failing. It rots by pressing something that is not there.**
  * Working bc-xqnj the inbox's `[data-space]` chips were removed. `shade-check.mjs`
- * pressed those chips, so it broke outright, and two assertions in `launcher-check.mjs`
- * went with it — and `npm test` was green through all of it. They were found by reading
+ * (since deleted with the feature it covered, in bc-ka5y.1) pressed those chips, so it
+ * broke outright, and two assertions in `launcher-check.mjs` went with it — and `npm test` was green through all of it. They were found by reading
  * the scripts, which is not a mechanism. Nothing bounds how long that gap can be, and a
  * check that has silently not passed for a month is worse than no check at all: the next
  * person to run it reads its failures as their own change breaking something.
