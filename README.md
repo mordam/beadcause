@@ -44,14 +44,16 @@ identity), which workspaces are **shared with
 other people** (those get a contentless push and no unattended agents), where your
 **code lives** (so a question can show you files from it), whether your shell
 **derives `BEADS_DIR` from the working directory**, whether to use **ntfy**,
-whether commenting should **spawn an agent** to answer you, whether to open the
-**[activity monitor](#the-monitor--what-it-is-doing-right-now)** at login, and the
-credentials for **[signing in with Google](#signing-in-with-google)**. A workspace
+which **[Slack channel](#slack--the-same-decision-in-a-channel)** questions should also
+be posted to, whether commenting should **spawn an agent** to answer you, whether to open
+the **[activity monitor](#the-monitor--what-it-is-doing-right-now)** at login, and the two
+sets of credentials — **[Confluence](#setting-it-up-without-opening-the-file)** and
+**[signing in with Google](#signing-in-with-google)**. A workspace
 holding **more than one repo** is asked one more: which of the checkouts under it are
 [approved](#many-repos-one-workspace--the-approved-list-and-the-token-that-names-each),
 printed with the service token each one declares — an install where every workspace is one
 repo is asked nothing about it. Re-run them any time with `npm run configure`; nothing is
-written until the last answer — not even the client secret, which goes to a file of its
+written until the last answer — not even the two credentials, which go to files of their
 own — so Ctrl+C is always safe.
 
 **Nothing to answer? Say so.** `npm run install-service -- --non-interactive` (or
@@ -2014,6 +2016,14 @@ git log --format='%aI %s' refs/beadcause/foundations
 git cat-file -p refs/beadcause/foundations:console.json
 ```
 
+That is also the History tab on the agents screen — **narrowed to the agent whose tab it
+is**, which it was not at first. One ref holds every agent's amendments, on purpose,
+because the whole log read as one story is the interesting read; drawn unfiltered under
+one agent's name it says the opposite, and the worker's History tab was a request the
+*dispatch* agent had made and Adam had declined. The subject is what the filter matches,
+because `<agent>: amend …` and `<agent>: decline …` are what `git log --oneline` shows,
+so the screen selects on exactly what a person at a terminal would.
+
 ### What may never be amended
 
 `id`, `protocolOwner` and `writes`. Not distrust of the approval — these are the
@@ -2843,6 +2853,60 @@ the shared history, silently, exactly once. `topUpIgnore` is what gets the rule 
 installs that predate it, and `test/agentrepo.mjs` asserts the outcome against `git
 check-ignore` rather than against the file, because the question is what git does.
 
+### Whether any of it is ever read — the Memory tab
+
+Three tiers shipped before anything on a screen could answer the question they exist to
+answer: **is an agent actually carrying anything between runs?** Reading it meant git
+plumbing — `git for-each-ref refs/beadcause/agents`, `git log <ref> | wc -l` per agent
+per repo, and a subtraction — and four minutes of that is what produced the finding the
+whole epic turns on. It is an **asymmetry**: the worker has hundreds of notes about this
+repo, and the advocate, which runs continuously in every workspace, had written one
+memory in its lifetime and none at all here.
+
+So the agents screen has a fifth tab, per agent, and it draws all of it:
+
+- **Tier 1** — notes about this repo: how many keys, how many writes, when the last one
+  was, and whether any of it has come back out.
+- **Tier 2** — the memory that follows the agent everywhere, the same four numbers.
+- **The blackboard** — how many messages this agent has collected, and from how many
+  topics. A topic with messages and no reads is a thing published into silence, which is
+  worth seeing, because `post`/`read` is a pull and nothing notifies.
+- **Tier 3** — the per-arm numbers, `blind` against `index`, for the one agent that owns
+  a repo. Never pooled: a total of one run reads as a live experiment, and 1-versus-0 is
+  the shape that says the comparison cannot be computed yet. The tab says that in words
+  when an arm is empty.
+
+**Keys and writes are both shown because they are different facts.** A store holds one
+value per key and a write overwrites, so 244 commits over 31 keys is an agent that keeps
+revising what it knows, and 31 over 31 is one that writes once and never returns.
+
+**What counts as a read, and the thing that deliberately does not.** A read is an agent
+running `beadcause-memory recall`, `notes`, `read` or `debriefs` — the honest signal is
+that it *chose* to look. A note quoted into a session's prompt is **not** a read: the
+daemon does that unasked at every session start (`notesBrief`), so counting it would make
+every session read everything and the write-only-diary prediction would be answered by
+the instrument rather than by the agents. The existing "unread here" in `notesBrief` is
+not a half-built version of this either — it means unread *relative to a bead*, computed
+fresh each time by relevance.
+
+**Written and read do not come from the same place, and the tab says so.** A write is a
+commit on a ref and is true for the whole history; a read is a line in
+`~/.config/beadcause/agents/memory-reads.jsonl` (`lib/memoryuse.js`), which only started
+being written when this landed. So "no reads recorded" means nobody has opened it *since
+then*, and the pane says that rather than letting a zero read as *never*.
+
+It is a JSONL beside tier 3's usage log rather than another ref, for two reasons that are
+both about not damaging what it measures: a commit per read would double the entry counts
+the epic is measured by — the same `git log` that says "244 things learned" would start
+saying 500 — and every session start reads, so it would put a compare-and-swap on the
+hot path of opening a window. It lives under `agents/` because that directory is already
+ignored by the common repo, on the grounds that what is under it is *beadcause's
+measurement of the experiment* rather than anything an agent owns.
+
+The counts on the screen are the refs themselves (`census` in `lib/memory.js`), so they
+cannot drift from what `git log` says, and `test/memoryuse.mjs` asserts them against
+`git log` on the same ref in the same assertion.
+
 ## What an agent can see — a picture of the running app
 
 Almost everything in flight in this repo is visual. How the graph fits a phone,
@@ -3220,6 +3284,51 @@ inbox, briefly, rather than an empty one. A workspace whose tracker cannot be re
 contributes no cards and hides nothing, for the same reason. `node test/p0tree.mjs`
 holds all of that, including the one assertion that separates the feature from `under`
 renamed: a descendant with no pending question is in the tree.
+
+### A question under nothing is still drawn
+
+Narrowing the inbox to your P0s means a row that is in no P0's descendants is not drawn,
+and for most of a tracker that is exactly right — a bead under a colleague's epic is on
+their screen. But `under` cannot tell that case from a bead under **nothing at all**, and
+for that one there is no other screen. It is not a corner: `POST /api/ask` is the share
+target the phone files a question with, and it files with no parent, so the sharpest
+version of the failure was *you file a question from your phone, and it disappears from
+the phone you filed it on*. `bd` has it, `bd human list` returns it, and nothing anywhere
+says a word. `POST /api/console/create` does the same for a draft that names no parent.
+
+So the board carries a second map beside `under`:
+
+| field | what it is |
+|---|---|
+| `under` | `<workspace>/<id>` → the id of the P0 **you own** that this row descends from |
+| `unhomed` | `<workspace>/<id>` → `true` when **no open P0 at all** is above this row, whoever owns it |
+
+The client draws a row that is in either. The two questions are genuinely different on a
+shared graph — "which of my P0s has this" and "has anybody's P0 got this" — and the whole
+bug was one map answering both. A row under somebody else's open P0 is in neither map and
+stays hidden, which is [bc-rfnr.2](#your-p0s-and-the-tree-each-one-carries) still working.
+
+Three things land in `unhomed` and all three are the same fact:
+
+- **A bead with no parent** — the share target's own beads, and anything else filed
+  without one.
+- **A bead whose P0 has closed.** A closed P0 is not a root (see [the dispatch
+  gate](#where-it-lands--a-bead-filed-under-nothing-is-unworkable-the-moment-it-exists))
+  and its descendants stop being
+  pulled onto the board with it, so an open question under a finished epic is under
+  nothing. It was invisible *and* held, and only the held half was ever loud.
+- **Every row of a workspace whose graph could not be read.** `Bd.graph` answers an empty
+  shape rather than throwing, so nothing is known about what is above those rows — and no
+  evidence must not mean no question. This is the direction the whole board already fails
+  in; it just was not true of the rows until `unhomed` existed.
+
+This is the other half of [what the daemon does at the filing
+seam](#where-it-lands--a-bead-filed-under-nothing-is-unworkable-the-moment-it-exists):
+that gives a daemon-filed bead a parent when it can, this draws the bead when nothing did.
+Deliberately a screen fix and not a second filing fix — auto-adopting what a *person*
+filed is a decision about the tracker's shape, and a fix at the filing seam is only ever
+as good as the graph cache was at that instant, where this one has no such hole.
+`node test/ownquestion.mjs` holds it, from `bd export` through to the real client filter.
 
 ### The top bar says who is asking, not what the app is called
 
@@ -10222,9 +10331,9 @@ A bead carries how hard it is, as a `complexity:low`, `complexity:medium` or
 `complexity:high` label, and it carries it because most beadcause work does not need
 the expensive model and the handful that does must not be run on the cheap one. The
 tier is what decides which model a session on that bead runs — that is bc-nc6o, and
-this section is the half that puts the tier *on* the bead. Reading it back at spawn
-time is bc-nc6o.2 and is not wired yet; until it is, the label is a fact about the
-bead that nothing acts on, which is the right order to build the two in — a router
+this section is the half that puts the tier *on* the bead.
+[The next one](#which-model-a-session-comes-up-on--the-tier-at-spawn-time) is the half
+that reads it back at spawn time. They were built in that order deliberately: a router
 reading a field nothing writes routes everything to the fallback and looks broken.
 
 **Decided when the bead is written, not guessed at when it is opened.** The dispatcher
@@ -10288,6 +10397,75 @@ being re-emitted is a tier shown to you and then thrown away), and the acceptanc
 end to end through the real `beadcause-file` against a stub `bd` — a proposal that names
 a tier files a bead carrying it, and one that names none files a bead with no
 `complexity:` label at all.
+
+### Which model a session comes up on — the tier at spawn time
+
+The other half of bc-nc6o, and the point in it where a label starts costing money. When
+the advocate opens a work session it reads the tier off the bead and turns it into
+`claude --model`:
+
+| tier | model |
+|---|---|
+| `complexity:low` | `sonnet` |
+| `complexity:medium` | `sonnet` |
+| `complexity:high` | `opus` |
+| no tier, or labels nobody can route on | `opus` |
+
+`MODEL_BY_TIER` in `lib/complexity.js` is the whole mapping and the only copy of it —
+`modelForBead` is the one call the launcher makes, and it answers `{ model, tier, problem }`
+because a model on its own cannot be explained. Aliases rather than model ids, for the
+same reason [`consoleModel`](#config--configbeadcauseconfigjson) is one: an alias tracks
+the current release of a family, and a router written with pinned ids is a router that
+quietly keeps spawning last year's model until somebody notices the dates.
+
+**The fallback is the expensive one, and it is the commonest answer rather than an edge
+case.** Everything filed before the tier existed, everything created by hand and
+everything ingested from JIRA is unrated, so this is the branch that decides most
+sessions. It goes the expensive way because the two ways of being wrong are not
+comparable: routing an easy bead to Opus costs a bill, and routing a hard one to Sonnet
+costs an unattended hour producing something that has to be thrown away and re-run
+anyway. **Nothing is logged for an untiered bead** — a line per launch saying so would be
+a warning nobody could act on and everybody would learn to scroll past. A bead whose
+labels *contradict* each other is different and is said out loud, once, naming the bead
+and what it opened on, because that one has a fix and the fix is on the bead.
+
+**Precedence, because `model` is also a foundation field.** Four sources, and each step
+is a step up in how specifically somebody said it: the
+[baseline](#what-an-agent-is--and-how-it-asks-to-be-different) in `lib/foundation.js`,
+then config where there is a key for it (`consoleModel`, which is the chat session's and
+not a worker's), then **the bead's tier**, then an
+[approved amendment](#what-an-agent-is--and-how-it-asks-to-be-different). The tier beats
+config because a deployment default is a sentence about every session and the tier is a
+fact about this one, decided by whoever wrote the bead while they were looking at the
+work — the moment it was cheapest to answer. The amendment beats the
+tier because Adam approved a sentence about which model *this agent* runs, by name — and
+a router silently ignoring it would make the approval a no-op he had no way to see. So an
+amended worker runs on what it was granted whatever the bead says, and the foundations
+screen is where that shows.
+
+**Only the worker is routed.** The
+[planner](#an-epic-is-planned-not-worked--and-each-group-gets-its-own-window) opens on an
+epic, and an epic's tier is a claim about the work underneath it rather than about the hour spent
+deciding how to cut that work up — planning a subtree of five easy beads is not an easy
+job, and it is the one window every other window then depends on. The button that opens a
+session by hand is not routed either: it is reached from a question as often as from a
+bead, you are standing there when you press it, and `/model` is one line away.
+
+**The selection is recorded on the advocate's card while the session is still running.**
+The bead does not carry it and cannot yet — what a run *actually* used is only knowable
+once it has finished, which is bc-nc6o.3 — so the worker row on the card is the only place
+"what is this window costing" is answerable in the meantime, and it carries the tier
+beside the model because `opus` is equally the answer for a bead rated `high` and a bead
+nobody rated at all. It is in the launch line in the log too, beside the permission mode
+and for the same reason: both are decisions made silently at spawn and invisible
+afterwards.
+
+`test/tiermodel.mjs` covers it, and the checks that matter run the real `openWorkSession`
+end to end and read back **the shell command the window would have run** — a mapping that
+is right and a flag that never reaches the command line look identical from a unit test.
+It drives the launcher against a copy of `lib/` with a stub AppleScript beside it, so a
+full launch happens and no window appears; the amendment case commits a real amendment to
+a real repo and watches it beat the tier all the way to the `--model`.
 
 ### Approve, adjust, decline
 
@@ -11793,15 +11971,26 @@ beadcause request timings — 412 requests over 26m  ·  budget 1000ms  ·  slow
 route                        n     p50     p95     max  sub%     ×      n     p50     p95
 GET /api/prs                 3   26.8s   37.5s   37.5s  1.00  13.0×    41    12ms    22ms
 GET /api/questions          14   875ms    2.7s    4.5s  0.99   9.1×   126     9ms    18ms
+GET /api/session-log         ·       ·       ·       ·     ·     ·      6    1.2s    1.5s
 
-over budget — cold p95 past 1000ms:
+over budget — p95 past 1000ms, cold or warm:
   GET /api/prs
   GET /api/questions
+  GET /api/session-log
 ```
 
 That last block is the point of the whole thing: **the routes that miss the budget are
 named**, rather than left to be read off a table. `--json` gives the snapshot as it comes
 off the route, `--top N` the worst few, and `--parked` includes the long-polls.
+
+**Cold or warm, and that is not a hedge in the heading.** A route is over budget on the
+worse of its two p95s, because a request that took a second and a half took a second and
+a half whether or not it spawned anything. The third row above is the case that made the
+distinction concrete: `GET /api/session-log` reads a transcript off disk, so it spawns no
+child, so it is *warm* by the derivation — and it has no cold samples at all. Filtering
+the list on the cold p95 would have dropped the only genuinely slow route on that page
+out of the one list whose job is to name slow routes. The list has always been the worse
+of the two; for a while the heading over it said `cold p95`, which is what bc-fg37 fixed.
 
 ### What it found the first time it ran
 
@@ -13062,6 +13251,63 @@ wire](#one-credential-rule-and-one-wire-shared-by-jira-and-confluence). What is 
 shared is every sentence this integration says, including the decision that a Confluence
 401 reaches the phone as a 502.
 
+### Setting it up without opening the file
+
+The block above is what the configuration *looks* like, not how you get one.
+**`npm run configure` asks for all of it**, beside the Google sign-in question at the
+end, because those two are the pair that take a credential:
+
+```
+12. Publish and read Confluence pages?
+   currently: off
+   set up Confluence? (y/n) [n] y
+   site: [none] https://yourteam.atlassian.net
+   account email: [] you@yourteam.com
+   space to publish into: [none] ENG
+   API token:
+   readable spaces: [none] ENG
+   Publishing is on — into ENG.
+   Reading is on for ENG and nothing else on that site.
+```
+
+Confluence was the last integration on this Mac that could only be turned on by editing
+`config.json` under a running daemon, which is what [the Slack
+channel](#slack--the-same-decision-in-a-channel) used to be. Four things about the block
+are decisions rather than layout:
+
+- **The token is typed with the echo off and never reaches `config.json`.** It goes to
+  `~/.config/beadcause/confluence.key` at 0600, by the same route and for the same reason
+  as the Google client secret — that file is committed after every write, so a credential
+  in it is in a history a rotation cannot reach back into. Enter keeps the one already
+  there rather than wiping it, and nothing is written at all until the last question is
+  answered, so Ctrl+C halfway through really does leave every credential as it was.
+- **The readable-spaces question opens at `none`, on an install that publishes into
+  `ENG`.** That is the [empty allowlist](#reading-a-page-in--and-why-the-allowlist-is-empty-to-begin-with)
+  said again in the one place it is easiest to lose: the obliging thing for a wizard to do
+  is offer back the space you typed one question earlier, and doing that would decide
+  *every unattended agent this Mac dispatches may read the company wiki* on behalf of
+  somebody pressing Enter. Reading stays off, and the verdict says so as the default
+  rather than as a fault — no "re-run configure to finish it" over an install that
+  deliberately reads nothing.
+- **`none` at the site turns off all four fields together**, and says which readable
+  spaces went with them. Clearing the site alone would leave a `space` and a `readSpaces`
+  behind, which both halves read as *wants Confluence* — so a deliberate off would be
+  reported as a misconfiguration, at every startup, naming the site that was just deleted
+  on purpose. The key file is left where it is; deleting a credential is not setup's to do.
+- **The verdict is two sentences because this is two switches.** Publishing and reading
+  fail separately and can disagree — a site with no space cannot publish and reads
+  perfectly well — so the summary line is `publishing into ENG, reading nothing` rather
+  than the word "on", which would be true of an install whose agents read nothing at all.
+
+**Neither answer is on the [space details screen](#space-details--the-page-the-advocate-console-became),
+and that is the same decision twice.** `confluenceSpace` is not there for the reason the
+next section gives, and `readSpaces` is not there for a reason of its own: it is a single
+global list rather than a per-space one — see [the two edges](#reading-a-page-in--and-why-the-allowlist-is-empty-to-begin-with)
+— so a row on a card that governs one space would be a control that quietly governs all of
+them. `node test/confluencesetup.mjs` (part of `npm test`) drives the block with scripted
+answers, and the assertion it exists for is the second bullet: the offered default, not
+just the answer.
+
 ### Which spaces may publish, and to where
 
 `confluence.space` is the default target. A [space](#spaces--keeping-work-out-of-your-evening)
@@ -13082,10 +13328,12 @@ publishing the day a global default appears. Leave `confluence.space` unset enti
 configure it if most of what you read is not the team's business.
 
 This is deliberately **not** on the [space details screen](#space-details--the-page-the-advocate-console-became)
-with the other nine settings. It is the same line `name` and `workspaces` sit on the far
+with the settings that are. It is the same line `name` and `workspaces` sit on the far
 side of: choosing which wiki an evening's work is published to is a config-file act, not
 a thing to do with a thumb, and an integration whose whole point is being deliberate
-loses that the moment its target is as easy to change as the act.
+loses that the moment its target is as easy to change as the act. `confluence.space`
+underneath it is a wizard answer rather than a card row for the same reason, one level
+up — see [setting it up](#setting-it-up-without-opening-the-file).
 
 ### It is a button, pressed twice, under a target named in full
 
@@ -13249,7 +13497,9 @@ can resolve one, and the API does not. And `readSpaces` is a single global list 
 than a per-[space](#spaces--keeping-work-out-of-your-evening) one: unlike
 `confluenceSpace` for publishing, the reader is a command an agent runs in a checkout
 and has no honest way to know which beadcause space it is acting for. So list only the
-spaces that *every* agent this Mac dispatches may read.
+spaces that *every* agent this Mac dispatches may read — which is also why it is a
+question in [`npm run configure`](#setting-it-up-without-opening-the-file) rather than a
+row on a space's card, where a per-space control would quietly govern all of them.
 
 `node test/confluenceread.mjs` (part of `npm test`) drives it against the same kind of
 fake Confluence, and the case it exists for is the third paragraph above: a page in a
@@ -13306,6 +13556,7 @@ cookie says so), and `/auth/signout` ends the session.
 | GET | `/api/bead-links` | `?workspace=&id=` | `{children[], dependents[]}` — everything with an edge pointing at that bead, closed ones included, open work first: the `parent-child` rows as `children`, every other kind as `dependents` with its `dependency_type`. One `bd dep list --direction=up` for both, because `bd show` carries `dependent_count` and not one row behind it |
 | POST | `/api/bead/advocate` | `{workspace, id}` | opens the **P0 advocate** on this P0 — the button on the inbox's P0 card. Four refusals in front of it, all 409 with a sentence: unendorsed, superseded, closed, or not a P0 anybody owns (a crash P0 is refused by name — a stack trace is not an epic). **Never two on one P0**: a live session whose window carries this bead id is a 409 rather than a second window — matched with `namesBead`, so a session on a *child* of this P0 no longer refuses it — and so is a launch from the last ten minutes whose window has not named itself yet, since that is the gap a second tap falls through. The card in front of it reads the same rule and draws it: it links to `/session?pid=` while an advocate is up, and says one is opening until then, rather than re-offering a launch that would now be refused (`advocate` on each card of `p0board`). Blocked under `OBSERVING`, unlike the verdict routes — those are you deciding, this is the daemon opening a window |
 | POST | `/api/bead/owner` | `{workspace, id, owner}` | sets `owner:<handle>` — who is answerable for this bead — and answers `{owner, owners[], p0, changed}`. An empty `owner` hands it back to nobody, which is a thing you may say; setting the owner it already has is `changed: false` and no `bd` write at all. Every *other* owner label comes off, so resolving two machines' claims from the sheet is visible. A route of its own rather than a field of `/api/bead/adjust`, because adjust refuses a bead anybody has endorsed and ownership is most worth changing on a P0 that is live — and because the ✎ may not touch `owner:` at all (`isProtectedLabel`) |
+| POST | `/api/bead/addressee` | `{workspace, id, to}` | re-addresses a question — sets `for:<handle>`, the label that decides [whose phone rings](#who-a-question-is-for--me-and-the-for-label), and answers `{addressees[], changed, cleared}`. `to` is one handle; **empty, or `everyone`, means everyone**, which is a decision rather than the absence of one. Every *other* `for:` label comes off, because handing it to Carol means Carol and not also whoever it was addressed to before. Re-sending the handle it already carries is `changed: false` and no `bd` write at all. `cleared: true` says it also pulled the row out of this phone's notification shade, which it does on exactly one condition — the question is now addressed somewhere that is not this Mac — via the same `dismissed` event [a narrowed filter](#and-it-offers-to-tidy-up-the-noise-it-already-made) uses, and with the same honest limit: ntfy cannot recall a delivered message, so only the Android shell's own tray is reachable. A route of its own for `/api/bead/owner`'s reasons, and because the ✎ may not touch `for:` at all (`isProtectedLabel`) |
 | GET | `/api/p0s` | `?workspace=` | `{p0s[]}` — every **open** P0 in that workspace, `{id, title, owners[], mine}`, yours first. What the sheet offers a held bead to be adopted under. Every P0 and not only yours, because the dispatch gate measures against all of them; off the cached graph, and this one waits for a cold cache rather than answering "there are no P0s" |
 | POST | `/api/bead/adopt` | `{workspace, id, parent}` | moves a bead under `parent` — the fix for the one hold that never clears itself, offered on the sheet of any bead with **no P0 above it**. Answers `{parent, workable}`, where `workable` is the gate's own answer after the write rather than a promise about it. A parent with no P0 above *it* is a 409 naming that, since the adoption would not make the bead workable; an empty `parent` detaches instead, which is how an adoption into the wrong epic is undone. The cached graph is refreshed on the way out, so the next advocate tick acts on the new shape |
 | GET | `/api/history` | `?workspace=` **or** `?space=`, and `&status=&priority=&provenance=&id=&limit=&offset=&refresh=1` | `{rows[], total, limit, offset, more, workspaces[], errors[], workspace, space, query}` — [the ledger](#the-ledger-behind-the-history-tab): every bead a space has ever had, closed and deferred included, newest-**updated** first, paged. The four filters are optional and compose; each row carries `hasSession`, whether a session was archived for it, and a `closeReason` cut to 240 characters on a word boundary — two lines of the row hold 226 at the widest, and the whole sentence is on the sheet the row links to. A bad `status` or `priority` is a 400 naming the word rather than an empty list, an unknown `workspace` a 400 and an unknown `space` a 404 — but a space with no beads is `{rows: [], total: 0, more: false}` and a 200. Cached ten seconds per workspace; `refresh=1` forces the sweep |
@@ -13326,8 +13577,8 @@ cookie says so), and `/auth/signout` ends the session.
 | POST | `/api/agent-arm` | `{id, acknowledge?, disarm?}` | arms that agent's configured tools override for **one** reply. `428` the first time, carrying the warning to show; `409` while it is answering; `400` if it has no override |
 | DELETE | `/api/agents` | `?id=` | removes one of yours; built-ins refuse |
 | GET | `/api/foundation` | — | `{requests[], workspaces[]}` — the foundation channel on its own, without an inbox sweep. **The bare path is the channel and nothing else** |
-| GET | `/api/foundations` | `?workspace=` | `{agents[], workspace, workspaces[]}` — every agent kind, for the list on the agents screen |
-| GET | `/api/foundation/agent` | `?id=&workspace=` | `{agent, workspace}` — one agent's foundation, history and activity. `404` for an id that is not an agent kind. Named for its neighbours `/api/foundation/{amend,decline,log}`, and *not* the bare path: it was registered there too, where it never answered once |
+| GET | `/api/foundations` | `?workspace=` | `{agents[], workspace, workspaces[]}` — every agent kind, for the list on the agents screen. Each row carries `notes`/`memories`/`lastLearnedAt`, so the asymmetry between agents is visible without opening four of them |
+| GET | `/api/foundation/agent` | `?id=&workspace=` | `{agent, workspace}` — one agent's foundation, history, activity and `memory` (what it has learned in each tier, and whether any of it has ever been read back). `404` for an id that is not an agent kind. Named for its neighbours `/api/foundation/{amend,decline,log}`, and *not* the bare path: it was registered there too, where it never answered once |
 | POST | `/api/foundation/amend` | `{id, workspace?, set, bead?, justification}` | edits one agent's foundation, recorded exactly like an amendment the agent asked for — same history, same justification. `400` naming the field if `set` carries a protected one, rather than dropping it silently |
 | POST | `/api/foundation/decline` | `{id, workspace?, bead?, request, reason}` | records a refusal against that agent, so `git log refs/beadcause/foundations` carries the no as well as the yes |
 | GET | `/api/foundation/log` | `?id=&ws=&bead=` | `{key, log}` — that agent's transcript. `{key: null}` and a sentence when the kind keeps no log file |
@@ -13356,7 +13607,7 @@ cookie says so), and `/auth/signout` ends the session.
 | POST | `/api/terminal/close` | `{id}` | ends it (SIGTERM, then SIGKILL after 5s) |
 | WS | `/ws/terminal` | `?id=`, subprotocols `beadcause.term.v1` + `tok.<token>` | binary frames both ways are pty bytes; JSON carries `hello` · `ready` · `exit` in, `input` · `resize` · `close` out |
 | GET | `/terminal` | `?id=` or `?ws=&seed=` | the terminal page |
-| GET | `/api/timings` | — | `{since, uptimeMs, budgetMs, slowMs, requests, routes[], overBudget[], background, overflow}` — what every route has cost, worst first, **warm and cold counted apart** and the `bd`/`gh`/`git` share broken out of each. `overBudget` names the routes whose cold p95 misses `budgetMs`, which is the question the whole thing exists to answer; `background` is the subprocess time the daemon spent on nobody's request. The long-polls carry `parked: true` and are in neither list. Read as a table by `npm run timings`, and cheap enough to poll — two fixed-size buckets per route, in memory, nothing persisted. See [timing every request](#timing-every-request--which-routes-are-actually-slow) |
+| GET | `/api/timings` | — | `{since, uptimeMs, budgetMs, slowMs, requests, routes[], overBudget[], background, overflow}` — what every route has cost, worst first, **warm and cold counted apart** and the `bd`/`gh`/`git` share broken out of each. `overBudget` names the routes whose p95 misses `budgetMs` on **either** side of the cache — the worse of the two, so a route that only ever answers warm and still takes a second is named — which is the question the whole thing exists to answer; `background` is the subprocess time the daemon spent on nobody's request. The long-polls carry `parked: true` and are in neither list. Read as a table by `npm run timings`, and cheap enough to poll — two fixed-size buckets per route, in memory, nothing persisted. See [timing every request](#timing-every-request--which-routes-are-actually-slow) |
 | GET | `/api/admin` | — | every scope and what pausing it would cost. Read-only and cheap — no `bd` call, no spawn — because `/admin` polls it and the counts on the buttons have to be current when you press one |
 | POST | `/api/admin` | `{action, what, scope, mode}` | pause or resume everything, one space, or one half of it. `what` is `all` · `advocates` · `terminals`; `mode` is `drain` (default — no new launches, running workers finish untouched) or `kill`. Never run at boot: a `launchctl kickstart -k` behaves exactly as it did. Refused on an observer |
 | GET | `/api/tls` | `?pairing=1` | what HTTPS is doing: the setting, the certificate on disk (name, days left), what the socket is actually serving (`serving`: name, days left, and `checkedAt` — when the renewal loop last looked, `null` from anything too old to say), the URL a phone would be handed, and whether a restart is owed. Cheap enough to poll — two file reads and a memoised MagicDNS name, and it never asks `tailscale cert` for anything. `?pairing=1` adds the link and a QR |
@@ -13844,6 +14095,55 @@ Two consequences of that ordering worth knowing:
   perfectly good answer to "whose agent is this", which is the question being asked
   here.
 
+#### Handing it to somebody else, from the phone
+
+Everything above happens at the moment a question is filed, from a terminal, and until
+bc-jg0w that was the *only* moment: `--for` on `beadcause-ask`, the stamp
+`bin/deliver.js` and `bin/propose.js` put on their own cards, `Bd.create` for anything
+the daemon files. Which left the ordinary case unreachable. A question lands on your
+phone, you read it, and it is really Carol's — and the only two moves were to answer it
+yourself or to leave it sitting there. Neither of those is the true one, and an addressee
+you cannot move is most of the way to not having one.
+
+So the card carries a **📮 pill** in the same row as the workspace and the bead id,
+saying who is being asked: *you*, or a name, or *anyone*. Tap it and a panel offers one
+button per handle, plus **anyone who is free**, plus a box for somebody the graph has
+not seen yet. One tap re-addresses the question, and the tap **replaces** rather than
+adds — "it is really Carol's" means Carol, not Carol as well as you.
+
+There is no roster anywhere in beadcause: the config knows who *this* Mac is and nothing
+about the other five. So the buttons are read off the inbox itself, where every question
+another Mac filed carries its person's `for:` label — which on an install where addressing
+means anything is the roster, because everybody is asking questions. The typed field is
+what covers the person who has not asked one yet.
+
+**The pill is drawn only when `me` is set.** With it unset there is nobody a question
+could be addressed away from, so a control for it would have exactly one state — the same
+branch-that-cannot-be-entered guarantee the rest of this section makes, drawn here as an
+absence rather than as a pill saying "for everyone" on every card.
+
+**Handing a question away also clears its notification, on one condition.** If the
+question is now addressed somewhere that is not this Mac, the row goes out of the phone's
+shade — the argument [a narrowed filter](#and-it-offers-to-tidy-up-the-noise-it-already-made)
+already makes, applied to a stronger version of the same fact: a filter change is *I do
+not want to think about this right now*, and a hand-off is *this is not mine*. Same
+`dismissed` event, same honest limit (ntfy cannot recall a delivered message; the Android
+shell's tray is what is actually reachable), same promise that the bead is untouched — it
+stays open, stays unanswered, stays in everybody's inbox. Re-addressing a question to
+*yourself*, or to everyone, leaves the shade alone, because those are the two answers
+under which the phone is still being asked.
+
+**And the other phone starts being asked.** That is not automatic and it is worth saying
+why: each daemon marks every live question as notified at the end of every sweep, so
+Carol's Mac swept this bead the day it was filed, kept quiet because it was addressed to
+somebody else, and would never have looked at it again. The poller therefore treats one
+narrow case as a fresh arrival — a question it recorded as quiet *for the addressee
+reason* which is no longer addressed elsewhere — and pushes it once. A muted space and a
+narrow filter are the other two kinds of quiet and neither is undone by a label.
+
+`node test/readdress.mjs` covers the label arithmetic, the route, the shade, and that
+half of the poller.
+
 ### Whose beadcause wrote it — the byline on every daemon write
 
 The same `me`, answering a different question. `bd` records who made each write, and
@@ -14005,11 +14305,11 @@ another Mac's, and an agent's — and asserts that exactly one of them rings.
 | `claudeSessionsDir` | where those per-process records live, if not `$CLAUDE_CONFIG_DIR/sessions` or `~/.claude/sessions` |
 | `claudeProjectsDir` | where session transcripts live, if not the `projects` folder of every `~/.claude…` directory. Takes a list. Governed by `claudeSessions` — off there means no transcripts either |
 | `assetRoots` | the only directories `/api/asset` will read images from |
-| `confluence.site` | your Atlassian Cloud site, e.g. `https://yourteam.atlassian.net`. Absent, [publishing](#publishing-a-document-to-confluence) is off and no credential is read |
-| `confluence.email` | the Atlassian account the API token belongs to — the two together are basic auth |
-| `confluence.space` | the Confluence space a document lands in by default. A beadcause space may name another with `confluenceSpace`, or refuse with `confluenceSpace: false` |
+| `confluence.site` | your Atlassian Cloud site, e.g. `https://yourteam.atlassian.net`. Absent, [publishing](#publishing-a-document-to-confluence) is off and no credential is read. Asked by `npm run configure`, where `none` here turns the whole integration off — see [setting it up](#setting-it-up-without-opening-the-file) |
+| `confluence.email` | the Atlassian account the API token belongs to — the two together are basic auth. Asked by `npm run configure` |
+| `confluence.space` | the Confluence space a document lands in by default. A beadcause space may name another with `confluenceSpace`, or refuse with `confluenceSpace: false`. Asked by `npm run configure`; the per-space override is not, and is a config-file answer on purpose |
 | `confluence.apiTokenFile` | where the API token is read from, if not `~/.config/beadcause/confluence.key`. A relative name resolves inside that directory. **The token itself is never a config field** — this file is committed after every write |
-| `confluence.readSpaces` | the space keys an unattended agent may [read a page out of](#reading-a-page-in--and-why-the-allowlist-is-empty-to-begin-with), e.g. `["ENG"]`. **Empty by default and does not inherit `space`** — the token that publishes can read the whole site, so an install that publishes still reads nothing until this names a space |
+| `confluence.readSpaces` | the space keys an unattended agent may [read a page out of](#reading-a-page-in--and-why-the-allowlist-is-empty-to-begin-with), e.g. `["ENG"]`. **Empty by default and does not inherit `space`** — the token that publishes can read the whole site, so an install that publishes still reads nothing until this names a space. Asked by `npm run configure`, where the question opens at `none` even on an install publishing into `ENG` |
 | `jira` | JIRA per workspace, keyed by workspace name — `{"climative": {"enabled": true, "email": "you@company.com"}}`. Empty by default, and a workspace not named here costs nothing: no call is made about it at all. The site URL and the project keys come from that workspace's own `bd config get jira.url` / `jira.projects`, so `enabled` and `email` are usually the whole setting; `url` / `projects` here override for a workspace whose `bd` was never pointed at JIRA. **There is deliberately no token field** — see [JIRA, per workspace](#jira-per-workspace--read-only-and-one-setting) |
 | `jira.<workspace>.tokenFile` | where that workspace's API token is read from, if not `~/.config/beadcause/jira-<workspace>.key`. A relative name resolves inside that directory. The same option `confluence.apiTokenFile` is, and it opens the same hole: point it at a name that directory does *not* refuse and the log says so on every check |
 | `jiraSeconds` | how often the daemon asks JIRA what is assigned to you (default 60, floor 15) — one HTTP call per workspace whose `jira` block is switched on, and **nothing at all** for the rest. Beside `pollSeconds` rather than inside `jira`, because that block is keyed by workspace name and a number in it would be a setting for a workspace called "seconds". See [the tickets, on a clock](#the-tickets-on-a-clock--and-a-failure-that-is-never-an-empty-list) |
