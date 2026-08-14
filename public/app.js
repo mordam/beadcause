@@ -6416,6 +6416,23 @@
       refetch: true,
     },
     {
+      // The endorsement queue, and the same decision as the board below it for a stronger
+      // reason: `/api/unendorsed` is a `bd list` per workspace and then a `bd show` per
+      // row (lib/endorsequeue.js), which is the most expensive payload in this table. A
+      // floored re-ask would keep that sweep running once a minute all day on behalf of a
+      // page that may never be opened — the exact bill /endorse stopped paying when its
+      // own 45-second timer went (bc-bsgn). What it gets is the free half: held young for
+      // as long as the log says nothing has been filed, revoked, amended or asked about,
+      // and the moment one of those lands the entry keeps its own age and the TTL takes
+      // it. That is what makes arriving at the queue instant more than fifteen minutes
+      // after this document loaded, which on a phone left open all day is every arrival.
+      path: '/api/unendorsed',
+      fold: (queue) => (Array.isArray(queue?.beads) ? queue : null),
+      moved: (events) => window.beadcause?.stream?.queueMoved?.(events) !== false,
+      stampWhileStale: false,
+      refetch: false,
+    },
+    {
       path: '/api/prs',
       fold: (board) => (Array.isArray(board?.repos) ? board : null),
       // `!== false` rather than a plain call: a stream.js from before `boardMoved`
