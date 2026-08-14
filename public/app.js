@@ -2554,12 +2554,29 @@
    * starts with reading them.
    */
   function gateWhyHtml(q, gate) {
-    const until = gate.kind === 'epic' ? 'its children are closed' : 'its blockers are closed';
     return `<div class="gate-why">
       <strong>${esc(q.id)} can't be closed from here — ${esc(gate.reason)}</strong>
-      <p>A comment is what this box can do; it stays on the thread and the bead closes when ${until}.</p>
+      <p>A comment is what this box can do; it stays on the thread and the bead closes when ${gateUntil(gate)}.</p>
       ${gateBlockersHtml(q, gate)}
     </div>`;
+  }
+
+  /**
+   * What has to happen before this bead can close — one clause, in the gate's own terms.
+   *
+   * Three kinds reach a card and they want three different sentences. "its blockers are
+   * closed" was the fallback for everything that was not an epic, which read as nonsense
+   * the day the `adopts` gate arrived: an epic that names beads in an `Adopts:` line has
+   * no blockers at all, and closing something is not what clears it — applying the
+   * adoption is. `merge-reason` never reaches here (a card asks the gate with no reason
+   * in hand) and is answered anyway, because a fallback that is wrong is worse than one
+   * that is vague.
+   */
+  function gateUntil(gate) {
+    if (gate.kind === 'epic') return 'its children are closed';
+    if (gate.kind === 'adopts') return 'the beads it adopts are really its children';
+    if (gate.kind === 'merge-reason') return 'someone closes it on its theme';
+    return 'its blockers are closed';
   }
 
   /** The beads behind a gate, as links into the graph. Shared by both gate blocks. */
@@ -2683,15 +2700,15 @@
     const gate = q.closeGate;
     if (!gate) return '';
     const verb = gate.from === 'dismiss' ? 'dismissed' : 'closed';
-    const until = gate.kind === 'epic' ? 'its children are' : 'its blockers are';
+    const until = gateUntil(gate);
     const offer = gate.canComment !== false;
     return `<div class="gate-note">
       <strong>${esc(q.id)} cannot be ${verb} — ${esc(gate.reason)}</strong>
       <p>Nothing has been written. ${
         offer
-          ? `Save what you typed as a comment and it stays on the thread; the bead stays open until ${until} closed.`
-          : `The bead stays open until ${until} closed. Close ${
-              gate.kind === 'epic' ? 'the children' : 'the blockers'
+          ? `Save what you typed as a comment and it stays on the thread; the bead stays open until ${until}.`
+          : `The bead stays open until ${until}. Deal with ${
+              gate.kind === 'epic' ? 'the children' : gate.kind === 'adopts' ? 'the adoptions' : 'the blockers'
             } and this one goes with them.`
       }</p>
       ${gateBlockersHtml(q, gate)}

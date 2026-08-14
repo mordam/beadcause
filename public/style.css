@@ -224,6 +224,29 @@ body {
    zero is the answer to the question the chip asks. */
 .filter-panel .chip.none { opacity: 0.55; }
 .filter-panel .chip.none[aria-pressed="true"] { opacity: 1; }
+/*
+  The one filter that is not a set of chips: the History tab's bead-id substring.
+
+  16px, and that is not a taste decision — iOS zooms the whole page in on a focused
+  input with a smaller font, and a panel that is absolutely positioned over a list does
+  not survive the viewport moving underneath it. `appearance: none` because a
+  `type="search"` otherwise arrives with the platform's own inset box, which inside a
+  dark panel is a white rectangle.
+*/
+.filter-text {
+  width: 100%;
+  min-height: 34px;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 16px;
+  appearance: none;
+}
+.filter-text:focus { outline: none; border-color: var(--accent); }
+.filter-text::placeholder { color: var(--muted); opacity: 0.7; }
 .chip-row {
   display: flex; gap: 8px;
   overflow-x: auto;
@@ -5102,6 +5125,15 @@ a.pill { text-decoration: none; }
 .hist-count { margin: 0 0 2px; font-size: 13px; color: var(--muted); }
 .hist-trouble {
   margin: 0 0 4px;
+  font-size: 13px; line-height: 1.45;
+  color: var(--warn);
+}
+/* A filter the daemon would not honour, drawn at the top of the list because that is
+   directly under the control that caused it — `not a status: close` beside the chips is
+   a sentence you can act on, and the same words at the foot of an empty page are not.
+   `.hist-trouble`'s colour deliberately, because both are the same kind of news. */
+.hist-refused {
+  margin: 0 0 6px;
   font-size: 13px; line-height: 1.45;
   color: var(--warn);
 }
