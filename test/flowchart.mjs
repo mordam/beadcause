@@ -69,6 +69,16 @@ check('every source path a node names is still in the tree', () => {
   assert.ok(sourcePaths().length > 50, 'suspiciously few source paths — has the model been emptied?');
 });
 
+check('every flow has a pill-sized short name', () => {
+  // Written per flow rather than derived — every rule for shortening a title gets one of
+  // these wrong, and a nav bar that wraps to four rows is one nobody reads. `problems`
+  // enforces the length; this is the case that says why the field exists at all.
+  for (const f of map.flows) {
+    assert.ok(f.short, `${f.id} has no short name`);
+    assert.ok(f.short.length <= 18, `${f.id}: "${f.short}" is ${f.short.length} characters`);
+  }
+});
+
 check('the flows cover the app’s spine', () => {
   // Named rather than counted. A count passes when somebody deletes the advocate flow
   // and adds two about the same screen, which is precisely the loss worth failing on:

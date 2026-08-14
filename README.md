@@ -2740,8 +2740,20 @@ Eleven flows, a hundred and twenty-odd steps, and every step is one of six kinds
 | **state** | the tracker, a git ref, a file under `~/.config/beadcause` | where a restart is survived |
 
 Each kind has a shape as well as a colour, because a boundary you can only see on a good
-screen is not one. Tap a shape and it lights that step's card below the diagram, which
-carries what it actually does and the files it happens in.
+screen is not one.
+
+**One diagram, one card.** Tap a shape and it fills the detail card — beside the drawing
+on a laptop, directly under it on a phone — with what that step actually does and the
+modules it happens in. The first version listed all sixteen steps as cards below the
+diagram, which is two documents about one subject and made the drawing a picture you
+scroll past. Under the diagram there is now an index of numbered chips instead: how you
+reach a step you cannot find in the drawing, small enough not to compete with it.
+
+Selection is shown in four ways at once, and that is not decoration — the whole gesture is
+tapping a small shape in a chart that scrolls. Everything else dims, the chosen shape takes
+the accent as its outline and a halo, it flashes once, and its chip and card say so too. On
+a phone the card is below the fold of the diagram, so the shape is often the only part of
+the answer you can see.
 
 ### The agent halves are read, never written down
 

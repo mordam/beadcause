@@ -176,26 +176,81 @@ try {
   );
   await send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: 'dark' }] });
 
-  // 3 — a tap on a shape lights the card for that step, and it is the right one.
+  // 3 — a tap on a shape fills the one detail card, with that step and no other.
   const tapped = await evaluate(`(() => {
-    const g = document.querySelector('.fc-diagram g.node');
+    const g = document.querySelectorAll('.fc-diagram g.node')[2];
     const m = /flowchart-(.+)-\\d+$/.exec(g.id || '');
     g.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-    const lit = document.querySelector('.fc-step.lit');
-    return { id: m && m[1], lit: lit && lit.dataset.node, raw: g.id };
+    const card = document.querySelector('.fc-detail');
+    return {
+      id: m && m[1],
+      shown: card && card.dataset.node,
+      raw: g.id,
+      cards: document.querySelectorAll('.fc-detail').length,
+      selected: document.querySelectorAll('.fc-diagram g.node.sel').length,
+      chip: (document.querySelector('.fc-chip[aria-pressed="true"] .n') || {}).textContent,
+      body: card ? card.querySelector('.body').textContent.trim().length : 0,
+      src: card ? card.querySelectorAll('.fc-src code').length : 0,
+    };
   })()`);
   check(
-    'a tap on a shape lights that step’s card',
-    tapped.id && tapped.lit && tapped.id === tapped.lit,
-    `shape ${tapped.id} lit ${tapped.lit} — mermaid's id scheme has moved, so public/flow.js's binding needs updating`
+    'a tap on a shape shows that step in the detail card',
+    tapped.id && tapped.shown && tapped.id === tapped.shown,
+    `element ${tapped.raw} showed ${tapped.shown} — mermaid's id scheme has moved, so public/flow.js's binding needs updating`
   );
+  check('there is exactly one detail card, not a card per step', tapped.cards === 1, `${tapped.cards} on the page`);
+  check(
+    'and the card carries the step’s prose and the files it happens in',
+    tapped.body > 40 && tapped.src > 0,
+    `${tapped.body} characters of body, ${tapped.src} source paths`
+  );
+  // Selection has to be legible in the drawing as well. On a phone the card is below the
+  // fold of the diagram, so the shape is the only thing saying which step you are reading.
+  check('the tapped shape is the one marked selected', tapped.selected === 1, `${tapped.selected} shapes marked`);
+  check('and its chip in the index is pressed', tapped.chip === '3', `chip ${tapped.chip} is pressed, expected 3`);
 
-  // Every step has its detail on screen, not only in the diagram. This is the half a
-  // picture cannot carry and the reason the page is more than a diagram.
-  const steps = await evaluate(
-    `[...document.querySelectorAll('.fc-step')].every(el => el.querySelector('p')?.textContent.trim().length > 20 && el.querySelectorAll('.fc-src code').length > 0)`
+  // Selection has to be loud, not a 1px difference in a stroke. Four signals were added
+  // for it (dim the rest, accent the outline, halo, flash) and the two that are readable
+  // from a computed style are the two asserted: everything else steps back, and the
+  // chosen shape takes a different stroke from the one its kind gives it.
+  // After the 150ms fade, not during it. Sampled immediately, this read the *old*
+  // selection at full opacity and the new one still at 0.42 on its way up — which looks
+  // exactly like the rule being applied backwards, and is not.
+  await sleep(300);
+  const loud = await evaluate(`(() => {
+    const box = document.querySelector('.fc-diagram');
+    const sel = box.querySelector('g.node.sel');
+    const other = box.querySelector('g.node:not(.sel)');
+    const shape = (g) => g && g.querySelector('rect,polygon,path');
+    return {
+      flagged: box.classList.contains('has-sel'),
+      selOpacity: Number(getComputedStyle(sel).opacity),
+      otherOpacity: Number(getComputedStyle(other).opacity),
+      selStroke: getComputedStyle(shape(sel)).stroke,
+      otherStroke: getComputedStyle(shape(other)).stroke,
+      selStep: sel.dataset.step, otherStep: other.dataset.step,
+    };
+  })()`);
+  check('the rest of the diagram steps back', loud.flagged && loud.selOpacity - loud.otherOpacity > 0.3, JSON.stringify(loud));
+  check('and the selected shape takes a different outline', loud.selStroke !== loud.otherStroke, JSON.stringify(loud));
+
+  // The card steps, which is the other way through a flow: read it in order without
+  // hunting for the next shape in a drawing that scrolls.
+  const stepped = await evaluate(`(() => {
+    const before = document.querySelector('.fc-detail').dataset.node;
+    document.querySelector('.fc-steps [data-move="1"]').click();
+    const after = document.querySelector('.fc-detail').dataset.node;
+    const n = document.querySelector('.fc-step-n').textContent.trim();
+    return { before, after, n };
+  })()`);
+  check('▶ moves the card to the next step', stepped.before !== stepped.after && stepped.n.startsWith('4 /'), JSON.stringify(stepped));
+
+  // The index is one chip per step — the way to reach a step you cannot find in the
+  // drawing. It is deliberately not a second copy of the detail.
+  const chips = await evaluate(
+    `({ chips: document.querySelectorAll('.fc-chip').length, want: window.FLOWCHART.flows[0].nodes.length })`
   );
-  check('every step card carries its detail and its source files', steps, 'a card with an empty body or no source path');
+  check(`the index has a chip per step (${chips.chips}/${chips.want})`, chips.chips === chips.want);
 
   // The agents pane draws every kind, with the fields that decide how much each could
   // break — read out of lib/foundation.js and never restated in the model.
@@ -204,7 +259,7 @@ try {
     return {
       cards: document.querySelectorAll('.fc-agent').length,
       tools: [...document.querySelectorAll('.fc-agent')].filter(c => c.querySelectorAll('.fc-tools code').length).length,
-      writes: document.body.textContent.includes('May write to the tracker'),
+      writes: document.body.textContent.includes('Writes to the tracker'),
     };
   })()`);
   check(`the agents pane draws every kind (${agents.cards}/${model?.agents})`, agents.cards === model?.agents);
