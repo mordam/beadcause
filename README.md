@@ -3221,6 +3221,51 @@ contributes no cards and hides nothing, for the same reason. `node test/p0tree.m
 holds all of that, including the one assertion that separates the feature from `under`
 renamed: a descendant with no pending question is in the tree.
 
+### A question under nothing is still drawn
+
+Narrowing the inbox to your P0s means a row that is in no P0's descendants is not drawn,
+and for most of a tracker that is exactly right — a bead under a colleague's epic is on
+their screen. But `under` cannot tell that case from a bead under **nothing at all**, and
+for that one there is no other screen. It is not a corner: `POST /api/ask` is the share
+target the phone files a question with, and it files with no parent, so the sharpest
+version of the failure was *you file a question from your phone, and it disappears from
+the phone you filed it on*. `bd` has it, `bd human list` returns it, and nothing anywhere
+says a word. `POST /api/console/create` does the same for a draft that names no parent.
+
+So the board carries a second map beside `under`:
+
+| field | what it is |
+|---|---|
+| `under` | `<workspace>/<id>` → the id of the P0 **you own** that this row descends from |
+| `unhomed` | `<workspace>/<id>` → `true` when **no open P0 at all** is above this row, whoever owns it |
+
+The client draws a row that is in either. The two questions are genuinely different on a
+shared graph — "which of my P0s has this" and "has anybody's P0 got this" — and the whole
+bug was one map answering both. A row under somebody else's open P0 is in neither map and
+stays hidden, which is [bc-rfnr.2](#your-p0s-and-the-tree-each-one-carries) still working.
+
+Three things land in `unhomed` and all three are the same fact:
+
+- **A bead with no parent** — the share target's own beads, and anything else filed
+  without one.
+- **A bead whose P0 has closed.** A closed P0 is not a root (see [the dispatch
+  gate](#where-it-lands--a-bead-filed-under-nothing-is-unworkable-the-moment-it-exists))
+  and its descendants stop being
+  pulled onto the board with it, so an open question under a finished epic is under
+  nothing. It was invisible *and* held, and only the held half was ever loud.
+- **Every row of a workspace whose graph could not be read.** `Bd.graph` answers an empty
+  shape rather than throwing, so nothing is known about what is above those rows — and no
+  evidence must not mean no question. This is the direction the whole board already fails
+  in; it just was not true of the rows until `unhomed` existed.
+
+This is the other half of [what the daemon does at the filing
+seam](#where-it-lands--a-bead-filed-under-nothing-is-unworkable-the-moment-it-exists):
+that gives a daemon-filed bead a parent when it can, this draws the bead when nothing did.
+Deliberately a screen fix and not a second filing fix — auto-adopting what a *person*
+filed is a decision about the tracker's shape, and a fix at the filing seam is only ever
+as good as the graph cache was at that instant, where this one has no such hole.
+`node test/ownquestion.mjs` holds it, from `bd export` through to the real client filter.
+
 ### The top bar says who is asking, not what the app is called
 
 The widest part of the bar used to be the word **Beadcause** — on a screen you
