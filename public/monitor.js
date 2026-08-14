@@ -264,7 +264,13 @@
     if (a.paused) return { text: `paused · ${plural(a.queue, 'bead')} ready`, tone: 'held' };
     if (a.quiet) return { text: `quiet hours · watching, not launching`, tone: 'held' };
     if (a.surveying) return { text: 'surveying for work worth proposing', tone: 'live' };
-    if (a.workers.length) return { text: `${a.workers.length} of ${plural(a.limit, 'session')}`, tone: 'live' };
+    // Coders against `limit`, because that is the only pair the daemon actually rations
+    // together. An EpicAdvocate is counted in its own section's summary and comes out of
+    // `epicLimit`; adding it here would make the head chip say `2 of 1 sessions`.
+    if (codersOf(a).length)
+      return { text: `${codersOf(a).length} of ${plural(a.limit, 'session')}`, tone: 'live' };
+    if (plannersOf(a).length)
+      return { text: `${plural(plannersOf(a).length, 'epic')} being planned`, tone: 'live' };
     if (a.queue) return { text: `${plural(a.queue, 'bead')} ready, none picked up`, tone: 'warn' };
     return { text: 'clear — no ready beads', tone: '' };
   }
@@ -562,8 +568,21 @@
     </div>`;
   }
 
-  /** The windows that are writing a plan rather than code — see `planning` in snapshot(). */
+  /**
+   * The two populations, and why the card must not add them up.
+   *
+   * A planning window and a coding window are both rows in `workers`, and since
+   * bc-xl7n.8.1 they come out of different budgets: `limit` rations coders,
+   * `epicLimit` rations planners, and stepping one leaves the other alone. So every
+   * number on this card that quotes `limit` has to count coders only — `2 of 2 sessions`
+   * over a repo whose second window is a planner is a card claiming the repo is full
+   * when it has a slot free.
+   */
+  const codersOf = (a) => (a.workers || []).filter((w) => !w.planning);
   const plannersOf = (a) => (a.workers || []).filter((w) => w.planning);
+
+  /** The epics with an advocate assigned — the roster, not the window list. */
+  const epicsOf = (a) => (Array.isArray(a.epicAdvocates) ? a.epicAdvocates : []);
 
   /**
    * Who is arguing for this repo, and for which epics.
@@ -576,20 +595,11 @@
    * Both decide what gets worked on; only one of them was visible, and the other was
    * indistinguishable from an ordinary session in "Working now".
    *
-   * So this is a roster rather than a second session list. Each row says *which epic is
-   * being argued for*, which is the question the sessions list cannot answer — a planner
-   * row there reads as a bead somebody is coding. The slot arithmetic is deliberately
-   * left where it was: a planner holds a session slot, so it is still counted and still
-   * drawn under "Working now", and this section takes nothing out of that count. Two
-   * views of one window, each answering a question the other cannot.
-   *
-   * Drawn when empty, like every held-off state on this page: "no EpicAdvocate is open"
-   * is a fact about the repo, and it is the state that follows a P0 being closed — which
-   * is how six epics' worth of planning went quiet on 2026-08-12 with nothing on screen
-   * saying so.
+   * This section is the repo advocate alone. Each EpicAdvocate gets a section of its
+   * own — `epicSections` below — because an advocate is a thing with a state, a queue
+   * and a window, not a row in somebody else's list.
    */
   function advocatesHtml(a) {
-    const planners = plannersOf(a);
     // Deliberately *not* `stateOf(a)`: that sentence is already the chip in this card's
     // head, and when sessions are open it is the session count word for word — a row
     // repeating it would be three copies of one fact on one card. What the roster owes
@@ -612,43 +622,88 @@
       <span class="work-main">
         <span class="work-title">The repo advocate</span>
         <span class="work-sub"><span class="pill id">${esc(a.workspace)}</span>
-          <span class="tag dim">${esc(a.workers.length)} of ${esc(a.limit)} sessions</span>
+          <span class="tag dim">${esc(codersOf(a).length)} of ${esc(a.limit)} sessions</span>
+          <span class="tag dim" title="EpicAdvocates come out of their own budget (maxEpicAdvocates). Stepping the session limit above does not change this number.">${esc(
+            plannersOf(a).length
+          )} of ${esc(a.epicLimit ?? 0)} EpicAdvocates</span>
           ${held}
         </span>
       </span>
       <time>${esc(age(a.lastSurveyAt))}</time>
     </div>`;
-    // Same destination rule as `workerRow`: a live pid has a transcript worth reading, a
-    // dead one does not, and the epic is the only thing left to show for it.
-    const rows = planners
-      .map((w) => {
-        const live = livePid(w.pid);
-        return `<a class="work-row adv-worker" href="${esc(live ? sessionUrl(w.pid) : graphUrl(a.workspace, w.id))}">
-          <span class="work-phase">${live && !w.ended ? '<span class="spark"></span>' : w.ended ? '◍' : '◔'}</span>
-          <span class="work-main">
-            <span class="work-title">${esc(w.title || w.id)}</span>
-            <span class="work-sub"><span class="pill id">${esc(w.id)}</span>
-              <span class="tag ok">EpicAdvocate</span>
-              <span class="tag" title="A planner is opened on one P0 to decide what its children are and which of them belong together. It writes a plan, not code.">writing this epic's plan</span>
-              ${
-                // The number the plan is actually over. A planner is deliberately shown
-                // every ready child rather than a capped batch (see `maxBatchBeads` in
-                // lib/advocate.js), so this is the real size of the judgement it is making.
-                w.batch?.length ? `<span class="tag">over ${esc(plural(w.batch.length, 'bead'))}</span>` : ''
-              }
-              ${w.ended ? '<span class="tag warn">the window has exited</span>' : ''}
-            </span>
-          </span>
-          <time>${esc(age(w.at))}</time>
-        </a>`;
-      })
-      .join('');
     return (
       repo +
-      (planners.length
-        ? `<div class="session-label">EpicAdvocates <span>One per P0 being planned. Each also holds a session slot below.</span></div>${rows}`
-        : `<p class="subtitle">No EpicAdvocate is open. One opens per P0 epic that is open, owned and not a crash — so a P0 that closes stops being argued for, and this says so.</p>`)
+      `<p class="subtitle">${esc(
+        epicsOf(a).length
+          ? `${plural(epicsOf(a).length, 'epic')} below have an advocate assigned — one section each, for as long as the epic is open.`
+          : 'No epic has an advocate assigned. One is assigned per P0 that is open, owned and not a crash.'
+      )}</p>`
     );
+  }
+
+  /**
+   * One section per epic with an advocate assigned.
+   *
+   * The lifetime is the whole design, and it is the graph's rather than a window's: a
+   * section appears when a P0 is open and owned, and it is gone when that epic **closes**
+   * — not when a window exits. Before this, an EpicAdvocate *was* its window, so it
+   * existed for the few minutes one was up: on 2026-08-13 twenty epics had an advocate
+   * assigned in this repo, one had a window, and the console drew one row.
+   *
+   * So an epic without a window is drawn as fully as one with it, and says which of the
+   * two reasons it is: out of budget, or nothing under it is ready to plan yet. Neither
+   * is a fault and both are actionable — the first by stepping `maxEpicAdvocates`, the
+   * second by looking at what is under the epic.
+   *
+   * Sections rather than rows because there are ordinarily a dozen or more, and a section
+   * is the one thing on this page that is legible collapsed: the summary carries the epic
+   * and its state, so a card with fourteen of them is fourteen lines until you open one.
+   */
+  function epicSections(a, key) {
+    return epicsOf(a)
+      .map((e) => {
+        const w = e.window;
+        const live = w && livePid(w.pid);
+        const tone = w ? (w.ended ? 'warn' : 'live') : '';
+        const badge = w
+          ? w.ended
+            ? '<span class="tag warn">the window has exited</span>'
+            : `<span class="tag live"><span class="spark"></span>planning</span>`
+          : `<span class="tag dim">${esc(e.why || 'no window')}</span>`;
+        const body = `
+          ${
+            w
+              ? `<a class="work-row adv-worker" href="${esc(live ? sessionUrl(w.pid) : graphUrl(a.workspace, e.id))}">
+                  <span class="work-phase">${live && !w.ended ? '<span class="spark"></span>' : '◍'}</span>
+                  <span class="work-main">
+                    <span class="work-title">Writing this epic's plan</span>
+                    <span class="work-sub">
+                      ${w.beads ? `<span class="tag">over ${esc(plural(w.beads, 'bead'))}</span>` : ''}
+                      ${w.claimed ? '<span class="tag ok">claimed</span>' : '<span class="tag">not claimed yet</span>'}
+                      ${
+                        w.checkedInAt
+                          ? `<span class="tag ok">checked in ${esc(age(w.checkedInAt))} ago</span>`
+                          : w.asked
+                            ? `<span class="tag warn">asked to check in ${esc(age(w.asked))} ago</span>`
+                            : ''
+                      }
+                      ${w.pid ? `<span class="tag dim">pid ${esc(w.pid)}</span>` : ''}
+                      ${w.reachable === false ? '<span class="tag dim">no window handle</span>' : ''}
+                    </span>
+                  </span>
+                  <time>${esc(age(w.at))}</time>
+                </a>`
+              : // Said in the body as well as the summary badge, because a collapsed
+                // section shows the badge and an open one is where you came to read why.
+                `<p class="subtitle">No window right now — ${esc(e.why || 'no reason recorded')}. The advocate stays assigned to this epic either way; it goes when the epic closes.</p>`
+          }
+          <div class="work-foot">
+            <div class="meta">${esc(e.type)} · ${esc(e.id)}</div>
+            <a class="work-graph" href="${esc(graphUrl(a.workspace, e.id))}">Open the epic →</a>
+          </div>`;
+        return section(`${key}:epic:${e.id}`, e.title, e.id, body, { tone, badge });
+      })
+      .join('');
   }
 
   /**
@@ -943,24 +998,30 @@
 
     const secs = [
       // First, because it answers "who is deciding what happens in this repo" — and every
-      // section under it is one of those decisions playing out. Open by default in the
-      // sense that matters: the count in the summary is 1 + the planners, so a shut panel
-      // still says whether any epic is being argued for.
-      section(
-        `${key}:advocates`,
-        'Advocates',
-        String(1 + plannersOf(a).length),
-        advocatesHtml(a),
-        { tone: plannersOf(a).length ? 'live' : '' }
-      ),
+      // section under it is one of those decisions playing out. The count is the whole
+      // roster, the repo advocate plus every epic that has one assigned, so a shut panel
+      // still says how many advocates this repo has.
+      section(`${key}:advocates`, 'Advocates', String(1 + epicsOf(a).length), advocatesHtml(a), {
+        tone: a.paused || a.error ? 'warn' : 'live',
+      }),
+      // Then one per epic. They sit above the work rather than below it because they are
+      // what decides the work: an epic being planned now is the reason some of what is in
+      // "Up next" will be dispatched as a group rather than one bead at a time.
+      epicSections(a, key),
       section(
         `${key}:work`,
         'Working now',
-        a.workers.length ? `${a.workers.length}/${a.limit}` : `0/${a.limit}`,
-        a.workers.length
-          ? a.workers.map((x) => workerRow(a, x)).join('')
-          : '<p class="subtitle">No sessions open from this advocate.</p>',
-        { tone: a.workers.length ? 'live' : '' }
+        // Coders only, both halves. A planner no longer comes out of `limit` — it has its
+        // own budget — so counting one here would make the card say the repo is full
+        // while `tickOne` still has a slot to give away, which is the one number on this
+        // page that has to agree with the daemon.
+        codersOf(a).length ? `${codersOf(a).length}/${a.limit}` : `0/${a.limit}`,
+        codersOf(a).length
+          ? codersOf(a)
+              .map((x) => workerRow(a, x))
+              .join('')
+          : '<p class="subtitle">No coding sessions open from this advocate. EpicAdvocates have their own sections above.</p>',
+        { tone: codersOf(a).length ? 'live' : '' }
       ),
       // Only drawn when there is one, and there usually is not: a window sits here for
       // the grace period and then goes. It is the one state where the advocate is
