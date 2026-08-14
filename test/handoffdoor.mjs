@@ -161,6 +161,24 @@ check('the guards, in the order a refusal is cheapest', () => {
   assert.match(door, /=== 'handoff'/, 'and the brief is only true of a handoff');
 });
 
+check('a bead that is gone is a 404, not a 500 with bd’s command line in it', () => {
+  const src = read('lib', 'server.js');
+  const route = src.slice(src.indexOf("if (p === '/api/handoff'"));
+  const door = route.slice(0, route.indexOf('/api/terminals'));
+  // This shipped wrong once and nothing noticed, which is the argument for pinning it.
+  // `bd.show` **throws** for an id bd does not have — it does not resolve null — so the
+  // `if (!issue) return 404` this door was written with was dead code, and a missing bead
+  // came back 500 with bd's whole command line in the body, the actor's email address
+  // included. Verified live against the running daemon on 2026-08-14 before the fix.
+  //
+  // The caller falls back to iTerm on any non-200, so the wrong status changed no
+  // behaviour and would have sat there indefinitely. `loadBead` (lib/verdict.js) is the
+  // one place bd's two spellings of "no such bead" are known, and the advocate door
+  // already reads through it.
+  assert.match(door, /await loadBead\(bd, ws, id\)/, 'the read goes through loadBead');
+  assert.ok(!/await bd\.show\(ws, id\)/.test(door), 'and never a bare bd.show, whose null branch cannot fire');
+});
+
 check('never two successors on one handoff', () => {
   const src = read('lib', 'server.js');
   const route = src.slice(src.indexOf("if (p === '/api/handoff'"));
