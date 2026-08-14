@@ -7364,6 +7364,12 @@ the only piece with nothing watching it at all:
 | a `cache.put` rejecting on a phone with no room left | nothing, and it was an unhandled rejection inside a worker nobody was watching. The cache silently stops being maintained; the app works perfectly until the day you are offline |
 | `caches.match` rejecting — storage evicted or gone bad under an installed app | a blank screen. The fetch handler's own fallback is what failed, so there was no answer and nowhere for the failure to go |
 
+The first row is checked now rather than waited for: `node test/pagealias.mjs` resolves
+every path in `SHELL` against `serveStatic`'s alias table and fails the repo if one of
+them has nothing to serve it. That was the state every browser check's fixture was in
+until bc-zjep — an install rejecting whole on every run, with the report as the only
+symptom and nothing to place it against.
+
 **The worker notices and the page sends**, and the split is the whole design rather than
 an implementation detail. The obvious shape is a `fetch('/api/error')` from inside the
 worker, and it is wrong twice over. The endpoint is behind the daemon token, which lives
@@ -15360,6 +15366,32 @@ bar still has the teeth it was given.
 Which is the honest scoreboard for the stance above: two of the three were bugs a green
 wall would have hidden, and the third was a check that a downmerge had quietly made
 meaningless — a state that only ends when somebody is made to look at it.
+
+**And the pair that came next were red at their own fixture, in words that pointed at the
+app.** `card-thread-check.mjs` and `prfull-check.mjs` both end by asserting that the
+screen they drove wrote nothing — they count every POST their fixture receives — and both
+failed on `["/api/error"]`, which reads as a card writing to the tracker and was nothing
+of the sort. Each check serves `public/` from a plain static handler of its own; the page
+it serves registers the real service worker; that worker's install precaches `SHELL` with
+one all-or-nothing `caches.addAll`; and the extensionless entries in that list —
+`/monitor`, `/prs`, `/archive`, the aliases `serveStatic` rewrites onto a page — have no
+file behind them at all. So every fixture 404d all of them, the install rejected whole,
+`public/report.js` did exactly what it is for and posted the failure, and the check's own
+assertion caught the check's own fixture (bc-zjep). It survived two sessions, both of
+which correctly ruled it out as theirs and neither of which could tell from the failure
+text that it was not the app.
+
+Both halves of the fix are the ones the bead argued for. The fixtures resolve a path
+through the daemon's own alias table before they look for a file — derived from the text
+of `serveStatic` by `lib/pagealias.js` rather than copied into them, because a copied list
+is right until a page gains a name and then wrong in the direction nothing reports. And
+`/api/error` is held apart from the writes now and asserted on a line of its own, *and the
+page reported no errors of its own*: a screen that really does throw during either check
+still fails it, and says which error, instead of arriving as a sentence about a merge
+button. `node test/pagealias.mjs` is in `npm test` and holds all of it — every `SHELL`
+path resolving to a file, no redirect among them (`Cache.put` refuses one, and refusing
+one rejects the install), and the derivation itself against synthetic sources, since a
+regex that stops matching returns an empty table and every caller carries on serving 404s.
 
 **But running them is not the problem this was written for.** These checks do not rot by
 failing. They rot by pressing something that is no longer there, and then not being run.
