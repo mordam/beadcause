@@ -27,6 +27,14 @@
     </div>
   </header>
 
+  <!-- The four filters over the ledger — status, priority, who filed it, and a
+       substring of the bead id — in the same collapsed line the inbox uses. All four
+       live in the query string and nowhere else, which is what makes a narrowed ledger
+       a link you can put on a home screen. Empty and `hidden` until history.js mounts
+       the control into it, so a page that fails to load filtermenu.js shows a list with
+       no filter bar rather than an empty box where one should be. -->
+  <nav class="filters" id="hist-filters" hidden></nav>
+
   <main class="work">
     <!-- The whole list, drawn by history.js. Everything below is replaced on every
          repaint, so nothing that has to survive one may live in here. -->
@@ -52,6 +60,11 @@
        the app rather than to a screen — and after stream.js, whose events it listens on
        rather than opening a second parked poll of its own. -->
   <script src="/update.js"></script>
+  <!-- The panel the filter bar is drawn in, shared with the inbox. Before history.js,
+       which mounts its four groups into it on the way past — a page without this file
+       still draws the ledger, and still narrows it to whatever the URL asked for; it
+       just has no control to change it with. -->
+  <script src="/filtermenu.js"></script>
   <script src="/history.js"></script>
   <!-- Every row is a link into the graph, and the drawer is what keeps this list —
        and, more to the point, your place four hundred rows down it — underneath the

@@ -22,6 +22,12 @@
  * can. Hence: same shapes, real workspace, and every case asserts the gate's answer
  * **and** what the binary then does with the same close.
  *
+ * **Two cases at the bottom assert the opposite**, and they are the reason `agree` can
+ * stay strict: beadcause refuses an epic with an unapplied `Adopts:` entry and an epic
+ * closing on a merge reason, and bd closes both without complaint. Those refusals are
+ * deliberately not modelled on the binary — bd has no pre-close hook to be taught with —
+ * so `diverge` pins the disagreement rather than letting it look like drift.
+ *
  * It is the slow one of the pair — a `bd init` and ~30 invocations of a real tracker,
  * against embedded Dolt — and that is the price of asking rather than assuming. Nothing
  * it touches is shared: the workspace is a fresh mkdtemp, so it neither takes the Dolt
@@ -226,6 +232,63 @@ async function agree(name, id, refused, { reason = null } = {}) {
   const blocker = await make({ title: 'a blocker being closed first' });
   await bd.addDep(ws, blocked, blocker);
   await agree('a blocker closing while what it blocks stays open', blocker, false);
+}
+
+/* -------------------------- and the two rules bd cannot hold, which it must not (bc-arj0.3) */
+
+/**
+ * One case where the gate and the binary are *meant* to disagree.
+ *
+ * Every `agree` above asserts they answer alike, and the whole value of that is that a
+ * gate inventing a refusal is caught. These two refusals are invented on purpose, so the
+ * same file has to be able to say "beadcause refuses this and bd does not" — otherwise
+ * either the rules could not be pinned here at all, or `agree` would have to be loosened
+ * and stop catching the thing it exists for.
+ *
+ * Both are things bd has no way to know. `Adopts:` is a line in a description, and a
+ * close reason is a string it stores. bd has no pre-close hook to be taught with —
+ * `bd hooks` installs git hooks and nothing else, measured on bd 1.1.2 — which is why
+ * the rule lives on every path beadcause closes through instead.
+ */
+async function diverge(name, id, { reason = 'asking bd', gate: expected } = {}) {
+  const gate = await bd.closeGate(ws, id, { reason });
+  const closed = bdRun(['close', id, '--reason', reason]);
+  const said = `${closed.stderr || ''}${closed.stdout || ''}`.trim().split('\n')[0];
+  check(() => assert.equal(gate?.kind, expected, `gate: ${JSON.stringify(gate)}`), `${name} — beadcause refuses it (${expected})`);
+  check(() => assert.equal(closed.status, 0, `bd said: ${said}`), `${name} — and bd would have closed it happily`);
+}
+
+{
+  // bc-ka5y, in miniature: an epic that names beads in prose and has no children, which
+  // is exactly what it looked like to bd on the day it closed over twenty-three of them.
+  const adoptee = await make({ title: 'a bead named but never adopted' });
+  const epic = await make({
+    type: 'epic',
+    title: 'an epic whose adoption list was never applied',
+    body: `The theme.\n\nAdopts: ${adoptee}.\n`,
+  });
+  await diverge('an epic with an unapplied Adopts: entry', epic, { gate: 'adopts' });
+}
+
+{
+  const epic = await make({ type: 'epic', title: 'an epic closed on its own PR merge' });
+  await diverge('an epic closing on a merge reason', epic, {
+    reason: 'Merged #212 as 72789c0b into main on GitHub',
+    gate: 'merge-reason',
+  });
+}
+
+{
+  // And the half that must keep working, asked of both: a work bead closes because its
+  // pull request merged, and neither of them has any objection. `agree` cannot ask this
+  // one — its `reason` is the regex it matches bd's *refusal* against, and there is no
+  // refusal here — so the close is driven directly.
+  const work = await make({ title: 'a work bead whose PR merged' });
+  const landed = 'Landed as #42';
+  const gate = await bd.closeGate(ws, work, { reason: landed });
+  const closed = bdRun(['close', work, '--reason', landed]);
+  check(() => assert.equal(gate, null, `gate: ${JSON.stringify(gate)}`), 'a work bead closing on a merge reason — the gate permits it');
+  check(() => assert.equal(closed.status, 0, `bd said: ${(closed.stderr || closed.stdout || '').split('\n')[0]}`), 'a work bead closing on a merge reason — and so does bd');
 }
 
 fs.rmSync(tmp, { recursive: true, force: true });
