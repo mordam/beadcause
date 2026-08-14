@@ -73,7 +73,11 @@ const p0 = (extra = {}) => ({
 
 check('it is a fifth kind, not a mode — with a foundation and a mark of its own', () => {
   assert.ok(AGENTS.includes(EPIC_ADVOCATE), 'epic-advocate is not in AGENTS, so nothing can own a conversation as one');
-  assert.equal(AGENTS.length, 5);
+  // Six since bc-r941 added `merge-advocate`. The number is asserted rather than the
+  // membership because that is what makes a *new* kind fail here — lib/foundation.js's
+  // own note says a kind added without a mark should fail a check rather than quietly
+  // ship as a generic 🤖, and this is that check.
+  assert.equal(AGENTS.length, 6);
   const b = baseline(EPIC_ADVOCATE);
   assert.equal(b.id, EPIC_ADVOCATE);
   assert.ok(b.role && b.role.length > 200, 'a kind with no role is a mode with extra steps');
