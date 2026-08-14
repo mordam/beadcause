@@ -201,7 +201,10 @@ await check('the marker has one spelling, and it is the one the queue excludes',
   // `ship` joined the two since lib/shipbead.js: a merged pull request waiting for a
   // deploy is not claimable work by anything reading this list, and it used to be kept
   // out by carrying the marker above — which one press of "Endorse all" removes.
-  assert.deepEqual(QUEUE_EXCLUDED, ['human', UNENDORSED, 'ship'], 'what an advocate may not queue');
+  // `container` joined them since lib/container.js, and it is the one member of the list
+  // that is not *held* work at all: a standing root is the shelf other beads are filed
+  // under, and a worker window's one ending would close it.
+  assert.deepEqual(QUEUE_EXCLUDED, ['human', UNENDORSED, 'ship', 'container'], 'what an advocate may not queue');
   assert.equal(isHeld({ labels: ['worker', 'unendorsed'] }), true);
   assert.equal(isHeld({ labels: ['unendorsed '] }), true, 'a stray space is not a second label');
   assert.equal(isHeld({ labels: ['endorsed', 'unendorsedish'] }), false, 'and it is not a prefix match');
@@ -219,7 +222,7 @@ await check('bd ready never returns a held bead, and says so on the command line
   const off = call.filter((a, i) => call[i - 1] === '--exclude-label');
   assert.deepEqual(
     off.sort(),
-    ['human', 'ship', UNENDORSED],
+    ['container', 'human', 'ship', UNENDORSED],
     `every excluded label is passed to bd, got ${call.join(' ')}`
   );
   assert.ok(call.includes('--limit') && call[call.indexOf('--limit') + 1] === '0', 'and no page limit');

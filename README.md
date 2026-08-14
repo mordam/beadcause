@@ -9072,6 +9072,11 @@ bead can move. On top of that, two exclusions of our own:
   same near-verbatim threshold that refuses a duplicate approval. Waits, not
   disappears: it is a pill on the repo's advocate card naming the bead it is behind,
   and it goes back in the queue by itself when that one closes.
+- **A container is not work at all.** Some beads are shelves — the standing roots
+  everything else is filed under, which exist so that other work has somewhere to go and
+  are never themselves finished. They carry a `container` label and they are out of every
+  queue and every count. See [a standing root is furniture, not
+  work](#a-standing-root-is-furniture-not-work).
 - **A bead whose pull request is already open is not ready.** The work exists, on a
   branch, and what happens to it next is a merge, a review or a conflict resolution —
   none of which is a fresh session's job, and a worker briefed to *merge* opened beside a
@@ -10770,6 +10775,76 @@ turn every abandoned session into a bead nothing may ever pick up again. Blocked
 deferred are queue questions `bd ready` already answers, and answering them twice here would
 be a second opinion with no incident behind it. `node test/stillopen.mjs` covers both layers,
 including that the gate reads the tracker rather than the row it was handed.
+
+### A standing root is furniture, not work
+
+The guard above refuses a bead because it is finished. This one refuses a bead that was
+never a job in the first place — and unlike every other refusal here, the bead it protects
+is one that must stay open forever.
+
+Some beads are shelves. bc-w156 says of itself "a permanent container, not a piece of
+work", and its acceptance criterion is that the root must exist and *not be closed*;
+bc-xl7n is the unsorted backlog, where every bead nothing has yet decided a home for
+lands. Nothing in the daemon could read either sentence, and the dispatcher did the
+opposite of both.
+
+**What that cost, measured on 2026-08-13.** bc-w156 was an open P0 epic with no children,
+so it sat in `bd ready` like anything else. [An epic is planned, not
+worked](#an-epic-is-planned-not-worked--and-each-group-gets-its-own-window) only reaches an
+epic with enough ready children to batch: below `minBatchBeads` an epic is never a batch
+head and never a planner candidate, so a *childless* one falls through the hierarchy filter
+and is dispatched as an ordinary ready bead. That is a worker window, and a worker window's
+one sanctioned ending is `bin/deliver.js -b <bead>`, which runs `bd close`. So an advocate
+tick that found a standing root ready opened a session whose **success deletes the root from
+the board**. Three windows were opened on that state in two days; all three survived by
+reading the prose and handing back, which is exactly the protection [the duplicate
+marker](#the-duplicate-that-comes-ready-the-moment-its-original-lands) exists to replace —
+the gap was that it had no machine-readable form.
+
+The other roots were safe by accident and not by property: they happened to have ready
+children. The day the last child of one closes, it is bc-w156.
+
+So a container carries a `container` label, and the hold is the same two layers as
+everything else here:
+
+- **A filter**, forced on in `bd ready` rather than left to the caller, so nothing can ask
+  for a queue containing a container. The bead leaves every queue and every count of how
+  much work is waiting.
+- **A refusal**, at the worker's door and the planner's. It reads the row the endorsement
+  check has already fetched, so a container that reached the launcher by a retry, a tap on
+  a stale row, or a caller written next month still cannot be worked. It bites on the
+  planner too: a planner's job is to cut an epic into the children that finish it, and a
+  shelf is never finished.
+
+**Nothing here is quiet by accident, and nothing is loud by accident either.** The
+[no-P0-above](#where-it-lands--a-bead-filed-under-nothing-is-unworkable-the-moment-it-exists)
+rule announces every bead it withholds, because a bead held with nothing on screen reads
+as an advocate that decided there was nothing to do. This one says nothing: a container is
+not withheld work, it is not work, and a line every thirty seconds for the life of the
+daemon would teach everyone to scroll past exactly the kind of line that rule needs read.
+The refusal at the door is loud, because that one is a caller being told no.
+
+**The P0 advocate's door is deliberately left open to containers**, and it is the only
+asymmetry between the three doors into an unattended session. An [EpicAdvocate](#advocates--an-agent-per-repo-whose-job-is-the-queue-reaching-zero)
+is re-entrant, belongs to its epic for as long as the epic is open, files children *under*
+the root, and never closes it — a standing root is precisely what that agent is for.
+Guarding this door too would point the one agent that looks after standing roots at
+everything except standing roots.
+
+**A container still draws on the P0 board, and stays a valid parent**, which is the half
+that keeps this from being a way to delete a subtree: the marker says "do not work *this*",
+never "do not work under this". No code was needed for it — the board is built from the
+tracker's graph and never from `bd ready`, so a bead this filter removes from every queue is
+untouched on the screen. That is the right way round: the board's furniture has to be
+visible *as* furniture, because filing under it is what it is for.
+
+What this is *not* strong enough to be: a container is not protected from `bd close` typed
+by hand, and could not be — bd is a separate tool with no hook in it. What it is protected
+from is the only ending a dispatched session has. The belt on top of that is already there
+and is not this marker's: a delivery refuses to close an **epic** on a merge, and every
+standing root is an epic. `node test/container.mjs` covers both layers, the planner's door,
+and — the assertion most likely to be "fixed" by somebody tidying — that the P0 advocate's
+door still lets one through.
 
 ### The session log, kept in the repo
 
