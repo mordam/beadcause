@@ -17,22 +17,19 @@
   and `paintScrollPos` (which measures `#filters` to decide which card you are reading)
   measures the same one line whether the panel is open or shut.
 
-  ## Why touch is written out rather than left to `:hover`
+  ## The panel is not in this file any more
 
-  A CSS `:hover` rule does open a panel on a laptop, and on a phone it does something
-  worse than nothing: a tap counts as a hover until you tap something else, so the
-  panel opens, stays open over the list, and closes on whatever you tap next — which
-  is a card. The two behaviours are one state machine here, `open`, with two ways in:
+  It was, and every word above still describes it — the collapsing, the hover, the tap
+  that pins it, the grace period on a diagonal exit. All of that moved to
+  public/filtermenu.js when the History tab needed the same control over a different
+  vocabulary, and the argument for the split is in that file's header. What is left here
+  is the inbox's half: which *kinds* of thing the inbox carries, which of them the
+  current scope can produce, how many of each are in view, and what survives the filter.
 
-  - **Pointer** (`(hover: hover) and (pointer: fine)`) — enter opens, leaving closes
-    after a short grace so a diagonal exit across the corner does not snap it shut. A
-    click *pins* it, which is what a keyboard and a trackpad-tap both want.
-  - **Touch** — the summary button toggles, a tap anywhere else closes, and picking
-    from a single-choice group closes too, because on touch the panel covers the list
-    it is filtering and you want to see what you just chose.
-
-  Escape closes either. Focus leaving the control closes it, so tabbing past does not
-  leave a panel hanging over the page.
+  The seam is `mount()` at the foot: this file hands filtermenu.js a list of groups and
+  is asked, on every paint, what each one looks like right now. Nothing about the inbox
+  crosses it — `Merges`, `unmerged`, `agent-filed` are words filtermenu.js has never
+  heard — and nothing about the panel is decided here.
 
   ## The kinds
 
@@ -53,6 +50,14 @@
   here is the whole of what makes them a section — a chip, a count, a word in the summary
   line, and the space picker and the P0 board narrowing them exactly as they narrow
   everything else. Its price was the same one word, `!q.jira`, in the predicate below.
+
+  `endorsement` is the fourth, and the first that took the deal with **no new fetch at
+  all** (bc-w156). A bead held for endorsement was already in this list — the agent sweep
+  returns one like any other open bead, and it drew as one more `unclaimed` — so the whole
+  of the change was a row here, a `held` flag on the row, and `!q.held` in the three
+  predicates it is being taken out of. That is why it could be done at the same time as
+  *deleting* a door: the 🗳️ in the chrome was a fifth destination for a list this table
+  could already have been carrying, and what replaced it is nothing.
 
   Each kind carries a `side`, because a scope that never fetched a row cannot show a
   chip for it: `human` sweeps questions, `agent` sweeps live beads, `both` does both,
@@ -200,25 +205,52 @@
       test: (q) => Boolean(q.jira),
     },
     {
+      id: 'endorsement',
+      // On the agent side, and that is a fact about where the rows come from rather than
+      // about what they are. A bead held for endorsement is a decision waiting on you —
+      // by every other measure it belongs under `Human` — but the only sweep that returns
+      // one is the agent sweep (`agentBeads` in lib/server.js), because the marker is a
+      // label and the human sweep queries a different one. Putting the chip under `Human`
+      // would be a control with nothing behind it until something pays for a second query
+      // per workspace per poll, which is the bill the chrome refused (bc-w156.4).
+      side: 'agent',
+      label: 'Endorsements',
+      note: 'Beads an agent filed that nothing may work until you say so. Tap through to decide.',
+      // First among the agent kinds because it is the only one of the four that is
+      // waiting on *you*: claimed, blocked and unclaimed are all reports about work, and
+      // this is a question. It also has to be first in effect as well as in order — the
+      // three below say `!q.held` rather than relying on being tested later, for the
+      // reason `!q.proposal` is spelled out under Merges: exclusivity is the property
+      // this table is asserted on (test/inboxkinds.mjs), not an accident of the ordering.
+      //
+      // `q.held` is `awaitingEndorsement` computed server-side, so a ship bead — which
+      // carries the same marker and is waiting on a deploy rather than on a judgement —
+      // is not one of these. That rule lives in lib/endorsequeue.js and is deliberately
+      // not restated here; two copies of it is what the incident behind lib/shipbead.js
+      // was made of.
+      test: (q) => Boolean(q.agent) && Boolean(q.held),
+    },
+    {
       id: 'claimed',
       side: 'agent',
       label: 'Claimed',
       note: 'Work an agent has in hand right now. Nothing here is asking you anything.',
-      test: (q) => Boolean(q.agent) && q.status === 'in_progress',
+      test: (q) => Boolean(q.agent) && !q.held && q.status === 'in_progress',
     },
     {
       id: 'blocked',
       side: 'agent',
       label: 'Blocked',
       note: 'Live beads waiting on something else — the work that is stuck.',
-      test: (q) => Boolean(q.agent) && q.status === 'blocked',
+      test: (q) => Boolean(q.agent) && !q.held && q.status === 'blocked',
     },
     {
       id: 'unclaimed',
       side: 'agent',
       label: 'Unclaimed',
       note: 'Open beads nobody has picked up.',
-      test: (q) => Boolean(q.agent) && q.status !== 'in_progress' && q.status !== 'blocked',
+      test: (q) =>
+        Boolean(q.agent) && !q.held && q.status !== 'in_progress' && q.status !== 'blocked',
     },
   ];
 
@@ -419,40 +451,23 @@
     if (counts && typeof counts === 'object') state.counts = counts;
     paint();
   }
-  /* ------------------------------------------------------------------ the chrome */
+  /* ---------------------------------------------------------------- the groups */
+
+  /*
+    Everything below is the inbox's half of the control: what a chip *means*. The panel
+    itself — the summary line, the open-and-close state machine, the chips as nodes —
+    is public/filtermenu.js, shared with the History tab's own filter bar. It was here
+    until there were two lists to narrow; the argument for splitting it is in that
+    file's header, and the short version is that two copies of this panel would not have
+    looked like two, they would have looked like one panel that behaves differently on
+    two screens.
+  */
 
   /** Extra chip groups the page puts in the same panel, above the kinds. */
-  let groups = [];
-  let closeOnPick = true;
-  let open = false;
-  let pinned = false;
-  let leaveTimer = null;
+  let pageGroups = [];
 
-  /**
-   * Every element this file made, kept rather than looked up again.
-   *
-   * The inbox repaints every 25 seconds, and a repaint that rebuilt this control would
-   * swap a chip out from under the pointer hovering it — on a laptop, a panel that
-   * flickers shut while you read it. Holding the nodes is what makes `paint()` able to
-   * touch nothing but text and attributes. It also means the control has no innerHTML
-   * and no selector engine in it at all, which is the second reason: it can be driven
-   * by a document stub in a test (test/inboxkinds.mjs) rather than only by a browser.
-   *
-   * `rows` is group id → { el, ids, chips: id → { btn, count } }, where `ids` is the
-   * chip set last drawn — the one thing that, when it changes, does mean a rebuild.
-   */
-  const ui = { root: null, summary: null, sel: null, panel: null, rows: new Map() };
-
-  /* A pointer that can hover — a laptop. The media query rather than a touch sniff,
-     because a touchscreen laptop is both and the question here is only "can this
-     device hover", which is exactly what the query answers. */
-  const hoverable = () => {
-    try {
-      return window.matchMedia('(hover: hover) and (pointer: fine)').matches;
-    } catch {
-      return false;
-    }
-  };
+  /** The chrome, once mounted. `null` until then — see `paint`. */
+  let chrome = null;
 
   /** The kinds group, built here so the page never has to know the table. */
   const kindGroup = () => ({
@@ -474,29 +489,35 @@
   /**
    * The sub-filter groups, as the same shape as every other group.
    *
-   * `parent` is what makes them different and it is read in exactly two places: the box
-   * is hidden unless the parent kind is selected (`paintGroup`), and the summary line
-   * mentions it under the rule in `subSaid`.
+   * `parent` is what makes them different and it is read in exactly two places, both of
+   * them here: the box is hidden unless the parent kind is selected (`hidden`), and the
+   * summary line mentions it under the rule in `subSaid` (`said`). filtermenu.js knows
+   * neither word — it asks the two questions and this file answers them.
    */
   const subGroups = () =>
-    KINDS.filter((k) => k.sub && state.usable.includes(k.id)).map((k) => ({
-      id: k.sub.id,
-      parent: k.id,
-      legend: k.sub.legend,
-      multi: k.sub.multi !== false,
-      all: k.sub.all,
-      options: () =>
-        k.sub.options().map((o) => ({
-          ...o,
-          // Always a number, never absent: a chip built without one could never grow one
-          // in place, and the counts arrive on the render *after* the control mounts.
-          count: state.subCounts?.[k.sub.id]?.[o.id] || 0,
-          on: chosenSub(k.id).has(o.id),
-        })),
-      pick: (id) => toggleSub(k.id, id),
-    }));
+    KINDS.filter((k) => k.sub && state.usable.includes(k.id)).map((k) => {
+      const g = {
+        id: k.sub.id,
+        parent: k.id,
+        legend: k.sub.legend,
+        multi: k.sub.multi !== false,
+        all: k.sub.all,
+        options: () =>
+          k.sub.options().map((o) => ({
+            ...o,
+            // Always a number, never absent: a chip built without one could never grow one
+            // in place, and the counts arrive on the render *after* the control mounts.
+            count: state.subCounts?.[k.sub.id]?.[o.id] || 0,
+            on: chosenSub(k.id).has(o.id),
+          })),
+        pick: (id) => toggleSub(k.id, id),
+      };
+      g.hidden = () => !subOpen(g);
+      g.said = () => subSaid(g);
+      return g;
+    });
 
-  const allGroups = () => [...groups, kindGroup(), ...subGroups()];
+  const allGroups = () => [...pageGroups, kindGroup(), ...subGroups()];
 
   /** Are this sub group's chips on screen? Only while its kind is selected. */
   const subOpen = (g) => state.on.has(g.parent);
@@ -514,119 +535,11 @@
    */
   const subSaid = (g) => subOpen(g) || chosenSub(g.parent).size > 0 || (state.counts[g.parent] || 0) > 0;
 
-  /**
-   * What the one line says.
-   *
-   * Every group contributes: the selected label where there is one, the group's own
-   * word for "everything" where there is not. Two selections are named, three or more
-   * are counted — `Merges, Proposals` is worth reading and `Questions, Merges,
-   * Proposals, Blocked` is a line that no longer fits on a phone.
-   */
-  function summaryText() {
-    return allGroups()
-      .filter((g) => !g.parent || subSaid(g))
-      .map((g) => {
-        const on = g.options().filter((o) => o.on);
-        if (!on.length) return g.all || 'All';
-        if (on.length <= 2) return on.map((o) => o.label).join(', ');
-        return `${on.length} ${g.legend.toLowerCase()}`;
-      })
-      .join(' · ');
-  }
-
-  /** One chip, wired to its group. Rebuilt only when the *set* of chips changes. */
-  function makeChip(g, o, row) {
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'chip';
-    btn.dataset.chip = o.id;
-    btn.setAttribute('aria-pressed', String(o.on));
-    // The third column of the table rides along as the title and the accessible name:
-    // one-word chips are not self-explanatory and there is no prose here to put it in.
-    btn.title = o.note || o.label;
-    btn.setAttribute('aria-label', o.note ? `${o.label} — ${o.note}` : o.label);
-    const label = document.createElement('span');
-    label.className = 'chip-label';
-    label.textContent = o.label;
-    btn.append(label);
-    let count = null;
-    if (o.count != null) {
-      count = document.createElement('span');
-      count.className = 'chip-count';
-      count.textContent = String(o.count);
-      btn.append(count);
-    }
-    btn.classList.toggle('none', o.count === 0);
-    btn.addEventListener('click', () => pick(g, o.id));
-    row.chips.set(o.id, { btn, count });
-    return btn;
-  }
-
-  /** A group's chips: their pressed state and their counts, in place where it can be. */
-  function paintGroup(g) {
-    const row = ui.rows.get(g.id);
-    if (!row) return;
-    // A sub-filter's chips are only offered while their kind is selected. The box is
-    // hidden rather than removed, so the panel does not rebuild — and so the chips are
-    // still there, still painted, for the summary line to read.
-    if (row.box) row.box.hidden = g.parent ? !subOpen(g) : false;
-    const options = g.options();
-    const ids = options.map((o) => o.id).join(',');
-    if (row.ids !== ids) {
-      row.ids = ids;
-      row.chips = new Map();
-      row.el.replaceChildren(...options.map((o) => makeChip(g, o, row)));
-      return;
-    }
-    for (const o of options) {
-      const chip = row.chips.get(o.id);
-      if (!chip) continue;
-      chip.btn.setAttribute('aria-pressed', String(o.on));
-      if (chip.count && o.count != null) chip.count.textContent = String(o.count);
-      // Dimmed rather than removed when there is nothing of this kind: a chip that
-      // came and went as the day did would rebuild the row under the pointer, and
-      // "Unclaimed 0" is a fact worth having — it is the answer to the question the
-      // chip asks.
-      chip.btn.classList.toggle('none', o.count === 0);
-    }
-  }
-
-  /** Chips and summary, never structure. Safe to call from a render loop. */
+  /** Chips and summary, never structure. Safe to call from a render loop, and a no-op
+   *  before the control is drawn — `set()` runs at load, which is earlier than that. */
   function paint() {
-    if (!ui.root) return;
-    const live = allGroups();
-    const ids = new Set(live.map((g) => g.id));
-    // A group the panel no longer has — a sub-filter whose kind this scope cannot hold —
-    // is hidden rather than left on screen with the chips it was mounted with. Its box was
-    // built at mount, when every kind was still usable.
-    for (const [id, row] of ui.rows) if (row.box && !ids.has(id)) row.box.hidden = true;
-    for (const g of live) paintGroup(g);
-    ui.sel.textContent = summaryText();
-    ui.root.classList.toggle('narrowed', state.on.size > 0 || subNarrowed());
+    if (chrome) chrome.paint();
   }
-
-  function pick(g, id) {
-    g.pick(id);
-    paint();
-    // A single-choice group on a touchscreen: the panel is over the list it has just
-    // changed, and the next thing you want is to look at it. On a pointer device
-    // moving away does that already, and closing here would fight the mouse.
-    if (!g.multi && closeOnPick && !hoverable()) setOpen(false);
-  }
-
-  function setOpen(next) {
-    if (!ui.root || open === next) return;
-    open = next;
-    if (!open) pinned = false;
-    ui.root.classList.toggle('open', open);
-    ui.panel.hidden = !open;
-    ui.summary.setAttribute('aria-expanded', String(open));
-  }
-
-  const cancelLeave = () => {
-    clearTimeout(leaveTimer);
-    leaveTimer = null;
-  };
 
   /**
    * Draw the control inside `host`, once.
@@ -635,109 +548,22 @@
    * scope is a filter too and two collapsing controls side by side would be the three
    * rows again with extra steps. Each is
    * `{ id, legend, all?, multi?, options(), pick() }` and stays owned by the page:
-   * this file paints them and routes the taps, and knows nothing about what they mean.
+   * filtermenu.js paints them and routes the taps, and knows nothing about what they
+   * mean.
    */
   function mount(host, opts = {}) {
-    if (!host || ui.root) return null;
-    groups = Array.isArray(opts.groups) ? opts.groups : [];
-    closeOnPick = opts.closeOnPick !== false;
+    if (!host || chrome) return null;
+    pageGroups = Array.isArray(opts.groups) ? opts.groups : [];
     if (typeof opts.onChange === 'function') listeners.push(opts.onChange);
-
-    const root = document.createElement('div');
-    root.className = 'filter-menu';
-
-    const summary = document.createElement('button');
-    summary.type = 'button';
-    summary.className = 'filter-summary';
-    summary.setAttribute('aria-expanded', 'false');
-    summary.setAttribute('aria-controls', 'filter-panel');
-    summary.setAttribute('aria-haspopup', 'true');
-    const sel = document.createElement('span');
-    sel.className = 'sel';
-    const caret = document.createElement('span');
-    caret.className = 'caret';
-    caret.setAttribute('aria-hidden', 'true');
-    caret.textContent = '▾';
-    summary.append(sel, caret);
-
-    const panel = document.createElement('div');
-    panel.className = 'filter-panel';
-    panel.id = 'filter-panel';
-    panel.hidden = true;
-
-    for (const g of allGroups()) {
-      const box = document.createElement('div');
-      box.className = 'filter-group';
-      box.dataset.group = g.id;
-      const legend = document.createElement('span');
-      legend.className = 'filter-legend';
-      legend.textContent = g.legend;
-      const row = document.createElement('div');
-      // `scopes`, `kinds` — the plural is what the stylesheet has always keyed the
-      // segmented look of the scope switch off.
-      row.className = `chip-row ${g.id}s`;
-      row.setAttribute('role', 'group');
-      row.setAttribute('aria-label', g.legend);
-      box.append(legend, row);
-      panel.append(box);
-      // The box as well as the chip row: a sub-filter's whole group — legend included —
-      // is hidden while its kind is not selected, and paint() needs the node to hide.
-      ui.rows.set(g.id, { el: row, box, ids: '', chips: new Map() });
-    }
-
-    root.append(summary, panel);
-    host.replaceChildren(root);
-    host.hidden = false;
-    Object.assign(ui, { root, summary, sel, panel });
-    paint();
-
-    summary.addEventListener('click', () => {
-      if (!open) {
-        setOpen(true);
-        pinned = true;
-      } else if (pinned || !hoverable()) {
-        setOpen(false);
-      } else {
-        pinned = true;
-      }
+    chrome = window.beadcause.filterMenu.mount(host, {
+      groups: allGroups,
+      closeOnPick: opts.closeOnPick,
+      // What "this list is showing less than everything" means for the inbox. Not "some
+      // chip is pressed": the scope switch always has exactly one, and `Both` is not a
+      // narrowing.
+      narrowed: () => state.on.size > 0 || subNarrowed(),
     });
-
-    root.addEventListener('pointerenter', (ev) => {
-      if (ev?.pointerType === 'touch' || !hoverable()) return;
-      cancelLeave();
-      setOpen(true);
-    });
-    root.addEventListener('pointerleave', (ev) => {
-      if (ev?.pointerType === 'touch' || !hoverable() || pinned) return;
-      cancelLeave();
-      // The grace. Cutting the corner of the panel on the way to a chip is a
-      // pointerleave, and a control that shut on it would be unusable with a mouse.
-      // The 8px bridge above the panel (see .filter-panel::before) is what keeps the
-      // gap between the line and the panel from being one of those exits at all.
-      leaveTimer = setTimeout(() => setOpen(false), 160);
-    });
-
-    // Tapping anywhere else — the touch half of "leaving closes it". `pointerdown`
-    // rather than `click`, so the panel is gone before the tap lands on the card
-    // underneath rather than after it.
-    document.addEventListener('pointerdown', (ev) => {
-      if (open && !root.contains(ev?.target)) setOpen(false);
-    });
-    document.addEventListener('keydown', (ev) => {
-      if (ev?.key === 'Escape' && open) {
-        setOpen(false);
-        summary.focus();
-      }
-    });
-    // Keyboard: the panel is reachable by Tab, so it has to close when Tab leaves it.
-    // On the next tick, because at focusout the activeElement is still the old node.
-    root.addEventListener('focusout', () => {
-      setTimeout(() => {
-        if (open && !pinned && !root.contains(document.activeElement)) setOpen(false);
-      }, 0);
-    });
-
-    return root;
+    return chrome ? chrome.root : null;
   }
 
   /* What was selected last time, restored before anything asks. At load rather than at
@@ -784,6 +610,6 @@
     onChange(fn) {
       if (typeof fn === 'function') listeners.push(fn);
     },
-    isOpen: () => open,
+    isOpen: () => Boolean(chrome && chrome.isOpen()),
   };
 })();

@@ -8,7 +8,7 @@
  * bc-rfnr.8, and the other half of test/underp0.mjs. That one asserts the rule; this
  * one asserts that the daemon stops filing beads that are born failing it.
  *
- * Six properties, in the order they would break in:
+ * Seven properties, in the order they would break in:
  *
  * 1. **The home is the P0 the discovering bead is under — never the discovering bead.**
  *    The tempting version parents each discovery under whatever found it, which reads
@@ -19,6 +19,10 @@
  *    asserting only that some parent was set.
  * 2. **The unsorted backlog catches what nothing discovered.** Found by a label on an
  *    open P0, not by an id in config: the graph is shared and config.json is per-Mac.
+ *    **Except where a caller says `unsorted: false`** (bc-arj0.5), which is the seam that
+ *    keeps a daemon filing thirty self-closing beads a week out of the one pile whose
+ *    contents are a question somebody has to answer. Asserted from both ends: the P0 is
+ *    still found where there is one, and nothing else is substituted where there is not.
  * 3. **A closed P0 is not a home**, for the same reason it is not a root — the two must
  *    agree or a bead lands under something the phone does not draw.
  * 4. **Nothing is refused.** No `from`, no unsorted P0, no `bd`, an export that threw:
@@ -31,6 +35,13 @@
  * 6. **And the bead it files is workable.** The acceptance criterion itself, asserted as
  *    one line: `hasP0Above` over the tracker afterwards. Every other property here is a
  *    means to this one.
+ * 7. **A tracker that could not be read says so** (bc-0i27.17), and is not confused with
+ *    a tracker that answered "nothing here". Both are `{ parent: '', gated: false }` and
+ *    only one of them is a decision. Asserted through a real `Bd` over a `bd export`
+ *    that exits non-zero, because that is where the lie was: `Bd.graph` does not throw,
+ *    it hands back an empty index, so the unreadable tracker arrives wearing the exact
+ *    shape `fileBeads` is told not to warn about. A stub with a throwing `graph` — the
+ *    obvious test, and the one the bead asked for — passes against the broken code.
  */
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -149,6 +160,26 @@ await check('a from with nothing above it falls through to the backlog', () => {
   assert.equal(homeFor(INDEX, {}).parent, 'zz-pile');
 });
 
+await check('UNSORTED: FALSE REFUSES THE BACKLOG AND KEEPS THE P0 — lib/release.js', () => {
+  // A caller filing on a schedule, over beads that close themselves and that nothing
+  // will ever open a session on, is not asking "which P0 does this belong to" thirty
+  // times a week — it is burying the beads that are. What it must not lose is the other
+  // half: where the P0 *is* knowable it is still the home, and only the fallback goes.
+  assert.equal(homeFor(INDEX, { from: 'zz-epic.1', unsorted: false }).parent, 'zz-epic');
+  assert.equal(homeFor(INDEX, { from: 'zz-loose', unsorted: false }).parent, '');
+  assert.equal(homeFor(INDEX, { unsorted: false }).parent, '');
+  assert.equal(homeFor(INDEX, { from: 'zz-loose', unsorted: false }).why, '', 'and it does not explain a home it did not give');
+  assert.equal(homeFor(INDEX, { from: 'zz-loose', unsorted: false }).gated, true, '`gated` is about the graph, not about this');
+  assert.equal(homeFor(INDEX, { parent: 'zz-pile', unsorted: false }).parent, 'zz-pile', 'a named parent still wins outright');
+});
+
+await check('and the same through homeIn, so a caller with only a tracker gets it too', async () => {
+  const bd = { graph: async () => INDEX };
+  assert.equal((await homeIn(bd, { name: 'zz' }, { from: 'zz-epic.1.1', unsorted: false })).parent, 'zz-epic');
+  assert.equal((await homeIn(bd, { name: 'zz' }, { from: 'zz-loose', unsorted: false })).parent, '');
+  assert.equal((await homeIn(bd, { name: 'zz' }, { from: 'zz-loose' })).parent, 'zz-pile', 'the default is unchanged');
+});
+
 await check('a parent the caller named wins, and is not explained', () => {
   const home = homeFor(INDEX, { parent: 'zz-epic.1', from: 'zz-epic.1.1' });
   assert.equal(home.parent, 'zz-epic.1');
@@ -159,13 +190,61 @@ await check('NOTHING IS REFUSED — no backlog, no graph, no bd', async () => {
   // The bead that would have been filed before this existed. A filing seam that failed
   // closed would lose a discovery over a Dolt lock race, which is worse than the hold.
   const bare = indexFrom([row('zz-epic', { priority: 0 }), row('zz-loose')].join('\n'));
-  assert.deepEqual(homeFor(bare, { from: 'zz-loose' }), { parent: '', why: '', gated: true });
-  assert.deepEqual(homeFor(indexFrom(''), { from: 'zz-loose' }), { parent: '', why: '', gated: false });
-  assert.deepEqual(await homeIn(null, { name: 'zz' }, { from: 'zz-loose' }), { parent: '', why: '', gated: false });
+  assert.deepEqual(homeFor(bare, { from: 'zz-loose' }), { parent: '', why: '', gated: true, error: '' });
+  assert.deepEqual(homeFor(indexFrom(''), { from: 'zz-loose' }), { parent: '', why: '', gated: false, error: '' });
+  assert.deepEqual(await homeIn(null, { name: 'zz' }, { from: 'zz-loose' }), { parent: '', why: '', gated: false, error: '' });
   assert.deepEqual(
-    await homeIn({ graph: async () => { throw new Error('database is locked'); } }, { name: 'zz' }, {}),
-    { parent: '', why: '', gated: false }
+    await homeIn(
+      { graph: async () => { throw new Error('database is locked'); } },
+      { name: 'zz' },
+      { onWarn: () => {} }
+    ),
+    { parent: '', why: '', gated: false, error: 'database is locked' }
   );
+});
+
+await check('AN EXPORT THAT FAILED IS NOT "NOWHERE TO PUT IT" — IT SAYS SO, AND SAYS WHY', async () => {
+  // bc-0i27.17. Both answers are `{ parent: '', gated: false }` and only one of them is
+  // a decision: a workspace with no P0 is one where a parentless bead is workable, and a
+  // workspace we could not read may have twenty. Before `error` the caller could not
+  // tell, so the one case where a warning was genuinely owed — there ARE P0s, we simply
+  // could not see them — was exactly the case that printed nothing.
+  const said = [];
+  const thrown = await homeIn(
+    { graph: async () => { throw new Error('bd export: context deadline exceeded\nat Bd.graph'); } },
+    { name: 'zz' },
+    { from: 'zz-loose', onWarn: (m) => said.push(m) }
+  );
+  assert.equal(thrown.parent, '', 'still fail-open — the discovery is never lost over this');
+  assert.equal(thrown.gated, false);
+  assert.equal(thrown.error, 'bd export: context deadline exceeded', 'the first line, and no stack');
+  assert.equal(said.length, 1, 'said once, not per bead and not never');
+  assert.match(said[0], /could not read zz/, 'and names the workspace it could not read');
+  assert.match(said[0], /context deadline exceeded/, 'and what actually happened');
+  assert.match(said[0], /no parent/);
+
+  // The other side of the same boolean, and the reason `error` had to be a third state
+  // rather than making `gated` true: a tracker that answered "there are no P0s here" is
+  // silent, exactly as before, because a warning there would be a lie at every filing.
+  const quiet = [];
+  const bd = { graph: async () => indexFrom([row('zz-a'), row('zz-b')].join('\n')) };
+  const answered = await homeIn(bd, { name: 'zz' }, { from: 'zz-a', onWarn: (m) => quiet.push(m) });
+  assert.deepEqual(answered, { parent: '', why: '', gated: false, error: '' });
+  assert.deepEqual(quiet, [], 'nothing failed, so nothing is said');
+
+  // And a caller that has no tracker at all never asked, so there is nothing to report.
+  const none = [];
+  assert.equal((await homeIn(null, { name: 'zz' }, { onWarn: (m) => none.push(m) })).error, '');
+  assert.deepEqual(none, []);
+
+  // The carrier itself: `homeFor` reads the stamp lib/bd.js puts on the index it invents
+  // when it could not read one, and hands it out of every arm — including the arms that
+  // found a home, because a stale-or-invented index that happened to answer is still a
+  // fact the caller may want. A real reading never carries it.
+  const stamped = Object.assign(indexFrom(''), { error: 'bd export failed in zz: no such database' });
+  assert.equal(homeFor(stamped, { from: 'zz-loose' }).error, 'bd export failed in zz: no such database');
+  assert.equal(homeFor(stamped, { from: 'zz-loose' }).parent, '', 'an index with nothing in it houses nothing');
+  assert.equal(homeFor(INDEX, { from: 'zz-epic.1.1' }).error, '', 'and a tracker that answered says nothing');
 });
 
 await check('A WORKSPACE WITH NO P0 AT ALL IS NOT GATED, AND MUST NOT BE WARNED ABOUT', () => {
@@ -204,7 +283,11 @@ const w = JSON.parse(fs.readFileSync(${JSON.stringify(WORLD)}, 'utf8'));
 const one = (n, d) => { const i = args.indexOf(n); return i === -1 ? d : args[i + 1]; };
 const many = (n) => { const out = []; for (let i = 0; i < args.length; i++) if (args[i] === n) out.push(args[i + 1]); return out.filter(Boolean); };
 
-if (args[0] === 'export') { process.stdout.write(w.lines.join('\\n')); process.exit(0); }
+if (args[0] === 'export') {
+  // The failure this whole file is about: a loaded Dolt that will not answer.
+  if (w.failExport) { process.stderr.write(w.failExport + '\\n'); process.exit(1); }
+  process.stdout.write(w.lines.join('\\n')); process.exit(0);
+}
 if (args[0] === 'show') {
   const row = w.lines.map(JSON.parse).find((r) => r.id === args[1]);
   if (!row) { process.stderr.write('error: no issue found\\n'); process.exit(1); }
@@ -303,6 +386,39 @@ await check('a tracker with nowhere to put it files the bead anyway, and says so
   assert.equal(res.filed[0].parent, null);
   assert.match(warnings.join('\n'), /no parent/);
   assert.match(warnings.join('\n'), new RegExp(UNSORTED_LABEL), 'and names the fix, since nothing clears this on its own');
+});
+
+await check('AN EXPORT THAT FAILED IS SAID OUT LOUD, THROUGH THE REAL BD — bc-0i27.17', async () => {
+  // The one that was missing, and the reason the bug survived the `catch` in `homeIn`:
+  // `Bd.graph` does not throw. It logs, invents an empty index and returns it, so the
+  // tracker that could not be read arrives as a tracker with no P0s in it — the one
+  // shape `fileBeads` is specifically instructed not to warn about. Two of three beads
+  // filed minutes apart landed parentless, unworkable and off the inbox, and the command
+  // reported success. Driven through a real `Bd` over a real `bd export` because that is
+  // the seam that was lying; a stub with a throwing `graph` would have passed all along.
+  forgetParents();
+  fs.writeFileSync(
+    WORLD,
+    JSON.stringify({
+      lines: [row('zz-epic', { priority: 0 }), row('zz-loose')],
+      failExport: 'error: cannot acquire lock on database zz',
+    })
+  );
+  const warnings = [];
+  const res = await fileBeads(bd, ws, [{ title: 'filed into the dark' }], {
+    from: 'zz-loose',
+    onWarn: (w) => warnings.push(w),
+  });
+  assert.equal(res.filed.length, 1, 'still fail-open — the discovery is never lost over this');
+  assert.equal(res.filed[0].parent, null);
+  assert.equal(res.home.parent, '');
+  assert.equal(res.home.gated, false, 'and `gated` is untouched: we do not know that it is held');
+  assert.match(res.home.error, /cannot acquire lock/, 'but we do know why we cannot say');
+  const said = warnings.join('\n');
+  assert.match(said, /could not read zz/, 'the workspace it could not read');
+  assert.match(said, /cannot acquire lock/, 'and what actually happened, not a shrug');
+  assert.match(said, /no parent/, 'and the consequence, on the session own stderr');
+  forgetParents();
 });
 
 /* ------------------------------------------------------------------------ done */

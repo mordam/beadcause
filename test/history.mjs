@@ -149,10 +149,28 @@ function load({ token = 'tok', filter = ALL, respond } = {}) {
     calls.push(call);
     const body = await respond(call);
     if (body && body.status) return { ok: false, status: body.status };
-    return { ok: true, status: 200, json: async () => body };
+    // `x-beadcause-kept` is how the daemon says how old the answer is (lib/cache.js), and
+    // a `respond` that says nothing about it stands for a daemon that sent no header —
+    // which is a real case (an older build) and must draw as *unknown*, not as fresh.
+    const headers = { get: (name) => (String(name).toLowerCase() === 'x-beadcause-kept' ? body.kept || null : null) };
+    return { ok: true, status: 200, headers, json: async () => body };
   };
 
   const window = { beadcause: { space } };
+  /* The address bar. The filters live in it and nowhere else (bc-nib3.3), so the page
+     reads it before its first request and writes it back on every chip — which means a
+     realm without one throws on load. `hist-filters` answers null here on purpose: this
+     suite is about the picker and the paging, and a page with no filter host mounts no
+     control and takes its filters from the URL alone, which is the supported path for a
+     phone holding history.html from a cache older than filtermenu.js. The control
+     itself is test/historyfilter.mjs. */
+  const location = { pathname: '/history', search: '', hash: '' };
+  const history = {
+    replaceState: (_s, _t, url) => {
+      const at = String(url).indexOf('?');
+      location.search = at === -1 ? '' : String(url).slice(at);
+    },
+  };
   const ctx = vm.createContext({
     window,
     document: {
@@ -161,6 +179,10 @@ function load({ token = 'tok', filter = ALL, respond } = {}) {
     },
     localStorage: { getItem: (k) => store.get(k) ?? null },
     fetch: fetchStub,
+    location,
+    history,
+    setTimeout,
+    clearTimeout,
     URLSearchParams,
     URL,
     Object,
@@ -168,6 +190,10 @@ function load({ token = 'tok', filter = ALL, respond } = {}) {
     Date,
     Number,
     Array,
+    Boolean,
+    String,
+    Set,
+    RegExp,
     Promise,
     console,
   });
@@ -486,6 +512,96 @@ await check('a repo that recovers on ⟳ stops being warned about', async () => 
   h.refresh.events.click();
   await settle();
   assert.doesNotMatch(h.out.innerHTML, /Could not read/, 'the warning outlived the failure it was about');
+});
+
+/* ============================== 4b. the mark that says you are looking at a kept answer */
+
+/**
+ * bc-1kwl.2.3. The daemon serves a ten-second-old ledger immediately and sweeps behind
+ * the response, so "these rows are current" stopped being something this page could
+ * assume — and a page that quietly draws an old list while claiming nothing is the
+ * failure the whole staleness marker exists to prevent. `kept` in these fixtures is the
+ * `x-beadcause-kept` header the stub hands back; see lib/cache.js for the format.
+ */
+await check('a kept answer is marked, quietly, on the count line', async () => {
+  const h = load({
+    filter: { space: 'all', workspace: 'demo' },
+    respond: async (call) => ({ ...(await ledger(3)(call)), kept: 'stale; age=41; refreshing' }),
+  });
+  await settle();
+  assert.match(h.out.innerHTML, /as of 41s ago, refreshing/);
+  assert.match(h.out.innerHTML, /class="hist-kept"/, 'and in the muted style, not as a warning');
+  assert.doesNotMatch(h.out.innerHTML, /Reading…|spinner/, 'the rows are there — nothing may cover them to say so');
+});
+
+await check('a fresh answer is not marked at all', async () => {
+  const h = load({
+    filter: { space: 'all', workspace: 'demo' },
+    respond: async (call) => ({ ...(await ledger(3)(call)), kept: 'fresh; age=2' }),
+  });
+  await settle();
+  assert.doesNotMatch(h.out.innerHTML, /as of /);
+});
+
+await check('and a daemon that says nothing about it is not accused of holding rows back', async () => {
+  const h = load({ filter: { space: 'all', workspace: 'demo' }, respond: ledger(3) });
+  await settle();
+  assert.doesNotMatch(h.out.innerHTML, /as of /);
+});
+
+await check('the mark goes on the repaint that brings fresh rows', async () => {
+  let first = true;
+  const h = load({
+    filter: { space: 'all', workspace: 'demo' },
+    respond: async (call) => {
+      const kept = first ? 'stale; age=12; refreshing' : 'fresh; age=0';
+      first = false;
+      return { ...(await ledger(3)(call)), kept };
+    },
+  });
+  await settle();
+  assert.match(h.out.innerHTML, /as of 12s ago/);
+  h.refresh.events.click();
+  await settle();
+  assert.doesNotMatch(h.out.innerHTML, /as of /, 'the mark outlived the staleness it was about');
+});
+
+/**
+ * The state a person actually needs telling about: the rows are old, `bd` has started
+ * refusing, and nothing is going to replace them until it stops. Distinguished from a
+ * repo that could not be read at all, because that repo's rows are *not* on the screen
+ * and this one's are — saying "everything below is the rest of the selection" over a
+ * list that is largely the failed repo's own rows would be untrue as well as alarming.
+ */
+await check('a repo being drawn over a failed refresh is told apart from one that would not answer', async () => {
+  const h = load({
+    filter: { space: 'all', workspace: 'demo' },
+    respond: async (call) => ({
+      ...(await ledger(3)(call)),
+      kept: 'stale; age=95; refreshing',
+      errors: [{ workspace: 'demo', error: 'dolt: database is locked', stale: true }],
+    }),
+  });
+  await settle();
+  assert.match(h.out.innerHTML, /showing the last good read/);
+  assert.match(h.out.innerHTML, /as of 95s ago/);
+  // The count survives it: every row of that repo is on the screen and counted, which is
+  // exactly what a count being "the whole truth" means. A repo that could not be read at
+  // all is the case that suppresses it, and that one still does — the check below.
+  assert.match(h.out.innerHTML, /beads in demo/);
+  assert.doesNotMatch(h.out.innerHTML, /Could not read/, 'its rows are on the screen — it was read, just not recently');
+});
+
+await check('while a repo that really would not answer still says so', async () => {
+  const h = load({
+    respond: async (call) => ({
+      workspace: call.workspace || '', rows: [], total: 0, more: false,
+      errors: [{ workspace: 'demo', error: 'bd exited 1' }],
+    }),
+  });
+  await settle();
+  assert.match(h.out.innerHTML, /Could not read demo/);
+  assert.doesNotMatch(h.out.innerHTML, /last good read/);
 });
 
 await check('a daemon with no ledger endpoint is an empty state, not a broken page', async () => {

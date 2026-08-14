@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { loadConfig, reconcileBaseUrl, CONFIG_PATH, OBSERVING } from '../lib/config.js';
+import { loadConfig, reconcileBaseUrl, workspaceRoots, CONFIG_PATH, OBSERVING } from '../lib/config.js';
 import { createApp, startPoller, listen } from '../lib/server.js';
 import { advocatedWorkspaces, workerLimit, globalWorkerCap } from '../lib/advocate.js';
 import { buildStamp } from '../lib/build.js';
@@ -103,7 +103,13 @@ if (process.argv.includes('--qr')) {
 }
 
 if (!cfg.workspaces.length) {
-  console.error('[beadcause] no beads workspaces found under ~/beads — nothing to serve.');
+  // The roots by name, because "under ~/beads" was a lie on any install that had been
+  // pointed somewhere else, and the one thing this message has to get right is where to
+  // go and look.
+  console.error(
+    `[beadcause] no beads workspaces found under ${workspaceRoots(cfg).join(', ')} — nothing to serve.`
+  );
+  console.error('[beadcause] add a root to workspaceRoots in ' + CONFIG_PATH + ', or run npm run configure.');
   process.exit(1);
 }
 

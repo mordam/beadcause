@@ -146,7 +146,15 @@ function renderRow(row) {
       lift(APP, 'function jiraRowHtml(row)'),
       'globalThis.out = jiraRowHtml(ROW);',
     ].join('\n'),
-    Object.assign(context, { ROW: row, state: { armed: null }, jiraSaid: new Map(), jiraBusy: new Set() })
+    // `state.open` since bc-0i27.6: the row is the shut half of a card that opens over
+    // the tab, so the very first thing it does is ask whether it is the open one. Empty
+    // here — what the *open* half draws is test/jiraview.mjs's.
+    Object.assign(context, {
+      ROW: row,
+      state: { armed: null, open: new Set() },
+      jiraSaid: new Map(),
+      jiraBusy: new Set(),
+    })
   );
   return context.out;
 }
@@ -226,13 +234,16 @@ await check('the key, the summary and the status — the three you read without 
   assert.match(html, /3h ago/, 'when it last moved');
 });
 
-await check('it is a card in the stack, keyed like one, and links out to the ticket', () => {
+await check('it is a card in the stack, keyed like one, and opens the ticket over the tab', () => {
   assert.match(html, /class="card jira-card"/, 'not a card in the list');
   assert.match(html, /data-key="jira:athena\/TECH-1204"/, 'no key — the scroll anchor has a hole in it');
-  // Until bc-0i27.6 puts the ticket view over the tab, the row has to go somewhere: a
-  // row you cannot act on at all is only a notification.
-  assert.match(html, /href="https:\/\/example\.atlassian\.net\/browse\/TECH-1204"/);
-  assert.match(html, /rel="noopener noreferrer"/, 'a target=_blank without this is a tabnabbing hole');
+  // bc-0i27.6: the shut row is a **button** and not the link to JIRA it used to be. The
+  // reading this row exists for happens in the view over the tab now, and mechanically
+  // the whole row is one tap target where an `<a>` inside it was a nested interactive
+  // element a phone could resolve either way. The link out is not lost — the open view
+  // puts it back on the title, which is test/jiraview.mjs's to assert.
+  assert.match(html, /<button class="work-row" type="button" data-act="jira-open"/, 'the row does not open the ticket');
+  assert.doesNotMatch(html, /<a class="work-row"/, 'the row is still a link out to JIRA');
 });
 
 await check('and which workspace it came off, because a key alone does not say', () => {

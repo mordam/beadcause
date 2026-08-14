@@ -38,7 +38,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { cleanupTmp } from './helpers/tmp.mjs';
+import { cleanupTmp, quiesce, removeTree } from './helpers/tmp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const LIB = (name) => path.join(HERE, '..', 'lib', name);
@@ -95,7 +95,12 @@ async function tick({ ready = [], sessions = [], planted = [], overrides = {} } 
   const dir = process.env.BEADCAUSE_CONFIG_DIR;
   // A clean slate per case: state, the activity file the launch stamps, and the session
   // records. Otherwise case N's window is still holding case N+1's bead.
-  for (const f of fs.readdirSync(dir)) fs.rmSync(path.join(dir, f), { recursive: true, force: true });
+  // `quiesce` + `removeTree` rather than a bare recursive `rmSync`: every write of
+  // `advocates.json` schedules a common-repo commit 2000ms out whose `git init` lands in
+  // `CONFIG_DIR`, and rmdir on a directory that gained a file since it was read is
+  // ENOTEMPTY. test/tmpadoption.mjs fails the repo for the bare form (bc-9d37.9).
+  await quiesce();
+  for (const f of fs.readdirSync(dir)) await removeTree(path.join(dir, f));
   for (const f of fs.readdirSync(SESSIONS)) fs.rmSync(path.join(SESSIONS, f), { force: true });
   for (const s of sessions) plant(...s);
 

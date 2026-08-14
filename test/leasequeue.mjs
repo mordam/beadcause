@@ -8,7 +8,7 @@
  * lib/lease.js resolves the collision *afterwards* instead, off a label both machines can
  * read, and this is where that is tested against the real tick.
  *
- * Five claims, and the third is the one that would be quietly dropped:
+ * Six claims, and the third is the one that would be quietly dropped:
  *
  *   - **no window** over a bead another Mac holds a live claim on;
  *   - **and it is visible as held**, with the handle on it, because a queue that shrinks
@@ -19,7 +19,10 @@
  *     more than the duplicate window this exists to prevent;
  *   - **and a claim holds the subtree under it** (bc-etbq), because one window can be
  *     responsible for an epic and its children while only the epic carries a label — so a
- *     child that looks unclaimed to every other machine is not.
+ *     child that looks unclaimed to every other machine is not;
+ *   - **and it holds the bead above it too** (bc-9otk), which is the same duplicate from
+ *     the other end: a claimed subtask is out of `bd ready`, so a plain parent whose only
+ *     child has a window on the next desk looked like work nobody was doing.
  *
  *     node test/leasequeue.mjs
  *
@@ -35,7 +38,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { cleanupTmp } from './helpers/tmp.mjs';
+import { cleanupTmp, quiesce, removeTree } from './helpers/tmp.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const LIB = (name) => path.join(HERE, '..', 'lib', name);
@@ -157,6 +160,10 @@ function machine(w, rows, { handle, overrides = {}, bdOver = {} } = {}) {
   // of this filter that can cost a `bd` call, and "one per ancestor per pass, whatever the
   // queue looks like" is a claim a cache makes and only a counter can keep.
   const shows = new Map();
+  // Every `bd list --status=…` this machine made, in order. The downward rule (bc-9otk) is
+  // free only if it rides the read `withoutTwins` was making anyway, and one entry per tick
+  // is the whole of that claim.
+  const lists = [];
   const bd = {
     // `inProgress` is out of `bd ready` for the same reason the real one is: somebody is on
     // it. It is still readable by id, which is the whole difference that matters here.
@@ -177,7 +184,17 @@ function machine(w, rows, { handle, overrides = {}, bdOver = {} } = {}) {
       };
     },
     children: async () => [],
-    listStatus: async () => [],
+    // The rows a `bd list --status=in_progress` gives, labels and all. It answered `[]`
+    // until bc-9otk, which is the fake trap this suite exists to avoid: the downward rule
+    // reads the labels off these rows, and a fixture that returns none would let a dead
+    // rule pass every assertion in the file. Counted for the same reason `shows` is —
+    // "one call per survey, shared with the twin filter" is a claim only a counter keeps.
+    listStatus: async () => {
+      lists.push('in_progress');
+      return rows
+        .filter((r) => !r.closed && r.inProgress)
+        .map((r) => ({ ...r, status: 'in_progress', labels: [...(view.get(r.id) || [])] }));
+    },
     addLabel: async (_ws, id, label) => {
       if (!view.has(id)) view.set(id, new Set());
       view.get(id).add(label);
@@ -202,6 +219,7 @@ function machine(w, rows, { handle, overrides = {}, bdOver = {} } = {}) {
     opened,
     advocates,
     reads: (id) => shows.get(id) || 0,
+    lists: () => lists.length,
     async tick() {
       await advocates.tick();
       return advocates.snapshot().find((a) => a.workspace === 'alpha');
@@ -209,10 +227,20 @@ function machine(w, rows, { handle, overrides = {}, bdOver = {} } = {}) {
   };
 }
 
-/** A clean CONFIG_DIR per case: otherwise case N's worker is still holding case N+1's bead. */
-function reset() {
+/**
+ * A clean CONFIG_DIR per case: otherwise case N's worker is still holding case N+1's bead.
+ *
+ * `quiesce` and `removeTree` rather than a bare recursive `rmSync`, for the reason
+ * test/helpers/tmp.mjs was written: every write of `advocates.json` schedules a common-repo
+ * commit two seconds later, that commit runs `git init` in `CONFIG_DIR`, and a `rmdir` on a
+ * directory that gained a `.git/hooks/*.sample` since it was read is ENOTEMPTY. This suite
+ * was under the two seconds until bc-9otk added nine cases to it, at which point the timer
+ * started firing *between* cases — a teardown failing a run whose every assertion passed.
+ */
+async function reset() {
+  await quiesce();
   const dir = process.env.BEADCAUSE_CONFIG_DIR;
-  for (const f of fs.readdirSync(dir)) fs.rmSync(path.join(dir, f), { recursive: true, force: true });
+  for (const f of fs.readdirSync(dir)) await removeTree(path.join(dir, f));
 }
 
 const heldIds = (card) => (card.heldByLease || []).map((h) => h.id);
@@ -223,7 +251,7 @@ let failures = 0;
 let ran = 0;
 async function check(name, fn) {
   ran += 1;
-  reset();
+  await reset();
   try {
     await fn();
     console.log(`  ok   ${name}`);
@@ -610,6 +638,182 @@ await check('two Macs in one subtree and exactly one survives', async () => {
     ['x-1']
   );
   assert.doesNotMatch(onBeta.note, /clear/, onBeta.note);
+});
+
+/* ----------------------------------------------------- and one level down (bc-9otk) */
+
+/**
+ * The same duplicate from the other end, and the case nothing covered. Mac B is working
+ * `x-1.1` — a subtask — so it is claimed, in progress, and out of `bd ready` entirely.
+ * Its parent `x-1` then goes ready here, and every check that would have stopped a second
+ * window looks the wrong way: no ready child, because the child is claimed; no local
+ * worker under it, because the worker is on the other machine; and the `bd children`
+ * question is asked only of an **epic**, which a plain task with subtasks is not.
+ */
+await check('a bead whose descendant another Mac holds gets no window', async () => {
+  const rows = [
+    bead('x-1', 'a plain parent'),
+    working('x-1.1', 'the subtask being worked', { labels: [leaseLabel('beta', ago(2))] }),
+  ];
+  const w = world(rows);
+  const alpha = machine(w, rows, { handle: 'alpha' });
+
+  const card = await alpha.tick();
+  assert.deepEqual(alpha.opened, [], 'beta already has a window inside this subtree');
+  assert.deepEqual(heldIds(card), ['x-1'], 'held rather than vanished');
+  assert.equal(card.heldByLease[0].handle, 'beta', 'and the card names the machine to go and ask');
+  assert.match(card.heldByLease[0].why, /on x-1\.1, which is under it/, card.heldByLease[0].why);
+  assert.match(card.note, /claimed by another Mac/, card.note);
+  assert.doesNotMatch(card.note, /clear/, card.note);
+});
+
+/** However deep, for the reason the upward half is: the claim is on the subtree. */
+await check('however far down the subtree the claim is', async () => {
+  const rows = [
+    bead('x-1', 'a plain parent'),
+    working('x-1.2.3', 'a grandchild being worked', { labels: [leaseLabel('beta', ago(2))] }),
+  ];
+  const w = world(rows);
+  const alpha = machine(w, rows, { handle: 'alpha' });
+
+  const card = await alpha.tick();
+  assert.deepEqual(alpha.opened, []);
+  assert.match(card.heldByLease[0].why, /on x-1\.2\.3, which is under it/, card.heldByLease[0].why);
+});
+
+/**
+ * And it reaches up and not sideways. A claim under one bead says nothing about the bead
+ * beside it, and an id that merely starts alike is not underneath anything — which is the
+ * same boundary `isDescendantOf` draws for every other rule in this file.
+ */
+await check('it holds what is above the claim and nothing beside it', async () => {
+  const rows = [
+    working('x-1.1', 'the subtask being worked', { labels: [leaseLabel('beta', ago(2))] }),
+    bead('x-1', 'its parent'),
+    bead('x-12', 'a bead whose id merely starts alike'),
+    bead('x-2', 'somewhere else entirely'),
+  ];
+  const w = world(rows);
+  const alpha = machine(w, rows, { handle: 'alpha' });
+
+  const card = await alpha.tick();
+  assert.deepEqual(heldIds(card), ['x-1'], 'only the bead the claim is actually under');
+  assert.deepEqual([...alpha.opened].sort(), ['x-12', 'x-2'], `opened ${alpha.opened.join(', ')}`);
+});
+
+/**
+ * Our own claim below a bead is not somebody else's. A window this Mac still has open is
+ * `heldByChildren`'s business — there is a whole worker record to look at rather than one
+ * label — and a released lease on a child must not park its parent here forever.
+ */
+await check('this Mac is not held by its own claim below it', async () => {
+  const rows = [
+    bead('x-1', 'a plain parent'),
+    working('x-1.1', 'a subtask this Mac was on', { labels: [leaseLabel('alpha', ago(5))] }),
+  ];
+  const w = world(rows);
+  const alpha = machine(w, rows, { handle: 'alpha' });
+
+  const card = await alpha.tick();
+  assert.deepEqual(heldIds(card), [], 'nothing held by a claim of ours');
+  assert.deepEqual(alpha.opened, ['x-1']);
+});
+
+/**
+ * What it costs, which is the whole argument for asking a question that has no `ancestorsOf`
+ * to enumerate: **nothing**. `withoutTwins` reads the in-progress rows on every survey
+ * already and uses their titles; this reads the labels off the same rows.
+ */
+await check('the downward answer rides the read the twin filter was making anyway', async () => {
+  const rows = [
+    bead('x-1', 'a plain parent'),
+    working('x-1.1', 'the subtask being worked', { labels: [leaseLabel('beta', ago(2))] }),
+    bead('x-2', 'a bead with nothing under it'),
+  ];
+  const w = world(rows);
+  const alpha = machine(w, rows, { handle: 'alpha' });
+
+  const card = await alpha.tick();
+  assert.deepEqual(heldIds(card), ['x-1']);
+  assert.deepEqual(alpha.opened, ['x-2']);
+  assert.equal(alpha.lists(), 1, 'one list for the tick, and both filters read it');
+});
+
+/** The single-person guarantee, one level down: no handle, no subtree, and no extra read. */
+await check('a Mac that does not know who it is is held by nothing under it', async () => {
+  const rows = [
+    bead('x-1', 'a plain parent'),
+    working('x-1.1', 'the subtask', { labels: [leaseLabel('somebody', ago(2))] }),
+  ];
+  const w = world(rows);
+  const solo = machine(w, rows, { handle: null });
+
+  const card = await solo.tick();
+  assert.deepEqual(solo.opened, ['x-1'], 'nobody else exists as far as this install knows');
+  assert.deepEqual(heldIds(card), []);
+  assert.equal(solo.lists(), 1, 'and the twin filter is still the only reason it read anything');
+});
+
+/** Off is off, one level down too. */
+await check('holdLeases: false opens over a claim below anyway', async () => {
+  const rows = [
+    bead('x-1', 'a plain parent'),
+    working('x-1.1', 'the subtask', { labels: [leaseLabel('beta', ago(2))] }),
+  ];
+  const w = world(rows);
+  const alpha = machine(w, rows, { handle: 'alpha', overrides: { holdLeases: false } });
+
+  const card = await alpha.tick();
+  assert.deepEqual(alpha.opened, ['x-1']);
+  assert.deepEqual(heldIds(card), []);
+});
+
+/** A tracker that will not answer holds nothing back, downward as upward. */
+await check('a bd that cannot list holds nothing below', async () => {
+  const rows = [
+    bead('x-1', 'a plain parent'),
+    working('x-1.1', 'the subtask', { labels: [leaseLabel('beta', ago(2))] }),
+  ];
+  const w = world(rows);
+  const alpha = machine(w, rows, {
+    handle: 'alpha',
+    bdOver: {
+      listStatus: async () => {
+        throw new Error('dolt: database locked');
+      },
+    },
+  });
+
+  const card = await alpha.tick();
+  assert.deepEqual(alpha.opened, ['x-1'], 'cannot tell is not the same as held');
+  assert.deepEqual(heldIds(card), []);
+});
+
+/**
+ * The asymmetry, and it is deliberate: this half is a filter and never a stand-down.
+ *
+ * `reconcile` withdraws a window when a claim is *above* it, and that is what makes the
+ * after-the-fact collision resolve to exactly one survivor — the machine above keeps its
+ * window, the machine inside gives its up. Asking the downward question there as well would
+ * make both of them withdraw, and a subtree nobody is working is worse than the duplicate.
+ * So a live window here is not stood down by a claim that appears underneath it.
+ */
+await check('a live window is not stood down by a claim below it', async () => {
+  const rows = [bead('x-1', 'a plain parent')];
+  const w = world(rows);
+  const alpha = machine(w, rows, { handle: 'alpha' });
+
+  await alpha.tick();
+  assert.deepEqual(alpha.opened, ['x-1'], 'this Mac is on the parent');
+
+  // And beta takes a subtask underneath it, which this Mac sees on its next pull. Set into
+  // the view directly: it was built from `rows` before this one existed.
+  rows.push(working('x-1.1', 'a subtask beta took', { labels: [leaseLabel('beta', ago(1))] }));
+  w.viewFor('alpha').set('x-1.1', new Set([leaseLabel('beta', ago(1))]));
+
+  const card = await alpha.tick();
+  assert.equal(card.workers.length, 1, 'the window above stays open');
+  assert.equal(card.stoodDown.length, 0, 'and nothing withdrew, or the subtree would have nobody in it');
 });
 
 await cleanupTmp(tmp);

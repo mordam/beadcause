@@ -358,12 +358,14 @@ try {
     assert.equal(body.spaces.find((s) => s.name === 'Personal').unknown, undefined, 'Personal does not');
   });
 
-  await check('the picker gets the same list on /api/spaces, where four pages read it', async () => {
+  await check('/api/spaces carries no trouble list — the ⚠ it fed is gone', async () => {
+    // The picker drew a `· N` per repo and a pill on the bar, and `trouble` was what
+    // stopped a sum taken over a sweep with a hole in it being presented as a fact.
+    // bc-ka5y.1 deleted the numbers, so the qualifier went with them: there is nothing
+    // left on that control for a ⚠ to be attached to. What still records the failed
+    // sweep on this payload is the space row itself.
     const { body } = await call('/api/spaces');
-    assert.deepEqual(
-      body.trouble.map((t) => t.workspace),
-      ['beta']
-    );
+    assert.ok(!('trouble' in body), `trouble is still served: ${JSON.stringify(body.trouble)}`);
     assert.equal(body.spaces.find((s) => s.name === 'Work').unknown, true);
   });
 
@@ -431,10 +433,15 @@ await check('the pane names the repo and prints the error', () => {
   assert.match(pane, /t\.error/, 'and says what went wrong');
 });
 
-await check('the picker will not draw a confident zero for a repo that did not answer', () => {
-  assert.match(BAR, /data\.trouble/, 'adopted');
-  assert.match(BAR, /const tail = \(n, unknown\)/, 'the count knows whether it is a fact');
-  assert.match(BAR, /unknown \?/, 'and draws something else when it is not');
+await check('the picker draws no count at all, so there is no zero left to qualify', () => {
+  // This used to assert the opposite half — that `tail(n, unknown)` marked a count taken
+  // over a sweep with a hole in it. bc-ka5y.1 removed every number the picker drew, and
+  // with them the ⚠: a control that says only *where you are* cannot report a total it
+  // could not read. The banner above the list is still the place a failed sweep is said
+  // out loud, which is what the checks above this one hold.
+  assert.doesNotMatch(BAR, /data\.trouble/, 'the picker adopts trouble again');
+  assert.doesNotMatch(BAR, /const tail = /, 'the `· N` tail is back on the dropdown rows');
+  assert.doesNotMatch(BAR, /⚠/, 'the picker draws a ⚠ again, over a number it no longer has');
 });
 
 await check('what the pane draws has a rule, in both themes', () => {

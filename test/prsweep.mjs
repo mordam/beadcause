@@ -183,6 +183,25 @@ const BIN = path.join(tmp, 'bin');
 fs.mkdirSync(BIN, { recursive: true });
 const PR_STATE = path.join(tmp, 'prs.json');
 const GH_LOG = path.join(tmp, 'gh-calls.log');
+/**
+ * One file per pull request number, created by the first `gh pr view` of it.
+ *
+ * bc-9d37.7. This used to be a `views` counter inside `prs.json`, incremented with a
+ * read-modify-write — and `sweepConflicts` asks about candidates `AT_ONCE = 6` at a time,
+ * so six of these processes were reading, adding one and writing the same file at once.
+ * That lost updates, which silently changed the shape of #14's window below, and it let a
+ * `JSON.parse` land on a half-written file, which the sweep reported as a row it could not
+ * read — the suite went red about one run in three, on a different check each time, and
+ * the tell was `1 could not be read` in its own progress line.
+ *
+ * A directory entry created with `wx` is the same question asked of the filesystem, which
+ * can answer it for six processes at once: exactly one `open` succeeds and the rest get
+ * EEXIST. Nothing writes `prs.json` any more, so there is no torn read left to have.
+ *
+ * Lowering `atOnce` would also have made it green, and would have thrown away the thing
+ * the suite is for: six in flight is what the sweep really does.
+ */
+const VIEWS = path.join(tmp, 'views');
 const iso = (daysAgo) => new Date(Date.now() - daysAgo * 86400000).toISOString();
 
 const rawPR = (over = {}) => ({
@@ -226,12 +245,15 @@ const rawPR = (over = {}) => ({
  * sweep never reads it. #14 proves that by making the row's value the one that would
  * make the sweep find nothing.
  */
-const resetPRs = () =>
+const resetPRs = () => {
+  fs.rmSync(VIEWS, { recursive: true, force: true });
+  fs.mkdirSync(VIEWS, { recursive: true });
+  // Written whole and moved into place. Nothing in the fake writes this file, so the only
+  // reader that could see a prefix is a `gh` from the case before that has outlived its
+  // `await` — but `writeFileSync` truncates in place, and a rename cannot be half done.
   fs.writeFileSync(
-    PR_STATE,
+    `${PR_STATE}.next`,
     JSON.stringify({
-      /** How many times `gh pr view` has been asked about each number — #14's clock. */
-      views: {},
       prs: [
         rawPR({
           number: 10,
@@ -290,35 +312,49 @@ const resetPRs = () =>
       ],
     })
   );
+  fs.renameSync(`${PR_STATE}.next`, PR_STATE);
+};
 resetPRs();
 
 /*
  * #14 is the whole reason `mergeability` exists: it answers UNKNOWN the first time it is
  * asked and CONFLICTING every time after, which is what GitHub does for a few seconds
  * after any merge lands. A sweep that read the list once and believed it finds nothing.
+ *
+ * "The first time it is asked" is the only mutable thing in here, and six of these run at
+ * once — see the note on `VIEWS` above for why that is a marker file rather than a
+ * counter. `prs.json` is read-only from in here; nothing this script does can tear it.
  */
 fs.writeFileSync(
   path.join(BIN, 'gh'),
   `#!/usr/bin/env node
 const fs = require('node:fs');
+const path = require('node:path');
 const STATE = ${JSON.stringify(PR_STATE)};
+const VIEWS = ${JSON.stringify(VIEWS)};
 const args = process.argv.slice(2);
 fs.appendFileSync(${JSON.stringify(GH_LOG)}, JSON.stringify(args) + '\\n');
 const out = (s) => { process.stdout.write(s); process.exit(0); };
 const load = () => JSON.parse(fs.readFileSync(STATE, 'utf8'));
-const save = (w) => fs.writeFileSync(STATE, JSON.stringify(w));
+/* Exactly one of six concurrent opens can win 'wx'; the rest get EEXIST. */
+const firstView = (n) => {
+  try {
+    fs.writeFileSync(path.join(VIEWS, String(n)), '', { flag: 'wx' });
+    return true;
+  } catch (err) {
+    if (err.code === 'EEXIST') return false;
+    throw err;
+  }
+};
 if (args[0] === 'auth' && args[1] === 'status') out('Logged in to github.com\\n');
 if (args[0] === 'repo' && args[1] === 'view') out(JSON.stringify({ nameWithOwner: 'acme/widgets' }));
 if (args[0] === 'pr' && args[1] === 'list') out(JSON.stringify(load().prs));
 if (args[0] === 'pr' && args[1] === 'view') {
   const n = Number(args[2]);
-  const w = load();
-  const pr = w.prs.find((p) => p.number === n);
+  const pr = load().prs.find((p) => p.number === n);
   if (!pr) { process.stderr.write('no pull requests found for ' + args[2] + '\\n'); process.exit(1); }
-  const seen = (w.views[n] || 0) + 1;
-  w.views[n] = seen;
-  save(w);
-  if (n === 14 && seen > 1) out(JSON.stringify({ ...pr, mergeable: 'CONFLICTING', mergeStateStatus: 'DIRTY' }));
+  const seenBefore = !firstView(n);
+  if (n === 14 && seenBefore) out(JSON.stringify({ ...pr, mergeable: 'CONFLICTING', mergeStateStatus: 'DIRTY' }));
   out(JSON.stringify(pr));
 }
 process.stderr.write('unknown gh invocation: ' + args.join(' ') + '\\n');
@@ -448,6 +484,14 @@ const numbers = (rows) => rows.map((r) => r.number).sort((a, b) => a - b);
 
   check('the sweep names the repo it swept', out.repo === 'acme/widgets', String(out.repo));
   check('and the merge it swept after', out.after === 10, String(out.after));
+
+  // The harness's own health, asserted directly rather than inferred from which check
+  // happened to go red. `out.trouble` is what the sweep prints as "N could not be read",
+  // and for two months that line was the only visible difference between a green run of
+  // this suite and a red one: the fake `gh` was racing itself over `prs.json` and handing
+  // back a torn read (bc-9d37.7). Nothing in the fixture is unreadable, so if this ever
+  // fails again the answer is the harness, not lib/prsweep.js.
+  check('nothing the fake gh served was unreadable', out.trouble.length === 0, JSON.stringify(out.trouble));
 }
 
 /* ------------------------------------------------- what the opened session is told */

@@ -86,7 +86,10 @@ const get = (pathname) =>
         let out = '';
         res.setEncoding('utf8');
         res.on('data', (c) => (out += c));
-        res.on('end', () => resolve({ status: res.statusCode, body: out }));
+        // `location` because two of these paths are a redirect rather than a document,
+        // and `http.request` does not follow one — which is what makes it the right
+        // client here: the hop itself is the thing under test.
+        res.on('end', () => resolve({ status: res.statusCode, body: out, location: res.headers.location }));
       }
     );
     req.on('error', reject);
@@ -172,6 +175,31 @@ const PAGES = [
   { what: 'the sign-in screen', marker: '/login.js', paths: ['/login', '/login.html'] },
 ];
 
+/**
+ * The paths that are a **hop** rather than a document, and where each one has to land.
+ *
+ * `/closed` and `/done` are the ledger narrowed to what finished (bc-nib3.7), and the
+ * only reason they are not two more rows in `PAGES` above is the mechanism: the filter
+ * they set lives in the query string, an alias rewrites the path and leaves the query
+ * exactly as the browser sent it, so serving `history.html` at `/closed` would be the
+ * whole unfiltered ledger under a name that promised otherwise. That failure is
+ * invisible from the outside — a plausible list of the wrong beads — which is why the
+ * `location` is asserted in full here rather than the page it eventually reaches.
+ *
+ * The last two rows are the two halves of what the door does with a query string it was
+ * handed: everything is carried across, because `?t=` is a pairing token an ntfy action
+ * or a home-screen shortcut can arrive with and dropping it turns the second navigation
+ * into a login screen; and `status` alone is overruled, because `/closed?status=open` is
+ * a contradiction and the name of the door is the half that is not a typo.
+ */
+const REDIRECTS = [
+  { path: '/closed', to: '/history?status=closed', what: 'the ledger, narrowed to what finished' },
+  { path: '/done', to: '/history?status=closed', what: 'the same, under the other word for it' },
+  { path: '/closed?priority=P0', to: '/history?priority=P0&status=closed', what: 'a second filter, kept' },
+  { path: '/closed?t=pair-me', to: '/history?t=pair-me&status=closed', what: 'the pairing token, kept' },
+  { path: '/closed?status=open', to: '/history?status=closed', what: 'a contradicted status, overruled' },
+];
+
 /* The sessions view's own files. Deleted with it, and named here so a stray copy
    coming back is a failing test rather than a page nobody maintains. */
 const GONE = ['/work.js'];
@@ -208,6 +236,22 @@ for (const page of PAGES) {
     else if (!res.body.includes(page.marker)) bad(`${p} serves ${page.what}`, `no ${page.marker} in the body`);
     else ok(`${p} serves ${page.what}`);
   }
+}
+
+for (const { path: p, to, what } of REDIRECTS) {
+  const res = await get(p);
+  if (res.status !== 302) bad(`${p} sends you to ${what}`, `HTTP ${res.status}, not a redirect`);
+  else if (res.location !== to) bad(`${p} sends you to ${what}`, `landed on ${res.location}, not ${to}`);
+  else ok(`${p} → ${to} — ${what}`);
+}
+
+/* And that the far end of that hop is a real page and not a 404 under a good-looking
+   `location` — the one thing asserting the header alone cannot tell you. */
+{
+  const res = await get('/history?status=closed');
+  if (res.status !== 200) bad('and /history?status=closed is a page', `HTTP ${res.status}`);
+  else if (!res.body.includes('/history.js')) bad('and /history?status=closed is a page', 'no /history.js in the body');
+  else ok('and /history?status=closed is a page');
 }
 
 for (const p of GONE) {

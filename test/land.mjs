@@ -191,9 +191,15 @@ for (const [name, brief] of [
     // improvised in a comment nothing could read — see lib/superseded.js.
     /three honest endings/.test(brief);
   check(`"${name}" claims the bead, reads CLAUDE.md, names the bead, and has all three exits`, all);
+  // Since bc-28ef the three writes are one command rather than two lines a worker types.
+  // Both halves are asserted because either alone is the bug: the command without the
+  // warning is a brief that reads as optional, and the warning without the command is
+  // the by-hand marking this replaced.
   check(
-    `"${name}" can mark a duplicate rather than write the instruction in a comment`,
-    /bd label add bc-fmt superseded-by:<the-original>/.test(brief) && /bd dep add bc-fmt <the-original>/.test(brief)
+    `"${name}" marks a duplicate with the command rather than by hand`,
+    /bin\/supersede\.js -w beadcause -b bc-fmt --original <the-original>/.test(brief) &&
+      /superseded-by:<the-original>/.test(brief) &&
+      /refused\*? when the original is an epic/.test(brief)
   );
 }
 
@@ -218,10 +224,19 @@ for (const [name, brief] of [
  *    obeying both instructions in the other order puts its marker in the middle, and a
  *    line whose whole value is that it can be grepped for stops being findable.
  *
- * Both stores are named because there are two and the choice between them is the whole
- * of getting it right: a repo fact in `remember` is advice followed where it is false,
- * and a general lesson in `note` is one never seen again. See `memoryBrief` in
- * lib/memory.js, which is the single copy of the long version.
+ * All three stores are named because the choice between them is the whole of getting it
+ * right: a repo fact in `remember` is advice followed where it is false, a general lesson
+ * in `note` is one never seen again, and a report on this run in either of them is advice
+ * that goes stale without anybody noticing. See `memoryBrief` in lib/memory.js, which is
+ * the single copy of the long version.
+ *
+ * A fourth thing is asserted since tier 4 arrived, and it is the one a later tidy-up is
+ * most likely to undo: **silence is the expected answer for two of the three and not for
+ * the third**. `debrief` is a report on this run, so the "most runs write nothing" bar
+ * written for the other two is wrong for it — and a store an agent has been told to use
+ * sparingly is a store bc-sgu4 already showed us goes unused entirely. The two
+ * instructions therefore sit in two paragraphs saying opposite things, and both are
+ * checked.
  */
 console.log('\nthe step that writes something down before the window closes');
 
@@ -233,25 +248,44 @@ for (const [name, brief] of [
   check(
     `"${name}" foreshadows the step up in the brief, where the surprise is still in front of it`,
     brief.indexOf('notice the surprises as you hit them') > 0 &&
-      brief.indexOf('notice the surprises as you hit them') < brief.indexOf('Write down anything you learned'),
+      brief.indexOf('notice the surprises as you hit them') < brief.indexOf('Leave a report on this run'),
     (brief.match(/.*notice the surprises.*/) || [])[0]
   );
   check(
-    `"${name}" names both stores, and the one question that chooses between them`,
-    /beadcause-memory note\b/.test(brief) && /beadcause-memory remember\b/.test(brief) && /would this still be true somewhere/.test(brief),
+    `"${name}" names all three stores`,
+    /beadcause-memory note\b/.test(brief) &&
+      /beadcause-memory remember\b/.test(brief) &&
+      /beadcause-memory debrief /.test(brief),
     (brief.match(/.*beadcause-memory.*/) || [])[0]
   );
   check(
-    `"${name}" does not ask for something every run — silence is the expected answer`,
-    /Most runs should write nothing/.test(brief),
-    (brief.match(/.*Most runs.*/) || [])[0]
+    `"${name}" gives the question that chooses between the two that outlive the run`,
+    /would still be true in another repo next week/.test(brief),
+    (brief.match(/.*another repo next week.*/) || [])[0]
   );
-  check(`"${name}" keeps the line that stops this becoming a second tracker`, /work item attached is a bead, not a note/.test(brief));
+  check(
+    `"${name}" does not ask for a note every run — silence is the expected answer there`,
+    /most runs should write\s+neither, which is the expected answer/.test(brief),
+    (brief.match(/.*most runs should write.*/) || [])[0]
+  );
+  check(
+    `"${name}" asks for a debrief every run, which is the opposite instruction and has to survive beside it`,
+    /this one you should almost always\s+write/.test(brief),
+    (brief.match(/.*almost always.*/) || [])[0]
+  );
+  check(
+    `"${name}" says what a debrief is for, so it is not written as a second copy of the note`,
+    /It does not have to still be true next week/.test(brief)
+  );
+  check(
+    `"${name}" keeps the line that stops this becoming a second tracker`,
+    /work item attached is a bead, not any of the three/.test(brief)
+  );
   // The ordering the marker depends on: write, rename, then the message whose last line
   // is the marker. Numbered *and* argued, because a session reads the numbers.
   check(
     `"${name}" runs the three closing steps in the order the marker needs`,
-    /^1\. \*\*Write down anything you learned/m.test(brief) &&
+    /^1\. \*\*Leave a report on this run/m.test(brief) &&
       /^2\. \*\*Rename this session/m.test(brief) &&
       /^3\. \*\*Make the last line of your final message/m.test(brief),
     (brief.match(/^\d\. \*\*.*/gm) || []).join(' | ')
@@ -507,6 +541,102 @@ check('and says why that line is there, since it reads like bookkeeping', /a cla
 // existed. `land` above is that bead, built from the same MODE.
 check('a single-bead brief is untouched by any of it', land === workPromptFor('beadcause', { id: BEAD.id, title: BEAD.title, batch: [] }, 1, MODE(), OWNER));
 check('and carries none of the batch sentences', !/in phases you choose/.test(land) && !/until every bead under it/.test(land));
+
+/**
+ * A window opened over somebody else's open files is told so.
+ *
+ * bc-b9vt. `withoutClaimedFiles` in lib/advocate.js reads lib/claims.js at dispatch, and
+ * when the surface it matched was only *guessed* out of the bead's prose it may not
+ * withhold the work (bc-hrno) — so it opens the window anyway. Before this it opened it
+ * silently, and the session learned the same fact at its first `Write`, from
+ * scripts/claim-guard.sh's refusal, after it had read the tree and made a plan. That is
+ * the exact lateness the dispatch-time read exists to end.
+ *
+ * Two failures are worth asserting, and they pull in opposite directions:
+ *
+ * 1. **Saying nothing** — the regression this section exists for. The evidence has to be
+ *    in the brief: which files, which tree, and what the session can do about it.
+ * 2. **Saying it too hard.** A guess may not withhold work, and a brief that read as a
+ *    prohibition would put back, in prose, exactly the hold `holdGuessedFiles` is off in
+ *    order not to take. So the words "warning and not a boundary" are load-bearing, and
+ *    the section must not tell the session to stop.
+ */
+console.log('\na window opened over another session\'s open files is told which ones');
+
+const BUSY = {
+  id: 'bc-busy',
+  title: 'The bead whose files are taken',
+  filesBusy: {
+    id: 'bc-busy',
+    why: "another session is editing lib/advocate.js on worktree-other-thing — which this bead's text names",
+    files: ['lib/advocate.js', 'lib/session.js'],
+    branch: 'worktree-other-thing',
+    source: 'guessed',
+  },
+};
+const busy = workPromptFor('beadcause', BUSY, 1, MODE(), OWNER);
+
+check('the collision is named at all — the whole of bc-b9vt', /Another session on this Mac already has/.test(busy));
+check(
+  'the advocate\'s own sentence travels, so the session sees the evidence and not a summary of it',
+  busy.includes(BUSY.filesBusy.why)
+);
+check(
+  'every file is listed, because "some of your files" is a warning nobody can act on',
+  busy.includes('    lib/advocate.js') && busy.includes('    lib/session.js'),
+  (busy.match(/.*lib\/session\.js.*/) || [])[0]
+);
+check(
+  'the worktree holding them is named and reachable — the second cheapest thing to do about it',
+  /git log --oneline -20 worktree-other-thing/.test(busy),
+  (busy.match(/.*git log --oneline.*/) || [])[0]
+);
+check('and the first is named too: start where those files are not', /Start somewhere those files are not/.test(busy));
+check('the guard is named, so the refusal it will hit is not a surprise twice', /claim-guard\.sh/.test(busy));
+
+/**
+ * The half that has to hold in the other direction. `holdGuessedFiles` is off precisely so
+ * that a resemblance does not park work — see `withoutTwins`' rule in lib/advocate.js —
+ * and a brief telling this session to stand down would re-impose that hold in prose, where
+ * no config switch can reach it.
+ */
+check('it is a warning and says so, because a guess may not withhold work', /a warning and not a boundary/.test(busy));
+check(
+  'and it never tells the session to stop, wait, or leave the files alone',
+  !/do not (touch|edit|write)/i.test(busy) && !/wait (for|until) (that|the other) session/i.test(busy),
+  (busy.match(/.*do not (touch|edit|write).*/i) || [])[0]
+);
+
+check(
+  'an entry the advocate did not finish writing still reads as prose, not as `undefined.`',
+  (() => {
+    const half = workPromptFor(
+      'beadcause',
+      { id: 'bc-half', title: 't', filesBusy: { id: 'bc-half', files: ['lib/one.js'] } },
+      1,
+      MODE(),
+      OWNER
+    );
+    return /is editing lib\/one\.js\./.test(half) && !/undefined/.test(half) && /that tree is doing/.test(half);
+  })(),
+  'a brief is the whole of what an unattended session is told; `undefined` in it reads as a bug, not a warning'
+);
+
+check(
+  'a bead with no collision carries none of it — byte-identical to the brief before any of this',
+  land === workPromptFor('beadcause', { id: BEAD.id, title: BEAD.title }, 1, MODE(), OWNER)
+);
+check(
+  'and an entry that names no file is no collision either — an empty list would print an empty block',
+  land ===
+    workPromptFor(
+      'beadcause',
+      { id: BEAD.id, title: BEAD.title, filesBusy: { id: BEAD.id, why: 'x', files: [], branch: null } },
+      1,
+      MODE(),
+      OWNER
+    )
+);
 
 /* ------------------------------------------------------------------ verdict */
 

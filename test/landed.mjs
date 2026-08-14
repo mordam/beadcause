@@ -110,6 +110,8 @@ process.env.PATH = `${BIN}${path.delimiter}${process.env.PATH}`;
 
 const { reconcileLanded, landedReason, describeLanded, describeTruncation, windowDays } = await import(LIB('landed.js'));
 const { forgetPrefixes } = await import(LIB('beadref.js'));
+// The real predicate, so the fixture's gate below refuses exactly what the daemon's does.
+const { isMergeReason } = await import(LIB('bd.js'));
 const prlib = await import(LIB('pr.js'));
 
 /** Does `merged:A..B` span roughly `days`? Roughly, because both ends round to a second. */
@@ -215,8 +217,12 @@ function fakeBd(beads, { gate = () => null, comments = () => [], questions = [],
       calls.listLabel += 1;
       return questions;
     },
-    async closeGate(_ws, id) {
-      return gate(id);
+    // `opts` carries the reason the close would use, which one gate is entirely about —
+    // an epic does not close on a merge (lib/bd.js). Handed to the fixture's `gate` so a
+    // case can assert both that the rule bites and that the sweep passes it its own
+    // sentence rather than something it made up.
+    async closeGate(_ws, id, opts) {
+      return gate(id, opts);
     },
     async comment(_ws, id, text) {
       writes.push({ kind: 'comment', id, text });
@@ -334,6 +340,28 @@ console.log('\nreconcileLanded');
     result.skipped.some((s) => s.why === 'an epic with 1 open child issue'),
     JSON.stringify(result.skipped)
   );
+}
+
+{
+  forgetPrefixes();
+  // **This sweep is what closed bc-ka5y** — an epic naming twenty-three adoptees, closed
+  // as "Merged #212 as 72789c0b into main on GitHub" with twenty-one of them still open,
+  // because bd sees an epic with no children and an `Adopts:` line is prose. So the gate
+  // is now asked about the *reason*, and this asserts both halves: that the sentence
+  // reaching it is the one this close would carry, and that the epic survives.
+  let asked = null;
+  const bd = fakeBd([{ id: 'wg-aaa', issue_type: 'epic' }], {
+    gate: (id, opts) => {
+      asked = opts;
+      return isMergeReason(opts?.reason)
+        ? { kind: 'merge-reason', blockers: [], reason: 'an epic does not close on a merge — a pull request is no evidence about the theme' }
+        : null;
+    },
+  });
+  const result = await reconcileLanded(bd, ws('seven-c'), REPO, { rows: [asListed(mergedRow())] });
+  check('the gate is told the reason this close would carry', /Merged #42 as abc1234/.test(asked?.reason || ''), JSON.stringify(asked));
+  check('an epic is left open rather than closed on a merge', bd.writes.length === 0, JSON.stringify(bd.writes));
+  check('and the sweep reports it as a skip', result.skipped.some((s) => /no evidence about the theme/.test(s.why)), JSON.stringify(result.skipped));
 }
 
 {
