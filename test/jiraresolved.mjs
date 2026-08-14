@@ -56,6 +56,7 @@ const {
   resolvedNote,
   resolvedReason,
   RESOLVED_PREFIX,
+  SEEN_KEY,
   STATE_KEY,
 } = await import(LIB('jiraresolved.js'));
 const { RESOLUTION_FIELDS, resolutionOf } = await import(LIB('jira.js'));
@@ -385,6 +386,57 @@ await checksAsync('a JIRA read that throws is not an answer of no, and is asked 
   if (sweep.askedFor('climative', 'TECH-13') !== null) throw new Error('backed off a question it never managed to ask');
   const again = await sweep.sweep(CFG, [WS], result([]), { filer, settings: settingsOk });
   if (again.failed.length !== 1) throw new Error('the next tick did not try again');
+});
+
+/* --------------------------------------------------------- the restart hole (bc-0i27.23) */
+
+console.log('\na workspace whose tickets all resolve while the daemon is down');
+await checksAsync('the epic still closes on the tick after a restart, off state.json rather than the filer', async () => {
+  wipeState();
+  const bd = fakeBd({ rows: { 'bc-p1': row('bc-p1') } });
+  const jira = fakeJira({ 'TECH-60': { name: 'Done' } });
+  const sweep = createResolvedSweep({ bd, fetchImpl: jira });
+  // Before the restart: the ticket is still live, so nothing has vanished — but a sweep
+  // with a non-empty filer map writes its own copy of it down as it goes.
+  await sweep.sweep(CFG, [WS], result([ticket('TECH-60')]), { filer: fakeFiler({ 'TECH-60': 'bc-p1' }), settings: settingsOk });
+  if (bd.calls.length) throw new Error('touched the tracker before anything had vanished');
+  const raw = JSON.parse(fs.readFileSync(path.join(process.env.BEADCAUSE_CONFIG_DIR, 'state.json'), 'utf8'));
+  if (raw[SEEN_KEY]?.climative?.[refFor('TECH-60')] !== 'bc-p1') throw new Error(`snapshot: ${JSON.stringify(raw[SEEN_KEY])}`);
+
+  // Restart: a fresh sweep object, and the filer's map comes back empty — `fileFor` never
+  // re-reads a workspace whose live ticket list is also empty, which is bc-0i27.23's hole.
+  const fresh = createResolvedSweep({ bd, fetchImpl: jira });
+  const out = await fresh.sweep(CFG, [WS], result([]), { filer: fakeFiler({}), settings: settingsOk });
+
+  if (out.closed.length !== 1) throw new Error(`closed ${out.closed.length} — the snapshot did not survive the restart`);
+  if (bd.rows['bc-p1'].status !== 'closed') throw new Error('the epic never moved');
+});
+
+await checksAsync('a non-empty filer map is trusted over whatever the snapshot last said', async () => {
+  wipeState();
+  const bd = fakeBd({ rows: { 'bc-p2': row('bc-p2'), 'bc-p3': row('bc-p3') } });
+  const jira = fakeJira({ 'TECH-61': { name: 'Done' } });
+  const sweep = createResolvedSweep({ bd, fetchImpl: jira });
+  await sweep.sweep(CFG, [WS], result([ticket('TECH-61')]), { filer: fakeFiler({ 'TECH-61': 'bc-p2' }), settings: settingsOk });
+
+  // The next tick's filer map is non-empty and disagrees with what was written down —
+  // TECH-61 is gone from it entirely — and it must win outright: a fresh, non-empty read
+  // is never second-guessed against a stale snapshot from before it.
+  const out = await sweep.sweep(CFG, [WS], result([ticket('TECH-62')]), { filer: fakeFiler({ 'TECH-62': 'bc-p3' }), settings: settingsOk });
+  if (out.closed.length) throw new Error('closed an epic the fresh filer map does not even mention any more');
+});
+
+await checksAsync('a tick that changes nothing writes nothing to state.json', async () => {
+  wipeState();
+  const bd = fakeBd({ rows: { 'bc-p4': row('bc-p4') } });
+  const sweep = createResolvedSweep({ bd, fetchImpl: fakeJira({}) });
+  const filer = fakeFiler({ 'TECH-63': 'bc-p4' });
+  const statePath = path.join(process.env.BEADCAUSE_CONFIG_DIR, 'state.json');
+  await sweep.sweep(CFG, [WS], result([ticket('TECH-63')]), { filer, settings: settingsOk });
+  const before = fs.statSync(statePath).mtimeMs;
+  await new Promise((r) => setTimeout(r, 5));
+  await sweep.sweep(CFG, [WS], result([ticket('TECH-63')]), { filer, settings: settingsOk });
+  if (fs.statSync(statePath).mtimeMs !== before) throw new Error('rewrote the snapshot for a workspace where nothing had moved');
 });
 
 await checksAsync('a ticket the site 404s is reported and not recorded', async () => {
