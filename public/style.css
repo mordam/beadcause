@@ -221,6 +221,78 @@ body {
 }
 .filter-text:focus { outline: none; border-color: var(--accent); }
 .filter-text::placeholder { color: var(--muted); opacity: 0.7; }
+/*
+  The bead search box: pills, the input, and the list of matches under it.
+
+  `position: relative` and an absolutely positioned list, so the dropdown draws *over*
+  the chips below it rather than pushing them down — a panel that grew by four rows
+  under your thumb would move the kind chips out from under the finger reaching for
+  them, and the panel itself is already absolutely positioned over the list for exactly
+  that reason.
+*/
+.filter-typeahead {
+  position: relative;
+  display: flex; flex-direction: column; gap: 7px;
+  /* The row it sits in is `display: flex` — it holds chips everywhere else — so without
+     this the wrapper is sized to its content and the input's own `width: 100%` resolves
+     against *that*, leaving the box fifty pixels short of the panel it is in. `min-width:
+     0` because a long title in a suggestion would otherwise push a flex item wider than
+     its container rather than being ellipsised inside it. */
+  flex: 1 1 100%; width: 100%; min-width: 0;
+}
+.pill-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.pill-row[hidden] { display: none; }
+/* The base .pill is an uppercase metadata badge; a bead id is neither. */
+.filter-typeahead .pill {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 3px 4px 3px 8px;
+  text-transform: none; letter-spacing: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  background: color-mix(in srgb, var(--accent) 18%, var(--surface-2));
+  color: var(--text);
+}
+/*
+  The X. 22px square rather than the glyph's own size — a 10px character is not a target
+  on a phone, and this one removes a filter, so a miss is a list that stays narrowed and
+  a person who thinks the control is broken.
+*/
+.pill-x {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px;
+  padding: 0; border: 0; border-radius: 5px;
+  background: transparent; color: var(--muted);
+  font: inherit; font-size: 15px; line-height: 1;
+  cursor: pointer;
+}
+.pill-x:hover, .pill-x:focus-visible { background: color-mix(in srgb, var(--danger) 22%, transparent); color: var(--danger); }
+.suggest {
+  position: absolute; top: 100%; left: 0; right: 0; z-index: 2;
+  display: flex; flex-direction: column;
+  margin-top: 4px;
+  /* Six rows and then a scroll: the panel is over a list on a phone about fifteen rows
+     tall, and a dropdown that filled the screen would leave nothing to filter. */
+  max-height: 232px; overflow-y: auto;
+  border: 1px solid var(--line); border-radius: 9px;
+  background: var(--surface);
+  box-shadow: 0 10px 24px rgb(0 0 0 / 0.4);
+}
+.suggest[hidden] { display: none; }
+.suggest-row {
+  display: flex; align-items: baseline; gap: 8px;
+  padding: 8px 10px;
+  border: 0; border-bottom: 1px solid color-mix(in srgb, var(--line) 60%, transparent);
+  background: transparent; color: var(--text);
+  font: inherit; font-size: 13px; text-align: left;
+  cursor: pointer;
+}
+.suggest-row:last-child { border-bottom: 0; }
+/* Hover and the arrow keys land on the same look, so a list driven from the keyboard
+   and one driven from a thumb are visibly one control. */
+.suggest-row:hover, .suggest-row.active { background: color-mix(in srgb, var(--accent) 16%, transparent); }
+.suggest-id { flex: 0 0 auto; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-weight: 650; }
+.suggest-note { flex: 1 1 auto; min-width: 0; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Not a row: it is a sentence about the list, and it must not look pressable. */
+.suggest-note-line { padding: 8px 10px; color: var(--muted); font-size: 13px; }
 .chip-row {
   display: flex; gap: 8px;
   overflow-x: auto;
@@ -704,6 +776,32 @@ body {
   border: 1px solid var(--line);
   border-radius: var(--radius);
   overflow: hidden;
+}
+
+/*
+  Shut, the whole card is the way into it — bc-rfnr.9.3 took the "Show details"
+  button off the top bar, and the `data-act` the article carries while it is shut is
+  what the list's delegated handler resolves a tap on the body to. These two rules
+  are the whole of *saying so*, and they are load-bearing in that order:
+
+  `cursor: pointer` is the desktop half, and on iOS it is also what makes `:active`
+  fire on a non-button element at all — Safari sends the pressed state only to
+  elements it has decided are clickable, and this is the property it decides by.
+
+  The press tint is the affordance a phone actually has: no hover on a thumb, no
+  chevron on these cards, so what says "control" is the row going down under the
+  finger, which is what every native list does. `:has()` keeps it off the card when
+  the thing being pressed is a control *on* the card — a proposal's ✓ tinting the
+  whole card would say the card was about to open, which is the one thing that tap
+  does not do.
+
+  Deliberately no `user-select: none`. Text in a card has to stay selectable, and it
+  is the handler that drops a tap ending in a live selection — a stylesheet that
+  forbade the selection would have made the guard untestable and the id uncopyable.
+*/
+.card[data-act] { cursor: pointer; }
+.card[data-act]:active:not(:has(button:active, a:active, input:active, textarea:active, label:active)) {
+  background: var(--surface-2);
 }
 /* `.card.answering` — a 50% dim held over the card for as long as bd took — used to
    live here, with a "Recording your answer…" row under it. Both are gone: the card
@@ -1254,8 +1352,8 @@ body {
 .pr-num { flex: none; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-weight: 700; color: var(--accent); }
 .pr-title { flex: 1; min-width: 0; font-size: 14px; font-weight: 590; line-height: 1.35; }
 .pr-branch { font-size: 12px; color: var(--muted); }
-/* The session's own account of what it did, on the card rather than behind
-   "Show details" — merge is two taps from here, so what you would want to have read
+/* The session's own account of what it did, on the card rather than behind the tap
+   that opens it — merge is two taps from here, so what you would want to have read
    before those two taps has to be above them. */
 .pr-summary { display: flex; flex-direction: column; gap: 9px; }
 .pr-summary .md { font-size: 13px; line-height: 1.55; }
@@ -1667,14 +1765,20 @@ body {
 }
 
 /*
-  The card's top bar. Reading on the left, acting on the right — and on an open card
-  the ⋮ and the way out beyond that, hard right because that is the side a thumb
-  reaches on a phone and the same side in both corners, so collapsing is one habit
-  rather than two.
+  The card's top bar. Acting on the card, hard right — and on an open card the ⋮ and
+  the way out beyond that, on the same side because that is the side a thumb reaches
+  on a phone and the same side in both corners, so collapsing is one habit rather
+  than two.
 
-  It wraps rather than shrinking: at 393px a three-bead proposal's two bulk buttons
-  and the details toggle do not fit on one line, and a bar that squeezed them would
-  clip a label whose whole job is to say how many beads the next tap creates.
+  Reading used to be a "Show details" button hard left of all that, and bc-rfnr.9.3
+  took it out: the card is the control now (see cardBodyOpens in public/app.js), so
+  the bar holds only what *acts*. A shut card that is not a proposal therefore has no
+  bar at all — cardTopHtml returns nothing rather than an empty row, because the
+  padding here and the `+ .card-head` rule below are both visible on an empty one.
+
+  It still wraps rather than shrinking: at 393px a three-bead proposal's two bulk
+  buttons can want two lines, and a bar that squeezed them would clip a label whose
+  whole job is to say how many beads the next tap creates.
 */
 .card-top {
   display: flex; flex-wrap: wrap;
@@ -1682,8 +1786,6 @@ body {
   gap: 8px;
   padding: 12px 15px 0;
 }
-/* Hard left, and the only thing on the bar that is about reading the card. */
-.card-top > .detail { margin-right: auto; }
 /* The head brings its own top padding; with a row above it that reads as a gap. */
 .card-top + .card-head { padding-top: 6px; }
 .agent-card .card-top { padding: 10px 14px 0; }
@@ -5932,3 +6034,37 @@ body.editing::after {
 /* Disabled while a Save is in flight and while there is nothing to save. Faded rather
    than hidden: a button that disappears reads as a control that failed. */
 .editlist-save[disabled] { opacity: 0.45; cursor: default; }
+
+/* ---------------------------------------------------------------- requirements
+   The coverage view (bc-fvmx.8). Deliberately a short block: the page reuses
+   `.lede`, `.section-label`, `.pill` and `.empty` from the rest of the app, and adds
+   only the row and the two-length bar, which is the one thing here nothing else draws.
+
+   The bar carries two claims stacked in one track — how many requirements have any
+   edge, and how many of those a merge actually proved — because drawing only the
+   first would say a forecast and a landed diff are the same evidence. */
+.req-list { padding: 12px 12px 0; display: flex; flex-direction: column; gap: 10px; }
+.req-row {
+  display: flex; flex-direction: column; gap: 8px; width: 100%;
+  padding: 12px 14px; text-align: left;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+  color: inherit; font: inherit;
+}
+.req-row.is-detail { cursor: default; }
+.req-top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.req-meta { color: var(--muted); font-size: 12px; }
+.req-files { display: flex; flex-wrap: wrap; gap: 6px; font-size: 12px; color: var(--muted); }
+.req-files code { font-size: 11px; }
+.reqbar {
+  position: relative; height: 6px; border-radius: 3px;
+  background: var(--line); overflow: hidden;
+}
+/* Covered sits under proved, so the darker proved length reads as a subset rather
+   than as a second, competing measurement. */
+.reqbar-covered, .reqbar-observed { position: absolute; inset: 0 auto 0 0; border-radius: 3px; }
+.reqbar-covered { background: var(--accent); opacity: 0.35; }
+.reqbar-observed { background: var(--accent); }
+.req-back {
+  margin: 12px; padding: 10px 14px; border-radius: 10px;
+  background: transparent; border: 1px solid var(--line); color: var(--muted); font: inherit;
+}

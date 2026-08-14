@@ -291,7 +291,7 @@ try {
     await s.send('Page.navigate', { url: `${BASE}/?t=${TOKEN}` });
     if (!(await waitFor(s, `!!document.querySelector('#list .card[data-key]')`)))
       throw new Error('the list never rendered');
-    await tap(s, `${CARD} [data-act="toggle"]`);
+    await tap(s, `${CARD}[data-act="toggle"]`);
     if (!(await waitFor(s, `!!document.querySelector(${JSON.stringify(BOX)})`)))
       throw new Error('the answer box never appeared');
   };
@@ -468,7 +468,7 @@ try {
   console.log('\nand a suggestion chip steals the arm too');
 
   write.calls.length = 0;
-  await tap(s, `${LOOSE_CARD} [data-act="toggle"]`);
+  await tap(s, `${LOOSE_CARD}[data-act="toggle"]`);
   const chip = `${LOOSE_CARD} .suggested .chip[data-opt="restore-at-promotion-1"]`;
   const opened = await waitFor(s, `!!document.querySelector(${JSON.stringify(chip)})`);
   check('the card read its options out of the prose and drew them as chips', opened, opened ? '' : 'no suggestion chips on the card');
