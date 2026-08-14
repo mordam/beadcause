@@ -3270,8 +3270,8 @@ could be in the list at all — because `/api/prs` is a `gh` call per repo behin
 25-second cache on the daemon, and asking it every 25 seconds because the inbox polls
 would keep that sweep hot all day for six repos. The rows are synthesised at render time
 and never merged into `state.questions`: nearly everything reading that array is about
-beads — the waiting count, the picker's per-repo numbers, the answer path — and a pull
-request is none of them.
+beads — the kind filter's counts, the P0 board, the answer path — and a pull request is
+none of them.
 
 **A kind filter does not change what rings your phone.** The space picker's does — it is
 stored on the server and the push path reads it — and this deliberately does not: it
@@ -3967,8 +3967,9 @@ such button on a ledger. It *does* filter, which it did not at first —
 
 A repo that will not answer is named above the list rather than taking the other repos down
 with it, and the total is drawn only when nothing is in `errors[]` — a count over the repos
-that replied, presented as the whole, is the same class of lie the picker's ⚠ exists to
-prevent. When the answer is empty *and* something failed, the page says only that it could
+that replied, presented as the whole, is the same class of lie the space picker's ⚠ used
+to exist to prevent — and the reason that ⚠ is gone is that the picker stopped drawing
+the number it qualified. When the answer is empty *and* something failed, the page says only that it could
 not read: a selection nobody could read gives no grounds for a claim about what is in it.
 
 Two things about failure and waiting here are not visible in the obvious place, and both
