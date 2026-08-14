@@ -372,7 +372,15 @@ await check('and it is NOT merged into the read-failure list', () => {
   // `mergeTrouble` keeps one row per workspace and the most recent wins, so a locked
   // Dolt read arriving a second after a divergence would hide the divergence — and the
   // two say opposite things about the list underneath them.
-  const payload = SERVER.slice(SERVER.indexOf('function inboxPayload('), SERVER.indexOf('function inboxPayload(') + 2500);
+  // Sliced to where the *next* declaration starts rather than to a character count.
+  // bc-0i27.6 added a dozen lines above `syncTrouble:` and a fixed 2500-character
+  // window stopped reaching it — which read here as the key having been taken off the
+  // payload, in a suite nowhere near that diff.
+  const from = SERVER.indexOf('function inboxPayload(');
+  const rest = SERVER.slice(from + 1);
+  const next = rest.search(/\n {2}(?:async )?function /);
+  const payload = next === -1 ? SERVER.slice(from) : rest.slice(0, next);
+  assert.ok(payload.includes('questions: rows'), 'inboxPayload no longer builds the payload — this slice has gone stale');
   assert.match(payload, /syncTrouble:/, 'its own key');
   assert.doesNotMatch(payload, /mergeTrouble\([^)]*syncer/, 'not folded into the other one');
 });

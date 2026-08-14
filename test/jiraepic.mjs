@@ -522,7 +522,10 @@ console.log('\nwired into the poll cycle, and into bd');
   );
   check(
     'through the cancel filter, so a cancelled ticket is never filed a second epic',
-    /import \{ liveResults[^}]*\} from '\.\/jiracancel\.js'/.test(server),
+    // The name anywhere in the list rather than at the head of it. bc-0i27.6 added a
+    // third import from this module and `liveResults` stopped being first, which read
+    // here as the cancel filter having been taken off the filer.
+    /import \{[^}]*\bliveResults\b[^}]*\} from '\.\/jiracancel\.js'/.test(server),
     'a cancel that filtered only the rows on the screen would file a fresh bead on every restart'
   );
   check(
