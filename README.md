@@ -21,7 +21,10 @@ agent files a `human` bead ──► beadcause polls ──► ntfy push to phon
 
 macOS only — it runs as a launchd agent and drives iTerm2.
 
-**You need:** Node 20+, the [`bd`](https://github.com/steveyegge/beads) CLI with at
+**You need:** Node 20+, the [`bd`](https://github.com/steveyegge/beads) CLI at **1.2.1
+or newer** (`brew upgrade beads`; 1.2.1 is where cross-type blocking dependencies
+arrived, and `test/epicedgereal.mjs` skips itself with a loud line on anything older
+rather than failing the repo) with at
 least one workspace under `~/beads/<name>/.beads` — or anywhere else you point
 [`workspaceRoots`](#where-trackers-live--workspaceroots-and-the-two-shapes-a-root-can-have),
 including a repo whose own `.beads` makes the repo the workspace — and
@@ -3373,11 +3376,12 @@ And the picker stops reporting a confident zero: a space holding an unreadable r
 draws `⚠` beside whatever count it does have. The number is still the best answer
 available. It just stops being presented as a fact.
 
-### One list, six kinds — and the sub-filter for pull requests
+### One list, seven kinds — and the sub-filter for pull requests
 
 The inbox is not one list. An advocate asking to create beads, a worker asking you to
-merge, a plain question, a **pull request**, a **JIRA ticket** assigned to you, and —
-under `Both` and `Agent` — the live beads nobody is asking you about, are six different
+merge, a plain question, a **pull request**, a **JIRA ticket** assigned to you, a bead
+**held for endorsement**, and —
+under `Both` and `Agent` — the live beads nobody is asking you about, are seven different
 jobs that happen to arrive at the same address. `KINDS` in `public/inboxfilter.js` is the table that names them, and it is
 the only place that knows which row is which: one row of it buys a chip, a count, a
 predicate and a place in the summary line. The chips live in the same collapsed
@@ -3391,7 +3395,44 @@ produce is dropped rather than kept and ignored. `any` is the third value: a pul
 comes off `gh`, a chat session off no sweep at all and a JIRA ticket off JIRA, so for none
 of the three is there a scope that could have failed to fetch one.
 
-**Three of the six are not beads**, and that is the table earning its keep rather than a
+**Endorsements are the cheapest row the table has ever taken**, and the only one that
+added a chip without adding a fetch. A bead an agent filed mid-task carries the
+`unendorsed` marker and nothing may open a session on it until you say so — but it is an
+ordinary open bead as far as `bd list` is concerned, so it was *already* in the agent
+sweep, drawing as one more **Unclaimed**. Splitting it out cost one row here, a `held`
+flag on the row that `agentBeads` in `lib/server.js` computes with a label test, and
+`!q.held` in the three predicates it is being taken out of. Nothing new is queried, which
+is what made it affordable: the count is a free by-product of a sweep the poller already
+makes, exactly like the other chips, where a badge in the chrome would have cost a
+`bd list --label unendorsed` per workspace on every poll. That bill is why [the 🗳️ in the
+top bar carried no number](#the-endorsement-queue--a-group-tap-or-a-row-at-a-time) — and
+now the icon is gone too, because a door in the chrome to a list the inbox is already
+carrying is a fifth place to look for something in front of you. The page it led to is
+still there and still reached from the rows themselves.
+
+**The chip is on the `agent` side, and that is about where the rows come from rather than
+what they are.** A held bead is a decision waiting on you, which by every other measure
+puts it under `Human` — but the human sweep is `bd human list`, a query on a different
+label, and it has never returned one. Making the chip work under `Human` means paying for
+a second query per workspace per poll, which is the bill above, so it is a decision rather
+than an oversight; `bc-w156.4` is where it is being asked.
+
+**A held bead also says so on its own card.** Under `All kinds` it would otherwise sit in
+a list of forty looking exactly like an open one, and "open" is the one thing it is not,
+so the status pill gets a neighbour reading `held for endorsement` — a link, deep-linked
+to that bead on the endorsement page, in the same words the advocate console's pill uses.
+The four verdicts stay on that page: an agent card is read-only on purpose, and the
+decision *is* reading the bead.
+
+**A ship bead is not one of these.** `lib/release.js` files one per merged pull request
+carrying the same marker, and it is waiting on a deploy rather than on a judgement. The
+rule that separates them is `awaitingEndorsement` in `lib/endorsequeue.js` — held, and not
+a ship bead — and it is one predicate rather than two tests at each call site because the
+second half is the half that gets forgotten. See [Endorse all could reach
+one](#a-ship-bead-is-not-a-proposal-and-endorse-all-could-reach-one) for what it cost the
+last time it was spelled out twice.
+
+**Three of the seven are not beads**, and that is the table earning its keep rather than a
 special case. A pull request, a chat session and a JIRA ticket each cost exactly one row
 here — a chip, a count, a predicate and a word in the summary line — plus one word in the
 `question` kind's predicate, which is the only one written as *none of the above* and
@@ -3438,6 +3479,61 @@ still notify you, and the summary line is the standing reminder that the list is
 narrowed. `node test/inboxkinds.mjs` covers the table (every row matches exactly one
 kind, in both directions), the scope rule, the sub-filter's defaults and the chrome on
 both a pointer and a touchscreen.
+
+### Finding one bead
+
+The chips answer "what *kind* of thing"; the box under them answers "which one". It sits
+in the same collapsed panel, below the scope switch, and it is a typeahead: type any part
+of a bead id — or any part of a title — and the matches drop down, narrowing as you type.
+Click one and it becomes a pill with an × beside it, and the inbox is that bead and every
+bead under it. Take the × off and the list comes back. Several pills at once mean the
+union of their trees, which is the only reading a pill with its own × supports: removing
+one has to leave the other's rows on screen.
+
+Four things about it are decisions rather than defaults.
+
+**It searches every workspace at once, not the selected one.** You type `rfnr` because
+you know the bead, not because you have first remembered which tracker it is in. Every
+suggestion carries its own `workspace/id`, so a pick is unambiguous even where two
+trackers hold the same id.
+
+**It matches titles as well as ids**, and it ranks the id matches first — exact id, then
+ids starting with what you typed, then ids containing it, then titles. The dropdown shows
+the title beside every id either way, and a box that displayed a title and then refused to
+match it would read as broken rather than as scoped. The ordering is `lib/beadsearch.js`
+and `node test/beadsearch.mjs` is the whole of it.
+
+**A picked bead means that bead and its descendants**, following `parent-child` edges
+alone — a `discovered-from` trail does not drag half the backlog in. That is the answer
+the rest of the app already gives: the P0 board keys rows by the P0 they descend from and
+a P0 card expands to every descendant at any depth, so a filter that showed one bead and
+hid its six children would be the only place in the inbox where "this piece of work"
+meant one row. It is also the answer that **replaces** the P0 board's own narrowing rather
+than stacking on it — half the beads worth searching for are under somebody else's P0 or
+under none at all, and stacked, the commonest search on a shared tracker would end in an
+empty list with a pill on screen naming the bead it was hiding. An explicit filter
+outranks an implicit one.
+
+**Nothing is stored.** The kind chips live in `localStorage` because "I read merges" is a
+standing preference; a picked bead is not one, and an inbox that opened narrowed to a bead
+you had forgotten about would be worse than one that opened wide. It is also why the box
+empties itself on a pick: the question it asked has been answered, and the next word you
+type is a *second* bead rather than a correction of the first.
+
+Two routes behind it, and the split is about cost. [`GET
+/api/beads?q=`](#http-api) is the dropdown — it is the one route in the app that can be
+asked once per keystroke, so it reads the graph `Bd.graph` already caches and never waits
+on a `bd export` (nine of those were measured at 7.3 seconds on this Mac). It reports
+`warming` for any workspace it has not read yet, so a cold daemon says *still reading the
+trackers* rather than telling you a bead you filed a minute ago does not exist. [`GET
+/api/bead/tree`](#http-api) is the pick — one request, once, and it waits, because a cold
+cache answering "nothing is under this" would narrow the list to a single row and look
+exactly like a working filter.
+
+Shipping the id-and-title index with the inbox payload and matching on the phone was the
+obvious alternative and it is much more expensive than it looks: 938 beads in `beadcause`
+alone on 2026-08-14, 97KB of `{id,title}` JSON, times nine workspaces, on every 25-second
+poll, to answer a question that is asked for about four seconds a week.
 
 ### Your P0s, and the tree each one carries
 
@@ -3705,6 +3801,53 @@ The two numbers that remain — agents running, advocates waiting — are **badg
 tabs that answer them**, not chips up here: the number and the way to act on it end up
 as the same tap target, and neither is a count of the list you are looking at. See
 [the tab bar](#getting-around--the-tab-bar).
+
+### The card is the control — tap it anywhere to open it
+
+Every collapsed card used to carry a **Show details** button hard left in its top bar.
+It said *this card can be opened*, next to a card that can be opened, on the one screen
+in this app where vertical space is the scarce thing — and it was a 38px target inside a
+row that was already 120px tall and doing nothing with any of it. So it is gone. **The
+body of a shut card is the way into it**: the title, the pills, the whitespace beside
+them. A pull request row and a JIRA row already worked this way, and now the question
+card, the proposal, the delivery and the read-only agent bead do too.
+
+Mechanically it is one attribute. A shut card's `<article>` carries the `data-act` the
+button used to, so the list's existing delegated handler — one listener on `#list`,
+`closest('[data-act]')` — resolves a tap on the body to the same branch. It is only
+there while the card is shut: an open card is a full-screen sheet whose way out is
+**↑ Collapse**, unchanged and in the same corner, and an article that still answered to
+the act would close the sheet under the first tap on a paragraph of the brief.
+
+**What a card contains is the whole difficulty**, and it is the half that does not show
+when it is wrong. A tap on the graph link, on a proposal's ✓, on the answer box, on the
+session log you are dragging sideways, on the bead id you are trying to select and copy
+— every one of those must do its own job and *not* also open the card underneath it, and
+when it goes wrong the control still fires: the card opening over it just reads as the
+app being keen. Two rules keep it right, and they divide the work:
+
+- **`closest()` does most of it for free.** Every control drawn on a card carries its own
+  `data-act`, so it is *nearer* than the article and the card never hears about the tap.
+  That is not a list to maintain — it is the same delegation the app already had.
+- **`cardBodyOpens` covers what carries none**: links, the native form elements and the
+  `<label>` that stands for a checkbox, and the `<pre>` a session log is read in. Plus
+  the one that is not an element at all — **a live text selection**. Selecting a bead id
+  to copy ends in a click, and a card that expanded under every attempt to copy the one
+  line worth copying would be worse than the button ever was. Nothing sets `user-select:
+  none`; the tap is dropped, the selection is kept.
+
+Saying so, on a screen with no hover and no cursor, is a **press tint**: the card goes
+down under the finger, which is what every native list row does. It is suppressed while
+a control *on* the card is the thing being pressed, because a ✓ tinting the whole card
+would say the card was about to open, which is the one thing that tap does not do.
+`cursor: pointer` is beside it for the desktop half — and on iOS it is also what makes
+`:active` fire on a non-button element at all, so the two rules are load-bearing in that
+order.
+
+`node test/cardtap.mjs` (part of `npm test`) holds it: both renderers run for real in a
+`node:vm`, the guard driven case by case over a fake tap, and a source read that no
+`<button>` anywhere in `public/app.js` answers to the act any more — a second emitter of
+it would be the old control grown back somewhere else in the file.
 
 ## What a question is blocking
 
@@ -4306,7 +4449,7 @@ towards a chip, the tap that pins the panel open, the `pointerdown` that closes 
 the tap lands on the row underneath rather than after. Each of those is a decision somebody
 made once after using the thing on a phone, and none of them is visible by reading the
 second copy. So the inbox kept its half — which kinds of thing it carries, the counts, the
-[PR sub-filter](#one-list-six-kinds--and-the-sub-filter-for-pull-requests) — and the panel
+[PR sub-filter](#one-list-seven-kinds--and-the-sub-filter-for-pull-requests) — and the panel
 became shared. `test/inboxkinds.mjs` passed over the seam unchanged, which is the whole
 evidence that the split moved no behaviour.
 
@@ -6488,12 +6631,17 @@ daemon's poll cycle sweeps it a few seconds later.
 
 **The reason is where the resolvers are counted.** One resolver per pull request, two on
 this Mac at once, and a queue for the rest are all guarantees held in the daemon's memory
-(`lib/resolvers.js`, deliberately: a window handle is worth exactly as long as the iTerm
-holding it). `beadcause-deliver` is a *different process*. A sweep run there starts from an
-empty registry — it cannot see the resolver the daemon opened ten minutes ago, so it would
-open a second window on the same branch, which is the incident the whole file exists to
-prevent — and then it exits, taking any queue it had built with it. The registry has to be
-one registry, and only the daemon holds it.
+(`lib/resolvers.js`). `beadcause-deliver` is a *different process*. It would open a second
+window on the same branch, which is the incident that whole file exists to prevent — and
+then exit, taking any queue it had built with it. The registry has to be one registry, and
+only the daemon holds it.
+
+Since bc-9d37.11 the *keys* of that registry outlive the process, so a restart no longer
+starts from nothing — but that does not make a second process safe, and it is worth being
+precise about why. What survives is enough to know a branch is taken; the iTerm handle is
+not, and cannot be. A daemon reading those keys back can refuse to open a second window,
+which is the guarantee that matters. It cannot nudge, cannot count toward another
+process's cap, and cannot drain another process's queue.
 
 Three things fall out of recording rather than sweeping, and each of them was wanted:
 
@@ -6589,11 +6737,33 @@ Three states, not two, and the third is the point:
 **Everything for one pull request is serialised**, which is not belt-and-braces — it is the
 actual shape of the incident. One press produced two requests a moment apart, and a
 check-then-launch with an `await` in the middle is a check both of them pass. Under the
-lock the second request arrives after the first has a handle to hand it. The state is in
-memory and never on disk, for the reason a phone's whereabouts is: a handle is worth
-exactly as long as the iTerm holding it, and a record that survived a restart would only
-ever be a claim about a window nobody can address. `node test/resolvers.mjs` asserts all of
-it — including ten simultaneous presses producing one window and nine nudges.
+lock the second request arrives after the first has a handle to hand it.
+
+**The keys are on disk; the handles are not** — and until bc-9d37.11 neither was. The old
+rule was *in memory, never on disk*, on the reasoning that a record surviving a restart
+"would only ever be a claim about a window nobody can address". Every clause of that is
+still true; the conclusion assumed the thing asking again is **a press**, arriving hours
+later with no memory of its own. The sweep is not. It runs because a merge landed, and a
+merge landing is what kickstarts this daemon — so the restart happens *immediately before*
+the caller asks, every time. On 2026-08-14 that was 475 boots against 19 sweeps, and PR
+#243 was handed to `resolveFor` by eighteen consecutive sweeps over seven hours, thirteen
+of which opened or queued a window for it. Thirteen resolvers, one branch, over a green
+suite — because every assertion in it was about a single process.
+
+So the keys survive and the handle does not, which is not a compromise: a record read back
+after a restart is exactly the third state above — *something is on it and cannot be
+asked*. The file already refuses to open a second window for that, and already lets go of
+it after half an hour. The daemon says so at boot (`2 windows restored from the last
+daemon`), the sweep logs those branches as `left #243 to the window already on it` rather
+than as failures, and the card calls them **working**, because that is what they are.
+
+The queue still lives only in memory, and that is now written down as a decision rather
+than an omission: a waiting entry carries a closure that opens a window and a `recheck`
+that asks GitHub, neither of which can be serialised — and the next sweep re-derives it
+from GitHub anyway. A lost queue costs a delay; a lost registry costs a second window in
+the same tree, which is bc-utyr. `node test/resolvers.mjs` asserts all of it — including
+ten simultaneous presses producing one window and nine nudges, and six cases that call
+`restart()` because nothing inside one process can see this.
 
 **And that line said *Adam pressed Resolve conflicts again* whatever asked**, which is the
 same falsehood the brief above carries a `sweptAfter` to avoid, arriving by the other door
@@ -6674,7 +6844,8 @@ because at the moment it returns nothing has happened yet. The answer you actual
 *is my board clean again, and if not, which one needs me?* — arrives later, one pull request
 at a time, in windows nobody is watching. So a sweep that acted on anything files **one
 `human` card** for the whole sweep (`lib/sweepcard.js`), naming every pull request it
-touched and what became of each:
+touched and what became of each — or, when one of them is already on an open card,
+[amends that card instead of filing beside it](#a-branch-that-keeps-conflicting-does-not-keep-filing-cards):
 
 > - [#210](#) `worktree-poll-stream-rk2o1` — Park the inbox on /api/poll (bc-rk2o.1)
 >   ✅ mergeable again
@@ -6730,6 +6901,60 @@ part of this feature uses — and says *nothing here can say* rather than leavin
 nothing can check. `node test/sweepcard.mjs` stages the bead's own acceptance: three
 conflicting pull requests, one resolved, one handed back and one still running, producing
 exactly one card that names all three.
+
+#### A branch that keeps conflicting does not keep filing cards
+
+The card above is filed per *sweep*, and a sweep runs per merge into the base. That is the
+right shape for the case it was designed around — a merge conflicts a branch, a resolver
+fixes it, the card closes itself — and the wrong shape for a branch that conflicts and
+**stays** conflicting, because every subsequent merge conflicts it again and files another
+card saying the same sentence about the same branch. Measured on one ordinary day: pull
+request #243 was caught by **thirteen consecutive merges in seven hours** and filed thirteen
+cards, eleven of them naming it and nothing else, which was two thirds of that day's
+unsorted backlog. The amplification is per merge and it is independent of whether the cards
+ever close, since a row whose resolver is still working keeps its card open by design.
+
+So before filing, a sweep looks for an **open card that already names one of its pull
+requests** and folds into that one instead. The rows are updated in place, the merge is
+added to the card's list of them, and the title stops naming a merge as the cause and starts
+counting the merges the branch has survived:
+
+> **1 conflicting pull request in beadcause has survived 13 merges since #231**
+>
+> - [#243](#) `worktree-history-filter-nib33` — Filter closed history (bc-nib3.3)
+>   ⚠️ **handed back** — the session stopped and it still conflicts
+>
+> **One card per conflicting branch, not one per merge.** … The 13 merges folded in here,
+> oldest first: #231, #232, #233 …
+
+That paragraph is on the card on purpose, because the fix is otherwise invisible from a
+phone: what you see is a card that *did not appear*, and a card naming one merge while
+reporting states learned five merges later would be quietly lying about its own age.
+
+**The test is an overlap, not a subset**, which is the one part of this with a wrong answer
+that looks right. *Fold when the open card's rows are a subset of this sweep's* is the
+obvious rule and it re-splits on the first sweep that finds fewer: card `{243}` folds into
+sweep `{243, 300}` and becomes `{243, 300}`; the next sweep is `{243}` again, which is not a
+superset, so it files a second card about #243 and the whole thing is back. Overlap has no
+such state — a pull request stays on the card that already names it, for as long as that
+card is open, whatever else joins or leaves. A sweep that overlaps nothing still files its
+own card, as before.
+
+**The card is asked whether it is still open before anything is written to it**, and this is
+the one place in the feature that treats a `bd` that will not answer as a *no*. The
+[follow-up does the opposite](#one-card-for-the-whole-sweep-amended-as-the-windows-close) —
+it holds a record over a tracker that blinked, because dropping it would kill the buttons on
+a card still on your phone. Here a wrong answer loses the sweep's report entirely, since
+amending a closed bead writes into something nothing will show you, so anything short of a
+definite *open* files a new card. One duplicate card is the cheaper failure than a silent
+one.
+
+This is deliberately **not** the [duplicate check in `bd create`](#and-the-same-check-runs-at-bd-create-whoever-filed-it),
+and could not have been. That one declines outright on anything labelled `human` — an inbox
+card is addressed to somebody, and two questions are two things to answer rather than one
+thing filed twice — and it compares *titles*, which here differ by exactly the merge number
+that is the problem. The duplication is not two cards that resemble each other; it is the
+same branch reported again, and only the row set says so.
 
 #### And the hand-back has a button that does something
 
@@ -6794,6 +7019,64 @@ button dead: the follow-up asks `bd` whether the card is still open, and drops t
 the cycle after you tap Noted or dismiss it. `node test/sweepanswer.mjs` drives the whole
 path through a real `POST /api/respond` — the card stays open, the refusals say which pull
 request they are about, and every other question in the inbox is untouched.
+
+#### A card that outlives its record, and the card as its own backup
+
+Everything above runs off `sweep-cards.json`: one record per open card, holding the repo, the
+checkout, the base and every pull request with its branch. `followSweepCards` iterates *the
+records* and nothing else, and `resolveSweepFor` reads the same record to learn which branch
+an **Answer #n** should open a window on. So a card that has lost its record is not merely
+behind — it is unreachable. Nothing visits it, so it can never be amended and can never
+close; its buttons do nothing; and it sits in the inbox asserting, in its own body, that it
+closes itself when the pull requests come back mergeable, which for that card is untrue and
+always will be.
+
+**This happened, to eight cards in one morning.** On 2026-08-14 thirteen sweep cards were
+filed in beadcause between 02:42Z and 08:24Z and five records survived. The cause is not
+subtle in hindsight and it is worth naming, because the shape of the mistake is general: the
+end of `followSweepCards` used to run `keep(id, null)` — *drop the record* — whenever a card
+was **finished with**, on the reasoning that a card nothing can move on its own has nothing
+left to chase. [The hand-back button](#and-the-hand-back-has-a-button-that-does-something)
+made that false, and the fix that made the drop conditional landed at 07:30Z. Every card
+that reached that line before it — the eight — was orphaned on the cycle it printed
+`is finished — 1 still needs you` in the daemon log, and every card that reached it after was
+kept. The five survivors were not a race or a partial write; they were simply the cards
+processed after the deploy.
+
+**So the record now has a backup, and it is the card.** The card names the merge, the repo,
+the base and every pull request with its branch, because it was written for a human to read —
+and that is a whole record. Both shapes of it: a card that a branch's later merges have been
+*folded* into (bc-xl7n.36) counts them in its title rather than naming one, and prints the
+whole list in its body for the same human-readable reason — so it reads back with its merges
+intact and is amended back into the folded title rather than reverting to *#244 left 1
+conflicting pull request behind it*. The recovery also feeds the fold, which is the second
+reason it matters: folding looks for an open card **in the records**, so an orphan cannot be
+folded into and every later merge would file a fresh card beside it, forever. Every half hour (`RECOVER_EVERY_MS`, not a config key) the daemon
+scans the inbox of each workspace that has a repo, and any open card whose title matches the
+one `sweepCardTitle` writes and which has no record gets one rebuilt from its own body,
+before the follow-up runs so it is chased on the same cycle. Nothing is written to the
+tracker to do it. On a clock of its own rather than every cycle because it is a backstop for
+something having gone wrong, it costs one `bd human list` per workspace, and a card that has
+been orphaned for hours is not made worse by another half hour.
+
+**What is not read back is the states.** Whatever the card says a row was, the missing record
+is proof that nothing has checked it lately, and a row recovered straight into *handed back*
+is a row `chaseRow` returns unchanged forever — the orphan again with extra steps. So every
+rebuilt row starts at `recovering` and GitHub decides, and until it has, **nothing is written
+onto the card**: *we lost our own bookkeeping* is not news about a pull request, and it is
+not worth waking a phone for. A GitHub that never answers is ended by the same four-hour
+window as everything else here, which turns the row into *nothing here can say* — the honest
+version of the same admission, and one you can act on. The refusal is strict for the same
+reason: the title counts the rows and the body lists them, so a card whose body does not
+produce exactly that many rows is not rebuilt at all, because half a record would close a
+card on behalf of a pull request it never asked about.
+
+One drop was removed as well as backstopped. A `bd close` that failed used to drop the
+record — a card in the inbox saying everything is fine is a tap to dismiss rather than a lost
+finding — but that is a card orphaned by one busy tracker, so it is now kept and retried next
+cycle, exactly as a failed amendment already was. `node test/sweepcardorphan.mjs` covers both:
+it asserts the premise (an orphan is invisible to the follow loop), rebuilds a record from a
+real card body and closes the card by the ordinary loop with nothing done by hand.
 
 #### An occupied worktree that reads as idle
 
@@ -7884,19 +8167,28 @@ is the one you have not reached yet.
 
 ### Where it lives, and the tab it is not
 
-Two doors, and neither of them is a sixth tab. The bottom bar is full at five and what
-gives up its place is its own decision (bc-j0zl); a screen that settled that by
-squeezing itself in would be answering a question nobody asked it.
+Never a sixth tab. The bottom bar is full at five and what gives up its place is its own
+decision (bc-j0zl); a screen that settled that by squeezing itself in would be answering a
+question nobody asked it. What the page is reached *from* has changed once, and the change
+was a deletion:
 
 - **The advocate console's `N held for endorsement` pill is a link.** That is the
   number you were already reading, and it was the thing with no door behind it.
-- **🗳️ in the inbox's top bar**, beside ⚖️.
+- **Every held bead in the inbox is a link**, from the `held for endorsement` pill on its
+  own card, deep-linked with `?bead=<workspace>/<id>` so the page opens on the row you
+  tapped.
+- **🗳️ in the inbox's top bar is gone** (bc-w156). It was a door in the chrome to a list
+  the inbox turned out to be carrying already: held beads ride the agent sweep like any
+  other open bead, so they now have [an Endorsements chip of their
+  own](#one-list-seven-kinds--and-the-sub-filter-for-pull-requests) rather than a fifth
+  destination to remember. Nothing replaced the icon.
 
-The inbox door carries **no badge**, deliberately, and it is the one thing on this page
-that has an obvious one and should not: the count would cost a `bd list --label
-unendorsed` per workspace on every thirty-second poll, where the three counts already
-in that bar are free by-products of a sweep the poller was making anyway. The number
-lives where it is already computed.
+That icon carried **no badge**, deliberately, and it was the one thing on this page that
+had an obvious one and should not: the count would have cost a `bd list --label
+unendorsed` per workspace on every thirty-second poll, where the counts already in that
+bar are free by-products of a sweep the poller was making anyway. The argument is worth
+keeping because it is what the replacement had to beat — and the chip's count clears it,
+being a label test on a row already in hand rather than a query of its own.
 
 ### Checking it
 
@@ -8788,7 +9080,8 @@ all-or-nothing is what makes an agent's suggestions annoying: one good bead in t
 is an ordinary outcome, and having to decline all three to avoid the two bad ones
 teaches you to decline everything. So the card draws a row per bead — approve,
 decline, or leave it undecided — and **Approve** / **Decline** sit up in the top bar
-beside an undecided count, hard right of the details toggle. Two taps to commit, like
+beside an undecided count, hard right. (They are the only thing left in that bar on a
+shut card: [reading is the card itself now](#the-card-is-the-control--tap-it-anywhere-to-open-it).) Two taps to commit, like
 every other answer here. The YAML block no longer renders on the phone at all; it is
 parsed out and drawn as those rows.
 
@@ -9599,7 +9892,7 @@ EOF
 That is `bin/supersede.js`, and it writes the label, the graph edge, the reason as a
 comment, and the status the sweep needs the bead left in. It used to be two lines a
 worker typed by hand, and [three of the ways to get them wrong read as
-success](#an-epic-cannot-block-a-bead-so-the-marker-holds-it-alone).
+success](#an-epic-adopting-its-own-child-cannot-block-it-so-the-marker-holds-it-alone).
 
 `superseded-by:<id>` is [endorsement](#the-endorsement-queue--a-group-tap-or-a-row-at-a-time)'s shape with a different ending. Same two layers: the marked bead is out
 of `bd ready` and out of every advocate queue, and `openWorkSession` asks the tracker
@@ -9642,7 +9935,7 @@ verdict on.
 looks, defaulting to 10. The worker's brief carries the command, which is what makes any
 of it reachable — nothing but a worker ever sets this marker.
 
-### An epic cannot block a bead, so the marker holds it alone
+### An epic adopting its own child cannot block it, so the marker holds it alone
 
 The command above was two hand-typed `bd` lines for about a day, and then somebody marked
 a bead whose original was an **epic**:
@@ -9652,19 +9945,29 @@ $ bd dep add bc-nqrr bc-4m2j
 Error: tasks can only block other tasks, not epics
 ```
 
-bd will not let a task be blocked by an epic. That is [the same one-line rule
+bd would not let a task be blocked by an epic. That was [the same one-line rule
 `lib/park.js` is built around](#parking-an-epic-which-bd-refused-outright), seen from the other
-side, and it matters more here than it looks, because adoption by an epic is how this
+side, and it mattered more here than it looks, because adoption by an epic is how this
 tracker gathers duplicates in the first place — bc-4m2j named eighteen beads under an
 `Adopts:` heading. So the marking took the label and drew no edge at all, and nothing
 said so. Three beads were marked that way on 2026-08-12 before anybody noticed.
 
+**bd 1.2.1 deleted that rule, and the conclusion survives it for a different reason.**
+Cross-type blocking is allowed since 1.2.1 — so the blocking edge onto an arm's-length
+epic would now go in — but the same release added a hierarchy deadlock guard, and the
+case this section is about walks into it: adoption by an epic is usually an epic adopting
+its **own child**, and `bd dep add <child> <its parent>` is refused because children
+already inherit the parent's completion. `edgeFor` therefore still draws the see-also,
+now as a choice rather than a wall, and `mark` still says out loud that the bead is held
+by its label. Making it take the blocking edge where it can is real work with a case
+split in it; it has not been done.
+
 **There is no second-choice edge.** Of the ten types `bd dep add --type` accepts, `blocks`
-is the only one bd polices across the epic boundary — and it is also the only one that
-takes a bead out of `bd ready`. `tracks`, `relates-to`, `supersedes`, `parent-child` and
-the rest all go in against an epic and every one of them leaves the bead exactly as ready
-as it was. The refusal and the hold are the same property, measured against the real
-binary in `test/epicedgereal.mjs` rather than reasoned about.
+is the only one that takes a bead out of `bd ready`. `tracks`, `relates-to`, `supersedes`,
+`parent-child` and the rest all go in against an epic — they always did — and every one of
+them leaves the bead exactly as ready as it was. That half is untouched by 1.2.1: what the
+release moved is whether the blocking edge is *offered*, never which edge *holds*. Measured
+against the real binary in `test/epicedgereal.mjs` rather than reasoned about.
 
 Which is survivable, because **the edge was never what timed the card**. The sweep reads
 the original and asks nothing until it is `closed`, so a marked bead with no blocking edge
@@ -10927,10 +11230,21 @@ with one line, `bd dep add <the work> <the question>`. On an epic, bd refuses:
 Error: epics can only block other epics, not tasks
 ```
 
-**bd will not let an epic be blocked by anything that is not itself an epic.** Every
-other pair is fine — a bug blocked by a task, a chore blocked by a decision — so the
-rule is narrower than it reads and it is exactly one line: epic-ness has to match. The
-same sentence with the nouns swapped comes back for a task blocked by an epic.
+**bd would not let an epic be blocked by anything that is not itself an epic.** Every
+other pair was fine — a bug blocked by a task, a chore blocked by a decision — so the
+rule was narrower than it reads and it was exactly one line: epic-ness has to match. The
+same sentence with the nouns swapped came back for a task blocked by an epic.
+
+**That rule is gone as of bd 1.2.1** (2026-08-11): "cross-type blocking dependencies are
+now allowed" replaced the blanket same-type rule with a hierarchy deadlock guard that
+refuses only gating an issue on its own ancestor or its own descendant. Sibling edges —
+every edge a park draws — go in whatever the two types are, and `test/epicedgereal.mjs`
+pins that against the real binary, skipping itself with a loud line on anything older.
+Everything below is kept anyway: it is right under both rules, it costs a string
+comparison, and a machine still on 1.1.x gets the working behaviour rather than the stack
+trace. What the bump buys that no amount of typing could is that **one question can now
+park an epic and a non-epic at once** — the failure that put one decision bead back into
+`bd ready` three times, because the question holding its epic could not also hold it.
 
 What made that expensive is the order. The question is created *first*, and
 `bin/ask.js` added the edge afterwards without catching anything, so a session asking
@@ -12187,6 +12501,36 @@ dependencies exist before the bead that points at them. A `dependsOn` may also n
 bead that already exists (`dependsOn: [bc-7rx]`), which is how "this waits on the one
 we started from" is written; those are checked against the tracker before anything is
 written, so a made-up id costs a warning rather than a half-created proposal.
+
+### A label is filed exactly as it was typed — only the refs are slugged
+
+The Labels field on a card splits on the comma and changes nothing else. Case, spaces,
+`@` and — the one that matters — the **colon** all survive to `bd create --label`.
+
+That is not a nicety, because half the labels worth typing here are structured, and each
+of them is read back by splitting on a colon: `owner:<handle>` is how
+[who is answerable](#your-p0s-and-the-tree-each-one-carries) is decided and how your P0 cards are
+sorted first, `held:<stamp>:<handle>` is how [another Mac's claim](#the-bead-another-mac-has-claimed)
+is held, `superseded-by:<id>` is how a bead leaves every queue for good. Slugging one of
+those does not tidy it up. It produces a lookalike that no query matches, beside the real
+one, and nothing on the board says which is which.
+
+Every bead filed from one chat on 2026-08-13 came out carrying both
+`owner:neadamthal@gmail.com` and `owner-neadamthal-gmail-com` — twelve of them, twenty-three
+by the time it was noticed, because `bd create --parent` hands a parent's labels down to
+every child. It took *two* bugs meeting, and the second is the reason it was a pair rather
+than a rename: `lib/draft.js` slugged the label on the way in, and then `Bd.create` — which
+stamps this machine's owner onto any P0 that arrives without one — looked for the `owner:`
+prefix, could not find it through the slug, and added a second label naming the same person.
+
+What is still slugged is everything a proposal invents for itself: a `ref`, and the
+`parent` and `dependsOn` that point at one. Those are identifiers with no existence
+outside the card, and lowercasing them is exactly what makes *The Epic* and *the epic* the
+same edge rather than two beads. `lib/draft.js` keeps `slug` for those three and
+`labelList` for labels, `public/console.js` normalises the field the same way so the phone
+sends what you typed, and `node test/draftlabels.mjs` (in `npm test`) pins both halves —
+including the argv `bd` is actually spawned with, which is the only layer where the pair
+was ever visible.
 
 ### A card that is already a bead says so — and still files
 
@@ -14462,6 +14806,8 @@ cookie says so), and `/auth/signout` ends the session.
 | GET | `/api/graph` | `?workspace=&id=` | `{nodes, links}` — the whole workspace with no `id` |
 | GET | `/api/bead` | `?workspace=&id=` | one issue in full, plus `comments[]` — for the graph's detail sheet |
 | GET | `/api/bead-links` | `?workspace=&id=` | `{children[], dependents[]}` — everything with an edge pointing at that bead, closed ones included, open work first: the `parent-child` rows as `children`, every other kind as `dependents` with its `dependency_type`. One `bd dep list --direction=up` for both, because `bd show` carries `dependent_count` and not one row behind it |
+| GET | `/api/beads` | `?q=` | `{beads[], warming, q}` — what [the inbox's bead search box](#finding-one-bead) drops down: up to 12 `{key, workspace, id, title, status}`, ranked exact id → id prefix → id substring → title, open before closed. **Every workspace at once**, because you type an id knowing the bead rather than knowing its tracker. The one route that can be asked once per keystroke, so it reads the graph `Bd.graph` already caches and **never waits on a `bd export`** — `warming` counts the workspaces it has not read yet, which is what lets the box say *still reading the trackers* instead of claiming a bead does not exist |
+| GET | `/api/bead/tree` | `?workspace=&id=` | `{workspace, id, title, keys[]}` — that bead's key and every descendant's, at any depth, `parent-child` edges only. What a pick in the search box narrows the inbox to. 404 for a bead the graph has never heard of. Unlike `/api/beads` this one **waits** for a cold cache: it is one request per pick, and answering "nothing is under this" from an unread graph would narrow the list to a single row and look exactly like a working filter |
 | POST | `/api/bead/advocate` | `{workspace, id}` | opens the **P0 advocate** on this P0 — the button on the inbox's P0 card, and the first one: the window it opens writes the waiting-on sentence that [enrols the P0 for automatic re-entry](#the-advocate-that-comes-back--what-re-opens-a-p0-advocate-and-what-it-costs), so this is where the loop starts rather than a weaker version of it. Four refusals in front of it, all 409 with a sentence: unendorsed, superseded, closed, or not a P0 anybody owns (a crash P0 is refused by name — a stack trace is not an epic). **Never two on one P0**: a live session whose window carries this bead id is a 409 rather than a second window — matched with `namesBead`, so a session on a *child* of this P0 no longer refuses it — and so is a launch from the last ten minutes whose window has not named itself yet, since that is the gap a second tap falls through. The card in front of it reads the same rule and draws it: it links to `/session?pid=` while an advocate is up, and says one is opening until then, rather than re-offering a launch that would now be refused (`advocate` on each card of `p0board`). Blocked under `OBSERVING`, unlike the verdict routes — those are you deciding, this is the daemon opening a window |
 | POST | `/api/bead/owner` | `{workspace, id, owner}` | sets `owner:<handle>` — who is answerable for this bead — and answers `{owner, owners[], p0, changed}`. An empty `owner` hands it back to nobody, which is a thing you may say; setting the owner it already has is `changed: false` and no `bd` write at all. Every *other* owner label comes off, so resolving two machines' claims from the sheet is visible. A route of its own rather than a field of `/api/bead/adjust`, because adjust refuses a bead anybody has endorsed and ownership is most worth changing on a P0 that is live — and because the ✎ may not touch `owner:` at all (`isProtectedLabel`) |
 | POST | `/api/bead/addressee` | `{workspace, id, to}` | re-addresses a question — sets `for:<handle>`, the label that decides [whose phone rings](#who-a-question-is-for--me-and-the-for-label), and answers `{addressees[], changed, cleared}`. `to` is one handle; **empty, or `everyone`, means everyone**, which is a decision rather than the absence of one. Every *other* `for:` label comes off, because handing it to Carol means Carol and not also whoever it was addressed to before. Re-sending the handle it already carries is `changed: false` and no `bd` write at all. `cleared: true` says it also pulled the row out of this phone's notification shade, which it does on exactly one condition — the question is now addressed somewhere that is not this Mac — via a `dismissed` event, and with the honest limit [narrowing the filter](#and-it-does-not-tidy-up-the-noise-it-already-made) ran into: ntfy cannot recall a delivered message, so only the Android shell's own tray is reachable. A route of its own for `/api/bead/owner`'s reasons, and because the ✎ may not touch `for:` at all (`isProtectedLabel`) |
@@ -15414,7 +15760,7 @@ The tickets assigned to you arrive as **rows in the inbox**, under a `JIRA` chip
 their own, and never mixed into the questions. Not a screen and not a tab: the inbox is
 already the one list that sorts incoming work, and a sixth tab claiming a ticket queue
 is somewhere you *live* would cost a fifth of the bar to say something untrue. What it
-cost instead was one row in [the kinds table](#one-list-six-kinds--and-the-sub-filter-for-pull-requests),
+cost instead was one row in [the kinds table](#one-list-seven-kinds--and-the-sub-filter-for-pull-requests),
 which is where a chip, a count and a place in the summary line come from for free.
 
 A row says the ticket key, the summary, the status and when it last moved — enough to

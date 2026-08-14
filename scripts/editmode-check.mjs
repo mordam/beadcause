@@ -260,7 +260,7 @@ try {
      which is exactly the sequence somebody reaching for the ✏️ is in the middle of. So
      they are armed here, on purpose, and the frozen window below is what they run into.
      A card is opened first because the dismiss button lives under the answer box. */
-  await evalJs(s, `document.querySelector('.card[data-key] [data-act="toggle"]').click()`);
+  await evalJs(s, `document.querySelector('.card[data-key][data-act="toggle"]').click()`);
   await sleep(600);
   await evalJs(s, `document.querySelector('[data-act="log"]')?.click()`);
   await sleep(900);
@@ -394,7 +394,7 @@ try {
   );
   // The mode's own banner: written once, in public/editmode.js, and drawn on the screen
   // it is describing. Chrome text is only retypable when it is written in exactly one
-  // place, and most of this app's labels are not — 'Show details' is written twice.
+  // place, and most of this app's labels are not — '↑ Collapse' is written three times.
   const say = await evalJs(s, ANCHOR('.editbar-say'));
   check(
     'chrome text written in exactly one place is source text, and may be retyped',
@@ -404,7 +404,7 @@ try {
 
   // A control inside a card, which is where the grep-key premise has to hold if the
   // apply half is ever to work: a data-act names the one handler branch that answers it.
-  const toggle = await evalJs(s, ANCHOR('.card[data-key] [data-act="toggle"]'));
+  const toggle = await evalJs(s, ANCHOR('.card[data-key][data-act="toggle"]'));
   check(
     'a control inside a card resolves to one line too',
     toggle.source?.found === 1,

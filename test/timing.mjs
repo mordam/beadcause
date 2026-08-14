@@ -145,21 +145,52 @@ timing.configure({ slowMs: 0 });
 }
 
 /**
+ * The third state, which is the whole of what bc-1kwl.2 changed here.
+ *
  * The derivation is a default, not a rule. A stale-while-revalidate hit answers out of
  * memory *and* spawns a refresh behind it — filed as `cold` it would make the fastest
  * kind of request there is look like the slowest, and make the cache the epic is about
- * look like it had done nothing at all.
+ * look like it had done nothing at all. Filed as `warm` it would be honest about the
+ * speed and dishonest about the cost, which is the same problem pointed the other way:
+ * the sweep did happen, somebody's tracker did queue behind it, and a column that hides
+ * it is how a "cache" that quietly asks `bd` on every single request goes unnoticed.
+ *
+ * So: its own bucket, and the refresh charged to `background` — which is only true if
+ * lib/cache.js starts it inside `detached`, and this is the check that says so.
  */
 {
   timing.reset();
   const rec = timing.begin('GET /api/swr');
   rec.t0 -= 1_000_000_000n;
-  child('bd', 900);
-  timing.cache('warm');
+  // The refresh, started behind the response the way lib/cache.js starts one.
+  timing.detached(() => child('bd', 900));
+  timing.cache('stale');
   timing.end(rec, 200);
-  const row = timing.snapshot().routes.find((r) => r.route === 'GET /api/swr');
+  const snap = timing.snapshot();
+  const row = snap.routes.find((r) => r.route === 'GET /api/swr');
+  check(() => assert.ok(row.stale && !row.cold && !row.warm, `landed in ${JSON.stringify({ cold: !!row.cold, warm: !!row.warm })}`), 'a stale-served request is counted as stale — neither cold nor warm');
+  check(() => assert.equal(row.stale.calls, 0), 'and it is charged for no child process of its own');
+  check(() => assert.ok(Math.abs(row.stale.subMs) < 20, `${row.stale.subMs}ms`), 'so its subprocess share is nothing, which is the claim the P0 is judged by');
+  check(() => assert.ok(Math.abs(snap.background.ms - 900) < 20, `${snap.background.ms}ms`), "while the refresh it started lands in the daemon's own column");
+  check(() => assert.equal(snap.requests, 1), 'and the request is still counted exactly once overall');
+}
+
+/** The other two words still override the derivation, and a fourth is ignored. */
+{
+  timing.reset();
+  const warm = timing.begin('GET /api/said-warm');
+  warm.t0 -= 1_000_000_000n;
+  child('bd', 300);
+  timing.cache('warm');
+  timing.end(warm, 200);
+  const row = timing.snapshot().routes.find((r) => r.route === 'GET /api/said-warm');
   check(() => assert.ok(row.warm && !row.cold), 'a route that says it was warm is believed over the derivation');
-  check(() => assert.ok(Math.abs(row.warm.subMs - 900) < 20, `${row.warm.subMs}ms`), 'and its background refresh is still counted');
+
+  const odd = timing.begin('GET /api/said-nonsense');
+  timing.cache('tepid');
+  timing.end(odd, 200);
+  const row2 = timing.snapshot().routes.find((r) => r.route === 'GET /api/said-nonsense');
+  check(() => assert.ok(row2.warm), 'and a word that is not one of the three is ignored rather than believed');
 }
 
 /* ---------------------------------------------------------------- the slow log */

@@ -18,9 +18,15 @@
  * slow route at 0.95 is a caching problem, and a slow route at 0.05 is a bug in the
  * handler, and they are indistinguishable from a stopwatch. **`×`** is the fan-out — how
  * much child *work* that wait covered, so `9×` is nine workspaces swept at once and says
- * that the tenth workspace is nearly free while the first is not. And **cold against
- * warm** is the same route on both sides of a cache; averaging them together produces a
+ * that the tenth workspace is nearly free while the first is not. And **cold, stale and
+ * warm** are the same route on three sides of a cache; averaging them together produces a
  * number that has never once happened.
+ *
+ * The middle column is the one bc-1kwl.2 added and the one to read a conversion by: a
+ * **stale** request was answered out of memory while a refresh ran behind it, so it
+ * should look like the warm column and not like the cold one. A route whose stale figures
+ * resemble its cold figures is a route where the layer is not doing what it says — that
+ * is what this column is for, and it is why a stale hit is not simply counted as warm.
  */
 import { loadConfig } from '../lib/config.js';
 
@@ -82,9 +88,10 @@ let rows = snap.routes.filter((r) => argv.includes('--parked') || !r.parked);
 const top = Number(opt('--top', 0));
 if (top > 0) rows = rows.slice(0, top);
 
-const w = Math.min(46, Math.max(20, ...rows.map((r) => r.route.length)));
-const head = `${'route'.padEnd(w)}  ${'n'.padStart(5)} ${'p50'.padStart(7)} ${'p95'.padStart(7)} ${'max'.padStart(7)} ${'sub%'.padStart(5)} ${'×'.padStart(5)}  ${'n'.padStart(5)} ${'p50'.padStart(7)} ${'p95'.padStart(7)}`;
-console.log(dim(`${''.padEnd(w)}  ${'—— cold ——'.padStart(41)}   ${'—— warm ——'.padStart(21)}`));
+const w = Math.min(40, Math.max(20, ...rows.map((r) => r.route.length)));
+const short = `${'n'.padStart(5)} ${'p50'.padStart(7)} ${'p95'.padStart(7)}`;
+const head = `${'route'.padEnd(w)}  ${'n'.padStart(5)} ${'p50'.padStart(7)} ${'p95'.padStart(7)} ${'max'.padStart(7)} ${'sub%'.padStart(5)} ${'×'.padStart(5)}  ${short}  ${short}`;
+console.log(dim(`${''.padEnd(w)}  ${'—— cold ——'.padStart(41)}   ${'—— stale ——'.padStart(20)}   ${'—— warm ——'.padStart(20)}`));
 console.log(dim(head));
 
 const cell = (s, n) => String(s).padStart(n);
@@ -105,8 +112,8 @@ for (const r of rows) {
   const cold = c
     ? `${cell(c.n, 5)} ${cell(secs(c.p50Ms), 7)} ${cell(secs(c.p95Ms), 7)} ${cell(secs(c.maxMs), 7)} ${cell(c.subShare.toFixed(2), 5)} ${cell(c.fanout ? `${c.fanout}×` : '·', 5)}`
     : `${blank(5)} ${blank(7)} ${blank(7)} ${blank(7)} ${blank(5)} ${blank(5)}`;
-  const warm = h ? `${cell(h.n, 5)} ${cell(secs(h.p50Ms), 7)} ${cell(secs(h.p95Ms), 7)}` : `${blank(5)} ${blank(7)} ${blank(7)}`;
-  console.log(`${name}  ${cold}  ${warm}`);
+  const three = (b) => (b ? `${cell(b.n, 5)} ${cell(secs(b.p50Ms), 7)} ${cell(secs(b.p95Ms), 7)}` : `${blank(5)} ${blank(7)} ${blank(7)}`);
+  console.log(`${name}  ${cold}  ${three(r.stale)}  ${three(h)}`);
 }
 
 if (!rows.length) console.log(dim('  nothing has been asked for yet'));

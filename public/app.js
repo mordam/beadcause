@@ -86,6 +86,42 @@
     // same ten minutes the server uses, because a daemon restarted in between would
     // otherwise leave a card saying "opening" about a window that never came up.
     p0opening: new Map(),
+    /**
+     * The bead search box in the filter panel — its query, what the daemon offered for
+     * it, and which beads have been picked.
+     *
+     * **On the page and nowhere else.** The kinds are in `localStorage` because "I read
+     * merges" is a standing preference; a picked bead is not one. It is a thing you do for
+     * a minute to see one piece of work, and restoring it at boot would mean either an
+     * inbox that opens narrowed to a bead you forgot about, or a first frame showing
+     * everything and a second taking most of it away once the trees had been re-fetched —
+     * which is exactly the flicker `inboxfilter.js` loads its own filter early to avoid.
+     *
+     * `trees` is `key → Set(keys)`: the picked bead plus every descendant, straight off
+     * `/api/bead/tree`, which is where ancestry is computed (a graph walk is not a thing
+     * a phone should be doing). A pick with no tree yet narrows nothing — see `inBead` —
+     * because half a filter applied is a list with rows missing for no visible reason.
+     */
+    bead: {
+      query: '',
+      suggestions: [],
+      /** `[{ key, workspace, id, title }]`, in pick order — the pills, left to right. */
+      picks: [],
+      trees: new Map(),
+      /** Workspaces the daemon has not read yet. Above zero, an empty list means "wait". */
+      warming: 0,
+      /**
+       * Why the last search came back with nothing, when the reason was not the tracker.
+       *
+       * A request that failed and a tracker with no such bead both leave `suggestions`
+       * empty, and only one of them is a claim about your beads. Without this the box
+       * would answer a dropped connection with "no bead matches that" — the same wrong
+       * sentence `warming` exists to prevent, arriving by a different road.
+       */
+      failed: '',
+      /** Is a search in flight? Only so the box can say so rather than look finished. */
+      busy: false,
+    },
     spaces: [],
     // Every handle this Mac's person answers to — `cfg.me`, off the payload. `[]` on
     // every install that has never set it, and `[]` is what makes an addressee pill read
@@ -770,6 +806,23 @@
   }
 
   /**
+   * The act a shut card answers to — written here and nowhere else in this file.
+   *
+   * Both card renderers put it on their `<article>`, and it could just as easily have
+   * been typed into both. It is not, for a reason outside either of them: edit mode
+   * anchors an element you tap by grepping this file for the markup that produced it
+   * (public/editmode.js, `anchorFor`), and a `data-act` is its strongest key precisely
+   * because one act has meant one line — the one handler branch that answers it. Two
+   * literals are two candidate lines for one control, and the anchor then has to report
+   * an ambiguity instead of a site. scripts/editmode-check.mjs pins that, and it is what
+   * caught this: `2 sites via data-act="toggle"`.
+   *
+   * Empty while the card is open, because an open card's way out is `↑ Collapse` and a
+   * body that also collapsed would close the sheet on the first tap on a paragraph.
+   */
+  const shutCardAct = (open) => (open ? '' : ' data-act="toggle"');
+
+  /**
    * The card's own top bar: everything that is *about* the card rather than an
    * answer to it.
    *
@@ -779,24 +832,33 @@
    * full-width buttons under the question, none of which answered it, and the one
    * that did the work looked exactly like the two that did not.
    *
-   * So they come up here. Reading (the details toggle) is hard left; acting on the
-   * whole card (a proposal's bulk approve/decline) is hard right, next to the way
-   * out. The foot keeps only what is genuinely a second body of content — the
-   * session log — and an answer box, when there is one, is then the only full-width
-   * control on the card.
+   * So they come up here. Acting on the whole card (a proposal's bulk
+   * approve/decline) is hard right, next to the way out. The foot keeps only what is
+   * genuinely a second body of content — the session log — and an answer box, when
+   * there is one, is then the only full-width control on the card.
+   *
+   * **There is no "Show details" here any more** (bc-rfnr.9.3). Reading used to be a
+   * button hard left on every collapsed card, which is a control saying "this is a
+   * card you can open" beside a card you can open: the card itself is the control
+   * now, and `cardBodyOpens` in the list's click handler is what makes the body of a
+   * shut one a tap target. An open card never had a "Hide details" either — collapse
+   * is that button, and it stays exactly where it was.
    *
    * Two things stay conditional on `open`, because closed the card is a row in a
-   * list: the kebab, and collapse. And an open card does *not* also get a "Hide
-   * details" — collapse is that button, one row to the right of where it would go.
+   * list: the kebab, and collapse. So on a shut card this bar holds only a
+   * proposal's bulk pair, and on a shut card that is not a proposal it holds nothing
+   * at all — which is why it returns the empty string rather than an empty row. A
+   * `.card-top` with nothing in it is still 12px of padding, and it also pulls
+   * `.card-head`'s own top padding down to 6 (see `.card-top + .card-head`), so an
+   * empty one is not invisible: it is a gap where the head used to start.
    */
-  function cardTopHtml(q, opts = {}) {
+  function cardTopHtml(q) {
     const on = state.menu === q.key;
     const open = state.open.has(q.key);
+    const bulk = propBulkHtml(q);
+    if (!open && !bulk) return '';
     return `<div class="card-top">
-      ${open ? '' : `<button class="top-btn detail" data-act="toggle" data-key="${esc(q.key)}">${esc(
-        opts.detailLabel || 'Show details'
-      )}</button>`}
-      ${propBulkHtml(q)}
+      ${bulk}
       ${
         open
           ? `<div class="menu-wrap">
@@ -833,6 +895,7 @@
         <span class="pill id">${esc(q.id)}</span>
         ${q.priority != null ? `<span class="pill p${q.priority}">P${q.priority}</span>` : ''}
         ${q.agent ? `<span class="pill st-${esc(q.status)}">${esc(STATUS_LABEL[q.status] || q.status)}</span>` : ''}
+        ${heldPillHtml(q)}
         ${q.dependentCount ? `<span class="pill">blocks ${q.dependentCount}</span>` : ''}
         <time>${esc(relTime(time))}</time>
       </div>
@@ -1546,10 +1609,10 @@
   /**
    * What the session said about its own work — on the card, not in the brief.
    *
-   * Everywhere else in the inbox, context lives behind *Show details*, because a
-   * question is a sentence and the brief is the argument for it. A delivery is the
-   * other way round: the question is always the same four words, and the argument is
-   * the entire content. Merge is two taps from the collapsed card, so anything you
+   * Everywhere else in the inbox, context lives behind the tap that opens the card,
+   * because a question is a sentence and the brief is the argument for it. A delivery
+   * is the other way round: the question is always the same four words, and the
+   * argument is the entire content. Merge is two taps from the collapsed card, so anything you
    * would want to have read before those two taps has to be above them.
    *
    * Folded when it is long, by the same machinery and for the same reason as a
@@ -2632,9 +2695,6 @@
     // whether GitHub will take it, which a generic option button cannot.
     const opts = q.proposal?.beads?.length || q.delivery ? [] : d?.options || [];
     const open = state.open.has(q.key);
-    const hasBrief = Boolean(
-      d?.diagrams?.length || d?.links?.length || d?.docs?.length || d?.images?.length || q.sections.length || d?.context
-    );
 
     const chosen = pickedOption(q);
     const options = opts
@@ -2670,12 +2730,20 @@
     // read one at a time, and on a phone expanding inline meant the brief, the thread
     // and the answer box all competed with the list around them. openOnly() is what
     // keeps "one at a time" true.
+    //
+    // **Shut, the card is its own control** (bc-rfnr.9.3): `data-act="toggle"` is on
+    // the article itself, so the delegated handler resolves a tap anywhere on it — the
+    // title, the pills, the whitespace beside them — to the same branch the "Show
+    // details" button used to reach. `closest('[data-act]')` is what keeps that from
+    // swallowing what is inside: every control on a shut card carries its own
+    // `data-act` and is therefore nearer, and `cardBodyOpens` handles the ones that
+    // carry none (links, boxes, a selection you are making). It is on the article only
+    // while shut, because an open card's way out is `↑ Collapse` and a body that also
+    // collapsed would close the sheet under the first tap on a paragraph.
     return `<article class="card${open ? ' open' : ''}${draft ? ' has-draft' : ''}${
       q.awaitingAgent ? ' replied' : ''
-    }" id="card-${cardId(q.key)}" data-key="${esc(q.key)}">
-      ${cardTopHtml(q, {
-        detailLabel: draft ? 'Resume your answer' : hasBrief ? 'Show details' : 'Write an answer',
-      })}
+    }" id="card-${cardId(q.key)}" data-key="${esc(q.key)}"${shutCardAct(open)}>
+      ${cardTopHtml(q)}
       <div class="card-head">
         <div class="meta">
           <span class="pill">${esc(q.workspace)}</span>
@@ -2995,6 +3063,26 @@
   const STATUS_LABEL = { in_progress: 'claimed', blocked: 'blocked', open: 'open' };
 
   /**
+   * The pill on a bead nobody may work yet, and the way through to deciding.
+   *
+   * The kind filter gives an endorsement its own chip, its own count and its own word in
+   * the summary line — but under `All kinds` a held bead sits in a list of forty and looks
+   * exactly like an open one, and "open" is the one thing it is not: nothing may claim it
+   * until you say so (lib/endorse.js). So the status pill gets a neighbour that contradicts
+   * it, in the same words the advocate console uses.
+   *
+   * A link rather than a label, and deep-linked to this bead, for the reason the console's
+   * pill is one: it used to be a number with no way through it. The verdicts themselves
+   * stay on public/endorse.js — four buttons that rewrite six fields do not belong on a card
+   * whose whole premise is that it is read-only (see `agentCardHtml`), and the decision
+   * *is* reading the bead, which is the page built for it.
+   */
+  const heldPillHtml = (q) =>
+    q.held
+      ? `<a class="pill muted" href="/endorse?bead=${encodeURIComponent(q.key)}">held for endorsement</a>`
+      : '';
+
+  /**
    * A bead nobody is asking you about.
    *
    * Read-only on purpose. There is no decision block, so there are no options — and
@@ -3006,10 +3094,18 @@
    *
    * Smaller type than a question, too. There can be two hundred of these and eleven
    * questions; they must not compete for attention with the thing that needs you.
+   *
+   * Shut, it is its own control, exactly as a question card is — see the comment on
+   * `cardHtml`. The one difference is where "shut" is read from: this card expands
+   * *inline* and never wears `.open`, so `state.open` is the only thing that knows,
+   * and the `Graph →` link is the reason `cardBodyOpens` has to guard anchors rather
+   * than trusting `data-act` to be everywhere.
    */
   function agentCardHtml(q) {
     const open = state.open.has(q.key);
-    return `<article class="card agent-card" id="card-${cardId(q.key)}" data-key="${esc(q.key)}">
+    return `<article class="card agent-card" id="card-${cardId(q.key)}" data-key="${esc(
+      q.key
+    )}"${shutCardAct(open)}>
       ${cardTopHtml(q)}
       <div class="card-head">
         <div class="meta">
@@ -3017,6 +3113,7 @@
           <span class="pill id">${esc(q.id)}</span>
           ${q.priority != null ? `<span class="pill p${q.priority}">P${q.priority}</span>` : ''}
           <span class="pill st-${esc(q.status)}">${esc(STATUS_LABEL[q.status] || q.status)}</span>
+          ${heldPillHtml(q)}
           ${q.dependentCount ? `<span class="pill">blocks ${q.dependentCount}</span>` : ''}
           <time>${esc(relTime(q.since))}</time>
         </div>
@@ -3166,6 +3263,23 @@
     const f = window.beadcause?.inboxFilter;
     if (!f || !f.selected().length) return widenNudge();
     return ` The filter above is showing only <b>${esc(f.label())}</b>.`;
+  };
+
+  /**
+   * The third way, and now the likeliest: a bead picked in the search box.
+   *
+   * It outranks the other two because it is the narrowest thing on the screen — a bead
+   * and its descendants over a tracker of hundreds — so when it is set it is almost
+   * always the reason the list is empty, and "tap Both above" over a pill naming a bead
+   * would send you after the wrong control. Names the beads rather than counting them,
+   * because the way out is the X on the pill and you have to know which pill.
+   */
+  const beadNudge = () => {
+    if (!beadPicked()) return '';
+    const names = state.bead.picks.map((p) => `<b>${esc(p.id)}</b>`).join(', ');
+    return ` The filter above is showing only ${names} and the work under ${
+      state.bead.picks.length > 1 ? 'them' : 'it'
+    }. Tap the × on the pill to widen it.`;
   };
 
   function emptyHtml() {
@@ -4060,6 +4174,202 @@
     pick: (id) => chooseScope(id),
   };
 
+  /* ------------------------------------------------------------ the bead search */
+
+  /**
+   * Wait this long after the last keystroke before asking. `bc-0xil` is seven requests
+   * if every letter is one, and the answer to the first six is thrown away before it is
+   * drawn. The History tab's id box picked the same number for the same reason.
+   */
+  const BEAD_TYPE_WAIT = 200;
+  let beadTimer = null;
+  /** Which query the answer in flight is for, so a slow one cannot overwrite a fast one. */
+  let beadAsked = '';
+
+  /**
+   * Go and ask what matches. Debounced by `setBeadQuery`, never called from a repaint.
+   *
+   * **The result is dropped if the box has moved on.** Two requests can be in flight and
+   * they can land in either order — a dropdown that flickered back to the answer for
+   * `bc-0x` after showing the one for `bc-0xil` would be a list you cannot click.
+   */
+  async function searchBeads() {
+    const q = state.bead.query.trim();
+    if (!q) {
+      state.bead.suggestions = [];
+      state.bead.busy = false;
+      renderFilters();
+      return;
+    }
+    beadAsked = q;
+    state.bead.busy = true;
+    renderFilters();
+    try {
+      const data = await api(`/api/beads?q=${encodeURIComponent(q)}`);
+      if (beadAsked !== q) return;
+      state.bead.suggestions = Array.isArray(data.beads) ? data.beads : [];
+      state.bead.warming = Number(data.warming) || 0;
+      state.bead.failed = '';
+    } catch (err) {
+      if (beadAsked !== q) return;
+      // An empty list carrying the reason, not a thrown error: the box lives inside a
+      // filter panel over a list that is still perfectly good, so the failure belongs on
+      // the one line under the box. A rejected token has already sent the page to sign-in
+      // and there is nothing here worth saying about it.
+      state.bead.suggestions = [];
+      if (err.message !== 'token rejected') state.bead.failed = err.message || 'the daemon did not answer';
+    } finally {
+      if (beadAsked === q) state.bead.busy = false;
+      renderFilters();
+    }
+  }
+
+  /** A keystroke. Paints at once so the caret keeps up; asks a beat later. */
+  function setBeadQuery(v) {
+    state.bead.query = String(v || '');
+    clearTimeout(beadTimer);
+    beadTimer = setTimeout(searchBeads, BEAD_TYPE_WAIT);
+    renderFilters();
+  }
+
+  /**
+   * A suggestion clicked: the bead becomes a pill, and its tree is fetched.
+   *
+   * The pill goes up *before* the tree lands, deliberately. A tap must show that it
+   * landed, and the alternative — waiting on a request before drawing the pill — is a
+   * control that does nothing for a beat and then does two things. What it must not do
+   * in that beat is narrow the list on half an answer, which is why `inBead` skips a
+   * pick with no tree yet rather than treating it as a tree of one.
+   */
+  async function pickBead(key) {
+    const hit = state.bead.suggestions.find((b) => b.key === key);
+    if (!hit || state.bead.picks.some((p) => p.key === key)) return;
+    state.bead.picks = [...state.bead.picks, { key, workspace: hit.workspace, id: hit.id, title: hit.title }];
+    // The box empties, because the question it asked has been answered. The next word
+    // typed is a *second* bead, not a correction of the first.
+    state.bead.query = '';
+    state.bead.suggestions = [];
+    clearTimeout(beadTimer);
+    renderFilters();
+    try {
+      const data = await api(`/api/bead/tree?workspace=${encodeURIComponent(hit.workspace)}&id=${encodeURIComponent(hit.id)}`);
+      state.bead.trees.set(key, new Set(Array.isArray(data.keys) ? data.keys : [key]));
+    } catch (err) {
+      // The bead itself, and nothing under it. A tree that could not be read is not a
+      // reason to drop the pill — you asked for this bead and it exists — and narrowing
+      // to one row is the honest reading of what is known.
+      if (err.message !== 'token rejected') state.bead.trees.set(key, new Set([key]));
+    }
+    render(true);
+  }
+
+  /** The X on a pill. */
+  function unpickBead(key) {
+    state.bead.picks = state.bead.picks.filter((p) => p.key !== key);
+    state.bead.trees.delete(key);
+    render(true);
+  }
+
+  /** Is the list narrowed to one or more beads right now? */
+  const beadPicked = () => state.bead.picks.length > 0;
+
+  /**
+   * Which keys the picked beads allow. The union of their trees — bc-gwsi's OR.
+   *
+   * Two pills mean "show me both of these", which is the only reading a pill with its own
+   * X supports: taking one off has to leave the other's rows on screen, and under AND it
+   * would leave a list that grew. A pick whose tree has not landed yet contributes
+   * nothing rather than itself alone; see `pickBead`.
+   */
+  function beadKeys() {
+    const keys = new Set();
+    for (const p of state.bead.picks) for (const k of state.bead.trees.get(p.key) || []) keys.add(k);
+    return keys;
+  }
+
+  /**
+   * The bead filter, and the one place its meaning lives.
+   *
+   * **A bead and everything under it** — bc-qid9's recommendation and the answer the rest
+   * of the app already gives (the P0 board keys rows by the P0 they descend from; a P0
+   * card expands to every descendant). The server decides what "under" means, off
+   * `parent-child` edges alone; this end only asks whether the row's key is in the set.
+   * Narrowing it to the one bead is a one-line change on the server (`/api/bead/tree`
+   * returning `[key]`) if the answer comes back the other way.
+   *
+   * **A pull request follows its beads**, exactly as `underOwnedP0s` has it: its own key
+   * is `pr:<repo>#<n>` and can never be in a tree, so what decides it is whether any bead
+   * it names is. One difference — a pull request naming *no* bead is hidden here where the
+   * board keeps it. The board's narrowing is the app's own and you did not ask for it, so
+   * it errs towards showing; this one you typed, and it is named on the summary line with
+   * an X beside it, so it errs towards meaning what it says.
+   *
+   * **A chat and a JIRA ticket are hidden**, for the same reason and with the same
+   * argument: neither is a bead, so neither can be under the one you asked for. The board
+   * shows them because a filter you cannot see must not be a filter you cannot escape —
+   * and this one you can see, and escape with one tap on the X.
+   */
+  function inBead(rows) {
+    if (!beadPicked()) return rows;
+    const keys = beadKeys();
+    // Nothing known yet — every pick is still fetching. Narrowing to an empty set would
+    // blank the screen for the length of one request over a filter that is about to be
+    // perfectly good.
+    if (!keys.size) return rows;
+    return rows.filter((q) => {
+      if (q.pr) return (q.pr.beads || []).some((b) => keys.has(`${q.workspace}/${b.id || b}`));
+      return keys.has(q.key);
+    });
+  }
+
+  /**
+   * The typeahead, as the panel draws it. See public/filtermenu.js for the shape.
+   *
+   * A page group like the scope switch, and in the same panel for the same reason: a
+   * second box beside the filter pill would be the two-rows-of-chrome problem this
+   * control exists to have solved once.
+   */
+  const beadGroup = {
+    id: 'bead',
+    legend: 'Bead',
+    text: true,
+    all: 'Any bead',
+    placeholder: 'bc-0xil, or a title word',
+    value: () => state.bead.query,
+    set: (v) => setBeadQuery(v),
+    suggestions: () =>
+      state.bead.suggestions.map((b) => ({
+        id: b.key,
+        label: b.id,
+        // The title beside the id, because an id alone is not recognisable — and the
+        // status where it is not open, so a finished bead never looks live in a list that
+        // deliberately offers both.
+        note: b.status && b.status !== 'open' ? `${b.title} · ${b.status}` : b.title,
+      })),
+    /**
+     * The one line under an empty result, and it says three different things.
+     *
+     * "Nothing matches" is a claim about the tracker, and the daemon is only entitled to
+     * make it once it has read one — see `warming` on `/api/beads`. A cold daemon telling
+     * you a bead you filed a minute ago does not exist is the failure this exists to
+     * prevent.
+     */
+    note: () => {
+      if (state.bead.busy) return 'Looking…';
+      if (state.bead.failed) return `Could not search: ${state.bead.failed}`;
+      if (state.bead.warming > 0) return 'Still reading the trackers — try again in a moment.';
+      return 'No bead matches that.';
+    },
+    picks: () =>
+      state.bead.picks.map((p) => ({
+        id: p.key,
+        label: p.id,
+        note: p.title ? `${p.id} — ${p.title}` : p.id,
+      })),
+    pick: (key) => pickBead(key),
+    unpick: (key) => unpickBead(key),
+  };
+
   /**
    * Which kinds this scope can contain at all.
    *
@@ -4924,7 +5234,13 @@
     // the list below the board is their descendants and nothing else. Applied *before*
     // `surveyKinds` so the kind chips count what you can actually get to — a chip
     // offering six merges when the filter leaves you one is a control that lies.
-    const inBoard = underOwnedP0s(inRepo);
+    // A picked bead **replaces** the board's narrowing rather than stacking on it, and
+    // that is not a shortcut. The board answers "what am I answerable for" and you did
+    // not ask it; picking a bead is you saying which piece of work you want, and half the
+    // beads worth reaching for are somebody else's or under nobody's P0 — so stacked, the
+    // commonest search on this tracker would end in an empty list with a pill on screen
+    // naming the bead it was hiding. An explicit filter outranks an implicit one.
+    const inBoard = beadPicked() ? inBead(inRepo) : underOwnedP0s(inRepo);
     surveyKinds(inBoard);
     const visible = inBoard.filter(inKind);
 
@@ -4979,7 +5295,7 @@
       chunks.push({
         key: '@empty',
         html: `<div class="empty">Nothing waiting${where ? ` in ${esc(where)}` : ''}.${
-          kinded ? kindNudge() : widenNudge()
+          beadPicked() ? beadNudge() : kinded ? kindNudge() : widenNudge()
         }${boardTrouble()}</div>`,
       });
     } else {
@@ -5573,9 +5889,48 @@
     if (state.menu) closeMenu();
   });
 
+  /**
+   * Everything on a shut card that a tap must reach *instead of* opening it.
+   *
+   * A shut card carries its own `data-act` (bc-rfnr.9.3), so the card is the control
+   * and there is no "Show details" button any more. The delegation does most of the
+   * containment for free — every control drawn on a card has a `data-act` of its own
+   * and is therefore nearer than the article, so `closest()` picks it and the card
+   * never hears about it. This is the list of what carries none:
+   *
+   * - **`a[href]`** — the agent card's `Graph →`, and any link inside rendered
+   *   markdown. Following a link and expanding the card underneath it is two things
+   *   from one tap, and the one you did not ask for is the one that stays behind when
+   *   you come back.
+   * - **The native form elements** — a box you are typing in, a checkbox, the label
+   *   that stands for it. `label` matters on its own: a tap on the words next to a
+   *   checkbox is a tap on the checkbox, and the checkbox is what the tap was for.
+   * - **`pre`** and **`summary`** — the session log pane, which is a scroller you drag
+   *   sideways, and a native disclosure, which is its own toggle. Both are read rather
+   *   than pressed for this.
+   *
+   * And a **live selection** beats all of it. Selecting a bead id to copy ends in a
+   * click on the card, and a card that expanded under every attempt to copy the one
+   * line worth copying would be the exact trap this bead names. `toString()` on an
+   * empty selection is `''`, so this only fires when there is really something
+   * selected; `getSelection` is optional-chained because a fake DOM in a test has no
+   * reason to implement it.
+   */
+  const CARD_BODY_KEEPS_TAP = 'a[href], button, input, textarea, select, label, summary, pre, [contenteditable]';
+
+  function cardBodyOpens(ev, card) {
+    const inner = ev.target.closest?.(CARD_BODY_KEEPS_TAP);
+    if (inner && card.contains(inner)) return false;
+    if (String(window.getSelection?.() ?? '').trim()) return false;
+    return true;
+  }
+
   listEl.addEventListener('click', async (ev) => {
     const btn = ev.target.closest('[data-act]');
     if (!btn) return;
+    // The tap landed on the card itself rather than on anything drawn on it — see
+    // cardBodyOpens for what that has to keep its hands off.
+    if (btn.classList.contains('card') && !cardBodyOpens(ev, btn)) return;
     const key = btn.dataset.key;
     const act = btn.dataset.act;
 
@@ -7811,7 +8166,12 @@
     const f = window.beadcause?.inboxFilter;
     if (!f) return;
     f.mount(filtersEl, {
-      groups: [scopeGroup],
+      // The scope first, then the bead box: coarsest to narrowest, which is also the
+      // order the panel reads top to bottom.
+      groups: [scopeGroup, beadGroup],
+      // The kinds' own answer plus this page's. A picked bead hides most of the screen,
+      // and the summary pill has to go bold over it like it does for everything else.
+      narrowed: () => beadPicked(),
       // Forced, because a filter tap is a decision and must not be deferred behind a
       // half-written answer. Nothing is refetched for the kinds themselves — they are a
       // view over rows already in hand — but selecting `PRs` may be the first time this
