@@ -5474,25 +5474,105 @@ a.pill { text-decoration: none; }
   color: var(--text);
   text-decoration: none;
 }
+/* The summary *is* the control (bc-rfnr.9.2): everything above the tree is one button,
+   so the tap that opens a P0 is the whole card rather than a caret you have to hit. A
+   button because that is what it is — keyboard, Enter, and `aria-expanded` come free,
+   where a div with a click handler has none of the three — stripped back to text and
+   laid out as the column of lines it was when it was a div and two anchors. */
+.p0-tap {
+  display: flex; flex-direction: column; gap: 4px;
+  width: 100%;
+  min-height: 44px;
+  margin: 0; padding: 0;
+  border: 0; background: none;
+  color: inherit; font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
 .p0-head { display: flex; align-items: center; gap: 8px; }
 .p0-head .pill.id { flex: none; }
 /* Pushed to the far end, and the two counts in a fixed order — how much is left is the
    number you scan for, so it sits where the eye lands last and stays put between polls. */
 .p0-open { margin-left: auto; font-size: 11.5px; color: var(--muted); }
 .p0-flight { font-size: 11.5px; color: var(--accent); }
-/* A link now that the card itself is not one — the card holds a button, and a button
-   inside an anchor is not valid. Undecorated so it does not read as a second control
-   competing with the one below it. */
+/* After the counts rather than before the id, so it is the last thing on the line and
+   the two numbers keep the position the eye already knows. */
+.p0-caret { flex: none; font-size: 11px; color: var(--muted); }
+/* A span since bc-rfnr.9.2 — it is inside the tap button now, and neither an anchor nor
+   a second button can live in one. Sized above everything around it because it is the
+   line you actually read. */
 .p0-title { font-size: 14px; line-height: 1.35; color: var(--text); text-decoration: none; }
 /* Only drawn when the advocate has written one (bc-rfnr.3). Quiet, because it is a
    status line under a title rather than a second title. */
 .p0-waiting { font-size: 12px; color: var(--muted); }
+/* What a tap does, and how many beads are behind it — the total, where `.p0-open` is
+   what is left. Quietest line on the card: it is an instruction, and an instruction as
+   loud as the title is one you read instead of the title. */
+.p0-hint { font-size: 11.5px; color: var(--muted); }
 
-/* The one control on a P0 card: put an advocate on it. Full width under the title rather
-   than tucked into the head row, because it is the only thing on this card you can *do*
-   and a 36px target hidden between two counts is a target you miss. */
+/* The tree, revealed under the summary. Rules above it rather than a box around it: the
+   card is already a box, and a second border inside it makes a 60-row epic read as a
+   page inside a page. */
+.p0-tree {
+  display: flex; flex-direction: column; gap: 1px;
+  margin: 6px 0 2px;
+  padding-top: 6px;
+  border-top: 1px solid var(--line);
+}
+/* One descendant. The indent is `--d` steps of 13px set inline from the row's own
+   `depth`, and it is a MARGIN rather than a padding so the row's box narrows with it and
+   the title wraps inside the card instead of running off it. Capped at three steps in
+   `p0RowHtml` — 39px is the most a 360px phone can give away and still leave a bead
+   title readable, and this tracker nests deeper than three. */
+.p0-row {
+  display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap;
+  min-height: 34px;
+  margin-left: calc(var(--d, 0) * 13px);
+  padding: 6px 8px;
+  border-left: 2px solid var(--line);
+  border-radius: 0 7px 7px 0;
+  color: var(--text); text-decoration: none;
+  font-size: 12.5px;
+}
+.p0-row:hover { background: var(--surface); }
+.p0-row-id { flex: none; font-size: 11.5px; color: var(--muted); }
+/* The marks ride on the first line beside the id, ahead of the title rather than after
+   it, because the title is the part that wraps: a pill pushed past a three-line title
+   lands alone on a line of its own, where a word in upper case shouts. Smaller than a
+   pill anywhere else in the app for the same reason — there can be sixty of these. */
+.p0-row .pill { flex: none; font-size: 9.5px; padding: 2px 6px; }
+/* `min-width: 0` with `overflow-wrap` because a bead title is a sentence and an id is
+   not: without it a long unbroken token pushes the row wider than the card, and a card
+   wider than the screen shrink-fits the whole page (see the note on measuring layout). */
+.p0-row-title { flex: 1 1 120px; min-width: 0; overflow-wrap: anywhere; }
+/* A bead that is itself asking you something. It is the reason to open a tree at all —
+   and once bc-rfnr.9.7 takes the flat list away, the only place a question is drawn. */
+.p0-row.asks { border-left-color: var(--warn); }
+.pill.p0-asks {
+  background: color-mix(in srgb, var(--warn) 20%, transparent);
+  color: var(--warn);
+}
+/* Closed work stays on the board — it is what an epic has *done*, and a tree that hid it
+   would read as smaller than it is — but it recedes. bc-rfnr.9.6 gives it a filter. */
+.p0-row.done { opacity: 0.55; }
+.p0-row.done .p0-row-title { text-decoration: line-through; }
+/* A P0 with nothing under it. Said in a sentence rather than left as a gap, because an
+   empty expansion is indistinguishable from one that failed to arrive. */
+.p0-none {
+  margin: 6px 0 2px;
+  padding-top: 6px;
+  border-top: 1px solid var(--line);
+  font-size: 12px; color: var(--muted);
+}
+
+/* The two ways out of a card, on one row under the tree: put an advocate on it, or go
+   and look at the graph. The advocate takes the room because it is the thing you can
+   *do* here — a 36px target hidden between two counts is a target you miss — and the
+   graph is the link the id pill used to be, moved down now the summary above it is one
+   tap target and cannot hold an anchor of its own. */
+.p0-acts { display: flex; align-items: stretch; gap: 6px; margin-top: 4px; }
 .p0-advocate {
-  margin-top: 4px;
+  flex: 1 1 auto;
   min-height: 40px;
   padding: 6px 12px;
   border: 1px solid var(--line);
@@ -5503,6 +5583,18 @@ a.pill { text-decoration: none; }
   cursor: pointer;
 }
 .p0-advocate:disabled { opacity: 0.6; cursor: default; }
+.p0-graph {
+  display: flex; align-items: center;
+  flex: none;
+  min-height: 40px;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 12.5px;
+  text-decoration: none;
+}
 /* The same control as a link, once there is an advocate to go and look at (bc-d6yk).
    Same box as the button it replaces — a card whose control changed size between polls
    would move the two cards below it while you were reading them — and centred by flex
