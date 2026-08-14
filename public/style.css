@@ -511,6 +511,45 @@ body {
 }
 
 /*
+  "What you are looking at is out of date" — public/freshness.js.
+
+  Directly under the top bar and above everything else, because the one thing it has to
+  beat is the list it is warning you about. Amber rather than red: the screen is behind,
+  which is a thing to know, not a thing that has gone wrong — red is what a refusal and a
+  conflict already use, and a page that cries in the same colour for a slow tailnet is a
+  page whose red stops meaning anything.
+
+  It is *sticky under a sticky bar*, which needs the bar's own height to sit against: the
+  bar is `position: sticky; top: 0` at z-index 20, so this pins below it at a lower layer
+  and never over it. On a page whose bar wraps to two rows the two simply stack, which is
+  why `top` is not a number here — `position: sticky` with no `top` at all would scroll
+  away, and a warning that scrolls away is one you can be halfway down a list without.
+*/
+.stale {
+  position: sticky;
+  top: 0;
+  z-index: 19;
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 16px;
+  background: color-mix(in srgb, var(--warn) 16%, var(--bg));
+  border-bottom: 1px solid color-mix(in srgb, var(--warn) 45%, var(--line));
+  color: var(--text);
+  font-size: 13px; line-height: 1.35;
+}
+.stale[hidden] { display: none; }
+.stale-what { flex: 1 1 auto; min-width: 0; }
+/* A real target, because it is pressed in exactly the situation where a thumb is already
+   irritated — and it is the one control that puts the screen right. */
+.stale-retry {
+  flex: 0 0 auto;
+  min-height: 34px; padding: 0 12px;
+  border: 1px solid color-mix(in srgb, var(--warn) 55%, var(--line));
+  border-radius: 10px;
+  background: var(--surface); color: var(--text);
+  font: 650 13px/1 inherit; cursor: pointer;
+}
+
+/*
   The account switcher — the address at the right-hand end of the bar, and the menu the
   page's own top-right buttons now live in. See public/accountbar.js.
 

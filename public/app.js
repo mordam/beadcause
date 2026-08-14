@@ -371,6 +371,11 @@
       throw new Error('token rejected');
     }
     const data = await res.json().catch(() => ({}));
+    // The daemon answered, so the screen is not stale — whatever the status says. A 409
+    // is a daemon that is very much alive, and a banner claiming otherwise over one would
+    // be the staleness warning crying wolf about the one thing it can actually see. See
+    // public/freshness.js; the optional chain is for a page served before it existed.
+    window.beadcause?.fresh?.heard?.(data);
     // The body travels with the error: a 428 asking for an acknowledgement carries
     // the whole warning to show, and a message string alone would throw it away.
     if (!res.ok) throw Object.assign(new Error(data.error || `HTTP ${res.status}`), { status: res.status, body: data });
