@@ -6766,8 +6766,8 @@ releases the lot rather than leaving files looking busy for the length of the TT
 
 **Refused once, then it is yours.** A cross-worktree collision is ordinary; a register that
 forbade it would be one everybody turns off. So the first edit against a file somebody else
-holds is denied *naming the branch the holder is on* — which on this Mac ends in that work's
-bead tag, so it leads you to `bd show` — and the refusal records the intent —
+holds is denied *naming the bead and the branch the holder is on* — where the bead comes
+from is further down — and the refusal records the intent —
 the session that has been told and means it anyway claims the file on its next attempt —
 and keeps it, which for a while it did not: the only route to `held` ran through `told`, so
 the edit *after* the one that insisted was demoted and refused all over again, alternating
@@ -6836,13 +6836,35 @@ Four properties are the file, and three of them fail silently if they are wrong:
   says nothing. It sits in front of every edit in every session on this Mac, so the failure
   mode has to be "the warning is missing", never "the edit is blocked".
 
-A claim carries a `bead` field and the hook deliberately does not fill it in. Turning a
-branch tail into a verified bead id needs the tracker prefix, and
-[the tier rules](#which-bead-a-pull-request-is-for) are clear that a guess must not pass as
-an answer — so doing it in the hook meant a 20KB transcript read and two more processes on
-every Write in every session, for a fact the daemon could resolve once per branch instead.
-The field stays in the API for whoever does that; the branch is what the refusal names
-today.
+**And it says which bead, which the hook could not.** A claim carries a `bead` field and
+`scripts/claim-guard.sh` deliberately leaves it empty: turning a branch tail into a
+verified id needs the tracker prefix, and [the tier
+rules](#which-bead-a-pull-request-is-for) are clear that a guess must not pass as an
+answer — so doing it there meant a 20KB transcript read and two more processes on **every
+Write in every session on this Mac**, for a fact that is the same for every claim from
+that branch. `lib/claimbead.js` does it in the daemon instead, and the arithmetic is the
+whole design: thirty branches ever, against thousands of claims a day, so it is asked
+once per branch and every later claim is a map lookup. Without it a refusal read `held by
+worktree-park-epic-p9vx`, which leads you to the right place — every worktree here ends
+in its bead's own tag — and is one hop short of the id.
+
+Three things make it an answer rather than a guess. It is **verified**: `bc-p9vx` is a
+candidate until `bd show` says that bead exists, exactly the way a pull request's tiers
+are settled. The candidates are **plural**, because a tag is lossy — `tagOf` strips the
+punctuation a ref cannot hold, so `bc-p49x.5` and `bc-p49x5` share the tail `p49x5`, and
+reading only the undotted form would leave the field empty for most of this laptop, where
+nearly every live worktree belongs to a child of an epic. And where more than one of them
+turns out to exist the field **stays empty and says so in the log**: two beads whose tags
+collide cannot be told apart by a branch name, and naming the wrong one is worse than
+naming none.
+
+None of it is on the hot path either. The lookup is started by a claim and never awaited
+by one, so the first claim from a fresh branch answers without it and the answer is
+written onto the records when it arrives — which is in time for every reader that matters,
+since a refusal names the *holder's* bead and a holder claimed its file before the session
+colliding with it turned up. A tracker that could not be read is not an answer and is not
+kept, the same distinction `prefixFor` makes about a workspace mid-write; a bead that does
+not exist *is* an answer, and is.
 
 **And the register is read a second time, one step earlier.** The hook asks at
 `PreToolUse`, which is the last honest moment for an *edit* and one step too late to be
@@ -14253,7 +14275,7 @@ cookie says so), and `/auth/signout` ends the session.
 | POST | `/api/presence` | `{device, view, key}` | which view this device has open, so [the mirror](#the-mirror--whatever-the-phone-has-open-with-room-to-read-it) can follow it. Wakes `/api/poll` without costing a `bd` sweep — see `changed` there |
 | GET | `/api/presence` | — | `{devices[]}` — who is where |
 | DELETE | `/api/presence` | `{device}` | forget one device |
-| POST | `/api/claims` | `{session, repo, file, dir?, branch?, bead?}` | claim the file a session is about to edit, and be told in the same answer who else holds it — see [one granularity down](#one-granularity-down-which-file-somebody-is-already-editing). `decision` is `held` or `conflict`, and a `conflict` carries the `reason` `scripts/claim-guard.sh` prints as a denial. The asking *is* the taking: it decides and records in one synchronous call, so two edits a moment apart cannot both find the file free. On the bus deliberately never — an event per claim would hang a `bd` sweep off every keystroke. A `conflict` also carries `regions`: which lines each side has changed, derived from git on that branch only (`lib/regions.js`), `null` whenever git cannot answer |
+| POST | `/api/claims` | `{session, repo, file, dir?, branch?, bead?}` | claim the file a session is about to edit, and be told in the same answer who else holds it — see [one granularity down](#one-granularity-down-which-file-somebody-is-already-editing). `decision` is `held` or `conflict`, and a `conflict` carries the `reason` `scripts/claim-guard.sh` prints as a denial. The asking *is* the taking: it decides and records in one synchronous call, so two edits a moment apart cannot both find the file free. On the bus deliberately never — an event per claim would hang a `bd` sweep off every keystroke. A `conflict` also carries `regions`: which lines each side has changed, derived from git on that branch only (`lib/regions.js`), `null` whenever git cannot answer. `bead` is filled in by the daemon rather than by the caller — resolved from the branch once per branch and verified against the tracker (`lib/claimbead.js`), so the first claim from a fresh branch answers before it is known and every later one carries it |
 | GET | `/api/claims` | `?regions=1` | `{claims[], collisions[]}` — every live claim, and the files more than one session is holding. `regions=1` adds the changed line ranges to each collision and whether they overlap; opt-in, because it is several git spawns per collision and a list of names should not pay for them |
 | DELETE | `/api/claims` | `{session, files?}` | let go of one file, or of everything that session held. Sent on `SessionEnd`, so a finished session stops holding files without waiting out the TTL |
 | POST | `/api/session-say` | `{pid, text}` | says one line into a live session's own iTerm window. `413` with the words left in the box if it is past `SAY_MAX` — the message rides to `osascript` as an argument, and past `ARG_MAX` the failure reads as "the session is gone", which is the one thing this must not lie about |
