@@ -39,7 +39,7 @@
   directory, and re-read the line: git may well have merged it silently. `node
   test/swcache.mjs` checks precisely that, in about a second.
 */
-const CACHE = 'beadcause-v47';
+const CACHE = 'beadcause-v49';
 const SHELL = [
   '/',
   '/index.html',
@@ -65,6 +65,11 @@ const SHELL = [
   // line. In the shell for the same reason the picker is: without it the inbox has no
   // control on it at all to say which slice of the tracker you are looking at.
   '/inboxfilter.js',
+  // Edit mode: the freeze and the anchor. In the shell because the inbox now asks it on
+  // every repaint whether it may paint at all — a cached page without it answers false
+  // and behaves exactly as it did before, which is survivable, where a page that has the
+  // ✏️ in its markup and not the file behind it has a control that does nothing.
+  '/editmode.js',
   // One pull request, drawn once, for the inbox's cards and the board's rows. In the
   // shell because the inbox is: a cached inbox without it draws no PR cards at all, and
   // the filter reads the status ladder off it to build its sub-filter.

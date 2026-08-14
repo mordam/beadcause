@@ -3590,6 +3590,95 @@
   let pendingRender = false;
 
   /**
+   * Is the screen deliberately held still? See public/editmode.js.
+   *
+   * The second reason a repaint is deferred, and a stronger one than `isAnswering`: an
+   * answer being written survives a rebuild badly, where a *pointing* gesture does not
+   * survive one at all — the element under your thumb is the thing being named, and a
+   * reconcile that replaces its chunk has thrown the referent away before the tap is
+   * handled. So this defers everything, forced repaints included, and the mode's exit
+   * is what takes the one repaint that catches up.
+   *
+   * A page served without the file answers false, which is the app exactly as it was.
+   */
+  const isFrozen = () => Boolean(window.beadcause?.editMode?.frozen?.());
+
+  /**
+   * Every string this page is currently drawing out of the payload.
+   *
+   * What it is for is the one distinction the whole of bc-p49x turns on: a word on this
+   * screen either lives in a template literal in this file, in which case retyping it is
+   * an edit to the app, or it came out of `bd`, in which case retyping it is an edit to
+   * the tracker and has to be refused. public/editmode.js asks this, and anything it
+   * gets back is treated as tracker text.
+   *
+   * Walked generically rather than field by field. Naming the fields would be a second
+   * copy of the payload's shape, kept in step by hand with a server that grows one every
+   * week or two — and the failure of a stale copy is silent and lands on the wrong side:
+   * a field this did not know about would be offered up as source text and filed as an
+   * edit to a line of public/app.js that does not exist. A walk that collects everything
+   * cannot go stale, and its worst case is over-refusal, which is the direction the
+   * precedence rule already chooses.
+   *
+   * Bounded on both axes because a payload holds forty briefs and a brief holds a
+   * document: depth stops it descending forever, and the cap stops a pathological one
+   * from making a tap take a second.
+   */
+  function payloadText() {
+    const out = new Set();
+    const seen = new Set();
+    const eat = (v, depth) => {
+      if (out.size >= 8000 || depth > 6 || v == null) return;
+      if (typeof v === 'string') {
+        // Two characters is a status glyph or an initial and is a coincidence waiting to
+        // happen; below that there is nothing anyone would retype.
+        if (v.length >= 3) out.add(v.replace(/\s+/g, ' ').trim());
+        return;
+      }
+      if (typeof v !== 'object') return;
+      if (seen.has(v)) return;
+      seen.add(v);
+      if (Array.isArray(v)) for (const x of v) eat(x, depth + 1);
+      else for (const x of Object.values(v)) eat(x, depth + 1);
+    };
+    for (const source of [state.questions, state.requests, state.consoles, state.tickets, state.p0board, state.board]) {
+      eat(source, 0);
+    }
+    return [...out];
+  }
+
+  window.beadcause?.editMode?.provideText?.(payloadText);
+  /**
+   * And where on this page you were standing when you said it.
+   *
+   * The other half of what a bead filed from inside the app has to carry. An anchor says
+   * which element; this says which *screen* — and on the inbox those are not the same
+   * question, because the list is four filters deep and the element only exists at all
+   * under some of them. "The P0 title is too quiet" is a different bead depending on
+   * whether the P0 section was showing, and an agent that opens the app to look will see
+   * whichever narrowing it happens to load with.
+   *
+   * Read at the moment each edit is recorded rather than at Save, so a pass made across
+   * two filters carries both. Values that are off are empty strings and drop out on the
+   * way through — a where-block listing every filter as `all` is noise around the one
+   * that was actually set.
+   */
+  window.beadcause?.editMode?.provideContext?.(() => ({
+    view: 'the inbox',
+    showing: { human: 'what is waiting on you', agent: 'what agents are on', both: 'both' }[state.scope] || state.scope,
+    space: state.space === 'all' ? '' : state.space,
+    workspace: state.workspace === 'all' ? '' : state.workspace,
+    kinds: window.beadcause?.inboxFilter?.label?.() || '',
+  }));
+  // The catch-up repaint, and the reason a frozen screen is safe to leave frozen: every
+  // poll that landed while the mode was on has been adopted into `state` and only the
+  // paint was held, so one forced render() here is the whole of the arrears — no cold
+  // sweep, no refetch, and the list you come back to is as current as the clock.
+  window.beadcause?.editMode?.onChange?.((on) => {
+    if (!on) render(true);
+  });
+
+  /**
    * Rebuilding the list destroys every textarea in it, drops focus, closes the
    * keyboard and resets scroll — so an answer being written looks like it was
    * thrown away. While a card is being answered, defer instead; the flush
@@ -3911,6 +4000,12 @@
    * acceptable way for a speed-up to be missing.
    */
   function paintList(chunks) {
+    // The second gate, and not a redundant one: `load()` paints the can't-reach-the-server
+    // panel through here directly rather than through render(), so a link that drops
+    // while the screen is frozen would otherwise replace the list you are pointing at
+    // with an error message. A frozen screen keeps what it had — which is also the more
+    // useful answer, since the mode is about the elements on it and not about the poll.
+    if (isFrozen()) return;
     const warm = window.beadcause?.warm;
     if (warm?.paint) warm.paint(listEl, chunks);
     else listEl.innerHTML = chunks.map((c) => c.html).join('');
@@ -4049,6 +4144,14 @@
   }
 
   function render(force = false) {
+    // Before the `force` test rather than after it, because `force` means "this repaint
+    // is a tap's own consequence and must not wait behind a half-typed answer" — and in
+    // edit mode there is no such tap: every tap is a point at an element, and the taps
+    // that used to force a repaint are exactly the ones the mode has taken over.
+    if (isFrozen()) {
+      pendingRender = true;
+      return;
+    }
     if (!force && isAnswering()) {
       pendingRender = true;
       return;

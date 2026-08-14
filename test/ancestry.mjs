@@ -35,9 +35,8 @@ import { fileURLToPath } from 'node:url';
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const LIB = (f) => path.join(HERE, '..', 'lib', f);
 
-const { PARENT_EDGE, parentsFrom, indexFrom, ancestorsOf, underAnyOf, descendantsOf } = await import(
-  LIB('ancestry.js')
-);
+const { PARENT_EDGE, parentsFrom, indexFrom, ancestorsOf, underAnyOf, descendantsOf, childrenFrom, treeUnder } =
+  await import(LIB('ancestry.js'));
 
 /* --------------------------------------------------------------------- harness */
 
@@ -190,6 +189,123 @@ check('descendantsOf is the same answer for a whole list, roots included', () =>
   assert.deepEqual([...descendantsOf(parents, ids, MINE)].sort(), ['zz-p0', 'zz-p0.1', 'zz-p0.1.1']);
   assert.equal(descendantsOf(parents, [], MINE).size, 0);
   assert.equal(descendantsOf(parents, ids, new Set()).size, 0);
+});
+
+/* ---------------------------------------------------------------- the tree form */
+
+/**
+ * The other direction, and the one a card is drawn from — bc-rfnr.9.1.
+ *
+ * `underAnyOf` answers "is this bead under that P0", which is the question a *list*
+ * asks about a row it already has. A card that expands into its own tree is asking the
+ * opposite question — "what is under this P0" — about beads that have no row anywhere,
+ * and the tracker will not answer it cheaply either: `bd list --parent` is one spawn per
+ * node against a Dolt that answers a single call in seconds under load. So it comes out
+ * of the same export, inverted once per workspace.
+ *
+ * A P0 with ten children so the sort is tested where a string sort gets it wrong, one
+ * closed, one grandchild, and one edge pointing at a bead whose own record is not here.
+ */
+const TREE_EXPORT = [
+  row('zz-e', { priority: 0, labels: ['owner:adam@example.com'] }),
+  row('zz-e.1', { status: 'in_progress', assignee: 'adam@example.com', dependencies: [parentEdge('zz-e.1', 'zz-e')] }),
+  row('zz-e.1.1', { dependencies: [parentEdge('zz-e.1.1', 'zz-e.1')] }),
+  row('zz-e.2', { status: 'closed', dependencies: [parentEdge('zz-e.2', 'zz-e')] }),
+  row('zz-e.10', { dependencies: [parentEdge('zz-e.10', 'zz-e')] }),
+  // An edge naming a child whose own line never arrived — a foreign export, or a
+  // malformed line this file has already dropped. It has a grandchild, so dropping it
+  // has to drop the branch.
+  row('zz-e.3', { dependencies: [parentEdge('zz-ghost', 'zz-e'), parentEdge('zz-e.3', 'zz-ghost')] }),
+  row('zz-elsewhere'),
+].join('\n');
+
+const TREE = indexFrom(TREE_EXPORT);
+const KIDS = childrenFrom(TREE.parents);
+
+check('the parent map inverts to a child map, once, for the whole workspace', () => {
+  assert.deepEqual([...(KIDS.get('zz-e') || [])].sort(), ['zz-e.1', 'zz-e.10', 'zz-e.2', 'zz-ghost']);
+  assert.deepEqual(KIDS.get('zz-e.1'), ['zz-e.1.1']);
+  assert.equal(KIDS.get('zz-elsewhere'), undefined, 'a bead with no children is not a key');
+  assert.equal(childrenFrom(null).size, 0);
+});
+
+check('a tree comes back flat, parents before children, with a depth on every row', () => {
+  const tree = treeUnder(KIDS, TREE.beads, 'zz-e');
+  assert.deepEqual(
+    tree.map((r) => [r.id, r.parent, r.depth]),
+    [
+      ['zz-e.1', 'zz-e', 1],
+      ['zz-e.1.1', 'zz-e.1', 2],
+      ['zz-e.10', 'zz-e', 1],
+      ['zz-e.2', 'zz-e', 1],
+    ]
+  );
+  // The promise the client nests on: every row's parent is the root or an earlier row.
+  const before = new Set(['zz-e']);
+  for (const r of tree) {
+    assert.ok(before.has(r.parent), `${r.id} names a parent that has not been drawn yet`);
+    before.add(r.id);
+  }
+});
+
+check('SIBLINGS READ OPEN FIRST, AND THE TENTH CHILD IS NOT BETWEEN THE FIRST AND THE SECOND', () => {
+  // Both halves of `byDoneThenId`, on the fixture that would catch a plain string sort:
+  // 'zz-e.10' < 'zz-e.2' as text, and zz-e.2 is the closed one.
+  const ids = treeUnder(KIDS, TREE.beads, 'zz-e')
+    .filter((r) => r.depth === 1)
+    .map((r) => r.id);
+  assert.deepEqual(ids, ['zz-e.1', 'zz-e.10', 'zz-e.2']);
+});
+
+check('a closed descendant is in the tree, because the filter over it is the client’s', () => {
+  const tree = treeUnder(KIDS, TREE.beads, 'zz-e');
+  assert.equal(tree.filter((r) => r.status === 'closed').length, 1, 'bc-rfnr.9.6 cannot default to not-closed if nothing closed was sent');
+});
+
+check('a row carries what a row draws, assignee included', () => {
+  const [first] = treeUnder(KIDS, TREE.beads, 'zz-e');
+  assert.deepEqual(first, {
+    id: 'zz-e.1',
+    title: 'bead zz-e.1',
+    issue_type: '',
+    status: 'in_progress',
+    priority: 2,
+    assignee: 'adam@example.com',
+    parent: 'zz-e',
+    depth: 1,
+  });
+});
+
+check('AN ID WITH NO RECORD TAKES ITS BRANCH WITH IT, RATHER THAN DRAWING A BEAD WITH NO TITLE', () => {
+  // zz-ghost is named by an edge and by nothing else; zz-e.3 hangs off it. Emitting the
+  // ghost would draw a row with no title and a link to nothing; emitting zz-e.3 without
+  // it would break the one promise the shape makes, since its parent is not in the array.
+  const ids = treeUnder(KIDS, TREE.beads, 'zz-e').map((r) => r.id);
+  assert.equal(ids.includes('zz-ghost'), false);
+  assert.equal(ids.includes('zz-e.3'), false);
+});
+
+check('a root with nothing under it is an empty tree, and so is an id nothing has heard of', () => {
+  assert.deepEqual(treeUnder(KIDS, TREE.beads, 'zz-elsewhere'), []);
+  assert.deepEqual(treeUnder(KIDS, TREE.beads, 'zz-nothing-like-this'), []);
+  assert.deepEqual(treeUnder(KIDS, TREE.beads, ''), []);
+  assert.deepEqual(treeUnder(KIDS, TREE.beads, null), []);
+});
+
+check('A CYCLE UNDER THE ROOT ANSWERS ONCE PER BEAD, RATHER THAN HANGING THE DAEMON', () => {
+  const looped = indexFrom(
+    [
+      // The root is its own great-grandchild — which bd will not write and an
+      // id-rewriting import can. Unguarded, the walk goes round it forever.
+      row('zz-r', { priority: 0, dependencies: [parentEdge('zz-r', 'zz-r.2')] }),
+      row('zz-r.1', { dependencies: [parentEdge('zz-r.1', 'zz-r')] }),
+      row('zz-r.2', { dependencies: [parentEdge('zz-r.2', 'zz-r.1')] }),
+      row('zz-r.3', { dependencies: [parentEdge('zz-r.3', 'zz-r.2')] }),
+    ].join('\n')
+  );
+  const ids = treeUnder(childrenFrom(looped.parents), looped.beads, 'zz-r').map((r) => r.id);
+  assert.equal(new Set(ids).size, ids.length, 'a bead appears once, under whichever parent was reached first');
+  assert.deepEqual(ids, ['zz-r.1', 'zz-r.2', 'zz-r.3']);
 });
 
 /* ------------------------------------------------------------------------ done */
