@@ -75,7 +75,7 @@ const { AUTO_SHIP_LABEL, NO_AUTO_SHIP_LABEL, opinionOf, opinionAbove, resolveAut
   LIB('autoship.js')
 );
 const { autoShipAllowed, SETTINGS, readSettings, applySettings, spaceDetail } = await import(LIB('spaces.js'));
-const { LEDGER_PATH, loadLedger, markerOf, sweepReleases } = await import(LIB('release.js'));
+const { anyArmed, LEDGER_PATH, loadLedger, markerOf, sweepReleases } = await import(LIB('release.js'));
 
 const WS = { name: 'demo', dir: path.join(tmp, 'beads-demo') };
 
@@ -372,6 +372,7 @@ function shipper() {
 const ON = { workspaces: [WS], spaces: [{ name: 'Personal', workspaces: ['demo'], autoShip: true }], release: { beads: true } };
 const forget = () => fs.rmSync(LEDGER_PATH, { force: true });
 const MINUTE = 60000;
+const SECOND = 1000;
 
 /* The window: arm, join, fire once. */
 forget();
@@ -396,13 +397,33 @@ forget();
   );
 
   const armedAt = loadLedger().demo.armedAt;
-  const second = await sweep([row({ number: 4 }), row({ number: 5 })], t0 + 5 * MINUTE);
-  await check(() => assert.equal(s.calls.length, 0), 'a merge arriving inside the window deploys nothing either');
-  await check(() => assert.equal(loadLedger().demo.armedAt, armedAt), 'and does not push the window back — it joins the batch');
-  await check(() => assert.equal(second.armed.length, 0), 'an armed workspace is not re-armed');
 
-  await sweep([row({ number: 4 }), row({ number: 5 })], t0 + 12 * MINUTE);
-  await check(() => assert.equal(s.calls.length, 1), 'when the window closes, one deploy');
+  await sweep([row({ number: 4 })], t0 + MINUTE + 30 * SECOND);
+  await check(() => assert.equal(s.calls.length, 0), 'half a window in, with nothing new, nothing happens');
+
+  // The extension. Under the old fixed window this merge changed nothing at all; now it
+  // is the whole point — what is being waited for is the merging stopping.
+  const second = await sweep([row({ number: 4 }), row({ number: 5 })], t0 + MINUTE + 40 * SECOND);
+  await check(() => assert.equal(s.calls.length, 0), 'a merge arriving inside the window deploys nothing either');
+  await check(() => assert.equal(second.armed.length, 0), 'an armed workspace is not re-armed');
+  await check(() => assert.deepEqual(second.extended[0]?.numbers, [5]), 'it extends the window, and says which merge did it');
+  await check(
+    () => assert.equal(loadLedger().demo.armedAt, armedAt),
+    'the first arming does not move — it is what the cap is measured from'
+  );
+  await check(
+    () => assert.equal(loadLedger().demo.settleAt, new Date(t0 + MINUTE + 40 * SECOND).toISOString()),
+    'and the deadline is pushed a whole window out from the arrival'
+  );
+
+  await sweep([row({ number: 4 }), row({ number: 5 })], t0 + 2 * MINUTE + 20 * SECOND);
+  await check(
+    () => assert.equal(s.calls.length, 0),
+    'so the moment the old fixed window would have fired on comes and goes — this is the behaviour, not a slow test'
+  );
+
+  await sweep([row({ number: 4 }), row({ number: 5 })], t0 + 2 * MINUTE + 50 * SECOND);
+  await check(() => assert.equal(s.calls.length, 1), 'a whole minute after the last arrival, one deploy');
   await check(() => assert.deepEqual(s.calls[0].numbers.sort(), [4, 5]), 'carrying both merges');
   await check(() => assert.equal(s.calls[0].count, 2), 'and the queue it was given is the whole of what it makes live');
   await check(() => assert.equal(loadLedger().demo.armedAt, null), 'the window is disarmed by firing');
@@ -499,6 +520,84 @@ forget();
   await check(() => assert.equal(bd.created.length, 1), 'and files its bead to wait for a session, exactly as before');
 }
 
+/* -------------------------------------------------------------- the ceiling on it */
+
+/**
+ * The cap is what makes an extending window safe, so it is asserted on its own.
+ *
+ * Extension alone has no worst case: a repo merged into every fifty seconds would hold
+ * its deploy off all day, and work sitting unshipped *because more work kept arriving* is
+ * the one outcome this must not have.
+ */
+forget();
+{
+  const bd = tracker();
+  const s = shipper();
+  const t0 = Date.now();
+  const sweep = (prs, at) => sweepReleases(bd, ON, { repos: [card({ prs })] }, { deploys: [], now: at, ship: s.fn });
+
+  await sweep([], t0);
+
+  // A merge every fifty seconds — inside the minute, every time, for ever.
+  const rows = [];
+  let n = 30;
+  await sweep([row({ number: n })], t0 + SECOND);
+  rows.push(row({ number: n }));
+  const armedAt = loadLedger().demo.armedAt;
+
+  for (const mark of [51, 101, 151, 201, 251]) {
+    n += 1;
+    rows.push(row({ number: n }));
+    const r = await sweep([...rows], t0 + mark * SECOND);
+    await check(
+      () => assert.equal(r.extended.length, 1),
+      `a merge at ${mark}s pushes the deadline out again — nothing has fired yet`
+    );
+  }
+  await check(() => assert.equal(s.calls.length, 0), 'four and a half minutes of that, and it is still holding');
+  await check(() => assert.equal(loadLedger().demo.armedAt, armedAt), 'and still measuring the cap from the first one');
+
+  // Past five minutes from the *first* arming, and a merge lands in the same breath.
+  n += 1;
+  rows.push(row({ number: n }));
+  const capped = await sweep([...rows], t0 + 301 * SECOND);
+  await check(() => assert.equal(s.calls.length, 1), 'at the cap it fires, however recently something arrived');
+  await check(() => assert.equal(capped.extended.length, 0), 'the arrival that lands at the cap buys nothing — a ceiling that can be raised is not one');
+  await check(() => assert.equal(capped.shipped[0]?.capped, true), 'and the record says which clock ran out, because that is what makes the merges after it expected');
+  await check(
+    () => assert.deepEqual(s.calls[0].numbers.sort((a, b) => a - b), [30, 31, 32, 33, 34, 35, 36]),
+    'it carries everything that had arrived by then, including the one that landed at the cap'
+  );
+  await check(() => assert.equal(loadLedger().demo.armedAt, null), 'the window is disarmed by firing, as it always was');
+
+  // The other half of Adam's sentence: what comes after goes with the next deploy.
+  const after = await sweep([...rows, row({ number: 99 })], t0 + 310 * SECOND);
+  await check(() => assert.deepEqual(after.armed[0]?.numbers, [99]), 'a merge after the cap arms a fresh window of its own');
+  await sweep([...rows, row({ number: 99 })], t0 + 380 * SECOND);
+  await check(() => assert.deepEqual(s.calls[1]?.numbers, [99]), 'and rides the next deploy, alone');
+}
+
+/* --------------------------------------------- a cap that is shorter than the window */
+
+forget();
+{
+  const bd = tracker();
+  const s = shipper();
+  const t0 = Date.now();
+  // Says "wait a minute" and "never wait a minute" at once. Clamped, not refused: a
+  // daemon that stopped shipping over a config typo is a worse answer than one that takes
+  // the only reading of it that is not self-contradictory.
+  const cfg = { ...ON, release: { beads: true, settleSeconds: 60, settleMaxSeconds: 10 } };
+  const sweep = (prs, at) => sweepReleases(bd, cfg, { repos: [card({ prs })] }, { deploys: [], now: at, ship: s.fn });
+
+  await sweep([], t0);
+  await sweep([row({ number: 40 })], t0 + SECOND);
+  await sweep([row({ number: 40 })], t0 + 30 * SECOND);
+  await check(() => assert.equal(s.calls.length, 0), 'a cap below the window it caps does not fire the batch early');
+  await sweep([row({ number: 40 })], t0 + 70 * SECOND);
+  await check(() => assert.equal(s.calls.length, 1), 'it is clamped up to the window, and the window still decides');
+}
+
 /* ------------------------------------------------- the commit the window closed on */
 
 /**
@@ -574,6 +673,31 @@ forget();
   await check(() => assert.equal(s.calls[0].pin, null), 'it goes unpinned, which is the fast-forward this always did');
   await check(() => assert.equal(loadLedger().demo.handled['22'].pin, undefined), 'and the ledger says nothing rather than saying null');
 }
+
+/* ------------------------------------------------------- the clock that looks at it */
+
+/**
+ * The window is only ever *looked at* when the release sweep runs, so its resolution is
+ * that sweep's interval and nothing finer. A one-minute window on a five-minute sweep is
+ * a five-minute window wearing the wrong number, and an arrival could never be seen to
+ * push a deadline out at all — which is the whole feature.
+ */
+await check(() => {
+  assert.equal(anyArmed({}), false, 'nothing armed');
+  assert.equal(anyArmed({ demo: { armedAt: null, handled: {} } }), false, 'an entry that exists but is not armed');
+  assert.equal(anyArmed({ demo: { armedAt: new Date().toISOString(), handled: {} } }), true);
+  assert.equal(anyArmed({ a: { armedAt: null }, b: { armedAt: new Date().toISOString() } }), true, 'any one of them is enough');
+  assert.equal(anyArmed(null), false, 'and an unreadable ledger is not an armed one');
+}, 'the sweep can ask whether anything is waiting, cheaply, from the file that decides');
+
+await check(async () => {
+  const src = await fs.promises.readFile(path.join(HERE, '..', 'lib', 'server.js'), 'utf8');
+  // The failure this catches is a revert to a constant: the fast cadence is the only
+  // thing that makes a one-minute window one minute, and nothing else in the suite runs
+  // the daemon's own clock.
+  assert.match(src, /const every = sweepEvery\(\)/, 'the release sweep asks for its interval rather than computing one inline');
+  assert.match(src, /if \(!anyArmed\(loadLedger\(\) \|\| \{\}\)\) return slow;/, 'and the fast cadence is conditional on something being armed');
+}, 'the sweep runs fast only while a window is open');
 
 /* A caller that passes no `ship` cannot auto-ship — which is every existing test. */
 forget();
