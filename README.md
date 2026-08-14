@@ -13337,13 +13337,23 @@ original `<dir> no longer exists`.
 Which leaves the installs that had already worked around this by hand, and they get the
 migration rather than a note telling them to make one. Any saved `workspaces` entry that
 **cannot have come from discovery** — its directory is not `~/beads/<its name>/.beads` —
-is copied into `workspaceDirs` on the next start, and says so on stdout. Nothing changes
+is copied into `workspaceDirs` on the next start, and says so. Nothing changes
 about what is served: the entry was already in the list and already pointed there, and
 this only writes down *why*, so that it survives the directory going away for an
 afternoon. It is bounded by reading the config rather than by a spent flag — a name
 already in `workspaceDirs` is never touched, so an explicit `null` cannot be undone by
 it, and a directory that is not there is left for reconciliation to drop rather than
 pinned as a rule that would warn on every start forever.
+
+Every one of those notices goes to **stderr**, which is the same argument [the base URL
+makes](#the-url-you-are-given-and-what-happens-to-a-phone-that-already-has-one) and is
+not a matter of taste. Every `bin/*.js` here loads the config, and several of them exist
+to print one value something else parses — `bin/file.js` prints the id it filed, and
+callers read it with `stdout.trim()`. A workspace notice on stdout does not appear
+*beside* that id, it becomes *part of* it: the bead lands, the id read back is a
+sentence, and the caller reports that nothing was filed. Both `test/autoendorse.mjs` and
+`test/filing.mjs` failed exactly that way while this was being written, which is why the
+`adding workspace` line moved with the new ones.
 
 ### Where the remote goes, and why beadcause will not choose for you
 
