@@ -10332,7 +10332,7 @@ prose in a comment.
 
 `test/swbump.mjs` asks it now, on every `npm test`, about the branch you are on. It
 compares the working tree against the `main` it grew from, so the answer arrives before
-the commit rather than after it, and it says one of two things:
+the commit rather than after it, and it says one of three things:
 
 - **An advisory, which never fails the run.** Two or more files in `SHELL` changed and
   `const CACHE` did not move: here they are, decide. That over-reports on purpose. The
@@ -10345,6 +10345,10 @@ the commit rather than after it, and it says one of two things:
   That is the bc-dmt shape, and on the mixed pair the call lands on `undefined` and
   throws. Both halves have to have existed before the branch: two files added together
   are never a mixed pair, because a cache from before the branch has neither.
+- **A named pair inside the advisory.** One modified `SHELL` file newly *draws* a class
+  or id and another newly *styles* it — the stylesheet shape, below. It does not fail
+  the run; it turns "these five files moved, decide" into "`console.js` newly draws
+  `.bead-dupe`, which `style.css` only gained on this branch".
 
 The reading is deliberately narrow. Comments are stripped before a line is read, and a
 member counts as gained only if it is *defined* at head and not at base — appearing in
@@ -10363,12 +10367,46 @@ regression-tested in place:
 node test/swbump.mjs                                     # this branch, working tree included
 node test/swbump.mjs --base 65745de5^2 --head 65745de5   # bc-dmt: flagged
 node test/swbump.mjs --base cbfd7367^  --head cbfd7367   # bc-p38c.2: silent
+node test/swbump.mjs --base e7aa8e68^1 --head e7aa8e68^2 # bc-pzti: the stylesheet pair
 ```
 
-What it does not do is decide whether a *stylesheet* and the page it lays out are a
-broken pair — the case a member name cannot see, and the one the version comments in
-`public/sw.js` argue about most. That stays a reading, and the advisory is what puts it
-in front of you.
+### The stylesheet half of the same pair
+
+A member name cannot see the case `public/sw.js`'s own version notes argue about most.
+v37's is the canonical one: `console.html` against v36's `style.css` draws the nav as a
+run of unstyled links, "which still works, which is exactly the 'looks like a working
+page' failure a cache version exists to prevent". Nothing is missing and nothing throws
+— the page is simply laid out by a stylesheet that has never heard of it. Until bc-jdwc
+that shape landed in the advisory alongside everything else, as two files that moved.
+
+The same trick works on it, from the other side of the diff. `styleSelectors` reads a
+stylesheet for the classes and ids it *styles* — only the run before each `{`, because
+`background: #141a22` is a declaration and a reader that swept the whole file would
+report `#141a22` as a styled id on every branch that touched a colour.
+`markupSelectorUses` reads the four shapes this app puts a name on the page with: a
+`class=` or `id=` attribute, an assignment to `.className`, and `classList.add` /
+`.toggle`. Interpolated tokens (`class="chip ${tone}"`) are dropped rather than guessed
+at. A pair is a name that *both* halves gained: the sheet styles it now and did not
+before, and the page draws it now and did not before. That is what keeps the churn out
+— restyling a `.chip` the page already drew is merely older, and drawing a `.chip` the
+sheet already styles is merely older too. It is only when neither cached half has heard
+of the name that a phone holding one of them lays out nothing for it.
+
+It sits inside the advisory rather than beside the failure, and that is measured rather
+than asserted. Replayed over the last 75 pull requests to merge, it names a pair on
+exactly one unbumped branch — bc-pzti (#209), which gained a `class="bead-dupe"`
+duplicate warning in `console.js`, the block that lays it out in `style.css`, and did
+not touch `public/sw.js` at all — and it independently finds the coupling on **12 of the
+13 branches that did bump**. So it agrees with almost every bump a human made, and it
+raises no alarm the advisory was not raising already: a pair needs two modified `SHELL`
+files, which is the advisory's own condition. Over a wider 211 merges the numbers hold
+their shape — 16 unbumped fires, and 20 of the 25 real bumps explained.
+
+What it cannot do is price the damage, and that is the reason it is not red. `.bead-dupe`
+unstyled is a warning in the wrong colour on a page that otherwise works; v37's nav
+unstyled is a screen with no navigation on it. The check finds the pair and names both
+halves of it; how much an unstyled name costs is the judgement, and it stays with the
+person reading the diff — who, unlike this file, can open the page.
 
 ## The Android app
 
