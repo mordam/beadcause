@@ -6823,7 +6823,13 @@ processed after the deploy.
 
 **So the record now has a backup, and it is the card.** The card names the merge, the repo,
 the base and every pull request with its branch, because it was written for a human to read —
-and that is a whole record. Every half hour (`RECOVER_EVERY_MS`, not a config key) the daemon
+and that is a whole record. Both shapes of it: a card that a branch's later merges have been
+*folded* into (bc-xl7n.36) counts them in its title rather than naming one, and prints the
+whole list in its body for the same human-readable reason — so it reads back with its merges
+intact and is amended back into the folded title rather than reverting to *#244 left 1
+conflicting pull request behind it*. The recovery also feeds the fold, which is the second
+reason it matters: folding looks for an open card **in the records**, so an orphan cannot be
+folded into and every later merge would file a fresh card beside it, forever. Every half hour (`RECOVER_EVERY_MS`, not a config key) the daemon
 scans the inbox of each workspace that has a repo, and any open card whose title matches the
 one `sweepCardTitle` writes and which has no record gets one rebuilt from its own body,
 before the follow-up runs so it is chased on the same cycle. Nothing is written to the

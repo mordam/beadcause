@@ -67,7 +67,7 @@ process.env.BEADCAUSE_CONFIG_DIR = path.join(tmp, 'config');
 fs.mkdirSync(process.env.BEADCAUSE_CONFIG_DIR, { recursive: true });
 
 // After the env, always: CONFIG_DIR resolves once, at module load.
-const { SWEEP_CARDS_PATH, describeSweepCard, fileSweepCard, followSweepCards, readSweepCards, recordFromCard, recoverSweepCards } =
+const { SWEEP_CARDS_PATH, describeSweepCard, fileSweepCard, followSweepCards, readSweepCards, recordFromCard, recoverSweepCards, sweepCardTitle } =
   await import(LIB('sweepcard.js'));
 const resolvers = await import(LIB('resolvers.js'));
 
@@ -247,6 +247,38 @@ check('with the reason the resolver left', /both sides are load-bearing/.test(bo
  */
 check('asked for from when the card was filed, not from when the record was rebuilt', since.every((s) => s === '2026-08-14T02:42:26.000Z'), JSON.stringify(since));
 check('and the record is kept, so his answer has a branch to land on', readSweepCards()['bc-card']?.prs.find((r) => r.number === 11)?.branch === 'worktree-thing-11');
+
+/* ------------------------------------------------------------ the folded card */
+
+console.log('\nand a card that has been folded through several merges is read back whole');
+
+resolvers.reset();
+wipe();
+bd = fakeBd();
+await fileSweepCard(bd, ws, swept({ after: 244, handed: [row(14)] }), { dir: checkout });
+// A second merge, the same branch still conflicting: since bc-xl7n.36 this folds into the
+// open card rather than filing beside it, and the title and heading both change shape.
+await fileSweepCard(bd, ws, swept({ after: 247, handed: [row(14)] }), { dir: checkout });
+const amend = bd.calls.filter((c) => c.kind === 'update').pop();
+const foldedCard = { id: 'bc-card', title: amend.fields.title, description: amend.fields.description, status: 'open', created_at: '2026-08-14T02:42:26Z' };
+check('the fold happened, so this is the shape being tested', /survived 2 merges since #244/.test(foldedCard.title), foldedCard.title);
+
+wipe();
+bd = fakeBd({ human: [foldedCard] });
+out = await recoverSweepCards(bd, cfg);
+check('a folded card is recognised as a sweep card too', out[0]?.recovered === true, JSON.stringify(out));
+rec = readSweepCards()['bc-card'];
+/**
+ * The merges are the point. The title and the heading are written out of them, so a
+ * folded card recovered without them would be amended straight back into "#244 left 1
+ * conflicting pull request behind it" — the card claiming to be about one merge when it
+ * has eaten several, which is the sentence bc-xl7n.36 removed.
+ */
+check('every merge it was folded through, oldest first', String(rec?.merges) === '244,247', JSON.stringify(rec?.merges));
+check('and `after` is the oldest, as `mergesOf` reads a pre-fold record', rec.after === 244, String(rec.after));
+check('the base still comes off the folded heading', rec.base === 'trunk', rec.base);
+check('and the row survives with its branch', rec.prs[0].branch === 'worktree-thing-14');
+check('so the card it is amended back into keeps its folded title', /survived 2 merges since #244/.test(sweepCardTitle(rec)), sweepCardTitle(rec));
 
 /* ------------------------------------------------------------- the refusals */
 
