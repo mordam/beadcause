@@ -756,6 +756,23 @@
   }
 
   /**
+   * The act a shut card answers to — written here and nowhere else in this file.
+   *
+   * Both card renderers put it on their `<article>`, and it could just as easily have
+   * been typed into both. It is not, for a reason outside either of them: edit mode
+   * anchors an element you tap by grepping this file for the markup that produced it
+   * (public/editmode.js, `anchorFor`), and a `data-act` is its strongest key precisely
+   * because one act has meant one line — the one handler branch that answers it. Two
+   * literals are two candidate lines for one control, and the anchor then has to report
+   * an ambiguity instead of a site. scripts/editmode-check.mjs pins that, and it is what
+   * caught this: `2 sites via data-act="toggle"`.
+   *
+   * Empty while the card is open, because an open card's way out is `↑ Collapse` and a
+   * body that also collapsed would close the sheet on the first tap on a paragraph.
+   */
+  const shutCardAct = (open) => (open ? '' : ' data-act="toggle"');
+
+  /**
    * The card's own top bar: everything that is *about* the card rather than an
    * answer to it.
    *
@@ -785,23 +802,6 @@
    * `.card-head`'s own top padding down to 6 (see `.card-top + .card-head`), so an
    * empty one is not invisible: it is a gap where the head used to start.
    */
-  /**
-   * The act a shut card answers to — written here and nowhere else in this file.
-   *
-   * Both card renderers put it on their `<article>`, and it could just as easily have
-   * been typed into both. It is not, for a reason outside either of them: edit mode
-   * anchors an element you tap by grepping this file for the markup that produced it
-   * (public/editmode.js, `anchorFor`), and a `data-act` is its strongest key precisely
-   * because one act has meant one line — the one handler branch that answers it. Two
-   * literals are two candidate lines for one control, and the anchor then has to report
-   * an ambiguity instead of a site. scripts/editmode-check.mjs pins that, and it is what
-   * caught this: `2 sites via data-act="toggle"`.
-   *
-   * Empty while the card is open, because an open card's way out is `↑ Collapse` and a
-   * body that also collapsed would close the sheet on the first tap on a paragraph.
-   */
-  const shutCardAct = (open) => (open ? '' : ' data-act="toggle"');
-
   function cardTopHtml(q) {
     const on = state.menu === q.key;
     const open = state.open.has(q.key);
