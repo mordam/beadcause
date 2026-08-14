@@ -69,8 +69,10 @@ const {
   followSweepCards,
   readSweepCards,
   resolverSaid,
+  markResolving,
   rowsOf,
   settledReason,
+  sweepAnswer,
   sweepCardBody,
   sweepCardTitle,
   tally,
@@ -85,11 +87,18 @@ const ws = { name: 'demo', dir: path.join(tmp, 'beads') };
 const cfg = { workspaces: [ws], sessionDirs: { demo: checkout } };
 
 /** A `bd` that records what it was asked to do and answers plausibly. */
-function fakeBd({ create = 'bc-card', fail = null } = {}) {
+function fakeBd({ create = 'bc-card', fail = null, status = 'open' } = {}) {
   return {
     calls: [],
+    /** What `stillOpen` asks, and the only thing that ends a record waiting on Adam. */
+    status,
     async graph() {
       return { issues: [] };
+    },
+    async show(w, id) {
+      this.calls.push({ kind: 'show', workspace: w?.name, id });
+      if (fail === 'show') throw new Error('dolt is locked');
+      return { id, status: this.status };
     },
     async create(w, spec) {
       this.calls.push({ kind: 'create', workspace: w?.name, spec });
@@ -357,7 +366,27 @@ resolvers.reset();
 out = await followSweepCards(bd, cfg, { mergeability: github, said: async () => 'you have to pick a side here' });
 check('the card is finished', out[0]?.done === true, JSON.stringify(out));
 check('it stays open, because one of them still needs Adam', out[0].closed !== true && !bd.calls.some((c) => c.kind === 'close'));
-check('and the record is dropped — nothing left to chase', Object.keys(readSweepCards()).length === 0);
+/**
+ * And the record is *kept*, which is bc-9d37.8 and used to be the opposite.
+ *
+ * Nothing moves out of `handed-back` on its own — that is why this used to be the end of
+ * the record — but Adam's answer moves it, and the record is the only thing that can say
+ * which repo, which checkout and which branch a window for it would open on. So the card
+ * is what bounds it, and the card is asked rather than a clock.
+ */
+check('the record is kept — his answer still has somewhere to land', Object.keys(readSweepCards()).length === 1);
+check('and the row it kept is the one waiting on him', readSweepCards()['bc-card']?.prs.find((r) => r.number === 11)?.state === 'handed-back');
+
+const quiet = bd.calls.length;
+out = await followSweepCards(bd, cfg, { mergeability: github, said: async () => 'you have to pick a side here' });
+check('a further quiet cycle writes nothing', !bd.calls.slice(quiet).some((c) => c.kind !== 'show'), JSON.stringify(bd.calls.slice(quiet)));
+check('but it does ask whether the card is still there', bd.calls.slice(quiet).some((c) => c.kind === 'show'));
+check('and the record survives an open card', Object.keys(readSweepCards()).length === 1);
+
+bd.status = 'closed';
+out = await followSweepCards(bd, cfg, { mergeability: github, said: async () => 'you have to pick a side here' });
+check('a card he has answered or dismissed ends the record', Object.keys(readSweepCards()).length === 0);
+check('and it says so', out[0]?.gone === true, JSON.stringify(out));
 
 console.log('\nbut a sweep that resolved itself takes its own card back out of the inbox');
 
@@ -385,7 +414,9 @@ out = await followSweepCards(bd, cfg, { now: Date.now() + 5 * 60 * 60 * 1000, me
 check('a record past its window stops claiming a session is on it', out[0]?.done === true, JSON.stringify(out));
 check('the card says nothing here can say', /nothing here can say/.test(bd.calls.filter((c) => c.kind === 'update').pop()?.fields.description || ''));
 check('it is not closed — an unknown is not a resolution', !bd.calls.some((c) => c.kind === 'close'));
-check('and it is dropped', Object.keys(readSweepCards()).length === 0);
+// Kept, for the reason above: an `unknown` is one of the three states that need him, and
+// the card is still in his inbox with a button on it that has to reach a checkout.
+check('and it is kept, because it is still waiting on him', Object.keys(readSweepCards()).length === 1);
 
 resolvers.reset();
 wipe();
@@ -421,6 +452,94 @@ check(
 // A card that reaches the browser only when something else happens to move is a card that
 // looks like a feature that does not work — see the poll handler's `changed`.
 check('and a card filed or amended wakes the phones parked on /api/poll', /type: 'sweep-card'/.test(server), 'no bus event');
+
+/* ------------------------------------------------------- answering a hand-back */
+
+/**
+ * bc-9d37.8. The card used to have one button and it only dismissed, so the far end of
+ * the loop was open: a resolver said only Adam could pick a winner, the card said so, he
+ * typed which one wins, and nothing read it.
+ *
+ * What is asserted here is the *card's* half — the options it emits and how it reads an
+ * answer back. The act is `resolveSweepFor` in lib/server.js and test/sweepanswer.mjs
+ * drives it through a real `POST /api/respond`; the split is the one the file keeps,
+ * because only the daemon may open a resolver.
+ */
+console.log('\nthe hand-back is answerable now');
+
+const waiting = {
+  card: 'bc-card',
+  workspace: 'demo',
+  key: 'demo',
+  dir: checkout,
+  repo: 'neadamthal/beadcause',
+  after: 231,
+  base: 'main',
+  at: new Date().toISOString(),
+  prs: [
+    { ...row(11), state: 'handed-back', note: '', said: 'both sides rewrote renderRow' },
+    { ...row(14), state: 'failed', note: 'iTerm refused the Apple event', said: '' },
+    { ...row(9), state: 'resolved', note: '', said: '' },
+  ],
+};
+
+const cardQ = toQuestion('demo', { id: 'bc-card', title: sweepCardTitle(waiting), description: sweepCardBody(waiting) });
+check('the block still parses with options on it', !cardQ.decisionError && (cardQ.decision?.options || []).length === 3, JSON.stringify(cardQ.decisionError || cardQ.decision));
+check('one option per row that is waiting, and Noted last', String((cardQ.decision?.options || []).map((o) => o.id)) === 'resolve-11,resolve-14,noted');
+check('a resolved row gets no button — there is nothing to decide about it', !(cardQ.decision?.options || []).some((o) => o.id === 'resolve-9'));
+check('the tap writes the marker into the box rather than answering', cardQ.decision.options[0].response === 'RESOLVE #11: ');
+// The whole reason it may not close: the card amends itself as the row it just restarted
+// finishes, and a closed card cannot report the end of what it began.
+check('and it does not close the card', cardQ.decision.options[0].closes === false && cardQ.decision.options[2].closes === true);
+check('the card says how to answer it', /Say which side wins/.test(sweepCardBody(waiting)));
+
+// The rule this file has always kept, now that there is more in the block to break it:
+// nothing interpolated into the YAML is text beadcause did not write. A branch name may
+// legally carry a double quote, and one of those in a scalar is a card with no buttons.
+const hostile = {
+  ...waiting,
+  prs: [{ ...row(11), branch: 'wt-"quote"-11', title: 'a: title — with "quotes" and #hashes', state: 'handed-back', note: '', said: 'he said "both"' }],
+};
+const hostileQ = toQuestion('demo', { id: 'bc-card', title: 'x', description: sweepCardBody(hostile) });
+check('a branch or a title full of quotes still parses', !hostileQ.decisionError && (hostileQ.decision?.options || []).length === 2, JSON.stringify(hostileQ.decisionError));
+check(
+  'and the resolver own words stay in the markdown, never in the block',
+  /he said "both"/.test(sweepCardBody(hostile)) && !/he said/.test(JSON.stringify(hostileQ.decision)),
+  JSON.stringify(hostileQ.decision)
+);
+
+console.log('\nand reading the answer back');
+
+check('the tapped option names the pull request', sweepAnswer(waiting, 'RESOLVE #11: take main’s renderRow', 'resolve-11')?.number === 11);
+check('and the marker is stripped off the instruction', sweepAnswer(waiting, 'RESOLVE #11: take main’s renderRow', 'resolve-11')?.note === 'take main’s renderRow');
+// The surfaces that can only send text — an ntfy action button, a Slack button.
+check('the marker alone is enough', sweepAnswer(waiting, 'RESOLVE #14: give it another go')?.number === 14);
+// Two rows waiting, so "take main's version" is an instruction to nobody in particular.
+check('a bare sentence over two waiting rows is an ordinary answer', sweepAnswer(waiting, 'take main’s renderRow') === null);
+check('Noted is never read as an instruction', sweepAnswer(waiting, 'Noted — read the sweep of x.', 'noted') === null);
+
+const alone = { ...waiting, prs: [waiting.prs[0], waiting.prs[2]] };
+check('with exactly one waiting, a bare sentence is unambiguous', sweepAnswer(alone, 'take main’s renderRow')?.number === 11);
+check('and it carries the whole sentence', sweepAnswer(alone, 'take main’s renderRow')?.note === 'take main’s renderRow');
+check('an empty box is not an answer', sweepAnswer(alone, '   ') === null);
+// Tapped but nothing typed: the caller has to say so rather than open a window on a
+// decision nobody made — asserted end to end in test/sweepanswer.mjs.
+check('a tap with no instruction still names the row, with nothing to say', sweepAnswer(alone, 'RESOLVE #11:', 'resolve-11')?.note === '');
+
+console.log('\nand the row goes back into motion');
+
+wipe();
+bd = fakeBd();
+await fileSweepCard(bd, ws, swept({ handed: [row(14)], failed: [{ ...row(11), why: 'iTerm refused' }] }), { dir: checkout });
+const restarted = markResolving('bc-card', 11, 'working', '');
+check('the answered row is live again', restarted.prs.find((r) => r.number === 11)?.state === 'working');
+check('and the record on disk says so', readSweepCards()['bc-card'].prs.find((r) => r.number === 11)?.state === 'working');
+check('the other rows are untouched', restarted.prs.find((r) => r.number === 14)?.state === 'working');
+check('a card whose record has gone is said so rather than invented', markResolving('bc-nothing', 11, 'working') === null);
+
+const wired = fs.readFileSync(LIB('server.js'), 'utf8');
+check('the daemon is what acts on it', /resolveSweepFor\(/.test(wired), 'nothing in the server answers a sweep card');
+check('beside the other three answers that write something', wired.indexOf('resolveSweepFor(ws,') < wired.indexOf('await bd.respond(ws, body.id'), 'the act runs after the close');
 
 /* ------------------------------------------------------------------------ done */
 

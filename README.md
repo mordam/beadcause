@@ -6120,6 +6120,26 @@ exactly as long as the iTerm holding it, and a record that survived a restart wo
 ever be a claim about a window nobody can address. `node test/resolvers.mjs` asserts all of
 it — including ten simultaneous presses producing one window and nine nudges.
 
+**And that line said *Adam pressed Resolve conflicts again* whatever asked**, which is the
+same falsehood the brief above carries a `sweptAfter` to avoid, arriving by the other door
+— and a worse one, because the nudge is what a session is told *while it is mid-merge*.
+Once a merge landing triggers a sweep, the common case is that one of the branches it finds
+already has a resolver on it, from an earlier tap or from the previous merge's sweep. That
+window was being told a person had pressed a button, so it read as somebody standing at the
+Mac waiting for it to hurry up. `nudgeMessage` takes the same two facts the brief does now,
+threaded through `resolveFor`, and says one of three things:
+
+- **a second press** — unchanged, and still the default;
+- **a sweep** — *Nobody pressed anything — #204 merged and beadcause swept the branches
+  still open behind it, and #212 is one that no longer fits*, with the same `Number(true)`
+  guard the brief has, so a sweep that cannot name the merge says *A pull request* rather
+  than inventing `#1`;
+- **an answer** — see below. That one is the only variant that does not end in *there is
+  nothing new to do*, because it is the only one where there is.
+
+The card's own sentence follows it: a row the sweep reused reads *told it the sweep found
+this one again* rather than claiming a thumb.
+
 #### Two windows at a time, and the rest in line
 
 Everything above caps resolvers **per pull request**, and for as long as the only way to
@@ -6235,6 +6255,70 @@ part of this feature uses — and says *nothing here can say* rather than leavin
 nothing can check. `node test/sweepcard.mjs` stages the bead's own acceptance: three
 conflicting pull requests, one resolved, one handed back and one still running, producing
 exactly one card that names all three.
+
+#### And the hand-back has a button that does something
+
+The card above closed the loop at one end and left it open at the other. Its decision block
+had exactly one option — **Noted**, which closes it — because every other choice a hand-back
+raises lives on the pull request itself, and a button that pretended to pick a winner from a
+phone would file a wish. So you read *both sides rewrote `renderRow` and only you can say
+which wins*, typed which one wins into the box, and **nothing read it**. The next step was a
+Mac, a branch, and *Resolve conflicts* — which opens a session with the ordinary brief,
+knowing nothing about the decision you had just made.
+
+A resolver hands back for exactly one reason, and it is a reason you can answer in a
+sentence. So the card now carries **one option per branch that is waiting**, beside Noted:
+
+> **Answer #212** — opens a session on `worktree-history-filter-nib33` carrying what you
+> write — this card stays open
+
+Tapping it writes `RESOLVE #212: ` into the box; what you type after that is the
+instruction. **With exactly one branch waiting the tap is optional** — a bare sentence is
+unambiguous then, and requiring a button would be ceremony. With two or more it is not
+optional, because *take main's version* over three pull requests is an instruction to
+nobody in particular, and guessing which one you meant is the single thing this must never
+do. The card says which of the two it is, above the block.
+
+**Those options do not close the card**, which is semantics rather than convenience: the
+card amends itself as rows finish and closes itself when they all come back mergeable, so
+an option that puts a row back to *working* is starting that loop again and a closed card
+could not report the end of it. They take the `closes: false` path
+[a commission](#a-question-you-have-already-answered-arriving-again) already uses — and the bare-sentence
+path is decided the same way even though it names no option, because otherwise the answer
+that starts the work would close the card that is about to report on it.
+
+The act is `resolveSweepFor` in `lib/server.js`, beside the three other answers that write
+something and in the same place in the handler: **before the close**, so a window macOS
+refuses leaves the card answerable rather than closed over a promise nothing kept. It has to
+be the daemon and can be nothing else — `resolveFor`'s registry, its cap of two and its
+queue are module state in the daemon's own memory, so any other process starts from an
+empty one and opens the second window this whole feature exists to prevent. Being
+`resolveFor` also means the three answers come free: a pull request with no live resolver
+gets a window whose brief carries your sentence, one that already has a resolver gets your
+sentence typed into that window (the third variant of the nudge above), and one the Mac is
+full for is queued and told its place.
+
+What the window is told is one paragraph of the brief, in the same place `sweptAfter`
+changes and quoted whole:
+
+> **Adam answered the card about this one, and his answer is below.** #231 merged into
+> `main` … Nothing has got it mergeable yet — what is different this time is that the
+> decision it needs has been made, and it is this:
+>
+> > take main's `renderRow` and keep our tests
+>
+> **Take that as the decision on the conflict, not as a suggestion.**
+
+Everything else is the same string, and `test/prfull.mjs` asserts that by exhaustion: an
+answer is a decision about a conflict, not permission to skip the repo's gate or to merge
+into the base. **The record outlives the hand-back now**, which it did not before — a row
+nothing can move on its own used to end the follow-up, and the record is the only thing that
+can say which repo and which branch an answer should open a window on. It is bounded by the
+card rather than by a clock, since a card answered five hours later must not find its own
+button dead: the follow-up asks `bd` whether the card is still open, and drops the record
+the cycle after you tap Noted or dismiss it. `node test/sweepanswer.mjs` drives the whole
+path through a real `POST /api/respond` — the card stays open, the refusals say which pull
+request they are about, and every other question in the inbox is untouched.
 
 #### An occupied worktree that reads as idle
 
