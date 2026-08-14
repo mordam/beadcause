@@ -4496,8 +4496,9 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
    are: `TECH-1204` and `TECH-1240` are a glance apart in a proportional face. */
 /* A column rather than a row since bc-0i27.5, and the change is one line: the ticket
    still draws as one centred row, but what beadcause made of it goes *underneath* that
-   row rather than inside it — because the row is a link to JIRA, the id under it is a
-   link to the bead, and an `<a>` may not contain an `<a>`. `.work-row` is `flex: none`
+   row rather than inside it — because the ingestion's id is a link to the bead, and the
+   row it sits under was an `<a>` to JIRA until bc-0i27.6 made it the button that opens
+   the ticket over the tab. `.work-row` is `flex: none`
    for the same reason: in a column it would otherwise stretch to fill the card. The
    three controls bc-0i27.7 added sit under both, on the same argument again: approve,
    discuss and cancel beside a summary on a 360px phone leaves neither a readable width,
@@ -4552,6 +4553,78 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
    `jiraSaid` in public/app.js. Full width so it never shares a line with a button. */
 .jira-said { flex-basis: 100%; margin: 0; font-size: 12px; color: var(--muted); }
 .jira-said.bad { color: var(--danger); }
+
+/*
+  The ticket, full screen (bc-0i27.6).
+
+  It opens into `.card.open` — the same fixed sheet a question and a pull request open
+  into, with the same four rows: a `.card-top` that stays, a `.card-head` saying what
+  this is, a `.brief` that scrolls, and a pinned `.freeform` holding the buttons. So
+  there is no layout here either, only what is this card's own: the beads under the
+  ticket, and the ticket's own words.
+
+  The side padding moves off the card and onto the two rows that want it, exactly as the
+  pull request's does, so the card's own 12px does not fight the sheet's 15px.
+*/
+.card.open.jira-card { padding-left: 0; padding-right: 0; }
+.card.open.jira-card > .card-head,
+.card.open.jira-card > .brief { padding-left: 15px; padding-right: 15px; }
+/* The title goes back to being the link out to JIRA once the card is open — there is
+   something on screen to leave from now, which is the whole reason the shut row stopped
+   being one. Underlined on hover only: a whole summary underlined reads as a warning. */
+.jira-card .work-title a { color: inherit; text-decoration: none; }
+.jira-card .work-title a:hover { text-decoration: underline; }
+
+/* What beadcause made of the ticket, at the top of the brief: the epic, whether it is
+   still held, and the beads written under it. Above the ticket's own words on purpose —
+   the decision on this screen is about those beads, and the description is the evidence
+   for it rather than the subject. */
+.jira-beads { margin: 0 0 14px; }
+.jira-beads-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0; font-size: 12.5px; color: var(--muted); }
+.jira-reading { margin: 6px 0 0; font-size: 12.5px; font-style: italic; color: var(--muted); }
+.jira-kids { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.jira-kid { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; font-size: 13px; color: var(--prose); }
+/* A child closed since the decomposition — revoked, or done. Struck rather than hidden:
+   an epic whose children were turned down is a different picture from one with none,
+   and it is the picture you would decide differently about. */
+.jira-kid.shut { opacity: 0.6; text-decoration: line-through; }
+.jira-kid-status { font-size: 11px; color: var(--muted); text-decoration: none; }
+
+/* The ticket's own text. Plain — `adfText` in lib/jira.js flattens Atlassian's document
+   format one way only, so what arrives is text that already carries its own bullets and
+   fences, and `pre-wrap` is the whole of rendering it. `anywhere` because a JIRA
+   description is where a 300-character URL lives. */
+.jira-text { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13.5px; line-height: 1.5; color: var(--prose); }
+.jira-desc { margin: 0 0 14px; }
+.jira-facts { display: flex; flex-wrap: wrap; gap: 5px; margin: 0 0 8px; }
+.jira-parent { margin: 0 0 8px; font-size: 12px; color: var(--muted); }
+.jira-omitted { margin: 14px 0 0; font-size: 12px; font-style: italic; color: var(--muted); }
+.jira-thread { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+.jira-comment { border-top: 1px solid var(--line); padding-top: 10px; }
+.jira-who { margin: 0 0 4px; font-size: 11.5px; color: var(--muted); }
+
+/* The cancelled tickets, folded at the foot of the list (bc-0i27.6).
+
+   Quiet on purpose and shut by default: these have been decided about, they are not
+   asking anything, and the only reason they are on the screen at all is that beadify
+   lives on a ticket's own view and a view needs a way in. Full width so the row inside
+   it keeps the card shape the live ones have. */
+.jira-cancelled { margin: 10px 0 0; }
+.jira-fold {
+  width: 100%;
+  display: flex; align-items: center; gap: 6px;
+  padding: 8px 12px;
+  background: none; border: 0;
+  font: inherit; font-size: 12.5px; color: var(--muted);
+  text-align: left; cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+/* The one control on a cancelled ticket. `.secondary` is `flex: 1`, which is right for
+   the pair on a live row and wrong for a lone button — stretched across a phone it reads
+   as the whole card being one. */
+.jira-acts .jira-back { flex: 0 0 auto; padding: 0 22px; }
+.jira-cancelled .jira-card { opacity: 0.85; }
+.jira-cancelled .card.open { opacity: 1; }
 
 /* ------------------------------------------------------------------- drawer */
 
