@@ -3495,6 +3495,14 @@ state where supervision is worth the most. And it opens **no window at all** und
 `OBSERVING`, on a paused advocate, or in a space's quiet hours: it is doing rather than
 looking, and those three lines mean what they say.
 
+**Its own filings are news to the next window, and that is the design.** Filing children is
+part of what this agent does, so a window that files three leaves three `filed` events
+behind and — three hours later at the earliest — another window opens to see how they are
+going. It is not a loop: it stops the moment the subtree stops moving. Nothing tries to
+attribute a filing to a window and discount it, because the daemon cannot tell which agent
+filed a bead and guessing would make the one signal here less trustworthy rather than
+quieter.
+
 **It runs inside the advocate tick, so it reaches advocated workspaces only.** A repo with
 no advocate has no sweep and its P0s are still a tap each — the button is unaffected
 either way, in every workspace. And the launch is remembered *both ways*: the queue holds a
