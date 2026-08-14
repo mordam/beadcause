@@ -8279,6 +8279,52 @@ a bead, and that is all it knows. So:
   the brief asks it to do. Where it didn't, the row says when the window was opened
   and nothing more.
 
+#### The claim a window leaves behind
+
+A worker claims its bead as its first act, because that is what stops a second window
+being opened on top of it. Every ending in the table above takes the claim off again: a
+delivery closes the bead, "request changes" reopens it, `bin/plan.js` hands an epic back
+explicitly. The endings *nobody* chose — exited unfinished, timed out, asked to check in
+and never answered — used to take it off nowhere. The slot went back, the attempt was
+charged, and `in_progress` stayed on the bead for good.
+
+A claimed bead is not in `bd ready`, and `bd ready` is the whole of what an advocate can
+see. So a window shut by hand at midnight took its bead out of every queue this daemon
+builds, permanently, on the strength of a session that did nothing — and counted the
+attempt, which is the tell: counting attempts against `maxAttemptsPerBead` on work that
+can never be attempted again is counting nothing.
+
+**Where it bit hardest was an epic.** A planner claims its epic like any other window, and
+`bin/plan.js` un-claims it as its last act, precisely because the advocate reads plans off
+epics **in `bd ready`** — a claimed epic makes its own plan invisible. A planner that died
+before that step left the epic claimed, the plan it had already written unread, and the
+epic's children falling back to one window each. Degraded rather than stuck, self-healing
+the moment anybody reopened the epic by hand, and silent: nothing anywhere said "this
+epic's plan is unreadable because a window that is gone is still holding it".
+
+So `reconcile` now puts the claim back, on those three endings only, and only where
+nothing is sitting in the bead:
+
+- **a busy window keeps its claim** — `timeout` and `silent` are both endings a session can
+  reach mid-sentence, and un-claiming under a live one is how two windows end up on a bead
+  that spans ten repos;
+- **an idle window counts as gone** — a worker's window holds exactly one turn, the brief,
+  so the moment that turn is over the session is finished. This is the case that matters:
+  a window whose agent fell over does not vanish, it sits there idle, and a rule that
+  waited for the window to *disappear* would hold the claim for as long as nobody happened
+  to close it;
+- **the three endings the session reached for itself change nothing** — closed, delivered
+  and handed back all want the bead exactly where it is, and a delivered bead reopened
+  would be handed to a fresh window while the pull request it is waiting on sits there;
+- **`stood-down` changes nothing either**, because that claim is one row both Macs can see
+  and dropping it here would drop the winner's;
+- **a tracker that refuses the write is not an error** — the bead stays claimed, which is
+  where it already was, and the next window to reach one of these endings tries again.
+
+The hand-back runs before the same tick's survey, so a bead freed this way is workable
+immediately rather than thirty seconds later — and where the dead window is still on
+screen, the live-session filter is what stops a second one opening over it.
+
 #### Closing the window — a session that has finished should not still be on screen
 
 The `exit` above only runs **when `claude` exits**, and a session that has finished its
