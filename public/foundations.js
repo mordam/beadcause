@@ -506,6 +506,12 @@
    * says outright when there is nothing to compare.
    */
   function armsCard(own) {
+    // Whether anything has ever been written, in either arm — which is what decides
+    // whether `index` was a different treatment at all. An agent that has never written
+    // has been told "it is empty" on every index run, so the two arms carried the same
+    // information and the numbers underneath them are not a comparison yet. See the note
+    // on `report` in lib/agentrepo.js; this is the same sentence, drawn.
+    const wroteEver = own.arms.some((arm) => own.summary[arm]?.wrote);
     const arms = own.arms.map((arm) => {
       const a = own.summary[arm] || {};
       return `
@@ -522,7 +528,9 @@
             <p class="subtitle">${
               arm === 'blind'
                 ? 'Told it has a repo and nothing about what is in it.'
-                : 'Told what is in it, at the top of the run.'
+                : wroteEver
+                  ? 'Told what is in it, at the top of the run.'
+                  : 'Told what is in it — which has so far only ever been "it is empty".'
             }</p>
           </div>
         </article>`;
@@ -535,7 +543,13 @@
       ? `<p class="f-hint">${esc(
           `No runs yet in ${empty.join(' or ')} — the comparison this experiment exists for cannot be computed until both arms have run.`
         )}</p>`
-      : '';
+      : wroteEver
+        ? ''
+        : `<p class="f-hint">${esc(
+            'Both arms have run and neither has ever been written to, so every index brief said "it is ' +
+              'empty" — the arms have not differed in anything but one sentence, and read-first of zero ' +
+              'here is a treatment that was never applied rather than a result.'
+          )}</p>`;
     return across + arms.join('') + note;
   }
 
