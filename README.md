@@ -4073,12 +4073,13 @@ there and is the best description of itself. **Edit mode** (bc-p49x) is the stat
 lets it be used that way: tap ✏️, and the inbox stops being a list you answer and becomes
 a surface you point at.
 
-Three quarters of it is built. The screen holds still and every element on it traces back
-to the line of source that drew it (bc-p49x.1); three gestures say what should change and
-land in a reviewable list (bc-p49x.2); and Save files that list as beads (bc-p49x.3).
-What is not built is the far end — a worker turning one of those beads into a branch and
-a pull request, which is bc-p49x.4 and is ordinary work in every respect except that the
-bead it starts from was typed with a thumb.
+It is built end to end. The screen holds still and every element on it traces back to the
+line of source that drew it (bc-p49x.1); three gestures say what should change and land in
+a reviewable list (bc-p49x.2); Save files that list as beads (bc-p49x.3); and a worker
+opened on one of those beads is told what it is looking at and stops at the pull request
+(bc-p49x.4). That last part is ordinary work in every respect except two: the bead it
+starts from was typed with a thumb, and it is the one kind of bead in beadcause a worker
+may not merge.
 
 ### The screen holds still, and says so
 
@@ -4328,6 +4329,64 @@ twice costs a duplicate bead you close in a second; losing it costs the thought.
 rule makes a double-tapped Save file nothing twice — a second press while one is in flight
 is refused, because two passes is a whole second session bead with the same edits under it.
 
+### The worker at the far end, and the one thing it may not do
+
+A bead filed this way is ordinary ready work: the advocate queues it, a window opens on
+it, and the session gets the brief every worker gets. That brief is right about almost
+everything and wrong about three things, so an in-app edit gets a section of its own
+(`lib/editwork.js`), built from the record in its own description.
+
+**The anchor is turned into a source site, in the brief, before anything reads the bead.**
+The JSON block at the bottom of one of these beads is the most valuable thing on it and it
+is the part an agent skims past, because it sits under a heading that looks like
+provenance. So the brief lifts it out and prints it as two searches, which answer two
+different questions: `text.sites` is where the *string on the screen* is written, and it
+is the only thing a retype may touch, while `source.sites` is where the *element* is
+drawn — found by class name, narrowed by the chain — and is where a described edit has to
+be built. They are usually the same line. When they are not, it is because the element is
+drawing tracker data, which is exactly the case where confusing them means editing the
+tracker instead of the app. The served URL is translated to a path (`/app.js` →
+`public/app.js`) for assets and left alone for pages, because `/`, `/monitor`,
+`/advocates`, `/login` and `/admin` are aliases in `serveStatic` and a second copy of that
+table here would be wrong the day a page is added.
+
+**A retype and a pointed edit get different paragraphs, and that is the whole epic.** A
+retype is a hand-written string in this app's own source replaced by another one; it
+should come out very nearly character-exact, and an agent that improves the wording on the
+way past has done something nobody asked for. Everything else is intent, implemented in
+the layout system that already exists — no geometry was ever captured, `public/editmode.js`
+records the relationship a drop landed in and throws the pixels away, and "56 pixels left"
+is not something anybody can ask a stylesheet for. An agent handed a drag and no rule
+reaches for absolute positioning, which is the one outcome the epic says outright it does
+not want.
+
+**An anchor that resolves to nothing comes back as a question.** `found: 0` and `found: 3`
+are both honest reports — the element could not be traced, or the chain narrowed as far as
+it could and there are still three candidates — and both are named in the brief with
+`beadcause-ask --blocks <bead>` beside them. A session with no sanctioned way to stop
+guesses, unattended, at three in the morning, in a repo nobody is reading.
+
+**And it stops at the pull request.** Every other worker here merges its own work through
+GitHub, and that is right for a bead somebody decided was work. An in-app edit had none of
+that review: it is a sentence said to a screen, and the whole of the review is you looking
+at what came back — so the tap is **Merge** on its delivery card. The brief asks for
+`--review` and the card says which of the four reasons it is, but neither is the
+guarantee: `bin/deliver.js` refuses to auto-merge a bead carrying `in-app-edit` whether it
+was asked to or not. A brief is a promise about what a command will do, and a promise a
+session can forget to keep is not one — the flag going missing, or a later brief quietly
+dropping the sentence, must not be able to land an unreviewed in-app edit. The hold covers
+the pass and the standing root too, which carry the same label and are not things to
+deliver against at all. They get a shorter section of their own for the same reason — a
+planner or a batch head does open on a pass — saying what the beads under it are and that
+none of them is that window's to merge.
+
+That is the whole of it, because a worker's own merge is the only
+[door into `main`](#landing-work--a-branch-a-pull-request-and-the-workers-own-merge) that
+nobody taps: the delivery card, the PR board's **Merge**, and a merge made on github.com
+are all already you. The pull request says why it is sitting there, and so does the bead's
+thread — a green pull request open for two days with nothing on it to explain itself is
+the state this whole fallback exists not to be mysterious about.
+
 ### Checking it
 
 `node test/editmode.mjs` is in `npm test` and covers the mode, the anchor and the
@@ -4345,6 +4404,15 @@ Most of it is about the ways a Save goes wrong quietly — a root recreated inst
 found, a root named in the config that has since been closed, a child that says "make this
 bigger" and nothing else, and a tracker that dies half way through and has to report
 exactly which beads exist.
+
+`node test/editwork.mjs` is the worker's end: which beads are recognised, the record parsed
+back out of the body `lib/edits.js` wrote, and the three paragraphs the brief builds from
+it — including that a retype is never told to think about layout and a drag is never told
+a string is being replaced. It ends by running the real `bin/deliver.js` against a real
+bare remote with `gh` and `bd` as fakes, in a space with auto-merge on and an approving
+review already on the pull request, and asserting `gh pr merge` never happens. Everything
+that could stop that merge is switched off, so the only thing left that can stop it is the
+bead.
 
 `node scripts/editmode-check.mjs` is bc-p49x.1's acceptance, in a headless Chrome the size
 of a phone. Its first case is the control and is the reason the rest means anything: with
@@ -8729,8 +8797,10 @@ Six things follow, and they are the whole of the change:
 the three answers and the markers is still exactly what happens when the merge does not
 — GitHub refused it, a check went red, the checks never reported, the space
 [asks for an approving review](#spaces--keeping-work-out-of-your-evening) and there is
-none, auto-merge is off, or the session passed `--review` because it wanted a human on
-this one. It went from
+none, auto-merge is off, the session passed `--review` because it wanted a human on
+this one, or the bead was
+[typed into the running app](#the-worker-at-the-far-end-and-the-one-thing-it-may-not-do)
+— the one kind of work a worker here may not merge, whatever the space says. It went from
 being every delivery to being the interesting ones.
 
 ### The notification with nothing to answer
