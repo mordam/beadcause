@@ -12489,6 +12489,36 @@ bead that already exists (`dependsOn: [bc-7rx]`), which is how "this waits on th
 we started from" is written; those are checked against the tracker before anything is
 written, so a made-up id costs a warning rather than a half-created proposal.
 
+### A label is filed exactly as it was typed — only the refs are slugged
+
+The Labels field on a card splits on the comma and changes nothing else. Case, spaces,
+`@` and — the one that matters — the **colon** all survive to `bd create --label`.
+
+That is not a nicety, because half the labels worth typing here are structured, and each
+of them is read back by splitting on a colon: `owner:<handle>` is how
+[who is answerable](#your-p0s-and-the-tree-each-one-carries) is decided and how your P0 cards are
+sorted first, `held:<stamp>:<handle>` is how [another Mac's claim](#the-bead-another-mac-has-claimed)
+is held, `superseded-by:<id>` is how a bead leaves every queue for good. Slugging one of
+those does not tidy it up. It produces a lookalike that no query matches, beside the real
+one, and nothing on the board says which is which.
+
+Every bead filed from one chat on 2026-08-13 came out carrying both
+`owner:neadamthal@gmail.com` and `owner-neadamthal-gmail-com` — twelve of them, twenty-three
+by the time it was noticed, because `bd create --parent` hands a parent's labels down to
+every child. It took *two* bugs meeting, and the second is the reason it was a pair rather
+than a rename: `lib/draft.js` slugged the label on the way in, and then `Bd.create` — which
+stamps this machine's owner onto any P0 that arrives without one — looked for the `owner:`
+prefix, could not find it through the slug, and added a second label naming the same person.
+
+What is still slugged is everything a proposal invents for itself: a `ref`, and the
+`parent` and `dependsOn` that point at one. Those are identifiers with no existence
+outside the card, and lowercasing them is exactly what makes *The Epic* and *the epic* the
+same edge rather than two beads. `lib/draft.js` keeps `slug` for those three and
+`labelList` for labels, `public/console.js` normalises the field the same way so the phone
+sends what you typed, and `node test/draftlabels.mjs` (in `npm test`) pins both halves —
+including the argv `bd` is actually spawned with, which is the only layer where the pair
+was ever visible.
+
 ### A card that is already a bead says so — and still files
 
 **Create** is the only write in the whole chat session, and it was the only way into
