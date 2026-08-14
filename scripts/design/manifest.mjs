@@ -246,6 +246,51 @@ const CORE = [
 </div>`,
       },
       {
+        path: 'decisions/card-open.html',
+        name: 'Question card — open',
+        subtitle: 'The app\'s central surface',
+        viewport: { width: 400, height: 720 },
+        note: `<b>open</b> takes the card full screen — <code>position: fixed; inset: 0</code> at z-index 40 — because a question is read one at a time, and on a phone expanding inline meant the brief, the thread and the answer box all competing with the list around them. Above 440px of viewport it stops being one scroller and becomes <b>four rows that shrink rather than switch</b>: a top bar and head that stay, options and brief that give up height in the order they can most afford to, and the composer pinned. Every <code>min-height</code> in that block is load-bearing for the keyboard case, not just for the pathological card.`,
+        markup: `<article class="card open">
+  <div class="card-top">
+    <div class="menu-wrap"><button class="kebab" aria-haspopup="true" aria-expanded="false">⋮</button></div>
+    <button class="collapse">↑ Collapse</button>
+  </div>
+  <div class="card-head">
+    <div class="meta">
+      <span class="pill">beadcause</span>
+      <span class="pill id">bc-z665</span>
+      <span class="pill p0">P0</span>
+      <time>4m ago</time>
+    </div>
+    <p class="q">Should the merge queue close the worker's bead, or leave it open for review?</p>
+    <p class="subtitle">MergeAdvocate — the worker stops merging its own work</p>
+  </div>
+  <div class="options">
+    <button class="option rec" aria-pressed="false">
+      <span class="label">Close both beads on merge</span>
+      <span class="rec-tag">★ recommended</span>
+    </button>
+    <button class="option" aria-pressed="false">
+      <span class="label">Leave the worker's bead open</span>
+    </button>
+  </div>
+  <div class="brief">
+    <div class="md">
+      <p>A worker that merges its own work is a worker that decides when it is done. The merge queue is what makes delivery and acceptance two separate acts.</p>
+      <p>Closing both is the tidier ending, but it means nothing gets a second look before it counts as finished.</p>
+    </div>
+  </div>
+  <div class="freeform">
+    <textarea rows="3" placeholder="Answer in your own words…"></textarea>
+    <div class="row">
+      <button class="primary">Answer &amp; close</button>
+      <button class="secondary">Comment only</button>
+    </div>
+  </div>
+</article>`,
+      },
+      {
         path: 'decisions/pills.html',
         name: 'Pills',
         subtitle: 'Workspace, id, priority, status, held',
@@ -300,14 +345,18 @@ const CORE = [
         name: 'Answer box',
         subtitle: 'Pinned composer, primary + comment',
         viewport: { width: 440, height: 340 },
-        note: `A <b>sibling of the brief, not the last thing inside it</b> — that is the whole point. An open card is a fixed head, a brief that scrolls on its own, and this pinned to the bottom. Inside the brief it sat several screens below the fold on any real bead: you read down, scrolled back to reply, and every glance at the details lost the box again. The primary button says what it will actually do, and a close <code>bd</code> would refuse is <b>not offered at all</b>.`,
-        markup: `<div class="freeform">
-  <textarea rows="3" placeholder="Answer in your own words…"></textarea>
-  <div class="row">
-    <button class="primary">Answer &amp; close</button>
-    <button class="secondary">Comment only</button>
+        note: `A <b>sibling of the brief, not the last thing inside it</b> — that is the whole point. An open card is a fixed head, a brief that scrolls on its own, and this pinned to the bottom. Inside the brief it sat several screens below the fold on any real bead: you read down, scrolled back to reply, and every glance at the details lost the box again. The primary button says what it will actually do, and a close <code>bd</code> would refuse is <b>not offered at all</b>. Shown inside <code>.card.open</code>, which is the only place it exists — its side padding comes from <code>.card.open &gt; .freeform</code>, so a bare one is not this component.`,
+        markup: `<article class="card open">
+  <div class="brief"><div class="md"><p>The brief scrolls; the box below does not.</p></div></div>
+  <div class="freeform">
+    <textarea rows="3" placeholder="Answer in your own words…"></textarea>
+    <div class="row">
+      <button class="primary">Answer &amp; close</button>
+      <button class="secondary">Comment only</button>
+    </div>
+    <button class="dismiss">Dismiss without answering</button>
   </div>
-</div>`,
+</article>`,
       },
       {
         path: 'decisions/answer-box-variants.html',
@@ -377,6 +426,122 @@ const CORE = [
   <p class="q">Should the merge queue close the worker's bead, or leave it open for review?</p>
   <p class="subtitle">MergeAdvocate — the worker stops merging its own work</p>
 </div>`,
+      },
+      {
+        path: 'decisions/proposal.html',
+        name: 'Proposal',
+        subtitle: 'Beads an agent wants to create',
+        viewport: { width: 440, height: 620 },
+        note: `<b>Nothing is created until you say so</b> — the section label says it, because a list of beads that looks filed and is not is the worst possible misread. Each row is ✓ / ✎ / ✕, and ✎ rewrites in place: everything below reads the <i>adjusted</i> bead, so there is never a moment where the card shows one title and pressing create sends another. A long row starts <b>folded</b> rather than clamped — a clamp cuts markdown mid-list-item and leaves no way to see the rest — and a row being edited is never folded, since you cannot edit what is hidden.`,
+        markup: `<div class="proposal">
+  <div class="section-label">3 beads proposed <span>nothing is created until you say so</span></div>
+
+  <div class="prop-row pick-yes" data-idx="1">
+    <div class="prop-main">
+      <div class="prop-head"><span class="prop-n">1</span><span class="prop-title">Slice the CSS per component</span></div>
+      <div class="prop-body">
+        <div class="prop-meta"><span class="pill">task</span><span class="pill p1">P1</span><span class="pill">medium complexity</span></div>
+        <div class="prop-why"><span class="prop-label">Why</span><div class="md"><p>A preview has to stand on its own, and the sheet is far too large to inline.</p></div></div>
+      </div>
+    </div>
+    <div class="prop-choice">
+      <button class="prop-btn yes" aria-pressed="true">✓</button>
+      <button class="prop-btn edit" aria-pressed="false">✎</button>
+      <button class="prop-btn no" aria-pressed="false">✕</button>
+    </div>
+  </div>
+
+  <div class="prop-row is-collapsed" data-idx="2">
+    <div class="prop-main">
+      <div class="prop-head"><span class="prop-n">2</span><span class="prop-title">Audit every card against the sheet</span><span class="pill adjusted">adjusted</span></div>
+      <div class="prop-body">
+        <div class="prop-meta"><span class="pill">task</span><span class="pill p2">P2</span></div>
+      </div>
+      <button class="prop-more" aria-expanded="false">Show the rest</button>
+    </div>
+    <div class="prop-choice">
+      <button class="prop-btn yes" aria-pressed="false">✓</button>
+      <button class="prop-btn edit" aria-pressed="false">✎</button>
+      <button class="prop-btn no" aria-pressed="false">✕</button>
+    </div>
+  </div>
+
+  <div class="prop-row pick-no" data-idx="3">
+    <div class="prop-main">
+      <div class="prop-head"><span class="prop-n">3</span><span class="prop-title">Rewrite style.css onto the design system</span></div>
+      <div class="prop-body">
+        <div class="prop-meta"><span class="pill">feature</span><span class="pill p3">P3</span><span class="pill">high complexity</span></div>
+      </div>
+    </div>
+    <div class="prop-choice">
+      <button class="prop-btn yes" aria-pressed="false">✓</button>
+      <button class="prop-btn edit" aria-pressed="false">✎</button>
+      <button class="prop-btn no" aria-pressed="true">✕</button>
+    </div>
+  </div>
+</div>`,
+      },
+      {
+        path: 'decisions/proposal-bulk.html',
+        name: 'Two-tap bulk',
+        subtitle: 'Arms on the first tap, files on the second',
+        viewport: { width: 440, height: 300 },
+        note: `There used to be three buttons: Approve all and Decline all, which only <i>marked</i> every row, and a primary underneath that did the filing — two of the three being a way of setting up the third. Now the two <b>are</b> the decision. They are deliberately <b>not symmetrical</b>: Approve files everything you have not explicitly declined, which is what keeps "2 of 3" reachable; Decline files <i>nothing at all</i>, whatever the rows say, because a full stop that quietly created two beads would be the worst button in the app. Both name their exact count before the second tap.`,
+        extraClasses: ['confirm'],
+        markup: `<div class="ds-stack">
+  <p class="ds-label">at rest</p>
+  <div class="prop-bulk">
+    <span class="prop-count">1 undecided</span>
+    <button class="top-btn bulk approve">Approve 2</button>
+    <button class="top-btn bulk decline">Decline all 3</button>
+  </div>
+
+  <p class="ds-label">armed — the second tap files</p>
+  <div class="prop-bulk">
+    <span class="prop-count">1 undecided</span>
+    <button class="top-btn bulk approve confirm">Create 2 beads?</button>
+    <button class="top-btn bulk decline">Decline all 3</button>
+  </div>
+</div>`,
+      },
+      {
+        path: 'decisions/suggested.html',
+        name: 'Suggested answers',
+        subtitle: 'Tap to fill the box',
+        viewport: { width: 440, height: 240 },
+        note: `Answers the agent drafted for you, above the box. They <b>fill</b> the box rather than submitting — the label says so, because a chip that answered on one tap would make the box below it a lie. The star marks the one the brief argued for, the same claim <code>.option.rec</code> makes and with the same restraint: a mark, not a filled button.`,
+        markup: `<div class="suggested">
+  <div class="section-label">Suggested · from the brief <span>tap to fill the box</span></div>
+  <div class="chips">
+    <button class="chip rec" aria-pressed="false"><span class="star">★</span>Close both — the queue owns the ending</button>
+    <button class="chip" aria-pressed="false">Leave it open for review</button>
+    <button class="chip" aria-pressed="true">Split the queue in two</button>
+  </div>
+</div>`,
+      },
+      {
+        path: 'decisions/agent-card.html',
+        name: 'Agent card',
+        subtitle: 'A bead an agent holds — read-only',
+        viewport: { width: 440, height: 300 },
+        note: `Not every card in the inbox asks you something. An agent card is a bead something is <i>working on</i>, and it has <b>no answer box at all</b> — deliberately, since there is no question to answer. What it has instead is a way out to the graph, and a status pill the question card does not carry.`,
+        markup: `<article class="card agent-card">
+  <div class="card-head">
+    <div class="meta">
+      <span class="pill">beadcause</span>
+      <span class="pill id">bc-1kwl.3</span>
+      <span class="pill p1">P1</span>
+      <span class="pill st-in_progress">In progress</span>
+      <span class="pill">blocks 1</span>
+      <time>22m ago</time>
+    </div>
+    <p class="q">Move the five hand-rolled route caches onto the shared layer</p>
+    <p class="subtitle">task · RepoAdvocate</p>
+  </div>
+  <div class="actions">
+    <a class="linkish" href="#">Graph →</a>
+  </div>
+</article>`,
       },
       {
         path: 'decisions/agent-log.html',

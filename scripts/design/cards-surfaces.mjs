@@ -236,21 +236,104 @@ export const SURFACES = [
     cards: [
       {
         path: 'prs/pr-card.html',
-        name: 'PR card',
-        subtitle: 'Number, checks, diffstat, stage',
+        name: 'PR card — shut',
+        subtitle: 'One row, two screens',
         viewport: { width: 480, height: 300 },
-        note: `One pull request, drawn once, for the two screens that draw them — the inbox and the board at /prs. The check lamps are the compressed form of a CI run: one dot per job, so the row says pass/fail/pending without spending a line on it. A PR with no bead behind it says so (<b>.board-nobead</b>) rather than showing an empty pill.`,
-        markup: `<article class="card">
-  <div class="work-main">
-    <span class="work-title"><a class="pr-title-link" href="#"><span class="board-num">#313</span> MergeAdvocate — the worker stops merging its own work</a></span>
-    <span class="work-sub">
-      <span class="board-facts">
-        <a class="pill id" href="#">bc-r941</a>
-        <span class="pill pr-stage st-review">In review</span>
-        <span class="diffstat">+412 −96</span>
-        <span class="board-lamps"><span class="lamp ok"><span class="lamp-dot"></span></span><span class="lamp ok"><span class="lamp-dot"></span></span><span class="lamp warn"><span class="lamp-dot"></span></span></span>
+        note: `One pull request, drawn once, for the two screens that draw them. <code>bodyHtml</code> in <code>public/prcard.js</code> is the whole inside of the row and both screens wrap it in their own shell — a folding <b>&lt;button&gt;</b> on the board, an <b>&lt;article class="card"&gt;</b> in the inbox. What differs is the wrapper and the actions, which is exactly what should differ: a board row unfolds into buttons, an inbox card is one item in a stack.`,
+        markup: `<article class="card pr-card" data-stage="review">
+  <button class="work-row pr-row" type="button" aria-expanded="false">
+    <span class="work-main">
+      <span class="work-title"><span class="board-num">#313</span> MergeAdvocate — the worker stops merging its own work</span>
+      <span class="work-sub"><span class="pill">beadcause</span><span class="pill pr-stage st-review">In review</span><a class="pill id" href="#">bc-r941</a> <span class="board-facts">
+        <span class="diffstat"><ins>+412</ins> <del>−96</del></span>
+        <span class="board-checks passing">✓ 3</span>
+      </span></span>
+      <span class="board-lamps">
+        <span class="lamp on"><span class="lamp-dot" aria-hidden="true"></span>Merged<span class="sr-only">: yes</span></span>
+        <span class="lamp on"><span class="lamp-dot" aria-hidden="true"></span>Pushed<span class="sr-only">: yes</span></span>
+        <span class="lamp unknown"><span class="lamp-dot" aria-hidden="true"></span>Deployed<span class="sr-only">: not known</span></span>
+        <span class="lamp off"><span class="lamp-dot" aria-hidden="true"></span>Live<span class="sr-only">: no</span></span>
       </span>
     </span>
+    <time>18m</time>
+    <span class="chev" aria-hidden="true">›</span>
+  </button>
+  <p class="board-note">A check has not reported since the last push.</p>
+</article>`,
+      },
+      {
+        path: 'prs/lamps.html',
+        name: 'The four lamps',
+        subtitle: 'Merged · Pushed · Deployed · Live',
+        viewport: { width: 500, height: 320 },
+        note: `Each lamp has <b>three</b> states, not two — on, off, and <i>unknown</i>, drawn as a hollow ring, because "this Mac has never fetched that commit" and "this repo has no deploy beadcause can watch" are not <b>no</b>. The board had three of these; <b>Deployed</b> used to mean the running build and now means <i>a deploy ran that carried it</i>, with <b>Live</b> taking the stronger claim — only beadcause can say <code>live</code> about beadcause, where a <code>fly deploy</code> of another repo can only ever be <code>deployed</code>. Every lamp carries its reason as a title, and a <b>.sr-only</b> state so the phrase reads "Merged: yes" rather than a bare dot.`,
+        markup: `<div class="ds-stack">
+  <p class="ds-label">all on</p>
+  <span class="board-lamps">
+    <span class="lamp on"><span class="lamp-dot" aria-hidden="true"></span>Merged<span class="sr-only">: yes</span></span>
+    <span class="lamp on"><span class="lamp-dot" aria-hidden="true"></span>Pushed<span class="sr-only">: yes</span></span>
+    <span class="lamp on"><span class="lamp-dot" aria-hidden="true"></span>Deployed<span class="sr-only">: yes</span></span>
+    <span class="lamp on"><span class="lamp-dot" aria-hidden="true"></span>Live<span class="sr-only">: yes</span></span>
+  </span>
+  <p class="ds-label">nothing merged yet — every lamp off</p>
+  <span class="board-lamps">
+    <span class="lamp off"><span class="lamp-dot" aria-hidden="true"></span>Merged<span class="sr-only">: no</span></span>
+    <span class="lamp off"><span class="lamp-dot" aria-hidden="true"></span>Pushed<span class="sr-only">: no</span></span>
+    <span class="lamp off"><span class="lamp-dot" aria-hidden="true"></span>Deployed<span class="sr-only">: no</span></span>
+    <span class="lamp off"><span class="lamp-dot" aria-hidden="true"></span>Live<span class="sr-only">: no</span></span>
+  </span>
+  <p class="ds-label">unknown — the hollow ring, and the reason this state exists</p>
+  <span class="board-lamps">
+    <span class="lamp on"><span class="lamp-dot" aria-hidden="true"></span>Merged<span class="sr-only">: yes</span></span>
+    <span class="lamp unknown"><span class="lamp-dot" aria-hidden="true"></span>Pushed<span class="sr-only">: not known</span></span>
+    <span class="lamp unknown"><span class="lamp-dot" aria-hidden="true"></span>Deployed<span class="sr-only">: not known</span></span>
+    <span class="lamp unknown"><span class="lamp-dot" aria-hidden="true"></span>Live<span class="sr-only">: not known</span></span>
+  </span>
+  <p class="ds-label">checks, and a PR with no bead behind it</p>
+  <span class="board-facts">
+    <span class="diffstat"><ins>+412</ins> <del>−96</del></span>
+    <span class="board-checks passing">✓ 3</span>
+    <span class="board-checks pending">◌ 1</span>
+    <span class="board-checks failing">✗ 2</span>
+    <span class="board-nobead">no bead named</span>
+  </span>
+</div>`,
+      },
+      {
+        path: 'prs/pr-open.html',
+        name: 'PR card — open',
+        subtitle: 'The merge decision, full screen',
+        viewport: { width: 400, height: 720 },
+        note: `The same fixed full-screen sheet a question opens into, and the four rows its layout is built around: a <b>.card-top</b> that stays, a <b>.card-head</b> carrying what this is, a <b>.brief</b> that scrolls, and a pinned <b>.freeform</b>. <i>Nothing new had to be laid out for this</i> — which is most of the argument for a merge decision being a card rather than a fifth page.`,
+        markup: `<article class="card pr-card open" data-stage="review">
+  <div class="card-top">
+    <button class="collapse">↑ Collapse</button>
+  </div>
+  <div class="card-head">
+    <div class="work-row pr-row">
+      <span class="work-main">
+        <span class="work-title"><a class="pr-title-link" href="#"><span class="board-num">#313</span> MergeAdvocate — the worker stops merging its own work</a></span>
+        <span class="work-sub"><span class="pill">beadcause</span><span class="pill pr-stage st-review">In review</span><a class="pill id" href="#">bc-r941</a> <span class="board-facts"><span class="diffstat"><ins>+412</ins> <del>−96</del></span><span class="board-checks passing">✓ 3</span></span></span>
+        <span class="board-lamps">
+          <span class="lamp on"><span class="lamp-dot" aria-hidden="true"></span>Merged<span class="sr-only">: yes</span></span>
+          <span class="lamp unknown"><span class="lamp-dot" aria-hidden="true"></span>Live<span class="sr-only">: not known</span></span>
+        </span>
+      </span>
+      <time>18m</time>
+    </div>
+  </div>
+  <div class="brief">
+    <div class="md">
+      <p>The worker delivering and then merging its own branch meant delivery and acceptance were one act. The queue is what separates them.</p>
+      <p>Opened by the session on <code>worktree-r941</code>.</p>
+    </div>
+  </div>
+  <div class="freeform pr-freeform">
+    <div class="board-actions">
+      <button class="board-btn merge">Merge</button>
+      <button class="board-btn send">Request changes</button>
+      <a class="board-btn link" href="#">GitHub</a>
+    </div>
   </div>
 </article>`,
       },

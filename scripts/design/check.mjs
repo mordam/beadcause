@@ -35,7 +35,18 @@ const APP = readdirSync('public')
   .filter(f => /\.(html|js)$/.test(f))
   .map(f => readFileSync(join('public', f), 'utf8'))
   .join('\n');
+// Classes the app builds by interpolation, which no literal search can find. The app
+// writes `class="pill p${b.priority}"`, so `.p2` is really in the DOM — it just has no
+// rule, because only P0 and P1 carry colour. A card that renders `pill p2` is being
+// faithful to the markup, not inventing a class, so these families are known by shape.
+const TEMPLATED = [
+  /^p[0-4]$/,              // pill p${priority}
+  /^st-[a-z_]+$/,          // pill st-${status}, pr-stage st-${stage}
+  /^pick-(yes|no)$/,       // prop-row pick-${choice}
+];
+
 const known = (c) => {
+  if (TEMPLATED.some(re => re.test(c))) return true;
   const e = c.replace(/[-]/g, '\\-');
   return new RegExp(`class=["'\`][^"'\`]*\\b${e}\\b|classList\\.[a-z]+\\(['"\`]${e}['"\`]|["'\`]${e}["'\`]`).test(APP);
 };
