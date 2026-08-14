@@ -363,13 +363,24 @@ try {
     `"${said}"`
   );
 
+  // The account menu, opened first — because that is where the chrome text on this screen
+  // went (bc-exqi). The top bar's loose icon buttons were the app's own words on the
+  // inbox, and they are rows in that menu now; edit mode freezes the screen, so a person
+  // reaching for one opens the menu and *then* enters edit mode, which is exactly what
+  // this does. Through the switcher's own API rather than a tap or a synthesised click:
+  // edit mode intercepts both by design, which is the whole reason the menu is
+  // unreachable from inside it. A page without the switcher answers undefined and the
+  // probe runs exactly as it did before.
+  await evalJs(s, `window.beadcause?.account?.menu?.(), 1`);
+  await sleep(150);
+
   // Something the app itself wrote, chosen by asking the page rather than by naming a
   // selector here: what is retypable is a fact about the source, and a check that picked
   // one by hand would go stale the first time that line moved.
   const chrome = await evalJs(
     s,
     `(() => {
-       for (const el of document.querySelectorAll('#list *, header *, .topbar *, footer *')) {
+       for (const el of document.querySelectorAll('#list *, header *, .topbar *, .accountmenu *, footer *')) {
          if (el.children.length) continue;
          const r = el.getBoundingClientRect();
          if (r.width < 8 || r.height < 8 || r.top < 50 || r.bottom > ${VP.height} - 60) continue;
