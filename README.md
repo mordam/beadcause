@@ -1239,6 +1239,38 @@ own words — because by then the merge has already happened and a refusal has s
 to go. A tap on a card has nowhere: it is about to write a comment it cannot take
 back, so it asks first. Same rules on both paths; bd is the thing refusing in both.
 
+##### One refusal is stepped over, and only one
+
+bd 1.2.1 added a guard that refuses a close when the bead's **assignee is not the
+actor**. That is the ordinary state of every delivered work bead: a worker is told to
+`bd update --claim`, which sets the assignee to its git identity, while everything
+beadcause runs carries the `beadcause (…)` byline so `created_by` says which machine
+filed it. The two strings differ. From the moment the upgrade landed, **no delivery
+could close the bead it had just merged** — and the symptom was quiet rather than loud,
+because an open bead that is still *assigned* is skipped by `bd ready`, so nothing
+crashed and nothing re-opened. The tracker simply filled with work that claimed to be
+in flight hours after it had landed, and `owed-closes.json` retried the identical
+failing command every poll cycle forever. That is bc-9d37.13.
+
+`--force` clears it. It also clears open children, live blockers and the epic gates,
+which is why it is never simply passed: the close is attempted exactly as before, and
+`--force` is reached for **only when the claim guard is what refused** (`isClaimGuard`
+in lib/bd.js, matched on *assignee is* and *actor is* together — two of bd's other
+refusals also end in "use --force to override" and must not match). A close refused by
+a blocker does not force, stays owed, and is retried when the gate clears, exactly as
+it always was.
+
+Five call sites opt in, and they are the ones where **a merge or a ship is the
+evidence**: `bin/deliver.js`, the Merge tap in `lib/server.js`, `lib/landed.js` when
+GitHub reports the branch merged, `lib/release.js` when the build is live, and
+`lib/owed.js` retrying any of them. Closing a *question* is not on that list — a card is
+answered, not delivered.
+
+The alternative was to reclaim first (`bd update --assignee <actor>`, which also works).
+It is not used because it rewrites the assignee to the daemon on every delivered bead,
+so the tracker would permanently forget who did the work. A closed bead keeping its
+worker's name is worth more than a guard the merge has already satisfied.
+
 The last three rows of the table are the exception to every sentence above — the two
 where beadcause refuses what bd closes, and the one underneath them that says what is
 *not* refused — and the section below is about them.
