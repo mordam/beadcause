@@ -224,15 +224,24 @@ const cards = (s) => evalJs(s, `[...document.querySelectorAll('#list .card[data-
 const suggestions = (s) =>
   evalJs(s, `[...document.querySelectorAll('.suggest-row')].map((r) => r.querySelector('.suggest-id').textContent)`);
 
-/** Everything the layout can get wrong about the box, in one round trip. */
+/**
+ * Everything the layout can get wrong about the box, in one round trip.
+ *
+ * The kind chips are found by `.chip-row.kinds` and not by `[data-group="kind"]`:
+ * filtermenu.js writes the group id into the class as `chip-row <id>s`, which is the name
+ * the stylesheet has always keyed off, while the `data-group` attribute is written through
+ * `dataset` — so a selector on it is one `scripts/checks.mjs --audit` cannot see.
+ *
+ * (And the explanation lives out here rather than inside the template literal below, where
+ * a `${...}` in prose is not a comment but an interpolation the tag tries to evaluate.)
+ */
 const GEOMETRY = `(() => {
   const wrap = document.querySelector('.filter-typeahead');
   if (!wrap) return null;
   const input = wrap.querySelector('.filter-text');
   const list = wrap.querySelector('.suggest');
   const panel = document.querySelector('.filter-panel');
-  const chips = document.querySelector('.filter-panel .chip-row.kinds')
-    || document.querySelector('.filter-panel [data-group="kind"] .chip-row');
+  const chips = document.querySelector('.filter-panel .chip-row.kinds');
   const r = (el) => (el ? el.getBoundingClientRect() : null);
   const ib = r(input), lb = r(list), pb = r(panel), cb = r(chips);
   return {
