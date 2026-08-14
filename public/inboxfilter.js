@@ -547,21 +547,32 @@
    * `groups` are the page's own — the inbox puts the scope switch here, because a
    * scope is a filter too and two collapsing controls side by side would be the three
    * rows again with extra steps. Each is
-   * `{ id, legend, all?, multi?, options(), pick() }` and stays owned by the page:
-   * filtermenu.js paints them and routes the taps, and knows nothing about what they
-   * mean.
+   * `{ id, legend, all?, multi?, options(), pick() }` — or a text group, or a typeahead;
+   * see public/filtermenu.js — and stays owned by the page: filtermenu.js paints them and
+   * routes the taps, and knows nothing about what they mean.
+   *
+   * `opts.narrowed` is the other half of that ownership. This file answers "are the kinds
+   * narrowed"; a page with a group of its own that hides rows has to say so, or the
+   * summary line stays quiet over a list that is missing most of itself.
    */
   function mount(host, opts = {}) {
     if (!host || chrome) return null;
     pageGroups = Array.isArray(opts.groups) ? opts.groups : [];
     if (typeof opts.onChange === 'function') listeners.push(opts.onChange);
+    const pageNarrowed = typeof opts.narrowed === 'function' ? opts.narrowed : () => false;
     chrome = window.beadcause.filterMenu.mount(host, {
       groups: allGroups,
       closeOnPick: opts.closeOnPick,
       // What "this list is showing less than everything" means for the inbox. Not "some
       // chip is pressed": the scope switch always has exactly one, and `Both` is not a
       // narrowing.
-      narrowed: () => state.on.size > 0 || subNarrowed(),
+      //
+      // `opts.narrowed` is the page's own half, for the same reason `opts.groups` is: a
+      // group the page owns narrows the page's list, and this file cannot know whether it
+      // has. The inbox's bead search is the one that does — a bead picked in it hides most
+      // of the screen, and a summary line that did not go bold over it would be the
+      // collapsed-filter risk this whole control was built against.
+      narrowed: () => state.on.size > 0 || subNarrowed() || Boolean(pageNarrowed()),
     });
     return chrome ? chrome.root : null;
   }

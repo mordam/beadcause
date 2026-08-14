@@ -3387,6 +3387,61 @@ narrowed. `node test/inboxkinds.mjs` covers the table (every row matches exactly
 kind, in both directions), the scope rule, the sub-filter's defaults and the chrome on
 both a pointer and a touchscreen.
 
+### Finding one bead
+
+The chips answer "what *kind* of thing"; the box under them answers "which one". It sits
+in the same collapsed panel, below the scope switch, and it is a typeahead: type any part
+of a bead id — or any part of a title — and the matches drop down, narrowing as you type.
+Click one and it becomes a pill with an × beside it, and the inbox is that bead and every
+bead under it. Take the × off and the list comes back. Several pills at once mean the
+union of their trees, which is the only reading a pill with its own × supports: removing
+one has to leave the other's rows on screen.
+
+Four things about it are decisions rather than defaults.
+
+**It searches every workspace at once, not the selected one.** You type `rfnr` because
+you know the bead, not because you have first remembered which tracker it is in. Every
+suggestion carries its own `workspace/id`, so a pick is unambiguous even where two
+trackers hold the same id.
+
+**It matches titles as well as ids**, and it ranks the id matches first — exact id, then
+ids starting with what you typed, then ids containing it, then titles. The dropdown shows
+the title beside every id either way, and a box that displayed a title and then refused to
+match it would read as broken rather than as scoped. The ordering is `lib/beadsearch.js`
+and `node test/beadsearch.mjs` is the whole of it.
+
+**A picked bead means that bead and its descendants**, following `parent-child` edges
+alone — a `discovered-from` trail does not drag half the backlog in. That is the answer
+the rest of the app already gives: the P0 board keys rows by the P0 they descend from and
+a P0 card expands to every descendant at any depth, so a filter that showed one bead and
+hid its six children would be the only place in the inbox where "this piece of work"
+meant one row. It is also the answer that **replaces** the P0 board's own narrowing rather
+than stacking on it — half the beads worth searching for are under somebody else's P0 or
+under none at all, and stacked, the commonest search on a shared tracker would end in an
+empty list with a pill on screen naming the bead it was hiding. An explicit filter
+outranks an implicit one.
+
+**Nothing is stored.** The kind chips live in `localStorage` because "I read merges" is a
+standing preference; a picked bead is not one, and an inbox that opened narrowed to a bead
+you had forgotten about would be worse than one that opened wide. It is also why the box
+empties itself on a pick: the question it asked has been answered, and the next word you
+type is a *second* bead rather than a correction of the first.
+
+Two routes behind it, and the split is about cost. [`GET
+/api/beads?q=`](#http-api) is the dropdown — it is the one route in the app that can be
+asked once per keystroke, so it reads the graph `Bd.graph` already caches and never waits
+on a `bd export` (nine of those were measured at 7.3 seconds on this Mac). It reports
+`warming` for any workspace it has not read yet, so a cold daemon says *still reading the
+trackers* rather than telling you a bead you filed a minute ago does not exist. [`GET
+/api/bead/tree`](#http-api) is the pick — one request, once, and it waits, because a cold
+cache answering "nothing is under this" would narrow the list to a single row and look
+exactly like a working filter.
+
+Shipping the id-and-title index with the inbox payload and matching on the phone was the
+obvious alternative and it is much more expensive than it looks: 938 beads in `beadcause`
+alone on 2026-08-14, 97KB of `{id,title}` JSON, times nine workspaces, on every 25-second
+poll, to answer a question that is asked for about four seconds a week.
+
 ### Your P0s, and the tree each one carries
 
 The section at the top of the inbox is the P0s **you** own — open, `owner:<you>`, at
@@ -14576,6 +14631,8 @@ cookie says so), and `/auth/signout` ends the session.
 | GET | `/api/graph` | `?workspace=&id=` | `{nodes, links}` — the whole workspace with no `id` |
 | GET | `/api/bead` | `?workspace=&id=` | one issue in full, plus `comments[]` — for the graph's detail sheet |
 | GET | `/api/bead-links` | `?workspace=&id=` | `{children[], dependents[]}` — everything with an edge pointing at that bead, closed ones included, open work first: the `parent-child` rows as `children`, every other kind as `dependents` with its `dependency_type`. One `bd dep list --direction=up` for both, because `bd show` carries `dependent_count` and not one row behind it |
+| GET | `/api/beads` | `?q=` | `{beads[], warming, q}` — what [the inbox's bead search box](#finding-one-bead) drops down: up to 12 `{key, workspace, id, title, status}`, ranked exact id → id prefix → id substring → title, open before closed. **Every workspace at once**, because you type an id knowing the bead rather than knowing its tracker. The one route that can be asked once per keystroke, so it reads the graph `Bd.graph` already caches and **never waits on a `bd export`** — `warming` counts the workspaces it has not read yet, which is what lets the box say *still reading the trackers* instead of claiming a bead does not exist |
+| GET | `/api/bead/tree` | `?workspace=&id=` | `{workspace, id, title, keys[]}` — that bead's key and every descendant's, at any depth, `parent-child` edges only. What a pick in the search box narrows the inbox to. 404 for a bead the graph has never heard of. Unlike `/api/beads` this one **waits** for a cold cache: it is one request per pick, and answering "nothing is under this" from an unread graph would narrow the list to a single row and look exactly like a working filter |
 | POST | `/api/bead/advocate` | `{workspace, id}` | opens the **P0 advocate** on this P0 — the button on the inbox's P0 card, and the first one: the window it opens writes the waiting-on sentence that [enrols the P0 for automatic re-entry](#the-advocate-that-comes-back--what-re-opens-a-p0-advocate-and-what-it-costs), so this is where the loop starts rather than a weaker version of it. Four refusals in front of it, all 409 with a sentence: unendorsed, superseded, closed, or not a P0 anybody owns (a crash P0 is refused by name — a stack trace is not an epic). **Never two on one P0**: a live session whose window carries this bead id is a 409 rather than a second window — matched with `namesBead`, so a session on a *child* of this P0 no longer refuses it — and so is a launch from the last ten minutes whose window has not named itself yet, since that is the gap a second tap falls through. The card in front of it reads the same rule and draws it: it links to `/session?pid=` while an advocate is up, and says one is opening until then, rather than re-offering a launch that would now be refused (`advocate` on each card of `p0board`). Blocked under `OBSERVING`, unlike the verdict routes — those are you deciding, this is the daemon opening a window |
 | POST | `/api/bead/owner` | `{workspace, id, owner}` | sets `owner:<handle>` — who is answerable for this bead — and answers `{owner, owners[], p0, changed}`. An empty `owner` hands it back to nobody, which is a thing you may say; setting the owner it already has is `changed: false` and no `bd` write at all. Every *other* owner label comes off, so resolving two machines' claims from the sheet is visible. A route of its own rather than a field of `/api/bead/adjust`, because adjust refuses a bead anybody has endorsed and ownership is most worth changing on a P0 that is live — and because the ✎ may not touch `owner:` at all (`isProtectedLabel`) |
 | POST | `/api/bead/addressee` | `{workspace, id, to}` | re-addresses a question — sets `for:<handle>`, the label that decides [whose phone rings](#who-a-question-is-for--me-and-the-for-label), and answers `{addressees[], changed, cleared}`. `to` is one handle; **empty, or `everyone`, means everyone**, which is a decision rather than the absence of one. Every *other* `for:` label comes off, because handing it to Carol means Carol and not also whoever it was addressed to before. Re-sending the handle it already carries is `changed: false` and no `bd` write at all. `cleared: true` says it also pulled the row out of this phone's notification shade, which it does on exactly one condition — the question is now addressed somewhere that is not this Mac — via a `dismissed` event, and with the honest limit [narrowing the filter](#and-it-does-not-tidy-up-the-noise-it-already-made) ran into: ntfy cannot recall a delivered message, so only the Android shell's own tray is reachable. A route of its own for `/api/bead/owner`'s reasons, and because the ✎ may not touch `for:` at all (`isProtectedLabel`) |

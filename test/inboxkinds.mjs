@@ -788,7 +788,15 @@ await check('app.js filters the list through it, rather than only drawing it', (
   // actually get to. What this check is about is that `inKind` still narrows the list
   // rather than only colouring the chips — whichever variable it is handed.
   assert.ok(/inBoard\.filter\(inKind\)/.test(app), 'the list is not filtered by kind');
-  assert.ok(/const inBoard = underOwnedP0s\(inRepo\)/.test(app), 'the P0 board no longer narrows the list');
+  // The P0 board still narrows it — bc-rfnr.2 — but bc-0xil put one thing ahead of it:
+  // a bead picked in the search box *replaces* the board's narrowing rather than
+  // stacking on it, because half the beads worth searching for are under somebody
+  // else's P0 or under none, and stacked they would answer an explicit search with an
+  // empty list. So what this asserts is the branch, not the bare call.
+  assert.ok(
+    /const inBoard = beadPicked\(\) \? inBead\(inRepo\) : underOwnedP0s\(inRepo\)/.test(app),
+    'the P0 board no longer narrows the list'
+  );
   assert.ok(app.includes('surveyKinds('), 'the chips are never told what is on screen');
 });
 
