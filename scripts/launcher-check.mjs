@@ -156,7 +156,7 @@ function serve() {
        which is exactly what makes it survive a reload here. Two endpoints, and the
        fixture has to hold the value between them or the tab would come back as All. */
     if (p === '/api/spaces') {
-      return json({ spaces: [], workspaces: WORKSPACES, counts: {}, filter, waiting: 0 });
+      return json({ spaces: [], workspaces: WORKSPACES, filter });
     }
     if (p === '/api/filter' && req.method === 'POST') {
       let body = '';
@@ -164,7 +164,7 @@ function serve() {
       return void req.on('end', () => {
         const parsed = JSON.parse(body || '{}');
         filter = { space: parsed.space || 'all', workspace: parsed.workspace || 'all' };
-        json({ ok: true, filter, dismissAsk: null });
+        json({ ok: true, filter });
       });
     }
     if (p === '/api/console' && req.method === 'POST') {

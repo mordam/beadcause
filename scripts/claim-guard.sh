@@ -97,12 +97,13 @@ main=$(dirname "$common")
 rel=${file#"$top"/}
 [ "$rel" != "$file" ] || exit 0   # outside the tree somehow; not ours to claim
 
-# The bead is deliberately NOT read here. This Mac's worktree branches end in the bead's
-# own tag (`worktree-file-claims-q5c2`), so the branch already leads you to it, and turning
-# a tag into a verified id needs the tracker prefix — see `candidateTiers` in
-# lib/beadref.js on why a guess must not pass as an answer. Doing it properly is the
-# daemon's job, once per branch rather than once per edit; doing it here cost a 20KB
-# transcript read and two more processes on every Write in every session.
+# The bead is deliberately NOT sent. This Mac's worktree branches end in the bead's own tag
+# (`worktree-file-claims-q5c2`), and turning a tag into a verified id needs the tracker
+# prefix — see `candidateTiers` in lib/beadref.js on why a guess must not pass as an
+# answer. Doing it here cost a 20KB transcript read and two more processes on every Write
+# in every session. lib/claimbead.js does it in the daemon instead, once per BRANCH rather
+# than once per edit, and fills the field in behind this request — so the branch is all
+# that has to be on the wire.
 out=$(jq -Rn --arg s "$session" --arg repo "$main" --arg file "$rel" --arg dir "$top" \
   --arg branch "$branch" --arg label "${main##*/}" \
   '{session:$s, repo:$repo, file:$file, dir:$dir, branch:$branch, label:$label}' |

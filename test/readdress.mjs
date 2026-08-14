@@ -266,7 +266,7 @@ const handTo = (to) =>
 
 const KEY = 'demo/zz-1';
 /** This daemon believes it rang about the bead, and nothing else is in the shade. */
-const ringing = () => saveState({ ringing: { [KEY]: { workspace: 'demo', id: 'zz-1', foundation: false, at: new Date().toISOString() } }, ringingDeclined: [] });
+const ringing = () => saveState({ ringing: { [KEY]: { workspace: 'demo', id: 'zz-1', foundation: false, at: new Date().toISOString() } } });
 
 world(['human', `${ADDRESSEE_PREFIX}${BOB}`]);
 ringing();
@@ -323,7 +323,7 @@ check(() => {
 }, 'handing it to everyone puts it back in front of whoever is free, and rings on');
 
 world(['human', `${ADDRESSEE_PREFIX}${BOB}`]);
-saveState({ ringing: {}, ringingDeclined: [] });
+saveState({ ringing: {} });
 from = app.bus.seq;
 const quietly = await handTo(CAROL);
 events = (app.bus.since(from) || []).filter((e) => e.type === 'dismissed');
@@ -365,7 +365,7 @@ const question = (addressees) => ({
   addressees,
 });
 
-saveState({ notified: [], commentCounts: {}, ringing: {}, ringingDeclined: [], quiet: {}, filter: { space: 'all', workspace: 'all' } });
+saveState({ notified: [], commentCounts: {}, ringing: {}, quiet: {}, filter: { space: 'all', workspace: 'all' } });
 
 let inbox = [];
 const bus = createEventBus();
