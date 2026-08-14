@@ -608,6 +608,21 @@ check(
 );
 
 check(
+  'an entry the advocate did not finish writing still reads as prose, not as `undefined.`',
+  (() => {
+    const half = workPromptFor(
+      'beadcause',
+      { id: 'bc-half', title: 't', filesBusy: { id: 'bc-half', files: ['lib/one.js'] } },
+      1,
+      MODE(),
+      OWNER
+    );
+    return /is editing lib\/one\.js\./.test(half) && !/undefined/.test(half) && /that tree is doing/.test(half);
+  })(),
+  'a brief is the whole of what an unattended session is told; `undefined` in it reads as a bug, not a warning'
+);
+
+check(
   'a bead with no collision carries none of it — byte-identical to the brief before any of this',
   land === workPromptFor('beadcause', { id: BEAD.id, title: BEAD.title }, 1, MODE(), OWNER)
 );
