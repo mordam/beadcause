@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * **One card per sweep** — what conflicted, what got fixed, and what needs Adam.
+ * **One card per conflicting branch** — what conflicted, what got fixed, and what needs Adam.
  *
  *     npm test
  *     node test/sweepcard.mjs
@@ -28,6 +28,12 @@
  * 5. **A tracker write every cycle.** The follow-up runs every slow cycle forever; one
  *    that amended whether or not anything moved would be a `bd` write and a woken phone
  *    every two minutes, saying the same thing each time.
+ * 6. **A card per merge for a branch that never stops conflicting.** The one that actually
+ *    happened (bc-xl7n.36): a sweep runs per merge, so #243 staying conflicting for seven
+ *    hours filed thirteen identical cards, two thirds of that day's unsorted backlog. The
+ *    fix is invisible from the inbox — what you see is a card that did *not* appear — so
+ *    the fold has a section of its own here, including the subset rule that looks right
+ *    and re-splits on the first sweep that finds fewer branches than the card names.
  *
  * The tracker is a spy, `gh` is a pair of functions, and the resolver registry is the real
  * one from lib/resolvers.js — the states are read out of it, so a fake would be a test of
@@ -212,6 +218,161 @@ bd = fakeBd({ fail: 'create' });
 const refused = await fileSweepCard(bd, ws, swept({ handed: [row(14)] }), { dir: checkout });
 check('a tracker that refuses the card says so rather than throwing', /could not file/.test(refused?.error || ''), JSON.stringify(refused));
 check('and nothing is left to follow up', Object.keys(readSweepCards()).length === 0);
+
+/* ------------------------------------------------------------------- the fold */
+
+/**
+ * The acceptance of bc-xl7n.36, staged as the case that produced it.
+ *
+ * A card is filed per *sweep* and a sweep runs per merge, which is right for a branch that
+ * conflicts and is then resolved and wrong for one that conflicts and stays that way: #243
+ * was caught by thirteen consecutive merges in seven hours and filed thirteen cards, eleven
+ * of them naming it and nothing else, which was 65% of that day's unsorted backlog. The
+ * amplification is per merge and it is independent of whether the cards ever close — a row
+ * whose resolver is still working keeps its card open *by design*.
+ */
+console.log('\na branch that keeps conflicting gets one card, not one per merge');
+
+wipe();
+bd = fakeBd();
+await fileSweepCard(bd, ws, swept({ after: 231, handed: [row(243)] }), { dir: checkout });
+for (const after of [232, 233, 234, 235, 236, 237, 238, 239, 240, 241, 242, 244])
+  await fileSweepCard(bd, ws, swept({ after, handed: [row(243)] }), { dir: checkout });
+
+check('thirteen merges, one card', bd.calls.filter((c) => c.kind === 'create').length === 1, JSON.stringify(bd.calls.map((c) => c.kind)));
+check('and the other twelve amended it', bd.calls.filter((c) => c.kind === 'update').length === 12);
+check('one record, not thirteen', Object.keys(readSweepCards()).length === 1, JSON.stringify(Object.keys(readSweepCards())));
+
+let folded = readSweepCards()['bc-card'];
+check('every merge is remembered on it', folded.merges.length === 13, JSON.stringify(folded.merges));
+check('the first one still anchors it', folded.merges[0] === 231 && folded.after === 231);
+check('and it is still one pull request', folded.prs.length === 1 && folded.prs[0].number === 243);
+// The title is what a phone shows in a list, and "#244 left 1 conflicting pull request
+// behind it" is the wrong fact to lead with on the thirteenth telling.
+check('the title counts the merges it has survived', /survived 13 merges since #231/.test(sweepCardTitle(folded)), sweepCardTitle(folded));
+const foldedBody = sweepCardBody(folded);
+check("so does the heading", /13 merges have landed in `main` since #231/.test(foldedBody), foldedBody.split("\n")[0]);
+check('and it says out loud that it ate the other twelve', /One card per conflicting branch, not one per merge/.test(foldedBody));
+check('naming them, so the card is not lying about its own age', /#231, #232, #233/.test(foldedBody), foldedBody);
+check('the one-line question counts them too', /conflicted through 13 merges/.test(toQuestion('demo', { id: 'bc-card', title: sweepCardTitle(folded), description: foldedBody }).question || ""), foldedBody);
+
+console.log('\nand the test is an overlap, not a subset');
+
+/**
+ * The rule that looks right and re-splits on the first sweep that finds *fewer*.
+ *
+ * "Fold when the open card's rows are a subset of this sweep's" folds {243} into {243,300}
+ * and then cannot fold {243} back, because the card is no longer a subset of the sweep —
+ * so the next merge files a second card about #243 and the whole thing is back.
+ */
+wipe();
+bd = fakeBd();
+await fileSweepCard(bd, ws, swept({ after: 231, handed: [row(243)] }), { dir: checkout });
+await fileSweepCard(bd, ws, swept({ after: 232, handed: [row(243), row(300)] }), { dir: checkout });
+check('a sweep that finds more folds in and brings the new one with it', readSweepCards()['bc-card'].prs.length === 2);
+await fileSweepCard(bd, ws, swept({ after: 233, handed: [row(243)] }), { dir: checkout });
+check('and a sweep that finds fewer still folds', bd.calls.filter((c) => c.kind === 'create').length === 1, JSON.stringify(bd.calls.map((c) => c.kind)));
+check('leaving the one it no longer names on the card', readSweepCards()['bc-card'].prs.length === 2);
+check('rows in number order, so the card does not shuffle', String(readSweepCards()['bc-card'].prs.map((r) => r.number)) === '243,300');
+
+console.log('\nbut a sweep about different branches is a different card');
+
+wipe();
+bd = fakeBd();
+await fileSweepCard(bd, ws, swept({ after: 231, handed: [row(243)] }), { dir: checkout });
+let other = fakeBd({ create: 'bc-other' });
+await fileSweepCard(other, ws, swept({ after: 232, handed: [row(400)] }), { dir: checkout });
+check('nothing overlapping, so it files its own', other.calls.filter((c) => c.kind === 'create').length === 1, JSON.stringify(other.calls.map((c) => c.kind)));
+check('and there are two records to chase', Object.keys(readSweepCards()).length === 2, JSON.stringify(Object.keys(readSweepCards())));
+check('neither of which grew the other', readSweepCards()['bc-card'].prs.length === 1 && readSweepCards()['bc-other'].prs.length === 1);
+
+console.log('\nand a card he has already dealt with is never amended in silence');
+
+/**
+ * The opposite call to `stillOpen`, and deliberately: a record can outlive its card by a
+ * cycle — Adam taps Noted, the bead closes, and the follow-up drops the record next time
+ * round — so folding on trust would write this sweep's report into something nothing will
+ * ever show him. One duplicate card is the cheaper failure than a silent one.
+ */
+wipe();
+bd = fakeBd();
+await fileSweepCard(bd, ws, swept({ after: 231, handed: [row(243)] }), { dir: checkout });
+let closed = fakeBd({ create: 'bc-two', status: 'closed' });
+await fileSweepCard(closed, ws, swept({ after: 232, handed: [row(243)] }), { dir: checkout });
+check('a closed card is not folded into', closed.calls.filter((c) => c.kind === 'create').length === 1, JSON.stringify(closed.calls.map((c) => c.kind)));
+check('the sweep gets a card of its own instead', Object.keys(readSweepCards()).includes('bc-two'));
+
+wipe();
+bd = fakeBd();
+await fileSweepCard(bd, ws, swept({ after: 231, handed: [row(243)] }), { dir: checkout });
+let blind = fakeBd({ create: 'bc-two', fail: 'show' });
+await fileSweepCard(blind, ws, swept({ after: 232, handed: [row(243)] }), { dir: checkout });
+check('and a tracker that will not say is not taken for a yes', blind.calls.filter((c) => c.kind === 'create').length === 1, JSON.stringify(blind.calls.map((c) => c.kind)));
+
+console.log('\nwhat folding does to a row that was waiting on him');
+
+wipe();
+bd = fakeBd();
+await fileSweepCard(bd, ws, swept({ after: 231, handed: [row(243)] }), { dir: checkout });
+let rec0 = readSweepCards()['bc-card'];
+fs.writeFileSync(
+  SWEEP_CARDS_PATH,
+  JSON.stringify({
+    'bc-card': {
+      ...rec0,
+      at: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
+      prs: [{ ...rec0.prs[0], state: 'handed-back', said: 'both sides rewrote renderRow' }],
+    },
+  })
+);
+await fileSweepCard(bd, ws, swept({ after: 232, handed: [{ ...row(243), beads: [] }] }), { dir: checkout });
+folded = readSweepCards()['bc-card'];
+check('a window opened for it again, so it is working again', folded.prs[0].state === 'working');
+// `markResolving` clears `said` for exactly this reason: a reason for stopping printed
+// beside a session that is running is two facts from different hours read as one.
+check('and the reason it stopped last time is gone', folded.prs[0].said === '');
+check('the beads survive a sweep that did not find them', String(folded.prs[0].beads) === 'bc-243');
+/**
+ * `at` is both the four-hour follow-up window and the floor `resolverSaid` reads comments
+ * from. A card being actively re-swept that kept its original `at` would expire mid-flight
+ * and start telling him nothing here can say.
+ */
+check('and the follow-up window starts again from this merge', Date.now() - Date.parse(folded.at) < 60_000, folded.at);
+
+console.log('\nand a card filed before any of this still folds');
+
+wipe();
+fs.writeFileSync(
+  SWEEP_CARDS_PATH,
+  JSON.stringify({
+    'bc-old': {
+      card: 'bc-old',
+      workspace: 'demo',
+      key: 'demo',
+      dir: checkout,
+      repo: 'neadamthal/beadcause',
+      after: 100,
+      base: 'main',
+      at: new Date().toISOString(),
+      prs: [{ number: 243, branch: 'b', title: 't', url: '', beads: [], state: 'handed-back', note: '', said: '' }],
+    },
+  })
+);
+bd = fakeBd({ create: 'bc-new' });
+await fileSweepCard(bd, ws, swept({ after: 101, handed: [row(243)] }), { dir: checkout });
+check('a record with no merges list reads as the one merge it names', readSweepCards()['bc-old']?.merges.join(',') === '100,101');
+check('and no second card was filed', !bd.calls.some((c) => c.kind === 'create'), JSON.stringify(bd.calls.map((c) => c.kind)));
+check('the title of a one-merge card is unchanged', /^#231 left 1 conflicting pull request behind it in /.test(sweepCardTitle({ after: 231, merges: [231], repo: 'neadamthal/beadcause', prs: [{}] })));
+
+console.log('\nand the fold can be turned off, which is what every other suite here assumes');
+
+wipe();
+bd = fakeBd();
+await fileSweepCard(bd, ws, swept({ after: 231, handed: [row(243)] }), { dir: checkout });
+let second = fakeBd({ create: 'bc-two' });
+await fileSweepCard(second, ws, swept({ after: 232, handed: [row(243)] }), { dir: checkout, fold: false });
+check('opted out, it files rather than amends', second.calls.filter((c) => c.kind === 'create').length === 1);
+check('and does not even ask whether the other card is open', !second.calls.some((c) => c.kind === 'show'));
 
 /* ------------------------------------------------------------------ the card */
 
