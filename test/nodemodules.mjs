@@ -429,12 +429,14 @@ await check(async () => {
   const main = mainWithVendor(path.join(tmp, 'ignored'));
   const wt = path.join(main, '.claude', 'worktrees', 'git-status-1a');
   vendorSays(wt);
-  // `.gitignore` says `public/vendor/` WITH a trailing slash, which matches a directory
-  // and not a symlink to one. Seven links inside a real directory are ignored; a link
-  // where the directory should be reads as `?? public/vendor` and bin/deliver.js refuses
-  // the delivery over it, after the suite has already passed.
+  // Seven links inside a real directory are ignored fine; a link where the directory
+  // itself should be reads as `?? public/vendor` in git status AND breaks something else —
+  // git refuses to resolve any path *underneath* a symlinked directory at all
+  // ('fatal: pathspec ... is beyond a symbolic link'), which is what test/gitignoreresidue.mjs
+  // hits (bc-0i27.25). bin/deliver.js also refuses the delivery over the git-status half,
+  // after the suite has already passed.
   assert.ok(fs.lstatSync(path.join(wt, 'public', 'vendor')).isDirectory(), 'public/vendor itself must be a real directory');
-}, 'the directory itself is never the link, because the ignore rule has a trailing slash');
+}, 'the directory itself is never the link — a symlinked public/vendor breaks paths underneath it');
 
 /* --------------------------------------------------------------------- report */
 
