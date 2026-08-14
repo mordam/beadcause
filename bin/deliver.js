@@ -74,6 +74,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { ownAddresseeLabels } from '../lib/addressee.js';
+import { isClaimGuard } from '../lib/bd.js';
 import { bylineFor } from '../lib/byline.js';
 import { isMergeReason, parseJson } from '../lib/bd.js';
 import { loadConfig } from '../lib/config.js';
@@ -790,8 +791,28 @@ async function landHere(landed, { external = false } = {}) {
       /* The comment above this block already says what landed; this one is why it is still open. */
     }
   } else {
+    /**
+     * Close the work bead, stepping over bd 1.2.1's claim guard but nothing else.
+     *
+     * This process runs `bd` with the `beadcause (…)` byline while the bead is assigned
+     * to the git identity that claimed it, so from 2026-08-14 every delivery was refused
+     * its own close — bc-9d37.13. `--force` lifts that, and it lifts open children, live
+     * blockers and the epic gates with it, so it is reached for **only** when the claim
+     * guard is what refused; anything else still travels out to `oweClose` below exactly
+     * as it did. `isClaimGuard` is imported from lib/bd.js rather than re-written here so
+     * the two processes cannot disagree about what that refusal looks like.
+     */
+    const closeWorkBead = () => {
+      try {
+        bd(['close', beadId, '--reason', closeReason]);
+      } catch (err) {
+        if (!isClaimGuard(err)) throw err;
+        console.error(`beadcause-deliver: closing ${beadId} over the claim guard — ${where} is merged`);
+        bd(['close', beadId, '--reason', closeReason, '--force']);
+      }
+    };
     try {
-      bd(['close', beadId, '--reason', closeReason]);
+      closeWorkBead();
     } catch (err) {
       // A refused close is a state, not a rumour: it is written down where the daemon
       // will retry it once whatever is blocking it clears (lib/owed.js), and said on the
