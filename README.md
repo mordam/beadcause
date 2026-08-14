@@ -13461,8 +13461,11 @@ Three things this deliberately is not:
   its own address on the bead, unwrapped, because that is a person speaking and not a
   daemon — see [whose answer it is](#whose-answer-it-is).
 - **It does not touch what an agent's own `bd comment` says.** That is the shell's
-  `BEADS_ACTOR`, which is already that engineer's address; wrapping it would be worse
-  than useless, because it is exactly what the reply detection below tells apart.
+  `BEADS_ACTOR` — already that engineer's address, so it says *which* engineer and not
+  whether it was them or something they started. Left alone here for two reasons: it is
+  exactly what the reply detection below tells apart, and `[address]` on a comment
+  meaning "an agent typed this" is a convention already being read. bc-y3qk.1 is where
+  that is picked up.
 
 **The one thing that had to not break is the reply test.** When you answer a question
 from the phone, beadcause watches the thread and pushes the agent's answer back to you —

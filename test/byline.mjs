@@ -114,6 +114,15 @@ check('`me: everyone` is a word about beads, not a name anybody has', () => {
   assert.equal(bylineFor({ actor: 'beadcause', me: ['  ', 'carol@example.com'] }), 'beadcause (carol@example.com)');
 });
 
+check('a handle with a parenthesis in it cannot produce a byline that will not parse', () => {
+  // Nothing that is really an address has one; a hand-written `me` might, and a byline
+  // `bylineBase` cannot take apart is one `writtenByDaemon` says no to — which is the
+  // daemon buzzing the phone about its own comments.
+  const cfg = { actor: 'beadcause', me: 'carol (the other one)@example.com' };
+  assert.equal(bylineFor(cfg), 'beadcause (carol the other one@example.com)');
+  assert.equal(writtenByDaemon(bylineFor(cfg), cfg), true);
+});
+
 check('an install that renamed its actor keeps the name it chose and gains the suffix', () => {
   assert.equal(bylineFor({ actor: 'ourbot', me: 'carol@example.com' }), 'ourbot (carol@example.com)');
   assert.equal(bylineFor({ actor: '   ', me: 'carol@example.com' }), 'beadcause (carol@example.com)');
