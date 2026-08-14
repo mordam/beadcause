@@ -288,6 +288,42 @@ cache.clear();
   await check(() => assert.ok(cache.peek('prs:/repo')), 'while another kind is untouched — which is what the key convention buys');
 }
 
+/* A drop takes the *in-flight* refresh with it, and this is the half that has a caller.
+   lib/prboard.js drops `board:` before a forced sweep rather than only asking for
+   `refresh`, because its producer is the only one in the app that reads another cache —
+   joining a background refresh would hand a merge two-minute-old `gh` rows while the code
+   around it believed it had re-swept. That is only true if a drop really does release the
+   single-flight slot, so: a sweep in flight, a drop, and the next read must start a *second*
+   producer and answer with the second one's value. The first is still allowed to land; what
+   it may not do is become the answer. See `generation` in lib/cache.js. */
+cache.clear();
+{
+  let release;
+  let calls = 0;
+  const slow = () => {
+    calls += 1;
+    const mine = calls;
+    return new Promise((resolve) => {
+      if (mine === 1) release = () => resolve('in flight when the drop happened');
+      else resolve('swept after the drop');
+    });
+  };
+
+  const joined = cache.read('board:', slow, FRESH);
+  cache.drop('board:');
+  const forced = await cache.read('board:', slow, FRESH);
+  await check(() => assert.equal(calls, 2), 'a read after a drop starts its own sweep rather than joining the doomed one');
+  await check(() => assert.equal(forced.value, 'swept after the drop'), 'and answers with the new sweep');
+
+  release();
+  const stranded = await joined;
+  await check(() => assert.ok(stranded), 'the caller stranded on the dropped sweep is still answered rather than left hanging');
+  await check(
+    () => assert.equal(cache.peek('board:').value, 'swept after the drop'),
+    'and the sweep the drop was about may not write itself back in — a merge would have re-read stale rows'
+  );
+}
+
 /* ------------------------------------------------------------------- the ⟳ button */
 
 console.log('\nrefresh: the user asked\n');

@@ -13508,6 +13508,17 @@ rather than starting a second one, which is the right reading: a sweep that bega
 ago and has not returned is reading the tracker now, so it is exactly as fresh as one started
 here would be.
 
+**With one exception, and it is the exception that proves the rule.** The PR board *drops*
+`board:` before a forced sweep instead of joining one, because its producer is the only one
+here that reads another cache — the board is built out of `prs:<checkout>`, which is two
+minutes wide. Joining a background refresh would hand an acting call (a merge, a close, a
+Ship) pull requests `gh` last answered for two minutes ago, while the code around it believed
+it had re-swept, and every acting call on that screen sweeps forced precisely so a button
+cannot act on a row the tab has been showing since last night. Dropping takes the in-flight
+slot with it, so the sweep that follows really does force its way through to the network. The
+rule to carry forward: **join an in-flight refresh when the producer reads a source; drop
+first when the producer reads a cache.**
+
 **And the drops are unchanged.** A verdict still drops the whole `queue:` prefix, because a bead you
 have just judged has to leave that list on every other device and fifteen seconds of it still
 being there is the one staleness that screen cannot afford. Every merge, close and comment
