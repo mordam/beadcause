@@ -1081,6 +1081,13 @@
    * one dependent and no children, so it paid for a call that drew nothing. That case is
    * the Blocks list now, which is what makes this gate tight in both directions — the
    * only bead that asks and gets nothing back is one whose count and edges disagree.
+   *
+   * Since bc-arj0.4 there is a second such bead and it is no longer rare: a see-also is
+   * counted here and then dropped by `dependentsHtml`, because it is already drawn above
+   * the description. So a bead whose only incoming edges are see-alsos pays for a call
+   * that renders an empty div. Tightening it would mean a count of edges *by type*, which
+   * bd does not offer without the rows this call is fetching — and the empty div has no
+   * height, so what it costs is one request and nothing on the screen.
    */
   const hasDependents = (b) => Boolean(b && b.dependent_count);
 
