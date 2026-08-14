@@ -96,7 +96,7 @@ function check(name, fn) {
 console.log('\nspace details');
 
 const spacesMod = await import(LIB('spaces.js'));
-const { readSettings, applySettings, spaceDetail, SETTINGS, prPolicyFor, isQuiet, slackChannelFor, autoEndorseAllowed } =
+const { readSettings, applySettings, spaceDetail, SETTINGS, prPolicyFor, isQuiet, slackChannelFor, autoEndorseAllowed, autoShipAllowed } =
   spacesMod;
 
 /* ==================================================== 1. what a field can say */
@@ -551,10 +551,10 @@ check('a `workspace` in the body writes that repo`s own answer, not the space`s'
 
 check('the reply is the whole card, so the row that was pressed redraws with the rest', () => {
   const byName = Object.fromEntries(repoOn.body.repos.map((r) => [r.name, r]));
-  assert.equal(byName.alpha.autoEndorseOwn, true);
+  assert.equal(byName.alpha.own.autoEndorse, true);
   assert.equal(byName.alpha.autoEndorse, true);
-  assert.equal(byName.beta.autoEndorseOwn, null, 'and Inherit is still the lit button on the other');
-  assert.equal(byName.beta.autoEndorseInherited, false);
+  assert.equal(byName.beta.own.autoEndorse, null, 'and Inherit is still the lit button on the other');
+  assert.equal(byName.beta.inherits.autoEndorse, false);
   const onDisk = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
   assert.equal(onDisk.autoEndorsePerWorkspace.alpha, true, 'and it survives a restart');
 });
@@ -582,14 +582,38 @@ check('a repo that is not in the space named is a 400, not a write nobody could 
   assert.ok(!('alpha' in (live.autoEndorsePerWorkspace || {})));
 });
 
+/**
+ * The three that joined `autoEndorse` in the per-repo layer, through the route the card
+ * presses and then through the resolvers `bin/deliver.js` and `lib/release.js` call.
+ *
+ * Sent as one body because the card can press one at a time and the wire has to survive
+ * both; `changed` comes back in `WORKSPACE_SETTINGS` order rather than the order they
+ * arrived in, which is what the screen lists under the control.
+ */
+const repoShip = await call('/api/space', {
+  method: 'POST',
+  body: { space: 'Work', workspace: 'alpha', settings: { autoShip: true, autoMerge: false } },
+});
+check('the answers about landing and shipping write per repo too, and only for that repo', () => {
+  assert.equal(repoShip.status, 200);
+  assert.deepEqual(repoShip.body.changed, ['autoMerge', 'autoShip']);
+  assert.equal(autoShipAllowed(live, 'alpha'), true, 'on the object the running daemon holds');
+  assert.equal(prPolicyFor(live, 'alpha').autoMerge, false);
+  assert.equal(autoShipAllowed(live, 'beta'), false, 'and the repo beside it in the same space is untouched');
+  assert.equal(prPolicyFor(live, 'beta').autoMerge, true);
+  const onDisk = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
+  assert.equal(onDisk.autoShipPerWorkspace.alpha, true, 'and it survives a restart');
+  assert.equal(onDisk.autoMergePerWorkspace.alpha, false);
+});
+
 const repoRefused = await call('/api/space', {
   method: 'POST',
-  body: { space: 'Work', workspace: 'alpha', settings: { autoMerge: false } },
+  body: { space: 'Work', workspace: 'alpha', settings: { quietHours: null } },
 });
 check('and a setting that does not resolve per repo is refused rather than stored somewhere odd', () => {
   assert.equal(repoRefused.status, 400);
   assert.match(repoRefused.body.error, /not a per-repo setting/);
-  assert.equal(prPolicyFor(live, 'alpha').autoMerge, true, 'and the space`s own answer is untouched');
+  assert.ok(!live.quietHoursPerWorkspace, 'nothing was invented to hold it');
 });
 
 const refused = await call('/api/space', { method: 'POST', body: { space: 'Work', settings: { name: 'Renamed' } } });

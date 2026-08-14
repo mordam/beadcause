@@ -323,7 +323,11 @@ await check('what Inherit on the repo row would resolve to is the same answer mi
 });
 
 await check('the per-repo override is three-state, writable, and refuses what it cannot read', () => {
-  assert.deepEqual(WORKSPACE_SETTINGS, ['autoEndorse'], 'one setting is per repo; the rest group by space');
+  assert.deepEqual(
+    WORKSPACE_SETTINGS,
+    ['autoEndorse', 'autoMerge', 'requireApproval', 'autoShip'],
+    'these four answer per repo; everything else groups by space'
+  );
   const cfg = { autoEndorsePerWorkspace: {} };
   assert.equal(readWorkspaceSettings(cfg, 'a').autoEndorse, null, 'unset is inherit, not off');
 
@@ -337,7 +341,7 @@ await check('the per-repo override is three-state, writable, and refuses what it
   applyWorkspaceSettings(cfg, 'a', { autoEndorse: null });
   assert.equal('a' in cfg.autoEndorsePerWorkspace, false, 'null deletes the key — the only way back to inheriting');
   assert.throws(() => applyWorkspaceSettings(cfg, 'a', { autoEndorse: 'yes' }), /true, false or null/);
-  assert.throws(() => applyWorkspaceSettings(cfg, 'a', { autoMerge: false }), /not a per-repo setting/);
+  assert.throws(() => applyWorkspaceSettings(cfg, 'a', { quietHours: null }), /not a per-repo setting/);
   assert.throws(() => applyWorkspaceSettings(cfg, 'a', null), /must be an object/);
 });
 
@@ -518,11 +522,11 @@ await check('the repo row carries all three claims a three-state control is made
   // The resolved answer, what this repo itself says, and what Inherit would mean. Drawn
   // from one payload so the tag and the pressed button on a row cannot disagree.
   assert.equal(byName.tight.autoEndorse, false, 'the repo overrides the space');
-  assert.equal(byName.tight.autoEndorseOwn, false, 'and the Off button is the one lit');
-  assert.equal(byName.tight.autoEndorseInherited, true, 'while Inherit has to read "on" — the space says yes');
+  assert.equal(byName.tight.own.autoEndorse, false, 'and the Off button is the one lit');
+  assert.equal(byName.tight.inherits.autoEndorse, true, 'while Inherit has to read "on" — the space says yes');
   assert.equal(byName.loose.autoEndorse, true);
-  assert.equal(byName.loose.autoEndorseOwn, null, 'a repo that says nothing lights Inherit, not Off');
-  assert.equal(byName.loose.autoEndorseInherited, true);
+  assert.equal(byName.loose.own.autoEndorse, null, 'a repo that says nothing lights Inherit, not Off');
+  assert.equal(byName.loose.inherits.autoEndorse, true);
 });
 
 await check('and the page has the control, so the setting is reachable from a phone', () => {
@@ -532,8 +536,9 @@ await check('and the page has the control, so the setting is reachable from a ph
   // The per-repo control writes a different body from the space's, so it must not be
   // reachable through the space handler: a press meant for one repo arriving as the
   // whole space's answer is the exact bug this feature exists to end.
-  assert.match(js, /data-repo-set="autoEndorse"/, 'the repo row is not a control');
-  assert.match(js, /r\.autoEndorseInherited/, 'and Inherit never names what it would resolve to');
+  assert.match(js, /key: 'autoEndorse'/, 'the repo row is not a control');
+  assert.match(js, /data-repo-set="\$\{esc\(s\.key\)\}"/, 'and the press does not carry which setting it is');
+  assert.match(js, /r\.inherits\[s\.key\]/, 'and Inherit never names what it would resolve to');
   assert.ok(/closest\('\[data-repo-set\]'\)/.test(js), 'nothing on the page picks the repo press up');
   const css = read('public/style.css');
   assert.ok(css.includes('.space-repo-set'), 'the buttons sit in a row with no rule for it');
