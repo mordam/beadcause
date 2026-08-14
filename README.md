@@ -12049,6 +12049,78 @@ negative: the `bc-qsj6`/`bc-nib3` pair is *not* caught, because catching two
 independently worded epics needs their children or their acceptance compared rather
 than their titles, and a green run must not read as "duplicates are impossible now".
 
+### And the same check runs at `bd create`, whoever filed it
+
+Every net above sits on the **proposal** path — an advocate writing one, you approving
+one, a chat session drafting one — because that is where the pair they were built from
+collided: `bc-j6x` and `bc-ec6`, byte-identical titles, proposed twice on one day, both
+approved, both opened, one worker window wasted finding the fix already committed on
+somebody else's branch.
+
+The duplicates that kept arriving afterwards were not proposals. Three pairs, each filed
+by a **worker mid-session** with a plain create, hours apart, none linked to its twin
+until an advocate pass found all three by reading titles weeks later:
+
+| the pair | what it was |
+|---|---|
+| `bc-297u` / `bc-syzm` | `.chip` declared twice in the stylesheet |
+| `bc-767a` / `bc-giuc` | the disarm that never runs |
+| `bc-zjep` / `bc-zflo` | the `/api/error` write |
+
+A session filing mid-flight is the likeliest thing in beadcause to file a duplicate: it
+is deep in one bead, it has not read the tracker, and what it just tripped over may well
+be what another window tripped over this morning. Telling it to check first is the
+approach that already failed — the advocate's survey prompt has said "check `bd list
+--status=open` before you propose" since the beginning, and it proposed anyway. A prompt
+is a request, and a request loses.
+
+So the check now runs at **`Bd.create`** as well: the one seam every bead beadcause files
+is born in, whether it came from a worker's `beadcause-file`, an approved proposal, a
+chat draft, a JIRA sweep, a crash the daemon filed on itself, or an edit filed from the
+app. A call site added next month is covered without knowing it exists, which is the same
+argument the addressee and owner stamps beside it are made on.
+
+**It links, it does not refuse.** That was the open question and this is the answer:
+a refusal is right exactly once — at proposal approval, where the question goes back to
+somebody holding the phone who can settle it — and everywhere else there is nobody to
+send it back to. A worker that has just found a real bug at 02:00 must not be stopped by
+a resemblance, and 0.9 title similarity is a resemblance rather than proof. So the bead
+is filed, its notes gain a **Looks like a duplicate — already open as bc-297u — "…"**
+paragraph, and the pair gets a `relates-to` edge, which is what makes each reachable from
+the other on the graph page and in any brief.
+
+Three details do the work:
+
+- **The edge is drawn *by* the paragraph, not beside it.** The sentence names the twin's
+  id, and [the write-time mention hook](#every-bead-id-in-prose-is-an-edge-behind-it) already
+  turns a bead id in a new bead's own words into an edge. So the record and the sentence
+  explaining it arrive in one write and neither can exist without the other — no second
+  `bd` call, no half-linked pair if the daemon dies in between.
+- **Nothing is said twice.** A caller that already named the twin — `beadcause-file`
+  writes its own sentence from a fuller read, pending proposals included — is left alone.
+  This seam speaks only where nothing else did.
+- **A question is not checked at all.** The sweep card, the stranded-branch finding and
+  the merge card have formulaic titles by construction, each already refuses to file its
+  own twin, and a resemblance paragraph on an inbox card would be noise on the one screen
+  where noise costs most. Anything carrying `human` is skipped, and costs no read.
+
+The candidates come from the workspace shape that is already cached for the P0 board and
+for filing a bead under a P0 (lib/homing.js), so on a running
+daemon the steady-state cost is a map walk and no `bd` call at all. Held for a minute on
+a timer of its own — the parent cache is dropped every time a bead is filed under a
+parent, and reading titles out of that entry would have made a session filing three
+discoveries pay three full reads. A bead filed inside that minute is remembered by hand,
+so a batch that words the same discovery twice catches its own second bead.
+
+And it can never fail the create. A tracker that could not be read is exactly the state
+every bead was filed in before this existed; losing a discovery over a see-also would be
+the wrong trade in the direction the filing seam already refuses.
+
+`node test/createdupe.mjs` (in `npm test`) drives the real `Bd` against a fake `bd`
+binary, so it sees what actually reached the command line: the paragraph, the
+`bd dep relate` behind it, the caller that is not talked over, the question that is not
+checked, the batch that catches itself, and the unreadable tracker that still files.
+
 ### What you just filed, one tap away
 
 Creating leaves a **✓ Created N beads** note in the scrollback, one row per bead. That
