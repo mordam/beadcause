@@ -2839,11 +2839,14 @@ this say before the advocate rewrote it" without anyone having remembered to ask
 Snapshots are debounced by two seconds and the reasons accumulate, because one
 advocate cycle rewrites `advocates.json` three or four times in a second and those
 are one event to whoever reads the history back. `status.json`, `restart.json`,
-`merge-sweeps.json`, `sweep-cards.json`, `logs/`
+`merge-sweeps.json`, `sweep-cards.json`, `coverage.json`, `logs/`
 and the check PNGs are ignored — churn, and not the thing you want a history of.
 `deploys/` is not, and the difference is the point: a deploy record is something somebody
 pressed Ship on, and a restart marker is one line the router overwrites on every swap
-which means nothing thirty seconds later.
+which means nothing thirty seconds later. The coverage report is the same argument in a
+larger size: a few hundred kilobytes rewritten whole by every [`npm run coverage`](#npm-run-coverage--which-files-the-suite-never-even-loads),
+true only of the commit stamped inside it, so a history of it would be one enormous diff
+per run saying nothing the run did not print.
 
 ### Tier 3 — a repo one agent owns, and the experiment that is the point of it
 
@@ -16864,6 +16867,101 @@ Three smaller things fall out of it, and each is a way this could have gone quie
 
 Filed as bc-9zv0. The sibling failure in the same file is bc-t69u, its `ENOTEMPTY` teardown
 race, which is the `test/helpers/tmp.mjs` story above and not this one.
+
+### `npm run coverage` — which files the suite never even loads
+
+`npm test` answers pass or fail, and so does `npm run checks`. Neither has ever been able
+to say *how much of this repo they went near*, which means the question a reviewer
+actually has — "is the thing this pull request changes tested at all?" — has only ever
+had a human answer, arrived at by reading `test/` and hoping. bc-sj8k.4 wants a candidate
+card to show the evidence behind a pull request and named coverage as the one field it
+could not render out of what exists. `npm run coverage` is that field, and bc-vriu.2 is
+where it was argued out first.
+
+```
+npm run coverage                             # every suite, then fold and publish
+node scripts/coverage.mjs --from 1 --to 45   # one slice, accumulating into the same pile
+node scripts/coverage.mjs --report           # fold what is already there, run nothing
+node scripts/coverage.mjs --reset            # throw the raw output away and start again
+```
+
+**There is no coverage dependency and there does not need to be one.** Node has carried
+V8's own coverage since 10: set `NODE_V8_COVERAGE` to a directory and every process that
+inherits the variable drops a JSON file of what it compiled and what it called.
+`scripts/test.mjs` does nothing per suite except `spawnSync` it, so the variable reaches
+all of them — and reaches the daemons *they* start as well, which is most of the point,
+since a good deal of this repo is only ever executed by a child process a suite spawned
+and then killed. `lib/coverage.js` folds the pile; `scripts/coverage.mjs` is the runner.
+
+**A percentage would not have changed an approve-or-decline, and that is why this counts
+something else.** bc-vriu.2 was filed with the instruction to close it rather than build
+it if the honest answer was that a coverage figure would just be a number on a card. The
+honest answer turned out to depend entirely on which figure. Nobody declines a candidate
+at 71% and approves it at 74%, and a repo-wide percentage moves by fractions when one
+lands, so the delta is noise — it is wallpaper, a number that makes a card look rigorous
+while being unable to be wrong. But *"nothing in the suite ever executes the file you
+changed"* is binary, exact, and about this candidate specifically, and it is a fact a
+human reviewer cannot get any other way: a green gate says nothing at all, because a
+suite that never imports a file passes exactly as loudly as one that exercises every
+branch of it. So the report is a per-file, per-function list; `coverageForFiles` projects
+it onto the paths in a diff; and the totals exist because they are free rather than
+because they are the point.
+
+**Functions, not lines, and that is not a shortcut.** Folding V8's byte ranges into line
+coverage is the ordinary thing to do and it would lie here. Every file in this repo
+argues its case in prose before it does anything, and those comment lines sit inside the
+module's own range, which V8 marks executed the moment anything imports the file. Line
+coverage over this tree would report roughly *how much of each file is commentary*, climb
+whenever somebody explained themselves better, and read highest on the files nobody tests
+but everybody documents. Counting comments as uncovered instead is no better: a stripper
+accurate enough to tell a comment from a template literal containing a `//` is a real
+parser, and one that is subtly wrong produces a number that is wrong without looking
+wrong. Functions dodge all of it — V8 reports them by name with an invocation count, with
+no interpretation — and an uncovered *function* has a name you can go and read where an
+uncovered *line* is a number you have to go and look up.
+
+**The strongest signal is the one V8 cannot report.** A file nothing ever imported
+produces no entry at all: it is absent in exactly the way a file that does not exist is
+absent, and absent reads as zero to nobody. So the fold walks `lib/` and `bin/` on disk
+and diffs them against what V8 saw. Those files come back `loaded: false` with a null
+function count — null rather than `0/0`, because V8 never parsed them and inventing a
+denominator for a file nobody measured is the kind of number this whole section exists to
+refuse. `public/` is deliberately out of scope: it is browser code, `npm test` reaches it
+only by evaluating lifted fragments in a `vm`, and what actually exercises it is
+`npm run checks`, so a Node-suite figure for it would understate it by most of its real
+coverage.
+
+**It slices because a full pass is 35–60 minutes**, which is past every timeout an agent
+session has — a command that could only be run whole would be a command nothing can run.
+V8's output makes that free: each process writes its own file, so two runs into the same
+directory accumulate rather than overwrite, and `--from/--to` is a real slice of one
+measurement rather than a partial one. `--reset` is the separate, explicit "this is a new
+measurement", so that forgetting it costs you a stale mixture only when you asked for
+one. `scripts/test-swap.js` is skipped: it drives real blue/green swaps of the live
+daemon over ~300 requests and is the one suite to run alone.
+
+The raw output stays in the checkout that produced it — `.coverage/`, ignored, tens of
+megabytes a slice and meaningless anywhere else. The folded report is published to
+`~/.config/beadcause/coverage.json`, because the reader is the daemon and the daemon does
+not know which checkout is canonical: every session runs in a worktree under
+`.claude/worktrees/`, so a report written to a repo root is invisible from all of them and
+gone when that worktree is retired. It is churn in [the config repo's sense](#the-state-files-get-a-history-for-free)
+— rewritten whole by every run, true only of the commit stamped inside it — so it is in
+the ignore list in `lib/commonrepo.js`, and `test/memory.mjs` fails the repo if it ever
+stops being. That stamp is load-bearing rather than decorative: nothing is going to
+re-measure per candidate, so a card showing this has to be able to age it rather than
+present an hour-old fact as a live one, and every answer carries the commit and the time.
+
+`test/coverage.mjs` covers it, and the shape of that suite is the interesting part.
+`lib/coverage.js` reads a format nobody here controls, so a suite fed hand-written
+fixtures would pin *this repo's idea* of V8 and keep passing on the day a Node upgrade
+changed the real one — the only day it matters. So the fixtures are generated: a small
+tree under `os.tmpdir()`, a driver that calls some of it and not the rest, run in a real
+child process with the real environment variable set, and what is asserted is that the
+fold agrees with what the driver actually did. Hand-written raw files are used for two
+cases only, both about the pile rather than the format: half-written JSON from a process
+killed mid-flush, which is a normal outcome in a repo whose suites end by killing
+daemons, and the same file appearing in two processes with different verdicts.
 
 ### `npm run checks` — the browser half, and why `npm test` can still see it rot
 
