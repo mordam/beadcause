@@ -704,6 +704,20 @@ left of the screen and the bottom tab bar's last label cut in half — which rea
 font being slightly wrong rather than as a layout bug, and sat there unnoticed until a
 check printed the number (bc-3ui6).
 
+The sixth is what the bar does to whatever sticks *underneath* it. The bar is
+`position: sticky` at z-index 20, so a second sticky box on the same page that pins at
+`top: 0` pins itself behind it and is simply gone from the first scroll onwards —
+`/monitor`'s Advocates/PRs/Mirror strip did exactly that, carrying the whole cost of
+being sticky for none of the benefit (bc-ugd4). So the check makes each page scrollable,
+scrolls it, and requires every box pinned to the window to sit **against** the bar's
+bottom edge: overlapping it is that bug, and a gap below it is the bug you get from
+fixing that one with a constant — `top: 104px` read off a screenshot is a 43px hole the
+day the picker hides itself and the bar is 61px. Both directions fail, and `/monitor` is
+measured a second time with one workspace, in the shorter bar, because the two heights
+are the two states this ships in. The offset is `var(--topbar-h)`, published by
+`public/montabs.js` from a `ResizeObserver` on the bar — measured rather than derived, so
+the safe-area inset and a rewrap are covered by the same three lines as the picker.
+
 ### Space details — the page the advocate console became
 
 Every setting a space has is one you used to change by opening `~/.beadcause/config.json`
@@ -4174,6 +4188,30 @@ control it already is (two mutually exclusive modes) — filed as bc-stci. The e
 meant to share, scoping this bar's CSS apart from the foundations page's, has landed
 ahead of it as bc-4aw: `.mon-tabs` is now this bar's own selector, which is what a
 restyle needs to be able to move it without moving the other page.
+
+**The strip is sticky, and for a while that bought nothing.** It has to be — the
+advocates list is long enough that halfway down it there is nothing on screen saying
+which of the three panes you are in, and no way to the other two without scrolling to
+the top first. It was sticky at `top: 0`, inherited wholesale from `.agent-tabs` on the
+foundations page, where zero is correct because that strip's scroll container is a
+`.launcher` that already *starts* below the top bar. Here the scroll container is the
+window, whose top is behind a sticky `.topbar`, so the strip pinned itself out of sight
+and the pane swap disappeared on the first scroll (bc-ugd4 — the other half of the same
+inheritance was the negative margin that made the page lay out 16px too wide, bc-3ui6).
+
+It sticks at `var(--topbar-h)` now, and that number cannot live in the stylesheet
+because it is not one number: the bar is **104px** with the space picker's row and
+**61px** without it, and the picker takes itself away below two workspaces — same build,
+same page, one payload to the next. `public/montabs.js` publishes it from a
+`ResizeObserver` on the bar, which answers that and the three nobody would have thought
+to enumerate: `env(safe-area-inset-top)` is zero in a browser and is not zero in the
+installed app, and the bar is `flex-wrap: wrap`, so a narrow enough screen can rewrap it
+at any moment. What it publishes is the bar's measured height, whatever made it that —
+which is the whole reason it is not `spacebar.js` setting the variable as it shows and
+hides itself, a fix that would be true for the one cause somebody thought of. The
+stylesheet's fallback is the two-row bar, so a page that somehow loses that script is
+wrong by 43px in the uncommon case rather than by a whole bar in the common one, and
+`scripts/topbar-check.mjs` fails on either.
 
 ## Loaded once, and kept — what a tab tap actually costs
 

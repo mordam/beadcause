@@ -4150,20 +4150,40 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
    is what notices if it stops being: it fails any page laying out wider than the
    screen it is being measured on.
 
-   What is *not* fixed here: `top: 0` sticks this strip at the viewport top, which
-   is behind a 104px `.topbar` at z-index 20, so it vanishes on scroll rather than
-   following the bar down. That is bc-ugd4 — it needs the bar's height, which the
-   picker changes, and it is a different question from how wide the page is. */
+   The other half of the same inheritance was `top: 0`, and that is bc-ugd4. On the
+   agents' page it is correct for the same reason the margins were: `.agent-tabs`
+   sticks inside `.launcher`, which is `overflow-y: auto`, so its scroll container
+   already *starts* below the top bar and zero means "the top of what is scrolling".
+   Here the scroll container is the viewport, whose top is behind a `.topbar` that is
+   sticky at z-index 20 — so the strip pinned itself under the bar and the
+   Advocates/PRs/Mirror swap was gone from the first scroll until you scrolled back
+   up. Measured at 360×640 and 393×852: at scrollY 400 the nav's rect was top 0,
+   bottom 53 and the bar's was top 0, bottom 104. Nothing of it was on screen, and it
+   was carrying the whole cost of being sticky for none of the benefit.
+
+   `--topbar-h` is the bar's height, published by public/montabs.js from a
+   `ResizeObserver` on `.topbar` — see the block there for why the number cannot be
+   written here. Short version: it is 104px with the space picker's row and 61px
+   without, the picker hides itself under two workspaces, and the bar also carries
+   `env(safe-area-inset-top)` and wraps. The fallback is the two-row bar, so a page
+   that somehow loses that script is 43px wrong in the uncommon case rather than a
+   whole bar wrong in the common one.
+
+   The 14px used to be a bottom margin, and a margin is transparent — under a strip
+   that now actually stays put, that was a 14px band of the list sliding through
+   between the strip's border and the pane. It is padding on the pinned box instead,
+   which is the same gap drawn in `var(--bg)`; the border-bottom moves down by it,
+   which is what a border under a bar with room beneath it should do anyway. */
 .mon-tabs {
   position: sticky;
-  top: 0;
+  top: var(--topbar-h, 104px);
   z-index: 3;
-  padding: 8px 14px;
+  padding: 8px 14px 14px;
   background: var(--bg);
   border-bottom: 1px solid var(--line);
   display: flex;
   gap: 2px;
-  margin: 0 0 14px;
+  margin: 0;
   overflow-x: auto;
   scrollbar-width: none;
 }

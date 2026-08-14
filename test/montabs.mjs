@@ -77,7 +77,7 @@ const CHIPS = [
  * each chip's `aria-pressed` is, every presence report in order, and a `tap` that fires
  * the row's own delegated click the way a thumb would.
  */
-function load({ pathname = '/monitor', stored = {}, presence = true } = {}) {
+function load({ pathname = '/monitor', stored = {}, presence = true, bar = 104, observer = true } = {}) {
   const reports = [];
   const panes = Object.fromEntries(CHIPS.map((c) => [c.pane, { id: c.pane, hidden: false }]));
   const chips = CHIPS.map((c) => ({
@@ -101,10 +101,23 @@ function load({ pathname = '/monitor', stored = {}, presence = true } = {}) {
   let ready = null;
   const store = new Map(Object.entries(stored));
   const window = { beadcause: presence ? { presence: { report: (r) => reports.push(r) } } : {} };
+
+  /* The top bar the strip sticks under, and the two things the file needs to publish
+     its height with: somewhere to put the number, and something that tells it the
+     number moved. `bar: null` is a page with no bar at all — every page has one, but
+     this file is loaded by whatever asks for it and must not throw on the day one
+     does not. */
+  let barH = bar;
+  const vars = new Map();
+  let observed = null;
+  const topbar = bar === null ? null : { getBoundingClientRect: () => ({ height: barH }) };
+
   const ctx = vm.createContext({
     window,
     document: {
       getElementById: (id) => (id === 'mon-tabs' ? row : panes[id] || null),
+      querySelector: (sel) => (sel === '.topbar' ? topbar : null),
+      documentElement: { style: { setProperty: (k, v) => vars.set(k, v) } },
       addEventListener(type, fn) {
         if (type === 'DOMContentLoaded') ready = fn;
       },
@@ -115,6 +128,18 @@ function load({ pathname = '/monitor', stored = {}, presence = true } = {}) {
       setItem: (k, v) => store.set(k, v),
     },
     setTimeout,
+    ...(observer
+      ? {
+          ResizeObserver: class {
+            constructor(fn) {
+              this.fn = fn;
+            }
+            observe(el) {
+              observed = { el, fire: this.fn };
+            }
+          },
+        }
+      : {}),
   });
   vm.runInContext(fs.readFileSync(PUBLIC('montabs.js'), 'utf8'), ctx, { filename: 'montabs.js' });
 
@@ -127,6 +152,15 @@ function load({ pathname = '/monitor', stored = {}, presence = true } = {}) {
     boot: () => ready(),
     /** A thumb on one of the chips, through the row's own delegated listener. */
     tap: (tab) => rowClick({ target: { closest: () => chips.find((c) => c.dataset.tab === tab) } }),
+    /** Every custom property the file has put on the root element. */
+    vars,
+    /** Whether the bar is the thing being watched, and not something else. */
+    watching: () => observed && observed.el === topbar,
+    /** The bar changing height — the space picker's row arriving or going. */
+    resize: (h) => {
+      barH = h;
+      observed.fire();
+    },
     shown: () => CHIPS.filter((c) => !panes[c.pane].hidden).map((c) => c.tab),
     pressed: () => chips.filter((c) => c.attrs['aria-pressed'] === 'true').map((c) => c.dataset.tab),
   };
@@ -272,6 +306,51 @@ check('a page served without presence.js still swaps its panes', () => {
   t.boot();
   t.tap('prs');
   assert.deepEqual(t.shown(), ['prs']);
+});
+
+/* ------------------------------------------------- where the strip sticks (bc-ugd4)
+ *
+ * `.mon-tabs` is sticky at `var(--topbar-h)`, and this file is what makes that number
+ * true. It was `top: 0` — inherited from a strip whose scroll container starts below
+ * the bar — and on this page `0` is the top of the window, which is behind a sticky
+ * `.topbar`: the whole strip pinned itself out of sight on the first scroll.
+ *
+ * The height cannot be written into the stylesheet because it is not one number. The
+ * bar is 104px with the space picker's row and 61px without it, and the picker takes
+ * itself away below two workspaces — on the same build, the same page, mid-visit, from
+ * one payload to the next. So the interesting check is not the first publish, it is the
+ * second: a fix that only ran at boot would be correct until the moment the thing it is
+ * measuring changed, which is the moment it matters.
+ */
+
+check('the bar’s height is published for the strip to stick at', () => {
+  const t = load({ bar: 104 });
+  assert.equal(t.vars.get('--topbar-h'), '104px');
+  assert.ok(t.watching(), 'the ResizeObserver is not watching .topbar');
+});
+
+check('and republished when the space picker takes its row away', () => {
+  const t = load({ bar: 104 });
+  t.resize(61);
+  assert.equal(t.vars.get('--topbar-h'), '61px');
+  t.resize(104);
+  assert.equal(t.vars.get('--topbar-h'), '104px');
+});
+
+check('a zero is not published — the stylesheet’s fallback beats sticking at the top of the screen', () => {
+  const t = load({ bar: 104 });
+  t.resize(0);
+  assert.equal(t.vars.get('--topbar-h'), '104px');
+});
+
+check('a page with no top bar, and a browser with no ResizeObserver, still get their chips', () => {
+  for (const room of [{ bar: null }, { observer: false }]) {
+    const t = load(room);
+    assert.equal(t.vars.size, 0);
+    t.boot();
+    t.tap('mirror');
+    assert.deepEqual(t.shown(), ['mirror']);
+  }
 });
 
 console.log(failures ? `\n[31m${failures} of ${ran} failed[0m\n` : `\n[32mall ${ran} checks passed[0m\n`);
