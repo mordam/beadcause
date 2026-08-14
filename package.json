@@ -16,6 +16,7 @@
     "beadcause-file": "bin/file.js",
     "beadcause-propose": "bin/propose.js",
     "beadcause-ask": "bin/ask.js",
+    "beadcause-supersede": "bin/supersede.js",
     "beadcause-deliver": "bin/deliver.js",
     "beadcause-checkin": "bin/checkin.js",
     "beadcause-plan": "bin/plan.js",

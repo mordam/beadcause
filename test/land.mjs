@@ -191,9 +191,15 @@ for (const [name, brief] of [
     // improvised in a comment nothing could read — see lib/superseded.js.
     /three honest endings/.test(brief);
   check(`"${name}" claims the bead, reads CLAUDE.md, names the bead, and has all three exits`, all);
+  // Since bc-28ef the three writes are one command rather than two lines a worker types.
+  // Both halves are asserted because either alone is the bug: the command without the
+  // warning is a brief that reads as optional, and the warning without the command is
+  // the by-hand marking this replaced.
   check(
-    `"${name}" can mark a duplicate rather than write the instruction in a comment`,
-    /bd label add bc-fmt superseded-by:<the-original>/.test(brief) && /bd dep add bc-fmt <the-original>/.test(brief)
+    `"${name}" marks a duplicate with the command rather than by hand`,
+    /bin\/supersede\.js -w beadcause -b bc-fmt --original <the-original>/.test(brief) &&
+      /superseded-by:<the-original>/.test(brief) &&
+      /refused\*? when the original is an epic/.test(brief)
   );
 }
 
