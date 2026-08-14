@@ -11798,15 +11798,26 @@ beadcause request timings — 412 requests over 26m  ·  budget 1000ms  ·  slow
 route                        n     p50     p95     max  sub%     ×      n     p50     p95
 GET /api/prs                 3   26.8s   37.5s   37.5s  1.00  13.0×    41    12ms    22ms
 GET /api/questions          14   875ms    2.7s    4.5s  0.99   9.1×   126     9ms    18ms
+GET /api/session-log         ·       ·       ·       ·     ·     ·      6    1.2s    1.5s
 
-over budget — cold p95 past 1000ms:
+over budget — p95 past 1000ms, cold or warm:
   GET /api/prs
   GET /api/questions
+  GET /api/session-log
 ```
 
 That last block is the point of the whole thing: **the routes that miss the budget are
 named**, rather than left to be read off a table. `--json` gives the snapshot as it comes
 off the route, `--top N` the worst few, and `--parked` includes the long-polls.
+
+**Cold or warm, and that is not a hedge in the heading.** A route is over budget on the
+worse of its two p95s, because a request that took a second and a half took a second and
+a half whether or not it spawned anything. The third row above is the case that made the
+distinction concrete: `GET /api/session-log` reads a transcript off disk, so it spawns no
+child, so it is *warm* by the derivation — and it has no cold samples at all. Filtering
+the list on the cold p95 would have dropped the only genuinely slow route on that page
+out of the one list whose job is to name slow routes. The list has always been the worse
+of the two; for a while the heading over it said `cold p95`, which is what bc-fg37 fixed.
 
 ### What it found the first time it ran
 
@@ -13423,7 +13434,7 @@ cookie says so), and `/auth/signout` ends the session.
 | POST | `/api/terminal/close` | `{id}` | ends it (SIGTERM, then SIGKILL after 5s) |
 | WS | `/ws/terminal` | `?id=`, subprotocols `beadcause.term.v1` + `tok.<token>` | binary frames both ways are pty bytes; JSON carries `hello` · `ready` · `exit` in, `input` · `resize` · `close` out |
 | GET | `/terminal` | `?id=` or `?ws=&seed=` | the terminal page |
-| GET | `/api/timings` | — | `{since, uptimeMs, budgetMs, slowMs, requests, routes[], overBudget[], background, overflow}` — what every route has cost, worst first, **warm and cold counted apart** and the `bd`/`gh`/`git` share broken out of each. `overBudget` names the routes whose cold p95 misses `budgetMs`, which is the question the whole thing exists to answer; `background` is the subprocess time the daemon spent on nobody's request. The long-polls carry `parked: true` and are in neither list. Read as a table by `npm run timings`, and cheap enough to poll — two fixed-size buckets per route, in memory, nothing persisted. See [timing every request](#timing-every-request--which-routes-are-actually-slow) |
+| GET | `/api/timings` | — | `{since, uptimeMs, budgetMs, slowMs, requests, routes[], overBudget[], background, overflow}` — what every route has cost, worst first, **warm and cold counted apart** and the `bd`/`gh`/`git` share broken out of each. `overBudget` names the routes whose p95 misses `budgetMs` on **either** side of the cache — the worse of the two, so a route that only ever answers warm and still takes a second is named — which is the question the whole thing exists to answer; `background` is the subprocess time the daemon spent on nobody's request. The long-polls carry `parked: true` and are in neither list. Read as a table by `npm run timings`, and cheap enough to poll — two fixed-size buckets per route, in memory, nothing persisted. See [timing every request](#timing-every-request--which-routes-are-actually-slow) |
 | GET | `/api/admin` | — | every scope and what pausing it would cost. Read-only and cheap — no `bd` call, no spawn — because `/admin` polls it and the counts on the buttons have to be current when you press one |
 | POST | `/api/admin` | `{action, what, scope, mode}` | pause or resume everything, one space, or one half of it. `what` is `all` · `advocates` · `terminals`; `mode` is `drain` (default — no new launches, running workers finish untouched) or `kill`. Never run at boot: a `launchctl kickstart -k` behaves exactly as it did. Refused on an observer |
 | GET | `/api/tls` | `?pairing=1` | what HTTPS is doing: the setting, the certificate on disk (name, days left), what the socket is actually serving (`serving`: name, days left, and `checkedAt` — when the renewal loop last looked, `null` from anything too old to say), the URL a phone would be handed, and whether a restart is owed. Cheap enough to poll — two file reads and a memoised MagicDNS name, and it never asks `tailscale cert` for anything. `?pairing=1` adds the link and a QR |
