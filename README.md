@@ -10386,13 +10386,12 @@ session by hand is not routed either: it is reached from a question as often as 
 bead, you are standing there when you press it, and `/model` is one line away.
 
 **The selection is recorded on the advocate's card while the session is still running.**
-The bead does not carry it and cannot yet — what a run *actually* used is only knowable
-once it has finished, which is bc-nc6o.3 — so the worker row on the card is the only place
-"what is this window costing" is answerable in the meantime, and it carries the tier
-beside the model because `opus` is equally the answer for a bead rated `high` and a bead
-nobody rated at all. It is in the launch line in the log too, beside the permission mode
-and for the same reason: both are decisions made silently at spawn and invisible
-afterwards.
+It is the only place "what is this window costing" is answerable in the meantime — the
+bead carries [what it actually ran on](#and-what-it-actually-ran-on--the-ran-label) only
+once it has stopped — and it carries the tier beside the model because `opus` is equally
+the answer for a bead rated `high` and a bead nobody rated at all. It is in the launch
+line in the log too, beside the permission mode and for the same reason: both are
+decisions made silently at spawn and invisible afterwards.
 
 `test/tiermodel.mjs` covers it, and the checks that matter run the real `openWorkSession`
 end to end and read back **the shell command the window would have run** — a mapping that
@@ -10400,6 +10399,85 @@ is right and a flag that never reaches the command line look identical from a un
 It drives the launcher against a copy of `lib/` with a stub AppleScript beside it, so a
 full launch happens and no window appears; the amendment case commits a real amendment to
 a real repo and watches it beat the tier all the way to the `--model`.
+
+### And what it actually ran on — the `ran:` label
+
+Everything above is a **plan**, made in the second before a window opens. What the hour
+inside it was billed to is a different fact, and the two come apart for at least four
+ordinary reasons: somebody typed `/model` mid-session, an approved amendment beat the
+tier, the CLI fell back, a config default moved underneath it. A card showing only the
+selection would go on saying `sonnet` about a session that spent the afternoon on Opus —
+and it would not look wrong, which is the problem. The number is plausible, there is no
+other copy of it, and the first time the two diverge is the one time you would have wanted
+to know.
+
+So when a session finishes, its bead gains a `ran:<model>` label — `ran:opus`,
+`ran:sonnet` — and `lib/ranmodel.js` is the whole of it.
+
+**Observed, not reported.** Nothing asks the session what it ran on. A session that
+changed model and then crashed would never answer, and one that did answer would be
+answering about the moment it was asked. Claude Code already writes every assistant turn
+to `~/.claude/projects/<slug>/<session-id>.jsonl` with the model id on it, so the answer is
+on disk, per turn, whether or not the window is still there. A session somebody moved
+halfway through therefore yields **two** models and both are kept: "it ran on opus" and
+"it started on sonnet and moved to opus" are different sentences, and only the second one
+explains the bill.
+
+**The scan parses each line rather than matching the raw text**, and that is not
+fastidiousness. A transcript is full of other people's model names — a tool result quoting
+a docs page, a `grep` for the word, an agent reasoning aloud about which one to use — and
+every one of them matches a regex over the line. Only `assistant` events count, and only
+`message.model` on them. `<synthetic>` is skipped as well: Claude Code stamps it on
+messages it composed itself, so counting it would label the bead of every session anybody
+pressed escape in with a model that does not exist.
+
+**A label, and a set, for the reasons [`complexity:`](#how-hard-a-bead-is--complexitytier)
+is one.** beads carries, syncs and filters on labels without beadcause owning a schema, so
+`bd list --label ran:opus` is a question anybody can ask today from any machine on the
+workspace. A set is also exactly the shape of the fact: a bead worked twice on two models
+keeps both labels, and a bead worked twice on the same one grows nothing the second time —
+which is the acceptance in one sentence, an earlier run's model never lost and never
+re-stated. Computed against the row rather than written blind, so the second run is no
+`bd` write at all rather than a no-op edit in the bead's history.
+
+**The family, not the id.** `claude-opus-5` becomes `ran:opus`, in the same vocabulary the
+router selects with, so "did this run where it was sent" is a comparison rather than a
+mapping — and a bead worked in March and again in June does not sprout two labels claiming
+a divergence that is really two point releases of one model. An id naming a family this
+file has never heard of is kept **verbatim** rather than dropped: a blank would be a lie,
+and `ran:claude-quartz-9` reads as odd because it is.
+
+**The ✎ cannot lose it.** `isRanLabel` joins `owner:` and `for:` in `isProtectedLabel`
+(`lib/verdict.js`), and for a reason those two do not have: `ran:` is not a decision at
+all, it is a record. There is nothing to decide about it and no route that sets it, so the
+only thing [adjust](#approve-adjust-decline) could ever do to one is lose it — and the
+sheet posts the label set the card is showing, where a `ran:` chip is not something anybody
+types. Note that `complexity:` is deliberately *not* protected: that one is a claim
+somebody made about the work, and correcting it from a phone is what the ✎ is for.
+
+**The exact ids go in the archive, beside the plan.** Every session's `meta.json` on
+[`refs/beadcause/sessions/<bead>`](#the-session-log-kept-in-the-repo) now
+carries `model` and `tier` — what it was routed to and what that was decided from — next to
+`ran`, every model id its transcript shows, and `ranDiverged`. The bead carries the
+readable fact and the archive carries the forensic one; and because the archive is a chain
+of commits, "which model was the *last* run on" has a real answer there, where a label set
+has no order and does not pretend to.
+
+**Written whether or not the workspace keeps a session log.** `sessionLog: false` means
+"do not put a log in this repo", not "do not know what the bill was for", so the label is
+written on the ordinary path from the models the archive read back, and on its own from the
+transcript where there is no archive to read them off. A session whose transcript is gone
+says **nothing** rather than falling back to the routed model — turning "we do not know"
+into "it ran on what we planned" is the one failure this whole label exists to prevent. A
+run that diverged is said out loud once in the log, naming the bead, because that one is
+news.
+
+`test/ranmodel.mjs` covers it: the vocabulary and both refusals, a transcript built to
+contain exactly the text a regex would trip on, the earlier-run-survives case, an adjust
+that would have stripped the label, a log long enough to blow the 4MB rendering cap
+(because the long session is exactly the one somebody changed model in), the real
+`archiveSession` against a throwaway repo and a throwaway `$HOME`, and a real advocate
+tick — a window ending, and the label arriving on the bead — down both routes.
 
 ### Approve, adjust, decline
 
