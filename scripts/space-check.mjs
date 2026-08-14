@@ -404,6 +404,28 @@ try {
     JSON.stringify(onDisk().autoEndorsePerWorkspace || null)
   );
 
+  /* The setting the per-repo layer was generalised for, pressed the same way and read
+     back off the file the release queue's resolver reads. It is a different map from the
+     one above, so a page that had learned only one field name would pass everything
+     before this line and write nothing here. */
+  const shipped = await press('[data-repo-set="autoShip"][data-repo="alpha"][data-value="true"]');
+  check(
+    'the ship row writes its own map, so one repo may ship itself while its space does not',
+    shipped && onDisk().autoShipPerWorkspace?.alpha === true && !('autoShip' in spaceOnDisk('Work')),
+    JSON.stringify(onDisk().autoShipPerWorkspace || null)
+  );
+  const afterShip = await evalJs(
+    s,
+    `[...document.querySelectorAll('.space-repo')].map((r) => r.textContent.replace(/\\s+/g, ' ').trim())`
+  );
+  check(
+    'and its tag says so while the repo beside it goes on waiting for the button',
+    afterShip.some((r) => r.startsWith('alpha') && r.includes('ships itself')) &&
+      afterShip.some((r) => r.startsWith('beta') && r.includes('waits for Ship')),
+    afterShip.find((r) => r.startsWith('alpha'))
+  );
+  await press('[data-repo-set="autoShip"][data-repo="alpha"][data-value="null"]');
+
   /* ------------------------------------------------------------ the rest of it */
 
   check(
