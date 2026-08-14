@@ -40,3 +40,15 @@ android/.idea/
 *.apk
 *.keystore
 *.jks
+
+# Machine residue in whatever checkout somebody opened, and neither is ours: the Finder
+# writes `.DS_Store` into any folder it displays, and a JetBrains IDE writes `.idea/` at
+# the root of any project it opens. Untracked residue no longer refuses a delivery's
+# fast-forward (bc-45g8) — but the *shared* main checkout is where these two land, every
+# session on this Mac reads its `git status`, and two `??` lines that nobody may clear,
+# because they come straight back, make a dirty tree the resting state. `android/.idea/`
+# above has been ignored since the app existed, which is the tell that the root one was
+# an oversight rather than a decision. Anchored with a leading slash so it is the repo
+# root's IDE project and not, say, a fixture named `.idea` somewhere under test/.
+.DS_Store
+/.idea/
