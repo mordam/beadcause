@@ -6378,8 +6378,10 @@ says **no bead named** rather than borrowing one.
   an already-merged, closed or conflicting PR is refused *here* with a sentence that
   says which. GitHub's merge puts the commit on `origin/<base>` itself, so the work is
   off the laptop the moment it lands; the "& push" half is bringing this Mac's own
-  `<base>` up with it, and it **will not touch a checkout with uncommitted work in
-  it** — it says so instead, naming the paths in the way. Both halves are always reported separately: a merge that
+  `<base>` up with it, and it **will not touch a checkout with edited work in
+  it** — it says so instead, naming the paths in the way. Untracked residue it steps
+  past, and says so
+  ([why](#landing-work--a-branch-a-pull-request-and-the-workers-own-merge)). Both halves are always reported separately: a merge that
   landed and a fast-forward refused because you have files open is a good outcome, and
   one flat word over the pair would send you to the Mac to find out which happened.
   It takes **two taps**, with the consequence written into the button between them —
@@ -6560,7 +6562,11 @@ given a card each.
 `node test/prboard.mjs` covers the daemon's half against real git in a temp directory
 with a real `origin` to fetch from — the three-state ancestry, deployed meaning the
 boot commit rather than the newest one, the bead tiers, and that `landLocally` leaves
-a dirty checkout exactly as it found it. `landParent` — the same fast-forward asked for
+a checkout with edited work in it exactly as it found it — asserted from three sides
+since bc-45g8, because the rule is now a distinction rather than a flat no: untracked
+residue is stepped past and left on disk, one edited file stops it however much residue
+sits beside it, and an untracked file the incoming commit would have written is refused
+by git and reported with the path. `landParent` — the same fast-forward asked for
 from inside a worktree, which is how [a worker's own
 delivery](#landing-work--a-branch-a-pull-request-and-the-workers-own-merge) ends — has
 its own real worktree there, because the only thing it adds is *which checkout moves*,
@@ -6764,10 +6770,13 @@ nothing else is, and an unrecognised brace is left exactly as typed.
 live is the merged tree rather than whatever this Mac happened to have; rebuild anything
 whose `when` paths the fast-forward actually moved; then the deploy command. Every step
 records its own exit code, and a non-zero one stops the rest — a rebuild that failed
-never reaches a restart. **It will not merge over uncommitted work:** a dirty checkout
-stops the whole deploy before anything is built, because six sessions edit these
-checkouts and a deploy that quietly stashed one of them would be the worst kind of
-helpful.
+never reaches a restart. **It will not merge over uncommitted work:** a checkout with
+edited work in it stops the whole deploy before anything is built, because six sessions
+edit these checkouts and a deploy that quietly stashed one of them would be the worst
+kind of helpful. Edited work, read with `--untracked-files=no` — untracked files are
+nobody's unsaved edit, and the fast-forward the delivery path does
+([above](#landing-work--a-branch-a-pull-request-and-the-workers-own-merge)) now draws
+the same line for the same reason.
 
 #### Restarting a label is not the same as deploying a tree
 
@@ -8727,7 +8736,7 @@ has always done it — which left this one door into `main` not doing it, and it
 this sweep exists for. So the bead closed, the board drew merged, and local `main` stayed
 behind until something else happened to fetch: every worktree cut afterwards branched from
 before the merge, which is [the staleness the delivery path already fixed](#landing-work--a-branch-a-pull-request-and-the-workers-own-merge) arriving by the one route it did not cover. It is the same
-`landLocally`, including its refusal to touch a checkout with uncommitted work in it — one
+`landLocally`, including its refusal to touch a checkout with edited work in it — one
 line naming the paths, and `main` left exactly where it was. Only when the sweep actually
 closed a bead or a card, because that is the moment the answer is known to be worth a
 fetch; a workspace of forty checkouts asking every ten minutes for a question that is
@@ -9505,7 +9514,7 @@ session finishes ──► beadcause-deliver ──► pushes the branch ──�
                         └──► 🔀 PR board: merged, on origin, not yet running → Ship
 ```
 
-Six things follow, and they are the whole of the change:
+Seven things follow, and they are the whole of the change:
 
 - **A worker merges, and only ever through a pull request.** Not `git merge`, not
   `git push origin main`, not "just this once because it is trivial". There is still no
@@ -9524,19 +9533,32 @@ Six things follow, and they are the whole of the change:
   session that got it paid with a downmerge of work it had never heard of. So a delivery
   ends by fast-forwarding the **main checkout** — not its own worktree, where the ref
   cannot move anyway — and it is the same `landLocally` the **Merge & push** button uses,
-  refusal and all: *a checkout with uncommitted work in it is not touched*, it says so on
+  refusal and all: *a checkout with edited work in it is not touched*, it says so on
   the bead instead, and Adam's open files are worth more than a tidy `main`. **It names
-  the paths that stopped it**, and says outright when every one of them is untracked.
-  That reads as a detail and is not: the refusal is per-delivery but the checkout is
-  *shared*, so a single stray path holds up **every** session's fast-forward, silently,
-  until a person happens to look. A `.beads/` directory left behind by a reverted
-  `bd init` did precisely that for a day and 114 commits — nothing was lost, the merges
-  were all safely on `origin`, but nothing merged in that window was *live*, and
-  `--status` went on saying `disk … (matches what is running)` throughout, because the
-  checkout was simply old. Each session that hit it paid to work that out again. The
-  fix is that the sentence is now diagnostic; ignoring `.beads/` was the other option
-  and was declined, because it would have hidden the residue as well as the symptom,
-  and any *other* stray path reproduces the condition identically (bc-s7fs).
+  the paths that stopped it.**
+- **Untracked residue is the one thing it steps past** — and that is a decision, not an
+  oversight. The refusal is per-delivery but the checkout is *shared*, so a single stray
+  path used to hold up **every** session's fast-forward at once, silently, until a person
+  happened to look. A `.beads/` directory left behind by a reverted `bd init` did
+  precisely that for a day and 114 commits — nothing was lost, the merges were all safely
+  on `origin`, but nothing merged in that window was *live*, and `--status` went on saying
+  `disk … (matches what is running)` throughout, because the checkout was simply old.
+  Each session that hit it paid to work that out again. bc-s7fs fixed the *noticing* half
+  by making the sentence name the paths and say when all of them were untracked, and
+  deliberately left the rest open, because the guard it touches is the one lib/prboard.js
+  calls the most destructive thing in this codebase. bc-45g8 settled it: **a fast-forward
+  may proceed when every dirty line is `??`, and any tracked modification still stops it
+  dead.** The reason the guard exists is unsaved edits, and an untracked file is not an
+  edit to anything; the two paths that actually recur here are a `.DS_Store` and a root
+  `.idea/`, which the Finder and a JetBrains IDE put back as fast as anyone clears them.
+  What makes it safe rather than a hole is that the destructive case is covered twice:
+  `git merge --ff-only` refuses outright rather than overwrite an untracked file an
+  incoming commit would write, and *that* refusal is reported with the paths like any
+  other. `scripts/deploy-runner.mjs` has always read its own dirt with
+  `--untracked-files=no`, so the two halves of this codebase that fast-forward a shared
+  checkout now draw the same line. Nothing is ever cleared: stepping past residue leaves
+  it exactly where it was, which is why the note says *past untracked …* rather than
+  claiming a clean tree.
 - **It will not merge over a red check, and it will not wait forever for a green one.**
   Failing checks stop it and become a card in your inbox — the button there *does* let
   you merge over red, because a red check is sometimes a flake and judging that is what
@@ -10254,9 +10276,10 @@ call. Eight scenarios — green checks, a refusal from GitHub, a red check, `--r
 carrying an unresolved merge. The fast-forward is
 the only scenario that delivers from a real `git worktree`, because that is where a worker
 delivers from and the whole behaviour turns on it: the fake `gh` moves the bare origin's
-`main` on merge, and the checks are that the main checkout ends up at `origin/main` — and
-that it is left alone, with the reason on the bead, when there is an uncommitted edit in
-it. The assertions that matter are the negative ones: `gh pr merge` must not appear
+`main` on merge, and the checks are that the main checkout ends up at `origin/main`, that
+it is left alone with the reason on the bead when there is an uncommitted *edit* in it,
+and that it follows anyway — residue untouched on disk — when the only dirt is untracked.
+The assertions that matter are the negative ones: `gh pr merge` must not appear
 in the log for the red check or for `--review`, and the work bead must still be open in
 every scenario that did not merge, because a bead closed over work sitting in an unmerged
 pull request is invisible from every screen in the app. `BEADCAUSE_CONFIG_DIR` points it
@@ -12956,7 +12979,7 @@ cookie says so), and `/auth/signout` ends the session.
 | POST | `/api/respond` | `{workspace, id, response, create?, edits?}` | comments, then closes the bead. `create` is the 1-based indices of a proposal's beads to file; without it, `CREATE:` in the text means all and `CREATE: 1,3` means those. `edits` is `{n: {title, type, priority, description, acceptance}}` keyed by the same numbers, applied before creating. A `MERGE:` / `CHANGES:` / `DECLINE:` response on a delivery question acts on its pull request first — see [Landing work](#landing-work--a-branch-a-pull-request-and-the-workers-own-merge) |
 | GET | `/api/pr` | `?workspace=&id=` | `{delivery, pr, unavailable}` — the live diffstat, check rollup and mergeability of a delivery question's PR. Every failure is an answer rather than a 500: no `gh`, no remote, GitHub unreachable all come back with `pr: null` and a sentence in `unavailable` |
 | GET | `/api/prs` | `?refresh=1` | the PR board: every pull request in every repo with its Merged · Pushed · Deployed · Live lamps and its rung of [the ladder](#the-ladder-in-one-place), plus `observing`. One card per **repo** — `key` is `beadcause` or `climative/athena-service`, and it is what every row and every button below is addressed by, because a pull request number is only unique inside a repo. `workspace` is still accepted everywhere `key` is and means the same thing for a workspace that is one repo; see [why](#a-deploy-is-a-fact-about-a-repo-and-a-workspace-may-be-forty-of-them). Read by the board *and* by the inbox, which draws a card per row. Cached 25s on the daemon; `refresh=1` forces the `gh` sweep |
-| POST | `/api/pr/merge` | `{key, number, method?}` | merges it at GitHub, fast-forwards this Mac's `main`, and retires the inbox's own "Merge #N?" card if a worker filed one. Three halves report separately — `{pr, alreadyMerged, land, cards}` — because a merge that landed and a fast-forward refused over open files is a *good* outcome and one flat failure over both would send you to GitHub to find out which. The card is **closed**, never answered: merging a pull request is a fact, and the card is spent because of that fact rather than because anything wrote `MERGE:` under your name |
+| POST | `/api/pr/merge` | `{key, number, method?}` | merges it at GitHub, fast-forwards this Mac's `main`, and retires the inbox's own "Merge #N?" card if a worker filed one. Three halves report separately — `{pr, alreadyMerged, land, cards}` — because a merge that landed and a fast-forward refused over open files is a *good* outcome and one flat failure over both would send you to GitHub to find out which. Only *edited* files refuse it: untracked residue is stepped past and named, because this checkout is shared with every session on the Mac and one stray `.DS_Store` used to stop all of them. The card is **closed**, never answered: merging a pull request is a fact, and the card is spent because of that fact rather than because anything wrote `MERGE:` under your name |
 | POST | `/api/pr/ship` | `{key, number}` | the declared deploy where the repo has one, an iTerm session where it does not. `409` if the PR is not merged — shipping an unmerged pull request has no meaning. Refused on an observer |
 | POST | `/api/release/ship` | `{workspace}` | ships the whole release queue — one deploy for every merge sitting on `origin` and not live, which is what a deploy has always done anyway. `409` on an empty queue (a restart for nothing), on a repo that declares no deploy (there is no window that means "and the other three"), and on one already deploying. Refused on an observer |
 | POST | `/api/pr/comment` | `{key, number, text}` | a note on the pull request at GitHub and nothing else. Not `/api/comment`, which writes on a *bead* and puts an agent onto answering it |
