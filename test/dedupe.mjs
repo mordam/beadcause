@@ -269,7 +269,14 @@ if (args[0] === 'show') { console.log(JSON.stringify([byId(args[1])].filter(Bool
 if (args[0] === 'list') {
   const status = (args.find((a) => a.startsWith('--status=')) || '').slice('--status='.length).split(',').filter(Boolean);
   const label = args.includes('--label') ? args[args.indexOf('--label') + 1] : null;
+  // \`--parent\` has to be honoured or this fake answers a *children* question with the
+  // whole tracker. Nothing asked it one until bd 1.2.1 made the close gate apply to
+  // every parent and not only to epics (bc-xl7n.39), at which point \`Bd.gateFor\` began
+  // asking on the close of a proposal card and every card here came back "a parent with
+  // 2 open child issues". A real bd answers with the rows whose parent is that id.
+  const parent = args.includes('--parent') ? args[args.indexOf('--parent') + 1] : null;
   let rows = (state.issues || []).filter((i) => (!status.length || status.includes(i.status)));
+  if (parent) rows = rows.filter((i) => i.parent === parent);
   if (label) rows = rows.filter((i) => (i.labels || []).includes(label));
   console.log(JSON.stringify(rows));
   process.exit(0);
