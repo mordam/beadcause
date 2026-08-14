@@ -3904,6 +3904,18 @@ rather than a fallback, and an optional handler. `test/stream.mjs`'s `VIEWS` lis
 keeps the count honest, and it is keyed on the script rather than the page for exactly
 this reason.
 
+**And a seventh, missed for the opposite reason: it has no page on the bar.** The
+[endorsement queue](#the-endorsement-queue--a-group-tap-or-a-row-at-a-time) is
+reached from the 🗳 in the inbox's top bar or from the advocate console's `N held for
+endorsement` pill, so a survey that started from the tab bar — which is what the table
+above is — never listed it. It kept a 45-second full refetch for months after the timers
+here were deleted, and it was the most expensive of all of them: `/api/unendorsed` lists
+every workspace and then reads a bead per row for the provenance line, paid four times a
+minute whether or not a single bead had been filed. It is a mount now (bc-bsgn), on the
+same terms as the rest: `want=presence`, and a wake it cannot act on because you are
+mid-sentence is deferred rather than dropped — the queue catches up the moment the box is
+empty, which the old timer never did either way.
+
 The thing that makes four more parked clients free is `want=presence`. The daemon sweeps
 `bd` for a poll that asked for the inbox questions, and the other four views draw none of
 them — so they ask to be *woken* rather than told, and then go and get their own payload,
@@ -3920,6 +3932,7 @@ each case because what is expensive is different in each case:
 | **Admin** | Reads `observing` off the poll, which is the whole reason it ever touched `/api/work`, and re-asks `/api/admin` — two in-memory reads, no `bd` — when an advocate or a terminal moved. Its numbers are promises about what a press will do, so half-patching them was never an option. |
 | **Board** | Re-asks `/api/prs` when a pull request actually moved. The three lamps are the daemon's own reading of GitHub, `origin/main` and the deploy journal; a client that set them from an event would be a second, worse copy of that ladder. The daemon drops its board cache as those events fire, so the first board through does the one `gh` sweep and every other open board shares it. |
 | **Chat launcher** | Was the odd one out — no timer to delete, just no refresh — and now re-asks `/api/consoles` when something moved. |
+| **Endorsement queue** | Re-asks `/api/unendorsed` when a bead was filed, a verdict landed on another device, an agent amended one it was asked to change, or a discussion moved — `QUEUE_EVENTS` in `public/stream.js`. Nothing is patched from the event: the rows are whole beads and what a filing did to *this* list is knowledge the daemon has and the page does not. A wake that arrives while you are mid-sentence, mid-edit or holding an armed revoke is held back and taken at the next repaint, because the alternative is a queue that is silently wrong for as long as you keep typing. |
 | **Mirror** | The one view for which presence *is* news: it reads `presence` off the wake and re-reads the phone's card only when the phone moved to a different one, or when a non-presence event landed on the key it is already showing. |
 
 Two events were added for it, both on the daemon: opening and closing an in-app terminal
@@ -4048,16 +4061,17 @@ three of those fail, with `stamp 0ms newer` — which is the bug, printed.
 The section above closed that hole for `/api/work` and stopped there, deliberately. The
 hole itself was never about the advocates tab: once-per-document fill against a
 fifteen-minute TTL is a property of `warm.js`, so **every** warmed path had it, and the
-three that were left are the ones you reach without a tab — `/admin` is a tab, and the
-board and the chat launcher are both one tap from a row on the inbox. All three were cold
-every time they were reached more than a quarter of an hour after the inbox loaded, which
-on the page you leave open all day means almost always.
+ones that were left are those you reach without a tab — `/admin` is a tab, and the board,
+the chat launcher and the endorsement queue are each one tap from the inbox: a PR card, a
+chat row, the 🗳. Every one of them was cold every time it was reached more than a quarter
+of an hour after the inbox loaded, which on the page you leave open all day means almost
+always.
 
 What made it one decision per path rather than one rule is that the paths do not cost the
 same. So the table is in `MAINTAINED` in `public/app.js`, and it separates two halves that
 were previously tangled together:
 
-**The free half is available to all four, and it is most of the fix.** The inbox is parked
+**The free half is available to all of them, and it is most of the fix.** The inbox is parked
 on `/api/poll`. An entry the log has *not* contradicted is exactly as true as it was when
 it was fetched, however long ago that was — so `warm.refresh()` puts its clock forward for
 no request at all. That alone is the difference between a warm layer that survives fifteen
@@ -4078,6 +4092,17 @@ path.**
   patch one half for the reason that a button labelled from two different moments is true
   of neither, and the copy held for that page has to follow the same rule or it would come
   to disagree with the page's own fetch. The whole payload, or nothing.
+- **`/api/unendorsed` gets the free half and nothing else, for the same reason as the
+  board and more of it.** The endorsement queue is a `bd list` per workspace and then a
+  `bd show` per row — the most expensive payload in this table — and it is a page that may
+  never be opened today. A floored re-ask would put that sweep on a once-a-minute clock on
+  behalf of nobody, which is the bill `/endorse` stopped paying when its own 45-second
+  timer went. So it is held young for as long as the log says nothing has been filed,
+  revoked, amended or asked about, and the moment one of those lands the entry keeps its
+  own age and the TTL takes it. That is what makes arriving at the queue instant more than
+  fifteen minutes after the inbox document loaded, which on a phone left open all day is
+  every arrival — and it is why the entry is worth maintaining rather than merely
+  prewarming.
 - **`/api/prs` is never re-asked here at all, and that is the decision rather than the
   gap.** It is a `gh` call per repo. A floored re-ask would keep that sweep running once a
   minute, all day, on behalf of a board that may never be opened — which is precisely the
@@ -6499,6 +6524,19 @@ else, which is everywhere by default.
 list, every workspace at once, newest first, narrowed by the space picker in the top
 bar like every other standing view.
 
+**And it arrives drawn, then stays true without asking.** Both halves are recent
+(bc-bsgn) and they answer different halves of the same complaint. Arriving used to mean
+watching a spinner: this is the most expensive payload in the app — every workspace
+listed, then a bead read per row — so the [warm
+layer](#and-every-other-warmed-path-decided-one-at-a-time) now holds the queue you were
+last shown and paints it while the sweep is still in the air. Staying true used to mean a
+45-second full refetch, four times a minute, filed bead or not; it is [on the delta
+stream](#the-delta-stream--every-view-on-the-event-log) instead, so a bead filed by a
+worker in the next room lands on the phone in the moment it was filed and an idle queue
+costs the daemon nothing at all. A wake that arrives while you are mid-sentence is held
+back rather than repainting over your thumb — and taken the moment the box is empty,
+which is the half a guard like that usually forgets.
+
 ### The row is the bead, not a summary of it
 
 Unfolded, a row shows what the agent actually wrote: what the work is, what done looks
@@ -6683,6 +6721,14 @@ exists for are the ones invisible from the server: that a group tap is **one req
 per workspace** carrying all of its ids, that the first press of Revoke — and of Endorse
 all — writes **nothing at all**, and that Endorse all under a narrowed picker leaves the
 bead in the space you were not looking at exactly where it was.
+
+Its fixture keeps an event log and counts sweeps, which is how the refresh half is
+asserted from outside: a `presence` event — somebody else's thumb — costs **no sweep**, a
+filing costs **exactly one** and is on screen inside a second, a wake arriving mid-sentence
+costs none and leaves the half-typed question alone, and emptying that box takes the wake
+it deferred. Then the sweep is held for two and a half seconds and the page is opened
+again, so "the queue was on screen before the answer could have arrived" is a measurement
+rather than an impression.
 
 ## An error the app hits files itself as a P0
 
@@ -12342,7 +12388,7 @@ cookie says so), and `/auth/signout` ends the session.
 | GET | `/api/graph` | `?workspace=&id=` | `{nodes, links}` — the whole workspace with no `id` |
 | GET | `/api/bead` | `?workspace=&id=` | one issue in full, plus `comments[]` — for the graph's detail sheet |
 | GET | `/api/bead-links` | `?workspace=&id=` | `{children[], dependents[]}` — everything with an edge pointing at that bead, closed ones included, open work first: the `parent-child` rows as `children`, every other kind as `dependents` with its `dependency_type`. One `bd dep list --direction=up` for both, because `bd show` carries `dependent_count` and not one row behind it |
-| POST | `/api/bead/advocate` | `{workspace, id}` | opens the **P0 advocate** on this P0 — the button on the inbox's P0 card. Four refusals in front of it, all 409 with a sentence: unendorsed, superseded, closed, or not a P0 anybody owns (a crash P0 is refused by name — a stack trace is not an epic). **Never two on one P0**: a live session whose window carries this bead id is a 409 rather than a second window. Blocked under `OBSERVING`, unlike the verdict routes — those are you deciding, this is the daemon opening a window |
+| POST | `/api/bead/advocate` | `{workspace, id}` | opens the **P0 advocate** on this P0 — the button on the inbox's P0 card. Four refusals in front of it, all 409 with a sentence: unendorsed, superseded, closed, or not a P0 anybody owns (a crash P0 is refused by name — a stack trace is not an epic). **Never two on one P0**: a live session whose window carries this bead id is a 409 rather than a second window — matched with `namesBead`, so a session on a *child* of this P0 no longer refuses it — and so is a launch from the last ten minutes whose window has not named itself yet, since that is the gap a second tap falls through. The card in front of it reads the same rule and draws it: it links to `/session?pid=` while an advocate is up, and says one is opening until then, rather than re-offering a launch that would now be refused (`advocate` on each card of `p0board`). Blocked under `OBSERVING`, unlike the verdict routes — those are you deciding, this is the daemon opening a window |
 | POST | `/api/bead/owner` | `{workspace, id, owner}` | sets `owner:<handle>` — who is answerable for this bead — and answers `{owner, owners[], p0, changed}`. An empty `owner` hands it back to nobody, which is a thing you may say; setting the owner it already has is `changed: false` and no `bd` write at all. Every *other* owner label comes off, so resolving two machines' claims from the sheet is visible. A route of its own rather than a field of `/api/bead/adjust`, because adjust refuses a bead anybody has endorsed and ownership is most worth changing on a P0 that is live — and because the ✎ may not touch `owner:` at all (`isProtectedLabel`) |
 | GET | `/api/p0s` | `?workspace=` | `{p0s[]}` — every **open** P0 in that workspace, `{id, title, owners[], mine}`, yours first. What the sheet offers a held bead to be adopted under. Every P0 and not only yours, because the dispatch gate measures against all of them; off the cached graph, and this one waits for a cold cache rather than answering "there are no P0s" |
 | POST | `/api/bead/adopt` | `{workspace, id, parent}` | moves a bead under `parent` — the fix for the one hold that never clears itself, offered on the sheet of any bead with **no P0 above it**. Answers `{parent, workable}`, where `workable` is the gate's own answer after the write rather than a promise about it. A parent with no P0 above *it* is a 409 naming that, since the adoption would not make the bead workable; an empty `parent` detaches instead, which is how an adoption into the wrong epic is undone. The cached graph is refreshed on the way out, so the next advocate tick acts on the new shape |
