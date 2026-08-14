@@ -15359,6 +15359,41 @@ changing its mind. The good consequence: a ticket handed *back* to you finds its
 ref and files nothing new, because the ref is in the tracker whether or not the ticket was
 in the last sweep.
 
+**A summary that is rewritten follows onto the title — while the title is still ours.**
+A ticket being renamed is ordinary: a placeholder is triaged into a real title, a summary
+is corrected, a component changes its name. The poller sees it within the minute and the
+inbox row redraws, so an epic filed once and never touched again ends up disagreeing with
+the row above it about what the same ticket is called — and the bead is the thing
+everything else hangs off. bc-yc16 asked whether the epic should follow, and the answer is
+**yes, under three refusals**:
+
+1. **Only a title beadcause wrote.** That is recorded when the epic is filed and inferred
+   at every authoritative read: a bead whose title is *already exactly* what would be
+   written for the ticket in hand is one nobody has edited. A title that differs at that
+   moment is somebody's — or belongs to a bead adopted by nets 2 and 3, which never
+   carried ours — and it is never rewritten, on that tick or any later one.
+2. **Only an epic nobody is working.** `open` and nothing else. A closed epic's title is
+   history; an in-progress one is the name on the window of a session running right now,
+   and a container that renames itself halfway through reads as a different bead.
+3. **Only against the tracker.** The drift is *noticed* in memory, which is what keeps a
+   quiet minute free, and then decided against a fresh `bd list --all` — because the title
+   in memory is up to a minute old and a minute is long enough for somebody to have
+   retitled the bead by hand.
+
+The description is deliberately **not** rewritten. That body is the ticket as it arrived —
+its status line, its assignee, the prose beside them — and a sweep that rewrote it would
+eventually eat something a person had added. The title is what every list, card and queue
+draws, and it is the whole of what was asked for.
+
+One gap is left open on purpose: **a summary rewritten while the daemon was down.** The
+first read after a restart then finds a bead that disagrees with JIRA and no memory of who
+wrote it, which is indistinguishable from a hand edit — so it refuses, and the epic keeps
+the name it had. That is the same staleness this paragraph exists to fix, accepted in the
+one case where fixing it might overwrite a person. Retitle the bead to match the ticket
+and the next read takes it back. A rename is logged in full, both titles, and says so in a
+comment on the bead; it emits no bus event, for the reason filing does not, but it *does*
+drop the endorsement queue's cache, because that screen is the one drawing the old title.
+
 **Who owns it is not the JIRA assignee, and that is deliberate.** `bd` takes `owner` from
 the git identity of the directory the command runs in, which for a work workspace is
 already the work address. So nothing tries to force one: the assignee is recorded *on* the
@@ -15381,7 +15416,9 @@ queue's fifteen-second cache, because that screen is the one place the new epic 
 it is fetched on its own.
 
 `node test/jiraepic.mjs` covers the three nets, the hold and its refusal, the free path, the
-backoff and where the epic lands. `node test/jiraepicreal.mjs` asks the **real** `bd` the
+backoff, where the epic lands, and every refusal the rename owes — a title edited by hand,
+an adopted bead, an epic being worked, one that is closed, and a refusal that must not be
+re-decided (and re-read) every minute for as long as the ticket exists. `node test/jiraepicreal.mjs` asks the **real** `bd` the
 one question a fake cannot answer: that a ref written on the way in comes back out on the
 way past, on create, on update, and on a bead that has since been closed. If it did not,
 every sweep would look up a ticket, find nothing, and file another perfectly well-formed
