@@ -1356,10 +1356,43 @@ GitHub reports the branch merged, `lib/release.js` when the build is live, and
 `lib/owed.js` retrying any of them. Closing a *question* is not on that list — a card is
 answered, not delivered.
 
-The alternative was to reclaim first (`bd update --assignee <actor>`, which also works).
-It is not used because it rewrites the assignee to the daemon on every delivered bead,
-so the tracker would permanently forget who did the work. A closed bead keeping its
-worker's name is worth more than a guard the merge has already satisfied.
+The alternative was to reclaim first (`bd update --assignee ''`, which also works).
+It is not used **here** because it rewrites the assignee on every delivered bead, so the
+tracker would permanently forget who did the work. A closed bead keeping its worker's
+name is worth more than a guard the merge has already satisfied.
+
+##### The question is the sixth path, and it reclaims instead
+
+Ruling a question out of those five was right about the evidence and left the answer
+path refusing. Adam hit it the same morning, on bc-jrvh: the comment is written *before*
+the close on purpose — so an answer survives a Dolt lock — and here that guarantee
+inverted. The answer landed, the close threw, the card stayed in the inbox looking
+unanswered, and it got answered again. That bead carried the same answer three times
+over four comments. **bc-ko7n**, and `Bd.closeAnswered` is the fix.
+
+**It reclaims rather than forcing, and the trade is genuinely the other way round from a
+delivery's.** The objection above — reclaiming forgets who did the work — is decisive on
+a work bead and empty on a question. A card's assignee is an artifact of some worker
+window having touched it; nobody claimed a question in order to own it, and `bd ready`
+skipping it is the whole of what that claim was doing. So the narrow instrument is
+available: dropping the assignee lifts exactly the rule in the way, where `--force`
+would lift the blocker and epic gates with it. Same shape as the five otherwise — the
+close is attempted as it always was, and the clear happens only when `isClaimGuard`
+matches, so an unclaimed question is never written to on its way out.
+
+**The gate is deliberately not taught this refusal.** `Bd.gateFor` is what the phone
+draws a card from and what `lib/landed.js` and `lib/owed.js` skip on; a branch there for
+something both paths now recover from would make every bead any session ever claimed
+read as unclosable. That is the *inventing a gate* failure `test/closegatereal.mjs`
+exists to catch, and it pins the agreement instead: the gate stays silent, and the close
+goes through.
+
+What stops a duplicate answer next time is `Bd.answerOnce`, not the gate. Comment-first
+means *any* failure after the comment leaves a card that will be answered again, so
+`respond` and `commission` skip a comment that is already the newest thing on the
+thread — the repeat finishes the close rather than saying the same sentence twice. Only
+the newest, and only an exact match: the same words six comments up are a real answer,
+and `lib/answered.js` is what tells you about that on the card.
 
 The last three rows of the table are the exception to every sentence above — the two
 where beadcause refuses what bd closes, and the one underneath them that says what is
