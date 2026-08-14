@@ -35,6 +35,14 @@
        other script, because it can only catch what loads after it — and it is purely
        additive, so a page that fails to load it behaves exactly as it did before. -->
   <script src="/report.js"></script>
+  <!-- The queue you were last shown, drawn before this page's own request has left.
+       Before endorse.js, which asks it for that frame in the first lines of its IIFE. -->
+  <script src="/warm.js"></script>
+  <!-- The delta stream. This page had the last wall-clock refetch in the app — 45s, and
+       every one of them a `bd` sweep of every workspace whether or not anything had been
+       filed. Beside warm.js because the two are the same bargain at either end of a
+       visit: one paints what you already had, the other keeps it true. -->
+  <script src="/stream.js"></script>
   <script src="/presence.js"></script>
   <script src="/tabbar.js"></script>
   <!-- The app keeping itself in step with what was just deployed: reloads the page when

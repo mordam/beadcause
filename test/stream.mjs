@@ -352,7 +352,7 @@ await check('and "would `bd` answer /api/work differently" is one judgement, not
 /**
  * Every mount of the shared loop.
  *
- * Six rather than five, and two of them are second and third scripts on a page already
+ * Seven rather than five, and two of them are second and third scripts on a page already
  * here: `monitor.html` carries three panes and each follows the log for its own reason.
  * The mirror's is a phone moving, with its own sequence — it was left hand-rolled when
  * the other five were converted, see bc-2ml3 and the note at `feed()` in mirror.js for
@@ -367,6 +367,11 @@ const VIEWS = [
   { page: 'public/monitor.html', script: 'public/prs.js', id: 'prs' },
   { page: 'public/console.html', script: 'public/console.js', id: 'console' },
   { page: 'public/monitor.html', script: 'public/mirror.js', id: 'mirror' },
+  // The seventh, and it was not one of the five bc-rk2o converted — that bead's table
+  // listed the views with tabs and the endorsement queue has never had one, so it kept
+  // its 45-second full refetch for as long as this file has existed (bc-bsgn). It is the
+  // most expensive refetch of the lot: every workspace swept, then a `bd show` per row.
+  { page: 'public/endorse.html', script: 'public/endorse.js', id: 'endorse' },
 ];
 
 await check('every standing page loads the file, before the script that mounts it', () => {
@@ -390,7 +395,7 @@ await check('the service worker ships it, or a cached page never refreshes at al
   assert.ok(Number(version[2]) >= 28, `the cache version is still ${version[1]}`);
 });
 
-await check('all six views mount the shared stream, and none of them writes its own', () => {
+await check('all seven views mount the shared stream, and none of them writes its own', () => {
   for (const v of VIEWS) {
     const src = read(v.script);
     // Optional chaining allowed and, on the inbox, required: a page served from a
@@ -406,8 +411,8 @@ await check('all six views mount the shared stream, and none of them writes its 
   }
 });
 
-await check('the four converted views have no wall-clock refresh left', () => {
-  for (const f of ['public/admin.js', 'public/monitor.js', 'public/prs.js', 'public/console.js']) {
+await check('the converted views have no wall-clock refresh left', () => {
+  for (const f of ['public/admin.js', 'public/monitor.js', 'public/prs.js', 'public/console.js', 'public/endorse.js']) {
     const code = read(f)
       // Comments are where the deleted timers are explained, and the explanations name
       // them. Stripped so the assertion is about the code.
@@ -417,8 +422,57 @@ await check('the four converted views have no wall-clock refresh left', () => {
   }
 });
 
+await check('the queue wakes for what can change it, and not for somebody else scrolling', () => {
+  const { stream } = mount();
+  // Both halves of a discussion are news here on purpose: the dispatch and the comment
+  // that comes back, because the folded row draws a 💬 count and a bead you asked three
+  // questions about last night must not read as one nobody has opened.
+  for (const type of ['created', 'endorsement', 'amended', 'commented', 'discussion']) {
+    assert.equal(stream.queueMoved([{ type }]), true, `a ${type} event leaves the queue cold`);
+  }
+  // The negative is the one worth having. This page refetches by sweeping every
+  // workspace and then reading a bead per row, so a wake for a thumb moving on somebody
+  // else's phone would be the 45-second timer back, arriving by a worse route.
+  for (const type of ['presence', 'advocate', 'terminal', 'answered']) {
+    assert.equal(stream.queueMoved([{ type }]), false, `a ${type} event pulls a bd sweep of every workspace`);
+  }
+  assert.equal(stream.queueMoved([]), false);
+  assert.equal(stream.queueMoved(undefined), false, 'a missing events array must read as "nothing moved"');
+});
+
+await check('and both pages that hold the queue ask that one question, not two lists', () => {
+  // The drift this prevents is invisible: an inbox that thought a filing was nothing
+  // would go on handing /endorse a warm payload missing exactly the bead you are being
+  // asked about. Same argument as `boardMoved`, which is the neighbour it sits beside.
+  for (const f of ['public/endorse.js', 'public/app.js']) {
+    assert.ok(/stream\??\.queueMoved\??\.?\(/.test(read(f)), `${f} does not ask stream.queueMoved`);
+    assert.ok(
+      !/'endorsement'\s*,\s*'amended'/.test(read(f)),
+      `${f} keeps a copy of the queue's event list — there is one, in public/stream.js`
+    );
+  }
+});
+
+await check('a wake the queue cannot act on is deferred, not dropped', () => {
+  const src = read('public/endorse.js');
+  // Two halves, and only the second is easy to leave out. Returning early while you are
+  // mid-sentence is right — a repaint would take the sentence away — but a page that
+  // never comes back to it is a queue that stays wrong for as long as you keep typing,
+  // with nothing on the screen saying so, just before you make decisions off it.
+  assert.ok(/stale = true;/.test(src), 'endorse.js drops a wake it could not act on');
+  assert.ok(/function catchUp\(\)/.test(src), 'endorse.js has no catch-up for a deferred wake');
+  assert.ok(/setTimeout\(catchUp, 0\)/.test(src), 'nothing ever takes the deferred wake');
+});
+
 await check('the non-inbox views park without asking the daemon to sweep bd for them', () => {
-  for (const f of ['public/admin.js', 'public/monitor.js', 'public/prs.js', 'public/console.js', 'public/mirror.js']) {
+  for (const f of [
+    'public/admin.js',
+    'public/monitor.js',
+    'public/prs.js',
+    'public/console.js',
+    'public/mirror.js',
+    'public/endorse.js',
+  ]) {
     assert.ok(/want:\s*'presence'/.test(read(f)), `${f} parks on a poll that sweeps every workspace`);
   }
 });

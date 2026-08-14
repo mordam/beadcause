@@ -154,8 +154,9 @@ function board(p0s, open = []) {
     space: 'all',
     workspace: 'all',
     spaces: [],
+    p0opening: new Map(),
   };
-  const context = vm.createContext({ String, Number, Math, JSON, encodeURIComponent, state });
+  const context = vm.createContext({ String, Number, Math, JSON, Date, encodeURIComponent, state });
   vm.runInContext(
     [
       lift(APP, 'const esc = ('),
@@ -167,6 +168,10 @@ function board(p0s, open = []) {
       lift(APP, 'function p0HintText(on, total)'),
       lift(APP, 'function p0RowHtml(card, row)'),
       lift(APP, 'function p0TreeHtml(card)'),
+      // bc-d6yk's three-state control, which the acts row now calls rather than writing
+      // a launch button by hand — and the local "just launched" note it reads.
+      lift(APP, 'function openingHere(key)'),
+      lift(APP, 'function p0Control(c)'),
       lift(APP, 'function p0SectionHtml()'),
       'p0SectionHtml();',
     ].join('\n'),
@@ -337,7 +342,7 @@ check('a title out of the tracker cannot write markup into the board', () => {
 
 check('the three no-op cases are untouched: no `me`, no P0s, an old payload', () => {
   assert.equal(board([]), '');
-  const context = vm.createContext({ String, Number, Math, JSON, encodeURIComponent, state: { p0board: { owned: false, p0s: [CARD] }, p0open: new Set(), space: 'all', workspace: 'all', spaces: [] } });
+  const context = vm.createContext({ String, Number, Math, JSON, Date, encodeURIComponent, state: { p0board: { owned: false, p0s: [CARD] }, p0open: new Set(), space: 'all', workspace: 'all', spaces: [], p0opening: new Map() } });
   vm.runInContext(
     [
       lift(APP, 'const esc = ('),
@@ -349,6 +354,10 @@ check('the three no-op cases are untouched: no `me`, no P0s, an old payload', ()
       lift(APP, 'function p0HintText(on, total)'),
       lift(APP, 'function p0RowHtml(card, row)'),
       lift(APP, 'function p0TreeHtml(card)'),
+      // bc-d6yk's three-state control, which the acts row now calls rather than writing
+      // a launch button by hand — and the local "just launched" note it reads.
+      lift(APP, 'function openingHere(key)'),
+      lift(APP, 'function p0Control(c)'),
       lift(APP, 'function p0SectionHtml()'),
     ].join('\n'),
     context
