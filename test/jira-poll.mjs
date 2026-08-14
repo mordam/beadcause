@@ -428,6 +428,16 @@ console.log('\nwired into the poll cycle');
     'a cancel record whose ticket JIRA stopped returning has no screen anywhere'
   );
   check(
+    'and unlike the two fields above it, it is not filtered to the active account',
+    // bc-0i27.24. A workspace dropped from the config is usually dropped from every
+    // account's `workspaces` list too, so `mine` here would not scope the list to your
+    // account — it would usually hide the record from every account there is, with no
+    // widening left that could ever bring it back. `strandedCancels(held)` must be
+    // followed straight by `.map(`, never by `.filter(mine)`.
+    /strandedCancels\(held\)\.map\(/.test(src),
+    'a stranded record for a workspace no account claims went unreachable again'
+  );
+  check(
     'each one stamped with its space, or the inbox filter files it under Other',
     // The `space:` line rather than the whole expression around it: bc-0i27.5 added a
     // second stamped field (`ingest`) and broke this row apart across several lines, and
