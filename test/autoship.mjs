@@ -25,6 +25,11 @@
  *    space's own answer.
  * 5. **A bead that lies.** With auto-ship on, a ship bead saying "shipping is your tap"
  *    describes something waiting for you when nothing is.
+ * 6. **A stowaway.** The window closes over a batch and the deploy fast-forwards to the
+ *    branch a minute later — so a merge that landed in between goes out under a deploy
+ *    that never considered it, with no bead stamped and nothing saying it shipped. The
+ *    fix is that closing the window captures a commit; the test is that the commit is
+ *    the one the branch was at *then*, not the one it reached afterwards.
  *
  * Nothing here deploys anything: `ship` is a stub that records what it was called with,
  * which is exactly the seam lib/release.js takes it through.
@@ -33,6 +38,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { cleanupTmp } from './helpers/tmp.mjs';
 
@@ -355,7 +361,7 @@ function shipper() {
   const s = {
     calls: [],
     fn: async (ws, queue, opts) => {
-      s.calls.push({ workspace: ws.name, numbers: opts.numbers, count: queue.count });
+      s.calls.push({ workspace: ws.name, numbers: opts.numbers, count: queue.count, pin: opts.pin ?? null });
       if (s.fails) throw new Error('launchctl said no');
       return { id: `d-${s.calls.length}` };
     },
@@ -491,6 +497,82 @@ forget();
   await sweep([row({ number: 10, deployDeclared: false })], t0 + 40 * MINUTE);
   await check(() => assert.equal(s.calls.length, 0), 'a workspace with no declared deploy is untouched by all of this');
   await check(() => assert.equal(bd.created.length, 1), 'and files its bead to wait for a session, exactly as before');
+}
+
+/* ------------------------------------------------- the commit the window closed on */
+
+/**
+ * A checkout whose `origin/main` this test can move by hand.
+ *
+ * `update-ref` rather than a second repo and a real remote: what `pinFor` reads is the
+ * remote-tracking ref, and the whole question here is what it said at one instant versus
+ * another. A push would prove git's plumbing, which is not in doubt.
+ */
+function checkout(name) {
+  const dir = path.join(tmp, name);
+  fs.mkdirSync(dir, { recursive: true });
+  const git = (...args) => execFileSync('git', ['-C', dir, ...args], { encoding: 'utf8' }).trim();
+  git('init', '--quiet', '--initial-branch=main');
+  git('config', 'user.email', 'test@localhost');
+  git('config', 'user.name', 'test');
+  const commit = (text) => {
+    fs.writeFileSync(path.join(dir, 'file'), `${text}\n`);
+    git('add', 'file');
+    git('commit', '--quiet', '-m', text);
+    return git('rev-parse', 'HEAD');
+  };
+  return { dir, commit, land: (sha) => git('update-ref', 'refs/remotes/origin/main', sha) };
+}
+
+forget();
+{
+  const repo = checkout('pinned');
+  const bd = tracker();
+  const s = shipper();
+  const t0 = Date.now();
+  const sweep = (prs, at) =>
+    sweepReleases(bd, ON, { repos: [card({ prs, dir: repo.dir })] }, { deploys: [], now: at, ship: s.fn });
+
+  await sweep([], t0);
+
+  const batch = repo.commit('the merges the window is armed for');
+  repo.land(batch);
+  await sweep([row({ number: 20 })], t0 + MINUTE);
+  await check(() => assert.equal(s.calls.length, 0), 'the window arms with nothing pinned — there is nothing to pin yet');
+
+  // What the runner would have raced against: main moves between the sweep that fires
+  // and the deploy that fetches. Landed *before* the fire here, which is the harder case
+  // — the pin has to be read at the close and not from the batch's own merges.
+  await sweep([row({ number: 20 })], t0 + 12 * MINUTE);
+  await check(() => assert.equal(s.calls[0]?.pin, batch), 'closing the window deploys the commit the branch was at when it closed');
+  await check(
+    () => assert.equal(loadLedger().demo.handled['20'].pin, batch),
+    'and the ledger records it beside the stamp, in the write that happens before the deploy is spawned'
+  );
+
+  const after = repo.commit('a merge that arrived after the window closed');
+  repo.land(after);
+  await check(() => assert.equal(s.calls[0].pin, batch), 'a commit landing afterwards does not change what the deploy already pinned');
+
+  const next = await sweep([row({ number: 20 }), row({ number: 21 })], t0 + 13 * MINUTE);
+  await check(() => assert.deepEqual(next.armed[0]?.numbers, [21]), 'it arms a window of its own');
+  await sweep([row({ number: 20 }), row({ number: 21 })], t0 + 25 * MINUTE);
+  await check(() => assert.equal(s.calls[1]?.pin, after), 'and rides the next deploy, on the commit that window closes on');
+}
+
+/* A repo with no checkout to ask still ships — unpinned is what it always did. */
+forget();
+{
+  const bd = tracker();
+  const s = shipper();
+  const t0 = Date.now();
+  const sweep = (prs, at) => sweepReleases(bd, ON, { repos: [card({ prs, dir: path.join(tmp, 'nothing-here') })] }, { deploys: [], now: at, ship: s.fn });
+  await sweep([], t0);
+  await sweep([row({ number: 22 })], t0 + MINUTE);
+  await sweep([row({ number: 22 })], t0 + 12 * MINUTE);
+  await check(() => assert.equal(s.calls.length, 1), 'a pin nobody can read is not a reason to refuse a deploy that would otherwise run');
+  await check(() => assert.equal(s.calls[0].pin, null), 'it goes unpinned, which is the fast-forward this always did');
+  await check(() => assert.equal(loadLedger().demo.handled['22'].pin, undefined), 'and the ledger says nothing rather than saying null');
 }
 
 /* A caller that passes no `ship` cannot auto-ship — which is every existing test. */
