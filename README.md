@@ -5818,12 +5818,33 @@ the words surviving a refusal, a dropped connection and a repaint; the box disap
 when a send comes back saying the session is out of reach; the reply arriving through
 the transcript pane rather than through the send's own response; and, since `bc-75q2`,
 the line breaks reaching the wire with nothing on the page claiming they were closed up.
-`--baseline` fails all of them, because before this there was no box. The delivery itself
-is the one part no test does — `write text` into a live window would type a fixture
-string into whatever session answered — so `test/session.mjs` covers the rules around it
-instead: reach refusing a pid with no terminal, the length refused on the message as
-typed rather than on a flattened one, and the AppleScript matching a tty as well as an id
-and sending its paste with `newline no` and exactly one Return after it.
+
+**The composer keeps what you had picked out when it redraws itself, selection and all.**
+It redraws on its own more often than it looks: a poll that finds the reach or the status
+changed, a send starting, a send answering, and the line-break hint appearing under the box
+the moment a message gains a newline. Each of those replaces the textarea — the transcript
+below is a `<pre>` thousands of lines long and rebuilding the page to move a line of small
+text would take the keyboard down with it on iOS — so where you were in the box is carried
+across by hand. **Both ends of the selection are carried, not just the near one.** A caret
+is the case where the two are equal, so carrying only `selectionStart` gave every selection
+back as a caret at its left edge: you picked out the sentence you were about to type over
+and the next poll left you in front of it (bc-nh19 — the same one-ended restore as
+[bc-c3ve in the Mirror](#the-mirror--whatever-the-phone-has-open-with-room-to-read-it)).
+The direction goes with them, because it is the end the next Shift-arrow extends from. The
+check drives it rather than reading for it: it types through the real `input` listener,
+selects part of what it typed backwards, flips the hint to force the repaint, and asks the
+box afterwards where the selection is.
+
+`--baseline` serves HEAD's `public/session.js` instead of the working one, which is how you
+tell a real failure from a flake: the cases the branch in hand is about must fail there and
+pass on the working copy, and nothing else should move. It used to fail everything, because
+before this there was no box at all — that stopped being true the day the box landed.
+
+The delivery itself is the one part no test does — `write text` into a live window would
+type a fixture string into whatever session answered — so `test/session.mjs` covers the
+rules around it instead: reach refusing a pid with no terminal, the length refused on the
+message as typed rather than on a flattened one, and the AppleScript matching a tty as
+well as an id and sending its paste with `newline no` and exactly one Return after it.
 
 ### …and then go and find it on the Mac
 
@@ -6722,6 +6743,21 @@ to nothing else, that a merged pull request refuses to be closed, and that the c
 refuses everything but a live conflict. It runs with `openSessions: false`, so nothing in it
 can open a window — the brief is asserted off `conflictPromptFor` directly.
 `node scripts/prfull-check.mjs` is the phone's half in headless Chrome.
+
+**The card repaints in place, and takes neither the comment nor the selection in it.** A
+pull request card is redrawn on its own several times while it is open: arming a button,
+the timer six seconds later that disarms it, a request going out and its answer coming
+back. `render()` would rebuild the whole list and take the keyboard with it, so
+`paintPrCard` replaces the one card — which still replaces the textarea under the button
+you pressed. The words come back because they live in `state.prDraft` rather than in the
+DOM; where you were in them is carried across by hand, and **both ends of the selection
+are carried, not just the near one**. A caret is the case where the two are equal, so
+carrying only `selectionStart` handed every selection back as a caret at its left edge —
+the sentence you had picked out to type over, gone the moment an arm timer expired
+(bc-nh19; the same one-ended restore that was in the Mirror's composer as bc-c3ve and in
+the session's say box). The direction rides along because it is the end the next
+Shift-arrow extends from. The check drives it at the arming press, which is the repaint
+nobody asked for.
 
 **A lamp has three states, not two.** On, off, and *unknown* — a hollow, dashed ring:
 
@@ -10037,11 +10073,31 @@ that "would holding on a guess have helped?" is a question the screen can answer
 `holdGuessedFiles: true` turns the guess into a hold for a workspace whose beads are written
 with their files named; `holdClaimedFiles: false` takes the whole filter out.
 
-The sentence on the pill names the branch the holder is on and, where the daemon managed to
-[resolve one](#one-granularity-down-which-file-somebody-is-already-editing), the bead in
-brackets after it — `lib/advocate.js on worktree-queue-filter-8kq (bc-8kq)`. Both, in that
-order, because they answer different questions: the branch is where the work is and is what
-you would go and look at, and the bead is what you would type into `bd show`.
+**And the session it dispatches anyway is told.** That was the hole left in the paragraph
+above: the near miss reached the card and the log, and the one party it never reached was
+the window being opened into it. That session then learned the same fact at its first
+`Write`, from `scripts/claim-guard.sh`'s denial — after it had read the tree, chosen an
+approach and started typing, which is exactly the lateness reading the register at dispatch
+exists to end. One step earlier for the dispatcher, unchanged for the agent. So the entry
+the filter built rides the queue row into the launch, and the brief `workPromptFor` writes
+carries a section naming the files, the worktree holding them and the three things worth doing about
+it — start where those files are not, go and read what that branch is doing first, or, if
+it turns out to be the same job, say so. It is worded as a warning and not as a boundary,
+deliberately: the evidence is a resemblance, and a brief that told the session to stand
+down would put back in prose precisely the hold `holdGuessedFiles` is off in order not to
+take. A bead with no collision gets a brief unchanged to the character, and the row's copy
+is stripped back out of the wire — the card already draws the same sentence once, and two
+places saying one thing is how they come to disagree. `node test/land.mjs` asserts the
+words; `node test/claimqueue.mjs` asserts the seam.
+
+The sentence all three of them carry — the pill, the log line and that brief — names the
+branch the holder is on and, where the daemon managed to [resolve
+one](#one-granularity-down-which-file-somebody-is-already-editing), the bead in brackets
+after it: `lib/advocate.js on worktree-queue-filter-8kq (bc-8kq)`. Both, in that order,
+because they answer different questions. The branch is where the work is and is what the
+next paragraph of that brief tells the session to go and read; the bead is what you type
+into `bd show`, and until it was resolved the session had to get there by decoding a
+worktree name.
 
 **Nothing here has to be released**, which is the property worth the most. The hold is not a
 record — it is recomputed from the register on every survey, and `claims.list()` prunes what
