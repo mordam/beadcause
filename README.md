@@ -10612,6 +10612,51 @@ that would have stripped the label, a log long enough to blow the 4MB rendering 
 `archiveSession` against a throwaway repo and a throwaway `$HOME`, and a real advocate
 tick — a window ending, and the label arriving on the bead — down both routes.
 
+### Where you can see it — the chip and the row
+
+Everything above happens in a log. The tier is a label, the model is chosen in the second
+before a window opens, and what the session actually ran on arrives as another label when
+it ends — and until bc-nc6o.4/.5 none of it appeared on any screen. So the two questions
+you actually have about a bill, *what is this bead set to cost* and *did something else
+happen*, were answerable only from a terminal, one bead at a time.
+
+Both cards now say it, and they say it from **one derivation**: `lib/modelcard.js` reads
+the labels once on the daemon and hands the same object to the inbox card
+(`toQuestion`, as a field beside `addressees`) and to the bead sheet (`/api/bead`, as a
+field beside `noP0`). Deriving it server-side rather than parsing the labels in the browser
+is the point of the file. A prefix is a contract a test can pin and is fine to duplicate —
+which is why `public/graph.js` keeps its own copy of `ownersOf`. A **mapping** is a
+decision, and [`MODEL_BY_TIER`](#which-model-a-session-comes-up-on--the-tier-at-spawn-time) calls itself the only copy of
+it: a second copy in a browser goes stale the first time a model ships, and goes stale
+*silently*, because both copies keep drawing confidently.
+
+**The inbox chip** sits in the card's meta row with the workspace, the id and the priority:
+`🧠 sonnet · low`. It is drawn on every card, including the untiered ones that are most of
+the tracker — an unrated bead is not unrouted, it is routed to the **expensive** model, and
+a blank there would hide exactly the beads worth tiering. So an untiered bead reads
+`🧠 opus · unrated`, a bead whose labels name two tiers reads `🧠 opus · ⚠ tier`, and a
+session that went somewhere else draws the arrow: `🧠 sonnet · low → opus`.
+
+**Everything the chip means is in its text, because a phone has no hover.** The `title`
+carries the long form for a desktop and nothing depends on it. What the *styling* carries
+is one thing only, and it is a thing you read at a scroll rather than a fact you look up:
+an outlined chip is a **plan** — nothing has run on this bead yet — and a filled one is a
+**fact**, a session that finished and left a `ran:` label behind.
+
+**The sheet row** has room for the sentence the chip compresses, so it says the three
+facts apart: what the bead is routed to, why — the tier, or `no tier — the fallback` — and
+what a finished session ran on, as its own clause rather than as a replacement for the
+first. It is drawn under the [session row](#the-way-through--what-its-session-did) and above the
+description, so on a closed bead the sheet reads in order: it closed, here is why, here is
+the session, here is what it ran on. Open or closed alike, because the sheet is the one
+surface reached for a bead that closed months ago.
+
+Neither renderer decides anything, and both draw **nothing at all** for a bead carrying no
+`model` field — which is what a page cached from a newer deploy sees against a daemon that
+predates it. `test/modelcard.mjs` covers the derivation, the field arriving on both
+payloads, both renderers run for real over the five shapes that matter, and the rule that
+every class either of them draws has a rule behind it.
+
 ### Approve, adjust, decline
 
 Every proposal row has had ✓ and ✕ since proposals existed. The third control is new,
