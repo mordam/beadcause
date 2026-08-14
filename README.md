@@ -1356,10 +1356,43 @@ GitHub reports the branch merged, `lib/release.js` when the build is live, and
 `lib/owed.js` retrying any of them. Closing a *question* is not on that list — a card is
 answered, not delivered.
 
-The alternative was to reclaim first (`bd update --assignee <actor>`, which also works).
-It is not used because it rewrites the assignee to the daemon on every delivered bead,
-so the tracker would permanently forget who did the work. A closed bead keeping its
-worker's name is worth more than a guard the merge has already satisfied.
+The alternative was to reclaim first (`bd update --assignee ''`, which also works).
+It is not used **here** because it rewrites the assignee on every delivered bead, so the
+tracker would permanently forget who did the work. A closed bead keeping its worker's
+name is worth more than a guard the merge has already satisfied.
+
+##### The question is the sixth path, and it reclaims instead
+
+Ruling a question out of those five was right about the evidence and left the answer
+path refusing. Adam hit it the same morning, on bc-jrvh: the comment is written *before*
+the close on purpose — so an answer survives a Dolt lock — and here that guarantee
+inverted. The answer landed, the close threw, the card stayed in the inbox looking
+unanswered, and it got answered again. That bead carried the same answer three times
+over four comments. **bc-ko7n**, and `Bd.closeAnswered` is the fix.
+
+**It reclaims rather than forcing, and the trade is genuinely the other way round from a
+delivery's.** The objection above — reclaiming forgets who did the work — is decisive on
+a work bead and empty on a question. A card's assignee is an artifact of some worker
+window having touched it; nobody claimed a question in order to own it, and `bd ready`
+skipping it is the whole of what that claim was doing. So the narrow instrument is
+available: dropping the assignee lifts exactly the rule in the way, where `--force`
+would lift the blocker and epic gates with it. Same shape as the five otherwise — the
+close is attempted as it always was, and the clear happens only when `isClaimGuard`
+matches, so an unclaimed question is never written to on its way out.
+
+**The gate is deliberately not taught this refusal.** `Bd.gateFor` is what the phone
+draws a card from and what `lib/landed.js` and `lib/owed.js` skip on; a branch there for
+something both paths now recover from would make every bead any session ever claimed
+read as unclosable. That is the *inventing a gate* failure `test/closegatereal.mjs`
+exists to catch, and it pins the agreement instead: the gate stays silent, and the close
+goes through.
+
+What stops a duplicate answer next time is `Bd.answerOnce`, not the gate. Comment-first
+means *any* failure after the comment leaves a card that will be answered again, so
+`respond` and `commission` skip a comment that is already the newest thing on the
+thread — the repeat finishes the close rather than saying the same sentence twice. Only
+the newest, and only an exact match: the same words six comments up are a real answer,
+and `lib/answered.js` is what tells you about that on the card.
 
 The last three rows of the table are the exception to every sentence above — the two
 where beadcause refuses what bd closes, and the one underneath them that says what is
@@ -3589,7 +3622,7 @@ obvious alternative and it is much more expensive than it looks: 938 beads in `b
 alone on 2026-08-14, 97KB of `{id,title}` JSON, times nine workspaces, on every 25-second
 poll, to answer a question that is asked for about four seconds a week.
 
-### Your P0s, and the tree each one carries
+### Epics assigned to you, and the tree each one carries
 
 The section at the top of the inbox is the P0s **you** own — open, `owner:<you>`, at
 priority 0 — and `p0board` on `/api/questions` is where it comes from. Each card says
@@ -3687,6 +3720,52 @@ all, that an expanded one draws every descendant in the server's order, that the
 steps and then stops, that only the tapped card opens, that the same state renders the
 same board twice, and that the tap handler writes state rather than reaching into the DOM.
 
+### And the section folds, under a heading that says what it is
+
+The heading is a disclosure of its own (bc-eevn) — one button the width of the section,
+`aria-expanded` on it, the same `.chev` every other fold on this app turns. Tap it and the
+cards go away. On a phone four epics with their controls *are* the first screen, and there
+are days when what you came to the inbox for is the questions underneath; before this the
+board could only be scrolled past.
+
+It says **"Epics assigned to you"**, not "Your P0s". Every card on it is an epic carrying
+your `owner:<handle>`; "P0" is beads' word for the priority the board selects on, and a
+heading that names a priority field reads as a filter you set rather than as the work you
+are answerable for. The internals keep the old name — `p0board`, `state.p0open`, `.p0-card`
+— because they *are* about the priority, and renaming them would be four files changed to
+move one line of screen text.
+
+Three things keep the fold from being a way to lose the board:
+
+- **The count stays on the shut line.** A fold that hid the fact there was anything behind
+  it would leave a screen indistinguishable from one with no epics on it, which is the
+  single thing this section exists to prevent.
+- **It is display only.** `underOwnedP0s` narrows the inbox to your epics' descendants off
+  the board *data*, not off whether the board is drawn — so folding it changes nothing
+  about the list underneath. A control that quietly emptied the inbox would be worse than
+  no control.
+- **It leaves `state.p0open` alone**, so the epic you had unfolded is still unfolded when
+  the board comes back. Putting a drawer away is not closing what is in it.
+
+Unlike which cards are open, the fold **is** persisted (`beadcause.p0shut` in
+`localStorage`, read synchronously at boot so the first frame is already the shape you
+left it in): which epic you have unfolded is where you are looking now, but whether you
+want the board over your list at all is a standing preference, like the kind filter. It is
+stored *shut*-side-true on purpose — an absent key, an older page, a state object written
+before the field existed all read as the board showing, which is the safe direction for a
+flag whose falsy default would otherwise hide the point of bc-rfnr.2.
+
+`node test/p0card.mjs` has the renderer and the handler's source; `node scripts/p0fold-check.mjs`
+is the half it cannot reach — a real tap in headless Chrome at 393×852, which is where the
+three failures that matter live. That the heading is inside `#list` at all, because every
+handler on this page is delegated from that element and one drawn outside it renders
+perfectly and does nothing. That the rows underneath are the same rows either side of the
+tap. And that a reload comes back shut, which no renderer test can see: the write to
+`localStorage` and the read at boot are separate ends, and either can be missing with the
+page looking right all session. The chevron is read as a computed transform rather than as
+markup, so it fails on a stale stylesheet too — which is what [v59](docs/sw-cache/v59.md)
+is about.
+
 ### The advocate that comes back — what re-opens a P0 advocate, and what it costs
 
 The 🧭 button opens a P0 advocate. For a fortnight that was the *only* thing that did,
@@ -3737,7 +3816,7 @@ seen — which is also what stops a launch racing the sweep and reading as a sta
 
 | bound | default | why |
 |---|---|---|
-| `advocates.reenterIntervalMinutes` | 10 | how often it looks. One `bd export` per workspace — and it is the *cached* one the inbox already builds, so on a daemon with a phone open against it this costs nothing at all |
+| `advocates.reenterIntervalMinutes` | 10 | how often it looks. One `bd export` per workspace — and it is the *cached* one the inbox already builds. The EpicAdvocate roster rebuilds off that same cache on every tick, so the export is paid whether this sweep runs or not, and no phone need be open for it |
 | `advocates.reenterCooldownMinutes` | 180 | the floor between two automatic windows on **one P0**. Deliberately against being responsive: nothing waits on an advocate, because advocacy does not gate dispatch, so a supervisor taking stock three hours after a child landed is not late for anything |
 | one window per tick | — | per workspace, so a morning where four P0s all move opens one window and the rest wait for the next sweep |
 | never two on one P0 | — | `advocateSession` on the live session records, the same rule the button refuses a second tap on, plus the launch this daemon made in the last ten minutes whose window has not named itself yet |
@@ -3804,7 +3883,7 @@ So the board carries a second map beside `under`:
 The client draws a row that is in either. The two questions are genuinely different on a
 shared graph — "which of my P0s has this" and "has anybody's P0 got this" — and the whole
 bug was one map answering both. A row under somebody else's open P0 is in neither map and
-stays hidden, which is [bc-rfnr.2](#your-p0s-and-the-tree-each-one-carries) still working.
+stays hidden, which is [bc-rfnr.2](#epics-assigned-to-you-and-the-tree-each-one-carries) still working.
 
 Three things land in `unhomed` and all three are the same fact:
 
@@ -12729,7 +12808,7 @@ The Labels field on a card splits on the comma and changes nothing else. Case, s
 
 That is not a nicety, because half the labels worth typing here are structured, and each
 of them is read back by splitting on a colon: `owner:<handle>` is how
-[who is answerable](#your-p0s-and-the-tree-each-one-carries) is decided and how your P0 cards are
+[who is answerable](#epics-assigned-to-you-and-the-tree-each-one-carries) is decided and how your P0 cards are
 sorted first, `held:<stamp>:<handle>` is how [another Mac's claim](#the-bead-another-mac-has-claimed)
 is held, `superseded-by:<id>` is how a bead leaves every queue for good. Slugging one of
 those does not tidy it up. It produces a lookalike that no query matches, beside the real
@@ -15897,7 +15976,7 @@ another Mac's, and an agent's — and asserts that exactly one of them rings.
 | `advocates.filePromotions` | file a **promotion bead** when every bead an epic's plan named has closed (default `true`) — one per epic, for the release through UAT and production, and deliberately not the [release queue](#the-release-queue--the-number-over-ship)'s per-merge `ship` bead. It carries `promote` and `unendorsed`, and the epic is labelled `promoted` so exactly one is ever filed |
 | `advocates.respectQuietHours` | a quiet space's advocate watches without launching (default `true`) |
 | `advocates.reenterAdvocates` | [re-open the **P0 advocate** when something moves under a P0 it has already been on](#the-advocate-that-comes-back--what-re-opens-a-p0-advocate-and-what-it-costs) (default `true`) — a descendant that closed, was filed, or has stalled. Enrolment is the bead itself: a P0 is enrolled once its notes carry the advocate's waiting-on sentence, so the 🧭 button is what starts the loop and erasing that block is what ends it. `false` leaves exactly what this did before, which is a button and an agent told every run that it would be re-opened |
-| `advocates.reenterIntervalMinutes` | how often that sweep looks (default 10). It reads the same cached `bd export` the inbox's P0 board is built from, so it costs no tracker call of its own |
+| `advocates.reenterIntervalMinutes` | how often that sweep looks (default 10). It reads the same cached `bd export` the inbox's P0 board is built from — which the EpicAdvocate roster already warms every tick — so it costs no tracker call of its own |
 | `advocates.reenterCooldownMinutes` | the floor between two *automatic* advocate windows on one P0 (default 180), alongside one window per tick per workspace. Nothing waits on an advocate — advocacy does not gate dispatch — so being three hours late costs nothing, where a Mac full of 🧭 windows costs real money |
 | `advocates.reenterStallMinutes` | how long a descendant sits `in_progress` with no window on it anywhere and no live lease elsewhere before that is a stall worth waking a supervisor for (default 60). Half of `workerTimeoutMinutes`, which releases the *slot* and never asks the question this does: the slot came back and the bead is still claimed |
 | `advocates.tidyWorktrees` | retire merged, clean, unlocked worktrees after a session ends (default `true`) — moved to `.claude/worktrees-retired/`, never deleted |
