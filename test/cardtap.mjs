@@ -25,7 +25,10 @@
  * 1. **The button is gone, from every kind of card and in both states.** Asserted on the
  *    real `cardTopHtml`, plus a source read that no `<button>` anywhere in public/app.js
  *    carries `data-act="toggle"` — the act belongs to the article now, and a second
- *    emitter of it would be the old control growing back somewhere else.
+ *    emitter of it would be the old control growing back somewhere else. The same read
+ *    counts the attribute across the whole file and insists on **one** line: edit mode
+ *    anchors a tapped control by grepping this source, and one act has always meant one
+ *    line, which is why both renderers interpolate `shutCardAct` instead of typing it.
  * 2. **A shut card carries the act and an open one does not.** Both card renderers, run
  *    for real. The open half matters as much: an open question card is a full-screen
  *    sheet whose way out is `↑ Collapse`, and an article that still answered to `toggle`
@@ -39,8 +42,8 @@
  *    selection, and the two negatives that make the assertions mean something — a plain
  *    paragraph opens the card, and so does a link that is *not inside* this card.
  *
- * public/app.js is one IIFE with nothing exported, so the four declarations are sliced
- * out and run in a `vm` the way test/jirarow.mjs and test/modelcard.mjs do it. The
+ * public/app.js is one IIFE with nothing exported, so the declarations are sliced out
+ * and run in a `vm` the way test/jirarow.mjs and test/modelcard.mjs do it. The
  * difference here is the context: the card renderers call a dozen sibling helpers this
  * file has no opinion about, so unknown globals are served by a Proxy that hands back a
  * stub returning the empty string. That is deliberate — see the note on `ctx` below. No
@@ -115,7 +118,10 @@ function lift(src, opener) {
  * costs is real and worth naming: a genuine typo inside a lifted function would be
  * stubbed rather than thrown. It is affordable because everything asserted below is in
  * the *literal* of the two articles and of the top bar — the attribute, the classes, the
- * absence of a button — and none of it comes back from a helper.
+ * absence of a button — with one exception, and the exception is the rule: `shutCardAct`
+ * supplies part of that literal, so it is lifted rather than stubbed. Anything an
+ * assertion depends on the *return value* of has to be named in the lift list; the Proxy
+ * is only for the helpers whose output this file drops on the floor.
  */
 const STUB = () => '';
 const real = {
@@ -138,6 +144,7 @@ const ctx = vm.createContext(
 vm.runInContext(
   [
     lift(APP, 'const esc = ('),
+    lift(APP, 'const shutCardAct = ('),
     lift(APP, 'function cardTopHtml(q)'),
     lift(APP, 'function agentCardHtml(q)'),
     lift(APP, 'function cardHtml(q)'),
@@ -239,11 +246,16 @@ check('an open agent card is not, though it never wears .open', () => {
   assert.doesNotMatch(t, /data-act="toggle"/);
 });
 
-check('a shut pull request and a shut ticket answer to their own act', () => {
-  // Both were already whole-row buttons; what is new is the article carrying the act as
-  // well, so the note under the row and the padding beside it stop being dead ground.
-  assert.match(APP, /class="card pr-card"[^`]*data-act="pr-open"/, 'the pr card lost it');
-  assert.match(APP, /class="card jira-card" data-key="\$\{esc\(row\.key\)\}" data-act="jira-open"/);
+check('the act is written in exactly one place, which edit mode depends on', () => {
+  // public/editmode.js anchors a tapped element by grepping this file for the markup
+  // that produced it, with the comments blanked; a `data-act` is its strongest key
+  // because one act has always meant one line. Both card renderers interpolate
+  // `shutCardAct` rather than typing the attribute, and this is why. Caught in review by
+  // scripts/editmode-check.mjs, which said `2 sites via data-act="toggle"`.
+  const code = APP.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  const sites = code.match(/data-act="toggle"/g) || [];
+  assert.equal(sites.length, 1, `${sites.length} lines of source produce this one control`);
+  assert.match(APP, /const shutCardAct = \(open\) =>/, 'the one place it is written moved');
 });
 
 check('the list handler asks the guard before it acts on a card', () => {

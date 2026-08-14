@@ -785,6 +785,23 @@
    * `.card-head`'s own top padding down to 6 (see `.card-top + .card-head`), so an
    * empty one is not invisible: it is a gap where the head used to start.
    */
+  /**
+   * The act a shut card answers to — written here and nowhere else in this file.
+   *
+   * Both card renderers put it on their `<article>`, and it could just as easily have
+   * been typed into both. It is not, for a reason outside either of them: edit mode
+   * anchors an element you tap by grepping this file for the markup that produced it
+   * (public/editmode.js, `anchorFor`), and a `data-act` is its strongest key precisely
+   * because one act has meant one line — the one handler branch that answers it. Two
+   * literals are two candidate lines for one control, and the anchor then has to report
+   * an ambiguity instead of a site. scripts/editmode-check.mjs pins that, and it is what
+   * caught this: `2 sites via data-act="toggle"`.
+   *
+   * Empty while the card is open, because an open card's way out is `↑ Collapse` and a
+   * body that also collapsed would close the sheet on the first tap on a paragraph.
+   */
+  const shutCardAct = (open) => (open ? '' : ' data-act="toggle"');
+
   function cardTopHtml(q) {
     const on = state.menu === q.key;
     const open = state.open.has(q.key);
@@ -1802,11 +1819,6 @@
    * is made here now, not on github.com. The second is mechanical — the whole row is one
    * tap target, and an `<a>` inside it was a nested interactive element a phone could
    * resolve either way.
-   *
-   * The `data-act` on the article is the *rest* of the card (bc-rfnr.9.3): the row
-   * button was never quite the whole of it, and a tap on the note underneath was a tap
-   * on nothing. The button is nearer, so `closest('[data-act]')` still resolves the row
-   * itself through the button and this only picks up what falls outside it.
    */
   function prCardHtml(row) {
     const card = window.beadcause?.prCard;
@@ -1814,7 +1826,7 @@
     if (!card || !p) return '';
     if (state.open.has(row.key)) return prFullHtml(row, p, card);
     return `<article class="card pr-card" id="card-${cardId(row.key)}" data-key="${esc(row.key)}"
-      data-act="pr-open" data-stage="${esc(p.stage)}">
+      data-stage="${esc(p.stage)}">
       <button class="work-row pr-row" type="button" data-act="pr-open" data-key="${esc(row.key)}"
         aria-expanded="false">
         ${card.bodyHtml(p, { repo: true })}
@@ -2679,7 +2691,7 @@
     // collapsed would close the sheet under the first tap on a paragraph.
     return `<article class="card${open ? ' open' : ''}${draft ? ' has-draft' : ''}${
       q.awaitingAgent ? ' replied' : ''
-    }" id="card-${cardId(q.key)}" data-key="${esc(q.key)}"${open ? '' : ' data-act="toggle"'}>
+    }" id="card-${cardId(q.key)}" data-key="${esc(q.key)}"${shutCardAct(open)}>
       ${cardTopHtml(q)}
       <div class="card-head">
         <div class="meta">
@@ -3022,7 +3034,7 @@
     const open = state.open.has(q.key);
     return `<article class="card agent-card" id="card-${cardId(q.key)}" data-key="${esc(
       q.key
-    )}"${open ? '' : ' data-act="toggle"'}>
+    )}"${shutCardAct(open)}>
       ${cardTopHtml(q)}
       <div class="card-head">
         <div class="meta">
@@ -3680,7 +3692,7 @@
     // Which workspace's JIRA this came off. Drawn for the same reason a chat row draws
     // its repo: with two workspaces configured, the ticket key alone does not say which
     // project you are looking at.
-    return `<div class="card jira-card" data-key="${esc(row.key)}" data-act="jira-open">
+    return `<div class="card jira-card" data-key="${esc(row.key)}">
       <button class="work-row" type="button" data-act="jira-open" data-key="${esc(row.key)}"
         aria-expanded="false">
         <span class="work-phase">🎫</span>
