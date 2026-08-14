@@ -376,7 +376,12 @@ await check('an answer typed by a person is linked, after it has been recorded',
   reset();
   const bd = fakeBd('bd-respond');
   await bd.respond(WS, 'bc-arj0.4', 'do it the way bc-767a did');
-  const verbs = calls().map((a) => a[0]);
+  // Writes only. `respond` reads the thread first since bc-ko7n — `answerOnce` is what
+  // stops a re-answer duplicating a comment the last attempt already wrote — and the
+  // claim here is about the order of what it *writes*, which that read does not change.
+  const verbs = calls()
+    .map((a) => a[0])
+    .filter((v) => !['comments', 'show', 'list'].includes(v));
   assert.deepEqual(verbs.slice(0, 2), ['comment', 'close']);
   assert.deepEqual(relates().map((a) => a[3]), ['bc-767a']);
 });

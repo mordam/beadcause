@@ -75,7 +75,7 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { ownAddresseeLabels } from '../lib/addressee.js';
 import { bylineFor } from '../lib/byline.js';
-import { isMergeReason, parseJson } from '../lib/bd.js';
+import { CLAIM_RE, isMergeReason, parseJson } from '../lib/bd.js';
 import { loadConfig } from '../lib/config.js';
 import { inspectBranch, report as conflictReport } from '../lib/conflicted.js';
 import { ownerName } from '../lib/owner.js';
@@ -793,18 +793,37 @@ async function landHere(landed, { external = false } = {}) {
     try {
       bd(['close', beadId, '--reason', closeReason]);
     } catch (err) {
+      // The refusal that is not one, and this is the process it bites hardest: the bead
+      // being closed here is the *worker's own*, claimed by the session that built the
+      // branch, and the actor is the byline. bd reads those as two people and refuses
+      // every delivery. So drop the claim and close again — the same reclaim `runClose`
+      // does in the daemon, off the same regex, and never `--force` (bc-ko7n). Only then
+      // does a real failure fall through to the owed-close machinery below.
+      let fatal = err;
+      if (CLAIM_RE.test(bdSaid(err))) {
+        try {
+          bd(['update', beadId, '--assignee', '']);
+          bd(['close', beadId, '--reason', closeReason]);
+          console.error(`beadcause-deliver: merged ${where} and closed ${beadId} — dropped the session's claim to do it`);
+          fatal = null;
+        } catch (again) {
+          fatal = again;
+        }
+      }
       // A refused close is a state, not a rumour: it is written down where the daemon
       // will retry it once whatever is blocking it clears (lib/owed.js), and said on the
       // bead in bd's own words. Reporting it as done — which is what the tap on the phone
       // used to do — is how bc-ec6 stayed open over a merged pull request with two
       // separate comments claiming otherwise.
-      const why = bdSaid(err);
-      console.error(`beadcause-deliver: merged ${where}, but could not close ${beadId} — ${why}`);
-      oweClose({ workspace: ws.name, id: beadId, reason: closeReason, why });
-      try {
-        bd(['comment', beadId, `This is merged and this bead did **not** close: ${why}. beadcause retries the close once that clears.`]);
-      } catch {
-        /* The record above is the part that matters; the comment is the courtesy. */
+      if (fatal) {
+        const why = bdSaid(fatal);
+        console.error(`beadcause-deliver: merged ${where}, but could not close ${beadId} — ${why}`);
+        oweClose({ workspace: ws.name, id: beadId, reason: closeReason, why });
+        try {
+          bd(['comment', beadId, `This is merged and this bead did **not** close: ${why}. beadcause retries the close once that clears.`]);
+        } catch {
+          /* The record above is the part that matters; the comment is the courtesy. */
+        }
       }
     }
   }
