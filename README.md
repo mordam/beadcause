@@ -7482,8 +7482,12 @@ the bead filed is byte for byte the one filed today, tap and all.
 
 One `gh pr list` per repo plus a handful of `bd` lookups, cached for 25 seconds on the
 daemon — the page polls, and two phones looking at the same board must not be twice
-the traffic of one. ⟳ forces a fresh sweep, and so does every acting call, so a button
-never acts on a row the tab has been showing since last night. Open pull requests are
+the traffic of one. Past those 25 seconds nobody waits for the next sweep: the board is
+[on the shared cache](#the-shared-cache--past-the-window-nothing-waits-for-the-sweep), so
+the kept one comes back immediately and the sweep runs behind the response. That matters
+here more than anywhere else in the app, because this sweep takes longer than its own
+window — it could never once be warm before. ⟳ forces a fresh sweep, and so does every
+acting call, so a button never acts on a row the tab has been showing since last night. Open pull requests are
 never aged out; settled ones drop off the board after three weeks. A repo with no
 GitHub remote is a sentence, not an error — most workspaces under `~/beads/` are
 trackers rather than repos, and they are named in one line at the foot rather than
@@ -7794,7 +7798,8 @@ Three consequences worth knowing before you go looking for them:
 remote and its pull requests — two network calls — and forty repos at the board's own
 25-second cache is over eleven thousand calls an hour, reached by leaving /prs open on a
 phone. Against a limit of five thousand. So the `gh` half of a sweep is cached per checkout
-for two minutes and the git half is redone every time, which puts the staleness in exactly
+for two minutes — `prs:<checkout>` on the shared layer, beside the board's own `board:` —
+and the git half is redone every time, which puts the staleness in exactly
 the right place: `pushed`, `local`, `deployed` and `shipped` are local reads and stay as
 fresh as they ever were, and what goes stale is "has a new pull request appeared" — the one
 fact on this screen nobody watches a second hand for. Three things drop it, which between them
@@ -13141,9 +13146,11 @@ of them missing you cannot tell what to do next:
   as *what the request cost the machine* and the **union of the intervals** — the wall time
   with at least one child running — is what "the subprocess share" means. Their ratio is
   the fan-out, and it is why the ninth workspace is nearly free while the first is not.
-- **Whether it was warm or cold.** The five hand-rolled route caches mean the *same*
-  route has two completely different costs, and averaging them produces a number that has
-  never once happened: the mean of a 30ms cache hit and a 3-second sweep.
+- **Whether it was warm or cold.** A cached route has two completely different costs, and
+  averaging them produces a number that has never once happened: the mean of a 30ms cache
+  hit and a 3-second sweep. There were five hand-rolled route caches when this was written
+  and there is [one shared layer](#the-shared-cache--past-the-window-nothing-waits-for-the-sweep)
+  now, which is a third state — see the note after this list.
 
 **Warm and cold are derived rather than declared.** A request that spawned no child was
 answered out of memory; one that spawned something paid for it. That needs no edit at any
@@ -13228,7 +13235,10 @@ Three things fall out of that, and none of them was knowable before:
 - **The second pass was not warm.** Not one `bd`-touching route came back warm, which is
   what the empty warm column means: the hand-rolled caches either do not cover these routes
   or expire faster than the sweep they cache takes to run. The PR board's 25-second cache
-  cannot ever be warm when its own sweep costs 27–75 seconds.
+  cannot ever be warm when its own sweep costs 27–75 seconds. **This is the finding the
+  shared cache was built against**, and the reason the fix is stale-while-revalidate rather
+  than a longer window: a producer slower than its own freshness can only ever be warm if
+  somebody other than the reader pays for the refresh.
 - **The fan-out is doing a lot of work already.** `/api/prs` spent 665 seconds of child
   time inside a 74-second request — 13 processes deep on average. Sweeping *less*, not
   sweeping *wider*, is the only direction left.
@@ -13263,6 +13273,121 @@ would leave every figure in the table plausible and untrue. And a real static fi
 fetched, because a static file is handed to the socket as a read stream and never returns
 through the dispatch at all: a `try`/`finally` around the handler would have missed every
 page load in the app.
+
+## The shared cache — past the window, nothing waits for the sweep
+
+The table above says what is wrong and it is one thing: **every slow route in this app is
+slow because it spawns**, and the caches meant to stop that were each a `{ at, value }`
+next to the function that filled it. Seven of them, counted on 2026-08-13 — `Bd.graph`, the
+ledger's per-workspace sweep, the PR board's board and the per-repo `gh` answers behind it,
+the endorsement queue, the sign-in answer and the space picker's snapshot. Every one of them
+was correct. Every one of them had re-derived the same argument, and not one of them had the
+fifth property, which is the expensive one:
+
+**Inside the window they cost nothing, and on the first second past it somebody paid the
+whole sweep.** That is a cliff, not a cache. The PR board is the case that makes it obvious:
+its window is 25 seconds and its sweep was measured at 74, so the poll behind the open page
+arrived to find the entry expired **every single time** — a cache that could never once be
+warm on its own, and a phone holding a spinner for over a minute for a screen it had already
+been shown.
+
+lib/cache.js is that argument written once. `read(key, producer, { freshMs })`, and five
+properties:
+
+- **Stale-while-revalidate.** Past the window the kept value returns *now*, synchronously
+  from memory, and the producer runs behind the response. Nothing on the request path waits.
+- **Single-flight, per key.** Two phones and a poll landing together on an expired key cause
+  one sweep. On a single-writer Dolt the duplicates are not merely wasted — they queue behind
+  each other, so the second set is slower *and* makes the first slower.
+- **Last good beats empty.** A producer that throws over a key with a value leaves that value
+  readable and puts the failure on the envelope. One `bd` falling over must not blank a
+  screen.
+- **Explicit invalidation, and therefore a key convention.** Keys are `<what>:<scope>` —
+  `ledger:sophab`, `prs:/Users/x/repo`, `queue:` for a thing there is one of — so a write that
+  changed one kind of thing can drop every scope of it by prefix without knowing which routes
+  cached what. Nothing builds a key out of anything a request carries.
+- **The cold miss is the only wait, and it is bounded.** A key with nothing kept awaits the
+  producer under a ceiling. The ceiling is about the *slot*, not the caller: a refresh that
+  never settles must stop holding the single-flight entry, or that key is never refreshed
+  again for the life of the process and the cache quietly becomes a permanent snapshot.
+
+### What is on it, and what is deliberately not
+
+| Key | File | Window | What it holds |
+|---|---|---|---|
+| `ledger:<workspace>` | lib/history.js | 10s | One `bd list --all` per workspace, slimmed to the row a list draws |
+| `board:` | lib/prboard.js | 25s | The whole swept PR board — every repo, every rung |
+| `prs:<checkout>` | lib/prboard.js | 120s | One checkout's `gh` slug and pull requests |
+| `queue:` | lib/endorsequeue.js | 15s | Every held bead in every workspace, with provenance |
+
+The windows are the ones each cache always had. Nothing here was retuned: the point was
+never that the answers were too old, it was that the sixteenth second cost a minute.
+
+**`?refresh=1` still means what it meant.** Skip what is kept, pay the cost, the user asked —
+the ⟳ on `/prs`, on `/endorse` and on the history page. It *joins* a sweep already in flight
+rather than starting a second one, which is the right reading: a sweep that began a moment
+ago and has not returned is reading the tracker now, so it is exactly as fresh as one started
+here would be.
+
+**And the drops are unchanged.** A verdict still drops `queue:` outright, because a bead you
+have just judged has to leave that list on every other device and fifteen seconds of it still
+being there is the one staleness that screen cannot afford. Every merge, close and comment
+from this daemon still drops `board:` and the one checkout's `prs:` with it — the thing that
+went wrong is the `gh` answer, and a board rebuilt from two-minute-old rows would still draw a
+merged pull request as open. The ledger deliberately drops on nothing, because a bead that
+changed a moment ago is still in the ledger and at worst its status is ten seconds stale.
+
+**Two of the seven stayed hand-rolled, on purpose.**
+
+- **The sign-in answer** (`authNow`, lib/server.js) is two `stat`s and possibly a small file
+  read, and it is *synchronous* and on the front of the request path. There is no wait to
+  remove, making it async ripples into every caller, and — the reason that actually decides
+  it — serving a kept authorisation answer past its window is a security decision and must
+  not be acquired as a side effect of plumbing. Its thirtieth second stays a hard edge, so
+  switching sign-in on still takes effect without a restart.
+- **The space picker's snapshot** (`spacesPending`) is not a cache at all: it has no producer,
+  it is a variable the inbox sweep writes on its way past. Putting it on a read layer means
+  giving `/api/spaces` a producer, and that producer is `bd human list` across every workspace
+  behind a control drawn on every page in the app. It becomes convertible when the inbox sweep
+  itself is a cache entry, and not before.
+
+### The one thing it had to tell the instrument
+
+Warm and cold [are derived](#timing-every-request--which-routes-are-actually-slow) from
+whether a request spawned anything, which was exactly right while two states were all there
+were. A stale hit answers from memory **and** spawns — so left alone every one of them would
+have been filed under `cold`, and the change this file exists to make would have shown up in
+the figures as no improvement whatsoever. So a read says outright which of the three it was,
+and a background refresh is started detached, which puts its `bd` seconds in the daemon's own
+column instead of on whichever request happened to trigger it.
+
+How old an answer is also goes back to the browser, on a header rather than in the body:
+
+```
+x-beadcause-kept: fresh; age=3
+x-beadcause-kept: stale; age=41; refreshing
+```
+
+A header because not every route on the layer answers with an object — a body-level field
+would need an envelope at each call site, and an envelope changes what every existing client
+parses. `age` is seconds, which is what a person reads and what HTTP's own `Age` means.
+Deliberately not RFC 9211's `Cache-Status`, which covers this ground and is the standard
+answer: it describes handling for *intermediaries*, and its way of saying "stale" is a
+negative `ttl` — an inference, over a header a browser cache may also be writing. What a
+screen needs is a word it can draw, from a name nothing else uses. **What failed is not in
+there**: a message does not belong in a header, and every route on the layer already has an
+`errors[]` naming the workspace that could not be read. The header says how old; the payload
+says what went wrong.
+
+`test/cache.mjs` covers the layer itself, and the check worth knowing about is the one for a
+`drop` that races a refresh in flight. A refresh already out when the key was dropped read
+the tracker *before* whatever the drop was about, so its answer is exactly the answer the drop
+exists to get rid of — and it lands afterwards, quietly undoing the invalidation. It is not
+hypothetical: it is what the ledger's own suite caught the first time this was wired in, as
+one repo serving another repo's rows. So a refresh carries the generation it started under
+and may only *write* if that is still the current one. It still finishes, and still answers
+whoever was waiting on it — a ⟳ that raced a drop asked a real question and gets a real
+answer; what it may not do is become the value the next reader sees.
 
 ## The monitor — what it is doing right now
 
