@@ -10,9 +10,9 @@
  * approving one? Six things are worth a file:
  *
  * 1. **An install with no multi-repo workspace is asked nothing.** `scanTargets` returns
- *    empty, so `npm run configure` prints no tenth question at all. Almost every install
+ *    empty, so `npm run configure` prints no last question at all. Almost every install
  *    is this one, and a wizard that asked everybody about a shape only a company has
- *    would be nine useful questions and one that reads like a mistake.
+ *    would be eleven useful questions and one that reads like a mistake.
  * 2. **The guess is narrow, and `~/beads` is never it.** A directory named after the
  *    workspace holding two or more git checkouts. `~/beads/<workspace>` is named after
  *    the workspace by construction and is the tracker's own tree, so it must never be
