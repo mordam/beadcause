@@ -36,6 +36,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { assignedAdvocates, wantsAdvocate } from '../lib/epicadvocate.js';
+import { namesBead } from '../lib/reap.js';
 import { epicAdvocateLimit, workerLimit, MAX_EPIC_ADVOCATES_CEILING } from '../lib/advocate.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -212,6 +213,31 @@ check('Working now counts coders only, in both the number and the rows', () => {
 check('and the head chip does too, so it can never read "2 of 1 sessions"', () => {
   const st = page.slice(page.indexOf('function stateOf'), page.indexOf('How many sessions this advocate may open'));
   assert.match(st, /codersOf\(a\)\.length/, 'stateOf counts every window against the session limit');
+});
+
+/* ------------------------------------------- assigning one by hand, from the card */
+
+check('a session on a descendant no longer blocks an advocate on its ancestor', () => {
+  // The live names on this Mac when the bug was reported, 2026-08-13. `bc-xl7n` was
+  // refused because of a window on `bc-xl7n.8.1`, and `bc-1kwl` because of one on
+  // `bc-1kwl.2` — every parent id is a prefix of its children's, which is the exact
+  // failure `namesBead` was written for and this route never adopted.
+  const live = ['human.bc-xl7n.8.1.EpicAdvocate sections', 'beadcause - bc-1kwl.2 implement the SWR cache layer'];
+  const held = (id) => live.some((n) => namesBead(n, id));
+  assert.equal(held('bc-xl7n'), false, 'a descendant still holds its ancestor');
+  assert.equal(held('bc-1kwl'), false, 'a descendant still holds its ancestor');
+  assert.equal(held('bc-1kwl.2'), true, 'the bead a session really is on is no longer held — the guard is now inert');
+  // And the old test, kept as the control: it is wrong on three of the four.
+  const naive = (id) => live.some((n) => n.includes(id));
+  assert.equal(naive('bc-xl7n'), true, 'the substring test would not have failed here, so this suite proves nothing');
+});
+
+check('the route uses the shared matcher rather than its own', () => {
+  const server = read('lib/server.js');
+  const route = server.slice(server.indexOf("p === '/api/bead/advocate'"), server.indexOf("p === '/api/unendorsed'"));
+  assert.match(route, /namesBead\(sn\.name, id\)/, 'the route matches sessions its own way again');
+  assert.ok(!/String\(sn\.name \|\| ''\)\.includes\(id\)/.test(route), 'the substring match is back');
+  assert.match(route, /already\.name/, 'the refusal does not name the window holding the bead, so it cannot be acted on');
 });
 
 console.log(`\n${ran - failures}/${ran} passed\n`);
