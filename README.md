@@ -77,6 +77,7 @@ npm run onboard              # is this Mac pointed at the team's tracker? (--dry
 npm run check                # the checks around the agent log — safe with the daemon up
                              # (also run inside `npm test`, as test/agentlog.mjs)
 npm run secrets              # has a secret ever reached the config repo's history?
+npm run agentrepo            # is the tier 3 experiment actually running, and in both arms?
 npm run swap:status          # which build is answering the port, and the certificate on it
 npm run uninstall-service    # remove the service (keeps your config and token)
 tail -f ~/Library/Logs/beadcause.log
@@ -2734,7 +2735,8 @@ which means nothing thirty seconds later.
 ### Tier 3 — a repo one agent owns, and the experiment that is the point of it
 
 Tiers 1 and 2 settled durability. What they did not answer is what an agent does with
-a space nobody has designed. So the advocate — and only the advocate — is given one:
+a space nobody has designed. So three agents — the repo advocate, the P0 advocate and the
+worker — are each given one:
 
 ```
 ~/.config/beadcause/agents/<workspace>/<agent>/
@@ -2777,26 +2779,59 @@ So every survey runs one of two arms, and the comparison is the finding:
 | what it tests | does it write unprompted? | does being shown it make it read? |
 
 `advocates.agentRepo` picks: `alternate` (the default) flips between the two per
-workspace, `blind`/`index` pin one for reproducing something the log showed, and `off`
-withdraws the affordance and the write grant with it. `alternate` is the default
+workspace **and agent**, `blind`/`index` pin one for reproducing something the log showed,
+and `off` withdraws the affordance and the write grant with it. `alternate` is the default
 because the alternative is a switch somebody has to remember to flip, and an
-experiment that depends on that produces one arm and no comparison.
+experiment that depends on that produces one arm and no comparison. The key sits under
+`advocates` because the advocate was the first agent to have one; all three read it.
 
 Every invocation appends a line to `~/.config/beadcause/agents/usage.jsonl` — the
 verb, the target and whether it read or wrote, never file contents. A `session` line
 is written at *spawn*, so a run in which the agent ignored the repo entirely is still
 a run in the denominator; that is the half the prediction turns on.
 
-```js
-import { summary } from './lib/agentrepo.js';
-summary();
-// { blind: { runs, touched, read, wrote, readFirst, commands }, index: { … } }
+```
+$ npm run agentrepo
+
+Tier 3 — what each agent did with a repo of its own.
+
+worker
+  blind  runs 12  touched 5  read 1  wrote 5  readFirst 1  commands 34
+  index  runs 11  touched 8  read 7  wrote 6  readFirst 6  commands 51
+
+epic-advocate
+  blind  runs 4  touched 0  read 0  wrote 0  readFirst 0  commands 0
+  index  NO DATA — nothing has run in this arm, so nothing here is a zero.
 ```
 
 `readFirst` is the number that answers it: "wrote and never read back" is `wrote`
 minus `read`, and "was told what was in there and went and looked" is `readFirst`
-under `index`. Reported per arm and never pooled, because a pooled number answers a
-question nobody asked.
+under `index`.
+
+#### Three subjects, never added together, and an empty arm that says so
+
+The advocate was the only subject to begin with, and that was very nearly the end of the
+experiment. A survey is the rarest thing this daemon does — one per repo per twelve hours
+at best, and none at all while a proposal sits unanswered — so in four days the log held
+**one** run, in one arm, and the comparison the whole thing exists for could not be
+computed. bc-goo.12 put the grant on the two agents that actually run: the P0 advocate,
+which fires on every child event, and the worker, which is most of what opens a window
+here at all.
+
+Two rules fall out of that, and both are in `lib/agentrepo.js`:
+
+- **The numbers are bucketed by agent and never pooled across them.** A worker editing
+  files for an hour, a P0 advocate doing one turn of thinking and a repo advocate arguing
+  about a queue are three populations, and the worker outruns the other two by a wide
+  margin — a pooled `readFirst` would report the worker's behaviour under all three names.
+  Workspaces *are* pooled inside an agent, because `alternate` flips per workspace and
+  agent, so every workspace contributes to both arms in step.
+- **An arm with no runs prints a sentence, not a zero.** `readFirst 0` under `index` is
+  the result the prediction expects *and* what an arm that has never run says. That
+  ambiguity is exactly how four empty days went unnoticed, so `report` refuses to print a
+  number for an empty arm and names any agent that owns a repo and has never run at all —
+  which is a thing no amount of reading the log can tell you, since a run that never
+  happened leaves nothing behind.
 
 #### The real work is permissions, not git
 
@@ -13812,6 +13847,7 @@ another Mac's, and an agent's — and asserts that exactly one of them rings.
 | `advocates.leaseMinutes` | how long one of those claims is good for (default 60, restamped at half that by whichever advocate still holds the worker). Not a load knob: it is how long a bead stays parked when the Mac holding it goes to sleep, and a bead parked forever is worse than the duplicate window this prevents |
 | `advocates.sessionLog` | archive each finished session to `refs/beadcause/sessions/<bead>` and note its commits (default `true`) |
 | `advocates.sessionTranscripts` | also store the raw Claude Code transcript — megabytes, and it carries paths and tool output (default `false`; set per repo in `perWorkspace`) |
+| `advocates.agentRepo` | which arm of the [tier 3 experiment](#tier-3--a-repo-one-agent-owns-and-the-experiment-that-is-the-point-of-it) each run of an agent that owns a private repo gets: `alternate` (the default) flips per workspace and agent, `blind`/`index` pin one, and `off` withdraws the affordance and the write grant with it. Named under `advocates` because the advocate was the first agent to have one; the P0 advocate and the worker read the same key. `npm run agentrepo` is what reads the result back |
 | `advocates.closeFinishedSessions` | [close a work session's window once the session has finished](#closing-the-window--a-session-that-has-finished-should-not-still-be-on-screen) — the bead closed, a pull request delivered, or the bead handed back for a decision, and never an ending the daemon merely inferred (default `true`). `false` leaves every window open, which is what it did before |
 | `advocates.closeGraceSeconds` | how long an idle session gets between reaching its ending and the first signal (default 90) |
 | `advocates.closeHardSeconds`, `advocates.closeGiveUpMinutes` | how long `SIGTERM` gets before `SIGKILL` (default 45), and how long the whole thing gets before it gives up and leaves the window for you (default 30 min) |
