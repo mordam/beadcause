@@ -109,9 +109,9 @@ await check('the refusal is the family shape — 409, a named boolean, and it na
   assert.equal(err.status, 409);
   assert.equal(err.container, true);
   assert.match(err.message, /zz-root may not be worked/);
-  // The reader of this sentence is usually somebody who tapped "work on this" on a P0
-  // card, so it has to say where the work actually goes rather than only that this is not
-  // it. Same argument lib/underp0.js's message makes.
+  // Whoever reads this is holding a bead they thought was work, so the sentence has to
+  // say where the work actually goes rather than only that this is not it. Same argument
+  // lib/underp0.js's message makes, and for the same reason: nothing clears this hold.
   assert.match(err.message, /children|file a new one under it/);
   assert.throws(() => assertNotContainer(container('zz-root')), (e) => e.container === true);
   assert.equal(assertNotContainer({ id: 'zz-work', labels: [] }).id, 'zz-work');
