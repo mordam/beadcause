@@ -5748,10 +5748,58 @@ releases the lot rather than leaving files looking busy for the length of the TT
 forbade it would be one everybody turns off. So the first edit against a file somebody else
 holds is denied *naming the branch the holder is on* — which on this Mac ends in that work's
 bead tag, so it leads you to `bd show` — and the refusal records the intent —
-the session that has been told and means it anyway claims the file on its next attempt. One
-wasted tool call buys the warning. Two sessions in the **same** tree is the other case, and
+the session that has been told and means it anyway claims the file on its next attempt —
+and keeps it, which for a while it did not: the only route to `held` ran through `told`, so
+the edit *after* the one that insisted was demoted and refused all over again, alternating
+for as long as both sessions were on the file and making the sentence the refusal ends with
+untrue (bc-n1qq — found by it happening twice to the session writing this paragraph). One
+wasted tool call buys the warning, and only one.
+Two sessions in the **same** tree is the other case, and
 that one reads as a stop, because it is the bc-utyr shape rather than a merge-time
 disagreement: it is where two sessions genuinely overwrite each other's bytes.
+
+**And it says which lines, because otherwise both collisions read the same.** Two sessions
+rewriting one function and two sessions at opposite ends of a thousand-line file produced
+the identical warning, and only the first is a conflict — so the message that fired on the
+harmless case taught you to skip the message on the other one. `lib/regions.js` fixes that
+by reading, at the moment of the refusal, what each side has actually changed:
+
+```
+public/monitor.js is already claimed by another session (bc-9d37 on worktree-advocates-roster-8kq)
+— a different worktree, so nothing is overwritten now. They are changing lines 565–640, 652–666
+of their copy; yours are at 120–140 — a different region of the merge base (a7cf008). Those regions
+do not touch, so git should merge them cleanly — keep out of their lines and it stays that way.
+```
+
+**Derived, never stored**, and that is the whole design rather than an optimisation. Line
+numbers recorded onto a claim are wrong the moment that session inserts forty lines above
+them, and nothing in the record can know it happened; worse, two sessions' numbers are
+numbers *in different files*, so "A touched 120" and "B touched 120" are not statements
+about the same line and comparing them answers nothing. So nothing is kept. Each side's
+ranges are read out of git when somebody asks, and the comparison happens in the one frame
+the two branches share — the **merge base**, taken pairwise, because two branches cut at
+different times do not have one base between them. That also disposes of the lifecycle
+question a stored version would have had: there is nothing to clear at merge, rebase or
+downmerge, because once the work lands the merge base advances past it and the diff empties
+itself.
+
+Three details are the difference between a useful sentence and a confident wrong one. The
+diff is against a **base commit rather than a log**, so uncommitted work counts — a session
+mid-edit has most of its changes in the working tree, and a reading that saw only commits
+would report it as idle. Overlap is padded by **three lines**, because that is the context
+git merges with and two hunks two lines apart already conflict. And every number *printed*
+is in the file its reader can open — theirs in their copy, yours in yours — while the
+comparison behind them is in base coordinates, which is precise and is a file neither of
+them has.
+
+None of it runs on the hot path. `POST /api/claims` is in front of every Write and Edit in
+every session on this Mac and its budget is a map write; the git spawns happen after
+`claim()` has already decided, on the refusal branch, which is a few times a day.
+`scripts/claim-guard.sh` is untouched by it and pays nothing, and if git cannot answer —
+unreadable repo, shipped worktree, no common ancestor — the refusal is the one it was
+before any of this existed. `GET /api/claims?regions=1` asks the same question about
+collisions nobody is claiming right now, opt-in because a reader drawing a list of names
+should not pay for a column it is not showing.
 
 Four properties are the file, and three of them fail silently if they are wrong:
 
@@ -5785,6 +5833,11 @@ free to act on — see [the bead whose files somebody is already
 editing](#the-bead-whose-files-somebody-is-already-editing). No new state, no fourth lock,
 no protocol between agents: the same register, read at a moment when standing down costs
 nothing rather than a whole session.
+
+`node test/regions.mjs` covers the line-range half against a real repository with real
+worktrees — there is nothing worth faking there, since the entire assertion is about what
+`merge-base` and `diff --unified=0` actually report, and a stub would only prove the parser
+can read strings the test wrote.
 
 That last one is why `node test/claims.mjs` runs the real script against a real server
 rather than testing the register alone: a fail-open client that has broken produces exactly
@@ -12290,8 +12343,8 @@ cookie says so), and `/auth/signout` ends the session.
 | POST | `/api/presence` | `{device, view, key}` | which view this device has open, so [the mirror](#the-mirror--whatever-the-phone-has-open-with-room-to-read-it) can follow it. Wakes `/api/poll` without costing a `bd` sweep — see `changed` there |
 | GET | `/api/presence` | — | `{devices[]}` — who is where |
 | DELETE | `/api/presence` | `{device}` | forget one device |
-| POST | `/api/claims` | `{session, repo, file, dir?, branch?, bead?}` | claim the file a session is about to edit, and be told in the same answer who else holds it — see [one granularity down](#one-granularity-down-which-file-somebody-is-already-editing). `decision` is `held` or `conflict`, and a `conflict` carries the `reason` `scripts/claim-guard.sh` prints as a denial. The asking *is* the taking: it decides and records in one synchronous call, so two edits a moment apart cannot both find the file free. On the bus deliberately never — an event per claim would hang a `bd` sweep off every keystroke |
-| GET | `/api/claims` | — | `{claims[], collisions[]}` — every live claim, and the files more than one session is holding |
+| POST | `/api/claims` | `{session, repo, file, dir?, branch?, bead?}` | claim the file a session is about to edit, and be told in the same answer who else holds it — see [one granularity down](#one-granularity-down-which-file-somebody-is-already-editing). `decision` is `held` or `conflict`, and a `conflict` carries the `reason` `scripts/claim-guard.sh` prints as a denial. The asking *is* the taking: it decides and records in one synchronous call, so two edits a moment apart cannot both find the file free. On the bus deliberately never — an event per claim would hang a `bd` sweep off every keystroke. A `conflict` also carries `regions`: which lines each side has changed, derived from git on that branch only (`lib/regions.js`), `null` whenever git cannot answer |
+| GET | `/api/claims` | `?regions=1` | `{claims[], collisions[]}` — every live claim, and the files more than one session is holding. `regions=1` adds the changed line ranges to each collision and whether they overlap; opt-in, because it is several git spawns per collision and a list of names should not pay for them |
 | DELETE | `/api/claims` | `{session, files?}` | let go of one file, or of everything that session held. Sent on `SessionEnd`, so a finished session stops holding files without waiting out the TTL |
 | POST | `/api/session-say` | `{pid, text}` | says one line into a live session's own iTerm window. `413` with the words left in the box if it is past `SAY_MAX` — the message rides to `osascript` as an argument, and past `ARG_MAX` the failure reads as "the session is gone", which is the one thing this must not lie about |
 | POST | `/api/session-focus` | `{pid, action}` | `focus` raises that session's iTerm window and doubles it in place; `restore` puts it back at the bounds it was read at. Focusing is gated on the same `reach` as the composer and on the pid still being live; restoring is gated on neither, because it arrives by `sendBeacon` from a page being torn down and must work for a window whose session has since exited |
