@@ -3445,7 +3445,7 @@ obvious alternative and it is much more expensive than it looks: 938 beads in `b
 alone on 2026-08-14, 97KB of `{id,title}` JSON, times nine workspaces, on every 25-second
 poll, to answer a question that is asked for about four seconds a week.
 
-### Your P0s, and the tree each one carries
+### Epics assigned to you, and the tree each one carries
 
 The section at the top of the inbox is the P0s **you** own — open, `owner:<you>`, at
 priority 0 — and `p0board` on `/api/questions` is where it comes from. Each card says
@@ -3542,6 +3542,52 @@ browser, no `bd` — over a fixture nested five deep: that a collapsed card draw
 all, that an expanded one draws every descendant in the server's order, that the indent
 steps and then stops, that only the tapped card opens, that the same state renders the
 same board twice, and that the tap handler writes state rather than reaching into the DOM.
+
+### And the section folds, under a heading that says what it is
+
+The heading is a disclosure of its own (bc-eevn) — one button the width of the section,
+`aria-expanded` on it, the same `.chev` every other fold on this app turns. Tap it and the
+cards go away. On a phone four epics with their controls *are* the first screen, and there
+are days when what you came to the inbox for is the questions underneath; before this the
+board could only be scrolled past.
+
+It says **"Epics assigned to you"**, not "Your P0s". Every card on it is an epic carrying
+your `owner:<handle>`; "P0" is beads' word for the priority the board selects on, and a
+heading that names a priority field reads as a filter you set rather than as the work you
+are answerable for. The internals keep the old name — `p0board`, `state.p0open`, `.p0-card`
+— because they *are* about the priority, and renaming them would be four files changed to
+move one line of screen text.
+
+Three things keep the fold from being a way to lose the board:
+
+- **The count stays on the shut line.** A fold that hid the fact there was anything behind
+  it would leave a screen indistinguishable from one with no epics on it, which is the
+  single thing this section exists to prevent.
+- **It is display only.** `underOwnedP0s` narrows the inbox to your epics' descendants off
+  the board *data*, not off whether the board is drawn — so folding it changes nothing
+  about the list underneath. A control that quietly emptied the inbox would be worse than
+  no control.
+- **It leaves `state.p0open` alone**, so the epic you had unfolded is still unfolded when
+  the board comes back. Putting a drawer away is not closing what is in it.
+
+Unlike which cards are open, the fold **is** persisted (`beadcause.p0shut` in
+`localStorage`, read synchronously at boot so the first frame is already the shape you
+left it in): which epic you have unfolded is where you are looking now, but whether you
+want the board over your list at all is a standing preference, like the kind filter. It is
+stored *shut*-side-true on purpose — an absent key, an older page, a state object written
+before the field existed all read as the board showing, which is the safe direction for a
+flag whose falsy default would otherwise hide the point of bc-rfnr.2.
+
+`node test/p0card.mjs` has the renderer and the handler's source; `node scripts/p0fold-check.mjs`
+is the half it cannot reach — a real tap in headless Chrome at 393×852, which is where the
+three failures that matter live. That the heading is inside `#list` at all, because every
+handler on this page is delegated from that element and one drawn outside it renders
+perfectly and does nothing. That the rows underneath are the same rows either side of the
+tap. And that a reload comes back shut, which no renderer test can see: the write to
+`localStorage` and the read at boot are separate ends, and either can be missing with the
+page looking right all session. The chevron is read as a computed transform rather than as
+markup, so it fails on a stale stylesheet too — which is what [v58](docs/sw-cache/v58.md)
+is about.
 
 ### The advocate that comes back — what re-opens a P0 advocate, and what it costs
 
@@ -3660,7 +3706,7 @@ So the board carries a second map beside `under`:
 The client draws a row that is in either. The two questions are genuinely different on a
 shared graph — "which of my P0s has this" and "has anybody's P0 got this" — and the whole
 bug was one map answering both. A row under somebody else's open P0 is in neither map and
-stays hidden, which is [bc-rfnr.2](#your-p0s-and-the-tree-each-one-carries) still working.
+stays hidden, which is [bc-rfnr.2](#epics-assigned-to-you-and-the-tree-each-one-carries) still working.
 
 Three things land in `unhomed` and all three are the same fact:
 
