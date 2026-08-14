@@ -39,7 +39,9 @@
  *    does it, in the main checkout rather than this worktree, and **will not touch a
  *    checkout with uncommitted work in it**.
  * 6. Closes the work bead, because the merge is what made it true, and pushes a
- *    notification with nothing to answer.
+ *    notification with nothing to answer. **Unless the bead is an epic**, which this
+ *    leaves open and says so: an umbrella epic is finished when its theme is, and a
+ *    branch that shared its name merging is no evidence about that. See the close below.
  *
  * **One card per pull request, whichever ending this takes.** Both endings begin by
  * closing any merge card already open on this request — a re-delivery replaces the
@@ -72,7 +74,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { ownAddresseeLabels } from '../lib/addressee.js';
-import { parseJson } from '../lib/bd.js';
+import { isMergeReason, parseJson } from '../lib/bd.js';
 import { loadConfig } from '../lib/config.js';
 import { inspectBranch, report as conflictReport } from '../lib/conflicted.js';
 import { ownerName } from '../lib/owner.js';
@@ -751,21 +753,52 @@ async function landHere(landed, { external = false } = {}) {
   const closeReason = external
     ? `${landedReason(request, base)}${owed ? ` — still owed: ${owed}` : ''}`
     : `Landed as ${where}${owed ? ` — still owed: ${owed}` : ''}`;
-  try {
-    bd(['close', beadId, '--reason', closeReason]);
-  } catch (err) {
-    // A refused close is a state, not a rumour: it is written down where the daemon
-    // will retry it once whatever is blocking it clears (lib/owed.js), and said on the
-    // bead in bd's own words. Reporting it as done — which is what the tap on the phone
-    // used to do — is how bc-ec6 stayed open over a merged pull request with two
-    // separate comments claiming otherwise.
-    const why = bdSaid(err);
-    console.error(`beadcause-deliver: merged ${where}, but could not close ${beadId} — ${why}`);
-    oweClose({ workspace: ws.name, id: beadId, reason: closeReason, why });
+  // An epic is the one bead this close is wrong about, and bd will not say so: `Adopts:`
+  // is prose, so an epic that claims twenty-three beads still has no children as far as
+  // bd is concerned and closes on any reason at all. That is how bc-ka5y closed as
+  // "Merged #212 as 72789c0b into main" with twenty-one adoptees open, taking its
+  // classification of them with it. An umbrella epic is finished when its theme is, which
+  // this merge says nothing about — so the merge is left as the comment written above and
+  // the epic stays open. Not owed either (lib/owed.js): the retry would carry the same
+  // sentence into the same refusal every thirty seconds for as long as the machine runs.
+  //
+  // The claim is left on it deliberately. A worker's bead is `in_progress` and assigned
+  // by the time it gets here, and `bd ready` skips an assigned bead — so an epic left
+  // open *and claimed* stays out of the advocate's queue, where an open unclaimed one
+  // would be handed straight to another session to deliver and be refused again. Closing
+  // it was the old way out of that loop, and it is the thing this rule exists to stop.
+  const epicStaysOpen = bead.issue_type === 'epic' && isMergeReason(closeReason);
+  if (epicStaysOpen) {
+    console.error(
+      `beadcause-deliver: merged ${where}, and left ${beadId} open — an epic does not close on a merge. ` +
+        `Close it when its theme is done.`
+    );
     try {
-      bd(['comment', beadId, `This is merged and this bead did **not** close: ${why}. beadcause retries the close once that clears.`]);
+      bd([
+        'comment',
+        beadId,
+        `This epic stays **open** over ${where}: an epic closes when its theme is done, not when a branch sharing its name merges.`,
+      ]);
     } catch {
-      /* The record above is the part that matters; the comment is the courtesy. */
+      /* The comment above this block already says what landed; this one is why it is still open. */
+    }
+  } else {
+    try {
+      bd(['close', beadId, '--reason', closeReason]);
+    } catch (err) {
+      // A refused close is a state, not a rumour: it is written down where the daemon
+      // will retry it once whatever is blocking it clears (lib/owed.js), and said on the
+      // bead in bd's own words. Reporting it as done — which is what the tap on the phone
+      // used to do — is how bc-ec6 stayed open over a merged pull request with two
+      // separate comments claiming otherwise.
+      const why = bdSaid(err);
+      console.error(`beadcause-deliver: merged ${where}, but could not close ${beadId} — ${why}`);
+      oweClose({ workspace: ws.name, id: beadId, reason: closeReason, why });
+      try {
+        bd(['comment', beadId, `This is merged and this bead did **not** close: ${why}. beadcause retries the close once that clears.`]);
+      } catch {
+        /* The record above is the part that matters; the comment is the courtesy. */
+      }
     }
   }
 
