@@ -3368,6 +3368,94 @@ contributes no cards and hides nothing, for the same reason. `node test/p0tree.m
 holds all of that, including the one assertion that separates the feature from `under`
 renamed: a descendant with no pending question is in the tree.
 
+### The advocate that comes back — what re-opens a P0 advocate, and what it costs
+
+The 🧭 button opens a P0 advocate. For a fortnight that was the *only* thing that did,
+and the agent's own brief told it otherwise on every run: *"You are re-entrant, not
+resident. You will be re-opened on child events rather than left running — so write
+everything down on the bead."* It duly wrote everything down. Nothing came back to read
+it. `openEpicAdvocateSession` had exactly one caller, the route behind that button, and
+the route's own comment said so — bc-rfnr.3 argued for the trigger, closed without it,
+and nobody re-filed the half that was missing. An agent that faithfully records its
+conclusions and is never re-entered is not a persistence success with a scheduling gap;
+it is the write-only diary this whole P0 exists to disprove, in its purest form.
+
+`lib/reenter.js` is the trigger, swept from the advocate tick. **Enrolment is the bead**,
+and that is the decision worth the most here: a P0 is enrolled when its notes carry the
+advocate's own waiting-on block — the sentence the last thing every advocate window is
+told to do writes. So the tap *is* the assignment. Press the button once, the window it
+opens writes its sentence, and from then on the sweep brings it back. Three things follow,
+and all three are why it is done this way rather than with a registry file:
+
+- the button and the sweep **cannot disagree** about who is enrolled, because neither of
+  them holds the fact — the tracker does;
+- it **survives losing `advocates.json`**, a restart, or a machine, and beadcause restarts
+  itself several times a day on its own merges;
+- **erasing the block un-enrols the P0**, which is an off switch that costs no new
+  control: an advocate that concludes a P0 needs no more supervision takes its own
+  sentence off, and nothing re-opens it.
+
+The cost is honest and is why the button stays: an advocate window that dies before
+writing its sentence never enrols its P0, and a tap is needed again.
+
+**Three events, and deliberately not all of them.** A descendant that *closed*, one that
+was *filed*, one that *stalled*. Not one that started — `open → in_progress` is a worker
+window coming up, which is the system working, and on a subtree of thirty that flip is
+most of the traffic there is. Over the whole subtree rather than direct children only,
+because a P0 whose children are epics has its real movement a level further down, and the
+card above it already counts descendants. A burst collapses into one window briefed on all
+of it.
+
+**A stall is measured in windows, not in timestamps.** `updated_at` says nothing useful —
+a comment bumps it and a session dying does not — so a stalled child is one the tracker
+says is `in_progress` while nothing on this Mac is in a window on it and no other machine
+holds a live lease on it, for `reenterStallMinutes`. That is the shape of the real
+failure: a bead claimed by a session that died, sitting `in_progress` with nobody coming
+back. It takes two sweeps to fire, because the clock starts the first time the state is
+seen — which is also what stops a launch racing the sweep and reading as a stall.
+
+**What bounds it**, since this spends unattended windows that file beads:
+
+| bound | default | why |
+|---|---|---|
+| `advocates.reenterIntervalMinutes` | 10 | how often it looks. One `bd export` per workspace — and it is the *cached* one the inbox already builds, so on a daemon with a phone open against it this costs nothing at all |
+| `advocates.reenterCooldownMinutes` | 180 | the floor between two automatic windows on **one P0**. Deliberately against being responsive: nothing waits on an advocate, because advocacy does not gate dispatch, so a supervisor taking stock three hours after a child landed is not late for anything |
+| one window per tick | — | per workspace, so a morning where four P0s all move opens one window and the rest wait for the next sweep |
+| never two on one P0 | — | `advocateSession` on the live session records, the same rule the button refuses a second tap on, plus the launch this daemon made in the last ten minutes whose window has not named itself yet |
+| a window or a lease already on it | — | a worker or planner window this advocate is holding on the P0 itself, which has no session record until it has named itself, and a live `held:` lease — another Mac's window, which nothing on this laptop can otherwise see |
+
+Measured on this tracker on 2026-08-14, over the previous seven days: six enrolled P0s,
+375 parent edges, and **36 windows in a week — 5.1 a day for the whole repo** at a 180
+minute cooldown (`bc-goo` 11 of them, `bc-xl7n` 12, `bc-sj8k` one). A six-hour cooldown
+would have made it 4.1 a day, which is the same feature costing a third less and arriving
+a third stale, so 180 stayed.
+
+Two more things it does not do. A P0 advocate **takes no worker slot** and competes for
+none — it is supervision, not throughput — so the sweep sits above every number the queue
+is bounded by, and a repo already at its `maxWorkers` can still get one, which is the
+state where supervision is worth the most. And it opens **no window at all** under
+`OBSERVING`, on a paused advocate, or in a space's quiet hours: it is doing rather than
+looking, and those three lines mean what they say.
+
+**It runs inside the advocate tick, so it reaches advocated workspaces only.** A repo with
+no advocate has no sweep and its P0s are still a tap each — the button is unaffected
+either way, in every workspace. And the launch is remembered *both ways*: the queue holds a
+bead this daemon just opened an advocate on (`resight`, and the `heldByLive` filter behind
+it), because the survey runs before the sweep and a P0 sitting in `bd ready` is one a worker
+would otherwise be opened on in the same minute — two windows in one worktree, which is the
+worst failure the dispatch side has.
+
+**A held event is not a consumed one**, which is the single subtlety in the code and the
+one whose failure is invisible. The snapshot of what the subtree looked like is what
+"something moved" is measured against, so a sweep that declined to open a window — the
+cooldown, the one-per-tick, a session already there, a refusal at the launch door — keeps
+the *old* snapshot rather than the new one. Store the new one and the child that closed is
+recorded as already-seen-closed and no window ever opens for it. `advocates.reenterAdvocates`
+is `false` to switch the whole thing off and be back to a button. `node test/reenter.mjs`
+holds all of it: the first sight that must be silent, each event, the stall's two sweeps,
+every bound, and — as a source read, because a behaviour test cannot see it cheaply — that
+the sweep is still below the three lines that stop the tick.
+
 ### A question under nothing is still drawn
 
 Narrowing the inbox to your P0s means a row that is in no P0's descendants is not drawn,
@@ -13908,7 +13996,7 @@ cookie says so), and `/auth/signout` ends the session.
 | GET | `/api/graph` | `?workspace=&id=` | `{nodes, links}` — the whole workspace with no `id` |
 | GET | `/api/bead` | `?workspace=&id=` | one issue in full, plus `comments[]` — for the graph's detail sheet |
 | GET | `/api/bead-links` | `?workspace=&id=` | `{children[], dependents[]}` — everything with an edge pointing at that bead, closed ones included, open work first: the `parent-child` rows as `children`, every other kind as `dependents` with its `dependency_type`. One `bd dep list --direction=up` for both, because `bd show` carries `dependent_count` and not one row behind it |
-| POST | `/api/bead/advocate` | `{workspace, id}` | opens the **P0 advocate** on this P0 — the button on the inbox's P0 card. Four refusals in front of it, all 409 with a sentence: unendorsed, superseded, closed, or not a P0 anybody owns (a crash P0 is refused by name — a stack trace is not an epic). **Never two on one P0**: a live session whose window carries this bead id is a 409 rather than a second window — matched with `namesBead`, so a session on a *child* of this P0 no longer refuses it — and so is a launch from the last ten minutes whose window has not named itself yet, since that is the gap a second tap falls through. The card in front of it reads the same rule and draws it: it links to `/session?pid=` while an advocate is up, and says one is opening until then, rather than re-offering a launch that would now be refused (`advocate` on each card of `p0board`). Blocked under `OBSERVING`, unlike the verdict routes — those are you deciding, this is the daemon opening a window |
+| POST | `/api/bead/advocate` | `{workspace, id}` | opens the **P0 advocate** on this P0 — the button on the inbox's P0 card, and the first one: the window it opens writes the waiting-on sentence that [enrols the P0 for automatic re-entry](#the-advocate-that-comes-back--what-re-opens-a-p0-advocate-and-what-it-costs), so this is where the loop starts rather than a weaker version of it. Four refusals in front of it, all 409 with a sentence: unendorsed, superseded, closed, or not a P0 anybody owns (a crash P0 is refused by name — a stack trace is not an epic). **Never two on one P0**: a live session whose window carries this bead id is a 409 rather than a second window — matched with `namesBead`, so a session on a *child* of this P0 no longer refuses it — and so is a launch from the last ten minutes whose window has not named itself yet, since that is the gap a second tap falls through. The card in front of it reads the same rule and draws it: it links to `/session?pid=` while an advocate is up, and says one is opening until then, rather than re-offering a launch that would now be refused (`advocate` on each card of `p0board`). Blocked under `OBSERVING`, unlike the verdict routes — those are you deciding, this is the daemon opening a window |
 | POST | `/api/bead/owner` | `{workspace, id, owner}` | sets `owner:<handle>` — who is answerable for this bead — and answers `{owner, owners[], p0, changed}`. An empty `owner` hands it back to nobody, which is a thing you may say; setting the owner it already has is `changed: false` and no `bd` write at all. Every *other* owner label comes off, so resolving two machines' claims from the sheet is visible. A route of its own rather than a field of `/api/bead/adjust`, because adjust refuses a bead anybody has endorsed and ownership is most worth changing on a P0 that is live — and because the ✎ may not touch `owner:` at all (`isProtectedLabel`) |
 | POST | `/api/bead/addressee` | `{workspace, id, to}` | re-addresses a question — sets `for:<handle>`, the label that decides [whose phone rings](#who-a-question-is-for--me-and-the-for-label), and answers `{addressees[], changed, cleared}`. `to` is one handle; **empty, or `everyone`, means everyone**, which is a decision rather than the absence of one. Every *other* `for:` label comes off, because handing it to Carol means Carol and not also whoever it was addressed to before. Re-sending the handle it already carries is `changed: false` and no `bd` write at all. `cleared: true` says it also pulled the row out of this phone's notification shade, which it does on exactly one condition — the question is now addressed somewhere that is not this Mac — via the same `dismissed` event [a narrowed filter](#and-it-offers-to-tidy-up-the-noise-it-already-made) uses, and with the same honest limit: ntfy cannot recall a delivered message, so only the Android shell's own tray is reachable. A route of its own for `/api/bead/owner`'s reasons, and because the ✎ may not touch `for:` at all (`isProtectedLabel`) |
 | GET | `/api/p0s` | `?workspace=` | `{p0s[]}` — every **open** P0 in that workspace, `{id, title, owners[], mine}`, yours first. What the sheet offers a held bead to be adopted under. Every P0 and not only yours, because the dispatch gate measures against all of them; off the cached graph, and this one waits for a cold cache rather than answering "there are no P0s" |
@@ -14625,6 +14713,10 @@ another Mac's, and an agent's — and asserts that exactly one of them rings.
 | `advocates.planEpics` | [open an **epic worker** on an epic rather than working it](#an-epic-is-planned-not-worked--and-each-group-gets-its-own-window) (default `true`) — a window that groups the epic's beads for N child-workers, writes each group's prompt, and does none of the work itself. `false` falls all the way back to handing one worker the epic and its ready children as a batch, which is what this did before plans existed and is still the right answer if a plan ever briefs badly. An epic whose planning has failed `maxAttemptsPerBead` times falls back to that on its own |
 | `advocates.filePromotions` | file a **promotion bead** when every bead an epic's plan named has closed (default `true`) — one per epic, for the release through UAT and production, and deliberately not the [release queue](#the-release-queue--the-number-over-ship)'s per-merge `ship` bead. It carries `promote` and `unendorsed`, and the epic is labelled `promoted` so exactly one is ever filed |
 | `advocates.respectQuietHours` | a quiet space's advocate watches without launching (default `true`) |
+| `advocates.reenterAdvocates` | [re-open the **P0 advocate** when something moves under a P0 it has already been on](#the-advocate-that-comes-back--what-re-opens-a-p0-advocate-and-what-it-costs) (default `true`) — a descendant that closed, was filed, or has stalled. Enrolment is the bead itself: a P0 is enrolled once its notes carry the advocate's waiting-on sentence, so the 🧭 button is what starts the loop and erasing that block is what ends it. `false` leaves exactly what this did before, which is a button and an agent told every run that it would be re-opened |
+| `advocates.reenterIntervalMinutes` | how often that sweep looks (default 10). It reads the same cached `bd export` the inbox's P0 board is built from, so it costs no tracker call of its own |
+| `advocates.reenterCooldownMinutes` | the floor between two *automatic* advocate windows on one P0 (default 180), alongside one window per tick per workspace. Nothing waits on an advocate — advocacy does not gate dispatch — so being three hours late costs nothing, where a Mac full of 🧭 windows costs real money |
+| `advocates.reenterStallMinutes` | how long a descendant sits `in_progress` with no window on it anywhere and no live lease elsewhere before that is a stall worth waking a supervisor for (default 60). Half of `workerTimeoutMinutes`, which releases the *slot* and never asks the question this does: the slot came back and the bead is still claimed |
 | `advocates.tidyWorktrees` | retire merged, clean, unlocked worktrees after a session ends (default `true`) — moved to `.claude/worktrees-retired/`, never deleted |
 | `advocates.tidyIntervalMinutes` | how often it sweeps when nothing has just finished (default 15) |
 | `advocates.tidyAtticDays` | how long a retired worktree stays in `.claude/worktrees-retired/` before the same sweep removes it for good (default 2). `0` keeps the attic forever, which is what this did before — and fractional values are honoured, so a removal rule can be rehearsed at `0.01` on a real attic |
