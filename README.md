@@ -9262,6 +9262,75 @@ says whose it is on the card the entire time it lasts. The cases are in
 `node test/leasequeue.mjs`, including the read count, the sibling that is *not* held, the
 plain parent that holds its subtree too, and the two-machine race resolved after a sync.
 
+#### …and the window this daemon never opened
+
+Everything above is written by the launch. The advocate stakes the claim and then opens the
+window, so every session **it** opens is visible on the other Macs — which is most of them,
+and was all of them for as long as the only thing that opened a window on a bead was an
+advocate. It is not. A bead opened from the phone or the console opens a session on the
+Mac; so does a terminal seeded on one; so does opening iTerm yourself and starting a
+session on a bead by hand, which is the oldest way of all. None of those goes past the
+launch, so none of them staked anything.
+
+On one laptop that has never shown, and the reason is the filter two sections up: [a window
+already open on a bead](#the-bead-somebody-is-already-sitting-in) holds it, on the evidence
+of the process alone, whoever opened it. Across two Macs there is no process to see. The
+other machine reads a bead that is ready, unclaimed as far as the shared graph knows, and
+opens a second window on it — bc-bllw's incident exactly, reached through the one door
+bc-bllw did not close. That is bc-3p53.
+
+So the same evidence is **published**. Every tick already reads the session records to
+decide which beads a window is open on; each one that names a bead this workspace has, and
+that no worker of this advocate is on, now gets this Mac's claim written on it. The other
+machine's filter reads it like any other claim, and holds the bead.
+
+**And the terminals, which are the same fact from a register rather than an inference.** An
+[in-app terminal](#the-terminal--driving-a-session-from-the-phone) seeded on a bead is briefed
+for a phone-sized screen and told outright *not to rename itself*, so no session record
+will ever carry its id and the sweep over names is blind to every one of them. It does not
+need a name: this daemon starts the pty and this daemon ends it, so `live` is not something
+inferred from a process table. Live ones only — a **resumable** terminal is a conversation
+waiting to be picked up, with no process behind it and possibly days before anybody does,
+and a claim held across that is the park this whole mechanism is trying not to cause.
+
+**The release is what made this a bead rather than a line, and it is why the claim follows
+the window rather than the door that opened it.** A hand-opened window is not a worker: no
+slot, no reconcile, nothing that would ever renew or drop a label on its behalf. Staking
+where the window is opened is one line of code and leaves only `leaseMinutes` to end it —
+so closing a window you had open for five minutes would park that bead on every other Mac
+for an hour, which is the trade [the lease itself](#the-bead-another-mac-has-claimed) calls
+strictly worse than the duplicate window the whole thing exists to prevent. The window is
+the better signal and it is free: it arrives every tick, in the same snapshot every other
+filter here already reads. So the claim is staked while a session names the bead, restamped
+at half the lease for as long as one does, and **taken off on the first tick after the last
+one has gone**. Expiry stays underneath for the single case this cannot see — a daemon that
+was down when the window closed — which is what expiry was always for.
+
+Three windows it deliberately says nothing about, and each would otherwise have cost a
+duplicate label:
+
+- **A worker**, or a window on a bead beneath one. The launch staked that claim and the
+  reconcile renews it; a second mechanism writing a second label from the same handle is a
+  second row to sync and a bead the tracker reports as contested by a machine that is not
+  contesting anything.
+- **A window whose name says `DONE-`.** A session finished by its own account is not
+  working the bead, and its window can sit there for an hour before the sweep closes it.
+- **A bead another Mac already holds.** A claim of ours would be later and would lose the
+  tiebreak anyway — and writing it would only tell the holder's card the bead is contested
+  when nothing here is going to stand down. This window is a person at a keyboard, and no
+  advocate closes one of those.
+
+It costs one `bd show` per hand-opened window per half a lease: the read that says whether
+the id in a window's title is a bead this workspace has at all, since a title can carry a
+hyphenated word in exactly an id's shape. The answer is remembered either way, including
+the negative, and ages rather than sticking, because every one of those answers can change.
+It is off wherever the lease is off — `holdLeases: false`, or no `me` at all, which is every
+single-person install and costs not so much as a read — and off with `holdLiveSessions:
+false` as well: a window is the only evidence it has, so an advocate told not to treat an
+open window as a bead being worked has no business telling the other machines that it is.
+`node test/handlease.mjs` covers it, including the release, the adoption of a claim a
+restarted daemon left behind, and the other Mac holding the bead after a sync.
+
 ### The bead whose files somebody is already editing
 
 Every filter above asks about the **bead**: has another Mac claimed it, is a window open on
