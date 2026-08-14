@@ -19,6 +19,10 @@
  *    asserting only that some parent was set.
  * 2. **The unsorted backlog catches what nothing discovered.** Found by a label on an
  *    open P0, not by an id in config: the graph is shared and config.json is per-Mac.
+ *    **Except where a caller says `unsorted: false`** (bc-arj0.5), which is the seam that
+ *    keeps a daemon filing thirty self-closing beads a week out of the one pile whose
+ *    contents are a question somebody has to answer. Asserted from both ends: the P0 is
+ *    still found where there is one, and nothing else is substituted where there is not.
  * 3. **A closed P0 is not a home**, for the same reason it is not a root — the two must
  *    agree or a bead lands under something the phone does not draw.
  * 4. **Nothing is refused.** No `from`, no unsorted P0, no `bd`, an export that threw:
@@ -147,6 +151,26 @@ await check('a from with nothing above it falls through to the backlog', () => {
   assert.equal(homeFor(INDEX, { from: 'zz-loose' }).parent, 'zz-pile');
   assert.equal(homeFor(INDEX, { from: 'zz-done.1' }).parent, 'zz-pile');
   assert.equal(homeFor(INDEX, {}).parent, 'zz-pile');
+});
+
+await check('UNSORTED: FALSE REFUSES THE BACKLOG AND KEEPS THE P0 — lib/release.js', () => {
+  // A caller filing on a schedule, over beads that close themselves and that nothing
+  // will ever open a session on, is not asking "which P0 does this belong to" thirty
+  // times a week — it is burying the beads that are. What it must not lose is the other
+  // half: where the P0 *is* knowable it is still the home, and only the fallback goes.
+  assert.equal(homeFor(INDEX, { from: 'zz-epic.1', unsorted: false }).parent, 'zz-epic');
+  assert.equal(homeFor(INDEX, { from: 'zz-loose', unsorted: false }).parent, '');
+  assert.equal(homeFor(INDEX, { unsorted: false }).parent, '');
+  assert.equal(homeFor(INDEX, { from: 'zz-loose', unsorted: false }).why, '', 'and it does not explain a home it did not give');
+  assert.equal(homeFor(INDEX, { from: 'zz-loose', unsorted: false }).gated, true, '`gated` is about the graph, not about this');
+  assert.equal(homeFor(INDEX, { parent: 'zz-pile', unsorted: false }).parent, 'zz-pile', 'a named parent still wins outright');
+});
+
+await check('and the same through homeIn, so a caller with only a tracker gets it too', async () => {
+  const bd = { graph: async () => INDEX };
+  assert.equal((await homeIn(bd, { name: 'zz' }, { from: 'zz-epic.1.1', unsorted: false })).parent, 'zz-epic');
+  assert.equal((await homeIn(bd, { name: 'zz' }, { from: 'zz-loose', unsorted: false })).parent, '');
+  assert.equal((await homeIn(bd, { name: 'zz' }, { from: 'zz-loose' })).parent, 'zz-pile', 'the default is unchanged');
 });
 
 await check('a parent the caller named wins, and is not explained', () => {
