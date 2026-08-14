@@ -44,14 +44,16 @@ identity), which workspaces are **shared with
 other people** (those get a contentless push and no unattended agents), where your
 **code lives** (so a question can show you files from it), whether your shell
 **derives `BEADS_DIR` from the working directory**, whether to use **ntfy**,
-whether commenting should **spawn an agent** to answer you, whether to open the
-**[activity monitor](#the-monitor--what-it-is-doing-right-now)** at login, and the
-credentials for **[signing in with Google](#signing-in-with-google)**. A workspace
+which **[Slack channel](#slack--the-same-decision-in-a-channel)** questions should also
+be posted to, whether commenting should **spawn an agent** to answer you, whether to open
+the **[activity monitor](#the-monitor--what-it-is-doing-right-now)** at login, and the two
+sets of credentials — **[Confluence](#setting-it-up-without-opening-the-file)** and
+**[signing in with Google](#signing-in-with-google)**. A workspace
 holding **more than one repo** is asked one more: which of the checkouts under it are
 [approved](#many-repos-one-workspace--the-approved-list-and-the-token-that-names-each),
 printed with the service token each one declares — an install where every workspace is one
 repo is asked nothing about it. Re-run them any time with `npm run configure`; nothing is
-written until the last answer — not even the client secret, which goes to a file of its
+written until the last answer — not even the two credentials, which go to files of their
 own — so Ctrl+C is always safe.
 
 **Nothing to answer? Say so.** `npm run install-service -- --non-interactive` (or
@@ -13065,6 +13067,63 @@ wire](#one-credential-rule-and-one-wire-shared-by-jira-and-confluence). What is 
 shared is every sentence this integration says, including the decision that a Confluence
 401 reaches the phone as a 502.
 
+### Setting it up without opening the file
+
+The block above is what the configuration *looks* like, not how you get one.
+**`npm run configure` asks for all of it**, beside the Google sign-in question at the
+end, because those two are the pair that take a credential:
+
+```
+12. Publish and read Confluence pages?
+   currently: off
+   set up Confluence? (y/n) [n] y
+   site: [none] https://yourteam.atlassian.net
+   account email: [] you@yourteam.com
+   space to publish into: [none] ENG
+   API token:
+   readable spaces: [none] ENG
+   Publishing is on — into ENG.
+   Reading is on for ENG and nothing else on that site.
+```
+
+Confluence was the last integration on this Mac that could only be turned on by editing
+`config.json` under a running daemon, which is what [the Slack
+channel](#slack--the-same-decision-in-a-channel) used to be. Four things about the block
+are decisions rather than layout:
+
+- **The token is typed with the echo off and never reaches `config.json`.** It goes to
+  `~/.config/beadcause/confluence.key` at 0600, by the same route and for the same reason
+  as the Google client secret — that file is committed after every write, so a credential
+  in it is in a history a rotation cannot reach back into. Enter keeps the one already
+  there rather than wiping it, and nothing is written at all until the last question is
+  answered, so Ctrl+C halfway through really does leave every credential as it was.
+- **The readable-spaces question opens at `none`, on an install that publishes into
+  `ENG`.** That is the [empty allowlist](#reading-a-page-in--and-why-the-allowlist-is-empty-to-begin-with)
+  said again in the one place it is easiest to lose: the obliging thing for a wizard to do
+  is offer back the space you typed one question earlier, and doing that would decide
+  *every unattended agent this Mac dispatches may read the company wiki* on behalf of
+  somebody pressing Enter. Reading stays off, and the verdict says so as the default
+  rather than as a fault — no "re-run configure to finish it" over an install that
+  deliberately reads nothing.
+- **`none` at the site turns off all four fields together**, and says which readable
+  spaces went with them. Clearing the site alone would leave a `space` and a `readSpaces`
+  behind, which both halves read as *wants Confluence* — so a deliberate off would be
+  reported as a misconfiguration, at every startup, naming the site that was just deleted
+  on purpose. The key file is left where it is; deleting a credential is not setup's to do.
+- **The verdict is two sentences because this is two switches.** Publishing and reading
+  fail separately and can disagree — a site with no space cannot publish and reads
+  perfectly well — so the summary line is `publishing into ENG, reading nothing` rather
+  than the word "on", which would be true of an install whose agents read nothing at all.
+
+**Neither answer is on the [space details screen](#space-details--the-page-the-advocate-console-became),
+and that is the same decision twice.** `confluenceSpace` is not there for the reason the
+next section gives, and `readSpaces` is not there for a reason of its own: it is a single
+global list rather than a per-space one — see [the two edges](#reading-a-page-in--and-why-the-allowlist-is-empty-to-begin-with)
+— so a row on a card that governs one space would be a control that quietly governs all of
+them. `node test/confluencesetup.mjs` (part of `npm test`) drives the block with scripted
+answers, and the assertion it exists for is the second bullet: the offered default, not
+just the answer.
+
 ### Which spaces may publish, and to where
 
 `confluence.space` is the default target. A [space](#spaces--keeping-work-out-of-your-evening)
@@ -13085,10 +13144,12 @@ publishing the day a global default appears. Leave `confluence.space` unset enti
 configure it if most of what you read is not the team's business.
 
 This is deliberately **not** on the [space details screen](#space-details--the-page-the-advocate-console-became)
-with the other nine settings. It is the same line `name` and `workspaces` sit on the far
+with the settings that are. It is the same line `name` and `workspaces` sit on the far
 side of: choosing which wiki an evening's work is published to is a config-file act, not
 a thing to do with a thumb, and an integration whose whole point is being deliberate
-loses that the moment its target is as easy to change as the act.
+loses that the moment its target is as easy to change as the act. `confluence.space`
+underneath it is a wizard answer rather than a card row for the same reason, one level
+up — see [setting it up](#setting-it-up-without-opening-the-file).
 
 ### It is a button, pressed twice, under a target named in full
 
@@ -13252,7 +13313,9 @@ can resolve one, and the API does not. And `readSpaces` is a single global list 
 than a per-[space](#spaces--keeping-work-out-of-your-evening) one: unlike
 `confluenceSpace` for publishing, the reader is a command an agent runs in a checkout
 and has no honest way to know which beadcause space it is acting for. So list only the
-spaces that *every* agent this Mac dispatches may read.
+spaces that *every* agent this Mac dispatches may read — which is also why it is a
+question in [`npm run configure`](#setting-it-up-without-opening-the-file) rather than a
+row on a space's card, where a per-space control would quietly govern all of them.
 
 `node test/confluenceread.mjs` (part of `npm test`) drives it against the same kind of
 fake Confluence, and the case it exists for is the third paragraph above: a page in a
@@ -14058,11 +14121,11 @@ another Mac's, and an agent's — and asserts that exactly one of them rings.
 | `claudeSessionsDir` | where those per-process records live, if not `$CLAUDE_CONFIG_DIR/sessions` or `~/.claude/sessions` |
 | `claudeProjectsDir` | where session transcripts live, if not the `projects` folder of every `~/.claude…` directory. Takes a list. Governed by `claudeSessions` — off there means no transcripts either |
 | `assetRoots` | the only directories `/api/asset` will read images from |
-| `confluence.site` | your Atlassian Cloud site, e.g. `https://yourteam.atlassian.net`. Absent, [publishing](#publishing-a-document-to-confluence) is off and no credential is read |
-| `confluence.email` | the Atlassian account the API token belongs to — the two together are basic auth |
-| `confluence.space` | the Confluence space a document lands in by default. A beadcause space may name another with `confluenceSpace`, or refuse with `confluenceSpace: false` |
+| `confluence.site` | your Atlassian Cloud site, e.g. `https://yourteam.atlassian.net`. Absent, [publishing](#publishing-a-document-to-confluence) is off and no credential is read. Asked by `npm run configure`, where `none` here turns the whole integration off — see [setting it up](#setting-it-up-without-opening-the-file) |
+| `confluence.email` | the Atlassian account the API token belongs to — the two together are basic auth. Asked by `npm run configure` |
+| `confluence.space` | the Confluence space a document lands in by default. A beadcause space may name another with `confluenceSpace`, or refuse with `confluenceSpace: false`. Asked by `npm run configure`; the per-space override is not, and is a config-file answer on purpose |
 | `confluence.apiTokenFile` | where the API token is read from, if not `~/.config/beadcause/confluence.key`. A relative name resolves inside that directory. **The token itself is never a config field** — this file is committed after every write |
-| `confluence.readSpaces` | the space keys an unattended agent may [read a page out of](#reading-a-page-in--and-why-the-allowlist-is-empty-to-begin-with), e.g. `["ENG"]`. **Empty by default and does not inherit `space`** — the token that publishes can read the whole site, so an install that publishes still reads nothing until this names a space |
+| `confluence.readSpaces` | the space keys an unattended agent may [read a page out of](#reading-a-page-in--and-why-the-allowlist-is-empty-to-begin-with), e.g. `["ENG"]`. **Empty by default and does not inherit `space`** — the token that publishes can read the whole site, so an install that publishes still reads nothing until this names a space. Asked by `npm run configure`, where the question opens at `none` even on an install publishing into `ENG` |
 | `jira` | JIRA per workspace, keyed by workspace name — `{"climative": {"enabled": true, "email": "you@company.com"}}`. Empty by default, and a workspace not named here costs nothing: no call is made about it at all. The site URL and the project keys come from that workspace's own `bd config get jira.url` / `jira.projects`, so `enabled` and `email` are usually the whole setting; `url` / `projects` here override for a workspace whose `bd` was never pointed at JIRA. **There is deliberately no token field** — see [JIRA, per workspace](#jira-per-workspace--read-only-and-one-setting) |
 | `jira.<workspace>.tokenFile` | where that workspace's API token is read from, if not `~/.config/beadcause/jira-<workspace>.key`. A relative name resolves inside that directory. The same option `confluence.apiTokenFile` is, and it opens the same hole: point it at a name that directory does *not* refuse and the log says so on every check |
 | `jiraSeconds` | how often the daemon asks JIRA what is assigned to you (default 60, floor 15) — one HTTP call per workspace whose `jira` block is switched on, and **nothing at all** for the rest. Beside `pollSeconds` rather than inside `jira`, because that block is keyed by workspace name and a number in it would be a setting for a workspace called "seconds". See [the tickets, on a clock](#the-tickets-on-a-clock--and-a-failure-that-is-never-an-empty-list) |
