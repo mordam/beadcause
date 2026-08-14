@@ -2960,7 +2960,7 @@ The tree is not the row filter seen from the other end, and that is the whole re
 exists. `p0board.under` is a fact about the *inbox rows* — one string per row naming the
 P0 it descends from, which is what lets the list narrow itself to your work. It is keyed
 by row, and most of a P0's descendants have no row, because nobody is being asked about
-them: `bc-rfnr` had 16 descendants and 3 pending questions the day this landed. A card
+them: `bc-rfnr` had 16 descendants and one pending question the day this landed. A card
 drawn from `under` would have said "16 open" over a tree of three.
 
 So the tree is built from the graph instead, and it arrives **flat**:
