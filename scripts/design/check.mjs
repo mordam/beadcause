@@ -45,10 +45,13 @@ const TEMPLATED = [
   /^pick-(yes|no)$/,       // prop-row pick-${choice}
 ];
 
+// Matching inside any string literal, not just a whole one: the app appends state with
+// `${done ? ' closed' : ''}`, so the class arrives as ' agent-chat' — leading space and
+// all — and an equality test never sees it.
 const known = (c) => {
   if (TEMPLATED.some(re => re.test(c))) return true;
   const e = c.replace(/[-]/g, '\\-');
-  return new RegExp(`class=["'\`][^"'\`]*\\b${e}\\b|classList\\.[a-z]+\\(['"\`]${e}['"\`]|["'\`]${e}["'\`]`).test(APP);
+  return new RegExp(`["'\`][^"'\`\\n]*\\b${e}\\b`).test(APP);
 };
 
 const cards = GROUPS.flatMap(g => g.cards.map(c => ({ ...c, group: g.group })));

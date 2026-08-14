@@ -544,6 +544,117 @@ const CORE = [
 </article>`,
       },
       {
+        path: 'decisions/reply-bar.html',
+        name: 'Reply bar',
+        subtitle: 'Who answers this box',
+        viewport: { width: 440, height: 400 },
+        note: `A strip on the answer box's own top edge — the one place a "who replies" control can sit and stay true once the box stops scrolling with the thread above it. <b>.allow-tools</b> is the serious one: it decides whether an override already in the config file is <i>used</i>, never what it says, and nothing here can write one. It arms on tick and is <b>spent when you send</b>, so it can never be left quietly on.`,
+        markup: `<div class="ds-stack">
+  <div class="reply-bar">
+    <span class="reply-who">MergeAdvocate replies</span>
+    <div class="agent-wrap">
+      <button class="agent-dots on" aria-haspopup="true" aria-expanded="true"><span class="dots-emoji">🛰</span>⋯</button>
+    </div>
+  </div>
+
+  <p class="ds-label">armed</p>
+  <div class="reply-bar">
+    <span class="reply-who">MergeAdvocate replies</span>
+    <div class="agent-wrap">
+      <button class="agent-dots armed" aria-haspopup="true" aria-expanded="false"><span class="dots-emoji">🛰</span>⋯</button>
+    </div>
+  </div>
+
+  <div class="agents agent-panel" role="group">
+    <button class="chip agent-chip" aria-pressed="true"><span class="chip-label">🛰 MergeAdvocate</span></button>
+    <button class="chip agent-chip" aria-pressed="false"><span class="chip-label">◆ RepoAdvocate</span></button>
+  </div>
+
+  <label class="allow-tools on">
+    <input type="checkbox" checked>
+    <span class="allow-label">⚠ Allow tools for this comment</span>
+    <span class="allow-note">armed · spent when you send</span>
+  </label>
+
+  <label class="allow-tools busy">
+    <input type="checkbox" disabled>
+    <span class="allow-label">⚠ Allow tools for this comment</span>
+    <span class="allow-note">MergeAdvocate is answering bc-r941 — not while it is running</span>
+  </label>
+</div>`,
+      },
+      {
+        path: 'decisions/delivery.html',
+        name: 'Delivery summary',
+        subtitle: 'A pull request, on a question card',
+        viewport: { width: 440, height: 420 },
+        note: `When the thing waiting on you is a merge, the card carries the pull request's live state rather than a link to it. <b>.pr-chip</b> has a quiet state for "reading GitHub…" and a warn state for "GitHub would not say", because the row's own facts are up to 25 seconds old — the right freshness for a lamp and the wrong one for a button. <b>.pr-ship</b> names what shipping would actually do, and arms before it does it.`,
+        extraClasses: ['armed'],
+        markup: `<div class="ds-stack">
+  <div class="pr-summary">
+    <span class="pr-chip quiet">reading GitHub…</span>
+    <span class="pr-chip">7 files</span>
+    <span class="pr-chip diff"><span class="add">+412</span> <span class="del">−96</span></span>
+    <span class="pr-chip warn">a check has not reported</span>
+  </div>
+
+  <div class="pr-actions">
+    <button class="board-btn merge">Merge #313</button>
+    <button class="board-btn ship">
+      <span class="pr-ship-do">Ship #313</span>
+      <span class="pr-ship-what">merge, deploy, and close both beads</span>
+    </button>
+  </div>
+
+  <p class="ds-label">armed — the second tap does it</p>
+  <div class="pr-actions">
+    <button class="board-btn merge armed">Merge #313</button>
+    <button class="board-btn ship armed">
+      <span class="pr-ship-do">Tap again to confirm · Ship #313</span>
+      <span class="pr-ship-what">merge, deploy, and close both beads</span>
+    </button>
+  </div>
+</div>`,
+      },
+      {
+        path: 'decisions/activity.html',
+        name: 'Activity',
+        subtitle: 'What the agent is doing, on the card',
+        viewport: { width: 440, height: 260 },
+        note: `A card that something is working on says so on its face, so you do not answer a question an agent is already answering. <b>.live</b> is a phase that is genuinely running; <b>.waiting</b> is the state after <i>you</i> replied — the spark keeps turning, but the sentence is about waiting for an agent to pick it up rather than about work in progress.`,
+        markup: `<div class="ds-stack">
+  <div class="activity live">
+    <span class="spark"></span>
+    <span class="phase">◆ merging</span>
+    <span class="detail">#313 into main</span>
+    <time>2m ago</time>
+  </div>
+  <div class="activity">
+    <span class="spark"></span>
+    <span class="phase">◍ paused</span>
+    <span class="detail">the advocate is at its worker limit</span>
+    <time>18m ago</time>
+  </div>
+  <div class="activity waiting">
+    <span class="spark"></span>
+    <span class="phase">⏳ you replied</span>
+    <span class="detail">waiting on an agent to pick this up</span>
+  </div>
+</div>`,
+      },
+      {
+        path: 'decisions/addressee.html',
+        name: 'Addressee',
+        subtitle: 'Who a question is for',
+        viewport: { width: 440, height: 220 },
+        note: `Not every question in the inbox is for you. The addressee buttons say who a bead is asking, and <b>.picked</b> is a claim — the same filled treatment <code>.option.picked</code> uses, and for the same reason: it is the one that is true now.`,
+        markup: `<div class="address-panel">
+  <button class="address-btn picked" type="button">adam</button>
+  <button class="address-btn" type="button">anyone</button>
+  <button class="address-btn" type="button">MergeAdvocate</button>
+</div>`,
+      },
+      {
         path: 'decisions/agent-log.html',
         name: 'Session log',
         subtitle: 'The CLI, as the CLI laid it out',

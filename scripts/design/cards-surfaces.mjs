@@ -195,6 +195,55 @@ export const SURFACES = [
 </div>`,
       },
       {
+        path: 'monitor/adv-limit.html',
+        name: 'Advocate limit',
+        subtitle: 'At rest, dialled up, at the ceiling',
+        viewport: { width: 480, height: 300 },
+        note: `A number and the press that commits it, as <b>one control</b> — a separate Apply button in the row would read as another action like Pause, so the segment lives inside the pill and is square-ended on the left to say so. <b>.pending</b> is dialled up but not sent: the accent border and accented number are the whole signal that this number is <i>yours</i> and not the daemon's yet. <b>.held</b> is amber, and it <b>wins where the two collide</b> — a limit the global cap will not honour is worth more than a reminder that you have not pressed Apply.`,
+        markup: `<div class="ds-stack">
+  <p class="ds-label">at rest</p>
+  <span class="adv-limit"><button class="adv-btn adv-step">−</button><b>2</b><button class="adv-btn adv-step">+</button></span>
+
+  <p class="ds-label">.pending — yours, not sent</p>
+  <span class="adv-limit pending"><button class="adv-btn adv-step">−</button><b>3</b><button class="adv-btn adv-step">+</button><button class="adv-btn adv-apply primary">Apply</button></span>
+
+  <p class="ds-label">.held — above the global cap, and amber wins</p>
+  <span class="adv-limit held pending"><button class="adv-btn adv-step">−</button><b>6</b><button class="adv-btn adv-step">+</button><button class="adv-btn adv-apply primary">Apply</button></span>
+</div>`,
+      },
+      {
+        path: 'monitor/states.html',
+        name: 'Monitor states',
+        subtitle: 'mon-state, deploy dot, the P0 row',
+        viewport: { width: 480, height: 340 },
+        note: `The monitor's own vocabulary for "what is this thing doing". <b>.mon-state.dim</b> is the absence case — "no advocate", "no settings" — said in words rather than left blank, because a blank slot and a slot that has not loaded look identical. The <b>.p0-row</b> is the one row that gets colour on this screen: a P0 in the tracker is the thing the monitor exists to surface.`,
+        markup: `<div class="ds-stack">
+  <div class="work-head"><h2>beadcause</h2><span class="mon-state ok">sweeping</span></div>
+  <div class="work-head"><h2>sophab</h2><span class="mon-state dim">no advocate</span></div>
+  <div class="work-head"><h2>Elsewhere</h2><span class="mon-state dim">no settings</span></div>
+  <div class="p0-row">
+    <span class="pill id">bc-z665</span>
+    <span class="work-title">Publish the beadcause design system</span>
+    <span class="pill p0">P0</span>
+  </div>
+  <div class="release-head"><span class="deploy-dot"></span><span class="work-title">Deployed</span><span class="deploy-said">settled, swapped, live</span></div>
+</div>`,
+      },
+      {
+        path: 'monitor/trouble.html',
+        name: 'Trouble',
+        subtitle: 'The repos a sweep could not read',
+        viewport: { width: 500, height: 300 },
+        note: `Above the list, not inside it: a sweep that could not read three of forty repos has produced counts that are <i>wrong</i>, and saying so is more urgent than any row below. <code>bd</code>'s own sentence is <b>wrapped rather than truncated</b> — it can be long, and the half you would cut is usually the half that says which path failed. <b>Retried on every sweep</b>, which the note says, because otherwise this reads as something you have to go and fix by hand.`,
+        markup: `<div class="trouble" role="status">
+  <ul>
+    <li>climative/ingest <span class="trouble-held">bd: workspace is locked by another writer</span></li>
+    <li>climative/atlas <span class="trouble-held">bd: no beads database found</span></li>
+  </ul>
+  <span class="trouble-note">Retried on every sweep. Counts on this screen are what could be read.</span>
+</div>`,
+      },
+      {
         path: 'monitor/release.html',
         name: 'Release',
         subtitle: 'What went out, and what it said',
@@ -411,15 +460,184 @@ export const SURFACES = [
         name: 'Comments',
         subtitle: 'A bead\'s thread',
         viewport: { width: 460, height: 320 },
-        note: `What a bead has had said on it, as the graph and the endorsement queue show it. Attribution is a <b>.who</b> rather than an avatar — every actor here is either you or a named agent, and a picture would be inventing a face for a process.`,
+        note: `A thread, with everything but the recent exchange collapsed. <b>.who</b> is a <code>&lt;button&gt;</code>, not a label — the byline <i>is</i> the fold control, which is why a shut comment can show a <b>.peek</b> of its first line where an avatar would have gone. Yours and an agent's are told apart by <b>.from-agent</b> rather than by a picture: every actor here is a person or a process, and a face would be inventing one.`,
         markup: `<div class="comments">
-  <div class="comment">
-    <span class="who">adam</span>
+  <div class="comment shut">
+    <button class="who" aria-expanded="false">
+      <span class="caret" aria-hidden="true"></span>
+      <span class="who-name">you · 3h ago</span>
+      <span class="peek">Close both. The worker delivering and stopping is the whole point…</span>
+    </button>
     <div class="md"><p>Close both. The worker delivering and stopping is the whole point of bc-r941.</p></div>
   </div>
-  <div class="comment">
-    <span class="who">MergeAdvocate</span>
+  <div class="comment from-agent">
+    <button class="who" aria-expanded="true">
+      <span class="caret" aria-hidden="true"></span>
+      <span class="who-name">MergeAdvocate · 12m ago</span>
+      <span class="peek">Merged as #313 and closed bc-r941.</span>
+    </button>
     <div class="md"><p>Merged as #313 and closed bc-r941. Answered via Beadcause.</p></div>
+  </div>
+  <div class="comment from-agent pending live">
+    <span class="who"><span class="spark"></span>◆ merging</span>
+    <div class="pending-detail">working on your comment…</div>
+  </div>
+</div>`,
+      },
+      {
+        path: 'chat/chat-card.html',
+        name: 'Chat card',
+        subtitle: 'A conversation, in the inbox',
+        viewport: { width: 460, height: 240 },
+        note: `A chat session as it appears in the inbox rather than in the console list. It is the same <b>.work-row</b> inside a card, plus the ✕ that ends the conversation — the link and the button are siblings so a thumb aiming at one cannot land on the other.`,
+        markup: `<div class="card chat-card">
+  <a class="work-row" href="#">
+    <span class="work-phase"><span class="spark"></span></span>
+    <span class="work-main">
+      <span class="work-title">Work out the next beads from bc-z665</span>
+      <span class="work-sub"><span class="pill">beadcause</span> 4 messages</span>
+    </span>
+  </a>
+  <button class="row-x" aria-label="End this conversation">✕</button>
+</div>`,
+      },
+      {
+        path: 'chat/session-facts.html',
+        name: 'Session facts',
+        subtitle: 'A definition list, and the dead ends',
+        viewport: { width: 460, height: 380 },
+        note: `What a session is, as a <code>&lt;dl&gt;</code> — the one place in the app where a definition list is the right element, because every row really is a term and its value. <b>.session-label</b> is the pattern beside it: a heading that carries its own refusal. "Its window — <i>There isn't one to bring up</i>" says the thing and why it cannot be done in one line, instead of drawing a button that would do nothing.`,
+        markup: `<div class="ds-stack">
+  <dl class="session-facts">
+    <div><dt>Workspace</dt><dd>beadcause</dd></div>
+    <div><dt>Worktree</dt><dd>design-system-z665</dd></div>
+    <div><dt>Model</dt><dd>opus</dd></div>
+    <div><dt>Started</dt><dd><span class="spark"></span>2h ago</dd></div>
+  </dl>
+  <div class="session-label">Its window <span>Not from this server.</span></div>
+  <div class="session-label">Say something <span>It lands in the session as if typed.</span></div>
+</div>`,
+      },
+      {
+        path: 'chat/console-shell.html',
+        name: 'Console shell',
+        subtitle: 'Head that stays, thread that scrolls, composer that never leaves',
+        viewport: { width: 400, height: 700 },
+        note: `<b>.console-body</b> is the original of the three-part shape — the open card copied it, not the other way round. A head that stays, a body that scrolls on its own, and a composer pinned to the bottom. Anything said while the agent was working sits <i>above</i> the composer in <b>.queued</b> rather than in the thread: it is not part of the conversation yet, and tapping one puts it back in the box.`,
+        bodyClass: 'console-body',
+        markup: `<header class="topbar">
+  <div class="brand"><span class="dot"></span><h1>Work out the next beads</h1></div>
+  <div class="sheet-actions"><button class="icon-btn">✕</button></div>
+</header>
+<main class="thread" aria-live="polite">
+  <div class="msg you">The design cards need auditing against the sheet.</div>
+  <div class="msg claude"><div class="md"><p>Two questions, and they need different tools: what a card is missing, and what nothing covers at all.</p></div></div>
+</main>
+<div class="queued">
+  <div class="queued-row"><button class="queued-text">Also check the lamps.</button><button class="row-x">✕</button></div>
+</div>
+<form class="composer">
+  <textarea rows="1" placeholder="What should the next bead be?" enterkeyhint="send"></textarea>
+  <button class="primary send" type="submit" aria-label="Send">↑</button>
+</form>`,
+      },
+      {
+        path: 'chat/sheet.html',
+        name: 'Proposal sheet',
+        subtitle: 'The review, and the thing you can change',
+        viewport: { width: 420, height: 480 },
+        note: `What is about to be created, and where you edit it. <b>There is deliberately no second confirmation screen after this one</b> — this <i>is</i> the review, so it has to be the thing you can change rather than a summary of it. The grip says it drags; the foot's two buttons are "ask for changes" and "create", never "cancel", because closing the sheet is what cancelling is.`,
+        markup: `<section class="sheet" aria-label="Proposed beads">
+  <div class="sheet-grip"></div>
+  <div class="sheet-head">
+    <strong>Proposed beads</strong>
+    <div class="sheet-actions">
+      <button class="icon-btn" aria-label="Add another bead">＋</button>
+      <button class="icon-btn" aria-label="Close">✕</button>
+    </div>
+  </div>
+  <div class="sheet-body">
+    <div class="bead card">
+      <button class="bead-head"><span class="bead-title">Slice the CSS per component</span><span class="meta"><span class="pill">task</span><span class="pill p1">P1</span></span></button>
+    </div>
+    <div class="bead card">
+      <button class="bead-head"><span class="bead-title">Audit every card against the sheet</span><span class="meta"><span class="pill">task</span><span class="pill p2">P2</span></span></button>
+    </div>
+  </div>
+  <div class="sheet-foot">
+    <button class="secondary" type="button">Ask for changes</button>
+    <button class="primary" type="button">Create</button>
+  </div>
+</section>`,
+      },
+      {
+        path: 'chat/bead-editor.html',
+        name: 'Bead editor',
+        subtitle: 'Fields, opened in place',
+        viewport: { width: 420, height: 560 },
+        note: `A proposed bead, open for editing inside the sheet. <b>.field</b> is the app's only form row, and it is a <code>&lt;label&gt;</code> wherever the control is a single input — so the caption is the hit target too, which on a phone is the difference between a 14px word and a whole row. Type and priority are chip rows rather than selects: a native picker on a phone covers the thing you are editing.`,
+        markup: `<div class="bead card open">
+  <div class="bead-body">
+    <label class="field">
+      <span>Title</span>
+      <textarea rows="1">Slice the CSS per component</textarea>
+    </label>
+    <div class="field">
+      <span>Type</span>
+      <div class="chip-row">
+        <button class="chip" aria-pressed="true"><span class="chip-label">task</span></button>
+        <button class="chip" aria-pressed="false"><span class="chip-label">bug</span></button>
+        <button class="chip" aria-pressed="false"><span class="chip-label">feature</span></button>
+      </div>
+    </div>
+    <div class="field">
+      <span>Priority</span>
+      <div class="chip-row">
+        <button class="chip" aria-pressed="false"><span class="chip-label">P0 critical</span></button>
+        <button class="chip" aria-pressed="true"><span class="chip-label">P1 high</span></button>
+        <button class="chip" aria-pressed="false"><span class="chip-label">P2 medium</span></button>
+      </div>
+    </div>
+    <label class="field">
+      <span>Description</span>
+      <textarea rows="3" placeholder="Why this exists and what needs doing."></textarea>
+    </label>
+  </div>
+</div>`,
+      },
+      {
+        path: 'chat/console-row.html',
+        name: 'Conversation rows',
+        subtitle: 'Live, with an agent, dismissed',
+        viewport: { width: 460, height: 300 },
+        note: `A chat session in the list. The checkout is a <b>second pill beside the workspace</b> rather than folded into it — with forty repos behind one tracker name, "climative" no longer says where the conversation is reading from. Absent where a workspace is one repo, and for anything an older daemon wrote. A dismissed row goes <b>.closed</b> and stays in the list.`,
+        markup: `<div class="ds-stack">
+  <div class="console-row">
+    <a class="work-row" href="#">
+      <span class="work-phase"><span class="spark"></span></span>
+      <span class="work-main">
+        <span class="work-title">Work out the next beads from bc-z665</span>
+        <span class="work-sub"><span class="pill">beadcause</span><span class="pill">beadcause</span> 4 messages</span>
+      </span>
+    </a>
+  </div>
+  <div class="console-row agent-chat">
+    <a class="work-row" href="#">
+      <span class="work-phase">◆</span>
+      <span class="work-main">
+        <span class="work-title">Why did the merge queue hold?</span>
+        <span class="work-sub"><span class="pill">beadcause</span><span class="pill agent">🛰 MergeAdvocate</span> 2 messages</span>
+      </span>
+    </a>
+  </div>
+  <div class="console-row closed">
+    <a class="work-row" href="#">
+      <span class="work-phase">○</span>
+      <span class="work-main">
+        <span class="work-title">Pricing tiers, second pass</span>
+        <span class="work-sub"><span class="pill">sophab</span><span class="pill">dismissed</span></span>
+      </span>
+    </a>
   </div>
 </div>`,
       },
@@ -440,6 +658,50 @@ export const SURFACES = [
   <blockquote><p>Persistence you don't need beats lost context.</p></blockquote>
   <pre><code>bd close bc-r941 --reason="merged as #313"</code></pre>
 </div>`,
+      },
+    ],
+  },
+
+  {
+    group: 'Mirror',
+    cards: [
+      {
+        path: 'mirror/options.html',
+        name: 'Mirror options',
+        subtitle: 'The same choice, phone-sized',
+        viewport: { width: 420, height: 320 },
+        note: `The mirror answers the same questions the inbox does, from a device that is watching rather than driving. <b>.mir-opt</b> is the option button rebuilt for that: the hint is a <code>&lt;small&gt;</code> under the label rather than a third line of its own, and the commissioning warning is spelled out in full — on a mirror there is no kebab, no brief, and no second chance to notice the bead stays open.`,
+        markup: `<div class="mir-options">
+  <button class="mir-opt picked" aria-pressed="true">
+    <span>Close both beads on merge</span><small>The queue owns the ending.</small>
+  </button>
+  <button class="mir-opt" aria-pressed="false">
+    <span>Split the queue in two</span><small>↪ commissions the work — the bead stays open</small>
+  </button>
+</div>`,
+      },
+      {
+        path: 'mirror/thread.html',
+        name: 'Mirror thread',
+        subtitle: 'Watching a session from a second device',
+        viewport: { width: 420, height: 460 },
+        note: `A session as a phone on the desk sees it. <b>.mir-sys</b> is the third voice neither the console nor the inbox has — the system saying what happened between turns, which on a mirror is most of what you are there to see.`,
+        markup: `<article class="card mir-card">
+  <div class="mir-head">
+    <span class="work-title">design-system-z665</span>
+    <span class="pill id">bc-z665</span>
+    <span class="tag live">live</span>
+  </div>
+  <div class="mir-thread">
+    <div class="msg you">Audit the cards against the sheet.</div>
+    <div class="msg mir-sys">Ran scripts/design/audit.mjs — 1,127 missing-context classes</div>
+    <div class="msg claude"><div class="md"><p>Most are legitimate variance. The signal is which classes dominate.</p></div></div>
+  </div>
+  <div class="mir-composer">
+    <textarea class="mir-input" rows="2" placeholder="Say something to this session…"></textarea>
+    <div class="mir-actions"><button class="mir-btn primary">Send</button></div>
+  </div>
+</article>`,
       },
     ],
   },
@@ -757,6 +1019,23 @@ export const SURFACES = [
     <div class="md"><p>Two blocks, three children, one discovered-from edge.</p></div>
     <div class="drawer-edge"></div>
   </aside>
+</div>`,
+      },
+      {
+        path: 'overlays/dialog.html',
+        name: 'Dialog',
+        subtitle: 'The in-page one, not the modal',
+        viewport: { width: 440, height: 300 },
+        note: `Distinct from the token <code>&lt;dialog&gt;</code>: this is the app's own centred panel, used where a decision needs a sentence of context that will not fit in a toast and does not deserve a screen. <b>.dialog-wrap</b> is the backdrop; the panel itself never scrolls, which is the constraint that keeps it to one question.`,
+        markup: `<div class="dialog-wrap">
+  <div class="dialog">
+    <h2>End this session?</h2>
+    <p>The worktree stays on disk. Anything unsaved in the session is lost.</p>
+    <div class="row">
+      <button class="secondary">Keep it</button>
+      <button class="primary danger">End it</button>
+    </div>
+  </div>
 </div>`,
       },
       {
