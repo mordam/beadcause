@@ -5796,7 +5796,7 @@
         // are holding it is the half you would otherwise go looking for.
         toast(
           addressedToMe(q)
-            ? `Asked of you now`
+            ? 'Asked of you now'
             : `Asked of ${who}${res.cleared ? ' — cleared it from your phone' : ''}`
         );
       } catch (err) {
