@@ -18,12 +18,20 @@
  * and got answered again. bc-jrvh carried the same answer three times over four
  * comments. That is bc-ko7n.
  *
+ * **This is the answer half of a defect that was fixed in two places, hours apart.**
+ * bc-9d37.13 widened five *delivery* paths to step over the same refusal with `--force`
+ * and ruled a question out of them on purpose — "a card is answered, not delivered" —
+ * which was right about the evidence and left this path broken. test/mergeclose.mjs
+ * covers that half; this file covers `Bd.closeAnswered`, and the two differ on the
+ * instrument for a reason spelled out over `closeAnswered` in lib/bd.js: forcing keeps
+ * the assignee, which on a delivered bead is the record of who did the work and on a
+ * question is an artifact of a worker window having touched a card.
+ *
  * Two claims here, and they are separate:
  *
  *   - **The close recovers**, by dropping the claim and closing again. Adam chose that
  *     over `--force` on 2026-08-14, and the assertions say so in both directions: the
- *     reclaim happens, and `--force` never appears in any argv. Forcing would have
- *     worked and would have overridden every *other* gate bd has along with it.
+ *     reclaim happens, and `--force` never appears in any argv this path builds.
  *   - **The answer is written once**, whatever the close does. The reclaim fixes the one
  *     refusal we know about; `answerOnce` is what stops the *next* one duplicating an
  *     answer, because comment-first means any failure after the comment leaves a card
@@ -39,7 +47,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const { Bd, CLAIM_RE } = await import(path.join(HERE, '..', 'lib', 'bd.js'));
+const { Bd, isClaimGuard } = await import(path.join(HERE, '..', 'lib', 'bd.js'));
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'beadcause-answerclose-'));
 
@@ -125,10 +133,13 @@ console.log('\nanswering a bead somebody claimed\n');
 
 /* ------------------------------------------------------- the refusal, recognised */
 
-check(CLAIM_RE.test(CLAIM), 'the claim refusal is recognised, in bd 1.2.1’s exact words');
-check(!CLAIM_RE.test(BLOCKED), 'a blocked-by refusal is not mistaken for it, though it also offers --force');
+// `isClaimGuard` is bc-9d37.13's, shared with the five delivery paths and with
+// bin/deliver.js. Asked again here rather than assumed, because the answer path now
+// depends on it too and the two beads landed hours apart without seeing each other.
+check(isClaimGuard(new Error(CLAIM)), 'the claim refusal is recognised, in bd 1.2.1’s exact words');
+check(!isClaimGuard(new Error(BLOCKED)), 'a blocked-by refusal is not mistaken for it, though it also offers --force');
 check(
-  CLAIM_RE.test(`bd close bc-jrvh --reason x failed in beadcause: ${CLAIM}`),
+  isClaimGuard(new Error(`bd close bc-jrvh --reason x failed in beadcause: ${CLAIM}`)),
   'it is still recognised inside the sentence `run` wraps it in'
 );
 
@@ -138,7 +149,7 @@ check(
   const { bd, calls } = fakeBd('reclaims', { refusal: CLAIM });
   let threw = null;
   try {
-    await bd.close(WS, 'bc-jrvh', 'Landed as #42');
+    await bd.closeAnswered(WS, 'bc-jrvh', 'Answered via Beadcause');
   } catch (err) {
     threw = err;
   }
@@ -153,7 +164,7 @@ check(
 
 {
   const { bd, calls } = fakeBd('nothing-to-reclaim');
-  await bd.close(WS, 'bc-jrvh', 'Landed as #42');
+  await bd.closeAnswered(WS, 'bc-jrvh', 'Answered via Beadcause');
   const c = calls();
   check(closes(c).length === 1, 'a close bd permits is one spawn and no more');
   check(reclaims(c).length === 0, 'an unclaimed bead is never written to on its way out');
@@ -163,7 +174,7 @@ check(
   const { bd, calls } = fakeBd('blocked', { refusal: BLOCKED, sticky: true });
   let threw = null;
   try {
-    await bd.close(WS, 'bc-jrvh', 'Landed as #42');
+    await bd.closeAnswered(WS, 'bc-jrvh', 'Answered via Beadcause');
   } catch (err) {
     threw = err;
   }
@@ -180,7 +191,7 @@ check(
   const { bd, calls } = fakeBd('stubborn', { refusal: CLAIM, sticky: true });
   let threw = null;
   try {
-    await bd.close(WS, 'bc-jrvh', 'Landed as #42');
+    await bd.closeAnswered(WS, 'bc-jrvh', 'Answered via Beadcause');
   } catch (err) {
     threw = err;
   }

@@ -54,7 +54,7 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const { Bd, CLAIM_RE } = await import(path.join(HERE, '..', 'lib', 'bd.js'));
+const { Bd, CLAIM_GUARD_RE } = await import(path.join(HERE, '..', 'lib', 'bd.js'));
 
 let failures = 0;
 let ran = 0;
@@ -314,26 +314,29 @@ async function diverge(name, id, { reason = 'asking bd', gate: expected } = {}) 
   // (<address>)` and the assignee is the bare git address a claim writes. Three
   // assertions, and the middle one is the point of the file:
   //
-  //   1. bd really does refuse it — driven raw, so the wording `CLAIM_RE` matches is
-  //      read off the binary rather than off a fixture that agrees with itself.
+  //   1. bd really does refuse it — driven raw, so the wording `CLAIM_GUARD_RE` matches
+  //      is read off the binary rather than off a fixture that agrees with itself. That
+  //      regex is bc-9d37.13's, shared with the delivery paths and with bin/deliver.js.
   //   2. **The gate says nothing.** Modelling this in `gateFor` was the tempting fix and
   //      it would have been the "inventing a gate" failure this whole file exists to
   //      catch: the gate is what the phone draws a card from and what lib/landed.js
   //      skips on, so a branch there would make every bead a session ever claimed read
   //      as unclosable.
-  //   3. `Bd.close` closes it anyway, by dropping the claim first. Which is why (2) is
-  //      correct rather than merely convenient — there is no refusal left to report.
+  //   3. `Bd.closeAnswered` closes it anyway, by dropping the claim first. Which is why
+  //      (2) is correct rather than merely convenient — there is no refusal left to
+  //      report. The delivery half of the same guard forces instead and keeps the
+  //      assignee; test/mergeclose.mjs is where that one is asked.
   const claimed = await make({ title: 'a question a worker session claimed' });
   await bd.run(ws, ['update', claimed, '--assignee', 'neadamthal@gmail.com'], { actor: 'neadamthal@gmail.com' });
   const raw = bdRun(['close', claimed, '--reason', 'Answered via Beadcause', '--actor', 'beadcause (neadamthal@gmail.com)']);
   const said = `${raw.stderr || ''}${raw.stdout || ''}`.trim().split('\n')[0];
   check(() => assert.equal(raw.status !== 0, true, `bd said: ${said}`), 'a claimed bead — bd refuses a close from another actor');
-  check(() => assert.match(said, CLAIM_RE), 'a claimed bead — in the words lib/bd.js matches on');
+  check(() => assert.match(said, CLAIM_GUARD_RE), 'a claimed bead — in the words lib/bd.js matches on');
 
   const gate = await bd.closeGate(ws, claimed);
   check(() => assert.equal(gate, null, `gate: ${JSON.stringify(gate)}`), 'a claimed bead — the gate invents nothing about it');
 
-  await bd.close(ws, claimed, 'Answered via Beadcause', { actor: 'beadcause (neadamthal@gmail.com)' });
+  await bd.closeAnswered(ws, claimed, 'Answered via Beadcause', { actor: 'beadcause (neadamthal@gmail.com)' });
   const after = await bd.show(ws, claimed);
   check(() => assert.equal(after?.status, 'closed'), 'a claimed bead — and beadcause closes it, having reclaimed it');
   check(() => assert.ok(!String(after?.assignee || '').trim()), 'a claimed bead — the claim it dropped to do so is gone');

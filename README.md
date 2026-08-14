@@ -468,6 +468,90 @@ Two, because the parser and the gesture fail in different ways:
   the committed build arms the first tap instead of opening the card. Not in
   `npm test` — it needs Chrome.
 
+## Accounts — one life at a time
+
+Beadcause reads every tracker on the Mac, which is the right thing for a notification
+daemon and the wrong thing for a screen: work and everything that is not work, in one
+inbox, one board and one picker. Spaces group them by *when they may interrupt you*,
+which is a real question and not this one. An **account** is the level above — an email
+address that owns a set of workspaces, and, inside a workspace that holds many
+checkouts, a set of repos:
+
+```json
+"accounts": [
+  { "email": "you@gmail.com", "label": "Personal",
+    "workspaces": ["notes", "sideproject"] },
+  { "email": "you@work.example", "label": "Work",
+    "workspaces": ["acme"],
+    "repos": { "acme": ["acme", "athena-service"] } }
+]
+```
+
+One is in force at a time, and **what it owns is the whole of what the app shows**. The
+other account's questions, pull requests, chats, tickets, advocates and spaces are not
+behind a filter you can widen — they are not on the screen, and the picker does not offer
+them.
+
+**The address is the control.** It sits at the right-hand end of the top bar on every
+page; tapping it opens a menu holding that page's own actions — refresh, the endorsement
+queue, foundations, the gear — and **Switch accounts**, which opens the picker. The
+picker has a ＋ for adding one: an address, a name, and a tick per workspace.
+
+```
+┌────────────────────────────────────────────────┐
+│ ●  [icon]                you@work.example  ▾   │
+│ ┌────────────────────────────────────────────┐ │
+│ │ ⟳   Refresh                                │ │
+│ │ 🗳️   Endorsement queue                      │ │
+│ │ ⚖️   Foundations                            │ │
+│ │ ────────────────────────────────────────── │ │
+│ │ ⇄   Switch accounts                        │ │
+│ └────────────────────────────────────────────┘ │
+└────────────────────────────────────────────────┘
+```
+
+**Nothing is on until there are two.** An install with no `accounts` behaves exactly as
+it did before they existed — every predicate answers "in scope", and the chip simply
+draws `me`. One account owns everything unless it says otherwise, so the *first* one
+changes nothing but the address in the bar. Adding a second is what separates anything —
+and adding it through the picker writes both: the account you typed, and the one it
+implies, owning every workspace you did not give away. A config with one account and
+eight unclaimed repos is not a state the ＋ can leave you in, because those repos would
+be visible from nowhere.
+
+**It is a view scope and not a credential**, deliberately. Switching is one tap with no
+sign-in, and the pairing token still reaches everything — it has to, because an ntfy
+action button, the Android app and `bin/router.js` all call this daemon with no browser
+anywhere in them. What an account changes is what a *screen* is handed. If you want a
+real boundary, that is Google sign-in and per-device revocation, which is a different
+mechanism and lives in [Signing in with Google](#signing-in-with-google).
+
+**Which account you are in is stored on the server**, in `state.json`, beside the inbox
+filter and for the same two reasons: the push path reads it from inside the poll with no
+client in the loop, and one person with a phone and a laptop should not have two devices
+disagreeing about which life they are in. Switching on the laptop switches the phone.
+
+**A bead in the account you are not in goes quiet, and is never lost.** It is still
+swept, still filed, still counted, and it is on the screen the second you switch — the
+same contract a narrowed filter and a muted space already have. The log says which kind
+of quiet it was, because the lever is different for each:
+
+```
+[beadcause] acme/cl-9x2 arrived quietly (outside Personal (you@gmail.com))
+```
+
+**And filing follows the account.** The address in the bar is the handle a bead you file
+is stamped with — its owner label at P0, its addressee, the byline on a comment, the
+handle a claim leases with. Before accounts, that was whichever address `me` happened to
+list first, forever. Both addresses stay yours, so a question another machine addresses
+to your other one still arrives here as yours; only what a *new* write is signed with
+moves. See `accountHandles` in `lib/accounts.js`.
+
+**The admin screen is deliberately not narrowed**, the same way it has no space picker:
+it acts on the daemon rather than on a repo, and a page whose buttons reach every
+workspace must not draw a chip implying otherwise. The chip is there — it is how you
+switch from that page — but nothing on the page below it is filtered.
+
 ## Spaces — keeping work out of your evening
 
 Workspaces can be grouped into **spaces**, and a space is defined by *when it may
@@ -503,6 +587,12 @@ you press **All**:
 [beadcause] sophab/sp-4kd arrived quietly (outside the inbox filter: Work / acme)
 [beadcause] acme/cl-9x2 arrived quietly (Work is muted right now)
 ```
+
+There is a third, one level up: a bead in the account you are not in — see
+[Accounts](#accounts--one-life-at-a-time). It is tested *before* the filter, because
+widening the filter cannot reach it; the picker does not offer the other account's repos
+at all, so calling it "filtered" would send you to press a button that cannot bring it
+back.
 
 **One channel is exempt: a foundation request is never quietened by the filter.** The
 filter's two levels are space and workspace, and both answer "which of my lives is this
@@ -1238,6 +1328,38 @@ it records it for the daemon to retry (`lib/owed.js`) and says so on the bead in
 own words — because by then the merge has already happened and a refusal has somewhere
 to go. A tap on a card has nowhere: it is about to write a comment it cannot take
 back, so it asks first. Same rules on both paths; bd is the thing refusing in both.
+
+##### One refusal is stepped over, and only one
+
+bd 1.2.1 added a guard that refuses a close when the bead's **assignee is not the
+actor**. That is the ordinary state of every delivered work bead: a worker is told to
+`bd update --claim`, which sets the assignee to its git identity, while everything
+beadcause runs carries the `beadcause (…)` byline so `created_by` says which machine
+filed it. The two strings differ. From the moment the upgrade landed, **no delivery
+could close the bead it had just merged** — and the symptom was quiet rather than loud,
+because an open bead that is still *assigned* is skipped by `bd ready`, so nothing
+crashed and nothing re-opened. The tracker simply filled with work that claimed to be
+in flight hours after it had landed, and `owed-closes.json` retried the identical
+failing command every poll cycle forever. That is bc-9d37.13.
+
+`--force` clears it. It also clears open children, live blockers and the epic gates,
+which is why it is never simply passed: the close is attempted exactly as before, and
+`--force` is reached for **only when the claim guard is what refused** (`isClaimGuard`
+in lib/bd.js, matched on *assignee is* and *actor is* together — two of bd's other
+refusals also end in "use --force to override" and must not match). A close refused by
+a blocker does not force, stays owed, and is retried when the gate clears, exactly as
+it always was.
+
+Five call sites opt in, and they are the ones where **a merge or a ship is the
+evidence**: `bin/deliver.js`, the Merge tap in `lib/server.js`, `lib/landed.js` when
+GitHub reports the branch merged, `lib/release.js` when the build is live, and
+`lib/owed.js` retrying any of them. Closing a *question* is not on that list — a card is
+answered, not delivered.
+
+The alternative was to reclaim first (`bd update --assignee <actor>`, which also works).
+It is not used because it rewrites the assignee to the daemon on every delivered bead,
+so the tracker would permanently forget who did the work. A closed bead keeping its
+worker's name is worth more than a guard the merge has already satisfied.
 
 The last three rows of the table are the exception to every sentence above — the two
 where beadcause refuses what bd closes, and the one underneath them that says what is
@@ -10571,6 +10693,83 @@ in some GUIs — everything else ignores them. And nothing is pushed unless you 
 `git push origin 'refs/beadcause/*:refs/beadcause/*'` and `refs/notes/beadcause` are
 explicit acts, and on a shared repo they should stay that way.
 
+### Which requirement a change was for — `refs/beadcause/requirements`
+
+Climative records acceptance criteria as **requirements**: `resources/reqs/{product,technical}/*.yaml`
+in the architecture repo, today 34 files and 335 ids of the shape `TOKEN.Feature.Thing`,
+each with a definition and often a link to the Playwright spec that covers it. Nothing
+joined that vocabulary to code. JIRA has tickets, beads has beads, git has commits, and
+none of the three can answer either direction of the only question that matters here:
+
+- **requirement → files** — what implements `EN.HomeownerPortal.HiddenData`?
+- **files → requirements** — I am about to edit this file; what acceptance does it already
+  carry, and which of the e2e suite has to still pass?
+
+The second is the one that changes how a session works, and it is nearly free: the corpus
+*already* names the spec against most product requirements, so inverting the first answer
+produces the second with no new data at all.
+
+**The id usually does not exist yet, and that is the design constraint.** Requirements get
+written down when a ticket ships, so a bead filed on Monday names none — and an agent asked
+for one anyway will invent it. A fabricated `EN.HomeownerPortal.Hidden` sitting beside the
+real `EN.HomeownerPortal.HiddenData` is two nodes in the graph forever with nothing to tell
+them apart, which is the same silent failure lib/edits.js argues about with matching an epic
+by its title. So there are three states, all of them normal:
+
+| The AC says | What is recorded | Where |
+|---|---|---|
+| an id that exists | the id, validated against the corpus | `lib/beadreqs.js`, in the bead's notes |
+| something requirement-shaped, no id | a **candidate**: token, name, one definition sentence | the same block, in a separate list |
+| nothing requirement-shaped | the bead is labelled `req-glean` at landing, and the P0 advocate is asked what shipped | `lib/reqglean.js` |
+
+An id is refused at the door if the corpus does not have it — and the refusal is *said out
+loud* in the next brief, because an advocate that is not told writes the same invented id
+every run and from outside that is indistinguishable from the feature not working.
+
+**The note is the truth and the index is a cache.** At the moment a merge lands,
+`noteMerge` already writes to `refs/notes/beadcause`; it now carries the requirement ids and
+the files that merge actually changed. That is the strongest evidence this system can have —
+not "an agent thought this bead was about X" but "this diff, in main, changed these files
+while closing a bead that named X". The lookup index is
+`refs/beadcause/requirements/<token>` in the *common* repo (tier 2, because the edge spans
+repos by construction: the requirement is in `architecture`, the files are in one of forty
+service checkouts), one ref per product token so two landings in two products never contend
+on one compare-and-swap. Everything in it is rebuildable from the notes, and
+`node test/reqindex.mjs` asserts exactly that by wiping the store and rebuilding.
+
+```bash
+beadcause-requirements files lib/auth.js     # what these files have carried before
+beadcause-requirements show AS.verify        # one requirement, and every commit for it
+beadcause-requirements coverage              # how much of the corpus has any edge at all
+beadcause-requirements rebuild <repo>        # the repair, and the proof
+```
+
+**Edges are keyed on commits, not paths.** A commit is immutable; a path is renamed next
+month. Paths ride along and are existence-checked when they are read, exactly as
+lib/beadfiles.js checks a guessed path — a dead path drops out of the answer rather than out
+of the record, since it was true of that commit and still is. No line ranges: lines rot
+within days, and if finer ever earns its place the honest unit is an exported symbol.
+
+**It is a hint and never a gate.** Coverage is partial by construction — an edge exists only
+where a merge landed naming a requirement — so `/requirements` leads with the denominator
+rather than the list, provenance is kept per edge (`declared`, `observed-from-diff`,
+`human-confirmed`) so a forecast is never counted as proof, and no dispatch, hold or edit
+path consults the index at all. That last one is asserted at the import boundary in
+`test/requirements.mjs`, because it is a property about what is *not* wired up: the first
+person to reach for `edgesForFiles` inside a hold predicate has to change that list and say
+why. It is lib/beadfiles.js's rule — a guess must not withhold work — applied to something
+with considerably less evidence behind it.
+
+**Promotion is a proposal.** A candidate becomes a real requirement only by being written
+into `resources/reqs/**`, which is a repo the whole team clones, so the daemon renders the
+exact YAML block it would add and a person applies it with
+`beadcause-requirements promote <workspace> <bead>`. It refuses an unknown token outright —
+a token that does not exist is a question for a human, not a file to create — and it never
+rewrites a definition it did not add.
+
+An install with no architecture checkout has no corpus, every path above switches itself
+off, and a landing writes byte-for-byte the note it wrote before any of this existed.
+
 ### Reading it back on the phone — `/bead-session`
 
 Storing all of that and then needing `git cat-file` to see it is half a feature. There
@@ -12411,6 +12610,36 @@ dependencies exist before the bead that points at them. A `dependsOn` may also n
 bead that already exists (`dependsOn: [bc-7rx]`), which is how "this waits on the one
 we started from" is written; those are checked against the tracker before anything is
 written, so a made-up id costs a warning rather than a half-created proposal.
+
+### A label is filed exactly as it was typed — only the refs are slugged
+
+The Labels field on a card splits on the comma and changes nothing else. Case, spaces,
+`@` and — the one that matters — the **colon** all survive to `bd create --label`.
+
+That is not a nicety, because half the labels worth typing here are structured, and each
+of them is read back by splitting on a colon: `owner:<handle>` is how
+[who is answerable](#your-p0s-and-the-tree-each-one-carries) is decided and how your P0 cards are
+sorted first, `held:<stamp>:<handle>` is how [another Mac's claim](#the-bead-another-mac-has-claimed)
+is held, `superseded-by:<id>` is how a bead leaves every queue for good. Slugging one of
+those does not tidy it up. It produces a lookalike that no query matches, beside the real
+one, and nothing on the board says which is which.
+
+Every bead filed from one chat on 2026-08-13 came out carrying both
+`owner:neadamthal@gmail.com` and `owner-neadamthal-gmail-com` — twelve of them, twenty-three
+by the time it was noticed, because `bd create --parent` hands a parent's labels down to
+every child. It took *two* bugs meeting, and the second is the reason it was a pair rather
+than a rename: `lib/draft.js` slugged the label on the way in, and then `Bd.create` — which
+stamps this machine's owner onto any P0 that arrives without one — looked for the `owner:`
+prefix, could not find it through the slug, and added a second label naming the same person.
+
+What is still slugged is everything a proposal invents for itself: a `ref`, and the
+`parent` and `dependsOn` that point at one. Those are identifiers with no existence
+outside the card, and lowercasing them is exactly what makes *The Epic* and *the epic* the
+same edge rather than two beads. `lib/draft.js` keeps `slug` for those three and
+`labelList` for labels, `public/console.js` normalises the field the same way so the phone
+sends what you typed, and `node test/draftlabels.mjs` (in `npm test`) pins both halves —
+including the argv `bd` is actually spawned with, which is the only layer where the pair
+was ever visible.
 
 ### A card that is already a bead says so — and still files
 
@@ -14665,6 +14894,10 @@ cookie says so), and `/auth/signout` ends the session.
 | POST | `/api/pr/conflicts` | `{key, number}` | opens an iTerm session on the branch whose job is to merge the base into it, resolve, run the repo's own gate and push — then stop. `409` unless GitHub reports it `CONFLICTING` right now, so a resolved conflict cannot leave a window somebody has to close. Refused on an observer, and on a daemon with `openSessions` off. Two resolvers run at a time: past that it answers `{queued, place}` and the window opens when one frees, with GitHub asked again first — [the cap](#two-windows-at-a-time-and-the-rest-in-line) |
 | POST | `/api/comment` | `{workspace, id, text, agent?}` | comments, sets `human-replied`, dispatches that agent to reply (default when absent or unknown) |
 | POST | `/api/dismiss` | `{workspace, id, reason?}` | takes the card off the screen and **closes nothing**. Writes your note if you typed one, writes nothing at all if you did not, and never touches the status — "I am not dealing with this now" is not "this is decided" |
+| GET | `/api/accounts` | — | what the [account switcher](#accounts--one-life-at-a-time) draws: `{account, accounts[], workspaces[], repos, me}`. The workspace list here is **every** workspace on the Mac rather than the account's, because it is what the add-an-account form is built from. Costs no `bd` call — a `state.json` read and a walk of the config |
+| POST | `/api/accounts` | `{email, label?, workspaces[], repos?}` | add an account or rewrite one. Adding the first one writes **two**: the account you named, and the address this Mac already files as, owning every workspace you did not give it — a repo in no account would be visible from nowhere. Writes `config.json`, which the common repo snapshots. Refused on an observer |
+| DELETE | `/api/accounts` | `{email}` or `?email=` | forget one. Removing the last turns the scoping off and puts every workspace back on every screen. The address is taken from the query as well as the body, because Node's own HTTP server refuses a chunked DELETE body outright. Refused on an observer |
+| POST | `/api/account` | `{email}` | switch account — the whole of what **Switch accounts** does. Server-side like the filter below it, so the phone and the laptop agree and the push path reads the same value. An address naming no account is a 400. Filing follows it: the daemon's byline, addressee and owner stamps become that address at once |
 | POST | `/api/filter` | `{space, workspace}` | which slice the inbox is, remembered server-side so every client agrees and the notifications match. Each is a name or `all`, bounded at 120 characters. Notifications already unread for beads the new filter excludes are left exactly as they are — [nothing tidies them](#and-it-does-not-tidy-up-the-noise-it-already-made) |
 | GET | `/api/spaces` | — | what the [space picker](#one-space-at-a-time--the-picker-in-the-top-bar) draws: `{spaces, workspaces[], filter}`. Costs no `bd` call — the spaces are cached off the last sweep — because it is fetched on every page load of every standing view. **No counts**: the picker draws none |
 | GET | `/api/space` | `?space=` | one space's own configuration, for the [space details](#space-details--the-page-the-advocate-console-became) screen: `{settings, effective, repos[], defaults, missing[]}`. `settings` is `null` per field for "inherit"; `repos[]` is what each workspace actually resolves to, which is not always what the space says. 404 for anything that is not a configured space, the synthetic `Other` group included |
@@ -14753,6 +14986,7 @@ cookie says so), and `/auth/signout` ends the session.
 | POST | `/api/claims` | `{session, repo, file, dir?, branch?, bead?}` | claim the file a session is about to edit, and be told in the same answer who else holds it — see [one granularity down](#one-granularity-down-which-file-somebody-is-already-editing). `decision` is `held` or `conflict`, and a `conflict` carries the `reason` `scripts/claim-guard.sh` prints as a denial. The asking *is* the taking: it decides and records in one synchronous call, so two edits a moment apart cannot both find the file free. On the bus deliberately never — an event per claim would hang a `bd` sweep off every keystroke. A `conflict` also carries `regions`: which lines each side has changed, derived from git on that branch only (`lib/regions.js`), `null` whenever git cannot answer. `bead` is filled in by the daemon rather than by the caller — resolved from the branch once per branch and verified against the tracker (`lib/claimbead.js`), so the first claim from a fresh branch answers before it is known and every later one carries it |
 | GET | `/api/claims` | `?regions=1` | `{claims[], collisions[]}` — every live claim, and the files more than one session is holding. `regions=1` adds the changed line ranges to each collision and whether they overlap; opt-in, because it is several git spawns per collision and a list of names should not pay for them |
 | DELETE | `/api/claims` | `{session, files?}` | let go of one file, or of everything that session held. Sent on `SessionEnd`, so a finished session stops holding files without waiting out the TTL |
+| GET | `/api/requirements` | `?id=` | `{corpus, dir, tokens[], totals, orphans[], graph, summary}` — the requirement graph and, first, how much of it is missing: how many of the corpus's requirements have any edge at all, how many of those a merge proved rather than an advocate forecast, and how many edges are recorded against ids the corpus no longer has. `?id=` returns one requirement and its edges instead. `{corpus: null}` and a 200 on an install with no architecture checkout, which is every personal one — a state, not an error. Read-only: promotion into the corpus is a proposal a human applies from `beadcause-requirements promote` |
 | POST | `/api/session-say` | `{pid, text}` | says one line into a live session's own iTerm window. `413` with the words left in the box if it is past `SAY_MAX` — the message rides to `osascript` as an argument, and past `ARG_MAX` the failure reads as "the session is gone", which is the one thing this must not lie about |
 | POST | `/api/session-focus` | `{pid, action}` | `focus` raises that session's iTerm window and doubles it in place; `restore` puts it back at the bounds it was read at. Focusing is gated on the same `reach` as the composer and on the pid still being live; restoring is gated on neither, because it arrives by `sendBeacon` from a page being torn down and must work for a window whose session has since exited |
 

@@ -74,8 +74,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { ownAddresseeLabels } from '../lib/addressee.js';
+import { isClaimGuard } from '../lib/bd.js';
 import { bylineFor } from '../lib/byline.js';
-import { CLAIM_RE, isMergeReason, parseJson } from '../lib/bd.js';
+import { isMergeReason, parseJson } from '../lib/bd.js';
 import { loadConfig } from '../lib/config.js';
 import { inspectBranch, report as conflictReport } from '../lib/conflicted.js';
 import { ownerName } from '../lib/owner.js';
@@ -790,40 +791,41 @@ async function landHere(landed, { external = false } = {}) {
       /* The comment above this block already says what landed; this one is why it is still open. */
     }
   } else {
-    try {
-      bd(['close', beadId, '--reason', closeReason]);
-    } catch (err) {
-      // The refusal that is not one, and this is the process it bites hardest: the bead
-      // being closed here is the *worker's own*, claimed by the session that built the
-      // branch, and the actor is the byline. bd reads those as two people and refuses
-      // every delivery. So drop the claim and close again — the same reclaim `runClose`
-      // does in the daemon, off the same regex, and never `--force` (bc-ko7n). Only then
-      // does a real failure fall through to the owed-close machinery below.
-      let fatal = err;
-      if (CLAIM_RE.test(bdSaid(err))) {
-        try {
-          bd(['update', beadId, '--assignee', '']);
-          bd(['close', beadId, '--reason', closeReason]);
-          console.error(`beadcause-deliver: merged ${where} and closed ${beadId} — dropped the session's claim to do it`);
-          fatal = null;
-        } catch (again) {
-          fatal = again;
-        }
+    /**
+     * Close the work bead, stepping over bd 1.2.1's claim guard but nothing else.
+     *
+     * This process runs `bd` with the `beadcause (…)` byline while the bead is assigned
+     * to the git identity that claimed it, so from 2026-08-14 every delivery was refused
+     * its own close — bc-9d37.13. `--force` lifts that, and it lifts open children, live
+     * blockers and the epic gates with it, so it is reached for **only** when the claim
+     * guard is what refused; anything else still travels out to `oweClose` below exactly
+     * as it did. `isClaimGuard` is imported from lib/bd.js rather than re-written here so
+     * the two processes cannot disagree about what that refusal looks like.
+     */
+    const closeWorkBead = () => {
+      try {
+        bd(['close', beadId, '--reason', closeReason]);
+      } catch (err) {
+        if (!isClaimGuard(err)) throw err;
+        console.error(`beadcause-deliver: closing ${beadId} over the claim guard — ${where} is merged`);
+        bd(['close', beadId, '--reason', closeReason, '--force']);
       }
+    };
+    try {
+      closeWorkBead();
+    } catch (err) {
       // A refused close is a state, not a rumour: it is written down where the daemon
       // will retry it once whatever is blocking it clears (lib/owed.js), and said on the
       // bead in bd's own words. Reporting it as done — which is what the tap on the phone
       // used to do — is how bc-ec6 stayed open over a merged pull request with two
       // separate comments claiming otherwise.
-      if (fatal) {
-        const why = bdSaid(fatal);
-        console.error(`beadcause-deliver: merged ${where}, but could not close ${beadId} — ${why}`);
-        oweClose({ workspace: ws.name, id: beadId, reason: closeReason, why });
-        try {
-          bd(['comment', beadId, `This is merged and this bead did **not** close: ${why}. beadcause retries the close once that clears.`]);
-        } catch {
-          /* The record above is the part that matters; the comment is the courtesy. */
-        }
+      const why = bdSaid(err);
+      console.error(`beadcause-deliver: merged ${where}, but could not close ${beadId} — ${why}`);
+      oweClose({ workspace: ws.name, id: beadId, reason: closeReason, why });
+      try {
+        bd(['comment', beadId, `This is merged and this bead did **not** close: ${why}. beadcause retries the close once that clears.`]);
+      } catch {
+        /* The record above is the part that matters; the comment is the courtesy. */
       }
     }
   }
