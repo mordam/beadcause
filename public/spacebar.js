@@ -67,8 +67,8 @@
 
   This control drew three of them until bc-ka5y.1: a pill on the bar, a `· N` tail on
   every repo row, and a total on each space. All three are gone, and so is the
-  `counts` map behind them and the ⚠ that marked a sum taken over a sweep with a hole
-  in it. **Do not put one back.** They were a second count of a list that is already on
+  `counts` map behind them and the warning marker that flagged a sum taken over a sweep
+  with a hole in it. **Do not put one back.** They were a second count of a list that is already on
   screen, published from whichever page happened to be drawing — which meant every page
   had to keep them in step with what it was showing, and the failure was silent and
   looked exactly like the truth. What the picker says now is *where you are*, which is
