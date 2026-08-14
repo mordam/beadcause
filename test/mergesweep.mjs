@@ -142,6 +142,25 @@ check('told which merge set it off', calls[0]?.after === 42);
 check('and which base moved', calls[0]?.base === 'main');
 check('the outcome says it swept', out[0]?.status === 'swept', JSON.stringify(out));
 check('nothing worth a log line about a sweep that worked', describeSweepOutcome(out[0]) === '');
+/**
+ * Except a fold — bc-xl7n.36. A card that files says what it says and needs no log line;
+ * a card that *did not* file is invisible from the inbox by construction, and without a
+ * line here a sweep that folded reads in the log exactly like a sweep that quietly went
+ * nowhere. Which is the failure the fold would have, if it ever had one.
+ */
+check(
+  'but a fold is, because it is the card that did not appear',
+  /folded into the open card bc-card/.test(
+    describeSweepOutcome({ ...out[0], card: { card: 'bc-card', folded: true, record: { merges: [41, 42], prs: [{ number: 7 }] } } })
+  ),
+  describeSweepOutcome({ ...out[0], card: { card: 'bc-card', folded: true, record: { merges: [41, 42], prs: [{ number: 7 }] } } })
+);
+check(
+  'and it says how far it has come',
+  /1 pull request across 2 merges/.test(
+    describeSweepOutcome({ ...out[0], card: { card: 'bc-card', folded: true, record: { merges: [41, 42], prs: [{ number: 7 }] } } })
+  )
+);
 
 // The whole of point 2. A record left behind is a second window on a branch that
 // already has one, hours later, with nobody at the Mac.

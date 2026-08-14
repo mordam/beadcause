@@ -192,11 +192,27 @@ check('the log tail holds the write to the <pre> — and only the write', () => 
 check('the picker asks for itself, in public/spacebar.js — it is on six pages, not one', () => {
   const bar = fs.readFileSync(path.join(ROOT, 'public', 'spacebar.js'), 'utf8');
   const body = codeLines(bodyAfter(bar, 'function paint() {'));
-  assert.equal(body[0], 'if (window.beadcause?.editMode?.frozen?.()) return;', `paint() opens with: ${body[0]}`);
-  // And app.js keeps publishing into it while frozen, or there would be nothing to catch
-  // up with: the last line of render() is what repaints the bar when the mode ends.
-  const render = codeLines(bodyAfter(APP, 'function render(force = false) {'));
-  assert.equal(render[render.length - 1], 'publishCounts(underOwnedP0s(rows).filter(inKind));');
+  assert.equal(
+    body[0],
+    'if (window.beadcause?.editMode?.frozen?.()) return void thawFirst();',
+    `paint() opens with: ${body[0]}`
+  );
+  // And the catch-up is that file's own, which it was not when this landed: the last line
+  // of app.js's render() was `publishCounts()`, a `space.adopt()` that ended in `paint()`,
+  // so the repaint that thawed the list repainted the bar with it. bc-ka5y.1 deleted the
+  // picker's counts and that call with them, so `thawFirst()` registers a one-shot
+  // `editMode.onChange` from inside the freeze instead. Asserted here rather than left to
+  // spacebar.js's own suite because *this* is the file that says the bar catches up.
+  assert.ok(/function thawFirst\(\) \{/.test(bar), 'spacebar.js has no thaw repaint at all');
+  const thaw = codeLines(bodyAfter(bar, 'function thawFirst() {'));
+  assert.ok(
+    thaw.some((l) => l.includes('mode.onChange(')),
+    `thawFirst() never registers a listener: ${thaw.join(' | ')}`
+  );
+  assert.ok(
+    thaw.some((l) => l.includes('if (!mode.frozen?.()) paint();')),
+    'the thaw listener does not repaint on the way out'
+  );
 });
 
 console.log(failures ? `\n\x1b[31m${failures} of ${ran} failed\x1b[0m\n` : `\n${ran} passed\n`);

@@ -485,8 +485,11 @@ try {
   /* 4b. bc-p49x.5 — and on the three writers that are not the poll, from state alone.
      No refetch is asked for here and none is waited on: what these draw is what `adopt`,
      `state.logText` and `space.adopt` were quietly taking the whole time the screen was
-     held. The picker's catch-up is not even a line of app.js — the last statement of
-     render() is publishCounts(), which lands in public/spacebar.js as an adopt(). */
+     held. The picker's catch-up used not to be a line of app.js either — the last
+     statement of render() was publishCounts(), which landed in public/spacebar.js as an
+     adopt(). bc-ka5y.1 deleted the picker's counts and that call with them, so that file
+     now registers a one-shot editMode.onChange from inside its own freeze; either way it
+     is off this page's exit and there is nothing here to drive it. */
   const caught = await evalJs(
     s,
     `(() => ({
