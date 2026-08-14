@@ -66,9 +66,25 @@ check(
 );
 
 // The rest of the header is still there. A ⌨️ removed by deleting the row it sat in
-// would pass the check above and take two working doors with it.
-check('the endorsement queue is still in the header', index.includes('href="/endorse"'));
+// would pass the check above and take the working doors beside it with it.
+//
+// There were two witnesses here and now there is one: the 🗳️ to the endorsement queue
+// was the other, and it is deliberately gone (bc-w156) — held beads are a kind in the
+// inbox's own filter now, so a door in the chrome to a list the inbox already carries
+// was a fifth destination rather than a door. Losing a witness weakens the guard, so
+// the refresh button stands in for it: it is the last control in the row, which is
+// exactly the position a deletion that took the row with it would empty first.
 check('foundations is still in the header', index.includes('href="/foundations"'));
+check('the refresh button is still in the header', index.includes('id="refresh"'));
+
+// And the icon really is gone, rather than merely moved — this is the assertion the two
+// above used to carry between them. Read off the uncommented markup, so the paragraph in
+// index.html explaining the removal cannot pass for the link it is about.
+check(
+  'no endorsement queue link in the inbox markup',
+  !index.includes('href="/endorse"'),
+  'public/index.html still has a chrome door to /endorse'
+);
 
 /* --------------------------------------------------------------- on to /admin */
 
