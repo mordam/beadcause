@@ -3378,7 +3378,11 @@ actually means:
   nothing; calling it blocked would invent a queue.
 - **Related** — `related`, which bd stores once, on whichever bead it was created from.
   So it appears above the description on one of the pair and down here on the other, under
-  the same word, because it means the same thing from either end.
+  the same word, because it means the same thing from either end. Its successor
+  `relates-to` — what `bd dep relate` writes, and what [every bead id in
+  prose](#every-bead-id-in-prose-is-an-edge-behind-it) now draws — is stored at **both**
+  ends instead, so it is already up above the description and is dropped here rather than
+  printed twice.
 - **Children** are lifted out entirely and drawn by the block above. The same eleven beads
   under two headings is the failure this split exists to prevent.
 
@@ -3411,6 +3415,112 @@ like something else:
 - **d3 transitions share a default name.** The nodes' fade-in and the auto-fit's zoom
   transition kept cancelling each other, leaving every node stuck at opacity 0.0004 —
   a fully drawn, entirely invisible graph. The fade is a CSS animation now.
+
+### Every bead id in prose is an edge behind it
+
+The **Related** rows above were, for most of this tracker's life, a heading nothing ever
+filled. Measured on 2026-08-13 over 850 beads: the prose held **1,633 references** from
+one bead to another, **710** pairs were already joined by an edge of some kind, and the
+whole graph contained **two** see-also edges — one drawn by hand days earlier, the other
+minutes before this was built. Everything an agent needs to start fast was in those
+references — "the same defect as bc-767a", "see also bc-rcrt", "sits in bc-42ow's
+neighbourhood", "superseded by" — and none of it was reachable by `bd show`, `bd dep
+tree`, this graph or a dispatch brief. So building context was a reading task rather than
+a traversal, every session paid it again, and mostly did not: bc-xl7n filled to 87
+unsorted children while seven epics that had already classified most of them sat closed.
+
+The fix is not better habits. A bead id written in a paragraph now becomes an edge, in two
+passes that share one module (`lib/mentions.js`):
+
+- **As it is written.** Every prose write that goes through `Bd` — a comment, an answer, a
+  close reason, an appended note, a bead's description at `create`, the fields an `update`
+  actually moved — draws a `relates-to` edge for each bead it names. `Bd.relateMentions`.
+- **Over what was already written.** `npm run relate -- -w <workspace>` sweeps the export
+  and every comment thread on it. Dry by default: it prints every pair it would draw and
+  writes nothing until `--apply`, because a sweep over a tracker two Macs and twenty
+  sessions share is not something to find out about afterwards. `--no-comments` makes it a
+  single `bd export` and no per-bead reads, which is the right shape for a fast look.
+
+  **Run `--apply` against an instance that already has this code deployed.** The two
+  spelling fixes below are what keep a fresh see-also off the "waits on" side of a card,
+  and until the daemon is running them a thousand new edges would land on the phone
+  counted as live blockers. Nothing is *broken* by that — `bd ready`, the close gate and
+  every advocate read `blocks` edges only, so no queue moves — but the graph would read as
+  a tracker where everything is stuck behind everything.
+
+**What an edge here claims is `mentioned near`, and nothing more.** lib/beadref.js argues
+the opposite case and is right about its own question — "which bead is this pull request
+*for*" decides what gets *closed*, so a delivery whose body ended "nothing was done about
+bc-2tr, which this unblocks" must not count as four claims. This question is weaker and is
+answered honestly: there is no verb tier, because a bead that says it did *not* touch
+bc-2tr is still a bead a reader of bc-2tr wants to know exists. The precision is in what
+is refused instead — a bead's own id, a pair the graph already joins by any edge at all, an
+id that does not exist, and anything past a cap of 40 on one bead.
+
+**The cap is a runaway guard, not a precision knob.** An epic naming twenty-three adoptees
+really does relate to all twenty-three, and capping that at five would throw away the exact
+structure this exists to capture. What it is for is the comment nobody intended as a list —
+a queue dump, a paste of `bd ready` — which can name every open bead in the workspace. Forty
+is where the gap is: exactly one bead here reaches it — bc-xl7n, the catch-all root, whose
+prose names 55 because naming every kind of work there is *is* what it is for — and the next
+largest description names 28. The first full sweep of this workspace plans **1,308** new
+pairs across 554 beads.
+
+**It costs nothing when there is nothing to do.** The regex runs in process, before any
+child: prose naming no bead — most comments — spawns nothing at all. Prose that does name
+one costs two reads, and a *write* only for a pair with no edge yet, which after the sweep
+is nearly never. Reads do not take Dolt's single writer, so a comment repeating the same
+three ids is two reads and no lock.
+
+**And one write draws at most eight, against the sweep's forty.** The hook runs inside
+`bd.respond` — what a tap on a phone runs, awaited on the request path — and a `bd dep
+relate` is about a second and a half, so forty would be a minute of somebody waiting for an
+answer that was already recorded before the first edge was drawn. Eight is well clear of
+what a single write produces: 1,308 pairs across 554 beads is 2.4 apiece for a bead's
+*entire* history of descriptions, notes and comments together. A comment past eight is a
+list somebody pasted.
+
+**Nothing here may fail the write it hangs off.** The comment is what the caller was asked
+to record; the edge is a courtesy on top of it, and a tracker that refused to record an
+answer because a see-also would not draw would be far worse than one with a missing edge.
+Every failure is swallowed and what is returned is the ids actually drawn.
+
+Four things that had to be got right, and each of them was a real failure first:
+
+- **`relates-to`, not `related`.** `bd dep relate` writes the first; every reader in this
+  repo — `NOT_BLOCKING` in lib/graph.js, `RELATED` in public/graph.js — was written against
+  the second, because the single edge that existed when they were written was made by hand
+  under the older name. Harmless over one edge; load-bearing over a thousand, every one of
+  which would otherwise have arrived on a card counted as a **live blocker**. A bead that
+  merely mentions eight others would have announced that it waits on eight.
+- **Both ends have to be read before anything is written.** `bd show --json` carries only
+  the *outgoing* half — bc-arj0, an epic with eight children, comes back with an empty
+  `dependencies[]` and `dependent_count: 8`, because a `parent-child` edge is stored on the
+  child. And `bd dep relate` **refuses** a pair that already carries an edge of another
+  type, *after* writing the first of its two rows, so a relate over a parent-child edge
+  leaves a one-ended see-also behind and reports failure. The sweep collects pairs from
+  both ends of every export row for the same reason: read one-directionally, bc-xl7n
+  planned sixty-nine see-alsos to beads it already parents.
+- **Bulk wiring is all-or-nothing.** `bd dep add --file` takes newline-delimited
+  `{from, to, type}` and does a thousand edges in one spawn instead of half an hour of
+  `bd dep relate` holding the single writer — but it validates the whole batch and rejects
+  **every** line if one names a deleted id. Ten such ids were in this workspace's prose
+  (`bc-swr`, `bc-q1`, `bc-xxx` — typos, placeholders, beads long deleted), which is why the
+  sweep filters against the export's own id set and then chunks: a surprise costs one chunk
+  rather than the sweep. The write-time hook uses one `bd dep relate` per pair instead,
+  where the batch is two or three and a per-pair failure costs only that pair.
+- **A `relates-to` must not be printed twice.** bd stores it at both ends, so it is already
+  in `bd show`'s dependencies and drawn above the description; the incoming copy is dropped
+  from the list below rather than grouped, the same way children are.
+
+One thing it does not fix, deliberately: the `blocks N` pill at first paint is
+`dependent_count` straight from bd, which counts every edge pointing at a bead — children
+already, and now see-alsos too. It is replaced by the real rows the moment
+`dep list --direction=up` lands, and there is no count bd offers that would be better.
+
+Checked by `test/mentions.mjs` (the module, the hook against a fake `bd` that records its
+argv, and the two client-side spellings in source) and by `test/graphwaits.mjs`, which is
+where the `relates-to` spelling is held to not blocking anything.
 
 ### The glass in the middle
 
