@@ -16535,13 +16535,18 @@ is filtered out of the sweep list and so vanishes identically — its epic was a
 by the tap that cancelled it. And a ticket the daemon simply never saw is not a vanishing
 either: the candidates come from the filer's own `ref → id` map, which is seeded from the
 tracker on the first authoritative read after a restart, so this survives a restart without
-inventing a vanishing out of a poller that has only just started. The one case that seeding
-does not cover is written down rather than left to be discovered: the filer makes that read
-only for a workspace with at least one ticket it does not already know, so a workspace whose
-tickets *all* resolve while the daemon is down comes back up with nothing to compare against
-and its epics stay open. That is the same shape as a summary rewritten while the daemon was
-down, and the same trade — the alternative is a full `bd list --all` per workspace per tick
-to answer a question that is almost always no. bc-0i27.23 holds it.
+inventing a vanishing out of a poller that has only just started.
+
+**Except that seeding only happens for a workspace with a ticket it does not already
+know** (`fileFor` — a quiet tick makes no `bd` call at all), so a workspace whose tickets
+*all* resolve while the daemon is down comes back up with an empty map, nothing to compare
+its (also empty) live list against, and would otherwise leave those epics open forever —
+bc-0i27.23. Rather than pay a full `bd list --all` per workspace per tick to catch it, this
+sweep keeps its own copy of the filer's map in `state.json`, written back every tick the
+filer's map is non-empty and skipped when nothing has changed — the same free-quiet-tick
+shape as everywhere else in this file. On a restart with nothing live, that copy is what
+the vanished-ticket check falls back to, so the epic still closes on the next tick rather
+than being lost the moment the map was empty when the tickets vanished.
 
 **Written once, and never again.** A resolved ticket stays resolved, so a sweep with no
 memory would re-ask JIRA and re-comment the same epic once a minute for ever. The record is
