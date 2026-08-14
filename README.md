@@ -1166,8 +1166,9 @@ Inventing a gate is the worse of the two failures here and the silent one: a bea
 would close happily becomes unanswerable from the phone, and nothing anywhere says
 why. So the rules are measured against the binary rather than described from memory —
 `test/closegatereal.mjs` builds each shape below in a throwaway workspace and asserts
-that what beadcause answers and what `bd close` then does are the same answer. Against
-bd 1.1.2:
+that what beadcause answers and what `bd close` then does are the same answer — except
+for the two **epic** rows at the bottom, which are beadcause's own rules and are asserted
+there as disagreements on purpose. Against bd 1.1.2:
 
 | the bead | bd | beadcause |
 |---|---|---|
@@ -1177,6 +1178,9 @@ bd 1.1.2:
 | **blocked** by a `blocks` dependency not closed | refuses | refuses |
 | a `related`, `parent-child` or `discovered-from` edge, open | closes | permits |
 | a **blocker** closing while what it blocks stays open | closes | permits |
+| an **epic** with an unapplied `Adopts:` entry | **closes** | **refuses** |
+| an **epic** closed with a merge as the reason | **closes** | **refuses** |
+| a **work bead** closed with a merge as the reason | closes | permits |
 
 Two rows there are worth saying out loud, because both were assumed the other way
 round and each cost somebody an afternoon:
@@ -1197,6 +1201,66 @@ it records it for the daemon to retry (`lib/owed.js`) and says so on the bead in
 own words — because by then the merge has already happened and a refusal has somewhere
 to go. A tap on a card has nowhere: it is about to write a comment it cannot take
 back, so it asks first. Same rules on both paths; bd is the thing refusing in both.
+
+The last three rows of the table are the exception to every sentence above — the two
+where beadcause refuses what bd closes, and the one underneath them that says what is
+*not* refused — and the section below is about them.
+
+#### An epic does not close because a branch that shared its name merged
+
+Two of the rules are beadcause's own, and bd disagrees with both. `test/closegatereal.mjs`
+asserts that disagreement as deliberately as it asserts the agreements — the same
+workspace, the same real `bd close`, and a case that passes only when the binary closes
+what beadcause refused.
+
+They exist because of a measurement taken on 2026-08-13, on a graph of 792 issues.
+**Seven epics carried an `Adopts:` line naming ninety beads between them, and not one of
+the ninety was ever reparented.** The line was prose in a description: nothing read it, so
+`bd list --parent` said the epics had no children and `bd close` had no objection to any
+of them. Six of the seven then closed on their own pull request merging, with sixty
+adoptees still open — `bc-ka5y` is the clearest, twenty-three adoptions and a close reason
+reading *Merged #212 as 72789c0b into main*. Every classification lost that day was lost
+by an epic closing, not by anyone deciding the grouping was wrong.
+
+So:
+
+- **An epic with an unapplied `Adopts:` entry cannot be closed.** A bead named on that
+  line counts as a child for the gate before the adoption is applied, and whatever its
+  status — an entry nothing applied is a piece of structure the close would destroy even
+  where the bead behind it has since finished, because nothing then records it was ever
+  part of this theme. The refusal names the entries and says what to do: adopt them, or
+  drop them from the line. `lib/adopts.js` is the parser, and it stops at the first token
+  that is not an id — the paragraph *under* a list names beads too ("bc-297u and bc-syzm
+  are the same bug filed twice") and those are explained, not claimed.
+- **An epic cannot close on a merge reason.** *Landed as #42*, *Merged #212 as 72789c0b
+  into main* — a pull request is evidence that a diff landed and no evidence at all about
+  whether a theme is finished, which is the only question an umbrella epic answers. A
+  work bead closing on exactly those words is the ordinary, correct case and is untouched.
+
+The rule is matched on the **sentence** rather than taken as a flag from the caller, and
+that is what makes it hold: `lib/owed.js` retries a refused close minutes later with
+nothing in hand but the stored reason, so a rule living in the callers would be walked
+around by the retry and by every record already in `owed-closes.json`. A merge-reason
+close owed on an epic is the one *terminal* refusal in that file — dropped rather than
+retried, because no amount of waiting turns a merge into evidence about a theme.
+
+All four doors are wired, which they have to be or the rule looks broken exactly when
+Adam happens to merge that way:
+
+| door | what happens now |
+|---|---|
+| a tap on a delivery card (`lib/server.js`) | merges, notes the merge on the epic, leaves it open, owes nothing |
+| the PR board's Merge (`lib/server.js`) | the same — both go through `finishWorkBead` |
+| a worker's own `beadcause-deliver` | merges, prints `landed #n`, comments, and says on stderr that the epic stays open |
+| the sweep that notices a merge on github.com (`lib/landed.js`) | reports the epic as a skip, and writes nothing to it |
+
+**bd itself still closes an epic over both**, and cannot be taught not to: it has no
+pre-close hook — `bd hooks` installs git hooks and nothing else — so `bd close bc-ka5y
+--reason "Merged #212"` typed at a terminal goes through. That is the honest limit of
+this. Which is why the rule sits on every path beadcause closes through rather than in
+one place, and why `scripts/land-check.mjs` presses the real `bin/deliver.js` against a
+real tracker with a real epic: a refactor that lost the rule would pass every unit test
+that models it and fail there.
 
 ### The best refusal is a button that was never there
 
@@ -2132,7 +2196,10 @@ that tells it it has a memory at all.
 ### Which of the two, and the one question that decides it
 
 **Would this still be true in a different repo?** That is the whole test, and the
-brief puts it to the agent in those words.
+brief puts it to the agent in those words. (There is a question *before* it now — is this
+a belief that outlives the run at all, or a report on the run itself? — which is
+[`debrief`](#the-report-a-run-leaves-behind-debrief-and-why-neither-other-store-could-hold-it)
+further down. The two below are what is left once that one is answered.)
 
 - **Yes → `remember`.** How Adam likes a thing shaped, an approach that worked
   anywhere, a dead end not worth walking again, something about how the agent itself
@@ -2413,6 +2480,102 @@ the caller it exists for: it opens sessions in four repos from one process and i
 standing in none of them. Every read an *agent* can reach still resolves from
 `process.cwd()`, which is the whole point of the indirection — `lib/foundation.js` draws
 the same line in the same place with `effective(dir, agent)`.
+
+### The report a run leaves behind: `debrief`, and why neither other store could hold it
+
+Both stores above answer one question — **would this still be true next week?** — and
+that question rules out the single most valuable thing a session knows at the moment it
+ends: *what happened this time*. The dead end that was not obvious. The file that turned
+out to be the real one. The check that already passes, so the next run need not spend
+forty minutes deriving it. Where you stopped, and why the bead is still open.
+
+None of that is a lesson about the codebase and none of it follows an agent into another
+repo, so it had nowhere to go. What it did instead is the familiar failure in its third
+form: it was written as a `note` that was false a fortnight later, or — far more often —
+it was not written at all, and the next session at that bead started from zero on work
+somebody had already done half of.
+
+```
+beadcause-memory debrief "<what happened>"     file it against the bead you are on
+beadcause-memory debriefs [<bead>]             what earlier runs at it and its siblings hit
+```
+
+**It ends up in the session archive, not in a store of its own.** `refs/beadcause/sessions/<bead>`
+already keeps one tree per finished session — `meta.json`, `session.log`, sometimes
+`transcript.jsonl` — and a debrief is the fourth file in exactly that tree, `memory.md`.
+That was not a coincidence to be exploited afterwards: the reader shipped first (`bc-nib3.5`),
+so `memory.md` was already on the `/api/session-archive` allowlist, already listed by
+`/api/bead-session`, and already drawn at the top of the archived-session page, with a
+fixture in `test/beadsession.mjs` asserting it round-trips. The write half landed against a
+consumer that was waiting for it, which is the opposite of the usual order and is why it
+needed no client change at all.
+
+**So why a staging ref exists.** The archive commit cannot be written while the session is
+running, because it records the outcome, the commits and the transcript — none of which is
+known until the window is gone. But the agent has to write at the one moment it knows the
+most, which is before that. `refs/beadcause/debrief/<bead>` is the few minutes in between:
+`archiveSession` reads it, folds it into the tree, and deletes it. A repo whose daemon is
+keeping up has none of these refs at all, and `git for-each-ref refs/beadcause/debrief` is
+therefore a list of what is stuck mid-flight.
+
+**Keyed by bead, because that is the one name both sides know.** The agent cannot key by
+session — it does not know its own Claude session uuid, and asking it to find one out
+would be asking it to name a path, which is the thing `lib/memory.js` refuses on every
+other call. The bead is in its window title, its branch, its brief and the daemon's worker
+record. So `sessionCommand` stamps `BEADCAUSE_BEAD` into the session's exports, beside
+`BEADCAUSE_AGENT` and for the same reason: an agent that could pass its own bead could
+file a report against somebody else's work, and afterwards that is indistinguishable from
+their having written it. A window with no bead — a ship window, a rebase window — is
+stamped with nothing, and `debrief` refuses there rather than guessing.
+
+**Writes append rather than replace, and there is no key to replace by.** Two calls in one
+run are two things that happened, not a correction of the first. That is the difference
+from the other two stores and it falls out of what this one is: `note` and `remember` hold
+a current belief, and a belief gets edited; a debrief holds an event, and an event does
+not. Each entry carries who wrote it and when, which also makes the one honest failure
+mode visible — if the daemon was down when a window closed there is no archive to fold the
+report into, so it stays staged and rides along with the *next* run at that bead, stamped
+with a time that is plainly older than the session it arrived with. The alternative was
+deleting an agent's writing to keep a record tidy, which nothing here does.
+
+**Silence is the expected answer for the other two and emphatically not for this one**,
+and the closing step in the work brief now says both things in two paragraphs that
+contradict each other on purpose. The "most runs should write nothing" bar is correct for
+`note` and `remember` — a store full of *worked on lib/session.js* is a store nobody opens
+— and it is wrong here, because a debrief is not competing for room in a shared store: a
+bead's archive holds one file per session, and a session that says nothing simply has
+none. Left under the old sentence the new store would have inherited a bar written for a
+different problem and gone unused, which is exactly the shape of `bc-sgu4`, where the chat
+session read the store constantly and in three days wrote to it not once.
+
+**What the next session is handed, and why the selection is narrower than tier 1's.**
+`workPromptFor` pushes debriefs the way it pushes notes, but it picks them by the *graph*
+rather than by vocabulary: this bead, its epic, and its siblings, ranked in that order,
+newest run per bead, capped at three and 4000 characters. There is no cosine, and the
+absence is the argument. A note is a lesson about the codebase, so the right one may be
+filed nowhere near this subtree and similarity is the only way to find it. A debrief is a
+report on an attempt at a bead, and its worth to another bead falls off with the graph:
+the run that already fought this epic's build, or the sibling that touched the same file
+yesterday, is the one to read, while a textually similar debrief from an unrelated corner
+of the tracker is a story about somebody else's afternoon. The generalisable half of a run
+is supposed to leave via `note` or `remember` — both of which *are* pushed by similarity —
+so staying narrow here is the boundary that keeps four stores from becoming four copies of
+one. `beadcause-memory debriefs <bead>` is the pull for everything else, and the section
+names it, the way the notes section names its own.
+
+The epic planner gets the same section, and is arguably the reader it serves best: the
+reports its children's runs left are the only first-hand account of which parts of an epic
+turned out to be entangled, which is the exact question a plan answers.
+
+`test/debrief.mjs` covers the seam, because the store is written by one module and
+consumed by another and every interesting failure is invisible from either side alone: a
+session that wrote nothing must archive with **no** `memory.md` rather than an empty one
+(the page says different things about those two, and the better sentence becomes unsayable
+if every archive carries the name); a fourth entry in a `mktree` must not silently drop a
+third; the clear must be a compare-and-swap, so a report written between the archive's read
+and its delete survives instead of being thrown away by a consumer that never saw it; and
+four processes appending to one bead must all land, which is the blackboard's argument
+again in a store where a lost write leaves no missing key to notice it by.
 
 ### Where the rest lives: `~/.config/beadcause` is a git repo
 
@@ -3512,14 +3675,14 @@ before the next comparison. It worked, and it was a second implementation of wha
 disagree with the other. `ledgerWorkspaces` resolves all three picker states including the
 synthetic `Other` group, which is what makes one request enough; the client merge is gone.
 
-Three things it does **not** do. It does not filter — status, priority, provenance and an
-id substring are the server's already and the controls for them are their own work. It does
-not stream: every other standing view mounts `stream.js`, and one more long poll parked
-against a page about what already happened would be paying for liveness nobody asked for,
-so ⟳ is the refresh and a record that reordered itself while your thumb was travelling
-would be worse than one that did not. And **nothing on it writes** — which is also why it
-is the one standing view with no `⦿ observing` chip: that chip warns you that a button
-might reach a Mac you are not looking at, and there is no such button on a ledger.
+Two things it does **not** do. It does not stream: every other standing view mounts
+`stream.js`, and one more long poll parked against a page about what already happened would
+be paying for liveness nobody asked for, so ⟳ is the refresh and a record that reordered
+itself while your thumb was travelling would be worse than one that did not. And **nothing
+on it writes** — which is also why it is the one standing view with no `⦿ observing` chip:
+that chip warns you that a button might reach a Mac you are not looking at, and there is no
+such button on a ledger. It *does* filter, which it did not at first —
+[four of them, in the query string](#narrowing-the-ledger--four-filters-that-live-in-the-url).
 
 A repo that will not answer is named above the list rather than taking the other repos down
 with it, and the total is drawn only when nothing is in `errors[]` — a count over the repos
@@ -3546,6 +3709,68 @@ would look like a bug in the page:
   0}` is a perfectly good answer for a repo nobody has filed anything in and the two are
   otherwise the same blank card. ⟳ sends `refresh=1` and forces a fresh sweep — once per
   press, not once per page of the scroll that follows it.
+
+### Narrowing the ledger — four filters that live in the URL
+
+Five hundred beads newest-first is a record rather than an answer. The four things you
+actually arrive wanting to say are **status**, **priority**, **who filed it** and *some of
+the id* — and `GET /api/history` took all four from the day it landed, so the work here was
+the controls and where their state lives.
+
+They are in **the same collapsing panel the inbox uses**, and that is the point of the
+control rather than a saving: `public/filtermenu.js` is the panel — the one line at rest,
+the chips, the hover-on-a-laptop and tap-on-a-phone state machine — lifted out of
+`public/inboxfilter.js` when the History tab became the second list in the app to narrow.
+Two copies of it would not have looked like two copies. They would have looked like one
+control that behaves subtly differently on two screens: the grace period on a diagonal exit
+towards a chip, the tap that pins the panel open, the `pointerdown` that closes it *before*
+the tap lands on the row underneath rather than after. Each of those is a decision somebody
+made once after using the thing on a phone, and none of them is visible by reading the
+second copy. So the inbox kept its half — which kinds of thing it carries, the counts, the
+[PR sub-filter](#one-list-six-kinds--and-the-sub-filter-for-pull-requests) — and the panel
+became shared. `test/inboxkinds.mjs` passed over the seam unchanged, which is the whole
+evidence that the split moved no behaviour.
+
+The three chip groups are `Status`, `Priority` and `Filed by`; the fourth is a text box for
+a **substring of the bead id**, which is deliberately not a title search. `nib3` should be
+the five beads under that epic, not every bead whose title mentions history — titles are
+what `bd search` is for, and one box next to three pickers that matched both would answer
+neither question. `Filed by` is the **`agent-filed` label** and never `created_by`, which
+is a field an agent writes whatever it likes into; the chip says so, because *Agent* over a
+list that disagreed with a byline you can read on the sheet is a screen you would be right
+not to trust.
+
+**All four live in the query string and nowhere else.** No localStorage half, no
+server-side memory, nothing to disagree with the address bar — because a narrowed ledger is
+a *link*. `/history?status=closed&priority=P0` is a home screen shortcut to the P0s that
+landed, it is the same screen for whoever you send it to, and a `/closed` entry point is
+that same URL under a shorter name — which is the whole of what bc-nib3.7 has left to do,
+and stays that small only because the state is addressable rather than kept somewhere. The
+inbox's kinds go the other way and stay on the device, because *I am reading merges this
+hour* is not a place. Every chip is a `replaceState` — a filter is not somewhere you go
+back *to*, and a panel of them would otherwise fill the back stack with steps between you
+and the page you arrived from — and the `?t=` token is dropped on the way past, because a
+filter link is a thing you send to a phone rather than a credential.
+
+Which makes the URL something a person can type, so the four are **sent as written and
+refused out loud**. `parseQuery` 400s on a word it does not know and
+[names it](#the-ledger-behind-the-history-tab), rather than dropping the parameter — a
+dropped filter is the whole ledger under chips claiming otherwise, and an empty one is
+indistinguishable from a space nobody has filed in. The page draws that sentence under the
+control, verbatim, and it does one more thing that matters more on a phone than it sounds:
+a value the chips cannot represent becomes **a chip of its own, pressed, labelled with the
+word**. So `?status=close` arrives as a refusal *and* as something to tap off, and the way
+out of a mistyped link is never the address bar.
+
+The rest is arithmetic that has to stay honest. `total` is what the filters matched rather
+than what the space holds, so the count line says *2 beads match in beadcause* while
+anything is narrowed and *4 beads in beadcause* when nothing is; an empty narrowed list
+says *nothing matches* rather than *nothing here yet*, because those blame two different
+things and only one of them sends you looking for a bead that is sitting under `All`. The
+id box waits 250ms for you to stop typing, since `bc-nib3` is otherwise seven sweeps. And
+clearing the last chip is a bare address, a request with none of the four parameters on it,
+and the whole list back with no reload — which is the acceptance criterion this was built
+against.
 
 ### The door from the advocate console — `N closed`
 
