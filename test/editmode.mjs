@@ -292,8 +292,10 @@ async function realised(el) {
   return { ...host, anchor: host.edit.anchorFor(el) };
 }
 
-// A P0 card's title, as public/app.js actually emits it: `<a class="p0-title" ...>`.
-const p0 = await realised(makeEl('a', { class: 'p0-title', href: '/graph?x' }, [], 'Some epic'));
+// A P0 card's title, as public/app.js actually emits it: `<span class="p0-title">` — a
+// span since bc-rfnr.9.2, where the whole summary above the tree became one button and
+// the anchor it used to be could not live inside one.
+const p0 = await realised(makeEl('span', { class: 'p0-title' }, [], 'Some epic'));
 
 check('a hand-written class name resolves to exactly one line of the real source', () => {
   assert.equal(p0.anchor.source.found, 1, `found ${p0.anchor.source.found}: ${JSON.stringify(p0.anchor.source.tried)}`);
@@ -302,10 +304,10 @@ check('a hand-written class name resolves to exactly one line of the real source
 });
 
 check('and the anchor carries the chain, the classes and the text with it', () => {
-  assert.equal(p0.anchor.selector, 'a.p0-title');
+  assert.equal(p0.anchor.selector, 'span.p0-title');
   assert.deepEqual([...p0.anchor.classes], ['p0-title']);
   assert.equal(p0.anchor.text.value, 'Some epic');
-  assert.equal(p0.anchor.tag, 'a');
+  assert.equal(p0.anchor.tag, 'span');
   assert.equal(p0.anchor.page, '/');
 });
 

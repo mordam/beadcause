@@ -3001,6 +3001,50 @@ contributes no cards and hides nothing, for the same reason. `node test/p0tree.m
 holds all of that, including the one assertion that separates the feature from `under`
 renamed: a descendant with no pending question is in the tree.
 
+### Tapping a P0 card opens it
+
+The card is a summary you can open. Collapsed it is what the week is about — the id, how
+much is in flight, how much is open, the title, the advocate's sentence if there is one,
+and a line saying how many beads are behind the tap. That last number is the *total*,
+where the count above it is what is left: "9 open" tells you nothing about whether the
+epic is nine of ten or nine of sixty.
+
+Tap it and the tree unfolds in place, indented under each parent, one row per descendant
+at any depth. A row says the bead's id and title, marks it **asks you** when it is itself
+a question (`pending`), and names any status that is not `open` — sixty rows all saying
+`open` is the default restated sixty times. Closed work stays, struck through and faded,
+because it is what the epic has *done*; bc-rfnr.9.6 gives the whole board a status filter
+that will default to hiding it. Each row is a link into [the dependency
+graph](#what-a-question-is-blocking) at that bead, until bc-rfnr.9.4 makes it expand in place instead. A P0 with nothing under it
+expands to a sentence saying so — an empty gap reads as a tree that failed to arrive.
+
+Two things about it are less obvious than they look.
+
+**The indent is capped at three steps.** The rows arrive flat with a `depth` each, and
+the client turns that into `margin-left: calc(var(--d) * 13px)` — a margin rather than a
+padding, so a deep row's box *narrows* and its title wraps inside the card. Past the third
+step it stops stepping. This tracker nests six deep (bc-rfnr.9.2.1.1 is a great-grandchild
+of an epic that is itself a child), a phone is 360px wide and a bead title needs most of
+them; an indent that kept going would push the sixth generation off the right edge, and an
+element wider than the screen does not scroll on a phone — it shrink-fits the whole page,
+so every other card pays for it too.
+
+**What is open is page state, and that is what makes it survive a poll.** The board is
+drawn as *one* reconcile chunk (`warm.paint` keys it `@p0`), because every count on it
+comes from one sweep — so any repaint that moves a single number replaces the whole
+section's HTML. An `open` attribute on a `<details>`, or a `hidden` toggled on a node,
+would therefore fold up under your thumb every 25 seconds. The set of open card keys lives
+in the page's state, the section is rebuilt from it on every render, and the tap does
+nothing but write to the set and repaint. It is not persisted across a reload, unlike the
+filter: which epics are unfolded is where you are looking *now*, and a phone that came back
+to four expanded trees would be a screen you had to fold up before you could read it.
+
+`node test/p0card.mjs` runs the real renderer out of `public/app.js` in a `node:vm` — no
+browser, no `bd` — over a fixture nested five deep: that a collapsed card draws no tree at
+all, that an expanded one draws every descendant in the server's order, that the indent
+steps and then stops, that only the tapped card opens, that the same state renders the
+same board twice, and that the tap handler writes state rather than reaching into the DOM.
+
 ### The top bar says who is asking, not what the app is called
 
 The widest part of the bar used to be the word **Beadcause** — on a screen you
