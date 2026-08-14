@@ -125,6 +125,16 @@
     // so they are warmed after the tabs are — and `/api/prs` last of all, because it is
     // a `gh` call per repo and the slowest thing on this list.
     { id: 'console', paths: ['/api/consoles'] },
+    // The endorsement queue, and the same kind of view as the two either side of it: no
+    // tab, reached in one tap from the 🗳 in the inbox's top bar or from the advocate
+    // console's `N held for endorsement` pill. It is second to last because it is the
+    // second most expensive thing on this list — `/api/unendorsed` is a `bd` sweep of
+    // every workspace and then a `bd show` per row for the provenance line
+    // (lib/endorsequeue.js) — and not last only because `/api/prs` shells out to `gh`
+    // once per repo. Warming it is the whole of why arriving at that page is instant:
+    // it is the one screen in the app whose rows are the full bead, so the wait in
+    // front of it was the longest of any view here.
+    { id: 'endorse', paths: ['/api/unendorsed'] },
     { id: 'prs', paths: ['/api/prs'] },
   ];
 
