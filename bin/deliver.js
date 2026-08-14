@@ -542,8 +542,30 @@ function clearOpen(label, find, why) {
     try {
       bd(['close', card.id, '--reason', reason]);
     } catch (err) {
-      console.error(`beadcause-deliver: ${card.id} is still open on ${beadId} — ${bdSaid(err)}`);
-      continue;
+      /**
+       * Over the claim guard, and only over the claim guard — bc-r941, and the same
+       * refusal bc-9d37.13 hit at the other close in this file.
+       *
+       * A merge-bead is *assigned*, to `merge-advocate`, because that is how the queue
+       * finds it. bd 1.2.1 refuses a close by anybody who is not the assignee, so a
+       * superseded merge-bead could not be closed by the delivery that superseded it —
+       * and the pile that leaves is not cosmetic: every one of them is an open blocker on
+       * the work bead, so a bead delivered three times can never be closed by anything.
+       *
+       * `isClaimGuard` rather than a blanket `--force`, because `--force` also lifts open
+       * children, live blockers and the epic gates. Anything else that refuses still
+       * travels out to the log below exactly as it did.
+       */
+      if (!isClaimGuard(err)) {
+        console.error(`beadcause-deliver: ${card.id} is still open on ${beadId} — ${bdSaid(err)}`);
+        continue;
+      }
+      try {
+        bd(['close', card.id, '--reason', reason, '--force']);
+      } catch (forced) {
+        console.error(`beadcause-deliver: ${card.id} is still open on ${beadId} — ${bdSaid(forced)}`);
+        continue;
+      }
     }
     cleared.push(card.id);
     // And the edge it parked the work bead behind. Closing the card is already
