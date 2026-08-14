@@ -5241,6 +5241,20 @@ a.pill { text-decoration: none; }
   cursor: pointer;
 }
 .p0-advocate:disabled { opacity: 0.6; cursor: default; }
+/* The same control as a link, once there is an advocate to go and look at (bc-d6yk).
+   Same box as the button it replaces — a card whose control changed size between polls
+   would move the two cards below it while you were reading them — and centred by flex
+   rather than by `text-align`, because the busy dot is a sibling of the text and has to
+   sit on its baseline rather than beside a line of it. */
+a.p0-advocate {
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  text-decoration: none;
+}
+/* Live, so it breathes: the one on this card is the window you just opened, and an
+   advocate that is thinking and one that has stopped must not read the same. Listed here
+   rather than added to the shared rule above, because that rule's list is of *rows* and
+   this is a control. */
+a.p0-advocate .spark { background: var(--accent); animation: breathe 1.3s ease-in-out infinite; }
 
 /* ------------------------------------------------------------- edit mode
 
