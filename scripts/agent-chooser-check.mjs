@@ -323,7 +323,7 @@ try {
   }
   if (!(await evalJs(s, `!!document.querySelector('.card[data-key]')`))) throw new Error('the list never rendered');
 
-  await evalJs(s, `document.querySelector('.card[data-key=${JSON.stringify(KEY)}] [data-act="toggle"]').click()`);
+  await evalJs(s, `document.querySelector('.card[data-key=${JSON.stringify(KEY)}][data-act="toggle"]').click()`);
   await sleep(600);
   if (!(await evalJs(s, `!!document.querySelector('.freeform textarea[data-role="answer"]')`)))
     throw new Error(`the answer box never rendered — page error: ${await evalJs(s, `window.__err`)}`);

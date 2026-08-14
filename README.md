@@ -3654,6 +3654,53 @@ tabs that answer them**, not chips up here: the number and the way to act on it 
 as the same tap target, and neither is a count of the list you are looking at. See
 [the tab bar](#getting-around--the-tab-bar).
 
+### The card is the control — tap it anywhere to open it
+
+Every collapsed card used to carry a **Show details** button hard left in its top bar.
+It said *this card can be opened*, next to a card that can be opened, on the one screen
+in this app where vertical space is the scarce thing — and it was a 38px target inside a
+row that was already 120px tall and doing nothing with any of it. So it is gone. **The
+body of a shut card is the way into it**: the title, the pills, the whitespace beside
+them. A pull request row and a JIRA row already worked this way, and now the question
+card, the proposal, the delivery and the read-only agent bead do too.
+
+Mechanically it is one attribute. A shut card's `<article>` carries the `data-act` the
+button used to, so the list's existing delegated handler — one listener on `#list`,
+`closest('[data-act]')` — resolves a tap on the body to the same branch. It is only
+there while the card is shut: an open card is a full-screen sheet whose way out is
+**↑ Collapse**, unchanged and in the same corner, and an article that still answered to
+the act would close the sheet under the first tap on a paragraph of the brief.
+
+**What a card contains is the whole difficulty**, and it is the half that does not show
+when it is wrong. A tap on the graph link, on a proposal's ✓, on the answer box, on the
+session log you are dragging sideways, on the bead id you are trying to select and copy
+— every one of those must do its own job and *not* also open the card underneath it, and
+when it goes wrong the control still fires: the card opening over it just reads as the
+app being keen. Two rules keep it right, and they divide the work:
+
+- **`closest()` does most of it for free.** Every control drawn on a card carries its own
+  `data-act`, so it is *nearer* than the article and the card never hears about the tap.
+  That is not a list to maintain — it is the same delegation the app already had.
+- **`cardBodyOpens` covers what carries none**: links, the native form elements and the
+  `<label>` that stands for a checkbox, and the `<pre>` a session log is read in. Plus
+  the one that is not an element at all — **a live text selection**. Selecting a bead id
+  to copy ends in a click, and a card that expanded under every attempt to copy the one
+  line worth copying would be worse than the button ever was. Nothing sets `user-select:
+  none`; the tap is dropped, the selection is kept.
+
+Saying so, on a screen with no hover and no cursor, is a **press tint**: the card goes
+down under the finger, which is what every native list row does. It is suppressed while
+a control *on* the card is the thing being pressed, because a ✓ tinting the whole card
+would say the card was about to open, which is the one thing that tap does not do.
+`cursor: pointer` is beside it for the desktop half — and on iOS it is also what makes
+`:active` fire on a non-button element at all, so the two rules are load-bearing in that
+order.
+
+`node test/cardtap.mjs` (part of `npm test`) holds it: both renderers run for real in a
+`node:vm`, the guard driven case by case over a fake tap, and a source read that no
+`<button>` anywhere in `public/app.js` answers to the act any more — a second emitter of
+it would be the old control grown back somewhere else in the file.
+
 ## What a question is blocking
 
 A question whose answer nothing is waiting on is just a question. One that blocks
@@ -8858,7 +8905,8 @@ all-or-nothing is what makes an agent's suggestions annoying: one good bead in t
 is an ordinary outcome, and having to decline all three to avoid the two bad ones
 teaches you to decline everything. So the card draws a row per bead — approve,
 decline, or leave it undecided — and **Approve** / **Decline** sit up in the top bar
-beside an undecided count, hard right of the details toggle. Two taps to commit, like
+beside an undecided count, hard right. (They are the only thing left in that bar on a
+shut card: [reading is the card itself now](#the-card-is-the-control--tap-it-anywhere-to-open-it).) Two taps to commit, like
 every other answer here. The YAML block no longer renders on the phone at all; it is
 parsed out and drawn as those rows.
 

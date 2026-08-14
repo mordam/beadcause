@@ -240,7 +240,7 @@ try {
   }
   if (!(await evalJs(s, `!!document.querySelector('.card[data-key]')`))) throw new Error('the list never rendered');
 
-  await evalJs(s, `document.querySelector('.card[data-key=${JSON.stringify(KEY)}] [data-act="toggle"]').click()`);
+  await evalJs(s, `document.querySelector('.card[data-key=${JSON.stringify(KEY)}][data-act="toggle"]').click()`);
   await sleep(600);
   if (!(await evalJs(s, `!!${ROW(1)}`))) throw new Error('the proposal never rendered');
 
@@ -447,11 +447,14 @@ try {
 
   // The card has been open since the top of this file, which is the state where
   // "Hide details" and "↑ Collapse" would otherwise be two buttons for one thing.
+  //
+  // `cardIsToggle` is the shut half of the same question since bc-rfnr.9.3: there is
+  // no details button in this bar any more, so what has to be true closed is that the
+  // article itself carries the act, and what has to be true open is that it does not.
   const BAR = `(() => {
       const card = ${ROW(1)}.closest('.card');
       const q = (sel) => card.querySelector(sel);
       const bulk = q('.prop-bulk');
-      const detail = q('.card-top .detail');
       return {
         open: card.classList.contains('open'),
         inTopBar: !!q('.card-top .prop-bulk'),
@@ -459,15 +462,11 @@ try {
         thirdButton: !!q('.prop-go') + card.querySelectorAll('[data-act="pick-submit"]').length,
         toggleInBar: !!q('.card-top [data-act="toggle"]'),
         toggleAtFoot: !!q('.actions [data-act="toggle"]'),
+        cardIsToggle: card.dataset.act === 'toggle',
         collapse: !!q('.card-top .collapse'),
         approve: q('.prop-bulk .approve')?.textContent.trim(),
         decline: q('.prop-bulk .decline')?.textContent.trim(),
         count: q('.prop-count')?.textContent.trim(),
-        rightOf: (() => {
-          const b = bulk?.getBoundingClientRect();
-          const d = detail?.getBoundingClientRect();
-          return b && d ? Math.round(b.left - d.right) : null;
-        })(),
         // How far the group's right edge falls short of the bar's own right edge.
         // Zero is right-justified; the bar wraps at 393px, so this rather than a
         // left-of/right-of comparison is what "hard right" actually means here.
@@ -477,11 +476,6 @@ try {
           if (!top || !b) return null;
           const pad = parseFloat(getComputedStyle(top).paddingRight) || 0;
           return Math.round(top.getBoundingClientRect().right - pad - b.right);
-        })(),
-        sameLine: (() => {
-          const b = bulk?.getBoundingClientRect();
-          const d = detail?.getBoundingClientRect();
-          return b && d ? Math.abs(b.top - d.top) < 4 : null;
         })(),
       };
     })()`;
@@ -495,8 +489,8 @@ try {
   check('there is no third confirm button left', !bar.thirdButton, `.prop-go / pick-submit: ${bar.thirdButton}`);
   check(
     'an open card is not offered two ways to hide the same details',
-    bar.open && bar.collapse && !bar.toggleInBar && !bar.toggleAtFoot,
-    `collapse=${bar.collapse}, a second toggle=${bar.toggleInBar || bar.toggleAtFoot}`
+    bar.open && bar.collapse && !bar.toggleInBar && !bar.toggleAtFoot && !bar.cardIsToggle,
+    `collapse=${bar.collapse}, a second toggle=${bar.toggleInBar || bar.toggleAtFoot || bar.cardIsToggle}`
   );
   // Row 1 is approved and row 2 declined by now, which is the case the old primary
   // existed for: the count has to survive on a button whose name is "Approve".
@@ -506,20 +500,20 @@ try {
     `"${bar.approve}" / "${bar.decline}"`
   );
 
-  // Closed, the card is a row in a list again and the toggle is what opens it —
-  // in the same bar as the two bulk buttons, hard left of them.
+  // Closed, the card is a row in a list again — and it is its own way back in
+  // (bc-rfnr.9.3), so the bar is left holding the two bulk buttons and nothing else.
   await evalJs(s, `${ROW(1)}.closest('.card').querySelector('.card-top .collapse').click()`);
   await sleep(500);
   const shut = await evalJs(s, BAR);
   check(
-    'closed, the details toggle is in that bar too and no longer at the foot',
-    !shut.open && shut.toggleInBar && !shut.toggleAtFoot,
-    `in the bar=${shut.toggleInBar}, still at the foot=${shut.toggleAtFoot}`
+    'closed, the card itself is the toggle and no button anywhere says so',
+    !shut.open && shut.cardIsToggle && !shut.toggleInBar && !shut.toggleAtFoot,
+    `card=${shut.cardIsToggle}, a button in the bar=${shut.toggleInBar}, at the foot=${shut.toggleAtFoot}`
   );
   check(
     'with the two bulk buttons hard right in it',
-    shut.shortOfRight !== null && shut.shortOfRight <= 1 && (!shut.sameLine || shut.rightOf > 0),
-    `${shut.shortOfRight}px short of the bar's right edge, ${shut.sameLine ? 'same line' : 'wrapped below'} the toggle`
+    shut.shortOfRight !== null && shut.shortOfRight <= 1,
+    `${shut.shortOfRight}px short of the bar's right edge`
   );
 
   await evalJs(s, `document.querySelector('.prop-bulk .approve').click()`);
