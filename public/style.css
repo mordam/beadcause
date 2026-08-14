@@ -78,7 +78,16 @@ body {
 }
 
 .brand { display: flex; align-items: center; gap: 9px; min-width: 0; }
-.brand h1 { font-size: 17px; font-weight: 650; margin: 0; letter-spacing: -0.01em; }
+.brand h1 {
+  font-size: 17px; font-weight: 650; margin: 0; letter-spacing: -0.01em;
+  /* Truncated rather than wrapped, since bc-exqi put the account chip at the other end of
+     this row. A page whose title is a *session's* — a bead's whole summary line, on
+     /session and /beadsession — has a brand wide enough to push the chip onto a second
+     row, and a second row of sticky chrome costs 46px of transcript on the one screen
+     that is nothing but transcript (`scripts/say-check.mjs` measures exactly that). An
+     ellipsis on a title you can read in full one line below it is the cheaper half. */
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 
 /* The app mark where the word used to be. The artwork carries its own dark
    rounded tile — it is the home-screen icon — so it needs no plate under it and
@@ -500,6 +509,182 @@ body {
   border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
   background: color-mix(in srgb, var(--accent) 10%, var(--surface));
 }
+
+/*
+  The account switcher — the address at the right-hand end of the bar, and the menu the
+  page's own top-right buttons now live in. See public/accountbar.js.
+
+  It is an ordinary flex item on the *first* row, deliberately, and that is the whole of
+  how it fits the two-row budget `scripts/topbar-check.mjs` measures: the picker below is
+  `flex: 1 0 100%` and takes a row of its own, and a third row is what that check exists
+  to refuse. It can afford the width because it takes some back — up to four loose icon
+  buttons that used to sit here are rows in the menu now.
+*/
+/*
+  `flex: 1 1 0` rather than `auto`, and that is the line that keeps the bar on one row.
+
+  `.topbar` is `flex-wrap: wrap`, and a wrapping flex line **wraps before it shrinks**: an
+  item whose content is 178px wide is placed at 178px and pushed to a second row if the
+  line is full, however shrinkable it is. Two pages have a title that wide — /session and
+  /beadsession draw a bead's whole summary line up here — so an `auto` basis put the chip
+  on a row of its own there and cost 46px of sticky chrome on the two screens that are
+  nothing but transcript. A basis of 0 has no content width to wrap on: it takes what is
+  left of the row, and the address inside it ellipsises into whatever that turns out to
+  be. See `scripts/say-check.mjs`, which measures the transcript underneath.
+*/
+.accountbar {
+  position: relative;
+  display: flex; align-items: center; justify-content: flex-end;
+  flex: 1 1 0; min-width: 0;
+}
+
+/* Emptied by the hoist rather than removed, because the monitor puts a tally back into
+   it on every poll. With nothing left in it, its gap would otherwise draw a hole. */
+.topbar .sheet-actions.hoisted:empty { display: none; }
+
+.accountchip {
+  display: flex; align-items: center; gap: 6px;
+  /* Shrinkable to almost nothing, deliberately: the bar wraps to a second row when its
+     first is full, and a second row is 43px of sticky chrome on every page — which is
+     what `scripts/topbar-check.mjs` and `scripts/say-check.mjs` both measure. The address
+     is the half that gives way, because it is the one thing here that is still readable
+     truncated: a chip saying `you@work…` still says which account, and a page that lost
+     43px of transcript to say it in full has spent the wrong thing. */
+  min-width: 0;
+  max-width: min(46vw, 260px);
+  min-height: 34px;
+  padding: 6px 10px;
+  border: 1px solid var(--line); border-radius: 999px;
+  background: var(--surface); color: var(--text);
+  font: 600 13px/1.2 inherit;
+  cursor: pointer;
+}
+.accountchip-who { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.accountchip-caret { color: var(--muted); font-size: 10px; }
+/* No account configured: the chip is drawing this Mac's address rather than a choice
+   anybody has made, and it should not look like a live selection. */
+.accountchip.unset { color: var(--muted); }
+
+.accountmenu {
+  position: absolute; top: calc(100% + 8px); right: 0;
+  /* Above the bar itself, which is sticky at 20 — a menu behind its own chip is the one
+     way this can fail while looking like it worked. */
+  z-index: 30;
+  min-width: 232px; max-width: 84vw;
+  padding: 6px;
+  display: flex; flex-direction: column; gap: 2px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+  box-shadow: 0 12px 30px rgb(0 0 0 / 0.35);
+}
+.accountmenu[hidden] { display: none; }
+
+.accountmenu-row {
+  display: flex; align-items: center; gap: 10px;
+  width: 100%; min-height: var(--tap);
+  padding: 8px 10px;
+  border: 0; border-radius: 9px;
+  background: none; color: var(--text);
+  font: 600 14px/1.2 inherit; text-align: left;
+  cursor: pointer;
+}
+.accountmenu-row:hover { background: var(--surface-2); }
+.accountmenu-glyph { width: 22px; text-align: center; color: var(--muted); }
+.accountmenu-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The hoisted buttons keep their own glyph and lose the plate around it: inside a menu
+   the row is the target, and a button-inside-a-button reads as two things to press.
+
+   They stay hit-testable all the same. `pointer-events: none` was the obvious way to make
+   the row the only target and it takes the glyph out of the document's hit testing
+   altogether — which is not only a tap: it is also what edit mode points at, and what
+   `scripts/editgesture-check.mjs` retypes. The row's own handler already skips forwarding
+   when the tap landed on the button, so nothing fires twice. */
+.accountmenu-item .icon-btn {
+  width: 22px; min-width: 22px; height: 22px; min-height: 22px;
+  border: 0; background: none; padding: 0;
+}
+/* The actions and "Switch accounts" are two kinds of thing — one acts on this page, one
+   changes which app you are in — so there is a line between them rather than a heading. */
+.accountmenu-actions:not(:empty) { border-bottom: 1px solid var(--line); padding-bottom: 4px; margin-bottom: 4px; }
+/* A hoisted control that is itself hidden takes its row with it. The 🌐 button is the one
+   that does this: it is only on the page inside the Android shell, where the native
+   bridge fills it in (see MainActivity.kt), and a menu row whose button is hidden drew a
+   label with a hole where the glyph should be — an action that does nothing, on every
+   phone in a browser. Live rather than read once at the hoist, because that button's
+   `hidden` is set by a script that may not have run yet. */
+.accountmenu-item:has(.icon-btn[hidden]) { display: none; }
+
+/*
+  The picker. A dialog rather than a second menu: it is a decision about the whole app
+  rather than a control on this page, and it holds a form.
+*/
+.accountpick {
+  border: none; border-radius: 16px; padding: 20px;
+  width: 420px; max-width: 92vw; max-height: 86dvh; overflow: auto;
+  background: var(--surface); color: var(--text);
+}
+.accountpick::backdrop { background: rgb(0 0 0 / 0.55); }
+.accountpick-title { margin: 0 0 8px; font-size: 17px; font-weight: 650; }
+.accountpick-lede { margin: 0 0 14px; color: var(--muted); font-size: 13px; line-height: 1.5; }
+.accountpick-list { list-style: none; margin: 0 0 14px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.accountpick-none { color: var(--muted); font-size: 13.5px; }
+
+.accountpick-row { display: flex; align-items: stretch; gap: 6px; }
+.accountpick-pick {
+  flex: 1 1 auto; min-width: 0;
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 12px; min-height: var(--tap);
+  border: 1px solid var(--line); border-radius: 11px;
+  background: var(--bg); color: var(--text); text-align: left; cursor: pointer;
+}
+/* The one in force, said in the border as well as the tick — the tick alone is four
+   pixels of the row, and this list is read at arm's length on a phone. */
+.accountpick-row.on .accountpick-pick {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
+  background: color-mix(in srgb, var(--accent) 10%, var(--bg));
+}
+.accountpick-tick { width: 14px; color: var(--accent); font-size: 13px; }
+.accountpick-who { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.accountpick-who strong { font-size: 14.5px; font-weight: 650; }
+.accountpick-mail { font-size: 12.5px; color: var(--prose); overflow: hidden; text-overflow: ellipsis; }
+.accountpick-scope { font-size: 12px; color: var(--muted); }
+.accountpick-edit {
+  width: var(--tap); min-height: var(--tap);
+  border: 1px solid var(--line); border-radius: 11px;
+  background: var(--bg); color: var(--muted); font-size: 15px; cursor: pointer;
+}
+
+.accountpick-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.accountpick-add, .accountpick-close, .accountpick-remove {
+  flex: 1 1 auto; min-height: var(--tap); padding: 0 14px;
+  border-radius: 11px; font: 650 14px/1 inherit; cursor: pointer;
+}
+.accountpick-add { border: 0; background: var(--accent); color: var(--accent-ink); }
+.accountpick-close { border: 1px solid var(--line); background: var(--bg); color: var(--text); }
+.accountpick-remove { border: 1px solid color-mix(in srgb, var(--danger) 45%, var(--line)); background: var(--bg); color: var(--danger); }
+
+.accountform-field { display: flex; flex-direction: column; gap: 6px; margin: 0 0 12px; font-size: 13px; color: var(--muted); }
+.accountform-field input {
+  width: 100%; padding: 11px 12px;
+  border: 1px solid var(--line); border-radius: 10px;
+  background: var(--bg); color: var(--text); font-size: 16px;
+}
+.accountform-field input[readonly] { color: var(--muted); }
+.accountform-list { list-style: none; margin: 0 0 14px; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.accountform-ws { border: 1px solid var(--line); border-radius: 11px; padding: 6px 10px; background: var(--bg); }
+.accountform-pick { display: flex; align-items: center; gap: 10px; min-height: 38px; font-size: 14px; cursor: pointer; }
+/* The app's own teal on the ticks rather than the browser's blue — there are up to forty
+   of them on this form and they are the loudest thing on the screen. */
+.accountform-list input[type="checkbox"] { accent-color: var(--accent); width: 18px; height: 18px; }
+/* A repo under a workspace nobody has ticked is not a choice yet. Dimmed rather than
+   removed, so the shape of what is inside that workspace is still readable while you
+   decide whether to take it. */
+.accountform-ws:has(> .accountform-pick input:not(:checked)) .accountform-repos { opacity: 0.45; }
+/* The second grain, and indented so it reads as inside the workspace above it rather
+   than as another one. Only ever drawn for a workspace holding more than one checkout,
+   which on almost every install is none of them. */
+.accountform-repos { display: flex; flex-wrap: wrap; gap: 4px 12px; padding: 2px 0 6px 26px; }
+.accountform-repo { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--prose); cursor: pointer; }
+.accountform-error { margin: 10px 0 0; color: var(--danger); font-size: 13px; }
 
 .list { padding: 12px 12px 0; display: flex; flex-direction: column; gap: 12px; }
 
@@ -6034,3 +6219,37 @@ body.editing::after {
 /* Disabled while a Save is in flight and while there is nothing to save. Faded rather
    than hidden: a button that disappears reads as a control that failed. */
 .editlist-save[disabled] { opacity: 0.45; cursor: default; }
+
+/* ---------------------------------------------------------------- requirements
+   The coverage view (bc-fvmx.8). Deliberately a short block: the page reuses
+   `.lede`, `.section-label`, `.pill` and `.empty` from the rest of the app, and adds
+   only the row and the two-length bar, which is the one thing here nothing else draws.
+
+   The bar carries two claims stacked in one track — how many requirements have any
+   edge, and how many of those a merge actually proved — because drawing only the
+   first would say a forecast and a landed diff are the same evidence. */
+.req-list { padding: 12px 12px 0; display: flex; flex-direction: column; gap: 10px; }
+.req-row {
+  display: flex; flex-direction: column; gap: 8px; width: 100%;
+  padding: 12px 14px; text-align: left;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+  color: inherit; font: inherit;
+}
+.req-row.is-detail { cursor: default; }
+.req-top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.req-meta { color: var(--muted); font-size: 12px; }
+.req-files { display: flex; flex-wrap: wrap; gap: 6px; font-size: 12px; color: var(--muted); }
+.req-files code { font-size: 11px; }
+.reqbar {
+  position: relative; height: 6px; border-radius: 3px;
+  background: var(--line); overflow: hidden;
+}
+/* Covered sits under proved, so the darker proved length reads as a subset rather
+   than as a second, competing measurement. */
+.reqbar-covered, .reqbar-observed { position: absolute; inset: 0 auto 0 0; border-radius: 3px; }
+.reqbar-covered { background: var(--accent); opacity: 0.35; }
+.reqbar-observed { background: var(--accent); }
+.req-back {
+  margin: 12px; padding: 10px 14px; border-radius: 10px;
+  background: transparent; border: 1px solid var(--line); color: var(--muted); font: inherit;
+}
