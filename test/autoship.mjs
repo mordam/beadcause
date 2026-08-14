@@ -231,6 +231,62 @@ await check(() => {
 
 await check(() => assert.equal(autoShipAllowed({ workspaces: [WS] }, 'demo'), false), 'a workspace in no space at all follows the global, which is off');
 
+/* ============================================================ and the repo under it */
+
+console.log('\nthe setting on the repo, which outranks the space\n');
+
+/**
+ * The level this setting most needed, and the one that made the whole layer worth
+ * generalising: the Personal space here is six repos and exactly one of them has a
+ * deploy this Mac can run, so saying "ships itself" through the space armed five repos
+ * nobody had asked about.
+ *
+ * Read through `autoShipAllowed` rather than the map, because that is the function
+ * lib/release.js and lib/autoship.js call — a test that read `cfg.autoShipPerWorkspace`
+ * would pass over a resolver that had stopped consulting it.
+ */
+const repoSays = (v, space) => ({
+  ...spaceSays(space),
+  ...(v === null ? {} : { autoShipPerWorkspace: { demo: v } }),
+});
+
+await check(() => {
+  assert.equal(autoShipAllowed(repoSays(true, false), 'demo'), true);
+  assert.equal(autoShipAllowed(repoSays(false, true), 'demo'), false);
+}, 'the repo beats its space in both directions, which is what "off everywhere except this one" needs');
+
+await check(() => {
+  const cfg = repoSays(true, undefined);
+  assert.equal(autoShipAllowed(cfg, 'demo'), true, 'the repo that asked ships');
+  assert.equal(autoShipAllowed(cfg, 'sibling'), false, 'and the one beside it in the same space does not');
+}, 'and only that repo — the reason this is not a space setting');
+
+await check(() => {
+  assert.equal(autoShipAllowed({ ...spaceSays(true), autoShipPerWorkspace: { demo: 'yes' } }, 'demo'), true);
+  assert.equal(autoShipAllowed({ ...spaceSays(undefined), autoShipPerWorkspace: { demo: 'yes' } }, 'demo'), false);
+}, 'an override that is not a real boolean inherits rather than being believed');
+
+await check(() => {
+  const cfg = { ...repoSays(true, undefined), workspaces: [WS, { name: 'sibling' }] };
+  cfg.spaces[0].workspaces = ['demo', 'sibling'];
+  const byName = Object.fromEntries(spaceDetail(cfg, 'Personal').repos.map((r) => [r.name, r]));
+  assert.equal(byName.demo.autoShip, true, 'the resolved answer the tag draws');
+  assert.equal(byName.demo.own.autoShip, true, 'the button that is lit');
+  assert.equal(byName.demo.inherits.autoShip, false, 'and what Inherit would mean if it were pressed');
+  assert.equal(byName.sibling.own.autoShip, null, 'the repo beside it lights Inherit, not Off');
+}, 'the repo row carries all three claims a three-state control is made of');
+
+await check(async () => {
+  // The whole chain, in the order lib/release.js walks it: the epic still has the last
+  // word, because "hold this migration back" has to survive a repo that ships by default.
+  const cfg = repoSays(true, undefined);
+  const held = await resolveAutoShip(chain(), cfg, WS, prRow(['zz-epic.1']));
+  assert.deepEqual([held.auto, held.known], [false, true]);
+  assert.match(held.why, /holds its work back/);
+  const sent = await resolveAutoShip(chain(), cfg, WS, prRow(['zz-loose']));
+  assert.deepEqual([sent.auto, sent.known], [true, true], 'and with no opinion above it the repo answers');
+}, 'a bead that says no still beats a repo that ships itself');
+
 /* ================================================================ the settle window */
 
 console.log('\none deploy, however many merges\n');
