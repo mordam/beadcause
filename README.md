@@ -2813,11 +2813,14 @@ this say before the advocate rewrote it" without anyone having remembered to ask
 Snapshots are debounced by two seconds and the reasons accumulate, because one
 advocate cycle rewrites `advocates.json` three or four times in a second and those
 are one event to whoever reads the history back. `status.json`, `restart.json`,
-`merge-sweeps.json`, `sweep-cards.json`, `logs/`
+`merge-sweeps.json`, `sweep-cards.json`, `coverage.json`, `logs/`
 and the check PNGs are ignored — churn, and not the thing you want a history of.
 `deploys/` is not, and the difference is the point: a deploy record is something somebody
 pressed Ship on, and a restart marker is one line the router overwrites on every swap
-which means nothing thirty seconds later.
+which means nothing thirty seconds later. The coverage report is the same argument in a
+larger size: a few hundred kilobytes rewritten whole by every [`npm run coverage`](#npm-run-coverage--which-files-the-suite-never-even-loads),
+true only of the commit stamped inside it, so a history of it would be one enormous diff
+per run saying nothing the run did not print.
 
 ### Tier 3 — a repo one agent owns, and the experiment that is the point of it
 
@@ -3399,6 +3402,50 @@ inbox, briefly, rather than an empty one. A workspace whose tracker cannot be re
 contributes no cards and hides nothing, for the same reason. `node test/p0tree.mjs`
 holds all of that, including the one assertion that separates the feature from `under`
 renamed: a descendant with no pending question is in the tree.
+
+### Tapping a P0 card opens it
+
+The card is a summary you can open. Collapsed it is what the week is about — the id, how
+much is in flight, how much is open, the title, the advocate's sentence if there is one,
+and a line saying how many beads are behind the tap. That last number is the *total*,
+where the count above it is what is left: "9 open" tells you nothing about whether the
+epic is nine of ten or nine of sixty.
+
+Tap it and the tree unfolds in place, indented under each parent, one row per descendant
+at any depth. A row says the bead's id and title, marks it **asks you** when it is itself
+a question (`pending`), and names any status that is not `open` — sixty rows all saying
+`open` is the default restated sixty times. Closed work stays, struck through and faded,
+because it is what the epic has *done*; bc-rfnr.9.6 gives the whole board a status filter
+that will default to hiding it. Each row is a link into [the dependency
+graph](#what-a-question-is-blocking) at that bead, until bc-rfnr.9.4 makes it expand in place instead. A P0 with nothing under it
+expands to a sentence saying so — an empty gap reads as a tree that failed to arrive.
+
+Two things about it are less obvious than they look.
+
+**The indent is capped at three steps.** The rows arrive flat with a `depth` each, and
+the client turns that into `margin-left: calc(var(--d) * 13px)` — a margin rather than a
+padding, so a deep row's box *narrows* and its title wraps inside the card. Past the third
+step it stops stepping. This tracker nests six deep (bc-rfnr.9.2.1.1 is a great-grandchild
+of an epic that is itself a child), a phone is 360px wide and a bead title needs most of
+them; an indent that kept going would push the sixth generation off the right edge, and an
+element wider than the screen does not scroll on a phone — it shrink-fits the whole page,
+so every other card pays for it too.
+
+**What is open is page state, and that is what makes it survive a poll.** The board is
+drawn as *one* reconcile chunk (`warm.paint` keys it `@p0`), because every count on it
+comes from one sweep — so any repaint that moves a single number replaces the whole
+section's HTML. An `open` attribute on a `<details>`, or a `hidden` toggled on a node,
+would therefore fold up under your thumb every 25 seconds. The set of open card keys lives
+in the page's state, the section is rebuilt from it on every render, and the tap does
+nothing but write to the set and repaint. It is not persisted across a reload, unlike the
+filter: which epics are unfolded is where you are looking *now*, and a phone that came back
+to four expanded trees would be a screen you had to fold up before you could read it.
+
+`node test/p0card.mjs` runs the real renderer out of `public/app.js` in a `node:vm` — no
+browser, no `bd` — over a fixture nested five deep: that a collapsed card draws no tree at
+all, that an expanded one draws every descendant in the server's order, that the indent
+steps and then stops, that only the tapped card opens, that the same state renders the
+same board twice, and that the tap handler writes state rather than reaching into the DOM.
 
 ### The advocate that comes back — what re-opens a P0 advocate, and what it costs
 
@@ -6833,8 +6880,8 @@ releases the lot rather than leaving files looking busy for the length of the TT
 
 **Refused once, then it is yours.** A cross-worktree collision is ordinary; a register that
 forbade it would be one everybody turns off. So the first edit against a file somebody else
-holds is denied *naming the branch the holder is on* — which on this Mac ends in that work's
-bead tag, so it leads you to `bd show` — and the refusal records the intent —
+holds is denied *naming the bead and the branch the holder is on* — where the bead comes
+from is further down — and the refusal records the intent —
 the session that has been told and means it anyway claims the file on its next attempt —
 and keeps it, which for a while it did not: the only route to `held` ran through `told`, so
 the edit *after* the one that insisted was demoted and refused all over again, alternating
@@ -6903,13 +6950,35 @@ Four properties are the file, and three of them fail silently if they are wrong:
   says nothing. It sits in front of every edit in every session on this Mac, so the failure
   mode has to be "the warning is missing", never "the edit is blocked".
 
-A claim carries a `bead` field and the hook deliberately does not fill it in. Turning a
-branch tail into a verified bead id needs the tracker prefix, and
-[the tier rules](#which-bead-a-pull-request-is-for) are clear that a guess must not pass as
-an answer — so doing it in the hook meant a 20KB transcript read and two more processes on
-every Write in every session, for a fact the daemon could resolve once per branch instead.
-The field stays in the API for whoever does that; the branch is what the refusal names
-today.
+**And it says which bead, which the hook could not.** A claim carries a `bead` field and
+`scripts/claim-guard.sh` deliberately leaves it empty: turning a branch tail into a
+verified id needs the tracker prefix, and [the tier
+rules](#which-bead-a-pull-request-is-for) are clear that a guess must not pass as an
+answer — so doing it there meant a 20KB transcript read and two more processes on **every
+Write in every session on this Mac**, for a fact that is the same for every claim from
+that branch. `lib/claimbead.js` does it in the daemon instead, and the arithmetic is the
+whole design: thirty branches ever, against thousands of claims a day, so it is asked
+once per branch and every later claim is a map lookup. Without it a refusal read `held by
+worktree-park-epic-p9vx`, which leads you to the right place — every worktree here ends
+in its bead's own tag — and is one hop short of the id.
+
+Three things make it an answer rather than a guess. It is **verified**: `bc-p9vx` is a
+candidate until `bd show` says that bead exists, exactly the way a pull request's tiers
+are settled. The candidates are **plural**, because a tag is lossy — `tagOf` strips the
+punctuation a ref cannot hold, so `bc-p49x.5` and `bc-p49x5` share the tail `p49x5`, and
+reading only the undotted form would leave the field empty for most of this laptop, where
+nearly every live worktree belongs to a child of an epic. And where more than one of them
+turns out to exist the field **stays empty and says so in the log**: two beads whose tags
+collide cannot be told apart by a branch name, and naming the wrong one is worse than
+naming none.
+
+None of it is on the hot path either. The lookup is started by a claim and never awaited
+by one, so the first claim from a fresh branch answers without it and the answer is
+written onto the records when it arrives — which is in time for every reader that matters,
+since a refusal names the *holder's* bead and a holder claimed its file before the session
+colliding with it turned up. A tracker that could not be read is not an answer and is not
+kept, the same distinction `prefixFor` makes about a workspace mid-write; a bead that does
+not exist *is* an answer, and is.
 
 **And the register is read a second time, one step earlier.** The hook asks at
 `PreToolUse`, which is the last honest moment for an *edit* and one step too late to be
@@ -10092,6 +10161,15 @@ take. A bead with no collision gets a brief unchanged to the character, and the 
 is stripped back out of the wire — the card already draws the same sentence once, and two
 places saying one thing is how they come to disagree. `node test/land.mjs` asserts the
 words; `node test/claimqueue.mjs` asserts the seam.
+
+The sentence all three of them carry — the pill, the log line and that brief — names the
+branch the holder is on and, where the daemon managed to [resolve
+one](#one-granularity-down-which-file-somebody-is-already-editing), the bead in brackets
+after it: `lib/advocate.js on worktree-queue-filter-8kq (bc-8kq)`. Both, in that order,
+because they answer different questions. The branch is where the work is and is what the
+next paragraph of that brief tells the session to go and read; the bead is what you type
+into `bd show`, and until it was resolved the session had to get there by decoding a
+worktree name.
 
 **Nothing here has to be released**, which is the property worth the most. The hold is not a
 record — it is recomputed from the register on every survey, and `claims.list()` prunes what
@@ -14408,7 +14486,7 @@ cookie says so), and `/auth/signout` ends the session.
 | POST | `/api/presence` | `{device, view, key}` | which view this device has open, so [the mirror](#the-mirror--whatever-the-phone-has-open-with-room-to-read-it) can follow it. Wakes `/api/poll` without costing a `bd` sweep — see `changed` there |
 | GET | `/api/presence` | — | `{devices[]}` — who is where |
 | DELETE | `/api/presence` | `{device}` | forget one device |
-| POST | `/api/claims` | `{session, repo, file, dir?, branch?, bead?}` | claim the file a session is about to edit, and be told in the same answer who else holds it — see [one granularity down](#one-granularity-down-which-file-somebody-is-already-editing). `decision` is `held` or `conflict`, and a `conflict` carries the `reason` `scripts/claim-guard.sh` prints as a denial. The asking *is* the taking: it decides and records in one synchronous call, so two edits a moment apart cannot both find the file free. On the bus deliberately never — an event per claim would hang a `bd` sweep off every keystroke. A `conflict` also carries `regions`: which lines each side has changed, derived from git on that branch only (`lib/regions.js`), `null` whenever git cannot answer |
+| POST | `/api/claims` | `{session, repo, file, dir?, branch?, bead?}` | claim the file a session is about to edit, and be told in the same answer who else holds it — see [one granularity down](#one-granularity-down-which-file-somebody-is-already-editing). `decision` is `held` or `conflict`, and a `conflict` carries the `reason` `scripts/claim-guard.sh` prints as a denial. The asking *is* the taking: it decides and records in one synchronous call, so two edits a moment apart cannot both find the file free. On the bus deliberately never — an event per claim would hang a `bd` sweep off every keystroke. A `conflict` also carries `regions`: which lines each side has changed, derived from git on that branch only (`lib/regions.js`), `null` whenever git cannot answer. `bead` is filled in by the daemon rather than by the caller — resolved from the branch once per branch and verified against the tracker (`lib/claimbead.js`), so the first claim from a fresh branch answers before it is known and every later one carries it |
 | GET | `/api/claims` | `?regions=1` | `{claims[], collisions[]}` — every live claim, and the files more than one session is holding. `regions=1` adds the changed line ranges to each collision and whether they overlap; opt-in, because it is several git spawns per collision and a list of names should not pay for them |
 | DELETE | `/api/claims` | `{session, files?}` | let go of one file, or of everything that session held. Sent on `SessionEnd`, so a finished session stops holding files without waiting out the TTL |
 | POST | `/api/session-say` | `{pid, text}` | says one line into a live session's own iTerm window. `413` with the words left in the box if it is past `SAY_MAX` — the message rides to `osascript` as an argument, and past `ARG_MAX` the failure reads as "the session is gone", which is the one thing this must not lie about |
@@ -17148,6 +17226,101 @@ Three smaller things fall out of it, and each is a way this could have gone quie
 
 Filed as bc-9zv0. The sibling failure in the same file is bc-t69u, its `ENOTEMPTY` teardown
 race, which is the `test/helpers/tmp.mjs` story above and not this one.
+
+### `npm run coverage` — which files the suite never even loads
+
+`npm test` answers pass or fail, and so does `npm run checks`. Neither has ever been able
+to say *how much of this repo they went near*, which means the question a reviewer
+actually has — "is the thing this pull request changes tested at all?" — has only ever
+had a human answer, arrived at by reading `test/` and hoping. bc-sj8k.4 wants a candidate
+card to show the evidence behind a pull request and named coverage as the one field it
+could not render out of what exists. `npm run coverage` is that field, and bc-vriu.2 is
+where it was argued out first.
+
+```
+npm run coverage                             # every suite, then fold and publish
+node scripts/coverage.mjs --from 1 --to 45   # one slice, accumulating into the same pile
+node scripts/coverage.mjs --report           # fold what is already there, run nothing
+node scripts/coverage.mjs --reset            # throw the raw output away and start again
+```
+
+**There is no coverage dependency and there does not need to be one.** Node has carried
+V8's own coverage since 10: set `NODE_V8_COVERAGE` to a directory and every process that
+inherits the variable drops a JSON file of what it compiled and what it called.
+`scripts/test.mjs` does nothing per suite except `spawnSync` it, so the variable reaches
+all of them — and reaches the daemons *they* start as well, which is most of the point,
+since a good deal of this repo is only ever executed by a child process a suite spawned
+and then killed. `lib/coverage.js` folds the pile; `scripts/coverage.mjs` is the runner.
+
+**A percentage would not have changed an approve-or-decline, and that is why this counts
+something else.** bc-vriu.2 was filed with the instruction to close it rather than build
+it if the honest answer was that a coverage figure would just be a number on a card. The
+honest answer turned out to depend entirely on which figure. Nobody declines a candidate
+at 71% and approves it at 74%, and a repo-wide percentage moves by fractions when one
+lands, so the delta is noise — it is wallpaper, a number that makes a card look rigorous
+while being unable to be wrong. But *"nothing in the suite ever executes the file you
+changed"* is binary, exact, and about this candidate specifically, and it is a fact a
+human reviewer cannot get any other way: a green gate says nothing at all, because a
+suite that never imports a file passes exactly as loudly as one that exercises every
+branch of it. So the report is a per-file, per-function list; `coverageForFiles` projects
+it onto the paths in a diff; and the totals exist because they are free rather than
+because they are the point.
+
+**Functions, not lines, and that is not a shortcut.** Folding V8's byte ranges into line
+coverage is the ordinary thing to do and it would lie here. Every file in this repo
+argues its case in prose before it does anything, and those comment lines sit inside the
+module's own range, which V8 marks executed the moment anything imports the file. Line
+coverage over this tree would report roughly *how much of each file is commentary*, climb
+whenever somebody explained themselves better, and read highest on the files nobody tests
+but everybody documents. Counting comments as uncovered instead is no better: a stripper
+accurate enough to tell a comment from a template literal containing a `//` is a real
+parser, and one that is subtly wrong produces a number that is wrong without looking
+wrong. Functions dodge all of it — V8 reports them by name with an invocation count, with
+no interpretation — and an uncovered *function* has a name you can go and read where an
+uncovered *line* is a number you have to go and look up.
+
+**The strongest signal is the one V8 cannot report.** A file nothing ever imported
+produces no entry at all: it is absent in exactly the way a file that does not exist is
+absent, and absent reads as zero to nobody. So the fold walks `lib/` and `bin/` on disk
+and diffs them against what V8 saw. Those files come back `loaded: false` with a null
+function count — null rather than `0/0`, because V8 never parsed them and inventing a
+denominator for a file nobody measured is the kind of number this whole section exists to
+refuse. `public/` is deliberately out of scope: it is browser code, `npm test` reaches it
+only by evaluating lifted fragments in a `vm`, and what actually exercises it is
+`npm run checks`, so a Node-suite figure for it would understate it by most of its real
+coverage.
+
+**It slices because a full pass is 35–60 minutes**, which is past every timeout an agent
+session has — a command that could only be run whole would be a command nothing can run.
+V8's output makes that free: each process writes its own file, so two runs into the same
+directory accumulate rather than overwrite, and `--from/--to` is a real slice of one
+measurement rather than a partial one. `--reset` is the separate, explicit "this is a new
+measurement", so that forgetting it costs you a stale mixture only when you asked for
+one. `scripts/test-swap.js` is skipped: it drives real blue/green swaps of the live
+daemon over ~300 requests and is the one suite to run alone.
+
+The raw output stays in the checkout that produced it — `.coverage/`, ignored, tens of
+megabytes a slice and meaningless anywhere else. The folded report is published to
+`~/.config/beadcause/coverage.json`, because the reader is the daemon and the daemon does
+not know which checkout is canonical: every session runs in a worktree under
+`.claude/worktrees/`, so a report written to a repo root is invisible from all of them and
+gone when that worktree is retired. It is churn in [the config repo's sense](#the-state-files-get-a-history-for-free)
+— rewritten whole by every run, true only of the commit stamped inside it — so it is in
+the ignore list in `lib/commonrepo.js`, and `test/memory.mjs` fails the repo if it ever
+stops being. That stamp is load-bearing rather than decorative: nothing is going to
+re-measure per candidate, so a card showing this has to be able to age it rather than
+present an hour-old fact as a live one, and every answer carries the commit and the time.
+
+`test/coverage.mjs` covers it, and the shape of that suite is the interesting part.
+`lib/coverage.js` reads a format nobody here controls, so a suite fed hand-written
+fixtures would pin *this repo's idea* of V8 and keep passing on the day a Node upgrade
+changed the real one — the only day it matters. So the fixtures are generated: a small
+tree under `os.tmpdir()`, a driver that calls some of it and not the rest, run in a real
+child process with the real environment variable set, and what is asserted is that the
+fold agrees with what the driver actually did. Hand-written raw files are used for two
+cases only, both about the pile rather than the format: half-written JSON from a process
+killed mid-flush, which is a normal outcome in a repo whose suites end by killing
+daemons, and the same file appearing in two processes with different verdicts.
 
 ### `npm run checks` — the browser half, and why `npm test` can still see it rot
 
