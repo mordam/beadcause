@@ -33,6 +33,12 @@
  *    build has no event that would settle one, so none is filed there.
  * 6. **Shipping an empty queue.** Pressing Ship on a repo where everything merged is
  *    already live would, on this Mac, restart the daemon you are holding for nothing.
+ * 7. **A bead filed where nobody will read it.** bc-arj0.5: the parent was knowable at
+ *    filing time and was not being used, so these arrived flat and were swept into the
+ *    unsorted backlog — 40% of the pile that exists for work nothing has decided a home
+ *    for, made of beads that decide themselves. Both halves are asserted, and the second
+ *    is the one a "simplification" would drop: the P0 above the merge's own bead where
+ *    there is one, and **no parent at all** where there is not, rather than the backlog.
  *
  * The last third of the file is the endpoint, over real HTTP, against a real `createApp`
  * with a real git repo, a fake `gh` and a "deploy" that writes a file. Nothing here
@@ -109,6 +115,8 @@ const {
   sweepReleases,
 } = await import(LIB('release.js'));
 const { UNENDORSED } = await import(LIB('endorse.js'));
+const { UNSORTED_LABEL } = await import(LIB('homing.js'));
+const { indexFrom, PARENT_EDGE } = await import(LIB('ancestry.js'));
 
 const ago = (mins) => new Date(Date.now() - mins * 60000).toISOString();
 
@@ -382,6 +390,133 @@ forget();
   const busySweep = await sweepReleases(bd, CFG, board, { deploys: [] });
   await check(() => assert.equal(bd.created.length, 0), 'a workspace mid-write files nothing this tick');
   await check(() => assert.match(busySweep.skipped[0] || '', /could not read its ship beads/), 'and says which one, rather than throwing');
+}
+
+/* ========================================================= where the bead is filed */
+
+console.log('\nunder the P0 the merge came from — bc-arj0.5\n');
+
+/**
+ * The graph the sweep reads to answer "which P0 is this merge's work under". A themed P0
+ * with a task under it, the unsorted backlog, and a bead nothing has decided.
+ */
+const gRow = (id, extra = {}) =>
+  JSON.stringify({ id, title: `bead ${id}`, status: 'open', priority: 2, labels: [], dependencies: [], ...extra });
+const GRAPH = indexFrom(
+  [
+    gRow('zz-epic', { priority: 0 }),
+    gRow('zz-epic.1', { dependencies: [{ issue_id: 'zz-epic.1', depends_on_id: 'zz-epic', type: PARENT_EDGE }] }),
+    gRow('zz-pile', { priority: 0, labels: [UNSORTED_LABEL] }),
+    gRow('zz-loose'),
+  ].join('\n')
+);
+
+/** The tracker above, plus the shape the sweep reads — counting how often it is asked. */
+const homing = (rows = []) => {
+  const t = tracker(rows);
+  t.exports = 0;
+  t.graph = async () => {
+    t.exports += 1;
+    return GRAPH;
+  };
+  return t;
+};
+
+/** A merged row that lib/prboard.js resolved to `id` — the field `beadsFor` fills in. */
+const forBead = (number, id) =>
+  row({ number, mergedAt: new Date().toISOString(), beads: id ? [{ id, title: `bead ${id}`, status: 'closed' }] : [] });
+
+forget();
+{
+  const bd = homing();
+  await sweepReleases(bd, CFG, { repos: [card({ prs: [] })] }, { deploys: [] });
+  const out = await sweepReleases(bd, CFG, { repos: [card({ prs: [forBead(20, 'zz-epic.1')] })] }, { deploys: [] });
+
+  await check(
+    () => assert.equal(bd.created[0]?.spec.parent, 'zz-epic'),
+    'THE SHIP BEAD IS FILED UNDER THE P0 OF THE BEAD ITS PULL REQUEST WAS FOR'
+  );
+  await check(
+    () => assert.notEqual(bd.created[0]?.spec.parent, 'zz-epic.1'),
+    'and never under the bead itself — that task closes, and its open child is then held forever'
+  );
+  await check(() => assert.equal(out.filed[0]?.parent, 'zz-epic'), 'the result says where it went, which is what the log line prints');
+}
+
+forget();
+{
+  const bd = homing();
+  await sweepReleases(bd, CFG, { repos: [card({ prs: [] })] }, { deploys: [] });
+  const out = await sweepReleases(
+    bd,
+    CFG,
+    { repos: [card({ prs: [forBead(21, ''), forBead(22, 'zz-loose')] })] },
+    { deploys: [] }
+  );
+
+  // The half of bc-arj0.5 that is *not* "find the parent": the unsorted backlog is the
+  // pile of work nobody has decided a home for, and a bead that closes itself when a
+  // deploy lands is not asking that question. Thirty a week of them buries the ones that
+  // are. So an unknowable P0 files the parentless bead this always filed.
+  await check(
+    () => assert.deepEqual(bd.created.map((c) => c.spec.parent || ''), ['', '']),
+    'A PULL REQUEST WITH NO KNOWABLE P0 IS FILED FLAT — NEVER INTO THE UNSORTED BACKLOG'
+  );
+  await check(
+    () => assert.ok(!bd.created.some((c) => c.spec.parent === 'zz-pile')),
+    'not even when a backlog P0 is right there, labelled and open'
+  );
+  await check(() => assert.deepEqual(out.filed.map((f) => f.parent), [null, null]), 'and the result says so rather than naming a home');
+}
+
+forget();
+{
+  // `Bd.create` drops the cached shape whenever it is given a parent — a bead born under
+  // a P0 is one the cache has never heard of, and lib/underp0.js would draw a pill on it
+  // for the rest of the minute. So each filing invalidates what the next one wants, and
+  // without the sweep's own memo a tick filing four beads pays for four `bd export`s.
+  const bd = homing();
+  await sweepReleases(bd, CFG, { repos: [card({ prs: [] })] }, { deploys: [] });
+  const many = [30, 31, 32, 33].map((n) => forBead(n, 'zz-epic.1'));
+  await sweepReleases(bd, CFG, { repos: [card({ prs: many })] }, { deploys: [] });
+
+  await check(() => assert.equal(bd.created.length, 4), 'four merges, four beads');
+  await check(() => assert.equal(bd.exports, 1), 'ONE SHAPE PER WORKSPACE PER TICK, HOWEVER MANY BEADS IT FILES');
+  await check(
+    () => assert.deepEqual(new Set(bd.created.map((c) => c.spec.parent)), new Set(['zz-epic'])),
+    'and every one of them lands under the P0 anyway'
+  );
+}
+
+forget();
+{
+  // bd's hierarchy rules are bd's — a P0 that is a `bug` rather than an epic refuses a
+  // child — and the record that a merge is sitting unshipped is worth more than the
+  // parent nothing here chose. Same trade as lib/filing.js, one seam along.
+  const bd = homing();
+  const real = bd.create;
+  bd.create = async (ws, spec) => {
+    if (spec.parent) throw new Error('Error: bugs cannot have children');
+    return real(ws, spec);
+  };
+  await sweepReleases(bd, CFG, { repos: [card({ prs: [] })] }, { deploys: [] });
+  const out = await sweepReleases(bd, CFG, { repos: [card({ prs: [forBead(23, 'zz-epic.1')] })] }, { deploys: [] });
+
+  await check(() => assert.equal(bd.created.length, 1), 'A PARENT BD REFUSES COSTS THE PARENT, NEVER THE BEAD');
+  await check(() => assert.equal(bd.created[0]?.spec.parent, ''), 'it is filed flat on the second try');
+  await check(() => assert.equal(out.filed[0]?.parent, null), 'and does not claim a home it did not get');
+  await check(() => assert.match(out.skipped.join('\n'), /would not go under zz-epic/), 'the sweep says which parent was refused');
+}
+
+forget();
+{
+  // The tracker every existing caller has: no `graph`, so `homeIn` answers `''` without
+  // asking anything. The bead is exactly what it was before this existed.
+  const bd = tracker();
+  await sweepReleases(bd, CFG, { repos: [card({ prs: [] })] }, { deploys: [] });
+  await sweepReleases(bd, CFG, { repos: [card({ prs: [forBead(24, 'zz-epic.1')] })] }, { deploys: [] });
+  await check(() => assert.equal(bd.created.length, 1), 'a tracker that cannot answer the question still files the bead');
+  await check(() => assert.equal(bd.created[0]?.spec.parent || '', ''), 'with no parent, which is what it always did');
 }
 
 /* ================================================================== the endpoint */
