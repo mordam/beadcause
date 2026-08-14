@@ -199,6 +199,115 @@ check('and it always says where to write down what it concluded', () => {
   assert.match(text, /re-entrant/);
 });
 
+/* ------------------------------------- the index of what it already knows (bc-goo.14) */
+//
+// This agent is re-entrant by design: it thinks for one turn, writes a sentence on the
+// bead and exits, and the next window on the same P0 starts from the bead rather than
+// from that conversation. Which makes it the one kind here that *cannot* carry anything
+// between runs except what it wrote down — and until this landed, the only thing it was
+// handed was `memoryBrief`, which says a store exists and never says what is in it. Four
+// consecutive windows on bc-goo rebuilt the same conclusions from the tracker.
+//
+// The rule and its caps live in lib/memory.js and are tested there. What is asserted
+// here is the same three things test/land.mjs asserts for the worker — that the brief
+// carries the selection, that every other key is still visible so a capped section never
+// reads as the whole store, and that an empty store gets no heading at all — plus the
+// two that are this agent's own: the selection is against the P0 alone, and the store it
+// is read from is the advocate's.
+
+const NOTES = {
+  'epic-adoption-is-prose-not-edges': {
+    value:
+      'A P0 "adopts" a bead by naming it in its description; there is no dep edge, so a subtree survey ' +
+      'that walks edges alone misses half of what a P0 is answerable for. Bead: zz-p0.',
+    at: '2026-08-13T09:00:00.000Z',
+  },
+  'standing-root-epics-are-dispatch-bait': {
+    value:
+      'A P0 with no children and an owner is opened on by the advocate every tick, so a standing root ' +
+      'epic nobody means to decompose burns a window a day.',
+    at: '2026-08-13T10:00:00.000Z',
+  },
+  'sw-cache-version-conflicts': {
+    value: 'public/sw.js is the most likely merge conflict here — read both blocks before renumbering.',
+    at: '2026-08-11T14:36:36.114Z',
+  },
+};
+
+check('the brief carries the note that is about this P0', () => {
+  const text = epicAdvocatePrompt('beadcause', p0(), [], null, 'Adam', { notes: NOTES });
+  assert.match(text, /already worked out/, 'the index never reached the brief');
+  assert.ok(text.includes('adopts'), 'the note naming this P0 was not the one it was handed');
+});
+
+check('and names the rest by key, so a capped section never reads as the whole store', () => {
+  const text = epicAdvocatePrompt('beadcause', p0(), [], null, 'Adam', { notes: NOTES });
+  assert.ok(text.includes('`sw-cache-version-conflicts`'), 'a note it was not handed is invisible from the brief');
+  assert.ok(text.includes('beadcause-memory notes <key>'), 'and there is no way given to go and read it');
+});
+
+check('IT IS TOLD THESE ARE AN ADVOCATE’S NOTES, NOT A WORKER’S', () => {
+  // The section says these are "what another <who> wrote down for its own future self",
+  // and that clause is what makes them evidence rather than instructions. A P0
+  // advocate's store is written by supervisors taking stock, never by somebody with the
+  // file open, and an agent that misreads the author misreads the weight.
+  const text = epicAdvocatePrompt('beadcause', p0(), [], null, 'Adam', { notes: NOTES });
+  assert.match(text, /another P0 advocate wrote down/);
+  assert.ok(!/another worker wrote down/.test(text), 'it is being told a worker wrote its own memory');
+});
+
+check('an empty store gets no heading rather than a heading over nothing', () => {
+  // The state every workspace was in on the day this shipped. An agent shown an empty
+  // section twice learns the section is furniture and stops reading it on the day it has
+  // something in it.
+  for (const notes of [undefined, null, {}]) {
+    const text = epicAdvocatePrompt('beadcause', p0(), [], null, 'Adam', { notes });
+    assert.ok(!text.includes('already worked out'), `a hollow section for ${JSON.stringify(notes)}`);
+    assert.ok(!text.includes('beadcause-memory notes <key>'));
+  }
+});
+
+check('the index sits above the block telling it what to write down', () => {
+  // Recall first, writing second — bc-714o's answer, and the reason the write half was
+  // deferred. A supervisor that writes its waiting-on sentence without having read the
+  // last four windows' is the write-only diary this epic exists to avoid.
+  const text = epicAdvocatePrompt('beadcause', p0(), [], null, 'Adam', { notes: NOTES });
+  assert.ok(
+    text.indexOf('already worked out') < text.indexOf('Before you exit'),
+    `${text.indexOf('already worked out')} vs ${text.indexOf('Before you exit')}`
+  );
+});
+
+check('SELECTION IS AGAINST THE P0 ALONE, NOT THE P0 PLUS ITS CHILDREN', () => {
+  // The open design question on bc-goo.14, answered by the epic worker's precedent
+  // (`planPromptFor`, lib/session.js). A supervisor's subject is the subtree, so folding
+  // the children's text in is tempting — and it is what turns the section into noise:
+  // twenty beads' vocabulary matches nearly every note in the store. Here the children
+  // are entirely about service workers and the sw note must still stay out of the body.
+  const kids = [
+    { id: 'zz-p0.1', title: 'Bump the sw.js cache version', status: 'open', priority: 1 },
+    { id: 'zz-p0.2', title: 'public/sw.js precache list and the merge conflict', status: 'open', priority: 1 },
+  ];
+  const text = epicAdvocatePrompt('beadcause', p0(), kids, null, 'Adam', { notes: NOTES });
+  assert.ok(!text.includes('read both blocks before renumbering'), 'the children pulled their own notes into the P0 brief');
+  assert.ok(text.includes('`sw-cache-version-conflicts`'), 'and it is still listed by key, as everything unpicked is');
+});
+
+check('THE DAEMON READS THE ADVOCATE’S OWN STORE, NOT THE WORKER’S', () => {
+  // The one thing here a pure-function test cannot see, and the one that would look
+  // entirely correct while being wrong: the other two doors into an unattended session
+  // pass `notesIn(dir, 'worker')` because a worker is what they open, and copying that
+  // line would hand this agent another kind's memory under a heading saying it is its
+  // own. Pinned as source rather than behaviour because reaching the call needs a
+  // tracker, a checkout and a window, and this is one identifier.
+  const src = fs.readFileSync(path.join(HERE, '..', 'lib', 'session.js'), 'utf8');
+  const from = src.indexOf('export async function openEpicAdvocateSession');
+  assert.ok(from > 0, 'openEpicAdvocateSession has been renamed — re-point this check');
+  const body = src.slice(from, src.indexOf('\n}\n', from));
+  assert.match(body, /notesIn\(dir, EPIC_ADVOCATE\)/, 'the P0 advocate is opened with no index, or with somebody else’s');
+  assert.ok(!/notesIn\(dir, 'worker'\)/.test(body), 'it is being handed the worker’s notes');
+});
+
 /* ------------------------------------------------------------------------ done */
 
 await cleanupTmp(tmp);

@@ -2607,6 +2607,51 @@ standing in none of them. Every read an *agent* can reach still resolves from
 `process.cwd()`, which is the whole point of the indirection — `lib/foundation.js` draws
 the same line in the same place with `effective(dir, agent)`.
 
+#### The P0 advocate gets the same push, and it is the kind that most needed it
+
+Three doors now read the store and put the result in a brief: `openWorkSession` for a
+worker, `openPlanSession` for the epic worker, and `openEpicAdvocateSession` for the P0
+advocate (`epicAdvocatePrompt`, `lib/epicadvocate.js`). The third arrived last and had
+the strongest case, because of what that agent *is*: it is re-entrant on purpose — it
+takes stock of one P0, writes a sentence into the bead's notes and exits, and is opened
+again days later on the same P0. Every other kind here at least has a conversation to
+carry it through a run. This one has nothing between runs except what it wrote down.
+
+What it was handed until then was `memoryBrief`, in the system prompt, which says a
+memory exists and names its commands. That is not an index, and the difference is the
+whole of the gap: a window on `bc-goo` ran `recall` and `notes` on 2026-08-13, and
+everything it then established — which children were a deploy tap, which experiment was
+instrumented but starved, why — was rebuilt from the tracker, by the fifth window in a
+row to rebuild it. The store filling up made that *worse*, not better. Eighteen notes
+with no index is several thousand tokens of undifferentiated dump the window has to know
+to ask for and then read through, to reach the four lines that are about this P0.
+
+**Selection is against the P0 alone, not the P0 plus its open children**, following the
+epic worker's precedent rather than re-deciding it. A supervisor's subject genuinely is
+the subtree, so folding the children in is the tempting move — and it is what turns the
+section into noise. Twenty beads' vocabulary matches nearly everything in the store
+above the floor: on a P0 whose children are about `public/sw.js`, adding their titles
+pulls `sw-cache-version-conflicts` in at 4.08 where the P0 alone scores it 0.00. The
+children each get this selection in their own briefs, where it is precise, and every
+key the P0's brief did not pick is still on the line underneath it.
+
+**And it is handed its own kind's notes**, `notesIn(dir, EPIC_ADVOCATE)` and not
+`notesIn(dir, 'worker')` — the copy-paste that would look entirely correct while
+handing this agent a different agent's memory. The section says whose it is, in the
+clause that makes the notes evidence rather than instructions ("what another **P0
+advocate** wrote down for its own future self"), because a P0 advocate's store is
+written by supervisors taking stock and never by somebody with the file open, and an
+agent that misreads the author misreads how much weight the line carries. That is the
+`who` option on `notesBrief`; it defaults to `worker`, so the other two doors say what
+they always said. `test/epicadvocate.mjs` pins the identifier at the call site, because
+it is the one part of this a pure-function test cannot see.
+
+The write half — a closing "write down what you learned" step for the advocate, the way
+a worker has one — is deliberately still not built. That is `bc-714o`'s deferred half,
+and the order was the answer: reading first, writing second, because adding a write step
+to an agent that never reads produces exactly the write-only diary this epic exists to
+avoid.
+
 ### The report a run leaves behind: `debrief`, and why neither other store could hold it
 
 Both stores above answer one question — **would this still be true next week?** — and
@@ -6088,6 +6133,27 @@ instead: `refused` for the two above, `error` for a sweep that could not run at 
 open. `node test/prsweep.mjs` stages the whole thing against a real repo with real session
 archives and a `gh` that answers `UNKNOWN` once before it answers the truth.
 
+**"Once" is decided by a marker file, and the reason is `atOnce` (bc-9d37.7).** That fake
+`gh` used to count views in the same `prs.json` it read the rows from — load, add one,
+write — and the sweep asks about candidates six at a time, so six of those processes were
+doing it to one file at once. Both things that can go wrong did. A lost update moved #14's
+window, so the pull request that is *meant* to answer `UNKNOWN` first and `CONFLICTING`
+after sometimes answered `CONFLICTING` first, and a different check went red each time. And
+a `JSON.parse` landed on a truncated file, which the sweep dutifully reported as `trouble` —
+so the one visible difference between a green run and a red one was `1 could not be read` in
+the suite's own progress line. It failed about one run in three under load, for two months,
+and because `scripts/test.mjs` stops at the first failure it took the rest of the gate with
+it. The counter is now one file per number created with `wx`, which is the same question put
+to the filesystem, and the filesystem can answer it for six processes at once: exactly one
+`open` wins and the rest get `EEXIST`. Nothing writes `prs.json` any more.
+
+The tempting fix was to lower `atOnce` in the suite, and it would have gone green. Six in
+flight is the thing being tested; a harness that cannot survive the concurrency the code
+really runs at is a harness that has stopped testing it. The suite now asserts
+`trouble.length === 0` outright, so the next time that line appears it accuses the fixture
+rather than `lib/prsweep.js` — which is where twelve interleaved A/B runs on this bead had
+already ruled it out.
+
 #### Every way a merge lands sets it off
 
 A sweep is only worth having if it happens whichever way the merge happened, and there are
@@ -6216,6 +6282,26 @@ exactly as long as the iTerm holding it, and a record that survived a restart wo
 ever be a claim about a window nobody can address. `node test/resolvers.mjs` asserts all of
 it — including ten simultaneous presses producing one window and nine nudges.
 
+**And that line said *Adam pressed Resolve conflicts again* whatever asked**, which is the
+same falsehood the brief above carries a `sweptAfter` to avoid, arriving by the other door
+— and a worse one, because the nudge is what a session is told *while it is mid-merge*.
+Once a merge landing triggers a sweep, the common case is that one of the branches it finds
+already has a resolver on it, from an earlier tap or from the previous merge's sweep. That
+window was being told a person had pressed a button, so it read as somebody standing at the
+Mac waiting for it to hurry up. `nudgeMessage` takes the same two facts the brief does now,
+threaded through `resolveFor`, and says one of three things:
+
+- **a second press** — unchanged, and still the default;
+- **a sweep** — *Nobody pressed anything — #204 merged and beadcause swept the branches
+  still open behind it, and #212 is one that no longer fits*, with the same `Number(true)`
+  guard the brief has, so a sweep that cannot name the merge says *A pull request* rather
+  than inventing `#1`;
+- **an answer** — see below. That one is the only variant that does not end in *there is
+  nothing new to do*, because it is the only one where there is.
+
+The card's own sentence follows it: a row the sweep reused reads *told it the sweep found
+this one again* rather than claiming a thumb.
+
 #### Two windows at a time, and the rest in line
 
 Everything above caps resolvers **per pull request**, and for as long as the only way to
@@ -6331,6 +6417,70 @@ part of this feature uses — and says *nothing here can say* rather than leavin
 nothing can check. `node test/sweepcard.mjs` stages the bead's own acceptance: three
 conflicting pull requests, one resolved, one handed back and one still running, producing
 exactly one card that names all three.
+
+#### And the hand-back has a button that does something
+
+The card above closed the loop at one end and left it open at the other. Its decision block
+had exactly one option — **Noted**, which closes it — because every other choice a hand-back
+raises lives on the pull request itself, and a button that pretended to pick a winner from a
+phone would file a wish. So you read *both sides rewrote `renderRow` and only you can say
+which wins*, typed which one wins into the box, and **nothing read it**. The next step was a
+Mac, a branch, and *Resolve conflicts* — which opens a session with the ordinary brief,
+knowing nothing about the decision you had just made.
+
+A resolver hands back for exactly one reason, and it is a reason you can answer in a
+sentence. So the card now carries **one option per branch that is waiting**, beside Noted:
+
+> **Answer #212** — opens a session on `worktree-history-filter-nib33` carrying what you
+> write — this card stays open
+
+Tapping it writes `RESOLVE #212: ` into the box; what you type after that is the
+instruction. **With exactly one branch waiting the tap is optional** — a bare sentence is
+unambiguous then, and requiring a button would be ceremony. With two or more it is not
+optional, because *take main's version* over three pull requests is an instruction to
+nobody in particular, and guessing which one you meant is the single thing this must never
+do. The card says which of the two it is, above the block.
+
+**Those options do not close the card**, which is semantics rather than convenience: the
+card amends itself as rows finish and closes itself when they all come back mergeable, so
+an option that puts a row back to *working* is starting that loop again and a closed card
+could not report the end of it. They take the `closes: false` path
+[a commission](#a-question-you-have-already-answered-arriving-again) already uses — and the bare-sentence
+path is decided the same way even though it names no option, because otherwise the answer
+that starts the work would close the card that is about to report on it.
+
+The act is `resolveSweepFor` in `lib/server.js`, beside the three other answers that write
+something and in the same place in the handler: **before the close**, so a window macOS
+refuses leaves the card answerable rather than closed over a promise nothing kept. It has to
+be the daemon and can be nothing else — `resolveFor`'s registry, its cap of two and its
+queue are module state in the daemon's own memory, so any other process starts from an
+empty one and opens the second window this whole feature exists to prevent. Being
+`resolveFor` also means the three answers come free: a pull request with no live resolver
+gets a window whose brief carries your sentence, one that already has a resolver gets your
+sentence typed into that window (the third variant of the nudge above), and one the Mac is
+full for is queued and told its place.
+
+What the window is told is one paragraph of the brief, in the same place `sweptAfter`
+changes and quoted whole:
+
+> **Adam answered the card about this one, and his answer is below.** #231 merged into
+> `main` … Nothing has got it mergeable yet — what is different this time is that the
+> decision it needs has been made, and it is this:
+>
+> > take main's `renderRow` and keep our tests
+>
+> **Take that as the decision on the conflict, not as a suggestion.**
+
+Everything else is the same string, and `test/prfull.mjs` asserts that by exhaustion: an
+answer is a decision about a conflict, not permission to skip the repo's gate or to merge
+into the base. **The record outlives the hand-back now**, which it did not before — a row
+nothing can move on its own used to end the follow-up, and the record is the only thing that
+can say which repo and which branch an answer should open a window on. It is bounded by the
+card rather than by a clock, since a card answered five hours later must not find its own
+button dead: the follow-up asks `bd` whether the card is still open, and drops the record
+the cycle after you tap Noted or dismiss it. `node test/sweepanswer.mjs` drives the whole
+path through a real `POST /api/respond` — the card stays open, the refusals say which pull
+request they are about, and every other question in the inbox is untouched.
 
 #### An occupied worktree that reads as idle
 
@@ -16186,6 +16336,50 @@ fifteen suites never remove their scratch root at all, which leaks a directory t
 clears and, having no `rmdir` in it, cannot lose this race. Flagging any of those would be
 a rule that makes working lines look broken, and a lint people learn to work around is
 worse than none.
+
+#### The removal that is not a teardown — the per-case `reset()`
+
+The scan above looks for the scratch **root**, because that is where the losing line always
+was. bc-9d37.9 is the same race in a place a teardown-shaped scan cannot see. `test/leasequeue.mjs`
+went red on a gate run with the familiar `ENOTEMPTY` *after* all twenty of its checks had
+printed `ok`, and the line was not at the bottom of the file:
+
+```js
+function reset() {
+  const dir = process.env.BEADCAUSE_CONFIG_DIR;
+  for (const f of fs.readdirSync(dir)) fs.rmSync(path.join(dir, f), { recursive: true, force: true });
+}
+```
+
+`check()` calls that before **every** case. So it is the worse form rather than the milder
+one: it races `git init` twenty times a run instead of once, and it removes the config
+directory's contents one entry at a time — `.git` among them — which is a shape the root
+scan matches nothing in. **Ten suites carried it**: `claimqueue`, `handlease`, `livequeue`,
+`proposegate`, `prqueue`, `ranmodel`, `repoqueue`, `reposurvey`, `repotidy` and `twinqueue`.
+
+It only bites once a suite runs past the 2000ms debounce, which is what makes it a trap
+rather than a bug: every one of those ten was green, and each was one added case away from
+an intermittent red whose own assertions all passed. That is exactly what happened —
+bc-9otk added nine cases to `leasequeue.mjs`, it began failing about one run in eight, and
+the half-hour it cost went on the wrong file, because a crash after "all 29 checks passed"
+does not look like it belongs to the diff that added the checks.
+
+The fix is the same helper and a different pair of doors: `await quiesce()` **once**, then
+`await removeTree(…)` per entry. There is no root to hand `cleanupTmp`, and quiescing once
+per case rather than once per entry is the whole saving — the flush is what removes the git
+child, and the retries are only the backstop.
+
+`test/tmpadoption.mjs` grew a second scan for it, and the judgement it has to make is which
+children of the config directory matter. A child named by a **variable** came out of
+`readdirSync` and therefore includes `.git`, so it is flagged. A child named by a **literal**
+is a directory somebody chose — `test/signinsetup.mjs` throws away `config/tls`, which holds
+no git repo and cannot lose this race — so it is not, with `.git` itself the one literal that
+is. Getting that line wrong in either direction costs something real: too loose and a working
+line in `signinsetup.mjs` fails the repo, too tight and the scan quietly matches nothing
+forever. So the check asserts **both** — that the reset shape is still recognised, and that
+the quiesced form the ten suites were moved to still passes. A guard that only ever says no
+is one whose green is unfalsifiable, and the first legitimate edit it goes red on is the last
+time anybody reads it.
 
 ### A suite must not assert about a directory it does not own — `test/browse.mjs`
 
