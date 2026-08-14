@@ -234,7 +234,7 @@ say('c', 'index', 'session', 'meta');
 say('c', 'index', 'cat', 'read');
 say('c', 'index', 'write', 'write');
 
-const all = agentrepo.summary();
+const all = agentrepo.summaryByAgent();
 const s = all.advocate;
 check('a run that ignored the repo is still a run', s.blind.runs === 2, JSON.stringify(s.blind));
 check('…and is not counted as having touched it', s.blind.touched === 1);
@@ -242,7 +242,7 @@ check('wrote without reading is counted as a write and not a read', s.blind.wrot
 check('readFirst is zero for the blind arm here', s.blind.readFirst === 0);
 check('the index arm read before it wrote', s.index.runs === 1 && s.index.readFirst === 1);
 check('and is counted in both columns', s.index.read === 1 && s.index.wrote === 1);
-check('the numbers are bucketed by agent, not pooled across them', Object.keys(all).join() === 'advocate');
+check('the numbers are keyed by agent, not pooled across them', Object.keys(all).join() === 'advocate');
 
 // bc-goo.12: the defect that mattered the moment a second agent kind started recording.
 // Two runs of the worker on top of the advocate's three, in the same arm — a pooled
@@ -250,10 +250,11 @@ check('the numbers are bucketed by agent, not pooled across them', Object.keys(a
 say2('w1', 'blind', 'session', 'meta');
 say2('w1', 'blind', 'write', 'write');
 say2('w2', 'index', 'session', 'meta');
-const two = agentrepo.summary();
+const two = agentrepo.summaryByAgent();
 check('a second agent kind gets its own bucket', two.worker.blind.runs === 1 && two.worker.index.runs === 1);
 check('…and the first agent\'s numbers are untouched by it', two.advocate.blind.runs === 2 && two.advocate.index.runs === 1);
 check('an unknown agent id never invents a bucket of its own', !Object.keys(two).includes(''));
+check('an agent that never ran is still named when it is expected', 'epic-advocate' in agentrepo.summaryByAgent({ expect: ['epic-advocate'] }));
 
 /* ---------------------------------------------- saying it out loud */
 
@@ -280,7 +281,7 @@ check('the log lives beside the repos, never inside one', !USAGE_LOG.startsWith(
 // A torn line must not take the report down with it — this file is appended to by every
 // wrapper invocation and read by a screen.
 fs.appendFileSync(USAGE_LOG, '{"run":"d","ar\n');
-check('a torn append is dropped, not thrown', agentrepo.summary().advocate.blind.runs === 2);
+check('a torn append is dropped, not thrown', agentrepo.summary({ agent: 'advocate' }).blind.runs === 2);
 
 /* -------------------------------------------------------------- the arms */
 
@@ -337,11 +338,11 @@ check('nor does any agent when the setting is off', (await agentrepo.startRun(fo
 // `startRun` is the one composer all three doors go through, and the order inside it is
 // what the denominator depends on: the run is recorded at spawn, before the agent has had
 // a chance to touch anything.
-const before = agentrepo.summary().worker?.index?.runs || 0;
+const before = agentrepo.summary({ agent: 'worker' }).index.runs;
 const started = await agentrepo.startRun(foundation.baseline('worker'), 'beadcause', { setting: 'index', owner: 'Adam' });
 check('a started run carries its arm, its grant and its brief', started.arm === 'index' && /beadcause-agentrepo write/.test(started.brief));
 check('the grant points at this agent\'s own directory', started.grant.env.BEADCAUSE_AGENT_REPO === agentrepo.repoDir('beadcause', 'worker'));
-check('and the run is in the denominator before the agent does anything', (agentrepo.summary().worker.index.runs) === before + 1);
+check('and the run is in the denominator before the agent does anything', agentrepo.summary({ agent: 'worker' }).index.runs === before + 1);
 
 // `agentEnv` spreads `extra` after `foundation.env`, which is what stops an amended env
 // repointing the wrapper. Worth an assertion rather than a comment: the ordering is one

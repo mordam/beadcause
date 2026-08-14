@@ -22,8 +22,8 @@
  * the *subject* of the experiment is given, and an agent that could read this could see
  * which arm it is in.
  */
-import { summary, report } from '../lib/agentrepo.js';
+import { summaryByAgent, report } from '../lib/agentrepo.js';
 import { AGENTS, baseline } from '../lib/foundation.js';
 
 const expect = AGENTS.filter((a) => baseline(a).ownsRepo);
-process.stdout.write(report(summary(), { expect }));
+process.stdout.write(report(summaryByAgent({ expect }), { expect }));

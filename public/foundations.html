@@ -36,18 +36,26 @@
     <div id="agent-list" class="list"></div>
   </main>
 
-  <!-- One agent: four tabs over the same header. -->
+  <!--
+    One agent: five tabs over the same header. Memory is the fifth and is the odd one
+    out — the other four are what this agent *is* and what it is doing, and that one is
+    the only result on the screen: whether it is actually carrying anything from one run
+    to the next. The bar scrolls sideways rather than wrapping, which is what makes a
+    fifth affordable on a phone.
+  -->
   <main id="detail" class="launcher" hidden>
     <nav class="agent-tabs" role="tablist">
       <button class="tab" data-tab="foundation" role="tab" aria-selected="true">Foundation</button>
       <button class="tab" data-tab="history" role="tab" aria-selected="false">History</button>
       <button class="tab" data-tab="chat" role="tab" aria-selected="false">Chat</button>
       <button class="tab" data-tab="activity" role="tab" aria-selected="false">Activity</button>
+      <button class="tab" data-tab="memory" role="tab" aria-selected="false">Memory</button>
     </nav>
 
     <section id="tab-foundation" class="tab-panel" role="tabpanel"></section>
     <section id="tab-history" class="tab-panel" role="tabpanel" hidden></section>
     <section id="tab-activity" class="tab-panel" role="tabpanel" hidden></section>
+    <section id="tab-memory" class="tab-panel" role="tabpanel" hidden></section>
 
     <!--
       The chat is the same conversation record the chat session uses, with a

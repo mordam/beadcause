@@ -2017,6 +2017,14 @@ git log --format='%aI %s' refs/beadcause/foundations
 git cat-file -p refs/beadcause/foundations:console.json
 ```
 
+That is also the History tab on the agents screen — **narrowed to the agent whose tab it
+is**, which it was not at first. One ref holds every agent's amendments, on purpose,
+because the whole log read as one story is the interesting read; drawn unfiltered under
+one agent's name it says the opposite, and the worker's History tab was a request the
+*dispatch* agent had made and Adam had declined. The subject is what the filter matches,
+because `<agent>: amend …` and `<agent>: decline …` are what `git log --oneline` shows,
+so the screen selects on exactly what a person at a terminal would.
+
 ### What may never be amended
 
 `id`, `protocolOwner` and `writes`. Not distrust of the approval — these are the
@@ -2822,10 +2830,11 @@ here at all.
 
 Two rules fall out of that, and both are in `lib/agentrepo.js`:
 
-- **The numbers are bucketed by agent and never pooled across them.** A worker editing
+- **The numbers are read per agent and never pooled across them.** A worker editing
   files for an hour, a P0 advocate doing one turn of thinking and a repo advocate arguing
   about a queue are three populations, and the worker outruns the other two by a wide
   margin — a pooled `readFirst` would report the worker's behaviour under all three names.
+  `summary({agent})` narrows it and `summaryByAgent()` lays all three side by side.
   Workspaces *are* pooled inside an agent, because `alternate` flips per workspace and
   agent, so every workspace contributes to both arms in step.
 - **An arm with no runs prints a sentence, not a zero.** `readFirst 0` under `index` is
@@ -2879,6 +2888,62 @@ tree an init failed halfway through — would put an agent's private files strai
 the shared history, silently, exactly once. `topUpIgnore` is what gets the rule onto
 installs that predate it, and `test/agentrepo.mjs` asserts the outcome against `git
 check-ignore` rather than against the file, because the question is what git does.
+
+### Whether any of it is ever read — the Memory tab
+
+Three tiers shipped before anything on a screen could answer the question they exist to
+answer: **is an agent actually carrying anything between runs?** Reading it meant git
+plumbing — `git for-each-ref refs/beadcause/agents`, `git log <ref> | wc -l` per agent
+per repo, and a subtraction — and four minutes of that is what produced the finding the
+whole epic turns on. It is an **asymmetry**: the worker has hundreds of notes about this
+repo, and the advocate, which runs continuously in every workspace, had written one
+memory in its lifetime and none at all here.
+
+So the agents screen has a fifth tab, per agent, and it draws all of it:
+
+- **Tier 1** — notes about this repo: how many keys, how many writes, when the last one
+  was, and whether any of it has come back out.
+- **Tier 2** — the memory that follows the agent everywhere, the same four numbers.
+- **The blackboard** — how many messages this agent has collected, and from how many
+  topics. A topic with messages and no reads is a thing published into silence, which is
+  worth seeing, because `post`/`read` is a pull and nothing notifies.
+- **Tier 3** — the per-arm numbers, `blind` against `index`, for each of the three agents
+  that own a repo. Never pooled: a total of one run reads as a live experiment, and
+  1-versus-0 is the shape that says the comparison cannot be computed yet. The tab says
+  that in words when an arm is empty. It is one agent at a time, because that is the tab
+  you are on; `npm run agentrepo` is the same numbers for all three at once, which is what
+  you want when the agent you should be worried about is the one you did not think to open.
+
+**Keys and writes are both shown because they are different facts.** A store holds one
+value per key and a write overwrites, so 244 commits over 31 keys is an agent that keeps
+revising what it knows, and 31 over 31 is one that writes once and never returns.
+
+**What counts as a read, and the thing that deliberately does not.** A read is an agent
+running `beadcause-memory recall`, `notes`, `read` or `debriefs` — the honest signal is
+that it *chose* to look. A note quoted into a session's prompt is **not** a read: the
+daemon does that unasked at every session start (`notesBrief`), so counting it would make
+every session read everything and the write-only-diary prediction would be answered by
+the instrument rather than by the agents. The existing "unread here" in `notesBrief` is
+not a half-built version of this either — it means unread *relative to a bead*, computed
+fresh each time by relevance.
+
+**Written and read do not come from the same place, and the tab says so.** A write is a
+commit on a ref and is true for the whole history; a read is a line in
+`~/.config/beadcause/agents/memory-reads.jsonl` (`lib/memoryuse.js`), which only started
+being written when this landed. So "no reads recorded" means nobody has opened it *since
+then*, and the pane says that rather than letting a zero read as *never*.
+
+It is a JSONL beside tier 3's usage log rather than another ref, for two reasons that are
+both about not damaging what it measures: a commit per read would double the entry counts
+the epic is measured by — the same `git log` that says "244 things learned" would start
+saying 500 — and every session start reads, so it would put a compare-and-swap on the
+hot path of opening a window. It lives under `agents/` because that directory is already
+ignored by the common repo, on the grounds that what is under it is *beadcause's
+measurement of the experiment* rather than anything an agent owns.
+
+The counts on the screen are the refs themselves (`census` in `lib/memory.js`), so they
+cannot drift from what `git log` says, and `test/memoryuse.mjs` asserts them against
+`git log` on the same ref in the same assertion.
 
 ## What an agent can see — a picture of the running app
 
@@ -3257,6 +3322,51 @@ inbox, briefly, rather than an empty one. A workspace whose tracker cannot be re
 contributes no cards and hides nothing, for the same reason. `node test/p0tree.mjs`
 holds all of that, including the one assertion that separates the feature from `under`
 renamed: a descendant with no pending question is in the tree.
+
+### A question under nothing is still drawn
+
+Narrowing the inbox to your P0s means a row that is in no P0's descendants is not drawn,
+and for most of a tracker that is exactly right — a bead under a colleague's epic is on
+their screen. But `under` cannot tell that case from a bead under **nothing at all**, and
+for that one there is no other screen. It is not a corner: `POST /api/ask` is the share
+target the phone files a question with, and it files with no parent, so the sharpest
+version of the failure was *you file a question from your phone, and it disappears from
+the phone you filed it on*. `bd` has it, `bd human list` returns it, and nothing anywhere
+says a word. `POST /api/console/create` does the same for a draft that names no parent.
+
+So the board carries a second map beside `under`:
+
+| field | what it is |
+|---|---|
+| `under` | `<workspace>/<id>` → the id of the P0 **you own** that this row descends from |
+| `unhomed` | `<workspace>/<id>` → `true` when **no open P0 at all** is above this row, whoever owns it |
+
+The client draws a row that is in either. The two questions are genuinely different on a
+shared graph — "which of my P0s has this" and "has anybody's P0 got this" — and the whole
+bug was one map answering both. A row under somebody else's open P0 is in neither map and
+stays hidden, which is [bc-rfnr.2](#your-p0s-and-the-tree-each-one-carries) still working.
+
+Three things land in `unhomed` and all three are the same fact:
+
+- **A bead with no parent** — the share target's own beads, and anything else filed
+  without one.
+- **A bead whose P0 has closed.** A closed P0 is not a root (see [the dispatch
+  gate](#where-it-lands--a-bead-filed-under-nothing-is-unworkable-the-moment-it-exists))
+  and its descendants stop being
+  pulled onto the board with it, so an open question under a finished epic is under
+  nothing. It was invisible *and* held, and only the held half was ever loud.
+- **Every row of a workspace whose graph could not be read.** `Bd.graph` answers an empty
+  shape rather than throwing, so nothing is known about what is above those rows — and no
+  evidence must not mean no question. This is the direction the whole board already fails
+  in; it just was not true of the rows until `unhomed` existed.
+
+This is the other half of [what the daemon does at the filing
+seam](#where-it-lands--a-bead-filed-under-nothing-is-unworkable-the-moment-it-exists):
+that gives a daemon-filed bead a parent when it can, this draws the bead when nothing did.
+Deliberately a screen fix and not a second filing fix — auto-adopting what a *person*
+filed is a decision about the tracker's shape, and a fix at the filing seam is only ever
+as good as the graph cache was at that instant, where this one has no such hole.
+`node test/ownquestion.mjs` holds it, from `bd export` through to the real client filter.
 
 ### The top bar says who is asking, not what the app is called
 
@@ -11833,15 +11943,26 @@ beadcause request timings — 412 requests over 26m  ·  budget 1000ms  ·  slow
 route                        n     p50     p95     max  sub%     ×      n     p50     p95
 GET /api/prs                 3   26.8s   37.5s   37.5s  1.00  13.0×    41    12ms    22ms
 GET /api/questions          14   875ms    2.7s    4.5s  0.99   9.1×   126     9ms    18ms
+GET /api/session-log         ·       ·       ·       ·     ·     ·      6    1.2s    1.5s
 
-over budget — cold p95 past 1000ms:
+over budget — p95 past 1000ms, cold or warm:
   GET /api/prs
   GET /api/questions
+  GET /api/session-log
 ```
 
 That last block is the point of the whole thing: **the routes that miss the budget are
 named**, rather than left to be read off a table. `--json` gives the snapshot as it comes
 off the route, `--top N` the worst few, and `--parked` includes the long-polls.
+
+**Cold or warm, and that is not a hedge in the heading.** A route is over budget on the
+worse of its two p95s, because a request that took a second and a half took a second and
+a half whether or not it spawned anything. The third row above is the case that made the
+distinction concrete: `GET /api/session-log` reads a transcript off disk, so it spawns no
+child, so it is *warm* by the derivation — and it has no cold samples at all. Filtering
+the list on the cold p95 would have dropped the only genuinely slow route on that page
+out of the one list whose job is to name slow routes. The list has always been the worse
+of the two; for a while the heading over it said `cold p95`, which is what bc-fg37 fixed.
 
 ### What it found the first time it ran
 
@@ -13428,8 +13549,8 @@ cookie says so), and `/auth/signout` ends the session.
 | POST | `/api/agent-arm` | `{id, acknowledge?, disarm?}` | arms that agent's configured tools override for **one** reply. `428` the first time, carrying the warning to show; `409` while it is answering; `400` if it has no override |
 | DELETE | `/api/agents` | `?id=` | removes one of yours; built-ins refuse |
 | GET | `/api/foundation` | — | `{requests[], workspaces[]}` — the foundation channel on its own, without an inbox sweep. **The bare path is the channel and nothing else** |
-| GET | `/api/foundations` | `?workspace=` | `{agents[], workspace, workspaces[]}` — every agent kind, for the list on the agents screen |
-| GET | `/api/foundation/agent` | `?id=&workspace=` | `{agent, workspace}` — one agent's foundation, history and activity. `404` for an id that is not an agent kind. Named for its neighbours `/api/foundation/{amend,decline,log}`, and *not* the bare path: it was registered there too, where it never answered once |
+| GET | `/api/foundations` | `?workspace=` | `{agents[], workspace, workspaces[]}` — every agent kind, for the list on the agents screen. Each row carries `notes`/`memories`/`lastLearnedAt`, so the asymmetry between agents is visible without opening four of them |
+| GET | `/api/foundation/agent` | `?id=&workspace=` | `{agent, workspace}` — one agent's foundation, history, activity and `memory` (what it has learned in each tier, and whether any of it has ever been read back). `404` for an id that is not an agent kind. Named for its neighbours `/api/foundation/{amend,decline,log}`, and *not* the bare path: it was registered there too, where it never answered once |
 | POST | `/api/foundation/amend` | `{id, workspace?, set, bead?, justification}` | edits one agent's foundation, recorded exactly like an amendment the agent asked for — same history, same justification. `400` naming the field if `set` carries a protected one, rather than dropping it silently |
 | POST | `/api/foundation/decline` | `{id, workspace?, bead?, request, reason}` | records a refusal against that agent, so `git log refs/beadcause/foundations` carries the no as well as the yes |
 | GET | `/api/foundation/log` | `?id=&ws=&bead=` | `{key, log}` — that agent's transcript. `{key: null}` and a sentence when the kind keeps no log file |
@@ -13458,7 +13579,7 @@ cookie says so), and `/auth/signout` ends the session.
 | POST | `/api/terminal/close` | `{id}` | ends it (SIGTERM, then SIGKILL after 5s) |
 | WS | `/ws/terminal` | `?id=`, subprotocols `beadcause.term.v1` + `tok.<token>` | binary frames both ways are pty bytes; JSON carries `hello` · `ready` · `exit` in, `input` · `resize` · `close` out |
 | GET | `/terminal` | `?id=` or `?ws=&seed=` | the terminal page |
-| GET | `/api/timings` | — | `{since, uptimeMs, budgetMs, slowMs, requests, routes[], overBudget[], background, overflow}` — what every route has cost, worst first, **warm and cold counted apart** and the `bd`/`gh`/`git` share broken out of each. `overBudget` names the routes whose cold p95 misses `budgetMs`, which is the question the whole thing exists to answer; `background` is the subprocess time the daemon spent on nobody's request. The long-polls carry `parked: true` and are in neither list. Read as a table by `npm run timings`, and cheap enough to poll — two fixed-size buckets per route, in memory, nothing persisted. See [timing every request](#timing-every-request--which-routes-are-actually-slow) |
+| GET | `/api/timings` | — | `{since, uptimeMs, budgetMs, slowMs, requests, routes[], overBudget[], background, overflow}` — what every route has cost, worst first, **warm and cold counted apart** and the `bd`/`gh`/`git` share broken out of each. `overBudget` names the routes whose p95 misses `budgetMs` on **either** side of the cache — the worse of the two, so a route that only ever answers warm and still takes a second is named — which is the question the whole thing exists to answer; `background` is the subprocess time the daemon spent on nobody's request. The long-polls carry `parked: true` and are in neither list. Read as a table by `npm run timings`, and cheap enough to poll — two fixed-size buckets per route, in memory, nothing persisted. See [timing every request](#timing-every-request--which-routes-are-actually-slow) |
 | GET | `/api/admin` | — | every scope and what pausing it would cost. Read-only and cheap — no `bd` call, no spawn — because `/admin` polls it and the counts on the buttons have to be current when you press one |
 | POST | `/api/admin` | `{action, what, scope, mode}` | pause or resume everything, one space, or one half of it. `what` is `all` · `advocates` · `terminals`; `mode` is `drain` (default — no new launches, running workers finish untouched) or `kill`. Never run at boot: a `launchctl kickstart -k` behaves exactly as it did. Refused on an observer |
 | GET | `/api/tls` | `?pairing=1` | what HTTPS is doing: the setting, the certificate on disk (name, days left), what the socket is actually serving (`serving`: name, days left, and `checkedAt` — when the renewal loop last looked, `null` from anything too old to say), the URL a phone would be handed, and whether a restart is owed. Cheap enough to poll — two file reads and a memoised MagicDNS name, and it never asks `tailscale cert` for anything. `?pairing=1` adds the link and a QR |
