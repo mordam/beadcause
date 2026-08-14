@@ -45,6 +45,12 @@
   <script src="/stream.js"></script>
   <script src="/presence.js"></script>
   <script src="/tabbar.js"></script>
+  <!-- The app keeping itself in step with what was just deployed: reloads the page when
+       a deploy moved public/, and drives the Android shell's own update when one
+       rebuilt the APK. On every standing view, because the "Update app" button belongs to
+       the app rather than to a screen — and after stream.js, whose events it listens on
+       rather than opening a second parked poll of its own. -->
+  <script src="/update.js"></script>
   <!-- Which space the queue is about. Before endorse.js, which registers its repaint
        on it at the top of its own IIFE. -->
   <script src="/spacebar.js"></script>

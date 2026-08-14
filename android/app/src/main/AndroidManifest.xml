@@ -13,6 +13,17 @@
     -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!--
+      Replacing itself with the APK the Mac just rebuilt. There is no Play track here:
+      a deploy that touches android/ publishes to public/beadcause.apk and the phone
+      picks it up over the same tailnet that carries the questions (see Updater).
+
+      This is a *request* permission, not a grant — Android still requires the
+      "install unknown apps" toggle for this app, which is a one-off in Settings, and
+      Updater checks `canRequestPackageInstalls` and opens that screen rather than
+      failing inside a coroutine where nobody would see it.
+    -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <uses-permission android:name="android.permission.CAMERA" />
     <!--
@@ -107,6 +118,20 @@
         <receiver
             android:name=".ActionReceiver"
             android:exported="false" />
+
+        <!--
+          How PackageInstaller answers, and how the app comes back afterwards. Not
+          exported, and it is reached by an explicit intent with `setPackage` on it: the
+          PendingIntent behind it has to be MUTABLE so the platform can put the status on
+          it, and an unexported explicit component is what makes that safe.
+        -->
+        <receiver
+            android:name=".UpdateReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="m4m.beadcause.INSTALL_STATUS" />
+            </intent-filter>
+        </receiver>
 
         <receiver
             android:name=".BootReceiver"

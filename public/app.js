@@ -59,6 +59,13 @@
     // `under` is the filter — and a row that arrived before the board did must not read
     // as one with no P0 above it. See `p0Board` in lib/server.js.
     p0board: { p0s: [], under: {}, owned: false },
+    // P0s this phone has just launched an advocate on, `key -> ms`. The server records
+    // the same fact (`advocateOpened` in lib/server.js) and is the authority the moment
+    // its answer arrives; this covers the seconds before it does, so the card cannot
+    // spend one poll offering a button whose only outcome now is a 409. Expired on the
+    // same ten minutes the server uses, because a daemon restarted in between would
+    // otherwise leave a card saying "opening" about a window that never came up.
+    p0opening: new Map(),
     spaces: [],
     // Every configured workspace, which the inbox needs for one thing only: ＋ has to
     // know where to start a conversation, and "the repos in the selected space" is a
@@ -4070,6 +4077,49 @@
    * (bc-rfnr.3) and is null until that lands — a placeholder saying "nothing" would be a
    * claim, where an absent line is honestly nothing yet.
    */
+  /**
+   * The one control on a P0 card, in its three states — and the point of bc-d6yk is that
+   * there are three.
+   *
+   * It used to be one button that offered to open an advocate whatever was already
+   * running, so the moment after you tapped it the card went back to offering the same
+   * thing and the only way to see what you had started was to find it on the advocate
+   * console. Now the card answers the question the tap raises: **where is it?**
+   *
+   *   - **A live advocate** — an anchor to `/session?pid=…`, which public/drawer.js opens
+   *     over the inbox rather than navigating away from it, so a look at what the
+   *     advocate is doing costs neither your place in the list nor a trip back.
+   *   - **Opening** — a disabled button saying so. There is no pid to link to yet (a
+   *     window carries no bead id in its name until its first turn), and the honest thing
+   *     to do with a control that would 409 is to say why it is not offered.
+   *   - **Nobody on it** — the offer, exactly as it was.
+   */
+  function p0Control(c) {
+    const adv = c.advocate;
+    if (adv?.pid) {
+      return `<a class="p0-advocate" href="/session?pid=${encodeURIComponent(adv.pid)}"
+        aria-label="${esc(adv.name || `pid ${adv.pid}`)} — what the advocate on ${esc(c.id)} is doing"
+        >${adv.status === 'busy' ? '<span class="spark"></span>' : '🧭'} What the advocate is doing</a>`;
+    }
+    if (adv?.opening || openingHere(c.key)) {
+      return `<button type="button" class="p0-advocate" disabled>🧭 An advocate is opening…</button>`;
+    }
+    return `<button type="button" class="p0-advocate" data-act="advocate" data-ws="${esc(
+      c.workspace
+    )}" data-bead="${esc(c.id)}">🧭 Put an advocate on it</button>`;
+  }
+
+  /** Did this phone launch one in the last ten minutes, with nothing back from the server yet? */
+  function openingHere(key) {
+    const at = state.p0opening.get(key);
+    if (!at) return false;
+    if (Date.now() - at >= 10 * 60 * 1000) {
+      state.p0opening.delete(key);
+      return false;
+    }
+    return true;
+  }
+
   function p0SectionHtml() {
     const board = state.p0board;
     if (!board?.owned) return '';
@@ -4086,9 +4136,7 @@
           }<span class="p0-open">${c.open === 1 ? '1 open' : `${c.open} open`}</span></div>
           <a class="p0-title" href="${esc(`${graphUrl(c)}&open=1`)}">${esc(c.title || '')}</a>
           ${c.waitingOn ? `<div class="p0-waiting">${esc(c.waitingOn)}</div>` : ''}
-          <button type="button" class="p0-advocate" data-act="advocate" data-ws="${esc(c.workspace)}" data-bead="${esc(
-            c.id
-          )}">🧭 Put an advocate on it</button>
+          ${p0Control(c)}
         </div>`
       )
       .join('');
@@ -4810,6 +4858,13 @@
           body: JSON.stringify({ workspace: btn.dataset.ws, id: bead }),
         });
         btn.textContent = '🧭 Advocate opened';
+        // The card carries this from here on rather than the button's own text: on the
+        // next poll it becomes a link to the window (`p0Control`), and until then it says
+        // "opening" instead of re-offering a launch that would now be refused. Redrawn
+        // rather than waiting for the poll, because the wait is up to 25 seconds and the
+        // whole complaint bc-d6yk answers is a card that forgets what you just did.
+        state.p0opening.set(`${btn.dataset.ws}/${bead}`, Date.now());
+        render(true);
         toast(`A P0 advocate is planning ${bead}`);
       } catch (err) {
         // Back to a button you can press again, with the reason on screen. Every refusal
@@ -6109,7 +6164,13 @@
     // board, and keeping the last one is what stops a mixed fleet — a phone talking to
     // an old daemon through a cached service worker — from drawing an inbox with every
     // card filtered out and nothing on screen to say why.
-    if (data.p0board && typeof data.p0board === 'object') state.p0board = data.p0board;
+    if (data.p0board && typeof data.p0board === 'object') {
+      state.p0board = data.p0board;
+      // The server has caught up with this launch — either it has the window or it is
+      // holding the same "opening" we are — so the local note has done its job. Left in
+      // place where the server says nothing, which is the case it exists for.
+      for (const c of state.p0board.p0s || []) if (c.advocate) state.p0opening.delete(c.key);
+    }
     if (Array.isArray(data.trouble)) state.trouble = data.trouble;
     // Same rule, same reasons: taken whole, taken when empty so it can clear itself,
     // and absent leaves what is on screen alone for a server that predates the field.

@@ -136,6 +136,39 @@
   const queueMoved = (events) => touched(events, QUEUE_EVENTS);
 
   /**
+   * Everything on the page that wants the events without owning a poll.
+   *
+   * One park per page is the rule this file exists to keep — public/montabs.js stands a
+   * hidden pane's poll *down* for the same reason, and a shared script that opened its
+   * own would put a second parked request behind every page in the app, on every device,
+   * for one boolean. public/update.js is that script: it needs to know a deploy settled
+   * and nothing else, and the page it is loaded onto is already being told.
+   *
+   * So a listener registered here is handed the same `events` array the view's own
+   * `onWake` gets, from whichever `follow()` on the page answered — and a page with no
+   * stream at all (the login screen, a doc in the reader) simply never calls it, which
+   * is why every listener must also have a way of asking cold. A throw in one listener
+   * is contained: it is somebody else's screen, not the poll's.
+   */
+  const listeners = new Set();
+
+  function listen(fn) {
+    if (typeof fn !== 'function') return () => {};
+    listeners.add(fn);
+    return () => listeners.delete(fn);
+  }
+
+  function tell(events) {
+    for (const fn of listeners) {
+      try {
+        fn(events);
+      } catch (err) {
+        console.error('[stream] listener failed', err);
+      }
+    }
+  }
+
+  /**
    * Park on the log and keep parking.
    *
    * @param {object} o
@@ -253,6 +286,8 @@
           // empty and true by accident, and the only honest move is a full refetch —
           // which is the view's, because only it knows what "everything" is here.
           onWake?.({ data, events, resync: Boolean(data.resync) });
+          // …and anything else on the page that wants the same events. See `listen`.
+          tell(events);
           // Nothing that keeps a log answered, so there is nothing to follow: the
           // caller's fallback — a timer, or the ⟳ — is the refresh from here.
           if (!told) break;
@@ -334,6 +369,7 @@
   window.beadcause = window.beadcause || {};
   window.beadcause.stream = {
     follow,
+    listen,
     moved,
     touched,
     workMoved,

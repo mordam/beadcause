@@ -20,6 +20,27 @@ val keystoreProps = Properties().apply {
 }
 val hasSideloadKey = keystoreProps.getProperty("storeFile")?.let { File(it).exists() } == true
 
+/**
+ * Which build this is — and why it cannot go on being `1`.
+ *
+ * The app updates itself now (see `Updater.kt`): a deploy that touches `android/`
+ * republishes the APK, and the phone compares what is published against what it is
+ * running. A fixed `versionCode` makes that comparison meaningless — every build is the
+ * same build, so either the phone never updates or it reinstalls the same one forever —
+ * and it is also what Android's own downgrade check reads, so a monotonic number is what
+ * lets the platform tell an upgrade from a replay.
+ *
+ * `scripts/build-android.sh` passes both in, derived from the commit count, and writes
+ * the *same* pair into `public/beadcause.apk.json` beside the published file, which is
+ * how the daemon can answer "which build is this?" without parsing an APK. The fallbacks
+ * here are for a build run by hand from Android Studio or a bare `./gradlew`: `1` and
+ * `1.0`, exactly what this said before, so nothing about that path changes — but such a
+ * build publishes no sidecar either, and `apkInfo` in lib/update.js reports an unknown
+ * version rather than a wrong one.
+ */
+val buildNumber = (project.findProperty("beadcauseVersionCode") as String?)?.toIntOrNull() ?: 1
+val buildName = (project.findProperty("beadcauseVersionName") as String?)?.takeIf { it.isNotBlank() } ?: "1.0"
+
 android {
     namespace = "m4m.beadcause"
     compileSdk = 35
@@ -28,8 +49,8 @@ android {
         applicationId = "m4m.beadcause"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = buildNumber
+        versionName = buildName
     }
 
     signingConfigs {
