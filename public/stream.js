@@ -115,6 +115,27 @@
   const boardMoved = (events) => touched(events, BOARD_EVENTS);
 
   /**
+   * The events that can change what is waiting for endorsement.
+   *
+   * A bead filed while you were asleep (`created`), a verdict landing from the other
+   * device (`endorsement`), an agent amending one it was asked to change (`amended`),
+   * and both halves of a discussion — the dispatch (`discussion`) and the reply that
+   * comes back as a comment (`commented`), because the folded row draws a 💬 count and
+   * a bead you asked three questions about last night must not read as one nobody has
+   * opened.
+   *
+   * Here rather than in public/endorse.js for the reason BOARD_EVENTS is here: two
+   * pages ask this question. The queue asks it to decide whether to sweep, and the
+   * inbox asks it to decide whether the copy it is holding *for* that page is still
+   * true — and the two answers have to be the same one, or the inbox hands the queue a
+   * warm payload missing exactly the bead that was filed while you were reading.
+   */
+  const QUEUE_EVENTS = ['created', 'endorsement', 'amended', 'commented', 'discussion'];
+
+  /** Did anything here change something behind `/api/unendorsed`? */
+  const queueMoved = (events) => touched(events, QUEUE_EVENTS);
+
+  /**
    * Everything on the page that wants the events without owning a poll.
    *
    * One park per page is the rule this file exists to keep — public/montabs.js stands a
@@ -346,5 +367,18 @@
   }
 
   window.beadcause = window.beadcause || {};
-  window.beadcause.stream = { follow, listen, moved, touched, workMoved, boardMoved, QUIET_TYPES, ROSTER_ONLY, BOARD_EVENTS, WAIT_S };
+  window.beadcause.stream = {
+    follow,
+    listen,
+    moved,
+    touched,
+    workMoved,
+    boardMoved,
+    queueMoved,
+    QUIET_TYPES,
+    ROSTER_ONLY,
+    BOARD_EVENTS,
+    QUEUE_EVENTS,
+    WAIT_S,
+  };
 })();
