@@ -587,14 +587,16 @@
   }
 
   /**
-   * This card got here without making a noise — and which of the three kinds of quiet
+   * This card got here without making a noise — and which of the four kinds of quiet
    * it was.
    *
    * **Silences that read identically until you say which.** A bead outside the inbox
-   * filter, a bead in a muted space and a bead somebody else was asked all arrive, all
+   * filter, a bead in your other account, a bead in a muted space and a bead somebody
+   * else was asked all arrive, all
    * file, all count, and all leave the phone dark (see `quietReasonFor` on the server).
    * The difference is the whole of what you can do about it: a mute ends on a clock and
-   * there is nothing to press, a filter ends when you press **All**, and an addressed
+   * there is nothing to press, a filter ends when you press **All**, an account ends when
+   * you switch to it in the top bar, and an addressed
    * question is on another engineer's phone and is not yours to fix at all — which is
    * exactly the sentence worth having, because it is the one that stops you widening a
    * filter that was never hiding anything. Before this the distinction lived only in the
@@ -626,8 +628,13 @@
         ? `asked of ${who ? esc(who) : 'somebody else'}`
         : a.reason === 'muted'
           ? `${a.space ? esc(a.space) : 'that space'} was muted`
-          : `hidden by the inbox filter${a.filter && a.filter !== 'all' ? ` — ${esc(a.filter)}` : ''}`;
-    const mark = { addressed: '📮', muted: '🔕' }[a.reason] || '🔇';
+          : a.reason === 'account'
+            ? // The account it belongs to, and never "your other account" — this card is
+              // being read *in* that account, because that is the only place it appears.
+              // Naming it is what says which chip in the top bar to switch back to.
+              `you were in ${a.account ? esc(a.account) : 'another account'}`
+            : `hidden by the inbox filter${a.filter && a.filter !== 'all' ? ` — ${esc(a.filter)}` : ''}`;
+    const mark = { addressed: '📮', muted: '🔕', account: '👤' }[a.reason] || '🔇';
     return `<p class="quiet-note">
       <span aria-hidden="true">${mark}</span>
       <span>Arrived quietly${when ? ` ${esc(when)}` : ''} · ${why}</span>
@@ -4125,6 +4132,26 @@
       // you reach a quiet repo.
       workspaces: Array.isArray(data.workspaces) ? data.workspaces : undefined,
       filter: data.filter,
+    });
+    publishAccount(data);
+  }
+
+  /**
+   * And the account chip in the same bar, from the same payload.
+   *
+   * Its own function rather than three lines inside `publishSpaces`, because that one is
+   * read by `test/spacebar.mjs` as a block — the check that no page hands the picker a
+   * number any more reads a window of source after its name, so a longer function drags
+   * whatever follows it into that window.
+   *
+   * Deliberately **not** the workspace list. This payload's is the *scoped* one — the
+   * account's — and the add-an-account form has to be built from every workspace on the
+   * Mac, which is what `/api/accounts` is for. See public/accountbar.js.
+   */
+  function publishAccount(data) {
+    window.beadcause?.account?.adopt({
+      account: data.account,
+      accounts: Array.isArray(data.accounts) ? data.accounts : undefined,
     });
   }
 

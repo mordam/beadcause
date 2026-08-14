@@ -465,6 +465,90 @@ Two, because the parser and the gesture fail in different ways:
   the committed build arms the first tap instead of opening the card. Not in
   `npm test` — it needs Chrome.
 
+## Accounts — one life at a time
+
+Beadcause reads every tracker on the Mac, which is the right thing for a notification
+daemon and the wrong thing for a screen: work and everything that is not work, in one
+inbox, one board and one picker. Spaces group them by *when they may interrupt you*,
+which is a real question and not this one. An **account** is the level above — an email
+address that owns a set of workspaces, and, inside a workspace that holds many
+checkouts, a set of repos:
+
+```json
+"accounts": [
+  { "email": "you@gmail.com", "label": "Personal",
+    "workspaces": ["notes", "sideproject"] },
+  { "email": "you@work.example", "label": "Work",
+    "workspaces": ["acme"],
+    "repos": { "acme": ["acme", "athena-service"] } }
+]
+```
+
+One is in force at a time, and **what it owns is the whole of what the app shows**. The
+other account's questions, pull requests, chats, tickets, advocates and spaces are not
+behind a filter you can widen — they are not on the screen, and the picker does not offer
+them.
+
+**The address is the control.** It sits at the right-hand end of the top bar on every
+page; tapping it opens a menu holding that page's own actions — refresh, the endorsement
+queue, foundations, the gear — and **Switch accounts**, which opens the picker. The
+picker has a ＋ for adding one: an address, a name, and a tick per workspace.
+
+```
+┌────────────────────────────────────────────────┐
+│ ●  [icon]                you@work.example  ▾   │
+│ ┌────────────────────────────────────────────┐ │
+│ │ ⟳   Refresh                                │ │
+│ │ 🗳️   Endorsement queue                      │ │
+│ │ ⚖️   Foundations                            │ │
+│ │ ────────────────────────────────────────── │ │
+│ │ ⇄   Switch accounts                        │ │
+│ └────────────────────────────────────────────┘ │
+└────────────────────────────────────────────────┘
+```
+
+**Nothing is on until there are two.** An install with no `accounts` behaves exactly as
+it did before they existed — every predicate answers "in scope", and the chip simply
+draws `me`. One account owns everything unless it says otherwise, so the *first* one
+changes nothing but the address in the bar. Adding a second is what separates anything —
+and adding it through the picker writes both: the account you typed, and the one it
+implies, owning every workspace you did not give away. A config with one account and
+eight unclaimed repos is not a state the ＋ can leave you in, because those repos would
+be visible from nowhere.
+
+**It is a view scope and not a credential**, deliberately. Switching is one tap with no
+sign-in, and the pairing token still reaches everything — it has to, because an ntfy
+action button, the Android app and `bin/router.js` all call this daemon with no browser
+anywhere in them. What an account changes is what a *screen* is handed. If you want a
+real boundary, that is Google sign-in and per-device revocation, which is a different
+mechanism and lives in [Signing in with Google](#signing-in-with-google).
+
+**Which account you are in is stored on the server**, in `state.json`, beside the inbox
+filter and for the same two reasons: the push path reads it from inside the poll with no
+client in the loop, and one person with a phone and a laptop should not have two devices
+disagreeing about which life they are in. Switching on the laptop switches the phone.
+
+**A bead in the account you are not in goes quiet, and is never lost.** It is still
+swept, still filed, still counted, and it is on the screen the second you switch — the
+same contract a narrowed filter and a muted space already have. The log says which kind
+of quiet it was, because the lever is different for each:
+
+```
+[beadcause] acme/cl-9x2 arrived quietly (outside Personal (you@gmail.com))
+```
+
+**And filing follows the account.** The address in the bar is the handle a bead you file
+is stamped with — its owner label at P0, its addressee, the byline on a comment, the
+handle a claim leases with. Before accounts, that was whichever address `me` happened to
+list first, forever. Both addresses stay yours, so a question another machine addresses
+to your other one still arrives here as yours; only what a *new* write is signed with
+moves. See `accountHandles` in `lib/accounts.js`.
+
+**The admin screen is deliberately not narrowed**, the same way it has no space picker:
+it acts on the daemon rather than on a repo, and a page whose buttons reach every
+workspace must not draw a chip implying otherwise. The chip is there — it is how you
+switch from that page — but nothing on the page below it is filtered.
+
 ## Spaces — keeping work out of your evening
 
 Workspaces can be grouped into **spaces**, and a space is defined by *when it may
@@ -500,6 +584,12 @@ you press **All**:
 [beadcause] sophab/sp-4kd arrived quietly (outside the inbox filter: Work / acme)
 [beadcause] acme/cl-9x2 arrived quietly (Work is muted right now)
 ```
+
+There is a third, one level up: a bead in the account you are not in — see
+[Accounts](#accounts--one-life-at-a-time). It is tested *before* the filter, because
+widening the filter cannot reach it; the picker does not offer the other account's repos
+at all, so calling it "filtered" would send you to press a button that cannot bring it
+back.
 
 **One channel is exempt: a foundation request is never quietened by the filter.** The
 filter's two levels are space and workspace, and both answer "which of my lives is this
@@ -14351,6 +14441,10 @@ cookie says so), and `/auth/signout` ends the session.
 | POST | `/api/pr/conflicts` | `{key, number}` | opens an iTerm session on the branch whose job is to merge the base into it, resolve, run the repo's own gate and push — then stop. `409` unless GitHub reports it `CONFLICTING` right now, so a resolved conflict cannot leave a window somebody has to close. Refused on an observer, and on a daemon with `openSessions` off. Two resolvers run at a time: past that it answers `{queued, place}` and the window opens when one frees, with GitHub asked again first — [the cap](#two-windows-at-a-time-and-the-rest-in-line) |
 | POST | `/api/comment` | `{workspace, id, text, agent?}` | comments, sets `human-replied`, dispatches that agent to reply (default when absent or unknown) |
 | POST | `/api/dismiss` | `{workspace, id, reason?}` | takes the card off the screen and **closes nothing**. Writes your note if you typed one, writes nothing at all if you did not, and never touches the status — "I am not dealing with this now" is not "this is decided" |
+| GET | `/api/accounts` | — | what the [account switcher](#accounts--one-life-at-a-time) draws: `{account, accounts[], workspaces[], repos, me}`. The workspace list here is **every** workspace on the Mac rather than the account's, because it is what the add-an-account form is built from. Costs no `bd` call — a `state.json` read and a walk of the config |
+| POST | `/api/accounts` | `{email, label?, workspaces[], repos?}` | add an account or rewrite one. Adding the first one writes **two**: the account you named, and the address this Mac already files as, owning every workspace you did not give it — a repo in no account would be visible from nowhere. Writes `config.json`, which the common repo snapshots. Refused on an observer |
+| DELETE | `/api/accounts` | `{email}` or `?email=` | forget one. Removing the last turns the scoping off and puts every workspace back on every screen. The address is taken from the query as well as the body, because Node's own HTTP server refuses a chunked DELETE body outright. Refused on an observer |
+| POST | `/api/account` | `{email}` | switch account — the whole of what **Switch accounts** does. Server-side like the filter below it, so the phone and the laptop agree and the push path reads the same value. An address naming no account is a 400. Filing follows it: the daemon's byline, addressee and owner stamps become that address at once |
 | POST | `/api/filter` | `{space, workspace}` | which slice the inbox is, remembered server-side so every client agrees and the notifications match. Each is a name or `all`, bounded at 120 characters. Notifications already unread for beads the new filter excludes are left exactly as they are — [nothing tidies them](#and-it-does-not-tidy-up-the-noise-it-already-made) |
 | GET | `/api/spaces` | — | what the [space picker](#one-space-at-a-time--the-picker-in-the-top-bar) draws: `{spaces, workspaces[], filter}`. Costs no `bd` call — the spaces are cached off the last sweep — because it is fetched on every page load of every standing view. **No counts**: the picker draws none |
 | GET | `/api/space` | `?space=` | one space's own configuration, for the [space details](#space-details--the-page-the-advocate-console-became) screen: `{settings, effective, repos[], defaults, missing[]}`. `settings` is `null` per field for "inherit"; `repos[]` is what each workspace actually resolves to, which is not always what the space says. 404 for anything that is not a configured space, the synthetic `Other` group included |

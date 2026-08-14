@@ -39,7 +39,7 @@
   directory, and re-read the line: git may well have merged it silently. `node
   test/swcache.mjs` checks precisely that, in about a second.
 */
-const CACHE = 'beadcause-v56';
+const CACHE = 'beadcause-v57';
 const SHELL = [
   '/',
   '/index.html',
@@ -67,6 +67,11 @@ const SHELL = [
   // page cached without it is a page with no way to change which repo the app is about,
   // and on the inbox it is what the space and workspace chip rows became.
   '/spacebar.js',
+  // The account switcher beside it, and in the shell for a stronger version of the same
+  // reason: a page cached without this file has no way to change which *life* the app is
+  // about — and, because the menu is where the page's own top-right buttons now live, no
+  // refresh, no endorsement queue and no way out to a browser either.
+  '/accountbar.js',
   // The panel every filter bar in the app is drawn in — the collapsed line, the chips,
   // the hover-and-tap state machine. In the shell because two pages mount it and
   // neither has any control on it at all without it: the inbox loses the scope switch
