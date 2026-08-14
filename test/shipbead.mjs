@@ -280,6 +280,59 @@ await check('the board still finds ship beads by label, so none of this can reac
   assert.match(src, /labels: \[SHIP_LABEL, UNENDORSED\]/, 'a filed ship bead lost its marker');
 });
 
+/* ============================== 6. the counts, which is where a filter tells a lie */
+
+await check('`readyHeld` leaves ship beads out, so the pill agrees with what it links to', async () => {
+  const bd = new Bd({ bin: 'bd', actor: 'test' });
+  let asked = null;
+  bd.json = async (_ws, args) => {
+    asked = args;
+    return [shipBead('bc-izs0', { labels: [SHIP_LABEL, UNENDORSED] }), heldBead('bc-drw1')];
+  };
+  const rows = await bd.readyHeld(WS);
+  assert.ok(asked.includes(SHIP_LABEL), '`--exclude-label ship` never reached bd');
+  assert.deepEqual(rows.map((r) => r.id), ['bc-drw1'], '`N held for endorsement` counts a ship bead');
+});
+
+await check('`readyShip` asks for the whole cohort, endorsed or not', async () => {
+  const bd = new Bd({ bin: 'bd', actor: 'test' });
+  let asked = null;
+  bd.json = async (_ws, args) => {
+    asked = args;
+    return [shipBead('bc-izs0'), shipBead('bc-lnph', { labels: [SHIP_LABEL, UNENDORSED] })];
+  };
+  const rows = await bd.readyShip(WS);
+  // On the label, not on the marker: the twelve that "Endorse all" stripped are the ones
+  // sitting inside `ready_issues` with nothing on any screen to explain them.
+  assert.ok(asked.includes('--label') && asked.includes(SHIP_LABEL));
+  assert.ok(!asked.includes(UNENDORSED), 'narrowing on the marker would miss the endorsed cohort');
+  assert.equal(rows.length, 2);
+});
+
+await check('and the monitor subtracts both, without subtracting the overlap twice', async () => {
+  const { collectWork } = await import(LIB('work.js'));
+  const bd = {
+    async status() {
+      // Nine ready by bd's count: one real bead, three ship beads, five held discoveries.
+      return { ready_issues: 9, open_issues: 20, blocked_issues: 0, in_progress_issues: 0, closed_issues: 4 };
+    },
+    async listStatus() {
+      return [];
+    },
+    // Partitioned, which is what Bd.readyHeld's ship exclusion buys: the ship bead that
+    // still carries the marker is counted once, by readyShip, and not by both.
+    async readyHeld() {
+      return [heldBead('a'), heldBead('b'), heldBead('c'), heldBead('d'), heldBead('e')];
+    },
+    async readyShip() {
+      return [shipBead('s1'), shipBead('s2'), shipBead('s3', { labels: [SHIP_LABEL, UNENDORSED] })];
+    },
+  };
+  const [row] = await collectWork(bd, [WS]);
+  assert.equal(row.counts.held, 5, 'the pill has to be the number the endorsement screen draws');
+  assert.equal(row.counts.ready, 1, 'three ship beads are still being reported as work waiting');
+});
+
 /* --------------------------------------------------------------------- teardown */
 
 await cleanupTmp(tmp);

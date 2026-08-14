@@ -6971,6 +6971,18 @@ queues cannot take a merge off the board or change what a press of Ship carries.
 beads are still filed with `unendorsed` on them — it is simply no longer the thing holding
 the door shut.
 
+**Two numbers on the advocate console move with it**, because a filter that a count has not
+heard of is a screen that disagrees with itself. `N held for endorsement` is a *link to this
+page*, so a pill reading thirteen over a queue drawing one would be the kind of number you
+stop believing: ship beads come out of it. And they come out of `N ready` in the same
+breath — `bd status` counts a ship bead as ready, since it is open and unblocked, so twelve
+of them sat inside that number for two days as work waiting on nobody. The held count and
+the ship count are deliberately made to *partition* rather than overlap, since a ship bead
+filed today carries the marker and one Endorse all reached does not, and subtracting both
+sets naively would take the same bead off `ready` twice. Ship beads get no pill of their
+own: what they are waiting for already has a number over
+[its own button](#the-release-queue--the-number-over-ship).
+
 ### Talking about one before you decide
 
 **Discuss 💬** is the fifth control on a row and the only one that is not a verdict. The

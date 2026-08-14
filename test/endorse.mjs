@@ -198,7 +198,10 @@ console.log('\nnothing may open a session on an unendorsed bead\n');
 
 await check('the marker has one spelling, and it is the one the queue excludes', () => {
   assert.equal(UNENDORSED, 'unendorsed');
-  assert.deepEqual(QUEUE_EXCLUDED, ['human', UNENDORSED], 'what an advocate may not queue');
+  // `ship` joined the two since lib/shipbead.js: a merged pull request waiting for a
+  // deploy is not claimable work by anything reading this list, and it used to be kept
+  // out by carrying the marker above — which one press of "Endorse all" removes.
+  assert.deepEqual(QUEUE_EXCLUDED, ['human', UNENDORSED, 'ship'], 'what an advocate may not queue');
   assert.equal(isHeld({ labels: ['worker', 'unendorsed'] }), true);
   assert.equal(isHeld({ labels: ['unendorsed '] }), true, 'a stray space is not a second label');
   assert.equal(isHeld({ labels: ['endorsed', 'unendorsedish'] }), false, 'and it is not a prefix match');
@@ -214,7 +217,11 @@ await check('bd ready never returns a held bead, and says so on the command line
   assert.deepEqual(rows.map((r) => r.id), ['zz-work'], 'the question and the held bead are both out');
   const call = bdCalls().find((c) => c[0] === 'ready');
   const off = call.filter((a, i) => call[i - 1] === '--exclude-label');
-  assert.deepEqual(off.sort(), ['human', UNENDORSED], `both labels are passed to bd, got ${call.join(' ')}`);
+  assert.deepEqual(
+    off.sort(),
+    ['human', 'ship', UNENDORSED],
+    `every excluded label is passed to bd, got ${call.join(' ')}`
+  );
   assert.ok(call.includes('--limit') && call[call.indexOf('--limit') + 1] === '0', 'and no page limit');
 });
 
