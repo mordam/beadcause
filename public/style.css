@@ -4966,6 +4966,31 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
 .jira-cancelled .jira-card { opacity: 0.85; }
 .jira-cancelled .card.open { opacity: 1; }
 
+/* The records with no ticket left, at the foot of the same fold (bc-0i27.19).
+
+   Lines rather than cards, deliberately: there is no summary, no status and no link to
+   JIRA to draw, so a card here would be a card of empty fields beside cards that are
+   full. The paragraph above them is not decoration — it is the only place that says why
+   a ticket key with nothing attached to it is on the screen at all, and what dropping
+   one does to the bead that was closed with it. */
+.jira-orphans { margin: 12px 0 0; padding: 0 12px 8px; }
+.jira-orphans-why { margin: 0 0 8px; font-size: 12px; line-height: 1.45; color: var(--muted); }
+.jira-orphan {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 0;
+  border-top: 1px solid var(--line);
+}
+.jira-orphan-what { flex: 1 1 auto; min-width: 0; }
+.jira-orphan-key { font-weight: 600; font-size: 13px; }
+/* The workspace beside the key rather than under it: two records can carry the same
+   ticket key from two workspaces pointed at one JIRA project, and without this they read
+   as one row drawn twice. */
+.jira-orphan-ws { margin-left: 6px; font-size: 12px; color: var(--muted); }
+.jira-orphan-when { display: block; margin-top: 2px; font-size: 11.5px; color: var(--muted); }
+/* Same override as `.jira-acts .jira-back` above and for the same reason: `.secondary`
+   is `flex: 1`, and a lone button allowed to stretch reads as the whole line being one. */
+.jira-orphan .jira-back { flex: 0 0 auto; padding: 0 18px; }
+
 /* ------------------------------------------------------------------- drawer */
 
 /* Detail over the tab you were on: the dependency graph, or a document a question
