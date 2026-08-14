@@ -1333,6 +1333,9 @@
    * them.
    */
   function paintPicks(key) {
+    // Held while the screen is — this is one of the four in-place painters an arm timer
+    // can reach six seconds after the mode began. See `isFrozen`.
+    if (isFrozen()) return;
     const q = byKey(key);
     const beads = q?.proposal?.beads || [];
     const card = listEl.querySelector(`.card[data-key="${CSS.escape(key)}"]`);
@@ -1621,6 +1624,8 @@
 
   /** Repaint one delivery's live half in place — never a render(), same as paintPicks. */
   function paintPr(key) {
+    // Held while the screen is. See `isFrozen`.
+    if (isFrozen()) return;
     const q = byKey(key);
     const block = listEl.querySelector(`.delivery[data-key="${CSS.escape(key)}"]`);
     if (!block || !q?.delivery) return;
@@ -2046,6 +2051,10 @@
    * list and take the caret and the keyboard with it.
    */
   function paintPrCard(key) {
+    // Held while the screen is, and this is the one that matters most of the four: it
+    // ends in `el.replaceWith(fresh)`, so a card you are pointing at would not merely
+    // change its words but stop being the element the anchor named. See `isFrozen`.
+    if (isFrozen()) return;
     const el = listEl.querySelector(`.card[data-key="${CSS.escape(key)}"]`);
     const row = prRows().find((r) => r.key === key);
     if (!el || !row) return;
@@ -3308,6 +3317,8 @@
    * what the next tap does.
    */
   function paintArmed() {
+    // Held while the screen is. See `isFrozen`.
+    if (isFrozen()) return;
     for (const btn of listEl.querySelectorAll('.dismiss')) {
       const armed = state.armed === `${btn.dataset.key}|dismiss`;
       btn.classList.toggle('confirm', armed);
@@ -4154,6 +4165,55 @@
    * is what takes the one repaint that catches up.
    *
    * A page served without the file answers false, which is the app exactly as it was.
+   *
+   * ## Every writer of the screen asks this, not only the poll — bc-p49x.5
+   *
+   * bc-p49x.1 gated `render()` and `paintList()`, which is the whole of the poll and is
+   * the only path that runs on its own every twenty-five seconds. It is not the only path
+   * that writes to the screen. Two of the three below need a deliberate tap *just before*
+   * the mode is entered to be live at all — which is exactly the sequence someone reaching
+   * for edit mode is in the middle of — and the third needs nothing but a poll.
+   *
+   * - **The six arm timers.** Every armed control in this app — merge, ship, dismiss, a
+   *   proposal's two bulk buttons, a JIRA cancel, and `armFirst` on the full PR card —
+   *   sets a six-second `setTimeout` whose handler disarms and then repaints in place,
+   *   through one of `render`, `paintPrCard`, `paintPr`, `paintPicks` or `paintArmed`.
+   *   Arm one, enter the mode, and six seconds later the card under your thumb is
+   *   rewritten — and in `paintPrCard`'s case `replaceWith`-ed, so the element the anchor
+   *   named stops existing.
+   *
+   *   **The gate is on the painters, not on the timers, and that is the whole reason
+   *   arming still means what it meant.** The timeout fires on time and `disarm()` runs on
+   *   time; only the pixels are late. So a hot button cannot be finished by a knee an hour
+   *   later — the thing the six seconds exist for — even though it still *reads* armed. It
+   *   cannot be finished at all, in fact: in this mode public/editmode.js swallows every
+   *   tap that is not a gesture, so the stale "Tap again" is a word on a frozen photograph
+   *   and not a control. Leaving takes the catch-up repaint, and what comes back is
+   *   unarmed, which is the truth.
+   *
+   * - **The log tail.** `pollLogs` writes an agent's output straight into the open `<pre>`
+   *   on its own two-second clock, deliberately never through `render()`. Only the write
+   *   is held: the fetch keeps running and `state.logText` keeps moving, so the pane is
+   *   one repaint behind rather than stopped, and the mode's exit rebuilds it from that
+   *   state at whatever the log has since reached. A pane that has stopped tailing does
+   *   look like an agent that has stopped working — which is why the banner across the top
+   *   of this screen says the screen is frozen, and why the arrears are taken in full one
+   *   tap later.
+   *
+   * - **The picker.** `publishSpaces` runs inside `adopt()` on every poll and hands
+   *   public/spacebar.js a fresh payload; its `paint()` rebuilds the `<select>`'s options
+   *   whenever the configured repos move. That gate lives in spacebar.js, because the bar
+   *   is on six pages and only that file knows when it is redrawing. Its catch-up is free
+   *   and structural rather than remembered: the last line of `render()` is
+   *   `publishCounts()`, which is a `space.adopt()`, which ends in `paint()` — so the one
+   *   repaint that thaws the list repaints the bar above it in the same tick.
+   *
+   * **What is deliberately still allowed to move**, because none of it is a thing you can
+   * point at: the toast (an overlay, on nothing, raised only by an act that was already in
+   * flight when the mode began), the scroll-position pip, and the `.editbar` this mode
+   * draws itself. And one thing that is not a repaint at all and so cannot be fixed here:
+   * public/update.js reloads the whole page when a deploy lands, which takes the pass with
+   * it. Its `busy()` does not know about this mode. See bc-p49x.10.
    */
   const isFrozen = () => Boolean(window.beadcause?.editMode?.frozen?.());
 
@@ -4264,6 +4324,12 @@
             ? 'No output yet — the agent is starting.'
             : 'No log for this bead — no agent has run on it.');
         state.logText.set(key, text);
+        // After the state and before the screen, which is the whole shape of the freeze:
+        // the log keeps being read and `state.logText` keeps moving, so the pane is one
+        // repaint behind rather than stopped, and the card the mode's exit rebuilds draws
+        // this same string at whatever it has reached by then. `continue` rather than
+        // `return` — the other open panes are still worth reading. See `isFrozen`.
+        if (isFrozen()) continue;
         const pre = listEl.querySelector(`[data-log="${CSS.escape(key)}"]`);
         if (pre) {
           const atBottom = pre.scrollHeight - pre.scrollTop - pre.clientHeight < 40;

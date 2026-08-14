@@ -4809,7 +4809,8 @@ lets it be used that way: tap ✏️, and the inbox stops being a list you answe
 a surface you point at.
 
 It is built end to end. The screen holds still and every element on it traces back to the
-line of source that drew it (bc-p49x.1); three gestures say what should change and land in
+line of source that drew it (bc-p49x.1, widened to every writer of the screen rather than
+just the poll in bc-p49x.5); three gestures say what should change and land in
 a reviewable list (bc-p49x.2); Save files that list as beads (bc-p49x.3); and a worker
 opened on one of those beads is told what it is looking at and stops at the pull request
 (bc-p49x.4). That last part is ordinary work in every respect except two: the bead it
@@ -4838,20 +4839,72 @@ second gate matters for a case the first misses: `load()` paints the *can't reac
 server* panel straight through `paintList`, so a link dropping mid-gesture would
 otherwise replace the list you were pointing at with an error message.
 
-**What it does not cover, deliberately, is everything that is not the poll.** Three paths
-in `app.js` write to the DOM on their own clocks and never through `render()`: a PR
-card's arm timer expiring six seconds after you armed it, the session log tailing into an
-open `<pre>`, and the space picker adopting a payload. None can fire without a
-deliberate interaction just before the mode is entered, and none of the three is fixed by
-one more `isFrozen()` — a frozen screen suppressing an arm timer changes what arming
-means, and a log that stops tailing looks like an agent that stopped working. That is
-bc-p49x.5, and it is a decision rather than a missing line.
-
 A frozen inbox and a quiet one are the same picture, so the mode says which: a fixed
 banner across the top — **Edit mode — the screen is frozen** — with a **Done** beside it,
 a tint on the page, and the ✏️ filled. Without that, a screen that had silently stopped
 updating reads as an app that has hung, and the reflex is to reload it, which is the one
 action that both fixes it and throws away whatever was being pointed at.
+
+### And the three writers that are not the poll
+
+Gating `render()` and `paintList()` is the whole of the poll, and the poll is the only
+thing on this screen that runs on its own every twenty-five seconds. It is not the only
+thing that writes to it. Three paths in `public/app.js` write to the DOM on clocks of
+their own and never through `render()`. Two of them need a deliberate tap in the seconds
+*just before* the mode is entered — which is exactly the sequence somebody reaching for
+the ✏️ is in the middle of — and the third needs nothing but a poll. bc-p49x.5 is where
+each was decided.
+
+**The six arm timers.** Merge, ship, dismiss, a proposal's two bulk buttons, a JIRA
+cancel, and `armFirst` on the full pull request card each set a six-second `setTimeout`
+that disarms and then repaints in place — through `render`, `paintPrCard`, `paintPr`,
+`paintPicks` or `paintArmed`. Arm one, enter the mode, and six seconds later the card
+under your thumb is rewritten; in `paintPrCard`'s case it ends in `el.replaceWith(fresh)`,
+so the element the anchor named stops existing at all.
+
+**The gate is on the four painters, not on the timers, and that is the whole reason
+arming still means what it meant.** The timeout fires on time and `disarm()` runs on
+time — only the pixels are late. A hot button therefore cannot be finished by a knee an
+hour later, which is the entire point of the six seconds, even though it still *reads*
+armed. It cannot be finished at all, in fact: in this mode `editmode.js` swallows every
+tap that is not a gesture, so the stale *Tap again* is a word on a frozen photograph and
+not a control. What comes back after **Done** is unarmed, which is the truth.
+
+**The log tail.** `pollLogs` writes an agent's output straight into the open `<pre>` on
+its own two-second clock, deliberately never through `render()` — a repaint would scroll
+the pane back to the top every two seconds. Only the *write* is held: the fetch keeps
+running and `state.logText` keeps moving, so the pane is one repaint behind rather than
+stopped, and the card the exit rebuilds draws whatever the log has reached by then. A
+pane that has stopped tailing does look like an agent that has stopped working — which is
+why this mode has a banner across the top saying the screen is frozen, and why the
+arrears are taken in full one tap later. The gate is `continue`, not `return`: one held
+pane must not stop the others being read.
+
+**The space picker.** `publishSpaces` runs inside `adopt()` on every poll and hands
+`public/spacebar.js` a fresh payload; its `paint()` rebuilds the `<select>`'s options
+whenever the configured repos move, and rewrites the count beside it every time. That
+gate lives in `spacebar.js` rather than in `app.js`, because the bar is on six pages and
+only that file knows when it is redrawing — the five without edit mode get `undefined`
+from the optional chain and paint exactly as they always did. Its catch-up is structural
+rather than remembered: the last statement of `render()` is `publishCounts()`, which is a
+`space.adopt()`, which ends in `paint()`. So the one repaint that thaws the list repaints
+the bar above it in the same tick, with no second mechanism to keep in step.
+
+**What is still allowed to move, and why none of it is a thing you can point at:** the
+toast (an overlay over nothing, raised only by an act already in flight when the mode
+began), the scroll-position pip, and the `.editbar` the mode draws itself. And one thing
+that is not a repaint and so cannot be fixed by any gate in `app.js`: `public/update.js`
+reloads the whole page when a deploy lands, which takes an unsaved pass with it, because
+its `busy()` counts a caret in a box and an open dialog but does not know this mode
+exists. That is bc-p49x.10.
+
+Why this was not simply six more `isFrozen()` calls when bc-p49x.1 went in: five of the
+six gates are one line and the sixth is in a different file, but each of them changes what
+a control *means* under the mode, and getting the split wrong in the easy
+direction — holding the timer instead of its paint, holding the log read instead of its
+write — leaves a screen that needs a refetch to recover and an armed button that is still
+hot an hour later. The distinction the whole freeze rests on is the same one every time:
+**state keeps moving, pixels do not.**
 
 ### An element, and the line of source that drew it
 
@@ -5149,11 +5202,38 @@ review already on the pull request, and asserting `gh pr merge` never happens. E
 that could stop that merge is switched off, so the only thing left that can stop it is the
 bead.
 
-`node scripts/editmode-check.mjs` is bc-p49x.1's acceptance, in a headless Chrome the size
-of a phone. Its first case is the control and is the reason the rest means anything: with
-the mode **off**, a poll carrying a changed bead replaces the very nodes the frozen case
-then keeps. Without it, a check that stamped every node and found the stamps intact would
-pass just as happily against a page that never polled at all.
+`node test/editfreeze.mjs`, in `npm test`, is the guard on
+[the three writers that are not the poll](#and-the-three-writers-that-are-not-the-poll).
+`public/app.js` is one 7000-line IIFE that needs a whole document to run, so what it
+asserts is what a refactor breaks silently — and it reads the file as *code*, never as
+prose: every gate is checked as the exact **first statement** of a brace-matched function
+body with comment lines dropped, because every file in this repo argues in comments that
+name the identifiers, and a slice-and-grep over a block is routinely satisfied by the
+paragraph above the line it is guarding (bc-0i27.3). Its last case is the one worth having
+in a year: it slices every `state.armedTimer` handler in the file and refuses any that
+repaints through a function not on the gated list, so a seventh armed control added next
+spring cannot quietly reintroduce the bug. The picker's half is behaviour rather than
+shape, and is checked as behaviour in `test/spacebar.mjs`, which runs the real
+`public/spacebar.js` in a vm: a poll carrying a new repo leaves the `<select>` untouched
+while frozen, `state` takes it anyway, and the next `adopt()` after the thaw draws it.
+
+`node scripts/editmode-check.mjs` is bc-p49x.1's acceptance **and bc-p49x.5's**, in a
+headless Chrome the size of a phone. Its first case is the control and is the reason the
+rest means anything: with the mode **off**, a poll carrying a changed bead replaces the
+very nodes the frozen case then keeps. Without it, a check that stamped every node and
+found the stamps intact would pass just as happily against a page that never polled at all.
+
+The bc-p49x.5 half arms a dismiss and opens a session log in the seconds before the mode,
+then holds the screen for seven and a half seconds — past the six every armed control
+gives you, and three ticks of the log's two-second clock — while a poll lands carrying a
+second repo. It reads the `<pre>` by reference *and* by value, because `pre.textContent =
+text` leaves the element itself alone: identity alone would not notice the write, and the
+string alone would not notice a rebuild. It also asserts the log kept *reading* through
+all of it, which is the half that would be lost by stopping the timer instead of its paint.
+`--baseline` is what makes this more than a check agreeing with itself: served `HEAD`'s
+`public/`, the four new cases go red and every older case stays green, which is also the
+measurement that says bc-p49x.1's node-stamp probe could never have caught any of them —
+they write text and attributes in place rather than replacing nodes.
 
 `node scripts/editgesture-check.mjs` is bc-p49x.2's **and bc-p49x.3's** — it ends by
 re-entering the mode, pressing Save with a thumb and reading what left the phone, which
