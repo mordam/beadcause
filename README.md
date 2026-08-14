@@ -3309,6 +3309,14 @@ one costs two reads, and a *write* only for a pair with no edge yet, which after
 is nearly never. Reads do not take Dolt's single writer, so a comment repeating the same
 three ids is two reads and no lock.
 
+**And one write draws at most eight, against the sweep's forty.** The hook runs inside
+`bd.respond` — what a tap on a phone runs, awaited on the request path — and a `bd dep
+relate` is about a second and a half, so forty would be a minute of somebody waiting for an
+answer that was already recorded before the first edge was drawn. Eight is well clear of
+what a single write produces: 1,308 pairs across 554 beads is 2.4 apiece for a bead's
+*entire* history of descriptions, notes and comments together. A comment past eight is a
+list somebody pasted.
+
 **Nothing here may fail the write it hangs off.** The comment is what the caller was asked
 to record; the edge is a courtesy on top of it, and a tracker that refused to record an
 answer because a see-also would not draw would be far worse than one with a missing edge.
