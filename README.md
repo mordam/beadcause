@@ -7408,6 +7408,33 @@ the record that a merge is sitting unshipped is worth more than the home nothing
 repo when nobody has looked at the board recently, and "this merged and has not shipped"
 keeps for five minutes.
 
+**And the sweep says when it did not run.** On the morning of 2026-08-14 the queue filed
+nothing for roughly three hours while eight pull requests merged, and then caught the
+whole backlog up in one pass — six beads and one settle window, all at 09:23. The
+mechanism was working. What was missing was any way to notice, and it was missing twice
+over. `sweepRelease` in lib/server.js `return`ed on `board.unavailable` and said nothing
+at all, so a board that would not collect for three hours read exactly like three quiet
+hours; and `~/.config/beadcause/releases.json` — the file the gap was eventually
+diagnosed from — recorded only what each sweep *found*, so a pass that found nothing and
+a pass that never happened left the same file behind. So:
+
+- **A heartbeat in the ledger**, under `$sweep`, written on every completed pass rather
+  than only on one that changed something. It is the one key there that is not a
+  workspace, and it is on disk rather than in the poller because the gap spanned six
+  daemon restarts — a timestamp that resets at boot cannot see across one. It also makes
+  the file's own mtime mean "the sweep is alive", which is what was looked at first and
+  answered the wrong question.
+- **Three lines about a board that will not collect** (`sweepVoice` in lib/release.js):
+  the first skip of a run, a nag every thirty minutes while it goes on, and a recovery
+  naming how long it was out and how many sweeps it cost — so the catch-up burst that
+  follows reads as a catch-up rather than as a surprise. A storm rather than a tick,
+  because `gh` being absent is a legitimate permanent state and a line every five minutes
+  forever would be the same silence by other means.
+- **A line when a sweep is simply late** — more than three intervals since the last
+  completed one. That is the case a run of skips cannot cover, because the sweep can be
+  late for reasons it never sees: a cycle ahead of it that ran long, a restart before its
+  first interval elapsed, a Mac asleep.
+
 ### Auto-ship — the merge that does not wait for the tap
 
 Everything above ends at a bead that waits for you. That is the right default and it is
