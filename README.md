@@ -6924,6 +6924,53 @@ you answer by opening a laptop. Each verdict says what it actually did, includin
 that is nothing: *already endorsed*, *nothing to change — it already reads that way*,
 *endorsed 5 of 6* with the reason the sixth did not.
 
+### A ship bead is not a proposal, and Endorse all could reach one
+
+Everything above is about beads an agent filed and nobody has read. **Ship beads are not
+those**, and for a while they were on this screen anyway.
+
+[The release queue](#the-release-queue--the-number-over-ship) files one bead per
+merged-but-undeployed pull request, and its acceptance criterion is not something an agent
+can satisfy: *the merge commit for #164 is in what beadcause is running*. Only a deploy makes
+that true, and a deploy is your tap. So the bead's own rendered text has always promised
+that nothing will open a session on it — and the mechanism behind that promise was that it
+was filed carrying `unendorsed`, which kept it out of `bd ready` and therefore out of the
+advocate's reach.
+
+That put a guarantee no tap should be able to break on **the one label this screen exists to
+remove**. The queue is every bead carrying the marker, with no filter, so ship beads were
+drawn here as things to judge — and being the highest-frequency thing filed here, one per
+merge, newest-first put them permanently at the *front* of the sixty. Endorse all did not
+happen to catch them; the ordering guaranteed it. On 2026-08-11 one press took the marker off
+the ship beads for PRs #147–#174 in a single go. Two days later twenty-five of the seventy-five
+rows in the advocate's ready queue were ship beads, and it duly opened unattended worker
+windows on three of them — each one an hour of agent spent rediscovering that a merged pull
+request is merged.
+
+Putting the marker back does not fix it, and that was tried: twenty-five beads repaired one
+morning, twelve of them back the next. Re-labelling cannot move a bead out of the front of a
+list sorted by `created_at`.
+
+So the guarantee keys on the `ship` label itself, which nothing on a phone removes, and it is
+the same two layers as [the hold](#the-endorsement-queue--a-group-tap-or-a-row-at-a-time):
+
+- **A filter.** `ship` joins `human` and `unendorsed` in the advocate's excluded set, and
+  `Bd.ready` forces it on whatever a caller asks for — so no queue and no count that says how
+  much work is waiting can name one. It is filtered out of this screen too, so Endorse all
+  never draws one to act on.
+- **A refusal.** Every door into an unattended session — `openWorkSession` and its two
+  siblings — refuses a ship bead **whatever its endorsement state**, reading the row the
+  tracker just returned. Endorsing one by id is refused for the same reason rather than
+  quietly performed: a filter is what stops a refusal being reached, and it is never the
+  guarantee. That distinction is the whole lesson of the incident, since the old guarantee
+  turned out to have been a filter all along.
+
+**Shipping itself is untouched by any of it.** The pull request board finds ship beads with a
+query on the label, not through the ready queue, so filtering them out of the *agent's*
+queues cannot take a merge off the board or change what a press of Ship carries. New ship
+beads are still filed with `unendorsed` on them — it is simply no longer the thing holding
+the door shut.
+
 ### Talking about one before you decide
 
 **Discuss 💬** is the fifth control on a row and the only one that is not a verdict. The
