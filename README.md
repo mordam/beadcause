@@ -9262,6 +9262,50 @@ says whose it is on the card the entire time it lasts. The cases are in
 `node test/leasequeue.mjs`, including the read count, the sibling that is *not* held, the
 plain parent that holds its subtree too, and the two-machine race resolved after a sync.
 
+#### …and the window already inside it
+
+The rule above reads upward: a claim on an ancestor holds the bead. Read downward it said
+nothing, and the hole that leaves is the same duplicate stood on its head. The other Mac
+opens a window on `x-1.1`, a subtask, and claims it. `x-1` — a plain task, its parent —
+goes ready here, and every check that should have stopped a second window is looking the
+wrong way. No ready child, because the child is *claimed* and claimed beads are out of
+`bd ready` entirely. No live worker under it, because that worker is in an `a.workers` on
+the other laptop. And the `bd children` question — the one that holds an epic while
+anything under it is open — is asked only of an **epic**, which a task with subtasks is
+not. So the parent launches here, and the subtree has two windows on two branches.
+
+**What made this the half that was left out is that descendants are not in the id.**
+`ancestorsOf` is free: `x-1.2.3` is under `x-1.2` and `x-1`, and that is arithmetic on a
+string. There is no `descendantsOf`, and the honest ways to get one are a `bd children` per
+queued parent per tick, recursively, or the whole graph out of a `bd export` — a read per
+tick to learn something that changes about as often as somebody opens a window.
+
+So the question is asked the other way round. Not *what is under this bead, and is any of it
+claimed*, but **what is claimed, and is any of it under this bead** — and that second form
+needs no enumeration at all, because `isDescendantOf` answers it in the ids already in hand,
+at any depth. The list of claims comes from the in-progress rows, which [the twin
+filter](#what-counts-as-work) has read on every survey since it was built and uses only the
+titles of. This reads the labels off the same rows. **It costs nothing**, which is the
+second time that has been the answer here and for the same reason: the read was already
+being paid for and thrown away.
+
+That the rows are the *in-progress* ones leaves one gap, and the filter above it covers
+that gap. A bead the other machine's advocate has staked is claimed by its worker within
+the first minute, so the two writes ride the same sync — by the time a pull can show you the
+label at all, it shows you the status. In the window where it has not, the bead carries no
+claim here yet, so it is still in this tick's `bd ready`, and the *first* check holds a
+parent whose child is ready for exactly the reason this one holds a parent whose child is
+claimed.
+
+**And this half is a filter and never a stand-down**, which is the one place the two
+directions are deliberately not symmetric. `reconcile` withdraws a window when a claim is
+*above* it, and that asymmetry is what resolves the after-the-fact race to exactly one
+survivor: the machine above keeps its window, the machine inside gives its up. Asking the
+downward question there too would make both of them withdraw — the one above because
+somebody is below, the one below because somebody is above — and a subtree nobody is working
+is worse than the duplicate that started this. So it runs before a launch, where the answer
+is *do not open a second window*, and never after one, where the answer is already settled.
+
 #### …and the window this daemon never opened
 
 Everything above is written by the launch. The advocate stakes the claim and then opens the
@@ -13877,7 +13921,7 @@ another Mac's, and an agent's — and asserts that exactly one of them rings.
 | `advocates.holdLiveSessions` | [hold a bead out of the queue while a live session already names it](#the-bead-somebody-is-already-sitting-in) (default `true`). The claim is not the guard the brief says it is — "request changes" drops it, a timeout drops the slot, a restart forgets the worker — and without this a second window opens into a worktree somebody is still editing. No interval: the session records are files on this laptop, so it reads on every tick and again before a launch |
 | `advocates.holdClaimedFiles` | [hold a bead out of the queue while another session on this Mac is editing the files it would touch](#the-bead-whose-files-somebody-is-already-editing) (default `true`). The same register `scripts/claim-guard.sh` asks at `PreToolUse`, read at dispatch instead — where standing down costs nothing rather than a session that has already been briefed. No new state and no interval: the map is in this process |
 | `advocates.holdGuessedFiles` | whether a surface *guessed* out of the bead's prose may hold as well, or may only say so on the card (default `false`). A declared surface is a forecast somebody wrote down; a guess is the daemon having read a description, and evidence that is a resemblance errs toward doing the work twice rather than not at all — the same way the twin filter does, and the opposite of the open-pull-request one |
-| `advocates.holdLeases` | [hold a bead out of the queue while another Mac has claimed it in the shared tracker, and stand down when one claims it underneath us](#the-bead-another-mac-has-claimed) (default `true`). Inert until `me` is set, which is every one-Mac install — with no handle there is no label to write and nobody to lose to. The claim is a `held:<stamp>:<handle>` label rather than the assignee, because two labels are two rows Dolt merges rather than a cell it cannot, which is what lets both machines see both claims and agree on the winner without talking |
+| `advocates.holdLeases` | [hold a bead out of the queue while another Mac has claimed it — the bead itself, or anything above or below it in the subtree — and stand down when a claim above one of our own windows wins](#the-bead-another-mac-has-claimed) (default `true`). Inert until `me` is set, which is every one-Mac install — with no handle there is no label to write and nobody to lose to. The claim is a `held:<stamp>:<handle>` label rather than the assignee, because two labels are two rows Dolt merges rather than a cell it cannot, which is what lets both machines see both claims and agree on the winner without talking |
 | `advocates.leaseMinutes` | how long one of those claims is good for (default 60, restamped at half that by whichever advocate still holds the worker). Not a load knob: it is how long a bead stays parked when the Mac holding it goes to sleep, and a bead parked forever is worse than the duplicate window this prevents |
 | `advocates.sessionLog` | archive each finished session to `refs/beadcause/sessions/<bead>` and note its commits (default `true`) |
 | `advocates.sessionTranscripts` | also store the raw Claude Code transcript — megabytes, and it carries paths and tool output (default `false`; set per repo in `perWorkspace`) |
