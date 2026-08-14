@@ -572,6 +572,95 @@
     </div>`;
   }
 
+  /** The windows that are writing a plan rather than code — see `planning` in snapshot(). */
+  const plannersOf = (a) => (a.workers || []).filter((w) => w.planning);
+
+  /**
+   * Who is arguing for this repo, and for which epics.
+   *
+   * There is more than one advocate per card and there has been since epic planning
+   * landed, but the page only ever drew one of them. The **repo advocate** is the card
+   * itself — its name is the heading, its state is the chip beside it — and an
+   * **EpicAdvocate** is a window opened on one P0 to write that epic's plan
+   * (`wantsAdvocate` in lib/epicadvocate.js: a P0 that is open, owned, and not a crash).
+   * Both decide what gets worked on; only one of them was visible, and the other was
+   * indistinguishable from an ordinary session in "Working now".
+   *
+   * So this is a roster rather than a second session list. Each row says *which epic is
+   * being argued for*, which is the question the sessions list cannot answer — a planner
+   * row there reads as a bead somebody is coding. The slot arithmetic is deliberately
+   * left where it was: a planner holds a session slot, so it is still counted and still
+   * drawn under "Working now", and this section takes nothing out of that count. Two
+   * views of one window, each answering a question the other cannot.
+   *
+   * Drawn when empty, like every held-off state on this page: "no EpicAdvocate is open"
+   * is a fact about the repo, and it is the state that follows a P0 being closed — which
+   * is how six epics' worth of planning went quiet on 2026-08-12 with nothing on screen
+   * saying so.
+   */
+  function advocatesHtml(a) {
+    const planners = plannersOf(a);
+    // Deliberately *not* `stateOf(a)`: that sentence is already the chip in this card's
+    // head, and when sessions are open it is the session count word for word — a row
+    // repeating it would be three copies of one fact on one card. What the roster owes
+    // instead is the count, always, plus the states you cannot infer from it: an advocate
+    // at 0 of 3 because it is paused and one at 0 of 3 because nothing is ready look
+    // identical, and only one of them is waiting on you.
+    const held = a.error
+      ? '<span class="tag warn">cannot read the tracker</span>'
+      : a.paused
+        ? '<span class="tag warn">paused — it will not launch</span>'
+        : a.quiet
+          ? '<span class="tag warn">quiet hours — watching, not launching</span>'
+          : a.surveying
+            ? '<span class="tag ok"><span class="spark"></span>surveying</span>'
+            : '';
+    // Not a link: the repo advocate has no session of its own to open — it is the daemon
+    // loop, and everything you can do to it is already a button in this card's head.
+    const repo = `<div class="work-row adv-worker">
+      <span class="work-phase">${a.paused ? '◍' : a.surveying ? '<span class="spark"></span>' : '◆'}</span>
+      <span class="work-main">
+        <span class="work-title">The repo advocate</span>
+        <span class="work-sub"><span class="pill id">${esc(a.workspace)}</span>
+          <span class="tag dim">${esc(a.workers.length)} of ${esc(a.limit)} sessions</span>
+          ${held}
+        </span>
+      </span>
+      <time>${esc(age(a.lastSurveyAt))}</time>
+    </div>`;
+    // Same destination rule as `workerRow`: a live pid has a transcript worth reading, a
+    // dead one does not, and the epic is the only thing left to show for it.
+    const rows = planners
+      .map((w) => {
+        const live = livePid(w.pid);
+        return `<a class="work-row adv-worker" href="${esc(live ? sessionUrl(w.pid) : graphUrl(a.workspace, w.id))}">
+          <span class="work-phase">${live && !w.ended ? '<span class="spark"></span>' : w.ended ? '◍' : '◔'}</span>
+          <span class="work-main">
+            <span class="work-title">${esc(w.title || w.id)}</span>
+            <span class="work-sub"><span class="pill id">${esc(w.id)}</span>
+              <span class="tag ok">EpicAdvocate</span>
+              <span class="tag" title="A planner is opened on one P0 to decide what its children are and which of them belong together. It writes a plan, not code.">writing this epic's plan</span>
+              ${
+                // The number the plan is actually over. A planner is deliberately shown
+                // every ready child rather than a capped batch (see `maxBatchBeads` in
+                // lib/advocate.js), so this is the real size of the judgement it is making.
+                w.batch?.length ? `<span class="tag">over ${esc(plural(w.batch.length, 'bead'))}</span>` : ''
+              }
+              ${w.ended ? '<span class="tag warn">the window has exited</span>' : ''}
+            </span>
+          </span>
+          <time>${esc(age(w.at))}</time>
+        </a>`;
+      })
+      .join('');
+    return (
+      repo +
+      (planners.length
+        ? `<div class="session-label">EpicAdvocates <span>One per P0 being planned. Each also holds a session slot below.</span></div>${rows}`
+        : `<p class="subtitle">No EpicAdvocate is open. One opens per P0 epic that is open, owned and not a crash — so a P0 that closes stops being argued for, and this says so.</p>`)
+    );
+  }
+
   /**
    * One session the advocate opened.
    *
@@ -583,6 +672,21 @@
    */
   function workerRow(a, w) {
     const chips = [
+      // What kind of window this is, before anything about what it carries. A planner
+      // **finishes with its bead still open**, on purpose — an epic is its children, and
+      // the planner's job ends when the plan is written. Every other worker that ends
+      // with its bead open has given up, so without this chip the one window doing
+      // exactly the right thing is drawn identically to the one that ran out of room.
+      w.planning
+        ? '<span class="tag ok" title="A planner writes this epic\'s plan and no code. It ends with its bead still open, which is correct here and a give-up everywhere else.">EpicAdvocate — planning</span>'
+        : '',
+      // And which group of an epic's plan this window is. Without it, the four windows one
+      // judgement dispatched read as four unrelated beads that happened to start together.
+      w.group?.name
+        ? `<span class="tag" title="${esc(
+            `One group of ${w.group.epic || 'an epic'}'s plan — an EpicAdvocate decided these beads belong in one change`
+          )}">${esc(w.group.name)}${w.group.epic ? ` · from ${esc(w.group.epic)}'s plan` : ''}</span>`
+        : '',
       // A batch head stands for several beads and the row shows one title. Without this
       // the others are invisible: they left the queue, one window went up, and nothing on
       // screen says the two facts are the same fact.
@@ -941,6 +1045,17 @@
       .join('');
 
     const secs = [
+      // First, because it answers "who is deciding what happens in this repo" — and every
+      // section under it is one of those decisions playing out. Open by default in the
+      // sense that matters: the count in the summary is 1 + the planners, so a shut panel
+      // still says whether any epic is being argued for.
+      section(
+        `${key}:advocates`,
+        'Advocates',
+        String(1 + plannersOf(a).length),
+        advocatesHtml(a),
+        { tone: plannersOf(a).length ? 'live' : '' }
+      ),
       section(
         `${key}:work`,
         'Working now',

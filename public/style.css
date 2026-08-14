@@ -5321,7 +5321,18 @@ a.pill { text-decoration: none; }
 /* Room for the banner, and a tint over everything under it. `padding-top` on the body
    rather than a margin on the list: four different things are fixed to the top of this
    page and pushing the document is what moves all of them together. */
-body.editing { padding-top: calc(env(safe-area-inset-top) + 44px); }
+body.editing {
+  padding-top: calc(env(safe-area-inset-top) + 44px);
+  /* A hold is the gesture that picks an element up, and both of these are what the phone
+     would otherwise do with one instead: iOS raises the callout menu over the thing you
+     are pointing at, and a hold that drifts a pixel starts selecting text through the
+     card. Neither is undone by anything JavaScript can say afterwards.
+     Scrolling is deliberately NOT disabled here — you have to be able to reach the rest
+     of the screen — and is refused per-gesture, once a drag is genuinely under way. */
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
 /* Drawn on a pseudo-element with pointer-events off, so the whole page reads as held
    without a single element on it becoming untappable — the taps are exactly what the
    mode is for. */
@@ -5392,3 +5403,227 @@ body.editing::after {
   background: transparent;
   color: var(--muted);
 }
+
+/* The pass, still held, after the mode has ended.
+   Leaving edit mode puts the whole screen back the way the app has it — which is the
+   truth, and is also exactly what a save that failed would look like. This badge is the
+   difference: the way back in says how many edits are waiting, so a reverted screen reads
+   as "nothing was applied yet" rather than as "it lost them". */
+.editmode[data-changes]::after {
+  content: attr(data-changes);
+  position: absolute;
+  top: -3px; right: -3px;
+  min-width: 18px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--warn);
+  color: var(--accent-ink);
+  font-size: 11px; font-weight: 700; line-height: 18px;
+}
+
+/* The running count of the pass, and the way into the list. It sits in the banner
+   because the banner is the one thing guaranteed to be visible and reachable in this
+   mode — an open card covers the whole rest of the screen — and it is hidden at zero,
+   since a 0 is a control with nothing behind it. */
+.editbar-count {
+  flex: none;
+  min-width: 30px; min-height: 30px;
+  padding: 0 9px;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  background: var(--accent-ink);
+  color: var(--warn);
+  font: inherit; font-size: 13px; font-weight: 700;
+  cursor: pointer;
+}
+.editbar-count[hidden] { display: none; }
+
+/* --- what a gesture looks like while it is happening ---------------------------
+
+   Every one of these is a state of the *conversation*, not of the app: an element that
+   has been picked up, one being retyped, one that has something said about it. None of
+   them survives the mode, and the fact that they are all borrowed from --warn — the
+   colour of the banner that says the screen is frozen — is the point. Nothing in this
+   family may use --accent, which on this screen means a thing that actually happened. */
+
+/* Picked up: lifted, and unmistakably held rather than merely highlighted, because from
+   here a lift of the thumb means describe and a drag means point. */
+.editpick {
+  outline: 2px solid var(--warn);
+  outline-offset: 2px;
+  border-radius: 6px;
+  box-shadow: 0 10px 26px rgb(0 0 0 / 0.45);
+}
+/* And in flight. `pointer-events: none` is load-bearing rather than cosmetic: it is what
+   lets the drop ask what is *under* the thumb instead of being answered by the element
+   already in it. The transform the drag writes makes its own stacking context, so it
+   floats over its siblings without this file positioning anything. */
+.editdrag {
+  pointer-events: none;
+  opacity: 0.88;
+  transition: none;
+}
+
+/* Being retyped. A caret in --warn as well, so the one place on the screen where typing
+   goes is obvious with a keyboard over the bottom half of it. */
+.editretype {
+  outline: 2px solid var(--warn);
+  outline-offset: 2px;
+  border-radius: 4px;
+  caret-color: var(--warn);
+  -webkit-user-select: text;
+  user-select: text;
+}
+/* Retyped, and still not saved: the words on screen are yours, the app's are underneath
+   them in the change list, and this is the difference said in a way a glance catches. */
+.editretyped {
+  text-decoration: underline wavy var(--warn);
+  text-underline-offset: 3px;
+}
+/* Something has been said about this one. Dashed rather than solid because it is a note
+   against the element, not a change to it. */
+.editsaid {
+  outline: 1px dashed var(--warn);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* --- the note box -------------------------------------------------------------
+
+   A sheet at the foot of the screen, which is where the keyboard comes from: a box in
+   the middle of the page is a box the keyboard covers on a phone, and this one exists
+   to be typed into. Above the banner in z-order because it is a question, and a question
+   underneath the thing that raised it is one nobody can answer. */
+.editnote {
+  position: fixed;
+  z-index: 47;
+  left: 0; right: 0; bottom: 0;
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 12px 14px calc(env(safe-area-inset-bottom) + 14px);
+  background: var(--surface);
+  border-top: 2px solid var(--warn);
+  box-shadow: 0 -10px 30px rgb(0 0 0 / 0.4);
+}
+.editnote-what {
+  margin: 0;
+  font-size: 13.5px; font-weight: 600;
+  color: var(--text);
+}
+.editnote-ask {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.editnote-box {
+  width: 100%;
+  min-height: 74px;
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit; font-size: 15px;
+  resize: vertical;
+  -webkit-user-select: text;
+  user-select: text;
+}
+.editnote-row { display: flex; gap: 8px; justify-content: flex-end; align-items: center; }
+.editnote-cancel, .editnote-add {
+  min-height: 40px;
+  padding: 6px 16px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--text);
+  font: inherit; font-size: 14px; font-weight: 600;
+  cursor: pointer;
+}
+/* Filled, because it is the one that files something — and refused while the box is
+   empty, since a point with no note is not an edit. */
+.editnote-add {
+  border-color: var(--warn);
+  background: var(--warn);
+  color: var(--accent-ink);
+}
+.editnote-add[disabled] { opacity: 0.45; cursor: default; }
+
+/* --- the change list ----------------------------------------------------------
+
+   The pass, reviewable before it is anything else. Same foot of the same screen as the
+   note box and one layer under it: the note is a question about one edit, this is
+   everything said so far. */
+.editlist {
+  position: fixed;
+  z-index: 46;
+  left: 0; right: 0; bottom: 0;
+  max-height: 62vh;
+  display: flex; flex-direction: column;
+  padding: 10px 14px calc(env(safe-area-inset-bottom) + 12px);
+  background: var(--surface);
+  border-top: 2px solid var(--warn);
+  box-shadow: 0 -10px 30px rgb(0 0 0 / 0.4);
+}
+.editlist-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.editlist-count { font-size: 13.5px; font-weight: 700; color: var(--warn); }
+.editlist-close {
+  min-height: 34px;
+  padding: 4px 14px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text);
+  font: inherit; font-size: 13px; font-weight: 600;
+  cursor: pointer;
+}
+/* The rows scroll and the head and the foot do not, so the sentence saying none of this
+   has changed the app cannot be scrolled off the bottom of the pass it is about. */
+.editlist-rows {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.editlist-row {
+  display: flex; align-items: flex-start; gap: 9px;
+  padding: 8px 0;
+  border-top: 1px solid var(--line);
+  font-size: 13.5px;
+}
+.editlist-kind { flex: none; width: 18px; text-align: center; }
+.editlist-said { flex: 1 1 auto; color: var(--text); overflow-wrap: anywhere; }
+/* The words, under the gesture that pointed at them: on a point they are the whole of
+   the edit, and a list showing only "above the title" would be a list of gestures. */
+.editlist-note { display: block; margin-top: 2px; color: var(--muted); font-style: normal; }
+.editlist-drop {
+  flex: none;
+  min-width: 34px; min-height: 34px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit; font-size: 13px;
+  cursor: pointer;
+}
+.editlist-none { padding: 10px 0; color: var(--muted); font-size: 13px; }
+.editlist-foot { margin: 8px 0 0; color: var(--muted); font-size: 11.5px; }
+/* The one control in this mode that makes anything real, and the sentence saying nothing
+   is real yet, on one line. The sentence takes the space that is left so the button keeps
+   its width on a narrow phone — a Save that wrapped to two characters would be the least
+   findable thing on the screen. */
+.editlist-actions { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; }
+.editlist-actions .editlist-foot { flex: 1 1 auto; }
+.editlist-save {
+  flex: none;
+  min-height: 40px;
+  padding: 8px 22px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--warn);
+  color: #131313;
+  font: inherit; font-size: 14px; font-weight: 700;
+  cursor: pointer;
+}
+/* Disabled while a Save is in flight and while there is nothing to save. Faded rather
+   than hidden: a button that disappears reads as a control that failed. */
+.editlist-save[disabled] { opacity: 0.45; cursor: default; }

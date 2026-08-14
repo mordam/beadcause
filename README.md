@@ -4073,10 +4073,12 @@ there and is the best description of itself. **Edit mode** (bc-p49x) is the stat
 lets it be used that way: tap ✏️, and the inbox stops being a list you answer and becomes
 a surface you point at.
 
-Only the foundation is built (bc-p49x.1). Nothing captures an edit yet, nothing files
-one, and nothing applies one — those are bc-p49x.2, .3 and .4. What is here is the two
-things all three of them need: **the screen holds still**, and **any element on it can be
-traced back to the line of source that drew it**.
+Three quarters of it is built. The screen holds still and every element on it traces back
+to the line of source that drew it (bc-p49x.1); three gestures say what should change and
+land in a reviewable list (bc-p49x.2); and Save files that list as beads (bc-p49x.3).
+What is not built is the far end — a worker turning one of those beads into a branch and
+a pull request, which is bc-p49x.4 and is ordinary work in every respect except that the
+bead it starts from was typed with a thumb.
 
 ### The screen holds still, and says so
 
@@ -4197,17 +4199,169 @@ adds one still gets the whole of `beadcause.editMode`, which is how the checks d
 and a page served without `editmode.js` answers `frozen()` false and behaves exactly as
 the inbox always did.
 
+### One press, and three ways to say what should change
+
+A phone has one gesture surface and this mode needs three meanings out of it, so they are
+told apart by **time** and then by **movement** — the idiom a phone already uses to pick
+something up.
+
+- **Tap — retype.** The text opens for editing in place, and what is recorded is the old
+  string and the new one. The one literal edit in the whole epic, and the one that needs
+  no prose. Refused, with the reason said in the banner, when the anchor calls the text
+  tracker data, when it is written in more than one place in source, or when you tapped
+  the box around the words rather than the words.
+- **Hold — describe.** The element is picked up, and letting go without moving it asks
+  for a sentence about what it should do instead. No gesture beyond saying *which*, and
+  expected to be the most used of the three.
+- **Hold, then drag — point.** Where you let go names another element, and what gets
+  recorded is the **relationship** to it: above the title, inside this card, out of this
+  row. Then the same note box, because the drag says where and only the words say what.
+
+Pixels are deliberately never recorded. Nothing downstream could act on one — this app's
+layout is a stylesheet and a template, and "56 pixels left" is not a change anybody can
+make to either, where "out of the head and under the buttons" is. A drop that lands on
+nothing anchored says exactly that rather than guessing.
+
+**The hold is what keeps the list scrollable.** A drag straight from a press is the naive
+implementation and it is unusable here: a thumb moving down this screen is a scroll every
+other second of the day, so a mode that claimed it would make the inbox unreachable below
+the fold with nothing on screen saying why. Nothing is intercepted until the hold has
+fired, and by then the browser has already decided that this finger is not scrolling.
+Movement before the hold releases the gesture entirely rather than fighting the scroller
+for it. `scripts/editgesture-check.mjs` performs a real swipe and requires the page to
+have moved.
+
+**Nothing a gesture does may look like it saved.** A dropped element snaps back before the
+note box has even opened, the box says so in as many words, retyped text is marked as
+unsaved and reverts the moment the mode ends, and the change list's foot says outright
+that nothing in it has changed the app. The failure being designed against is not a lost
+edit: it is a person who believes the drag moved something, reopens the app, finds it
+where it was, and concludes that saving is broken.
+
+### The pass is a change list, and it is reviewable before it is anything else
+
+All three gestures land in one list held for the pass, in the order they were made,
+because the second edit is very often a qualification of the first. The banner carries a
+running count that is also the way into it, each entry says what it was and what you said
+about it, and any one of them can be dropped with a thumb before Save. **A point with no
+note is dropped for you** — it is a finger that slipped rather than an edit, and a tracker
+full of "something about this card" is worse than an empty one, so `Add` stays refused
+while the box is empty.
+
+The list outlives leaving the mode; the visuals do not. Hitting ✏️ twice is not a decision
+to throw a pass away, and the record of what you asked for is the only thing here that
+cannot be reconstructed from the screen afterwards. What empties it is Save.
+
+**So the ✏️ carries the count once the banner has gone.** Leaving the mode puts the whole
+screen back the way the app has it — which is the truth, and is also exactly what a save
+that failed would look like. A badge on the way back in, and the same number in the
+button's label, is the difference between "nothing was applied yet, and here is what you
+said" and "it lost my edits".
+
+`beadcause.editMode` exposes the pass as `changes()` — JSON, holding the anchor, the kind,
+the note or the two strings, and for a point the element it landed against — plus
+`dropChange(id)`, `clearChanges()`, `onChanges(fn)` and `save()`. **No gesture writes to
+the tracker.** There is exactly one write in `public/editmode.js`, it is Save's, and a
+suite asserts that the file holds exactly one API path and one `POST`: filing half a pass,
+with no review and no way back, is the failure that would be hardest to undo.
+
+### Save files the pass
+
+Save is at the foot of the change list, which is deliberate — it is the only way to it,
+so you cannot file a pass you have not looked at. It posts the whole list to
+`POST /api/edits` once, and what comes back is three levels of bead:
+
+- a **standing P0 root**, which is never closed and is not created per pass — a bead with
+  no P0 ancestor is not workable at all (bc-rfnr.7), so the pass needs a container that
+  already exists at the moment it is filed;
+- one **P1 session bead** under it per pass, holding what was said, in order;
+- one **P2 child** under that per individual change, each dispatchable on its own.
+
+So six things nudged in one sitting is one P1 with six children, not six P0s. Both halves
+of that matter and they fail opposite ways: six loose beads is six windows opened on what
+was one thought, each missing the other five, and one bead with six paragraphs is one
+window that has to do six unrelated things before it can be closed. The session bead is
+what keeps the pass together *and* keeps each edit dispatchable.
+
+**The session bead is an epic, and says in its own description that it is not the work.**
+A *task* with children is ordinary worker dispatch, and a worker's one sanctioned ending
+closes the bead it was opened on — which here would close the pass and orphan every edit
+under it. An epic with ready children is a batch head instead and gets a planner. The
+type is most of the protection and the sentence is the rest, because an epic with a
+single ready child falls under `minBatchBeads` and is dispatched like anything else.
+
+**A child has to be workable cold**, by an agent with no screen, hours later. So it
+carries the whole anchor — the selector chain, the class names, the visible text, whether
+that text was source or tracker data, and the file and line the search found — as prose
+for a person and as a JSON block for a grep, plus the note or the old and new string, plus
+**where in the app you were standing**: the surface, what was showing, the space and the
+kind filters. That last one is not decoration. The inbox is four filters deep and the
+element only exists under some of them, so "the P0 title is too quiet" is a different bead
+depending on what was on screen, and an agent that opens the app to look will see whatever
+narrowing it happens to load with. It is stamped per edit rather than per pass, because a
+pass can cross two filters.
+
+**Filed endorsed.** `lib/filing.js` holds an *agent's* proposal behind a tap because an
+agent decided it was work; these are your own words, typed in by hand, and holding them
+for your approval would be asking you to approve yourself. The one stamp that does go on
+is `in-app-edit`, for the reason `agent-filed` exists: one `bd list --label in-app-edit`
+finds every bead that arrived this way, which is the only way to audit the route later.
+
+**The workspace is this checkout's own, not the one on screen.** An edit typed into this
+screen is a change to *this app*, whichever tracker's beads happen to be drawn on it, so
+it goes to the workspace whose sessions open in this checkout — the same answer
+`lib/crash.js` takes for the daemon's own crashes, and for the same reason: filing a
+remark about `public/app.js` onto `workspaces[0]` would put it on somebody else's board.
+
+**The root is found by a marker, never by its title.** In order: the id in `edits.root` if
+the config names one and it is still open, then a live epic carrying the `edit-root`
+label, then one created on the spot and marked. Matching on a title is how two containers
+for one job appear the day somebody renames one, and this would do it silently on every
+Save.
+
+**A failure keeps the pass, and this is the part worth being careful about.** The change
+list is the only copy of what was said — the page it describes is gone with the tab, and
+none of it is written anywhere else. So an entry leaves the list only against an id the
+daemon has confirmed, and a `502` carries `filed[]` for exactly that: a half-filed pass
+drops the two beads that exist and keeps the third to be saved again. Filing something
+twice costs a duplicate bead you close in a second; losing it costs the thought. The same
+rule makes a double-tapped Save file nothing twice — a second press while one is in flight
+is refused, because two passes is a whole second session bead with the same edits under it.
+
 ### Checking it
 
 `node test/editmode.mjs` is in `npm test` and covers the mode, the anchor and the
 source-versus-tracker rule against the real `public/app.js` — including that a P0 title
 really does resolve to one line, which is a claim about this repo rather than a law.
 
-`node scripts/editmode-check.mjs` is the acceptance, in a headless Chrome the size of a
-phone. Its first case is the control and is the reason the rest means anything: with the
-mode **off**, a poll carrying a changed bead replaces the very nodes the frozen case then
-keeps. Without it, a check that stamped every node and found the stamps intact would pass
-just as happily against a page that never polled at all.
+`node test/editchanges.mjs`, also in `npm test`, is everything downstream of an anchor:
+the three gestures against a hand-made document with a clock the test moves by hand, the
+refusals, and the change list. It runs the real `public/editmode.js` in a vm the way its
+sibling does.
+
+`node test/editsave.mjs` is the far end: `lib/edits.js` turning a change list into that
+three-level shape, against a `bd` that is a stub binary over a directory of JSON files.
+Most of it is about the ways a Save goes wrong quietly — a root recreated instead of
+found, a root named in the config that has since been closed, a child that says "make this
+bigger" and nothing else, and a tracker that dies half way through and has to report
+exactly which beads exist.
+
+`node scripts/editmode-check.mjs` is bc-p49x.1's acceptance, in a headless Chrome the size
+of a phone. Its first case is the control and is the reason the rest means anything: with
+the mode **off**, a poll carrying a changed bead replaces the very nodes the frozen case
+then keeps. Without it, a check that stamped every node and found the stamps intact would
+pass just as happily against a page that never polled at all.
+
+`node scripts/editgesture-check.mjs` is bc-p49x.2's **and bc-p49x.3's** — it ends by
+re-entering the mode, pressing Save with a thumb and reading what left the phone, which
+is the epic's acceptance end to end: three things changed on a 393-point screen with no
+keyboard and no chat, and one post carrying the anchors, the lines and the filters they
+were said under. Every case in it is driven as
+actual touches through `Input.dispatchTouchEvent`. That is not thoroughness for its own
+sake: a tap, a hold and a scroll are the same three events until you time them, Chrome is
+the thing that decides which one a finger made, and what a drop lands on is a question
+about where things are on a 393-point screen. A suite that fires `pointerdown` and moves
+its own clock proves the logic and assumes all of that.
 
 ## Detail opens over the tab, not instead of it
 
@@ -11937,6 +12091,7 @@ cookie says so), and `/auth/signout` ends the session.
 | POST | `/api/notifications/dismiss` | `{keys[], confirm}` | clears the phone's notification rows for beads the filter excludes. `confirm: false` records the decline, which is what stops the next sweep asking again. The beads are untouched either way |
 | POST | `/api/ask` | `{workspace, title, body, priority}` | `{id, key}` — files a new `human` bead |
 | POST | `/api/error` | `{message, source?, line?, column?, stack?, url?, userAgent?, at?, kind?, workspace?}` | `{ok, action, id, key, fingerprint}` — an error the app hit, filed as a **P0 bug** or commented onto the bead that already covers it. `action` is `created` · `commented` · `regressed`. **`message` is the only required field**: a cross-origin `window.onerror` is handed `"Script error."` and nothing else, and that is still worth more than a red toast nobody saw. `workspace` defaults to the first configured one — the reporter is a page, which has no idea which repo it is looking at. **Never answers 5xx**, because it is called by error handling: a tracker that is down comes back `200 {ok: false, reason}`. See [an error the app hits files itself as a P0](#an-error-the-app-hits-files-itself-as-a-p0) |
+| POST | `/api/edits` | `{changes[], page?, view?, at?, workspace?}` | `{ok, workspace, root, session, filed[], dropped[]}` — a pass made with [edit mode](#editing-the-app-from-inside-the-app) on, filed as one P1 session bead and one P2 child per change, under a standing P0 root that is found by its `edit-root` marker or created here. The workspace is **this checkout's own**, not the one on screen: an edit typed into this screen is a change to *this app*. `400` on an empty pass, and `502` carries `filed[]` — the phone drops exactly those entries and keeps the rest, because the change list is the only copy of what was said. See [Save files the pass](#save-files-the-pass) |
 | POST | `/api/session` | `{workspace, id}` | `{dir}` — opens iTerm2 + `claude` on that bead |
 | POST | `/api/status` | `{workspace, id, phase, detail, actor}` | agent progress |
 | GET | `/api/agent-log` | `?workspace=&id=` | `{lines[], running, phase}` — the dispatched agent's log, as the CLI would have shown it |
@@ -12402,6 +12557,8 @@ Two consequences of that ordering worth knowing:
 | `auth.google.enabled` | `false` turns sign-in off while leaving the rest of the block configured (default `true`) |
 | `workspaces` | auto-discovered from `~/beads/*/.beads`, and **reconciled on every start** — entries whose directory has gone are dropped and new ones picked up, both logged. Renaming a workspace directory used to leave a stale entry that failed on every poll tick, silently hiding that whole workspace from the phone |
 | `repos` | the checkouts **one workspace** may be worked in, keyed by workspace name — `{"climative": {"root": "~/climative.dev", "default": "architecture", "approved": ["architecture", "athena-service"]}}`. Empty by default, and a workspace not named here costs nothing: it is one repo, as every workspace was before this existed. `approved` is a list you write and nothing discovers — a directory under `root` that is not in it resolves to nothing; `npm run configure` prints the tree with each repo's token for you to tick, which is not the same thing as approving one. Each repo's identity is the **service token** it declares in its own `config/config.yaml`, read from the checkout rather than restated here; `default` is the repo a bead carrying no token belongs to, and `tokenPath` / `tokenKey` override where the token is read from. A bead says which repo it is about by carrying that token as a `repo:<token>` label. See [Many repos, one workspace](#many-repos-one-workspace--the-approved-list-and-the-token-that-names-each) and [how a bead names one](#how-a-bead-says-which-repo-it-is-about--repotoken) |
+| `edits.workspace` | which tracker a pass from [edit mode](#save-files-the-pass) is filed into (default `null`). Null is not "none": it means the workspace whose sessions open in *this* checkout, because an edit typed into this screen is a change to this app whichever tracker's beads happen to be drawn on it. Set it only where that answer is wrong |
+| `edits.root` | the standing P0 every pass lands under (default `null`). Null means found by its `edit-root` label, or created on the first Save — so an install that has configured nothing still files under a P0 that exists, without which nothing under it would be workable at all. Name one here to override that; a root named here and since **closed** is ignored rather than used |
 | `openSessions` | allow `POST /api/session` to open a Claude session on the Mac (default `true`) |
 | `deploys` | what "deploy this repo" **is**, keyed per repo and empty by default — `{"beadcause": {"command": ["launchctl", "kickstart", "-k", "gui/{uid}/m4m.beadcause"], "restarts": true}}`. The one act after a merge that is never inferred: a repo with no entry is one beadcause cannot ship, said out loud, and its Ship opens a window on the Mac instead. `command` is **argv and never a shell line**, because this file is hand-edited and synced as a git repo. The key is a workspace name where the workspace is one repo and `<workspace>/<repo>` where it holds several — a bare multi-repo workspace names no checkout and is refused rather than resolved to the default one. Other keys: `restarts` (this deploy kills beadcause itself), `pull` (fast-forward first, default `true`), `rebuild` (artefacts, with `when` paths), `base`, `dir`, `launchAgent`, `graceMs`, `timeoutMs`. beadcause writes its own entry once, at startup. See [Deploying a repo](#deploying-a-repo-when-it-says-how) and [why it is keyed per repo](#a-deploy-is-a-fact-about-a-repo-and-a-workspace-may-be-forty-of-them) |
 | `release.beads` | file a bead per merged pull request and close it when a deploy makes it live (default `true`). Only ever in a repo whose deploy beadcause can see the outcome of — a bead nothing could close is a chore invented rather than found. See [The release queue](#the-release-queue--the-number-over-ship) |
