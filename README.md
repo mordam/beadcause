@@ -79,6 +79,7 @@ npm run onboard              # is this Mac pointed at the team's tracker? (--dry
 npm run check                # the checks around the agent log — safe with the daemon up
                              # (also run inside `npm test`, as test/agentlog.mjs)
 npm run secrets              # has a secret ever reached the config repo's history?
+npm run agentrepo            # is the tier 3 experiment actually running, and in both arms?
 npm run swap:status          # which build is answering the port, and the certificate on it
 npm run uninstall-service    # remove the service (keeps your config and token)
 tail -f ~/Library/Logs/beadcause.log
@@ -2744,7 +2745,8 @@ which means nothing thirty seconds later.
 ### Tier 3 — a repo one agent owns, and the experiment that is the point of it
 
 Tiers 1 and 2 settled durability. What they did not answer is what an agent does with
-a space nobody has designed. So the advocate — and only the advocate — is given one:
+a space nobody has designed. So three agents — the repo advocate, the P0 advocate and the
+worker — are each given one:
 
 ```
 ~/.config/beadcause/agents/<workspace>/<agent>/
@@ -2787,26 +2789,60 @@ So every survey runs one of two arms, and the comparison is the finding:
 | what it tests | does it write unprompted? | does being shown it make it read? |
 
 `advocates.agentRepo` picks: `alternate` (the default) flips between the two per
-workspace, `blind`/`index` pin one for reproducing something the log showed, and `off`
-withdraws the affordance and the write grant with it. `alternate` is the default
+workspace **and agent**, `blind`/`index` pin one for reproducing something the log showed,
+and `off` withdraws the affordance and the write grant with it. `alternate` is the default
 because the alternative is a switch somebody has to remember to flip, and an
-experiment that depends on that produces one arm and no comparison.
+experiment that depends on that produces one arm and no comparison. The key sits under
+`advocates` because the advocate was the first agent to have one; all three read it.
 
 Every invocation appends a line to `~/.config/beadcause/agents/usage.jsonl` — the
 verb, the target and whether it read or wrote, never file contents. A `session` line
 is written at *spawn*, so a run in which the agent ignored the repo entirely is still
 a run in the denominator; that is the half the prediction turns on.
 
-```js
-import { summary } from './lib/agentrepo.js';
-summary();
-// { blind: { runs, touched, read, wrote, readFirst, commands }, index: { … } }
+```
+$ npm run agentrepo
+
+Tier 3 — what each agent did with a repo of its own.
+
+worker
+  blind  runs 12  touched 5  read 1  wrote 5  readFirst 1  commands 34
+  index  runs 11  touched 8  read 7  wrote 6  readFirst 6  commands 51
+
+epic-advocate
+  blind  runs 4  touched 0  read 0  wrote 0  readFirst 0  commands 0
+  index  NO DATA — nothing has run in this arm, so nothing here is a zero.
 ```
 
 `readFirst` is the number that answers it: "wrote and never read back" is `wrote`
 minus `read`, and "was told what was in there and went and looked" is `readFirst`
-under `index`. Reported per arm and never pooled, because a pooled number answers a
-question nobody asked.
+under `index`.
+
+#### Three subjects, never added together, and an empty arm that says so
+
+The advocate was the only subject to begin with, and that was very nearly the end of the
+experiment. A survey is the rarest thing this daemon does — one per repo per twelve hours
+at best, and none at all while a proposal sits unanswered — so in four days the log held
+**one** run, in one arm, and the comparison the whole thing exists for could not be
+computed. bc-goo.12 put the grant on the two agents that actually run: the P0 advocate,
+which fires on every child event, and the worker, which is most of what opens a window
+here at all.
+
+Two rules fall out of that, and both are in `lib/agentrepo.js`:
+
+- **The numbers are read per agent and never pooled across them.** A worker editing
+  files for an hour, a P0 advocate doing one turn of thinking and a repo advocate arguing
+  about a queue are three populations, and the worker outruns the other two by a wide
+  margin — a pooled `readFirst` would report the worker's behaviour under all three names.
+  `summary({agent})` narrows it and `summaryByAgent()` lays all three side by side.
+  Workspaces *are* pooled inside an agent, because `alternate` flips per workspace and
+  agent, so every workspace contributes to both arms in step.
+- **An arm with no runs prints a sentence, not a zero.** `readFirst 0` under `index` is
+  the result the prediction expects *and* what an arm that has never run says. That
+  ambiguity is exactly how four empty days went unnoticed, so `report` refuses to print a
+  number for an empty arm and names any agent that owns a repo and has never run at all —
+  which is a thing no amount of reading the log can tell you, since a run that never
+  happened leaves nothing behind.
 
 #### The real work is permissions, not git
 
@@ -2871,10 +2907,12 @@ So the agents screen has a fifth tab, per agent, and it draws all of it:
 - **The blackboard** — how many messages this agent has collected, and from how many
   topics. A topic with messages and no reads is a thing published into silence, which is
   worth seeing, because `post`/`read` is a pull and nothing notifies.
-- **Tier 3** — the per-arm numbers, `blind` against `index`, for the one agent that owns
-  a repo. Never pooled: a total of one run reads as a live experiment, and 1-versus-0 is
-  the shape that says the comparison cannot be computed yet. The tab says that in words
-  when an arm is empty.
+- **Tier 3** — the per-arm numbers, `blind` against `index`, for each of the three agents
+  that own a repo. Never pooled: a total of one run reads as a live experiment, and
+  1-versus-0 is the shape that says the comparison cannot be computed yet. The tab says
+  that in words when an arm is empty. It is one agent at a time, because that is the tab
+  you are on; `npm run agentrepo` is the same numbers for all three at once, which is what
+  you want when the agent you should be worried about is the one you did not think to open.
 
 **Keys and writes are both shown because they are different facts.** A store holds one
 value per key and a write overwrites, so 244 commits over 31 keys is an agent that keeps
@@ -10227,7 +10265,7 @@ bead goes when nobody has yet decided where it goes. The bead's notes say which 
 and invite you to move it, because a bead quietly adopted into an epic nobody named
 otherwise reads as somebody else's decision.
 
-Four things about that rule are deliberate and each is a thing that would be wrong if
+Five things about that rule are deliberate and each is a thing that would be wrong if
 reversed:
 
 **Under the P0, not under the bead that found it.** The tempting version parents each
@@ -10256,6 +10294,27 @@ refuses the parent outright — its hierarchy is its own, and a P0 that is a cra
 rather than an epic is dispatchable directly, so a session really can be working under
 one — the bead is filed again with no parent and the refusal is reported. Nothing here
 chose that parent; losing a discovery over it would be the wrong way round.
+
+**But nothing is silent either, and for a while one thing was.** Fail-open is not the
+same promise as fail-quiet, and the difference is a bead that vanished. Three
+`beadcause-file` calls minutes apart in one session, same workspace, same `--from`: the
+third said *filed under bc-0i27, the P0 bc-0i27.4 belongs to* and the first two said
+**nothing at all** and landed with no parent — held by the rule above, and off the phone,
+reported as a success. The two failures were `bd export` not answering on a loaded Dolt,
+which is not a rare coincidence but a correlated one: the export fails when the machine
+is busy, and the machine is busy when twenty sessions are filing.
+
+What made it invisible is one seam further down than it looks. Reading the graph
+deliberately never throws — it logs, and hands back the last good answer or an empty one,
+because the inbox drawing everything and the dispatch gate withholding nothing both
+depend on it returning. But *an empty graph is a graph with no P0s in it*, which is
+exactly the case a warning must not be printed for; so "I could not look" arrived wearing
+the costume of "there is nothing here to look for", and the one filing that genuinely
+owed a warning was the one filing that could not produce one. The fix is a third state
+rather than a smarter boolean: the stand-in graph carries the reason it is a stand-in,
+`lib/homing.js` hands it out on `error`, and the failure is said once — on the filing
+session's own stderr where there is one, in the daemon log for the seven other callers
+that file unattended. The bead is still filed; only the silence is gone.
 
 **And the backlog is not for everybody.** A caller may say it must not land there, and
 one does: the [release queue](#the-release-queue--the-number-over-ship)'s per-merge `ship`
@@ -10470,13 +10529,12 @@ session by hand is not routed either: it is reached from a question as often as 
 bead, you are standing there when you press it, and `/model` is one line away.
 
 **The selection is recorded on the advocate's card while the session is still running.**
-The bead does not carry it and cannot yet — what a run *actually* used is only knowable
-once it has finished, which is bc-nc6o.3 — so the worker row on the card is the only place
-"what is this window costing" is answerable in the meantime, and it carries the tier
-beside the model because `opus` is equally the answer for a bead rated `high` and a bead
-nobody rated at all. It is in the launch line in the log too, beside the permission mode
-and for the same reason: both are decisions made silently at spawn and invisible
-afterwards.
+It is the only place "what is this window costing" is answerable in the meantime — the
+bead carries [what it actually ran on](#and-what-it-actually-ran-on--the-ran-label) only
+once it has stopped — and it carries the tier beside the model because `opus` is equally
+the answer for a bead rated `high` and a bead nobody rated at all. It is in the launch
+line in the log too, beside the permission mode and for the same reason: both are
+decisions made silently at spawn and invisible afterwards.
 
 `test/tiermodel.mjs` covers it, and the checks that matter run the real `openWorkSession`
 end to end and read back **the shell command the window would have run** — a mapping that
@@ -10484,6 +10542,85 @@ is right and a flag that never reaches the command line look identical from a un
 It drives the launcher against a copy of `lib/` with a stub AppleScript beside it, so a
 full launch happens and no window appears; the amendment case commits a real amendment to
 a real repo and watches it beat the tier all the way to the `--model`.
+
+### And what it actually ran on — the `ran:` label
+
+Everything above is a **plan**, made in the second before a window opens. What the hour
+inside it was billed to is a different fact, and the two come apart for at least four
+ordinary reasons: somebody typed `/model` mid-session, an approved amendment beat the
+tier, the CLI fell back, a config default moved underneath it. A card showing only the
+selection would go on saying `sonnet` about a session that spent the afternoon on Opus —
+and it would not look wrong, which is the problem. The number is plausible, there is no
+other copy of it, and the first time the two diverge is the one time you would have wanted
+to know.
+
+So when a session finishes, its bead gains a `ran:<model>` label — `ran:opus`,
+`ran:sonnet` — and `lib/ranmodel.js` is the whole of it.
+
+**Observed, not reported.** Nothing asks the session what it ran on. A session that
+changed model and then crashed would never answer, and one that did answer would be
+answering about the moment it was asked. Claude Code already writes every assistant turn
+to `~/.claude/projects/<slug>/<session-id>.jsonl` with the model id on it, so the answer is
+on disk, per turn, whether or not the window is still there. A session somebody moved
+halfway through therefore yields **two** models and both are kept: "it ran on opus" and
+"it started on sonnet and moved to opus" are different sentences, and only the second one
+explains the bill.
+
+**The scan parses each line rather than matching the raw text**, and that is not
+fastidiousness. A transcript is full of other people's model names — a tool result quoting
+a docs page, a `grep` for the word, an agent reasoning aloud about which one to use — and
+every one of them matches a regex over the line. Only `assistant` events count, and only
+`message.model` on them. `<synthetic>` is skipped as well: Claude Code stamps it on
+messages it composed itself, so counting it would label the bead of every session anybody
+pressed escape in with a model that does not exist.
+
+**A label, and a set, for the reasons [`complexity:`](#how-hard-a-bead-is--complexitytier)
+is one.** beads carries, syncs and filters on labels without beadcause owning a schema, so
+`bd list --label ran:opus` is a question anybody can ask today from any machine on the
+workspace. A set is also exactly the shape of the fact: a bead worked twice on two models
+keeps both labels, and a bead worked twice on the same one grows nothing the second time —
+which is the acceptance in one sentence, an earlier run's model never lost and never
+re-stated. Computed against the row rather than written blind, so the second run is no
+`bd` write at all rather than a no-op edit in the bead's history.
+
+**The family, not the id.** `claude-opus-5` becomes `ran:opus`, in the same vocabulary the
+router selects with, so "did this run where it was sent" is a comparison rather than a
+mapping — and a bead worked in March and again in June does not sprout two labels claiming
+a divergence that is really two point releases of one model. An id naming a family this
+file has never heard of is kept **verbatim** rather than dropped: a blank would be a lie,
+and `ran:claude-quartz-9` reads as odd because it is.
+
+**The ✎ cannot lose it.** `isRanLabel` joins `owner:` and `for:` in `isProtectedLabel`
+(`lib/verdict.js`), and for a reason those two do not have: `ran:` is not a decision at
+all, it is a record. There is nothing to decide about it and no route that sets it, so the
+only thing [adjust](#approve-adjust-decline) could ever do to one is lose it — and the
+sheet posts the label set the card is showing, where a `ran:` chip is not something anybody
+types. Note that `complexity:` is deliberately *not* protected: that one is a claim
+somebody made about the work, and correcting it from a phone is what the ✎ is for.
+
+**The exact ids go in the archive, beside the plan.** Every session's `meta.json` on
+[`refs/beadcause/sessions/<bead>`](#the-session-log-kept-in-the-repo) now
+carries `model` and `tier` — what it was routed to and what that was decided from — next to
+`ran`, every model id its transcript shows, and `ranDiverged`. The bead carries the
+readable fact and the archive carries the forensic one; and because the archive is a chain
+of commits, "which model was the *last* run on" has a real answer there, where a label set
+has no order and does not pretend to.
+
+**Written whether or not the workspace keeps a session log.** `sessionLog: false` means
+"do not put a log in this repo", not "do not know what the bill was for", so the label is
+written on the ordinary path from the models the archive read back, and on its own from the
+transcript where there is no archive to read them off. A session whose transcript is gone
+says **nothing** rather than falling back to the routed model — turning "we do not know"
+into "it ran on what we planned" is the one failure this whole label exists to prevent. A
+run that diverged is said out loud once in the log, naming the bead, because that one is
+news.
+
+`test/ranmodel.mjs` covers it: the vocabulary and both refusals, a transcript built to
+contain exactly the text a regex would trip on, the earlier-run-survives case, an adjust
+that would have stripped the label, a log long enough to blow the 4MB rendering cap
+(because the long session is exactly the one somebody changed model in), the real
+`archiveSession` against a throwaway repo and a throwaway `$HOME`, and a real advocate
+tick — a window ending, and the label arriving on the bead — down both routes.
 
 ### Approve, adjust, decline
 
@@ -12210,10 +12347,12 @@ curl -sI http://127.0.0.1:4318/api/health | grep beadcause
 The limits, stated plainly:
 
 - **The router cannot replace itself.** Doing so means giving up the socket, which is
-  the outage the whole thing exists to avoid. Change `bin/router.js`, `lib/build.js`
-  or `lib/config.js` and it says so once in the log; you restart it by hand with
+  the outage the whole thing exists to avoid. Change `bin/router.js`, `lib/build.js`,
+  `lib/config.js` or `lib/service.js` and you restart it by hand with
   `launchctl kickstart -k gui/$(id -u)/m4m.beadcause`. It is small and it rarely
-  moves, which is the trade.
+  moves, which is the trade — and it is the one state here that does **not** clear
+  itself, which is why
+  [it gets a screen of its own](#a-router-older-than-its-own-source-and-where-that-finally-shows).
 - **A build that *dies* is condemned; a build that is merely slow is retried.** If the
   new backend exits before it is healthy — a syntax error, a bad import — the old one
   keeps serving and that build is not retried until the files change again, because
@@ -12348,6 +12487,63 @@ The limits, stated plainly:
   the console is a *grandchild* of launchd, so the router passes down what it was handed
   in `BEADCAUSE_LAUNCHD_PROGRAM`; a backend reading its own `argv` would call every
   healthy install stale.
+
+### A router older than its own source, and where that finally shows
+
+The bullet above says you restart it by hand. The question that leaves open is *how you
+find out you need to*, and for a long time the honest answer was "by chance".
+
+Every other degraded state in this section resolves on its own. A stale build swaps in
+seconds. A build that was too slow is retried on the clock. A poisoned one clears the
+moment the files move. The router's own source is different in kind precisely because it
+cannot be acted on: the process holding the socket stays on the code it started with
+until somebody restarts the daemon, and nothing — no swap, no merge, no deploy of
+anything else — changes that.
+
+It had two surfaces, and both are places nobody stands. One line in
+`~/Library/Logs/beadcause.log`, said once at the moment it happens and never again. And
+a marker on the router line of `npm run swap:status`, which nothing runs on a schedule:
+
+```
+router   pid 62191 on :4318  ⚠ source changed — restart it
+active   pid 43669 :58756 build 2c87352d7141 active inflight 2 up 494s
+disk     2c87352d7141  (matches what is running)
+```
+
+Read that output and the last two lines are reassuring, which is the trap: the *backend*
+is current, the hot-swap worked, the disk matches what is running. Only the first line
+is about the process in front of them. So a fix for a stopped Tailscale merged, deployed,
+and did not run on this Mac for a day — while the advocate console's health line showed a
+green ✓ naming a build that genuinely was current. It was naming the backend's.
+
+That verdict is now the same one everywhere, which is what `explain()` in `lib/startup.js`
+is for: the log, `swap:status`, and the health block on the advocate console, said in one
+vocabulary. A router running old code reads there as an amber block of its own —
+
+> ⚠ **THE ROUTER IS RUNNING OLDER CODE** · `router-source`
+> serving build `2c87352d7141`, but the router in front of it is older than its own source
+> restart it: `launchctl kickstart -k gui/501/m4m.beadcause`
+
+— and three details in that block are each there because of a specific way it went wrong:
+
+- **Its own headline.** The two the block already had are `THE PHONE IS ON AN OLDER BUILD`
+  and `NOTHING IS BEING SERVED`, and both are false here. The phone is on the current
+  build; what is old is the program in front of it.
+- **Its own verb.** The other states are fixed with `npm run swap`, so the fix line said
+  *force it*. A swap is the one thing that cannot clear this — it replaces the backend,
+  which is already right — and it is the obvious thing to try from a screen that has just
+  told you something is behind.
+- **The command, from the router itself.** The uid and the LaunchAgent label are facts
+  only that process holds, so it publishes the whole line on `/internal/router/state`
+  rather than having three readers each rebuild it. A router too old to carry the field
+  still gets the diagnosis, without the command.
+- **It never displaces anything more urgent.** The backend states are all about what the
+  phone is being served *right now*, so they win; the flag rides the payload as
+  `sourceChanged` underneath whichever verdict is being shown, because a poisoned build
+  in front of a stale router is both, and only one of them fits on the line.
+
+`test/routersource.mjs` covers the rule as arithmetic, `--status` end to end against a
+stub control plane, the passthrough on `routerHealth`, and the drawn block itself.
 
 ### The WebSocket goes through it too, and a swap ends it on purpose
 
@@ -14309,6 +14505,7 @@ another Mac's, and an agent's — and asserts that exactly one of them rings.
 | `advocates.leaseMinutes` | how long one of those claims is good for (default 60, restamped at half that by whichever advocate still holds the worker). Not a load knob: it is how long a bead stays parked when the Mac holding it goes to sleep, and a bead parked forever is worse than the duplicate window this prevents |
 | `advocates.sessionLog` | archive each finished session to `refs/beadcause/sessions/<bead>` and note its commits (default `true`) |
 | `advocates.sessionTranscripts` | also store the raw Claude Code transcript — megabytes, and it carries paths and tool output (default `false`; set per repo in `perWorkspace`) |
+| `advocates.agentRepo` | which arm of the [tier 3 experiment](#tier-3--a-repo-one-agent-owns-and-the-experiment-that-is-the-point-of-it) each run of an agent that owns a private repo gets: `alternate` (the default) flips per workspace and agent, `blind`/`index` pin one, and `off` withdraws the affordance and the write grant with it. Named under `advocates` because the advocate was the first agent to have one; the P0 advocate and the worker read the same key. `npm run agentrepo` is what reads the result back |
 | `advocates.closeFinishedSessions` | [close a work session's window once the session has finished](#closing-the-window--a-session-that-has-finished-should-not-still-be-on-screen) — the bead closed, a pull request delivered, or the bead handed back for a decision, and never an ending the daemon merely inferred (default `true`). `false` leaves every window open, which is what it did before |
 | `advocates.closeGraceSeconds` | how long an idle session gets between reaching its ending and the first signal (default 90) |
 | `advocates.closeHardSeconds`, `advocates.closeGiveUpMinutes` | how long `SIGTERM` gets before `SIGKILL` (default 45), and how long the whole thing gets before it gives up and leaves the window for you (default 30 min) |
