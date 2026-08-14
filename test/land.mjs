@@ -542,6 +542,87 @@ check('and says why that line is there, since it reads like bookkeeping', /a cla
 check('a single-bead brief is untouched by any of it', land === workPromptFor('beadcause', { id: BEAD.id, title: BEAD.title, batch: [] }, 1, MODE(), OWNER));
 check('and carries none of the batch sentences', !/in phases you choose/.test(land) && !/until every bead under it/.test(land));
 
+/**
+ * A window opened over somebody else's open files is told so.
+ *
+ * bc-b9vt. `withoutClaimedFiles` in lib/advocate.js reads lib/claims.js at dispatch, and
+ * when the surface it matched was only *guessed* out of the bead's prose it may not
+ * withhold the work (bc-hrno) — so it opens the window anyway. Before this it opened it
+ * silently, and the session learned the same fact at its first `Write`, from
+ * scripts/claim-guard.sh's refusal, after it had read the tree and made a plan. That is
+ * the exact lateness the dispatch-time read exists to end.
+ *
+ * Two failures are worth asserting, and they pull in opposite directions:
+ *
+ * 1. **Saying nothing** — the regression this section exists for. The evidence has to be
+ *    in the brief: which files, which tree, and what the session can do about it.
+ * 2. **Saying it too hard.** A guess may not withhold work, and a brief that read as a
+ *    prohibition would put back, in prose, exactly the hold `holdGuessedFiles` is off in
+ *    order not to take. So the words "warning and not a boundary" are load-bearing, and
+ *    the section must not tell the session to stop.
+ */
+console.log('\na window opened over another session\'s open files is told which ones');
+
+const BUSY = {
+  id: 'bc-busy',
+  title: 'The bead whose files are taken',
+  filesBusy: {
+    id: 'bc-busy',
+    why: "another session is editing lib/advocate.js on worktree-other-thing — which this bead's text names",
+    files: ['lib/advocate.js', 'lib/session.js'],
+    branch: 'worktree-other-thing',
+    source: 'guessed',
+  },
+};
+const busy = workPromptFor('beadcause', BUSY, 1, MODE(), OWNER);
+
+check('the collision is named at all — the whole of bc-b9vt', /Another session on this Mac already has/.test(busy));
+check(
+  'the advocate\'s own sentence travels, so the session sees the evidence and not a summary of it',
+  busy.includes(BUSY.filesBusy.why)
+);
+check(
+  'every file is listed, because "some of your files" is a warning nobody can act on',
+  busy.includes('    lib/advocate.js') && busy.includes('    lib/session.js'),
+  (busy.match(/.*lib\/session\.js.*/) || [])[0]
+);
+check(
+  'the worktree holding them is named and reachable — the second cheapest thing to do about it',
+  /git log --oneline -20 worktree-other-thing/.test(busy),
+  (busy.match(/.*git log --oneline.*/) || [])[0]
+);
+check('and the first is named too: start where those files are not', /Start somewhere those files are not/.test(busy));
+check('the guard is named, so the refusal it will hit is not a surprise twice', /claim-guard\.sh/.test(busy));
+
+/**
+ * The half that has to hold in the other direction. `holdGuessedFiles` is off precisely so
+ * that a resemblance does not park work — see `withoutTwins`' rule in lib/advocate.js —
+ * and a brief telling this session to stand down would re-impose that hold in prose, where
+ * no config switch can reach it.
+ */
+check('it is a warning and says so, because a guess may not withhold work', /a warning and not a boundary/.test(busy));
+check(
+  'and it never tells the session to stop, wait, or leave the files alone',
+  !/do not (touch|edit|write)/i.test(busy) && !/wait (for|until) (that|the other) session/i.test(busy),
+  (busy.match(/.*do not (touch|edit|write).*/i) || [])[0]
+);
+
+check(
+  'a bead with no collision carries none of it — byte-identical to the brief before any of this',
+  land === workPromptFor('beadcause', { id: BEAD.id, title: BEAD.title }, 1, MODE(), OWNER)
+);
+check(
+  'and an entry that names no file is no collision either — an empty list would print an empty block',
+  land ===
+    workPromptFor(
+      'beadcause',
+      { id: BEAD.id, title: BEAD.title, filesBusy: { id: BEAD.id, why: 'x', files: [], branch: null } },
+      1,
+      MODE(),
+      OWNER
+    )
+);
+
 /* ------------------------------------------------------------------ verdict */
 
 console.log('');

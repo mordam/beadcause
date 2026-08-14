@@ -10009,6 +10009,23 @@ that "would holding on a guess have helped?" is a question the screen can answer
 `holdGuessedFiles: true` turns the guess into a hold for a workspace whose beads are written
 with their files named; `holdClaimedFiles: false` takes the whole filter out.
 
+**And the session it dispatches anyway is told.** That was the hole left in the paragraph
+above: the near miss reached the card and the log, and the one party it never reached was
+the window being opened into it. That session then learned the same fact at its first
+`Write`, from `scripts/claim-guard.sh`'s denial — after it had read the tree, chosen an
+approach and started typing, which is exactly the lateness reading the register at dispatch
+exists to end. One step earlier for the dispatcher, unchanged for the agent. So the entry
+the filter built rides the queue row into the launch, and the brief `workPromptFor` writes
+carries a section naming the files, the worktree holding them and the three things worth doing about
+it — start where those files are not, go and read what that branch is doing first, or, if
+it turns out to be the same job, say so. It is worded as a warning and not as a boundary,
+deliberately: the evidence is a resemblance, and a brief that told the session to stand
+down would put back in prose precisely the hold `holdGuessedFiles` is off in order not to
+take. A bead with no collision gets a brief unchanged to the character, and the row's copy
+is stripped back out of the wire — the card already draws the same sentence once, and two
+places saying one thing is how they come to disagree. `node test/land.mjs` asserts the
+words; `node test/claimqueue.mjs` asserts the seam.
+
 **Nothing here has to be released**, which is the property worth the most. The hold is not a
 record — it is recomputed from the register on every survey, and `claims.list()` prunes what
 has expired and what belongs to a worktree no longer on disk as it reads. So a session that
