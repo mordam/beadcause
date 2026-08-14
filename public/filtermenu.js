@@ -230,7 +230,16 @@
         paint();
       });
       if (typeof g.suggestions === 'function') {
+        // The whole combobox pattern or none of it: `role="combobox"` on its own tells a
+        // screen reader there is a list to expect and then never says whether it is open
+        // or what is in it, which is worse than an ordinary search field. `aria-expanded`
+        // is written on every paint, beside the list's own `hidden`.
         input.setAttribute('role', 'combobox');
+        input.setAttribute('aria-expanded', 'false');
+        input.setAttribute('aria-controls', `filter-suggest-${g.id}`);
+        input.setAttribute('aria-autocomplete', 'list');
+        // The browser's own autofill drawer over a dropdown of our own is two lists of
+        // suggestions on one field, and only one of them knows what a bead is.
         input.setAttribute('autocomplete', 'off');
         input.addEventListener('keydown', (ev) => onSuggestKey(g, row, ev));
       }
@@ -263,6 +272,7 @@
       if (typeof g.suggestions === 'function') {
         row.list = document.createElement('div');
         row.list.className = 'suggest';
+        row.list.id = `filter-suggest-${g.id}`;
         row.list.setAttribute('role', 'listbox');
         row.list.setAttribute('aria-label', g.legend);
         row.list.hidden = true;
@@ -363,10 +373,18 @@
           row.list.replaceChildren(...row.items);
         }
       }
+      row.input.setAttribute('aria-expanded', String(items.length > 0));
       for (let i = 0; i < row.items.length; i += 1) {
-        row.items[i].setAttribute('aria-selected', String(i === row.active));
-        row.items[i].classList.toggle('active', i === row.active);
+        const on = i === row.active;
+        row.items[i].setAttribute('aria-selected', String(on));
+        row.items[i].classList.toggle('active', on);
+        // Which row the arrow keys are on, said to a screen reader — the caret never
+        // leaves the input, so `aria-selected` alone would move nothing it announces.
+        if (on) row.items[i].id = row.items[i].id || `${row.list.id}-${i}`;
       }
+      const active = row.active >= 0 ? row.items[row.active] : null;
+      if (active) row.input.setAttribute('aria-activedescendant', active.id);
+      else row.input.removeAttribute?.('aria-activedescendant');
     }
 
     /**

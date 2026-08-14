@@ -339,6 +339,20 @@ await check('typing drops the matches down, best first, id and title on each row
   assert.equal(h.rows()[0].all('suggest-note')[0].textContent, 'Inbox bead-search box');
 });
 
+await check('the box is a whole combobox to a screen reader, not half of one', () => {
+  // `role="combobox"` that never says whether it is open, or what is in it, is worse
+  // than an ordinary search field — it promises a list and then describes nothing.
+  const h = mountBox();
+  const input = h.input();
+  assert.equal(input.getAttribute('role'), 'combobox');
+  assert.equal(input.getAttribute('aria-controls'), h.list().id);
+  assert.equal(input.getAttribute('aria-expanded'), 'false');
+  h.type('bc-0xil');
+  assert.equal(h.input().getAttribute('aria-expanded'), 'true');
+  h.input().fire('keydown', { key: 'ArrowDown' });
+  assert.equal(h.input().getAttribute('aria-activedescendant'), h.rows()[0].id);
+});
+
 await check('the list narrows as you type more', () => {
   const h = mountBox();
   h.type('bc-0xil');
