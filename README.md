@@ -11959,9 +11959,8 @@ own diff, bc-rk2o putting every view on the delta stream behind a new `stream.js
 bc-xqnj's `spacebar.js`, and the branch that first added `sendqueue.js`. Every one of
 those is a new shared module arriving with the tags that load it, which is exactly the
 work this fires on and exactly the work a human bumped for. `bc-p38c.2` stays silent
-under it for the reason it always did: `report.js` went onto
-twelve pages and nothing gained a call into it, so cached HTML without the tag is the
-app exactly as it was.
+under it for the reason it always did: `report.js` went onto twelve pages and nothing
+gained a call into it, so cached HTML without the tag is the app exactly as it was.
 
 ## The Android app
 
