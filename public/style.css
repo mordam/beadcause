@@ -221,6 +221,78 @@ body {
 }
 .filter-text:focus { outline: none; border-color: var(--accent); }
 .filter-text::placeholder { color: var(--muted); opacity: 0.7; }
+/*
+  The bead search box: pills, the input, and the list of matches under it.
+
+  `position: relative` and an absolutely positioned list, so the dropdown draws *over*
+  the chips below it rather than pushing them down — a panel that grew by four rows
+  under your thumb would move the kind chips out from under the finger reaching for
+  them, and the panel itself is already absolutely positioned over the list for exactly
+  that reason.
+*/
+.filter-typeahead {
+  position: relative;
+  display: flex; flex-direction: column; gap: 7px;
+  /* The row it sits in is `display: flex` — it holds chips everywhere else — so without
+     this the wrapper is sized to its content and the input's own `width: 100%` resolves
+     against *that*, leaving the box fifty pixels short of the panel it is in. `min-width:
+     0` because a long title in a suggestion would otherwise push a flex item wider than
+     its container rather than being ellipsised inside it. */
+  flex: 1 1 100%; width: 100%; min-width: 0;
+}
+.pill-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.pill-row[hidden] { display: none; }
+/* The base .pill is an uppercase metadata badge; a bead id is neither. */
+.filter-typeahead .pill {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 3px 4px 3px 8px;
+  text-transform: none; letter-spacing: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  background: color-mix(in srgb, var(--accent) 18%, var(--surface-2));
+  color: var(--text);
+}
+/*
+  The X. 22px square rather than the glyph's own size — a 10px character is not a target
+  on a phone, and this one removes a filter, so a miss is a list that stays narrowed and
+  a person who thinks the control is broken.
+*/
+.pill-x {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px;
+  padding: 0; border: 0; border-radius: 5px;
+  background: transparent; color: var(--muted);
+  font: inherit; font-size: 15px; line-height: 1;
+  cursor: pointer;
+}
+.pill-x:hover, .pill-x:focus-visible { background: color-mix(in srgb, var(--danger) 22%, transparent); color: var(--danger); }
+.suggest {
+  position: absolute; top: 100%; left: 0; right: 0; z-index: 2;
+  display: flex; flex-direction: column;
+  margin-top: 4px;
+  /* Six rows and then a scroll: the panel is over a list on a phone about fifteen rows
+     tall, and a dropdown that filled the screen would leave nothing to filter. */
+  max-height: 232px; overflow-y: auto;
+  border: 1px solid var(--line); border-radius: 9px;
+  background: var(--surface);
+  box-shadow: 0 10px 24px rgb(0 0 0 / 0.4);
+}
+.suggest[hidden] { display: none; }
+.suggest-row {
+  display: flex; align-items: baseline; gap: 8px;
+  padding: 8px 10px;
+  border: 0; border-bottom: 1px solid color-mix(in srgb, var(--line) 60%, transparent);
+  background: transparent; color: var(--text);
+  font: inherit; font-size: 13px; text-align: left;
+  cursor: pointer;
+}
+.suggest-row:last-child { border-bottom: 0; }
+/* Hover and the arrow keys land on the same look, so a list driven from the keyboard
+   and one driven from a thumb are visibly one control. */
+.suggest-row:hover, .suggest-row.active { background: color-mix(in srgb, var(--accent) 16%, transparent); }
+.suggest-id { flex: 0 0 auto; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-weight: 650; }
+.suggest-note { flex: 1 1 auto; min-width: 0; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Not a row: it is a sentence about the list, and it must not look pressable. */
+.suggest-note-line { padding: 8px 10px; color: var(--muted); font-size: 13px; }
 .chip-row {
   display: flex; gap: 8px;
   overflow-x: auto;
