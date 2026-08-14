@@ -9114,12 +9114,18 @@ for the close — and spent its whole window re-deriving a conclusion already wr
 the bead. The gap was that "superseded, pending approval to close" lived in prose, where
 nothing between the blocker closing and a worker reading that prose could act on it.
 
-So it is a label. A worker writes two lines and stops:
+So it is a label. A worker runs one command and stops:
 
 ```sh
-bd dep add bc-e1kv bc-0nea
-bd label add bc-e1kv superseded-by:bc-0nea
+beadcause-supersede -w beadcause -b bc-e1kv --original bc-0nea <<'EOF'
+Both are the same fix in lib/router.js — bc-0nea landed it as #33.
+EOF
 ```
+
+That is `bin/supersede.js`, and it writes the label, the graph edge, the reason as a
+comment, and the status the sweep needs the bead left in. It used to be two lines a
+worker typed by hand, and [three of the ways to get them wrong read as
+success](#an-epic-cannot-block-a-bead-so-the-marker-holds-it-alone).
 
 `superseded-by:<id>` is [endorsement](#the-endorsement-queue--a-group-tap-or-a-row-at-a-time)'s shape with a different ending. Same two layers: the marked bead is out
 of `bd ready` and out of every advocate queue, and `openWorkSession` asks the tracker
@@ -9159,8 +9165,68 @@ has looked at this", and looking at it is exactly what that tap does, where
 verdict on.
 
 `askSuperseded: false` switches it off; `supersededIntervalMinutes` is how often it
-looks, defaulting to 10. The worker's brief carries the two commands, which is what makes
-any of it reachable — nothing but a worker ever sets this marker.
+looks, defaulting to 10. The worker's brief carries the command, which is what makes any
+of it reachable — nothing but a worker ever sets this marker.
+
+### An epic cannot block a bead, so the marker holds it alone
+
+The command above was two hand-typed `bd` lines for about a day, and then somebody marked
+a bead whose original was an **epic**:
+
+```
+$ bd dep add bc-nqrr bc-4m2j
+Error: tasks can only block other tasks, not epics
+```
+
+bd will not let a task be blocked by an epic. That is [the same one-line rule
+`lib/park.js` is built around](#parking-an-epic-which-bd-refused-outright), seen from the other
+side, and it matters more here than it looks, because adoption by an epic is how this
+tracker gathers duplicates in the first place — bc-4m2j named eighteen beads under an
+`Adopts:` heading. So the marking took the label and drew no edge at all, and nothing
+said so. Three beads were marked that way on 2026-08-12 before anybody noticed.
+
+**There is no second-choice edge.** Of the ten types `bd dep add --type` accepts, `blocks`
+is the only one bd polices across the epic boundary — and it is also the only one that
+takes a bead out of `bd ready`. `tracks`, `relates-to`, `supersedes`, `parent-child` and
+the rest all go in against an epic and every one of them leaves the bead exactly as ready
+as it was. The refusal and the hold are the same property, measured against the real
+binary in `test/epicedgereal.mjs` rather than reasoned about.
+
+Which is survivable, because **the edge was never what timed the card**. The sweep reads
+the original and asks nothing until it is `closed`, so a marked bead with no blocking edge
+is swept over in silence, every pass, until the original really does land. What the
+missing edge costs is the *graph record* — and on a tracker whose whole complaint is that
+[structure lives in prose](#every-bead-id-in-prose-is-an-edge-behind-it),
+that is the part worth fixing. So when the original is an epic the edge drawn is
+`relates-to`, via `bd dep relate`, and the command says out loud that the bead is held by
+its marker rather than by the graph.
+
+Two candidates were rejected on the way, and both for the same reason — a graph that says
+something untrue is worse than one that says less. `supersedes` is bd's own type for
+exactly this and renders as `DEPENDS ON` on the duplicate and `BLOCKS` on the epic while
+blocking nothing whatsoever, which is a lie told in the one place somebody would go to
+check. `parent-child` would make the duplicate a child of the epic — and [an epic cannot
+close over an open child](#when-bd-will-not-close-the-bead), so the
+epic would end up held by the duplicate, which is the hold pointing backwards.
+
+Two more things the command knows that a worker typing three lines did not:
+
+- **A pair holds exactly one edge**, of any type, in either direction. Any existing edge —
+  the `discovered-from` that `beadcause-file --from` leaves behind is the common one —
+  makes every other type refuse, `bd update --parent` included. That refusal is treated as
+  success: the pair is linked, which was the point, and trading provenance for a different
+  link is not a call this may make on its own.
+- **A worker reaches this having claimed its own bead**, and `bd ready` returns open rows
+  only. A marked bead left `in_progress` is invisible to the sweep forever — held, with
+  nobody ever asked — so the status goes back to `open`, after the label and before the
+  edge. That order is the one that survives a failure halfway: the label is the guarantee,
+  so anything that fails after it leaves a bead held and short of a record rather than
+  released and unmarked.
+
+And the write it will never make is `bd label add <dup> human`. It is the tempting fourth
+line — the brief's *other* ending says to hand a bead over exactly that way — and it is
+the one that permanently prevents the card, because the sweep excludes the inbox by that
+label. The sweep adds it when the question is actually due, and nothing else may.
 
 ### The bead whose branch is already in main
 
@@ -9939,9 +10005,17 @@ Seven things follow, and they are the whole of the change:
   calls the most destructive thing in this codebase. bc-45g8 settled it: **a fast-forward
   may proceed when every dirty line is `??`, and any tracked modification still stops it
   dead.** The reason the guard exists is unsaved edits, and an untracked file is not an
-  edit to anything; the two paths that actually recur here are a `.DS_Store` and a root
-  `.idea/`, which the Finder and a JetBrains IDE put back as fast as anyone clears them.
-  What makes it safe rather than a hole is that the destructive case is covered twice:
+  edit to anything; the two paths that actually recurred here were a `.DS_Store` and a
+  root `.idea/`, which the Finder and a JetBrains IDE put back as fast as anyone cleared
+  them. Those two are now in `.gitignore` (bc-0i27.18) and no longer appear at all —
+  three separate sessions filed them as a bug in the days either side of bc-45g8, which
+  is the measure of how much a permanently dirty shared checkout costs to keep
+  re-diagnosing. `test/gitignoreresidue.mjs` is what keeps them ignored, and it asserts
+  the rule comes from the repo's own `.gitignore` rather than from a `core.excludesFile`
+  on somebody's laptop, since a machine that ignores `.DS_Store` globally is precisely
+  the one this would go unnoticed on. That does **not** make the relaxation redundant: it is what covers the
+  residue nobody has thought of yet, and the residue in the *next* checkout. What makes
+  it safe rather than a hole is that the destructive case is covered twice:
   `git merge --ff-only` refuses outright rather than overwrite an untracked file an
   incoming commit would write, and *that* refusal is reported with the paths like any
   other. `scripts/deploy-runner.mjs` has always read its own dirt with
