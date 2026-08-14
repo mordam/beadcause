@@ -24,6 +24,15 @@ public/vendor
 # checkout, so a stray `git add .` in the main repo commits dozens of them at once.
 .claude/worktrees-retired/
 
+# Written by `node scripts/flowchart.mjs`, in a second, from lib/flowchart.js. Not
+# committed on purpose, and the reason is the one bc-ec6 and bc-5ghk are both about:
+# it is a 90 kB generated file that changes whenever the model or *any agent's
+# foundation* does, so committing it would put a regenerate-and-resolve on every branch
+# that touched lib/foundation.js for reasons of its own. The other half is that a
+# checked-in copy has no way to say it is stale — docs/architecture.html still describes
+# four agent kinds, and there have been five since lib/epicadvocate.js.
+docs/flowchart.html
+
 # Built and published by `npm run android` — 28 MB, and rebuilt from source.
 public/beadcause.apk
 
