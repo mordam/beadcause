@@ -2549,6 +2549,51 @@ standing in none of them. Every read an *agent* can reach still resolves from
 `process.cwd()`, which is the whole point of the indirection — `lib/foundation.js` draws
 the same line in the same place with `effective(dir, agent)`.
 
+#### The P0 advocate gets the same push, and it is the kind that most needed it
+
+Three doors now read the store and put the result in a brief: `openWorkSession` for a
+worker, `openPlanSession` for the epic worker, and `openEpicAdvocateSession` for the P0
+advocate (`epicAdvocatePrompt`, `lib/epicadvocate.js`). The third arrived last and had
+the strongest case, because of what that agent *is*: it is re-entrant on purpose — it
+takes stock of one P0, writes a sentence into the bead's notes and exits, and is opened
+again days later on the same P0. Every other kind here at least has a conversation to
+carry it through a run. This one has nothing between runs except what it wrote down.
+
+What it was handed until then was `memoryBrief`, in the system prompt, which says a
+memory exists and names its commands. That is not an index, and the difference is the
+whole of the gap: a window on `bc-goo` ran `recall` and `notes` on 2026-08-13, and
+everything it then established — which children were a deploy tap, which experiment was
+instrumented but starved, why — was rebuilt from the tracker, by the fifth window in a
+row to rebuild it. The store filling up made that *worse*, not better. Eighteen notes
+with no index is several thousand tokens of undifferentiated dump the window has to know
+to ask for and then read through, to reach the four lines that are about this P0.
+
+**Selection is against the P0 alone, not the P0 plus its open children**, following the
+epic worker's precedent rather than re-deciding it. A supervisor's subject genuinely is
+the subtree, so folding the children in is the tempting move — and it is what turns the
+section into noise. Twenty beads' vocabulary matches nearly everything in the store
+above the floor: on a P0 whose children are about `public/sw.js`, adding their titles
+pulls `sw-cache-version-conflicts` in at 4.08 where the P0 alone scores it 0.00. The
+children each get this selection in their own briefs, where it is precise, and every
+key the P0's brief did not pick is still on the line underneath it.
+
+**And it is handed its own kind's notes**, `notesIn(dir, EPIC_ADVOCATE)` and not
+`notesIn(dir, 'worker')` — the copy-paste that would look entirely correct while
+handing this agent a different agent's memory. The section says whose it is, in the
+clause that makes the notes evidence rather than instructions ("what another **P0
+advocate** wrote down for its own future self"), because a P0 advocate's store is
+written by supervisors taking stock and never by somebody with the file open, and an
+agent that misreads the author misreads how much weight the line carries. That is the
+`who` option on `notesBrief`; it defaults to `worker`, so the other two doors say what
+they always said. `test/epicadvocate.mjs` pins the identifier at the call site, because
+it is the one part of this a pure-function test cannot see.
+
+The write half — a closing "write down what you learned" step for the advocate, the way
+a worker has one — is deliberately still not built. That is `bc-714o`'s deferred half,
+and the order was the answer: reading first, writing second, because adding a write step
+to an agent that never reads produces exactly the write-only diary this epic exists to
+avoid.
+
 ### The report a run leaves behind: `debrief`, and why neither other store could hold it
 
 Both stores above answer one question — **would this still be true next week?** — and
