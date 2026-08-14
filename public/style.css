@@ -827,6 +827,75 @@ body {
   margin: -2px 0 8px;
 }
 
+/*
+  "📮 carol" — who this question is for, and the way to change the answer.
+
+  A pill because that is what it is: the same kind of fact as the workspace and the id
+  beside it, and it sits in the same row. A *button* because it is the only pill on the
+  card you can act on, which is the one thing the row does not otherwise say — so it
+  gets the pressable affordances a <span> has no need of (a border it can light up, a
+  tap target, `cursor`) and nothing else that would make it read as a different object.
+
+  Colour is left to `.pill.on` and `.pill.mine`, which already exist further down this
+  file: a pill for a question addressed to *you* is accented, an open panel is accented
+  harder, and one addressed to somebody else stays the ordinary grey of every other
+  pill — which is right, because a question that is not yours is a fact and not a state
+  to fix. `.any` dims it a shade further: unaddressed is the resting state of nearly
+  every question, and the pill saying so must not compete with the two that mean
+  something.
+*/
+.pill.for {
+  border: 1px solid transparent;
+  font: inherit; font-size: 11px; font-weight: 650; letter-spacing: 0.03em;
+  text-transform: none;
+  cursor: pointer;
+}
+.pill.for.any { opacity: 0.75; }
+.pill.for:active { transform: scale(0.97); }
+
+/*
+  The panel behind it. Full width under the pills, above the question — the same place
+  the postmark line goes, and for the same reason: it is *about* the card rather than
+  part of what the card is asking, and putting it below the question would push the one
+  thing you opened this card to read off the screen on a phone.
+*/
+.address-panel {
+  display: flex; flex-direction: column; gap: 9px;
+  margin: 0 0 10px;
+  padding: 11px 12px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: var(--surface-2);
+}
+.address-say { font-size: 12.5px; line-height: 1.45; color: var(--muted); margin: 0; }
+.address-row { display: flex; flex-wrap: wrap; gap: 7px; }
+.address-btn {
+  min-height: 36px;
+  padding: 6px 12px;
+  border-radius: 9px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit; font-size: 13px; font-weight: 560;
+  cursor: pointer;
+}
+/* The handle it already carries. Filled for `.option.picked`'s reason — it is a claim
+   about the bead rather than about the button — and disabled with it, because a tap
+   that would write the label already on the bead is a tap with nothing behind it. */
+.address-btn.picked { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+.address-btn:disabled { cursor: default; }
+.address-btn:not(.picked):disabled { opacity: 0.5; }
+.address-typed { display: flex; flex-direction: column; gap: 4px; }
+.address-typed input {
+  min-height: var(--tap);
+  padding: 8px 11px;
+  border-radius: 9px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit; font-size: 15px;
+}
+
 .q { font-size: 19px; font-weight: 630; line-height: 1.4; margin: 0 0 5px; letter-spacing: -0.012em; }
 .subtitle { font-size: 13px; color: var(--muted); margin: 0 0 12px; }
 .subtitle.bad { color: var(--danger); }
@@ -4150,20 +4219,40 @@ textarea.f-input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; 
    is what notices if it stops being: it fails any page laying out wider than the
    screen it is being measured on.
 
-   What is *not* fixed here: `top: 0` sticks this strip at the viewport top, which
-   is behind a 104px `.topbar` at z-index 20, so it vanishes on scroll rather than
-   following the bar down. That is bc-ugd4 — it needs the bar's height, which the
-   picker changes, and it is a different question from how wide the page is. */
+   The other half of the same inheritance was `top: 0`, and that is bc-ugd4. On the
+   agents' page it is correct for the same reason the margins were: `.agent-tabs`
+   sticks inside `.launcher`, which is `overflow-y: auto`, so its scroll container
+   already *starts* below the top bar and zero means "the top of what is scrolling".
+   Here the scroll container is the viewport, whose top is behind a `.topbar` that is
+   sticky at z-index 20 — so the strip pinned itself under the bar and the
+   Advocates/PRs/Mirror swap was gone from the first scroll until you scrolled back
+   up. Measured at 360×640 and 393×852: at scrollY 400 the nav's rect was top 0,
+   bottom 53 and the bar's was top 0, bottom 104. Nothing of it was on screen, and it
+   was carrying the whole cost of being sticky for none of the benefit.
+
+   `--topbar-h` is the bar's height, published by public/montabs.js from a
+   `ResizeObserver` on `.topbar` — see the block there for why the number cannot be
+   written here. Short version: it is 104px with the space picker's row and 61px
+   without, the picker hides itself under two workspaces, and the bar also carries
+   `env(safe-area-inset-top)` and wraps. The fallback is the two-row bar, so a page
+   that somehow loses that script is 43px wrong in the uncommon case rather than a
+   whole bar wrong in the common one.
+
+   The 14px used to be a bottom margin, and a margin is transparent — under a strip
+   that now actually stays put, that was a 14px band of the list sliding through
+   between the strip's border and the pane. It is padding on the pinned box instead,
+   which is the same gap drawn in `var(--bg)`; the border-bottom moves down by it,
+   which is what a border under a bar with room beneath it should do anyway. */
 .mon-tabs {
   position: sticky;
-  top: 0;
+  top: var(--topbar-h, 104px);
   z-index: 3;
-  padding: 8px 14px;
+  padding: 8px 14px 14px;
   background: var(--bg);
   border-bottom: 1px solid var(--line);
   display: flex;
   gap: 2px;
-  margin: 0 0 14px;
+  margin: 0;
   overflow-x: auto;
   scrollbar-width: none;
 }

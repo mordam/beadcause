@@ -4,6 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
 import { loadConfig } from '../lib/config.js';
+import { bylineFor } from '../lib/byline.js';
 
 const cfg = loadConfig();
 // Any absolute path under config.assetRoots is servable; use our own icon so the
@@ -55,7 +56,9 @@ ${fence}
 The seller-facing docs already say "10% of the sale", which reads as gross.
 `;
 
-const env = { ...process.env, BEADS_DIR: ws.dir, BEADS_ACTOR: cfg.actor };
+// Same byline as everything else this Mac files — see lib/byline.js.
+const byline = bylineFor(cfg);
+const env = { ...process.env, BEADS_DIR: ws.dir, BEADS_ACTOR: byline };
 const out = execFileSync(
   cfg.bdBin,
   [
@@ -66,6 +69,7 @@ const out = execFileSync(
     '--label', 'human',
     '--description', body.replace('PLACEHOLDER_IMAGE', path.resolve(sampleImage)),
     '--json',
+    '--actor', byline,
   ],
   { env, cwd: ws.dir, encoding: 'utf8' }
 );

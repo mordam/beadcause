@@ -91,8 +91,9 @@ check('AND ITS PERMISSIONS ARE THE WHOLE ARGUMENT FOR IT BEING ONE', () => {
   assert.equal(epic.writes, true);
   assert.ok(epic.allowedTools.includes('Bash(bd create:*)'), 'it cannot file the children it exists to file');
   assert.ok(!repo.allowedTools.includes('Bash(bd create:*)'), 'the repo advocate has quietly gained create');
-  // And it stays out of tier 3, which belongs to the repo advocate.
-  assert.equal(epic.ownsRepo, false);
+  // And since bc-goo.12 it is a tier 3 subject too — the experiment starved on the repo
+  // advocate alone, whose runs are gated behind a cooldown and an unanswered proposal.
+  assert.equal(epic.ownsRepo, true);
 });
 
 check('its brief and its protocol are owned by files that exist', () => {

@@ -67,8 +67,9 @@
     // the screen, because the two are opposite claims about the list below them — see
     // `syncTroubleHtml`.
     syncTrouble: [],
-    // The P0 board (bc-rfnr.2): `{ p0s[], under, owned }` — which P0s carry your
-    // `owner:<handle>`, and for every other row the id of the P0 it descends from.
+    // The P0 board (bc-rfnr.2): `{ p0s[], under, unhomed, owned }` — which P0s carry your
+    // `owner:<handle>`, and for every other row the id of the P0 it descends from, or
+    // (bc-i7tw) the fact that no P0 anywhere has it, which is drawn rather than hidden.
     // `owned: false` is what an install with no `me` answers, and it means the whole
     // section and the whole filter are off: the inbox is the flat list it always was.
     // **`p0board`, not `board`** — `state.board` is the *pull request* board (`prRows`
@@ -77,7 +78,7 @@
     // Its own object rather than fields on the rows, because the *absence* of a row from
     // `under` is the filter — and a row that arrived before the board did must not read
     // as one with no P0 above it. See `p0Board` in lib/server.js.
-    p0board: { p0s: [], under: {}, owned: false },
+    p0board: { p0s: [], under: {}, unhomed: {}, owned: false },
     // P0s this phone has just launched an advocate on, `key -> ms`. The server records
     // the same fact (`advocateOpened` in lib/server.js) and is the authority the moment
     // its answer arrives; this covers the seconds before it does, so the card cannot
@@ -86,6 +87,21 @@
     // otherwise leave a card saying "opening" about a window that never came up.
     p0opening: new Map(),
     spaces: [],
+    // Every handle this Mac's person answers to — `cfg.me`, off the payload. `[]` on
+    // every install that has never set it, and `[]` is what makes an addressee pill read
+    // as a name rather than as "you": with nobody to be, no question can be somebody
+    // else's. See lib/addressee.js.
+    me: [],
+    // The key of the card whose 📮 panel is open, and what has been typed into its
+    // handle box — at most one of each, like `menu` above. The draft is held here rather
+    // than in the DOM for the reason every other typed field on this page is: a poll
+    // landing between the first character and the tap would otherwise wipe it.
+    address: null,
+    addressDraft: new Map(),
+    // The key currently being written, so both a second tap and the repaint under it are
+    // refused while a `bd` write is in flight. One at a time is enough — the panel is
+    // open on one card.
+    addressBusy: null,
     // Every configured workspace, which the inbox needs for one thing only: ＋ has to
     // know where to start a conversation, and "the repos in the selected space" is a
     // question about the config rather than about the beads on screen.
@@ -432,7 +448,8 @@
   // the card's own repaints: a poll rebuilds the list every 25 seconds, and a comment or
   // a close reason half-typed into an open pull request is exactly as worth keeping as a
   // half-typed answer. See prActionsHtml.
-  const TYPING_IN = '[data-role="answer"], [data-role="edit-field"], [data-role="pr-comment"], [data-role="pr-reason"]';
+  const TYPING_IN =
+    '[data-role="answer"], [data-role="edit-field"], [data-role="pr-comment"], [data-role="pr-reason"], [data-role="address-input"]';
 
   const isTyping = () => !!document.activeElement?.matches?.(TYPING_IN);
 
@@ -640,14 +657,24 @@
   /**
    * Written from here, rather than by something on the other end.
    *
-   * Every comment beadcause files carries `--actor beadcause` (see bd.js), so this
-   * is exact rather than a guess — and it is the same test `.from-agent` has always
-   * been painted from, which is why the collapse and the jump below agree with the
-   * accent stripe down the side of the bubble. A comment typed into `bd` on the Mac
-   * is somebody else's as far as this screen is concerned, because that is not a
-   * message this app sent.
+   * Every comment beadcause files carries `--actor` with its byline on it (see
+   * lib/bd.js), so this is exact rather than a guess — and it is the same test
+   * `.from-agent` has always been painted from, which is why the collapse and the jump
+   * below agree with the accent stripe down the side of the bubble. A comment typed
+   * into `bd` on the Mac is somebody else's as far as this screen is concerned, because
+   * that is not a message this app sent.
+   *
+   * The byline is `beadcause`, or `beadcause (carol@example.com)` on a machine that has
+   * said who it is, so the test is on the *base* — the same rule as `writtenByDaemon`
+   * in lib/byline.js, restated here because nothing under public/ imports from lib/.
+   * Deliberately blind to *which* beadcause: this stripe means "this app said it"
+   * rather than "an agent did", and another engineer's daemon is not an agent.
    */
-  const fromMe = (c) => !c.author || c.author === 'beadcause';
+  const bylineBase = (author) => {
+    const m = /^(.*?)\s*\(([^()]*)\)$/.exec(String(author || '').trim());
+    return (m ? m[1] : String(author || '')).trim();
+  };
+  const fromMe = (c) => !c.author || bylineBase(c.author) === 'beadcause';
 
   /** Enough of a collapsed comment to recognise it by, on one line. */
   const peek = (text) => {
@@ -846,6 +873,132 @@
     </div>`;
   }
 
+  /* ------------------------------------------------------- who this is for */
+
+  /**
+   * Short enough for a pill: the local part of an address, or the whole handle.
+   *
+   * `carol@example.com` is nineteen characters of which the last twelve are the same on
+   * every handle in the graph, and a pill in a meta row that already carries a workspace,
+   * a bead id and a priority does not have nineteen characters to give. The full handle
+   * is on the panel's buttons, where there is room and where you are about to hand a
+   * question to somebody and want to be sure which somebody.
+   */
+  const shortHandle = (h) => String(h || '').split('@')[0] || String(h || '');
+
+  /** Is this question addressed to the person whose Mac this is? */
+  const addressedToMe = (q) => (q.addressees || []).some((h) => state.me.includes(h));
+
+  /**
+   * Every handle this phone can offer as a one-tap hand-off.
+   *
+   * Read off the inbox rather than from a roster endpoint, and that is a deliberate
+   * trade rather than a shortcut. There is no list of people anywhere in this app — the
+   * config knows who *this* Mac is and nothing about the other five — so the only honest
+   * source is the graph itself, where every question another Mac filed carries its
+   * person's `for:` label (see `ownAddresseeLabels`). In practice that is the roster: on
+   * an install where addressing means anything at all, everybody is asking questions.
+   * The typed field below the buttons is what covers the person who has not asked one
+   * yet, and it is why this list being short is a slower path rather than a dead end.
+   *
+   * Own handles first, because "give it back to me" is the second most likely tap after
+   * "give it to Carol", and the one you reach for when you have handed it to the wrong
+   * person.
+   */
+  function knownHandles() {
+    const out = [];
+    const add = (h) => {
+      const v = String(h || '').trim().toLowerCase();
+      if (v && !out.includes(v)) out.push(v);
+    };
+    for (const h of state.me) add(h);
+    for (const q of state.questions || []) for (const h of q.addressees || []) add(h);
+    return out;
+  }
+
+  /**
+   * The pill that says whose question this is, and the way to change the answer.
+   *
+   * **Nothing at all on an install with no `cfg.me`**, which is every install that has
+   * never heard of this — the same branch-that-cannot-be-entered guarantee lib/addressee.js
+   * makes on the daemon side, drawn here as an absence rather than as a pill saying "for
+   * everyone" on all eleven cards. With nobody to be, there is nobody a question could be
+   * addressed away from, and a control for it would be a control with one state.
+   *
+   * Three readings, and the middle one is the whole feature: **you** (it is yours, and
+   * the phone rang), **a name** (it is theirs, and this card arrived quietly — the pill
+   * agrees with the postmark line above it), **anyone** (unaddressed, which is most
+   * questions and is what a single-person graph looks like).
+   *
+   * In the meta row with the workspace and the id rather than under the question,
+   * because it is the same kind of fact as those two — who and where, not what — and
+   * because the row is already the place your eye goes to decide whether this card is
+   * yours to open.
+   */
+  function addresseeHtml(q) {
+    if (!state.me.length) return '';
+    const to = q.addressees || [];
+    const mine = addressedToMe(q);
+    const label = !to.length
+      ? 'anyone'
+      : mine
+        ? 'you'
+        : `${shortHandle(to[0])}${to.length > 1 ? ` +${to.length - 1}` : ''}`;
+    const on = state.address === q.key;
+    return `<button class="pill for${mine ? ' mine' : ''}${to.length ? '' : ' any'}${on ? ' on' : ''}"
+      data-act="address" data-key="${esc(q.key)}" aria-expanded="${on}"
+      aria-label="For ${esc(to.length ? to.join(', ') : 'anyone')} — change who is asked">📮 ${esc(label)}</button>`;
+  }
+
+  /**
+   * The panel behind the pill: hand this question over, or hand it to everybody.
+   *
+   * One tap per person and the tap *replaces* rather than adds, which is the whole
+   * sentence the bead was filed for — "it is really Carol's" means Carol, not Carol as
+   * well as you. `addresseeUpdate` on the server does the same thing from the other end,
+   * so there is one rule and not two spellings of it.
+   *
+   * **Everyone is a button and not the absence of one.** Taking every `for:` label off is
+   * a decision — it is how a question filed against the wrong person is put back in front
+   * of whoever is free — and a decision you can only express by never having pressed
+   * anything is one nobody discovers.
+   *
+   * The typed field is the escape hatch for a handle the graph has not seen yet (see
+   * `knownHandles`). It writes to `state.addressDraft` on every keystroke rather than
+   * being read out of the DOM at the tap, because the 25-second poll repaints this card
+   * and a field held in the DOM loses whatever you typed between two of them — the same
+   * discipline the answer box and the space card's channel field both keep.
+   */
+  function addressPanelHtml(q) {
+    if (state.address !== q.key) return '';
+    const to = q.addressees || [];
+    const busy = state.addressBusy === q.key;
+    const draft = state.addressDraft.get(q.key) || '';
+    const btn = (handle, text, pressed) =>
+      `<button class="address-btn${pressed ? ' picked' : ''}" type="button" data-act="address-set"
+        data-key="${esc(q.key)}" data-to="${esc(handle)}" aria-pressed="${pressed}"${
+        busy || pressed ? ' disabled' : ''
+      }>${esc(text)}</button>`;
+    const people = knownHandles().map((h) => btn(h, h, to.length === 1 && to[0] === h));
+    return `<div class="address-panel" role="group" aria-label="Who is asked about this question">
+      <p class="address-say">Whoever this is for is the only one whose phone rings. Everyone still sees it.</p>
+      <div class="address-row">
+        ${people.join('')}
+        ${btn('everyone', 'anyone who is free', !to.length)}
+      </div>
+      <label class="address-typed">
+        <span class="prop-label">Somebody else</span>
+        <input type="email" inputmode="email" autocapitalize="off" autocorrect="off" spellcheck="false"
+          data-role="address-input" data-key="${esc(q.key)}" value="${esc(draft)}"
+          placeholder="name@example.com"${busy ? ' disabled' : ''}>
+      </label>
+      <button class="linkish" type="button" data-act="address-set" data-key="${esc(q.key)}"
+        data-to="" data-typed="1"${busy || !draft.trim() ? ' disabled' : ''}>${
+        busy ? 'Handing it over…' : 'Hand it to them'
+      }</button>
+    </div>`;
+  }
+
   /** What you have said about each proposed bead so far. */
   const picksFor = (key) => {
     if (!state.picks.has(key)) state.picks.set(key, new Map());
@@ -884,15 +1037,24 @@
   ];
 
   const TYPES = ['task', 'bug', 'feature', 'epic', 'chore', 'decision'];
+  /** Matches `TIERS` in lib/complexity.js, plus the empty one: no tier is a real answer. */
+  const TIERS = ['', 'low', 'medium', 'high'];
 
   /**
    * The row, in edit mode.
    *
-   * Deliberately the same five things the chat session lets you change — title, type,
-   * priority, description, acceptance — and deliberately not labels or dependencies.
-   * Those are structural, they are rarely what is wrong with a proposed bead, and a
-   * chip editor is not something to build on a card you are trying to keep short.
-   * What you do not adjust is created exactly as proposed.
+   * The five things the chat session lets you change — title, type, priority,
+   * description, acceptance — and deliberately not labels or dependencies. Those are
+   * structural, they are rarely what is wrong with a proposed bead, and a chip editor is
+   * not something to build on a card you are trying to keep short. What you do not
+   * adjust is created exactly as proposed.
+   *
+   * Complexity is the sixth, and it is here for a reason none of the other five have:
+   * it is the only field on the row that spends money. An agent rated its own work, you
+   * are the last reader before a session runs on that rating, and "this is harder than
+   * it thinks" is a correction with nowhere else to go — the alternative is declining a
+   * good bead over a wrong tier. `unrated` is a real choice and not a blank: it is what
+   * every bead filed before bc-nc6o carries, and it takes the expensive model.
    *
    * Values come out of `state.edits`, never out of the DOM, so a background poll
    * that does manage to repaint cannot lose a word of it — the same discipline the
@@ -927,6 +1089,14 @@
             ${[0, 1, 2, 3, 4]
               .map((p) => `<option value="${p}"${p === Number(cur.priority) ? ' selected' : ''}>P${p}</option>`)
               .join('')}
+          </select>
+        </label>
+        <label class="edit-field small">
+          <span class="prop-label">Complexity</span>
+          <select data-role="edit-field" data-key="${esc(key)}" data-idx="${n}" data-field="complexity">
+            ${TIERS.map(
+              (t) => `<option value="${t}"${t === (cur.complexity || '') ? ' selected' : ''}>${t || 'unrated'}</option>`
+            ).join('')}
           </select>
         </label>
       </div>
@@ -1059,7 +1229,15 @@
                 ? propEditHtml(q.key, raw, n)
                 : `<div class="prop-body">
               <div class="prop-meta">
-                <span class="pill">${esc(b.type)}</span><span class="pill p${b.priority}">P${b.priority}</span>
+                <span class="pill">${esc(b.type)}</span><span class="pill p${b.priority}">P${b.priority}</span>${
+                  // How hard the agent thinks it is, which is what picks the model a
+                  // session on it will run (bc-nc6o). Beside the type and the priority
+                  // because it is the same kind of fact, and shown only when it was
+                  // named: an untiered bead is the ordinary case for everything that
+                  // predates this, and a pill saying "unrated" on most of the tracker
+                  // is a pill nobody reads.
+                  b.complexity ? `<span class="pill">${esc(b.complexity)} complexity</span>` : ''
+                }
               </div>
               ${propFieldsHtml(b)}
               ${
@@ -2429,9 +2607,11 @@
           <span class="pill id">${esc(q.id)}</span>
           ${q.priority != null ? `<span class="pill p${q.priority}">P${q.priority}</span>` : ''}
           ${q.dependentCount ? `<span class="pill">blocks ${q.dependentCount}</span>` : ''}
+          ${addresseeHtml(q)}
           ${draft && !open ? '<span class="draft-flag">draft saved</span>' : ''}
           <time>${esc(relTime(q.createdAt))}</time>
         </div>
+        ${addressPanelHtml(q)}
         ${arrivedQuietHtml(q)}
         ${activityHtml(q)}
         <p class="q">${esc(q.question || q.title)}</p>
@@ -4423,6 +4603,16 @@
    * in `under`; what decides it is whether any bead it names is. A pull request that names
    * no bead stays visible, deliberately: it is a decision somebody is waiting on, and the
    * failure mode of hiding one is worse than the failure mode of showing one too many.
+   *
+   * **And a question with no P0 above it at all is drawn** — `unhomed`, bc-i7tw, and it is
+   * that same failure mode taken seriously rather than a fourth exception. `under` says
+   * which of *your* P0s a row hangs off, so a row under nobody's P0 and a row under a
+   * colleague's are the same absence to it, and hiding both meant a question filed with no
+   * parent went to no screen at all: `/api/ask` is the phone's share target, so the sharpest
+   * case is a question you asked from your own phone thirty seconds ago and cannot find. The
+   * server draws the distinction the client cannot (see `p0Board`), and this line is what it
+   * is for. A row under *somebody's* P0 is still hidden — that is bc-rfnr.2 working, and it
+   * is on a screen, just not this one.
    */
   /** Is the board actually narrowing anything? The three no-op cases, asked once. */
   function isBoarded() {
@@ -4434,6 +4624,7 @@
     const board = state.p0board;
     if (!isBoarded()) return rows;
     const under = board.under || {};
+    const unhomed = board.unhomed || {};
     return rows.filter((q) => {
       if (q.session) return true;
       // And a JIRA ticket, on the same rule and for a stronger reason: it has no bead
@@ -4446,7 +4637,7 @@
         const named = q.pr.beads || [];
         return !named.length || named.some((b) => under[`${q.workspace}/${b.id || b}`]);
       }
-      return Boolean(under[q.key]);
+      return Boolean(under[q.key] || unhomed[q.key]);
     });
   }
 
@@ -5743,6 +5934,71 @@
       return;
     }
 
+    /**
+     * The 📮 pill: show, or hide, the panel that hands this question to somebody.
+     *
+     * A render() rather than the DOM surgery the ⋮ menu does, and the difference is what
+     * the two are. The menu is an overlay hanging off a corner and it must survive a
+     * half-typed answer under it; this panel is part of the card head, it changes the
+     * pill it hangs from, and the state it reads (`state.address`) is what the next
+     * repaint would draw anyway. Doing it by hand would mean two code paths that can
+     * disagree about whether the panel is open.
+     */
+    if (act === 'address') {
+      closeMenu();
+      state.address = state.address === key ? null : key;
+      render(true);
+      return;
+    }
+
+    /**
+     * Hand it over — one `bd` write, and the card repaints from what the bead now says.
+     *
+     * `data-to` is the handle, empty for everyone; the typed variant reads
+     * `state.addressDraft` instead, because what is in that field is state rather than
+     * DOM (see the input listener). Either way the server is the authority on the
+     * result: `addressees` comes back off the labels the bead actually carries, and the
+     * card is repainted from that rather than from what was asked for — the two differ
+     * whenever somebody else moved it first, and a card that drew the request would show
+     * a hand-off that never happened.
+     *
+     * The panel stays open on failure and closes on success. A refused write you cannot
+     * see the buttons for is a write you cannot retry, and a panel still sitting there
+     * over a hand-off that worked reads as one that did not.
+     */
+    if (act === 'address-set') {
+      const q = byKey(key);
+      if (!q || state.addressBusy) return;
+      const to = btn.dataset.typed ? (state.addressDraft.get(key) || '').trim() : btn.dataset.to || '';
+      state.addressBusy = key;
+      render(true);
+      try {
+        const res = await api('/api/bead/addressee', {
+          method: 'POST',
+          body: JSON.stringify({ workspace: q.workspace, id: q.id, to }),
+        });
+        q.addressees = res.addressees || [];
+        state.address = null;
+        state.addressDraft.delete(key);
+        const who = q.addressees.length ? q.addressees.join(', ') : 'anyone who is free';
+        // `cleared` is the server saying it also took the row out of your notification
+        // shade, which it only does when the question has stopped being yours. Worth a
+        // word: it is the half of the tap you cannot see happen, and on the phone you
+        // are holding it is the half you would otherwise go looking for.
+        toast(
+          addressedToMe(q)
+            ? 'Asked of you now'
+            : `Asked of ${who}${res.cleared ? ' — cleared it from your phone' : ''}`
+        );
+      } catch (err) {
+        toast(err.message, true);
+      } finally {
+        state.addressBusy = null;
+        render(true);
+      }
+      return;
+    }
+
     if (act === 'toggle') {
       closeMenu();
       closeAgentMenu();
@@ -6494,6 +6750,21 @@
     const field = ev.target.closest('[data-role="edit-field"]');
     if (field) return recordEdit(field);
 
+    // A handle typed into the 📮 panel, into `state.addressDraft` on every keystroke.
+    // Not out of the DOM at the tap, for `recordEdit`'s reason: the poll rebuilds this
+    // card every 25 seconds and a value living only in the input is lost by whichever
+    // one lands first. The button under it enables itself off the same state, so it is
+    // repainted here rather than left for the next render — a render() on a keystroke
+    // would rebuild the field under the caret.
+    const handle = ev.target.closest('[data-role="address-input"]');
+    if (handle) {
+      const key = handle.dataset.key;
+      state.addressDraft.set(key, handle.value);
+      const send = handle.closest('.address-panel')?.querySelector('[data-typed="1"]');
+      if (send) send.disabled = state.addressBusy === key || !handle.value.trim();
+      return;
+    }
+
     const box = ev.target.closest('[data-role="answer"]');
     if (!box) return;
     const key = box.closest('.card')?.dataset.key;
@@ -6809,6 +7080,11 @@
     // What the ＋ offers when the space holds more than one repo. Kept here rather
     // than read off `data` at the tap, because the tap can happen between polls.
     if (Array.isArray(data.workspaces)) state.workspaces = data.workspaces;
+    // Who this Mac's person is, for the cards that draw an addressee. Same rule as the
+    // two above and for the same reason: absent means a daemon that predates the field,
+    // and keeping the last value is what stops a phone behind a cached service worker
+    // from suddenly calling your own questions somebody else's.
+    if (Array.isArray(data.me)) state.me = data.me;
     state.spaces = data.spaces || [];
     // Absent means a server that predates the counts — keep the last ones rather
     // than blanking the chrome, exactly as the requests pane does above.

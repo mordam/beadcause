@@ -38,6 +38,7 @@ import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { aliasPage, pageAliases } from '../lib/pagealias.js';
 import { CHROME, launchChrome } from './helpers/chrome.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -212,9 +213,18 @@ const TYPES = {
 
 const committed = (rel) => execFileSync('git', ['show', `HEAD:${rel}`], { cwd: ROOT });
 const BASELINED = ['/app.js', '/style.css', '/prcard.js'];
+const ALIASES = pageAliases();
 
-/** Every write the page attempted. `/api/presence` is the page reporting where it is. */
+/**
+ * Every write the page attempted. `/api/presence` is the page reporting where it is.
+ *
+ * `/api/error` is held apart rather than merely ignored (bc-zjep): it is the page saying
+ * it threw, which earns the line of its own at the foot of this run. Counted among the
+ * writes it read as the board posting to the daemon — "the first press sends nothing —
+ * ["/api/error"]" is a sentence about a merge button, and the write was a service worker.
+ */
 const writes = [];
+const errors = [];
 const real = () => writes.filter((w) => w.path !== '/api/presence');
 
 function serve() {
@@ -239,7 +249,7 @@ function serve() {
       let body = '';
       req.on('data', (c) => (body += c));
       return void req.on('end', () => {
-        writes.push({ path: p, ...JSON.parse(body || '{}') });
+        (p === '/api/error' ? errors : writes).push({ path: p, ...JSON.parse(body || '{}') });
         // Enough of each answer for the card to say what happened.
         if (p === '/api/pr/merge') return json({ ok: true, pr: { number: 42 }, land: { note: 'fast-forwarded main' }, cards: [] });
         if (p === '/api/pr/close') return json({ ok: true, number: 42, reason: 'not the one', beads: ['bc-abc'] });
@@ -249,7 +259,10 @@ function serve() {
     }
     if (p.startsWith('/api/')) return json({});
 
-    const rel = p === '/' ? 'index.html' : p.replace(/^\/+/, '');
+    /* Through the daemon's own alias table, so a shell path with no file behind it
+       serves the page it serves in the app rather than a 404 — see lib/pagealias.js
+       for what one 404 there costs this check. */
+    const rel = aliasPage(p, ALIASES).replace(/^\/+/, '');
     if (BASELINE && BASELINED.includes(`/${rel}`)) {
       res.writeHead(200, { 'content-type': TYPES[path.extname(rel)] });
       return res.end(committed(`public/${rel}`));
@@ -520,6 +533,13 @@ try {
   check('a refresh leaves the sheet open', survived.open === true, String(survived.open));
   check('and the comment you were writing with it', survived.draft === 'half a thought', JSON.stringify(survived.draft));
   check('none of that wrote anything', real().length === 0, JSON.stringify(real().map((w) => w.path)));
+  /* Last, because an error can arrive at any point in the run and this is the only
+     assertion that has seen all of them. `writes.length = 0` never touches `errors`. */
+  check(
+    'and the page reported no errors of its own',
+    errors.length === 0,
+    errors.map((e) => `${e.kind || 'error'} — ${e.message || JSON.stringify(e)}`).join(' · ')
+  );
 } finally {
   close();
   server.close();

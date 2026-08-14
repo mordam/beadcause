@@ -43,6 +43,48 @@
   const tabsEl = document.getElementById('mon-tabs');
   if (!tabsEl) return;
 
+  /*
+   * Where the strip sticks, published as `--topbar-h` for style.css to stick it at.
+   *
+   * The row has to be sticky — the advocates list is long enough that by the time you
+   * are halfway down it there is nothing on screen saying which of the three panes you
+   * are in, and no way back to the other two without scrolling to the top first. Until
+   * bc-ugd4 it was sticky at `top: 0`, inherited from `.agent-tabs` on the foundations
+   * page, where zero is correct because that strip's scroll container is a `.launcher`
+   * that already starts below the top bar. Here the scroll container is the viewport,
+   * and the top of the viewport is behind a sticky `.topbar`: the strip pinned itself
+   * under the bar and was gone from the first scroll onwards.
+   *
+   * The number cannot be a constant in the stylesheet, which is the whole reason this
+   * is JavaScript. The bar is 104px with the space picker's row and 61px without it,
+   * and the picker hides itself whenever the daemon is watching fewer than two
+   * workspaces (`el.hidden` in public/spacebar.js) — so on the same build, the same
+   * page, the height is a fact about the payload. It also carries
+   * `env(safe-area-inset-top)`, which is zero in a browser and is not zero in the
+   * installed app on a notched phone, and the bar is `flex-wrap: wrap`, so a narrow
+   * enough screen can rewrap it into a different number of rows at any moment.
+   *
+   * A `ResizeObserver` on the bar answers all four of those without knowing about any
+   * of them: what it publishes is the bar's own measured height, whatever made it that.
+   * That is why this is not spacebar.js setting the variable as it shows and hides
+   * itself — that fix would be true for the one cause somebody thought of, and silently
+   * wrong for the next one. It lives here rather than in a file of its own because
+   * exactly one strip on one page sticks underneath the bar; if a second ever does,
+   * this block is what moves.
+   */
+  const bar = document.querySelector('.topbar');
+  if (bar && typeof ResizeObserver === 'function') {
+    const publish = () => {
+      const h = bar.getBoundingClientRect().height;
+      /* A zero is the bar mid-teardown or a `display: none` somebody is animating
+         through, not a bar that has no height. Keeping the last true value beats
+         sticking the strip at the top of the screen for a frame. */
+      if (h) document.documentElement.style.setProperty('--topbar-h', `${h}px`);
+    };
+    new ResizeObserver(publish).observe(bar);
+    publish();
+  }
+
   /** Which chip was up last time. */
   const KEY = 'beadcause.mon.tab';
   /* What that was called while mirror.js owned the row and there were two of them. Read

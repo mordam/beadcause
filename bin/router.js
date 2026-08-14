@@ -51,7 +51,7 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { loadConfig, reconcileBaseUrl } from '../lib/config.js';
 import { buildStamp, routerStamp } from '../lib/build.js';
-import { hotSwapProblem, LOADED_ENV } from '../lib/service.js';
+import { hotSwapProblem, LABEL, LOADED_ENV } from '../lib/service.js';
 import {
   certificate,
   certificateLine,
@@ -711,7 +711,7 @@ function watchSelf() {
     if (told || routerStamp() === routerBuildAtStart) return;
     told = true;
     warn("the router's own source changed — it cannot replace itself while holding the port.");
-    warn(`restart it: launchctl kickstart -k gui/${process.getuid()}/m4m.beadcause`);
+    warn(`restart it: ${RESTART_COMMAND}`);
   }, WATCH_MS).unref();
 }
 
@@ -815,6 +815,11 @@ function snapshot() {
       port: cfg.port,
       build: routerBuildAtStart,
       sourceChanged: routerStamp() !== routerBuildAtStart,
+      // The fix for that, since only this process can name it — the uid is its own and
+      // the label is the one it was installed under. Carried on every snapshot rather
+      // than only when it is needed, because a field that appears and disappears is one
+      // a reader has to test twice; see `explain`, which uses it as the verdict's `fix`.
+      restart: RESTART_COMMAND,
     },
     disk,
     stale: Boolean(active && active.build !== disk),
@@ -1433,6 +1438,20 @@ async function armCrashHandlers() {
 }
 
 const routerBuildAtStart = routerStamp();
+
+/**
+ * The one command that clears a stale router, written once and read in three places.
+ *
+ * The log line `watchSelf` prints, the verdict `explain` builds, and — through that
+ * verdict — the health line on the advocate console. It is built here rather than in
+ * lib/startup.js because that module imports nothing on purpose (a policy that could
+ * fail to load is a policy that costs the port), so the uid and the LaunchAgent label
+ * are this program's to know; the snapshot carries it out to the rest.
+ *
+ * `-k` because the job is running: kickstart without it is a no-op against a live
+ * label, which is the failure mode of a fix line that looks right and does nothing.
+ */
+const RESTART_COMMAND = `launchctl kickstart -k gui/${process.getuid()}/${LABEL}`;
 
 /**
  * Put the port down and stop the backends, once.

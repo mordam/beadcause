@@ -549,6 +549,29 @@ check(
 );
 git(['checkout', '--quiet', '--', 'README.md']);
 
+// And the exception to it, bc-45g8, end to end for the same reason: the refusal is
+// per-delivery but the checkout is *shared*, so before this a single `.DS_Store` left
+// every session's fast-forward on this Mac stuck at once. Untracked residue is not
+// anybody's unsaved work, so it is stepped past — and left exactly where it was, which
+// is the difference between this and tidying up after Adam.
+fs.writeFileSync(path.join(REPO, '.DS_Store'), 'finder\n');
+const strayMain = git(['rev-parse', 'main']);
+const pastStray = deliver('the laptop has residue on it', { worktree: true });
+check('a delivery lands over a checkout dirty only with untracked files', /^landed #7/.test(pastStray.stdout), pastStray.stdout);
+check(
+  '  — and main follows anyway, which one stray path used to stop for every session at once',
+  git(['rev-parse', 'main']) === run('git', ['--git-dir', ORIGIN, 'rev-parse', 'main']).trim() &&
+    git(['rev-parse', 'main']) !== strayMain,
+  `${git(['rev-parse', 'main'])} vs ${strayMain}`
+);
+check('  — the residue is still on disk, untouched', fs.existsSync(path.join(REPO, '.DS_Store')));
+check(
+  '  — and the bead says it stepped past it rather than claiming a clean tree',
+  /past untracked/.test(flat(bd(['comments', pastStray.id]))),
+  flat(bd(['comments', pastStray.id])).slice(-160)
+);
+fs.rmSync(path.join(REPO, '.DS_Store'), { force: true });
+
 /* ------------------------------- 8. and it will not push an unresolved merge at all */
 
 console.log('\na commit carrying conflict markers: nothing reaches origin, and nothing is asked');
