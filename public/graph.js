@@ -81,6 +81,14 @@
   const esc = (s) =>
     String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 
+  // A comment author with any `(who)` taken back off, so `beadcause (carol@example.com)`
+  // is recognised as beadcause. The rule is `writtenByDaemon` in lib/byline.js; it is
+  // restated here rather than imported because nothing under public/ imports from lib/.
+  const bylineBase = (author) => {
+    const m = /^(.*?)\s*\(([^()]*)\)$/.exec(String(author || '').trim());
+    return (m ? m[1] : String(author || '')).trim();
+  };
+
   /* ------------------------------------------------------------------ ages */
 
   // Every age on this page is measured from the *server's* clock, sent with the
@@ -1569,7 +1577,12 @@
       parts.push(
         `<div class="comments">${b.comments
           .map(
-            (c) => `<div class="comment${c.author && c.author !== 'beadcause' ? ' from-agent' : ''}">
+            // On the *base* of the byline: a daemon that knows who it is writes
+            // `beadcause (carol@example.com)`, and an "an agent said this" stripe over
+            // beadcause's own comment is the wrong sentence. Same rule as
+            // `writtenByDaemon` in lib/byline.js, restated because nothing under
+            // public/ imports from lib/.
+            (c) => `<div class="comment${c.author && bylineBase(c.author) !== 'beadcause' ? ' from-agent' : ''}">
               <span class="who">${esc(c.author || '')}</span>
               <div class="md">${md(c.text || '')}</div>
             </div>`

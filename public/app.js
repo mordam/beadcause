@@ -625,14 +625,24 @@
   /**
    * Written from here, rather than by something on the other end.
    *
-   * Every comment beadcause files carries `--actor beadcause` (see bd.js), so this
-   * is exact rather than a guess — and it is the same test `.from-agent` has always
-   * been painted from, which is why the collapse and the jump below agree with the
-   * accent stripe down the side of the bubble. A comment typed into `bd` on the Mac
-   * is somebody else's as far as this screen is concerned, because that is not a
-   * message this app sent.
+   * Every comment beadcause files carries `--actor` with its byline on it (see
+   * lib/bd.js), so this is exact rather than a guess — and it is the same test
+   * `.from-agent` has always been painted from, which is why the collapse and the jump
+   * below agree with the accent stripe down the side of the bubble. A comment typed
+   * into `bd` on the Mac is somebody else's as far as this screen is concerned, because
+   * that is not a message this app sent.
+   *
+   * The byline is `beadcause`, or `beadcause (carol@example.com)` on a machine that has
+   * said who it is, so the test is on the *base* — the same rule as `writtenByDaemon`
+   * in lib/byline.js, restated here because nothing under public/ imports from lib/.
+   * Deliberately blind to *which* beadcause: this stripe means "this app said it"
+   * rather than "an agent did", and another engineer's daemon is not an agent.
    */
-  const fromMe = (c) => !c.author || c.author === 'beadcause';
+  const bylineBase = (author) => {
+    const m = /^(.*?)\s*\(([^()]*)\)$/.exec(String(author || '').trim());
+    return (m ? m[1] : String(author || '')).trim();
+  };
+  const fromMe = (c) => !c.author || bylineBase(c.author) === 'beadcause';
 
   /** Enough of a collapsed comment to recognise it by, on one line. */
   const peek = (text) => {
