@@ -6584,7 +6584,8 @@ because at the moment it returns nothing has happened yet. The answer you actual
 *is my board clean again, and if not, which one needs me?* — arrives later, one pull request
 at a time, in windows nobody is watching. So a sweep that acted on anything files **one
 `human` card** for the whole sweep (`lib/sweepcard.js`), naming every pull request it
-touched and what became of each:
+touched and what became of each — or, when one of them is already on an open card,
+[amends that card instead of filing beside it](#a-branch-that-keeps-conflicting-does-not-keep-filing-cards):
 
 > - [#210](#) `worktree-poll-stream-rk2o1` — Park the inbox on /api/poll (bc-rk2o.1)
 >   ✅ mergeable again
@@ -6640,6 +6641,60 @@ part of this feature uses — and says *nothing here can say* rather than leavin
 nothing can check. `node test/sweepcard.mjs` stages the bead's own acceptance: three
 conflicting pull requests, one resolved, one handed back and one still running, producing
 exactly one card that names all three.
+
+#### A branch that keeps conflicting does not keep filing cards
+
+The card above is filed per *sweep*, and a sweep runs per merge into the base. That is the
+right shape for the case it was designed around — a merge conflicts a branch, a resolver
+fixes it, the card closes itself — and the wrong shape for a branch that conflicts and
+**stays** conflicting, because every subsequent merge conflicts it again and files another
+card saying the same sentence about the same branch. Measured on one ordinary day: pull
+request #243 was caught by **thirteen consecutive merges in seven hours** and filed thirteen
+cards, eleven of them naming it and nothing else, which was two thirds of that day's
+unsorted backlog. The amplification is per merge and it is independent of whether the cards
+ever close, since a row whose resolver is still working keeps its card open by design.
+
+So before filing, a sweep looks for an **open card that already names one of its pull
+requests** and folds into that one instead. The rows are updated in place, the merge is
+added to the card's list of them, and the title stops naming a merge as the cause and starts
+counting the merges the branch has survived:
+
+> **1 conflicting pull request in beadcause has survived 13 merges since #231**
+>
+> - [#243](#) `worktree-history-filter-nib33` — Filter closed history (bc-nib3.3)
+>   ⚠️ **handed back** — the session stopped and it still conflicts
+>
+> **One card per conflicting branch, not one per merge.** … The 13 merges folded in here,
+> oldest first: #231, #232, #233 …
+
+That paragraph is on the card on purpose, because the fix is otherwise invisible from a
+phone: what you see is a card that *did not appear*, and a card naming one merge while
+reporting states learned five merges later would be quietly lying about its own age.
+
+**The test is an overlap, not a subset**, which is the one part of this with a wrong answer
+that looks right. *Fold when the open card's rows are a subset of this sweep's* is the
+obvious rule and it re-splits on the first sweep that finds fewer: card `{243}` folds into
+sweep `{243, 300}` and becomes `{243, 300}`; the next sweep is `{243}` again, which is not a
+superset, so it files a second card about #243 and the whole thing is back. Overlap has no
+such state — a pull request stays on the card that already names it, for as long as that
+card is open, whatever else joins or leaves. A sweep that overlaps nothing still files its
+own card, as before.
+
+**The card is asked whether it is still open before anything is written to it**, and this is
+the one place in the feature that treats a `bd` that will not answer as a *no*. The
+[follow-up does the opposite](#one-card-for-the-whole-sweep-amended-as-the-windows-close) —
+it holds a record over a tracker that blinked, because dropping it would kill the buttons on
+a card still on your phone. Here a wrong answer loses the sweep's report entirely, since
+amending a closed bead writes into something nothing will show you, so anything short of a
+definite *open* files a new card. One duplicate card is the cheaper failure than a silent
+one.
+
+This is deliberately **not** the [duplicate check in `bd create`](#and-the-same-check-runs-at-bd-create-whoever-filed-it),
+and could not have been. That one declines outright on anything labelled `human` — an inbox
+card is addressed to somebody, and two questions are two things to answer rather than one
+thing filed twice — and it compares *titles*, which here differ by exactly the merge number
+that is the problem. The duplication is not two cards that resemble each other; it is the
+same branch reported again, and only the row set says so.
 
 #### And the hand-back has a button that does something
 
