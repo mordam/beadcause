@@ -787,14 +787,16 @@ answers, because a screen showing only the space's own setting would be quietly 
 about exactly the repo somebody had singled out — and wrong in the direction of promising
 more detail on your phone than you are going to get.
 
-**And one row in that panel is a control.** `autoEndorse` is the setting a space is the
-wrong unit for — see
-[One repo may answer for itself](#one-repo-may-answer-for-itself-and-this-is-the-only-setting-that-may)
-— so each repo carries its own three buttons under its tags: On, Off, and *Inherit*,
-which names what the space resolves to. They went here rather than into a twelfth row
-above because this is the line that already stated the answer for that repo and had
-nothing to press. The tag stays beside them and is not made redundant by them: the tag is
-the *resolved* answer, and the lit button says which of the three levels gave it.
+**And the rows in that panel are controls.** Four settings are ones a space is the wrong
+unit for — see
+[One repo may answer for itself](#one-repo-may-answer-for-itself-on-the-four-settings-where-it-matters)
+— so each repo carries four rows of three buttons under its tags: On, Off, and *Inherit*,
+which names what the space resolves to. Whether its agents' filings arrive endorsed,
+whether its workers merge their own pull requests, whether an approving review has to come
+first, and whether the merge then ships itself. They went here rather than into four more
+rows above because this is the line that already stated those answers for that repo and
+had nothing to press. The tags stay beside them and are not made redundant by them: a tag
+is the *resolved* answer, and the lit button says which of the three levels gave it.
 
 **And a row in it is a workspace, which stopped being the same thing as a repo.** A
 workspace with an [approved list of checkouts](#many-repos-one-workspace--the-approved-list-and-the-token-that-names-each)
@@ -917,10 +919,11 @@ otherwise leaks a work question onto a public relay. `slackChannel` and `slackDe
 are the same answer for [the other delivery surface](#slack--the-same-decision-in-a-channel),
 and for the same reason.
 
-**A space also decides who merges.** `autoMerge` and `requireApproval` are the same
-kind of answer as the two above — one you give once for a group of repos rather than
-per repo — and they are the two halves of
-[landing work](#landing-work--a-branch-a-pull-request-and-the-workers-own-merge):
+**A space also decides who merges.** `autoMerge` and `requireApproval` are given here for
+a group of repos, the way the two above are, and they are the two halves of
+[landing work](#landing-work--a-branch-a-pull-request-and-the-workers-own-merge) — but
+unlike the two above, one repo inside the space
+[may answer for itself](#one-repo-may-answer-for-itself-on-the-four-settings-where-it-matters):
 
 | on a space | what it does |
 |---|---|
@@ -958,41 +961,54 @@ agent-filed` is how you see what arrived while you were asleep.
 | `"autoEndorse": false` | they are held for your tap, even where the global says yes |
 | unset | follows the global `autoEndorse`, which is `false` unless you changed it |
 
-### One repo may answer for itself, and this is the only setting that may
+### One repo may answer for itself, on the four settings where it matters
 
-Everything else on a space groups cleanly. "Don't buzz me about work at the weekend"
-and "don't land a diff other people read without eyes on it" are properties of a *set*
-of repos, and a space is that set — which is why the settings above are, as
-`lib/spaces.js` puts it, ones you give once for a group of repos rather than per repo.
+Most of a space groups cleanly. "Don't buzz me about work at the weekend" and "post this
+lot to that channel" are properties of a *set* of repos, and a space is that set — which
+is why the settings above are, as `lib/spaces.js` puts it, ones you give once for a group
+of repos rather than per repo.
 
-The hold is not like that, and the shape of a real config is what showed it. There are
-two spaces here: **Personal**, holding `beadcause`, `deluvia`, `ehatt`, `sophab` and two
-more, and **Climative**, holding one. The reason to stop holding in `beadcause` — I am
-the only reader of that tracker, so the tap is not a review, it is a delay with a
-notification attached — is a fact about *that tracker*. It is not true of the five repos
-sitting beside it, and none of them moved. With the space as the finest thing that could
-answer, saying yes to one meant saying yes to six.
+Four of them are not like that, and the shape of a real config is what showed it. There
+are two spaces here: **Personal**, holding `beadcause`, `deluvia`, `ehatt`, `sophab` and
+two more, and **Climative**, holding one.
 
-**One workspace, though, never one checkout inside one.** The override is keyed by
+The hold was the first. The reason to stop holding in `beadcause` — I am the only reader
+of that tracker, so the tap is not a review, it is a delay with a notification attached —
+is a fact about *that tracker*. It is not true of the five repos sitting beside it, and
+none of them moved. With the space as the finest thing that could answer, saying yes to
+one meant saying yes to six.
+
+The other three are the same argument applied to the sentence that costs more: **does
+finished work land and go live without a tap.** `beadcause` is the one repo in that space
+with a deploy this Mac can actually run, the one whose whole suite runs on GitHub against
+every pull request, and the one nobody else reads — so it is the one where a worker
+should merge its own work and the merge should ship itself. Saying that through the space
+armed `deluvia`, `ehatt` and `sophab` at the same time, which nobody had asked for.
+
+**One workspace, though, never one checkout inside one.** The overrides are keyed by
 workspace, and a workspace is a beads graph — which is exactly the grain
 [policy answers vary at](#policy-stays-per-space-even-when-a-workspace-is-forty-repos):
 who else reads this graph, and would they mind an agent working it unasked. So `climative`
 may answer for itself here like any other workspace, and still gives one answer for all
 forty of its checkouts; nothing on this page lets one of them out of it.
 
-So `autoEndorse` has a per-workspace override, and it **outranks the space**, exactly the way
-`ntfy.minimalWorkspaces` and `slack.excludeWorkspaces` already outrank it for
+So four settings have a per-workspace override, and each **outranks the space**, exactly
+the way `ntfy.minimalWorkspaces` and `slack.excludeWorkspaces` already outrank it for
 notification detail:
 
 ```json
-"autoEndorsePerWorkspace": { "beadcause": true, "sophab": false }
+"autoEndorsePerWorkspace":    { "beadcause": true, "sophab": false },
+"autoMergePerWorkspace":      { "beadcause": true },
+"requireApprovalPerWorkspace": {},
+"autoShipPerWorkspace":       { "beadcause": true }
 ```
 
-| for one workspace | what it does |
-|---|---|
-| `true` | its agents' discoveries are ready work immediately, even where its space holds |
-| `false` | they are held for your tap, even where its space endorses |
-| absent | follows the space, and then the global — which is the hold unless you changed it |
+| for one workspace | `true` | `false` | absent |
+|---|---|---|---|
+| `autoEndorse` | its agents' discoveries are ready work immediately | they are held for your tap | follows the space, then the global |
+| `autoMerge` | a worker merges its own pull request | every delivery hands you the pull request | ” |
+| `requireApproval` | green checks are not enough — it needs an approving review | green checks are enough | ” |
+| `autoShip` | its merges run its declared deploy without waiting for **Ship** | merges wait for the button | ” |
 
 A boolean per repo rather than a list of names, because both directions have to be
 sayable: a repo held inside a space that endorses is the same kind of exception as the
@@ -1001,21 +1017,31 @@ other way round, and a list can only ever say one of them. Keyed by workspace na
 — that array is rediscovered from `~/beads/*/.beads` on every start, so anything written
 onto it by hand is gone at the next restart.
 
-**Set it from the repo row**, on the space details card at
-[`/monitor`](#space-details--the-page-the-advocate-console-became): each row under
-*What each repo resolves to* already stated the answer for that repo and had nothing to
-press, so the three buttons went where the answer was. On / Off / **Inherit**, and
-Inherit names what it resolves to through the space — `Inherit (on)` inside an endorsing
-space — so the button never promises the opposite of what pressing it does. Repos in no
-space at all have no card, because `Other` is a group the picker offers rather than a
-space; the override still works for them, from the config file.
+**None of the three new ones loosens a gate**, which is worth being exact about, because
+"the worker ships its own work" and "the worker ships work nobody checked" are one word
+apart. `autoMerge` decides who presses merge, never what merge means: `bin/deliver.js`
+still waits for the pull request's checks, still refuses over a red one or one that never
+reported, and still falls back to the question with the reason written on it. `autoShip`
+only ever reaches a merge that is already on `origin/main`, and the only ways to get
+there are that gated merge or your own thumb. What these move is the tap, not the test.
 
-Resolution is one path, in `autoEndorseAllowed`, and every caller goes through it — the
-card, `bin/file.js`, and the brief `lib/session.js` writes for a worker. Anything that is
-not a real boolean at a level is not an override and falls through to the next one, so a
-hand-typed `"true"` inherits rather than dropping a safety property. And a config from
-before this existed answers exactly as it did: the map is absent, so both remaining
-levels are the two that were always there.
+**Set them from the repo row**, on the space details card at
+[`/monitor`](#space-details--the-page-the-advocate-console-became): each row under
+*What each repo resolves to* already stated the answers for that repo and had nothing to
+press, so the buttons went where the answers were — four rows of three. On / Off /
+**Inherit**, and Inherit names what it resolves to through the space — `Inherit (on)`
+inside an endorsing space — so the button never promises the opposite of what pressing it
+does. Repos in no space at all have no card, because `Other` is a group the picker offers
+rather than a space; the overrides still work for them, from the config file.
+
+Resolution is one path — `workspaceAnswer` in `lib/spaces.js`, which
+`autoEndorseAllowed`, `prPolicyFor` and `autoShipAllowed` are now three names for — and
+every caller goes through it: the card, `bin/file.js`, `bin/deliver.js`, the release queue
+and the brief `lib/session.js` writes for a worker. Anything that is not a real boolean at
+a level is not an override and falls through to the next one, so a hand-typed `"true"`
+inherits rather than dropping a safety property. And a config from before this existed
+answers exactly as it did: the maps are absent, so both remaining levels are the two that
+were always there.
 
 `npm run configure` walks you through it. Run it **in a terminal** — it needs one to
 ask questions. Anywhere else (a pipe, CI, an agent shell) it prints the current
@@ -3422,7 +3448,11 @@ actually means:
   nothing; calling it blocked would invent a queue.
 - **Related** — `related`, which bd stores once, on whichever bead it was created from.
   So it appears above the description on one of the pair and down here on the other, under
-  the same word, because it means the same thing from either end.
+  the same word, because it means the same thing from either end. Its successor
+  `relates-to` — what `bd dep relate` writes, and what [every bead id in
+  prose](#every-bead-id-in-prose-is-an-edge-behind-it) now draws — is stored at **both**
+  ends instead, so it is already up above the description and is dropped here rather than
+  printed twice.
 - **Children** are lifted out entirely and drawn by the block above. The same eleven beads
   under two headings is the failure this split exists to prevent.
 
@@ -3455,6 +3485,112 @@ like something else:
 - **d3 transitions share a default name.** The nodes' fade-in and the auto-fit's zoom
   transition kept cancelling each other, leaving every node stuck at opacity 0.0004 —
   a fully drawn, entirely invisible graph. The fade is a CSS animation now.
+
+### Every bead id in prose is an edge behind it
+
+The **Related** rows above were, for most of this tracker's life, a heading nothing ever
+filled. Measured on 2026-08-13 over 850 beads: the prose held **1,633 references** from
+one bead to another, **710** pairs were already joined by an edge of some kind, and the
+whole graph contained **two** see-also edges — one drawn by hand days earlier, the other
+minutes before this was built. Everything an agent needs to start fast was in those
+references — "the same defect as bc-767a", "see also bc-rcrt", "sits in bc-42ow's
+neighbourhood", "superseded by" — and none of it was reachable by `bd show`, `bd dep
+tree`, this graph or a dispatch brief. So building context was a reading task rather than
+a traversal, every session paid it again, and mostly did not: bc-xl7n filled to 87
+unsorted children while seven epics that had already classified most of them sat closed.
+
+The fix is not better habits. A bead id written in a paragraph now becomes an edge, in two
+passes that share one module (`lib/mentions.js`):
+
+- **As it is written.** Every prose write that goes through `Bd` — a comment, an answer, a
+  close reason, an appended note, a bead's description at `create`, the fields an `update`
+  actually moved — draws a `relates-to` edge for each bead it names. `Bd.relateMentions`.
+- **Over what was already written.** `npm run relate -- -w <workspace>` sweeps the export
+  and every comment thread on it. Dry by default: it prints every pair it would draw and
+  writes nothing until `--apply`, because a sweep over a tracker two Macs and twenty
+  sessions share is not something to find out about afterwards. `--no-comments` makes it a
+  single `bd export` and no per-bead reads, which is the right shape for a fast look.
+
+  **Run `--apply` against an instance that already has this code deployed.** The two
+  spelling fixes below are what keep a fresh see-also off the "waits on" side of a card,
+  and until the daemon is running them a thousand new edges would land on the phone
+  counted as live blockers. Nothing is *broken* by that — `bd ready`, the close gate and
+  every advocate read `blocks` edges only, so no queue moves — but the graph would read as
+  a tracker where everything is stuck behind everything.
+
+**What an edge here claims is `mentioned near`, and nothing more.** lib/beadref.js argues
+the opposite case and is right about its own question — "which bead is this pull request
+*for*" decides what gets *closed*, so a delivery whose body ended "nothing was done about
+bc-2tr, which this unblocks" must not count as four claims. This question is weaker and is
+answered honestly: there is no verb tier, because a bead that says it did *not* touch
+bc-2tr is still a bead a reader of bc-2tr wants to know exists. The precision is in what
+is refused instead — a bead's own id, a pair the graph already joins by any edge at all, an
+id that does not exist, and anything past a cap of 40 on one bead.
+
+**The cap is a runaway guard, not a precision knob.** An epic naming twenty-three adoptees
+really does relate to all twenty-three, and capping that at five would throw away the exact
+structure this exists to capture. What it is for is the comment nobody intended as a list —
+a queue dump, a paste of `bd ready` — which can name every open bead in the workspace. Forty
+is where the gap is: exactly one bead here reaches it — bc-xl7n, the catch-all root, whose
+prose names 55 because naming every kind of work there is *is* what it is for — and the next
+largest description names 28. The first full sweep of this workspace plans **1,308** new
+pairs across 554 beads.
+
+**It costs nothing when there is nothing to do.** The regex runs in process, before any
+child: prose naming no bead — most comments — spawns nothing at all. Prose that does name
+one costs two reads, and a *write* only for a pair with no edge yet, which after the sweep
+is nearly never. Reads do not take Dolt's single writer, so a comment repeating the same
+three ids is two reads and no lock.
+
+**And one write draws at most eight, against the sweep's forty.** The hook runs inside
+`bd.respond` — what a tap on a phone runs, awaited on the request path — and a `bd dep
+relate` is about a second and a half, so forty would be a minute of somebody waiting for an
+answer that was already recorded before the first edge was drawn. Eight is well clear of
+what a single write produces: 1,308 pairs across 554 beads is 2.4 apiece for a bead's
+*entire* history of descriptions, notes and comments together. A comment past eight is a
+list somebody pasted.
+
+**Nothing here may fail the write it hangs off.** The comment is what the caller was asked
+to record; the edge is a courtesy on top of it, and a tracker that refused to record an
+answer because a see-also would not draw would be far worse than one with a missing edge.
+Every failure is swallowed and what is returned is the ids actually drawn.
+
+Four things that had to be got right, and each of them was a real failure first:
+
+- **`relates-to`, not `related`.** `bd dep relate` writes the first; every reader in this
+  repo — `NOT_BLOCKING` in lib/graph.js, `RELATED` in public/graph.js — was written against
+  the second, because the single edge that existed when they were written was made by hand
+  under the older name. Harmless over one edge; load-bearing over a thousand, every one of
+  which would otherwise have arrived on a card counted as a **live blocker**. A bead that
+  merely mentions eight others would have announced that it waits on eight.
+- **Both ends have to be read before anything is written.** `bd show --json` carries only
+  the *outgoing* half — bc-arj0, an epic with eight children, comes back with an empty
+  `dependencies[]` and `dependent_count: 8`, because a `parent-child` edge is stored on the
+  child. And `bd dep relate` **refuses** a pair that already carries an edge of another
+  type, *after* writing the first of its two rows, so a relate over a parent-child edge
+  leaves a one-ended see-also behind and reports failure. The sweep collects pairs from
+  both ends of every export row for the same reason: read one-directionally, bc-xl7n
+  planned sixty-nine see-alsos to beads it already parents.
+- **Bulk wiring is all-or-nothing.** `bd dep add --file` takes newline-delimited
+  `{from, to, type}` and does a thousand edges in one spawn instead of half an hour of
+  `bd dep relate` holding the single writer — but it validates the whole batch and rejects
+  **every** line if one names a deleted id. Ten such ids were in this workspace's prose
+  (`bc-swr`, `bc-q1`, `bc-xxx` — typos, placeholders, beads long deleted), which is why the
+  sweep filters against the export's own id set and then chunks: a surprise costs one chunk
+  rather than the sweep. The write-time hook uses one `bd dep relate` per pair instead,
+  where the batch is two or three and a per-pair failure costs only that pair.
+- **A `relates-to` must not be printed twice.** bd stores it at both ends, so it is already
+  in `bd show`'s dependencies and drawn above the description; the incoming copy is dropped
+  from the list below rather than grouped, the same way children are.
+
+One thing it does not fix, deliberately: the `blocks N` pill at first paint is
+`dependent_count` straight from bd, which counts every edge pointing at a bead — children
+already, and now see-alsos too. It is replaced by the real rows the moment
+`dep list --direction=up` lands, and there is no count bd offers that would be better.
+
+Checked by `test/mentions.mjs` (the module, the hook against a fake `bd` that records its
+argv, and the two client-side spellings in source) and by `test/graphwaits.mjs`, which is
+where the `relates-to` spelling is held to not blocking anything.
 
 ### The glass in the middle
 
@@ -6292,14 +6428,27 @@ exactly the evidence it always did.
 
 It is a space setting for the same reason `autoMerge` is one, with the same three values
 (on, off, and absent meaning inherit) and the same global default behind it —
-`release.autoShip`, **off**, which is what every install does today. And it is the space
-that is overridden rather than the last word: **an epic beats it, in either direction.**
-Label an epic `no-auto-ship` and its work stays parked on a space that ships everything
-else; label one `auto-ship` and it goes out on a space that does not. A merge finds its
-epic by walking up from the bead it delivered (`parent`, one `bd show` per level) and the
-*nearest* opinion wins, so an exception written on the work beats the rule written above
-it. A label rather than a config key because it is visible on the bead you are looking
-at, and because it is one word to add from anywhere.
+`release.autoShip`, **off**, which is what every install does today.
+
+**And it is not the last word at either end.** Below the space, a single repo
+[answers for itself](#one-repo-may-answer-for-itself-on-the-four-settings-where-it-matters)
+through `autoShipPerWorkspace`, which is the level this setting most needed: only one of
+the six repos in the Personal space here has a deploy this Mac can run at all, so saying
+"ships itself" through the space armed five repos nobody had asked about.
+
+Above all of it, **an epic beats the lot, in either direction.** Label an epic
+`no-auto-ship` and its work stays parked on a repo that ships everything else; label one
+`auto-ship` and it goes out on a repo that does not. A merge finds its epic by walking up
+from the bead it delivered (`parent`, one `bd show` per level) and the *nearest* opinion
+wins, so an exception written on the work beats the rule written above it. A label rather
+than a config key because it is visible on the bead you are looking at, and because it is
+one word to add from anywhere.
+
+What none of those four levels can do is skip the gate, and that is structural rather
+than a check written anywhere: the release queue only ever sees a merge that is already
+on `origin/main`, and the only ways to get there are a worker's own merge — which waits
+for the pull request's checks and refuses over a red one — or your thumb. Auto-ship
+deploys work that already passed; there is no path by which it deploys work that has not.
 
 Four properties make it safe to leave running while nobody is watching:
 
@@ -6733,7 +6882,7 @@ a number with no door behind it, and no way at all to see which three from a pho
 **A space — or a single repo — can opt out of this screen entirely**, and it is worth
 knowing before you read the rest of it: `autoEndorse` on the space
 ([above](#spaces--keeping-work-out-of-your-evening)), or
-[`autoEndorsePerWorkspace` on one repo](#one-repo-may-answer-for-itself-and-this-is-the-only-setting-that-may)
+[`autoEndorsePerWorkspace` on one repo](#one-repo-may-answer-for-itself-on-the-four-settings-where-it-matters)
 where the space is the wrong unit, files without the hold — so those workspaces'
 discoveries never appear in this queue at all: they go straight to `bd ready` and the
 advocate picks them up. Off unless you ask for it, and the bead still says on its face
@@ -7766,7 +7915,8 @@ session that trips over something mid-work proposes it *then*, with
 card, same buttons, nothing created until you tap. What follows is the other way: what
 happens when a repo runs *out* of work and something has to go looking.
 
-So when a repo runs out of ready work, the advocate spawns a **read-only** survey
+So when a repo [runs out of ready work](#when-it-actually-goes-looking--what-out-of-ready-work-has-to-mean),
+which is a narrower condition than it sounds, the advocate spawns a **read-only** survey
 agent (`bd`, `git log`, read, grep, and the [web lookups](#looking-something-up--and-why-it-is-not-bashcurl) — nothing that can create, close or delete a bead) which reads the recent
 closes, the blocked beads, any `## Discovered` notes left in comments by sessions
 older than the propose command, and the repo's own docs. If it finds nothing worth filing it says so and the advocate
@@ -7858,6 +8008,57 @@ beads. The app sends both — the sentence for you, the indices as a field — a
 field wins. Free text can never create a bead by accident: *"yeah go on then"* is a
 comment, which is exactly what it looks like. One open proposal per repo at a time,
 and at most one every `proposeCooldownHours`.
+
+### When it actually goes looking — what "out of ready work" has to mean
+
+The paragraph above says *when a repo runs out of ready work*, and that sentence hides
+the whole mechanism. Six things have to be true in the same tick before `propose` is
+even entered, and every one of them is a filter somebody added for its own incident:
+
+- **the advocate is not paused**, and is not inside quiet hours — pausing means "open
+  no more sessions", and proposing is one;
+- **it has no window open on this repo**, because an advocate that proposed new work
+  while it was doing old work would be doing the easy half of its job;
+- **`bd ready` is empty** of anything it could take;
+- **and empty for no *reason*** — none of the eight holds fired. A queue emptied by a
+  hold is not a clear one: `heldByChildren`, `heldByRepo`, `heldByTwin`, `heldByPr`,
+  `heldByLive`, `heldByLease`, `heldByClaim` and `heldByNoP0` each stand for work that
+  *is* there and cannot be started yet, and an advocate that said "clear" over one and
+  then filed new beads beside it would be burying the one sentence that says what to
+  fix. This is the condition that does most of the stopping, and the card says which:
+  *"nothing ready · 1 already in an open pull request"* is not the same sentence as
+  *"clear — no ready beads"*, on purpose;
+- **`propose` is on**;
+- **and `proposeCooldownHours` has elapsed** since the last survey. The stamp goes on
+  *both* outcomes, including "nothing worth proposing", so an advocate that found
+  nothing does not spend another ten agent-minutes finding nothing again before lunch.
+
+Then one more, inside `propose` itself: **no proposal is already waiting on you**. Two
+asks in an inbox is how an advocate starts reading as noise, and the second would be
+written without the answer to the first.
+
+**That conjunction is rare by design, and for a while it looked broken instead.** On
+2026-08-11 it had never once been true on this laptop: `lastProposalAt` was null for
+all six advocates and no `<workspace>_advocate.log` existed, so the entire survey half
+of the advocate had run only in its own tests. Three of the eight holds were added
+*after* `propose` was written, and each one makes "clear" rarer — which is a reasonable
+thing to be suspicious of. It fired for real the next day: the `architecture` advocate
+surveyed on 2026-08-12, wrote its transcript, stamped `lastProposalAt`, proposed two
+beads and asked to change its own foundation. So the gate opens; it opens for a repo
+that is genuinely idle. Four of those six advocates were *paused*, which is a stop long
+above the queue and says nothing about the gate at all. `beadcause`'s own still has a
+null stamp, and that is the gate working rather than the gate stuck: this repo has not
+had an empty, unheld queue and no open window in the same tick since the advocate was
+switched on. A queue that is never dry is a queue that never needs proposals.
+
+`test/proposegate.mjs` is that measurement turned into something that can fail, because
+one reading of one file on one laptop does not stay true and the next filter added above
+`propose` would close the door again with nothing to say so. It drives a clear queue
+through a real tick and asserts the survey is reached, then takes away one condition at
+a time — a worker, a hold, the pause, the cooldown, the switch — and asserts it is not.
+The positive case is the point: `test/repoqueue.mjs` already covers a queue that must
+*not* propose over itself, and a gate only ever tested shut cannot tell "correctly
+closed" from "welded shut".
 
 ### What you see, and where
 
@@ -13101,7 +13302,10 @@ Two consequences of that ordering worth knowing:
 | `autoDispatchExclude` | workspaces that never auto-dispatch — put shared trackers here |
 | `autoDispatchTimeoutMs` | kill a dispatched agent after this long (default 10 min) |
 | `autoEndorse` | beads an agent files itself arrive **endorsed** — workable, queued, launchable — instead of held for your tap (default `false`). The one policy default here that is the restrictive one, and the only one that needs a literal `true`: its worst case is an unattended session on work nobody has read. Set it **per [space](#spaces--keeping-work-out-of-your-evening)** rather than here; the P2 ceiling, `agent-filed` and the `discovered-from` edge all still go on either way |
-| `autoEndorsePerWorkspace` | the same answer for **one workspace**, keyed by workspace name — `{"beadcause": true, "sophab": false}` (default `{}`). Outranks the space, which outranks the global, and an absent name inherits. The one setting here a space is the wrong unit for: "nobody but me reads this tracker" is true of one graph and not of the five beside it in the same space — and not of one checkout inside a workspace, which [stays the space's answer](#policy-stays-per-space-even-when-a-workspace-is-forty-repos). Set from the repo row on the [space details screen](#one-repo-may-answer-for-itself-and-this-is-the-only-setting-that-may) |
+| `autoEndorsePerWorkspace` | the same answer for **one workspace**, keyed by workspace name — `{"beadcause": true, "sophab": false}` (default `{}`). Outranks the space, which outranks the global, and an absent name inherits. One of [four settings a space is the wrong unit for](#one-repo-may-answer-for-itself-on-the-four-settings-where-it-matters): "nobody but me reads this tracker" is true of one graph and not of the five beside it in the same space — and not of one checkout inside a workspace, which [stays the space's answer](#policy-stays-per-space-even-when-a-workspace-is-forty-repos). Set from the repo row on the [space details screen](#one-repo-may-answer-for-itself-on-the-four-settings-where-it-matters) |
+| `autoMergePerWorkspace` | whether **one workspace's** workers merge their own pull requests, same shape and same precedence (default `{}`). It moves who presses merge and nothing else: a worker still waits for the checks and still refuses over a red one |
+| `requireApprovalPerWorkspace` | whether **one workspace** needs an approving review first, same shape and same precedence (default `{}`). Only meaningful while its `autoMerge` is on — with that off, every delivery is already a question and answering it *is* the approval |
+| `autoShipPerWorkspace` | whether **one workspace's** merges run its declared deploy without waiting for **Ship**, same shape and same precedence (default `{}`). The setting this layer most needed: only one repo in a space of six here has a deploy this Mac can run, and saying so through the space armed the other five. An [epic may still override it in either direction](#auto-ship--the-merge-that-does-not-wait-for-the-tap) |
 | `pr.enabled` | land finished work as [a pull request the worker merges](#landing-work--a-branch-a-pull-request-and-the-workers-own-merge) (default `true`). `false` puts every workspace back on the oldest ending — work the bead, close the bead. A workspace with no `gh` or no GitHub remote gets that ending anyway, without needing to be named |
 | `pr.base` | what a PR is opened against and merged into (default `main`). In a workspace with an [approved repo list](#and-which-branch-its-pull-request-is-opened-into) this is the *fallback*, and each repo's own default branch is the answer |
 | `pr.mergeMethod` | `merge` (default), `squash` or `rebase`. A merge commit because a squash-merged branch is never an ancestor of `main`, and the worktree cleanup will not remove a worktree that fails that test |
@@ -14207,7 +14411,7 @@ are the same workspace.
 and the second is the one that settles it.
 
 One of the five does take a finer answer, and it is a different question: `autoEndorse`
-has a [per-workspace override](#one-repo-may-answer-for-itself-and-this-is-the-only-setting-that-may)
+has a [per-workspace override](#one-repo-may-answer-for-itself-on-the-four-settings-where-it-matters)
 that outranks the space, so one workspace in a space may answer for itself. That is the
 grain the second reason below is about — a graph and who reads it — and it leaves this
 section's question exactly where it is: no setting here answers per checkout *inside* a
