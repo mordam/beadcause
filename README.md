@@ -12050,7 +12050,7 @@ prose in a comment.
 
 `test/swbump.mjs` asks it now, on every `npm test`, about the branch you are on. It
 compares the working tree against the `main` it grew from, so the answer arrives before
-the commit rather than after it, and it says one of three things:
+the commit rather than after it, and it says one of four things:
 
 - **An advisory, which never fails the run.** Two or more files in `SHELL` changed and
   `const CACHE` did not move: here they are, decide. That over-reports on purpose. The
@@ -12067,6 +12067,12 @@ the commit rather than after it, and it says one of three things:
   or id and another newly *styles* it — the stylesheet shape, below. It does not fail
   the run; it turns "these five files moved, decide" into "`console.js` newly draws
   `.bead-dupe`, which `style.css` only gained on this branch".
+- **A file added whole that a cached page cannot load.** A new `SHELL` file whose only
+  way onto a page is a `<script src>` tag another `SHELL` file only just gained, and
+  which a third one now calls into off the window. Which side of the line that lands on
+  is decided by the caller: reached flat it is a `TypeError` and red, and reached behind
+  `&&` or `?.` it is a control that silently does not appear, and it is named inside the
+  advisory. The script-tag shape, below.
 
 The reading is deliberately narrow. Comments are stripped before a line is read, and a
 member counts as gained only if it is *defined* at head and not at base — appearing in
@@ -12087,6 +12093,11 @@ node test/swbump.mjs --base 65745de5^2 --head 65745de5   # bc-dmt: flagged
 node test/swbump.mjs --base cbfd7367^  --head cbfd7367   # bc-p38c.2: silent
 node test/swbump.mjs --base e7aa8e68^1 --head e7aa8e68^2 # bc-pzti: the stylesheet pair
 ```
+
+bc-nib3.3, the branch the script-tag half is written from, is the one that cannot be
+replayed that way — it *bumped*, so pointed at its own revisions the check is correctly
+silent. The suite pins its `const CACHE` back to the value it had first, which is the
+state the branch was actually in when swbump shrugged at it.
 
 ### The stylesheet half of the same pair
 
@@ -12125,6 +12136,52 @@ unstyled is a warning in the wrong colour on a page that otherwise works; v37's 
 unstyled is a screen with no navigation on it. The check finds the pair and names both
 halves of it; how much an unstyled name costs is the judgement, and it stays with the
 person reading the diff — who, unlike this file, can open the page.
+
+### The script tag that is the other half
+
+Both rules above pair two files the branch *modified*, and "a file added whole, with its
+callers, is never a mixed pair" is a rule with a suite of its own: a cache from before
+the branch has neither half of it, so there is nothing to disagree with.
+
+bc-nib3.3 (#247) is the shape that goes straight through the middle of that. The
+collapsing filter chrome came out of `public/inboxfilter.js` into a new
+`public/filtermenu.js` so the History tab could mount the same control instead of a
+second implementation of it. The new file is *added*, so it is neither half of a member
+pair; the thing that puts `window.beadcause.filterMenu` on the page is a `<script src>`
+tag, which is markup rather than a call; and `inboxfilter.js` — a file the cache has had
+all along — gained `window.beadcause.filterMenu.mount(host, …)`. The pair that actually
+breaks is the phone's *old* `index.html`, which has no such tag, beside the branch's new
+`inboxfilter.js`, and it takes the inbox's whole filter bar out with a `TypeError`.
+swbump printed an advisory. The bump was made anyway, argued out by hand in
+`docs/sw-cache/v51.md` — which is the hand-written version of the failure the check
+should have printed — and the next session lifting a shared browser module would have
+read "advisory" and skipped it.
+
+So the added file is not one half of this pair. The *page that loads it* is, and the
+page is a file the cache has had all along and this branch edited. `scriptSrcs` reads
+the tags a page gained, `globalInstalls` reads the surface the new file puts on the
+window — skipping the `window.beadcause = window.beadcause || {}` line every one of
+these files carries, which is nobody's surface in particular — and `globalCalls` reads
+what another modified `SHELL` file newly reaches for through it.
+
+Which strength it lands at is decided by the caller, and bc-nib3.3 has one of each in a
+single commit. `inboxfilter.js` calls `mount` flat, on a page that cannot have loaded
+the file: that is a `TypeError`, and it is red. `history.js` mounts the identical
+control behind `if (host && window.beadcause && window.beadcause.filterMenu)`, so a
+phone without the file draws a ledger with no filter bar and throws nothing — the
+"looks like a working page" failure again, named inside the advisory and left to the
+reader to price. An optional-chained `window.beadcause?.filterMenu?.mount(…)` counts as
+the same guard for the same reason.
+
+It is quiet by construction, and that is measured the way the stylesheet half was.
+Replayed over every one of the 240 merges `main` has ever had, it fires on **no unbumped
+branch at all**, and independently explains **4 of the 31 that did bump** — bc-nib3.3's
+own diff, bc-rk2o putting every view on the delta stream behind a new `stream.js`,
+bc-xqnj's `spacebar.js`, and the branch that first added `sendqueue.js`. Every one of
+those is a new shared module arriving with the tags that load it, which is exactly the
+work this fires on and exactly the work a human bumped for. `bc-p38c.2` stays silent
+under it for the reason it always did: `report.js` went onto twelve pages and nothing
+gained a call into it, so cached HTML without the tag is the app exactly as it was.
 
 ## The Android app
 
