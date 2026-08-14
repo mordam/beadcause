@@ -132,6 +132,25 @@ check('told once, then it is yours — the second attempt claims it', () => {
   assert.equal(collisions(T0 + MIN, live).length, 1, 'which is exactly what a collision is');
 });
 
+check('and it stays yours — the edit after that one is not refused all over again', () => {
+  // bc-n1qq. The only route to `held` used to run through `told`, so the edit *after* the
+  // one that insisted saw `held`, failed the promotion test and fell back to `told` — a
+  // second refusal, and a third, alternating for as long as both sessions were on the
+  // file. It made the sentence the refusal ends with ("you will only be told once") false,
+  // which is the way a guard stops being read without anybody turning it off.
+  ask('s1', 'lib/foo.js');
+  ask('s2', 'lib/foo.js');
+  ask('s2', 'lib/foo.js', { now: T0 + MIN });
+
+  const third = ask('s2', 'lib/foo.js', { now: T0 + 2 * MIN });
+  assert.equal(third.decision, 'held', 'holding is not something you re-earn every edit');
+  assert.equal(third.insisted, false, 'and a renewal is not an insist — the log fires once, not per edit');
+
+  const fourth = ask('s2', 'lib/foo.js', { now: T0 + 3 * MIN });
+  assert.equal(fourth.decision, 'held');
+  assert.equal(collisions(T0 + 3 * MIN, live).length, 1, 'both are still on the file, which is still a collision');
+});
+
 check('a session that was told and never came back is not a collision', () => {
   ask('s1', 'lib/foo.js');
   ask('s2', 'lib/foo.js');
@@ -346,10 +365,16 @@ verify('POST /api/claims answers held, then conflict', () => {
   assert.equal(b.body.decision, 'conflict');
   assert.equal(b.body.holders[0].branch, 'worktree-a-aaa1');
   assert.match(b.body.reason, /bc-aaa1/, 'the refusal the hook prints names the holder’s bead');
+  // Two directories that are not repositories, which is the fail-open path in the shape a
+  // shipped worktree leaves behind: no line ranges to be had, and a refusal that still
+  // says everything it said before lib/regions.js existed.
+  assert.equal(b.body.regions, null, 'no git, no regions');
+  assert.match(b.body.reason, /resolve it at downmerge/);
 });
 
 const insist = await post({ session: 'http-b', repo: tmp, file: 'lib/foo.js', dir: treeB, branch: 'worktree-b-bbb2' });
 const listed = await call('/api/claims');
+const detailed = await call('/api/claims?regions=1');
 
 verify('a second POST from the refused session claims it, and GET shows the collision', () => {
   assert.equal(insist.body.decision, 'held');
@@ -358,6 +383,8 @@ verify('a second POST from the refused session claims it, and GET shows the coll
   assert.equal(listed.body.collisions.length, 1);
   assert.equal(listed.body.collisions[0].file, 'lib/foo.js');
   assert.equal(listed.body.collisions[0].sameTree, false);
+  assert.equal('regions' in listed.body.collisions[0], false, 'and no git is spawned for a reader that did not ask');
+  assert.equal(detailed.body.collisions[0].regions, null, 'asking gets the field, whether or not git can fill it');
 });
 
 const bad = await post({ session: 'http-c', repo: tmp });

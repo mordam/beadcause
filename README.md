@@ -2947,6 +2947,60 @@ narrowed. `node test/inboxkinds.mjs` covers the table (every row matches exactly
 kind, in both directions), the scope rule, the sub-filter's defaults and the chrome on
 both a pointer and a touchscreen.
 
+### Your P0s, and the tree each one carries
+
+The section at the top of the inbox is the P0s **you** own — open, `owner:<you>`, at
+priority 0 — and `p0board` on `/api/questions` is where it comes from. Each card says
+what is left under it (`open`, `inFlight`), what it is waiting on once a P0 advocate has
+written one (`lib/epicadvocate.js`, and the 🧭 button on the card is
+[`POST /api/bead/advocate`](#http-api)), and, since bc-rfnr.9.1, **`tree`: every
+descendant of that P0 at any depth**.
+
+The tree is not the row filter seen from the other end, and that is the whole reason it
+exists. `p0board.under` is a fact about the *inbox rows* — one string per row naming the
+P0 it descends from, which is what lets the list narrow itself to your work. It is keyed
+by row, and most of a P0's descendants have no row, because nobody is being asked about
+them: `bc-rfnr` had 16 descendants and one pending question the day this landed. A card
+drawn from `under` would have said "16 open" over a tree of three.
+
+So the tree is built from the graph instead, and it arrives **flat**:
+
+| field | what it is |
+|---|---|
+| `id`, `title`, `issue_type`, `status`, `priority` | what a row draws |
+| `assignee` | who claimed it — not `owner`, which is the git identity that created the bead and is the same one on most of the tracker |
+| `parent` | the id it hangs off. Always the P0 itself or a row **earlier in the array** |
+| `depth` | 1 for a child, 2 for a grandchild — an indent with no walk at all |
+| `key` | `<workspace>/<id>`, the same key the inbox rows are filed under |
+| `pending` | whether this bead is itself asking you something — open, and carrying `human` |
+
+Pre-order, parents before children, so a client nests it with one loop and a map. Real
+nested objects would cost a recursive renderer on a phone and could not be reconciled by
+key, which is how every other list in this app repaints.
+
+`pending` is read off the label rather than off the rows below, and that is deliberate:
+`/api/questions?scope=agent` sweeps no questions at all, and the board is drawn in every
+scope, so a rows-derived answer would go quiet about a bead that is genuinely waiting on
+you — a question on a screen that will not show it, which is the one failure this app
+exists to prevent. An open bead carrying `human` *is* a question here; answering one
+takes the label back off.
+
+**Closed descendants are in it.** The counts on the card are of what is left, but the
+tree is the board, and the one status filter over the whole board (bc-rfnr.9.6) can only
+default to not-closed if the closed ones were sent. Measured on this tracker on
+2026-08-13: 18 owned P0s, 152 descendants between them, **31KB** of JSON, half of it
+rows that have closed.
+
+It costs no extra `bd`. The whole board — the cards, `under`, and every tree — comes off
+one `bd export` per workspace, cached for a minute by `Bd.graph` and **never built on
+the request path**: nine of those measured 7.3 seconds cold, and bc-1kwl's budget is a
+page under a second. So a cold daemon answers with an empty `p0s` for a repaint or two
+and then fills in, which the client already reads as "do not narrow anything" — the flat
+inbox, briefly, rather than an empty one. A workspace whose tracker cannot be read
+contributes no cards and hides nothing, for the same reason. `node test/p0tree.mjs`
+holds all of that, including the one assertion that separates the feature from `under`
+renamed: a descendant with no pending question is in the tree.
+
 ### The top bar says who is asking, not what the app is called
 
 The widest part of the bar used to be the word **Beadcause** — on a screen you
@@ -5694,10 +5748,58 @@ releases the lot rather than leaving files looking busy for the length of the TT
 forbade it would be one everybody turns off. So the first edit against a file somebody else
 holds is denied *naming the branch the holder is on* — which on this Mac ends in that work's
 bead tag, so it leads you to `bd show` — and the refusal records the intent —
-the session that has been told and means it anyway claims the file on its next attempt. One
-wasted tool call buys the warning. Two sessions in the **same** tree is the other case, and
+the session that has been told and means it anyway claims the file on its next attempt —
+and keeps it, which for a while it did not: the only route to `held` ran through `told`, so
+the edit *after* the one that insisted was demoted and refused all over again, alternating
+for as long as both sessions were on the file and making the sentence the refusal ends with
+untrue (bc-n1qq — found by it happening twice to the session writing this paragraph). One
+wasted tool call buys the warning, and only one.
+Two sessions in the **same** tree is the other case, and
 that one reads as a stop, because it is the bc-utyr shape rather than a merge-time
 disagreement: it is where two sessions genuinely overwrite each other's bytes.
+
+**And it says which lines, because otherwise both collisions read the same.** Two sessions
+rewriting one function and two sessions at opposite ends of a thousand-line file produced
+the identical warning, and only the first is a conflict — so the message that fired on the
+harmless case taught you to skip the message on the other one. `lib/regions.js` fixes that
+by reading, at the moment of the refusal, what each side has actually changed:
+
+```
+public/monitor.js is already claimed by another session (bc-9d37 on worktree-advocates-roster-8kq)
+— a different worktree, so nothing is overwritten now. They are changing lines 565–640, 652–666
+of their copy; yours are at 120–140 — a different region of the merge base (a7cf008). Those regions
+do not touch, so git should merge them cleanly — keep out of their lines and it stays that way.
+```
+
+**Derived, never stored**, and that is the whole design rather than an optimisation. Line
+numbers recorded onto a claim are wrong the moment that session inserts forty lines above
+them, and nothing in the record can know it happened; worse, two sessions' numbers are
+numbers *in different files*, so "A touched 120" and "B touched 120" are not statements
+about the same line and comparing them answers nothing. So nothing is kept. Each side's
+ranges are read out of git when somebody asks, and the comparison happens in the one frame
+the two branches share — the **merge base**, taken pairwise, because two branches cut at
+different times do not have one base between them. That also disposes of the lifecycle
+question a stored version would have had: there is nothing to clear at merge, rebase or
+downmerge, because once the work lands the merge base advances past it and the diff empties
+itself.
+
+Three details are the difference between a useful sentence and a confident wrong one. The
+diff is against a **base commit rather than a log**, so uncommitted work counts — a session
+mid-edit has most of its changes in the working tree, and a reading that saw only commits
+would report it as idle. Overlap is padded by **three lines**, because that is the context
+git merges with and two hunks two lines apart already conflict. And every number *printed*
+is in the file its reader can open — theirs in their copy, yours in yours — while the
+comparison behind them is in base coordinates, which is precise and is a file neither of
+them has.
+
+None of it runs on the hot path. `POST /api/claims` is in front of every Write and Edit in
+every session on this Mac and its budget is a map write; the git spawns happen after
+`claim()` has already decided, on the refusal branch, which is a few times a day.
+`scripts/claim-guard.sh` is untouched by it and pays nothing, and if git cannot answer —
+unreadable repo, shipped worktree, no common ancestor — the refusal is the one it was
+before any of this existed. `GET /api/claims?regions=1` asks the same question about
+collisions nobody is claiming right now, opt-in because a reader drawing a list of names
+should not pay for a column it is not showing.
 
 Four properties are the file, and three of them fail silently if they are wrong:
 
@@ -5731,6 +5833,11 @@ free to act on — see [the bead whose files somebody is already
 editing](#the-bead-whose-files-somebody-is-already-editing). No new state, no fourth lock,
 no protocol between agents: the same register, read at a moment when standing down costs
 nothing rather than a whole session.
+
+`node test/regions.mjs` covers the line-range half against a real repository with real
+worktrees — there is nothing worth faking there, since the entire assertion is about what
+`merge-base` and `diff --unified=0` actually report, and a stub would only prove the parser
+can read strings the test wrote.
 
 That last one is why `node test/claims.mjs` runs the real script against a real server
 rather than testing the register alone: a fail-open client that has broken produces exactly
@@ -5954,6 +6061,121 @@ one merge file one bead — with the ledger entry torn out from under the second
 the ledger is a watermark and the marker on the bead is what stops the duplicate — that
 `unconfirmed` closes nothing, and, over real HTTP against `createApp`, that one press
 runs one deploy for the whole queue and the next one is refused.
+
+### Ship from the console you are already on
+
+The queue above lives on the PR board, which is a pane you switch to. The page you are
+*actually* on while work is finishing is the advocate console — sessions opening, beads
+closing, worktrees tidying themselves — and the question that follows immediately from
+watching that is **"is any of it live?"**. Answering it meant the PRs chip, a board that
+re-sweeps every repo, and finding the card again.
+
+So each advocate card carries the same strip: the merges this repo is holding that are
+not running, the ones you can read at a glance, and a **Ship** that arms on the first tap
+and deploys the lot on the second. It is `POST /api/release/ship` — the board's own
+endpoint, the board's own queue out of `lib/release.js`, the same `startDeploy` — so a
+Ship from here and a Ship from the board are one act with two doors, and there is no
+second code path to keep true. A repo with nothing waiting draws no strip at all.
+
+`node scripts/advocate-ship-check.mjs` drives the real console in headless Chrome with
+every POST recorded: that the strip lands on the card for the repo it is about and above
+that advocate's own folds, that the first tap sends **nothing** and says how many are
+about to go out, that the second sends one `/api/release/ship` carrying the repo's *key*,
+that a repo with an empty queue draws no strip at all, and that a refusal lands on the
+card in the daemon's own words.
+
+The board it draws from is **borrowed, not owned**: `/api/prs` is a `gh` sweep per repo,
+so the console asks for it at most once a minute, only while its own pane is up, and
+again the moment anything on the log could have moved the number — a merge, a deploy, a
+review declined. A fetch that fails keeps what it had and says nothing: the strip is a
+bonus on this page, not its subject, and an error banner over the advocates because
+GitHub was slow would be a worse page than one whose count is a minute old.
+
+### After the deploy — the app updating itself
+
+A deploy moves two things that are not the daemon, and until bc-jznr it told nobody about
+either. The files under `public/` that every open tab is made of, and — when `android/`
+moved — the APK the phone's shell *is*. A phone left on the inbox went on running the
+bundle it loaded that morning against a daemon that had moved underneath it, and the
+shell was upgraded by somebody remembering to open a URL and thumb through an installer.
+
+So the daemon now says what it did, and the app decides what that means for it.
+`GET /api/update` and two booleans on the `deploy` event every client is already parked
+on: **`web`** — something under `public/` is different from what you loaded — and
+**`apk`** — the rebuild step ran and republished the shell. `lib/update.js` derives both
+from the record the runner already writes, and two of its rules are load-bearing:
+
+- **They follow the pull, not the restart.** This daemon serves `public/` from disk on
+  every request and the runner's pull is a fast-forward of that very checkout, so the
+  files moved the moment the pull did — whether or not the restart after it worked. A
+  beadcause deploy ordinarily settles as `unconfirmed` (it killed the process that would
+  have reported on it), and gating on `ok` would leave every client stale forever.
+- **Only this checkout.** A deploy of sophab moves `public/` too. The test is the
+  record's own `dir` against the tree this daemon is running out of — not the repo's key,
+  which is config, and which is `null` on a Mac where the clone is in no workspace.
+
+`public/update.js` is the client half, on every standing page. It **borrows the page's
+poll** rather than opening one — `stream.listen`, added for this — because a second
+parked request on every page of every device for one boolean is exactly the cost this app
+spends care avoiding elsewhere.
+
+**The event alone is not enough, and that is not a detail.** A beadcause deploy kills the
+daemon every client is parked on; the settle event is emitted by the *new* process, by
+which time every poll has broken and is sitting out a backoff, and a poll that comes back
+asks cold — current sequence, no backlog. The one event that matters is precisely the one
+a page can be relied upon to miss. So the boot read acts too, behind two guards that have
+to be read together: **one reload per deploy id, per device, ever** — written down before
+the reload, because a reload is what stops this page existing — and **only where this page
+predates the deploy**, so a tab opened after it does not flicker for nothing. The first is
+the guarantee and holds whatever else is wrong; the second compares two machines' clocks
+and is therefore allowed to be wrong and never load-bearing.
+
+**The page reloads itself, and the shell asks first.** Those are deliberately different:
+
+- A reload is cheap and invisible when it lands well, so it happens on its own. Through
+  `registration.update()` first, or the service worker's cache hands back the very bundle
+  we are leaving — and never over a caret: anything typed into is a deferred reload,
+  taken when the box is left or the screen comes back.
+- Installing an APK restarts the app. So the download happens silently the moment the
+  shell learns it is behind — 28 MB over a tailnet costs nothing anybody notices — and
+  the **ask** comes after the bytes have landed, so saying yes is a moment rather than a
+  minute of watching a bar. Say *Later* and an **Update app** button stays in the top bar
+  until it is applied. It arms like everything else here that restarts something.
+
+The version is a real number now. `versionCode` was `1` in every build ever made, which
+makes "is the published one newer?" unanswerable; `npm run android` derives it from the
+commit count, stamps it into the APK and writes the same pair into
+`public/beadcause.apk.json` beside it — because an APK's version lives in a binary the
+daemon has no business unpacking. The two are cross-checked by byte count, and where they
+disagree the version is **unknown** rather than wrong: a sidecar describing some other
+file is the one input that could put a phone in a download loop.
+
+The install itself is `PackageInstaller`, not an intent at the system installer — only
+the session API reports what happened, so every ending has a name instead of "did the
+version change next time somebody looked". On Android 12+ an update to a package this app
+installed may be applied with `USER_ACTION_NOT_REQUIRED`, so the *second* update onward
+needs no system dialog at all; the first goes through the platform's confirm screen,
+because the installed copy came from a browser download and this app is not yet its
+installer of record. Both are ordinary paths and both are handled. It needs the one-off
+"install unknown apps" toggle, and `Updater` opens that settings screen rather than
+failing inside a coroutine where nobody would see it.
+
+Coming back up is asked for **twice**, on purpose. Replacing a package kills the process,
+and whether the receiver that hears about it may then start an activity depends on state
+it cannot see. So the relaunch is attempted and a *"Beadcause updated — tap to reopen"*
+notification goes out beside it, which `MainActivity` cancels the moment it is on screen.
+The cost is a row that flashes and clears on the phones where the relaunch worked; the
+cost of trusting the relaunch alone is an app that quietly does not come back on the
+phones where it did not.
+
+`node test/update.mjs` covers the daemon's half — that an `unconfirmed` restart still
+reports the page it moved, that a rebuilt APK in `public/` is not "the page changed", that
+another checkout's deploy says nothing to us, and that a sidecar which does not match the
+file beside it names no version. `node test/appupdate.mjs` runs the real
+`public/update.js` in a vm against a stub DOM and a fake bridge: that the boot read
+catches the deploy whose event the restart ate, that the page which comes back does not
+reload again, that a caret defers one, that a browser is never offered an APK, that a
+version nothing can compare is left alone, and that one tap arms where two install.
 
 ### Deploying a repo, when it says how
 
@@ -12117,11 +12339,12 @@ cookie says so), and `/auth/signout` ends the session.
 | POST | `/api/devices` | `{action: 'revoke', id}` | ends that one session and no other: the row is deleted, so the cookie naming it authorises nothing on its next request, on this backend and on the one replacing it. `self` when you have just revoked the browser you are holding, which also clears its cookie. **Not** refused on an observer — it shares this list with the live daemon, so the session it revokes is the same session |
 | GET | `/api/deploys` | `?limit=` or `?id=` | the recent deploys, or one with its log. Four endings, not two: `ok`, `failed`, and the two that mean nobody knows — `unconfirmed` (the ordinary ending of a restart) and `lost` |
 | POST | `/api/deploy` | `{key, bead?, reason?}` | runs that repo's declared deploy. `409` with no declaration, or if one is already running. Means "written down and a process owns it", never "it worked". Refused on an observer |
+| GET | `/api/update` | — | what the last deploy did to **the client asking**, and what the published APK now is. `deploy` is `{web, apk}` — did `public/` move, was the shell rebuilt — for deploys of *this* checkout only; `apk` is `{versionCode, versionName, size, builtAt}` off `public/beadcause.apk` and the sidecar beside it, with an unknown version rather than a wrong one where the two disagree. A `stat` and a directory read: no sweep, because every page asks it at boot |
 | POST | `/api/presence` | `{device, view, key}` | which view this device has open, so [the mirror](#the-mirror--whatever-the-phone-has-open-with-room-to-read-it) can follow it. Wakes `/api/poll` without costing a `bd` sweep — see `changed` there |
 | GET | `/api/presence` | — | `{devices[]}` — who is where |
 | DELETE | `/api/presence` | `{device}` | forget one device |
-| POST | `/api/claims` | `{session, repo, file, dir?, branch?, bead?}` | claim the file a session is about to edit, and be told in the same answer who else holds it — see [one granularity down](#one-granularity-down-which-file-somebody-is-already-editing). `decision` is `held` or `conflict`, and a `conflict` carries the `reason` `scripts/claim-guard.sh` prints as a denial. The asking *is* the taking: it decides and records in one synchronous call, so two edits a moment apart cannot both find the file free. On the bus deliberately never — an event per claim would hang a `bd` sweep off every keystroke |
-| GET | `/api/claims` | — | `{claims[], collisions[]}` — every live claim, and the files more than one session is holding |
+| POST | `/api/claims` | `{session, repo, file, dir?, branch?, bead?}` | claim the file a session is about to edit, and be told in the same answer who else holds it — see [one granularity down](#one-granularity-down-which-file-somebody-is-already-editing). `decision` is `held` or `conflict`, and a `conflict` carries the `reason` `scripts/claim-guard.sh` prints as a denial. The asking *is* the taking: it decides and records in one synchronous call, so two edits a moment apart cannot both find the file free. On the bus deliberately never — an event per claim would hang a `bd` sweep off every keystroke. A `conflict` also carries `regions`: which lines each side has changed, derived from git on that branch only (`lib/regions.js`), `null` whenever git cannot answer |
+| GET | `/api/claims` | `?regions=1` | `{claims[], collisions[]}` — every live claim, and the files more than one session is holding. `regions=1` adds the changed line ranges to each collision and whether they overlap; opt-in, because it is several git spawns per collision and a list of names should not pay for them |
 | DELETE | `/api/claims` | `{session, files?}` | let go of one file, or of everything that session held. Sent on `SessionEnd`, so a finished session stops holding files without waiting out the TTL |
 | POST | `/api/session-say` | `{pid, text}` | says one line into a live session's own iTerm window. `413` with the words left in the box if it is past `SAY_MAX` — the message rides to `osascript` as an argument, and past `ARG_MAX` the failure reads as "the session is gone", which is the one thing this must not lie about |
 | POST | `/api/session-focus` | `{pid, action}` | `focus` raises that session's iTerm window and doubles it in place; `restore` puts it back at the bounds it was read at. Focusing is gated on the same `reach` as the composer and on the pid still being live; restoring is gated on neither, because it arrives by `sendBeacon` from a page being torn down and must work for a window whose session has since exited |
