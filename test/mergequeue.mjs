@@ -46,6 +46,7 @@ fs.mkdirSync(process.env.BEADCAUSE_CONFIG_DIR, { recursive: true });
 
 const { sweepMergeQueue, describeMergeQueue, MERGES_PER_TICK } = await import(LIB('mergequeue.js'));
 const { MERGE_LABEL, MERGE_ASSIGNEE, MAX_ATTEMPTS, mergeBeadBody, queueState, withQueueBlock } = await import(LIB('mergebead.js'));
+const { MAX_DOWNMERGES } = await import(LIB('mergequeue.js'));
 
 let failures = 0;
 let ran = 0;
@@ -241,6 +242,31 @@ await check('a behind branch is downmerged, and the tick stops there', async () 
   // Judging the checks now would be judging a diff that is being replaced as we look at
   // it: the update re-runs them against what is actually going to land.
   assert.equal(prApi.calls.merges.length, 0, 'it merged on the strength of checks that ran before the downmerge');
+});
+
+await check('AND IT STOPS DOWNMERGING RATHER THAN CHASING A BASE THAT KEEPS MOVING', async () => {
+  // The one way this loop could starve a pull request forever: on a busy afternoon `main`
+  // moves faster than CI finishes, so a queue that unconditionally downmerged-and-waited
+  // would hand each branch a fresh base every tick and never once get as far as judging
+  // it. Every individual tick would look sensible, which is what makes it hard to notice.
+  const behind = openPr({ mergeState: 'BEHIND' });
+  const bd = fakeBd({
+    rows: [bead({ notes: withQueueBlock('', { attempts: 0, downmerges: MAX_DOWNMERGES }) })],
+    issues: { 'zz-work': { id: 'zz-work', issue_type: 'task' } },
+  });
+  const prApi = fakePr(behind);
+  const out = await run(bd, prApi);
+  assert.equal(prApi.calls.updates.length, 0, 'it downmerged a fourth time');
+  assert.deepEqual(out.merged, ['zz-merge'], 'and it never got as far as judging the branch');
+});
+
+await check('a downmerge is counted apart from an attempt — being unlucky is not being refused', async () => {
+  const behind = openPr({ mergeState: 'BEHIND' });
+  const bd = fakeBd({ rows: [bead()] });
+  await run(bd, fakePr(behind));
+  const written = bd.calls.updates.find((u) => u.id === 'zz-merge');
+  assert.equal(queueState({ notes: written.notes }).downmerges, 1);
+  assert.equal(queueState({ notes: written.notes }).attempts, 0, 'a downmerge spent one of the three attempts');
 });
 
 await check('and a downmerge GitHub refuses is a wait, not an attempt', async () => {
