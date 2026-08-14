@@ -277,6 +277,18 @@
    * look like a repo with nothing in it.
    */
   function paint() {
+    // Not while the page is deliberately holding still. Edit mode (public/editmode.js)
+    // is a state in which every tap points at an element rather than acting on it, so a
+    // poll that rebuilds this `<select>`'s options — or rewrites the count beside it —
+    // has moved the chrome above the list out from under a thumb that was aiming at it.
+    //
+    // Only the paint waits. `adopt()` above has already taken the new spaces, repos and
+    // counts into `state`, so nothing is lost and no refetch is owed. And the catch-up is
+    // structural rather than remembered: the last line of the inbox's `render()` is
+    // `publishCounts()`, which is a `space.adopt()`, which ends here — so the one repaint
+    // that thaws the list repaints this bar in the same tick. A page with no edit mode,
+    // or one served before the file existed, answers undefined and paints as it always did.
+    if (window.beadcause?.editMode?.frozen?.()) return;
     const anyTrouble = (state.trouble || []).length > 0;
     const now = valueOf(state.filter);
     const rows = [option(ALL, `All spaces${tail(total(), anyTrouble)}`, now === ALL)];
