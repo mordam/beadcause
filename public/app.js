@@ -1711,7 +1711,8 @@
       pull request could be in the list at all** — the kind filter answers that, and
       reading `Questions` for an hour costs nothing.
     - **They are rows, not `state.questions`.** Nearly everything reading that array is
-      about beads: the kind filter's counts, `byKey`, the answer path, the write. A pull request is none of those, and it is synthesised at render time from the
+      about beads: the kind filter's counts, `byKey`, the answer path, the write. A
+      pull request is none of those, and it is synthesised at render time from the
       board — the same shape the chat rows use.
     - **Unmerged, unless you ask.** The status sub-filter's default (public/inboxfilter.js).
       Thirty pull requests merged in the last three weeks and five are open; a list that

@@ -18,8 +18,9 @@
   still having two pages that ignored you.
 
   This is the one control. It sits in the top bar, it is the same on every page, and
-  what it selects is what the page shows — the list, the empty state, all of it. Picking `beadcause` means beadcause's questions, beadcause's advocate,
-  beadcause's pull requests and beadcause's chats, and nothing else anywhere.
+  what it selects is what the page shows — the list, the empty state, all of it.
+  Picking `beadcause` means beadcause's questions, beadcause's advocate, beadcause's
+  pull requests and beadcause's chats, and nothing else anywhere.
 
   ## What it selects, and why the two levels stay
 
