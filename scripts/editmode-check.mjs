@@ -64,18 +64,24 @@ const BEAD = (n, title) => ({
   description: `A short brief for ${title}.`,
 });
 
-// The title is deliberately a phrase that appears nowhere in public/*.js, so the anchor
-// on it can only come back as tracker text — if it ever comes back as source, something
-// has started matching loosely and every retype after it would be filed against the
-// wrong file.
-const FIRST = [BEAD(1, 'Zarquon threshold for the ledger sweep'), BEAD(2, 'Vermilion backstop on the nightly import')];
+// The third bead is the one with an agent on it, which is what draws the "Session log"
+// button — see the foot of the card in public/app.js. A bead of its own, so the two above
+// it stay exactly the cards the anchor checks were written against.
+const LOGGED = BEAD(3, 'Thagomizer audit on the quarterly rollup');
+
+// Every title here is deliberately a phrase that appears nowhere in public/*.js, so the
+// anchor on it can only come back as tracker text — if one ever comes back as source,
+// something has started matching loosely and every retype after it would be filed against
+// the wrong file.
+const FIRST = [BEAD(1, 'Zarquon threshold for the ledger sweep'), BEAD(2, 'Vermilion backstop on the nightly import'), LOGGED];
 // What the second and third polls answer with. Two of them, not one, because the first
 // change is spent proving the marker technique can see a rebuild at all — so the frozen
 // case needs a change of its own that has never been on screen.
-const SECOND = [BEAD(1, 'Zarquon threshold for the ledger sweep — revised'), BEAD(2, 'Vermilion backstop on the nightly import')];
-const THIRD = [BEAD(1, 'Zarquon threshold for the ledger sweep — reconsidered'), BEAD(2, 'Vermilion backstop on the nightly import')];
+const SECOND = [BEAD(1, 'Zarquon threshold for the ledger sweep — revised'), BEAD(2, 'Vermilion backstop on the nightly import'), LOGGED];
+const THIRD = [BEAD(1, 'Zarquon threshold for the ledger sweep — reconsidered'), BEAD(2, 'Vermilion backstop on the nightly import'), LOGGED];
 
-const asQuestions = (issues) => issues.map((i) => ({ ...toQuestion('demo', i), comments: [] }));
+const asQuestions = (issues) =>
+  issues.map((i) => ({ ...toQuestion('demo', i), comments: [], awaitingAgent: i.id === 'em-3' }));
 
 /* ------------------------------------------------------------------ server */
 
@@ -99,9 +105,17 @@ function committed(rel) {
     return null;
   }
 }
-const BASELINED = ['/index.html', '/app.js', '/editmode.js', '/style.css'];
+// public/spacebar.js is in the list because bc-p49x.5 put a gate in it: a baseline that
+// served the working copy's picker would be comparing half this change with itself.
+const BASELINED = ['/index.html', '/app.js', '/editmode.js', '/spacebar.js', '/style.css'];
 
 let polls = 0;
+// The log tail's own clock, two seconds and nothing to do with the poll. Every read hands
+// back one more line than the last, and the lines are long enough that a pane which took
+// one changes length as well as content — the frozen check reads both.
+let logReads = 0;
+const logLines = () =>
+  Array.from({ length: logReads }, (_, i) => `[agent] line ${i + 1} of the run, written while nobody was looking`);
 
 function serve() {
   const server = http.createServer((req, res) => {
@@ -117,10 +131,17 @@ function serve() {
       // carries the change the frozen screen must not show and the thawed one must.
       return json({
         questions: asQuestions(polls === 1 ? FIRST : polls === 2 ? SECOND : THIRD),
-        workspaces: ['demo'],
+        // A second repo appears on the poll the frozen screen takes, which is what makes
+        // the picker above the list want to rebuild its options — and, at two repos
+        // rather than one, to stop being hidden at all.
+        workspaces: polls >= 3 ? ['demo', 'demo-two'] : ['demo'],
         spaces: [],
         scope: 'human',
       });
+    }
+    if (p === '/api/agent-log') {
+      logReads += 1;
+      return json({ running: true, lines: logLines() });
     }
     if (p.startsWith('/api/')) return json({});
 
@@ -234,6 +255,32 @@ try {
     `${loose.fresh} new nodes of ${loose.total}`
   );
 
+  /* 0b. bc-p49x.5 — the three writers of this screen that are not the poll, made live.
+     Each of them needs a deliberate tap in the seconds *before* the mode is entered,
+     which is exactly the sequence somebody reaching for the ✏️ is in the middle of. So
+     they are armed here, on purpose, and the frozen window below is what they run into.
+     A card is opened first because the dismiss button lives under the answer box. */
+  await evalJs(s, `document.querySelector('.card[data-key] [data-act="toggle"]').click()`);
+  await sleep(600);
+  await evalJs(s, `document.querySelector('[data-act="log"]')?.click()`);
+  await sleep(900);
+  const staged = await evalJs(
+    s,
+    `(() => {
+      const dismiss = document.querySelector('.dismiss');
+      dismiss?.click();
+      return {
+        dismiss: dismiss?.textContent?.trim() || null,
+        log: document.querySelector('pre[data-log]')?.textContent || null,
+      };
+    })()`
+  );
+  check(
+    'a dismiss is armed and a session log is tailing, in the seconds before the mode',
+    /Tap again/.test(staged.dismiss || '') && Boolean(staged.log),
+    JSON.stringify(staged)
+  );
+
   /* 1. the mode is enterable and says so */
   const entered = await evalJs(
     s,
@@ -273,8 +320,26 @@ try {
   await evalJs(s, STAMP(2));
   const before = await evalJs(s, `document.querySelector('#list').innerHTML.length`);
   const pollsBefore = polls;
+  const readsBefore = logReads;
+  // What the three non-poll writers are drawing at the instant the screen was frozen. The
+  // `<pre>` is kept by reference as well as by value: `pre.textContent = text` leaves the
+  // element itself alone, so identity alone would not notice the write and the string
+  // alone would not notice a rebuild.
+  const held = await evalJs(
+    s,
+    `(() => {
+      window.__logNode = document.querySelector('pre[data-log]');
+      return {
+        dismiss: document.querySelector('.dismiss')?.textContent?.trim() || null,
+        log: window.__logNode?.textContent || null,
+        picker: document.querySelector('#space-pick')?.innerHTML || null,
+      };
+    })()`
+  );
   await evalJs(s, `window.beadcause.refresh()`);
-  await sleep(1500);
+  // Past the six seconds every armed control in this app gives you, and three ticks of the
+  // log's own two-second clock.
+  await sleep(7500);
   const frozen = await evalJs(s, SURVIVORS(2));
   const after = await evalJs(s, `document.querySelector('#list').innerHTML.length`);
   check('the poll still ran while the screen was frozen', polls > pollsBefore, `${pollsBefore} → ${polls} sweeps`);
@@ -286,6 +351,39 @@ try {
   check('the list is character for character what it was', before === after, `${before} → ${after}`);
   const showsOld = await evalJs(s, `!document.querySelector('#list').textContent.includes('reconsidered')`);
   check('the change that poll carried is not on screen yet', showsOld);
+
+  /* 2b. bc-p49x.5 — and neither did the three writers that are not the poll */
+  const still = await evalJs(
+    s,
+    `(() => ({
+      dismiss: document.querySelector('.dismiss')?.textContent?.trim() || null,
+      log: document.querySelector('pre[data-log]')?.textContent || null,
+      sameNode: window.__logNode === document.querySelector('pre[data-log]'),
+      picker: document.querySelector('#space-pick')?.innerHTML || null,
+    }))()`
+  );
+  check(
+    'an arm timer expired under the frozen screen and repainted nothing',
+    still.dismiss === held.dismiss && /Tap again/.test(still.dismiss || ''),
+    `"${held.dismiss}" → "${still.dismiss}"`
+  );
+  // The half that would be easy to get wrong by stopping the timer instead of its paint:
+  // the log kept being *read* the whole time, which is what makes the catch-up free.
+  check(
+    'the log tail kept reading while the screen was frozen',
+    logReads > readsBefore,
+    `${readsBefore} → ${logReads} reads`
+  );
+  check(
+    'and wrote none of it into the open pane, which is the same element it was',
+    still.log === held.log && still.sameNode,
+    still.sameNode ? `${held.log?.length} → ${still.log?.length} chars` : 'the <pre> itself was replaced'
+  );
+  check(
+    'the picker above the list did not rebuild on a poll carrying a second repo',
+    still.picker === held.picker && !/demo-two/.test(still.picker || ''),
+    `${held.picker?.length} → ${still.picker?.length} chars`
+  );
 
   /* 3. any element tapped yields an anchor that names one line, or honestly none */
   const chrome = await evalJs(s, ANCHOR('#refresh'));
@@ -382,6 +480,36 @@ try {
     'and one repaint catches the screen up on everything the poll carried',
     thawed.caught,
     thawed.caught ? '' : 'the list is still showing the payload from before the mode'
+  );
+
+  /* 4b. bc-p49x.5 — and on the three writers that are not the poll, from state alone.
+     No refetch is asked for here and none is waited on: what these draw is what `adopt`,
+     `state.logText` and `space.adopt` were quietly taking the whole time the screen was
+     held. The picker's catch-up is not even a line of app.js — the last statement of
+     render() is publishCounts(), which lands in public/spacebar.js as an adopt(). */
+  const caught = await evalJs(
+    s,
+    `(() => ({
+      dismiss: document.querySelector('.dismiss')?.textContent?.trim() || null,
+      log: document.querySelector('pre[data-log]')?.textContent || null,
+      picker: document.querySelector('#space-pick')?.innerHTML || null,
+      barShown: document.querySelector('.spacebar')?.hidden === false,
+    }))()`
+  );
+  check(
+    'the arm that expired behind the freeze comes back disarmed, which is the truth',
+    Boolean(caught.dismiss) && !/Tap again/.test(caught.dismiss),
+    `"${caught.dismiss}"`
+  );
+  check(
+    'the log pane is at whatever the agent has since reached, with no refetch asked for',
+    Boolean(caught.log) && caught.log.length > (held.log?.length || 0),
+    `${held.log?.length} → ${caught.log?.length} chars`
+  );
+  check(
+    'and the picker draws the repo that arrived during the freeze',
+    /demo-two/.test(caught.picker || '') && caught.barShown,
+    caught.barShown ? '' : 'the bar is still hidden at one repo'
   );
 
   const errors = await evalJs(s, `(window.__emErrors || []).slice(0, 3)`);
