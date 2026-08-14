@@ -5359,6 +5359,65 @@ body.editing::after {
   box-shadow: inset 0 0 0 2px var(--warn);
 }
 
+/* The app updating itself — public/update.js. Two controls, on every standing page.
+
+   The button is an .icon-btn that carries words rather than a glyph, because "Update
+   app" is not a thing there is an unambiguous symbol for and this is the one control in
+   that bar you press twice a month rather than twice an hour. It is tinted `--accent`
+   so that it reads as arrived rather than as always having been there. */
+.app-update {
+  width: auto;
+  padding: 0 12px;
+  gap: 6px;
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
+  background: color-mix(in srgb, var(--accent) 14%, var(--surface));
+  color: var(--text);
+  font-size: 13px; font-weight: 600;
+  white-space: nowrap;
+}
+/* Armed: the second tap installs and restarts the app, so it says so in the colour every
+   other arming button in this app uses for the same beat. */
+.app-update.armed {
+  border-color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 20%, var(--surface));
+}
+.app-update:disabled { opacity: 0.6; cursor: default; }
+
+/* The ask, once the download has landed. Fixed to the foot rather than the head: the top
+   bar is where the *reminder* lives, and a sheet over the top of a card you are reading
+   would cover the thing you opened the app for. Above the tab bar and below edit mode's
+   frame (44). */
+.app-update-ask {
+  position: fixed;
+  z-index: 42;
+  left: 12px; right: 12px;
+  bottom: calc(env(safe-area-inset-bottom) + 68px);
+  max-width: 520px;
+  margin: 0 auto;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--line));
+  border-radius: 14px;
+  background: var(--surface);
+  box-shadow: 0 10px 30px rgb(0 0 0 / 35%);
+}
+.app-update-ask p { margin: 0 0 10px; font-size: 14px; }
+.app-update-row { display: flex; gap: 8px; justify-content: flex-end; }
+.app-update-row button {
+  min-height: 36px;
+  padding: 0 14px;
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--bg);
+  font: inherit; font-size: 13px; font-weight: 600;
+  cursor: pointer;
+}
+.app-update-row button.ghost {
+  border-color: var(--line);
+  background: transparent;
+  color: var(--muted);
+}
+
 /* The pass, still held, after the mode has ended.
    Leaving edit mode puts the whole screen back the way the app has it — which is the
    truth, and is also exactly what a save that failed would look like. This badge is the
