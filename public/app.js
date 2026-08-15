@@ -43,6 +43,13 @@
     // fold at the foot of the ticket section and nothing else. Empty on every install
     // that has never cancelled one, which is most of them.
     cancelledTickets: [],
+    // And the cancel records with no ticket left behind them (bc-0i27.19): the ones the
+    // poller cannot match, so the field above — which is a filter over what it answered
+    // — cannot show them. Not tickets: there is no summary, no status and no URL, only
+    // `{ workspace, key, bead, at, by, space }`, because the record is the only thing
+    // beadcause ever stored about them. They go in the same fold, under a line of their
+    // own, and the one thing offered on each is dropping it.
+    strandedCancels: [],
     // The half of a ticket a row cannot carry: `jira:<ws>/<KEY>` → { loading, read,
     // children, cancelled, unavailable }. The description, the thread and the beads
     // written under the epic — fetched when a ticket is opened and never on the poll,
@@ -4090,14 +4097,21 @@
    * belongs to another. And it opens itself when the card open on this page is one of
    * its own — a repaint that hid the thing you were reading would be the fold eating
    * the view.
+   *
+   * **It holds two lists since bc-0i27.19**, and the second is the point of that bead:
+   * the rows above are a filter over what the poller answered, so the records for
+   * tickets it can no longer find were invisible here as well as everywhere else. They
+   * sit at the foot under a line of their own — see `strandedCancelsHtml` — and they are
+   * counted in the fold's own label, which is the one number in the ticket section that
+   * is allowed to name them.
    */
   function cancelledTicketsHtml() {
-    const mine = cancelledTicketRows().filter(
-      (r) =>
-        (state.space === 'all' || (r.space || spaceForWorkspace(r.workspace)) === state.space) &&
-        (state.workspace === 'all' || r.workspace === state.workspace)
-    );
-    if (!mine.length) return '';
+    const inScope = (r) =>
+      (state.space === 'all' || (r.space || spaceForWorkspace(r.workspace)) === state.space) &&
+      (state.workspace === 'all' || r.workspace === state.workspace);
+    const mine = cancelledTicketRows().filter(inScope);
+    const stranded = (state.strandedCancels || []).filter(inScope);
+    if (!mine.length && !stranded.length) return '';
     const openHere = mine.some((r) => state.open.has(r.key));
     const shown = state.cancelledFold || openHere;
     // Most recently cancelled first: the one you are looking for is almost always the
@@ -4108,13 +4122,80 @@
           .map((r) => jiraRowHtml(r))
           .join('')
       : '';
+    // The count says both, because the whole of bc-0i27.19 is that the second kind was
+    // uncounted as well as unreachable. One number would have been the shorter line and
+    // the wrong one: these are not tickets, they are what is left of tickets, and a fold
+    // that folded them together would offer Beadify on a row with nothing to put back.
+    const total = mine.length + stranded.length;
+    const label = stranded.length
+      ? `${total} cancelled — ${stranded.length} with no ticket left`
+      : `${total} cancelled ticket${total === 1 ? '' : 's'}`;
     return `<section class="jira-cancelled">
       <button class="jira-fold" type="button" data-act="jira-cancelled-fold" aria-expanded="${shown ? 'true' : 'false'}">
         <span class="chev" aria-hidden="true">›</span>
-        ${mine.length} cancelled ticket${mine.length === 1 ? '' : 's'}
+        ${label}
       </button>
       ${rows}
+      ${shown ? strandedCancelsHtml(stranded) : ''}
     </section>`;
+  }
+
+  /**
+   * The cancel records with no ticket behind them — the foot of the fold (bc-0i27.19).
+   *
+   * A cancel record never expires, on purpose: the poller re-offers an assigned ticket
+   * every minute forever, so a record that expired would be a ticket that came back. The
+   * cost of that rightness is these — a ticket cancelled and then resolved, reassigned,
+   * or moved out of the configured projects stops being returned, so it falls out of the
+   * fold above, which is a filter over what the poller answered. The record stays on
+   * disk. Until this, nothing on any screen could name one, count one or drop one.
+   *
+   * **Lines rather than cards, and that is the honest shape.** There is no summary, no
+   * status and no link to JIRA to be drawn, because the record is all beadcause ever
+   * kept: the ticket key, which workspace it was in, when it was cancelled and by whom,
+   * and the epic that was closed with it. A card would be a card of empty fields.
+   *
+   * **Drop rather than Beadify**, and one tap rather than two. Beadify means *put this
+   * ticket back* — it reopens the closed epic and expects the row to return on the next
+   * sweep, and neither is true here, so it would leave a held bead behind for a ticket
+   * nobody is assigned. Drop lifts the earmark and leaves the epic closed. One tap for
+   * the same reason beadify is one: cancel arms because it is the write with no expiry,
+   * and both of these are the way out of that.
+   */
+  function strandedCancelsHtml(stranded) {
+    if (!stranded.length) return '';
+    const lines = stranded
+      .map((r) => {
+        const key = `cancel:${r.workspace || ''}/${r.key}`;
+        const at = `data-key="${esc(key)}" data-ws="${esc(r.workspace || '')}" data-tkt="${esc(r.key || '')}"`;
+        const said = jiraSaid.get(key);
+        const busy = jiraBusy.has(key);
+        const when = [
+          r.at ? `cancelled ${esc(relTime(r.at))}` : 'cancelled',
+          r.by ? `by ${esc(r.by)}` : '',
+          r.bead ? `${esc(r.bead)} closed with it` : 'no bead was ever filed',
+        ]
+          .filter(Boolean)
+          .join(' · ');
+        return `<div class="jira-orphan">
+          <div class="jira-orphan-what">
+            <span class="jira-orphan-key">${esc(r.key)}</span>
+            <span class="jira-orphan-ws">${esc(r.workspace || 'no workspace')}</span>
+            <span class="jira-orphan-when">${when}</span>
+            ${said ? `<p class="jira-said${said.bad ? ' bad' : ''}">${esc(said.text)}</p>` : ''}
+          </div>
+          <button class="secondary jira-back" data-act="jira-forget" ${at} ${busy ? 'disabled' : ''}>Drop</button>
+        </div>`;
+      })
+      .join('');
+    return `<div class="jira-orphans">
+      <p class="jira-orphans-why">JIRA no longer returns ${
+        stranded.length === 1 ? 'this ticket' : 'these tickets'
+      }, so ${stranded.length === 1 ? 'its record is' : 'their records are'} suppressing nothing.
+      Dropping ${stranded.length === 1 ? 'it' : 'them'} leaves the closed bead alone; if the ticket is ever
+      assigned to you again it arrives as a new row.</p>
+      ${lines}
+    </div>`;
   }
 
   /**
@@ -6255,6 +6336,50 @@
     }
 
     /**
+     * Drop a cancel record whose ticket JIRA no longer returns (bc-0i27.19).
+     *
+     * The line goes on the answer rather than on the tap, unlike the cancel below and
+     * unlike beadify above, and the difference is what a failure would mean. Those two
+     * move a row between two lists that are both on the screen, so an optimistic move
+     * that failed puts it back. This one *deletes the only surface there is* — get it
+     * wrong and the record is off the screen with nothing anywhere that could return it
+     * until the next payload, which is up to a minute away. So the line stays until the
+     * server says the record is gone, and a refusal is pinned under it.
+     *
+     * The refusal that matters is the 409: the ticket has been assigned to you again
+     * since this payload was drawn, so it is a live ticket and dropping its record would
+     * un-cancel it. The message names beadify, which is the act that means that on
+     * purpose.
+     */
+    if (act === 'jira-forget') {
+      if (jiraBusy.has(key)) return;
+      jiraBusy.add(key);
+      jiraSaid.delete(key);
+      render(true);
+      try {
+        const res = await api('/api/jira/forget', {
+          method: 'POST',
+          body: JSON.stringify({ workspace: btn.dataset.ws, key: btn.dataset.tkt }),
+        });
+        state.strandedCancels = (state.strandedCancels || []).filter(
+          (r) => `cancel:${r.workspace || ''}/${r.key}` !== key
+        );
+        toast(
+          res.forgotten
+            ? `${btn.dataset.tkt} dropped — ${res.bead ? `${res.bead} stays closed` : 'it never had a bead'}.`
+            : `${btn.dataset.tkt} had no record left to drop.`
+        );
+      } catch (err) {
+        jiraSaid.set(key, { text: err.message, bad: true });
+        if (err.message !== 'token rejected') toast(err.message, true);
+      } finally {
+        jiraBusy.delete(key);
+        render(true);
+      }
+      return;
+    }
+
+    /**
      * Cancel a JIRA ticket: it stops being proposed, and it does not come back.
      *
      * Two taps, unlike approve, because this is the one record in the app with no
@@ -7471,6 +7596,10 @@
     // bc-0i27.6 sends `tickets` and not this — and taking the fold's rows away on that
     // payload would be the mixed-fleet flicker the comment above is written against.
     if (Array.isArray(data.cancelledTickets)) state.cancelledTickets = data.cancelledTickets;
+    // And the stranded records, on the same terms again and for the same reason: a
+    // daemon that predates bc-0i27.19 sends neither, and a phone talking to one through
+    // a cached service worker must keep the fold it already has rather than emptying it.
+    if (Array.isArray(data.strandedCancels)) state.strandedCancels = data.strandedCancels;
     // Taken whole, and taken even when empty — unlike `requests` and `consoles` above.
     // An empty list here is the good news ("every repo answered this time") and it has
     // to be able to clear the pane, which is the whole reason the record is rebuilt on

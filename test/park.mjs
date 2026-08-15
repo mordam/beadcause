@@ -208,8 +208,31 @@ fs.writeFileSync(
   JSON.stringify({ bdBin: FAKE_BD, actor: 'beadcause-test', workspaces: [{ name: 'demo', dir: wsDir }] }, null, 2)
 );
 
+/**
+ * Prose, then the `decision` block last with one option recommended — what the brief tells
+ * a worker to write, and what `bin/ask.js` now refuses to file without. Parking is the
+ * subject of this file, so the body has to be a valid one or every case here fails on the
+ * gate instead of on what it is testing.
+ */
+const ASK_BODY = [
+  'Which of these two did you mean?',
+  '',
+  '```decision',
+  'question: Gross or net?',
+  'options:',
+  '  - id: gross',
+  '    label: Gross',
+  '    response: Gross - the fee comes off the full charge.',
+  '    recommended: true',
+  '  - id: net',
+  '    label: Net',
+  '    response: Net - the fee comes off after processing costs.',
+  '```',
+  '',
+].join('\n');
+
 /** `bin/ask.js`, run the way the brief tells a worker to run it: body on stdin, id on stdout. */
-const run = (script, args, input = 'Which of these two did you mean?\n') => {
+const run = (script, args, input = ASK_BODY) => {
   const res = spawnSync(process.execPath, [path.join(ROOT, 'bin', script), ...args], {
     input,
     encoding: 'utf8',
