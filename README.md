@@ -12922,6 +12922,131 @@ is not the obvious one — the tempting alternative is to keep enforcing whateve
 known — but an install that cannot read its own election must not be an install that starts
 enforcing a guess.
 
+## Publishing the chain — `lib/publication.js` and `lib/witness.js`
+
+A local record cannot anchor itself. `verifyRef` in `lib/evidence.js` will tell you that an
+evidence ref is linear, that every parent it names is in the walk, and that it goes back to
+a single root — and a history rewritten wholesale passes all three. Intactness proves that
+what you are holding **is a chain**, not that it is **the chain that was there in March**.
+The only thing that can tell those apart is a head somebody wrote down beforehand, somewhere
+the rewrite cannot reach, and beadcause administers every "somewhere" it has.
+
+So the instance publishes its heads to a control-daemon it does not run, and the arrangement
+is the point: **the local record is authoritative and the remote one corroborates.** Neither
+is trusted to check itself. A local history that diverges from a published head is a
+discrepancy no matter which one moved, and finding out which is a question for whoever holds
+both.
+
+Three files, splitting where the trust does. `lib/publishable.js` is the closed vocabulary of
+what may leave the Mac — hashes, chain heads, transitions, criterion states, and never a
+record's contents. `lib/publication.js` is the instance: it keeps the chain and publishes it.
+`lib/witness.js` is the far end: it stores, refuses, attests, and compares.
+
+### Append-only, stated twice, because it can fail twice
+
+The chain is commits on `refs/beadcause/publications` in `~/.config/beadcause`, one record
+per commit, written with the same compare-and-swap every other evidence ref uses. `git log`
+reads it without any of this code:
+
+    git -C ~/.config/beadcause log --format='%aI %s' refs/beadcause/publications
+    git -C ~/.config/beadcause cat-file -p refs/beadcause/publications:record.json
+
+That gets you git's answer — linear, intact, one root. Every record **also** names the
+digest of the record before it, inside the payload that is published, and `linkProblems`
+walks those digests independently. The two catch different things: a grafted history fails
+the first, a record swapped in place fails the second, and a chain that has been rewritten
+end to end fails neither. `verifyChain` asks both and reports them separately rather than as
+one boolean, plus a third question that is cheaper than both — a commit on this ref carrying
+no readable record is a commit somebody made by hand.
+
+`test/publication.mjs` rewinds the ref and appends a different record on top, then asserts
+that every local check still passes. That is the whole argument for the service in one
+check: the chain is sound, and sound is the wrong question.
+
+`recordChainHead` is the bridge the other way. It runs `verifyRef` over an evidence ref and
+appends what it saw — the ref, its tip, its length and the two soundness answers — which is
+the caller `verifyRef` has been waiting for: it reports `anchored` as null for everything
+today because nothing records a head to check against. The narrowing is `chainHeadFields`, a
+projection rather than a pass-through, because the verifier's result grows as that file
+grows and `why` is prose. A ref with no commits is refused rather than published as a head
+of nothing.
+
+### Continuously, not on a schedule
+
+A Type II window is only as good as its densest gap. A daily push means every day is a day
+of unwitnessed history, and nothing done afterwards recovers it — so `publish` is written to
+be called often and to cost nothing when there is nothing to do.
+
+It **asks rather than remembers**. A local high-water mark would be one number to be wrong,
+and it would be wrong in the direction that hurts: an instance that believes it published up
+to seq 40 skips 40 forever if the far end never had it. The service is the authority on what
+the service received, so every publication begins by asking where it got to — which means
+every publication is also a divergence check, run continuously, instead of a reconciliation
+somebody remembers to do quarterly.
+
+Transport is not in the module. `publish` takes a `head` to ask and a `deliver` to send
+with, so the same loop drives an HTTP client, a queue or a test's in-process ledger, and
+there is no code path in the daemon that a service outage can throw through. **Unreachable
+is not a failure**: it comes back as `offline` with what was sent and what is still queued,
+and it is not divergence. Whether an unpublished period may be *claimed* is a different
+question, and the answer is no.
+
+### Both directions, and they are not the same event
+
+`compare` takes the local chain and the published head and reaches one verdict:
+
+| Verdict | Divergent | What it means |
+|---|---|---|
+| `nothing` | no | Nothing recorded and nothing published. |
+| `unwitnessed` | no | Records waiting, and the far end has never heard from this instance. |
+| `agreed` | no | Both sides hold the same record at the same sequence number. |
+| `ahead` | no | The local chain runs past the published head — the ordinary shut laptop. |
+| `behind` | **yes** | The service holds sequence numbers this instance never reached. |
+| `forked` | **yes** | Both sides hold a record at the same sequence number and they differ. |
+| `truncated` | **yes** | The local chain now starts after a record the service holds. |
+| `foreign` | **yes** | The service answered for another instance. |
+| `orphan` | **yes** | The service holds a chain and there is no local chain at all. |
+| `broken` | **yes** | The local chain does not link up, so there is nothing to compare with. |
+| `unreadable` | **yes** | The service answered with something that is not a published head. |
+
+A divergent verdict carries an empty `unpublished` list, and that is deliberate: publishing
+onto a service that already disagrees buries the disagreement under records that link onto
+it, and the discrepancy this whole arrangement exists to surface ends up in the middle of a
+chain nobody re-walks.
+
+### The service is a witness, and it cannot author
+
+The far end records what it was told and when it was told it. What it attests is not *this
+claim is true* — it has no way to know that — but *I was told this, at this time*: the
+instance, the sequence number, the digest of the record, and the moment it arrived, stamped
+from the service's own clock rather than the record's, because the two differing is itself a
+fact worth holding.
+
+That it cannot originate a claim is a property of the file rather than a promise about the
+deployment. `lib/witness.js` does not import `record`, `next` or `genesis` — the three
+functions in `lib/publishable.js` that mint a record — and `test/publication.mjs` reads the
+source and fails the repo if it ever does. A forged claim would have to be written into that
+file first, as a diff somebody signed off on, rather than assembled at runtime out of what
+the service happens to hold.
+
+The guarantee is structural rather than cryptographic, and the difference is worth being
+plain about. An operator with write access to the service's storage can still put a row in
+it. What they cannot do is make the Mac agree: the row shows up as `behind` or `forked` the
+next time anything compares the two, which is on the next publication. Signing a record to
+its instance strengthens that; it does not replace it, because a signature proves who wrote
+a record and only a comparison proves the two sides hold the same history.
+
+Three refusals hold the ledger to the same rule. A record that does not link onto what is
+held is refused rather than stored beside it. A sequence number is used once — re-using one
+is a rewrite, not a publication. And a replay re-issues the **original** receipt with its
+original time, because sending an old record again must not manufacture a fresh attestation
+for it; that is the closest thing to authorship reachable from outside.
+
+The class is registered as `publication-chain` in `lib/evidence.js` and kept permanently.
+Here permanence is arithmetic rather than policy: removing one record from the middle breaks
+every link after it, so the disposal unit is the whole ref, and dropping it forfeits every
+continuity claim the instance has ever made.
+
 ## The Android app
 
 A native shell around the same PWA, in `android/`. It exists for the four things a
