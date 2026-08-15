@@ -274,6 +274,27 @@ check('the CUECs flatten across every carved-out subservice organisation', () =>
   );
 });
 
+check('the CUEC gap is gated on what can close it, so `--strict` is not permanently red', () => {
+  const r = wellShaped();
+  r.census.subservice = { state: 'enumerated' };
+  r.subservice = [];
+  assert.equal(
+    gaps(r).some((g) => g.kind === 'cuec'),
+    false,
+    'a record whose processors really are enumerated and really are none has no CUEC to write'
+  );
+  r.census.subservice = { state: 'partial', held: 'the architecture repo' };
+  assert.ok(gaps(r).some((g) => g.kind === 'cuec'), 'but an unsurveyed one owes the list');
+  r.subservice = [
+    { id: 'a-co', label: 'ACo', method: 'carve-out', provides: 'It does one thing for us, always.', cuecs: ['one'] },
+  ];
+  assert.equal(
+    gaps(r).some((g) => g.kind === 'cuec'),
+    false,
+    'and one carve-out with a CUEC against it closes it'
+  );
+});
+
 /* ------------------------------------------- 4. what the shipped Climative record says */
 
 const climative = boundaryFor('climative');
