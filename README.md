@@ -12424,6 +12424,94 @@ work this fires on and exactly the work a human bumped for. `bc-p38c.2` stays si
 under it for the reason it always did: `report.js` went onto twelve pages and nothing
 gained a call into it, so cached HTML without the tag is the app exactly as it was.
 
+## Change management, evidenced — `beadcause-changes`
+
+SOC 2 CC8.1 asks that changes to infrastructure, data, software and procedures are
+authorised, designed, developed, configured, documented, tested, approved and implemented
+to meet objectives. ISO/IEC 27001:2022 A.8.32 asks the same thing in fewer words. It is
+the criterion a first-time service organisation most often fails, and the reason is always
+the same: the answer is a convention rather than a control. A ticket template and a code
+review culture cannot be tested — they can only be evidenced by a person assembling
+screenshots for each sampled change, the week before fieldwork, out of four systems that
+were never asked to agree with each other, and what those screenshots show is what the
+convention *usually* produced.
+
+Here the answer is a gate, and every part of it already leaves a record:
+
+- an unattended session **cannot be opened on a bead nobody endorsed** — `assertEndorsed`
+  in lib/endorse.js is a refusal at the launcher and not merely a filter on a queue, so a
+  change has an authorisation or it has no session at all;
+- the session is archived against the bead on `refs/beadcause/sessions/<bead>`, with the
+  agent, the model, the branch and the commits it made;
+- **the worker does not merge its own branch.** It files a merge bead carrying what it
+  ran, and its own bead is made to depend on that one, so the approval is a different
+  agent looking at the whole board — see [Landing work](#landing-work--a-branch-a-pull-request-and-a-merge-queue);
+- the merge writes `beadcause: landed <workspace>/<bead>` onto the merge commit, on
+  `refs/notes/beadcause`, where it is anchored to an immutable object;
+- and the deploy closes a ship bead against the pull request number, or — since auto-ship
+  — records it in the release ledger.
+
+**None of that was built for an auditor**, which is exactly what makes it evidence rather
+than a claim. The command only reads it:
+
+```bash
+beadcause-changes sample --from 2026-04-01 --to 2026-07-01 --size 25 --seed 7
+beadcause-changes all --from 2026-04-01 --to 2026-07-01     # the period, not a sample
+beadcause-changes summary --from "3 months ago"             # one line, for a log
+```
+
+Out comes a document with one row per sampled change and, for each, six columns saying
+where the authorisation, the design, the development, the test, the approval and the
+deployment record actually are — with the bead id, the merge bead id and the ledger
+timestamp, so any cell can be opened rather than believed. Six columns and not eight,
+because two of CC8.1's verbs have no separate record here and inventing one would be worse
+than saying so: *configured* is the same act as developed in a repository where
+configuration is files in the diff, and *implemented* is the commit the row is keyed on,
+so a column for it would tick by construction and teach a reader nothing.
+
+**The seed is what makes it their sample rather than ours.** Selection is a pure function
+of the seed and the commit hash — a hash, sorted, sliced, no clock and no randomness — so
+the auditor picks the seed, nothing here can steer which changes come out, and the same
+window with the same seed returns the same 25 rows on any machine next year. `Math.random`
+would have made the artefact worthless in the only way that matters: a second run
+disagreeing with the one already in the audit file. `test/changesample.mjs` pins the hash
+to a literal for that reason, so changing it fails loudly rather than quietly re-selecting.
+
+**Three states, and the middle one is the point.** `✓` a record exists and says so; `✗`
+the record that would say so does not exist, which is a **finding**; `?` nothing here could
+ask. They are never folded together. A `?` reported as a tick is a lie and reported as a
+finding is noise that trains a reader to ignore the findings, and the first version of the
+totals counted a row with no findings as a row with a complete record — which made a run
+against a checkout with no tracker report 47 of 47 changes clean, the most confident
+possible way of saying nothing at all. Clean now means every column evidenced, and the rows
+that are neither clean nor a finding are counted and named.
+
+**Nothing is dropped, and the strays are the interesting part.** A commit that reached
+`main` outside a pull request is not a change this can shape into a row — no pull request
+means no approval covering it individually — so it goes in its own list at the foot of the
+report rather than out of the population. A tool that quietly counted only the rows it
+could answer for would understate the denominator by precisely the changes that skipped the
+process, which is the population an auditor came to find.
+
+The first run over this repository says three true things worth stating out loud, and it is
+a better advertisement for the tool than a page of ticks would be. The merge queue is
+**new** — the pull requests before #314 have no merge bead, so `approved` is a finding on
+almost every historical change and the control has an effective date rather than a history.
+The release ledger **prunes at 45 days**, where a Type II observation window is three months
+at the short end, so a sample taken at the end of one asks it about deployments it has
+already forgotten; the report says so where it would otherwise read as changes that never
+shipped, and keeping evidence past the observation window is its own bead (bc-4r10.7). And the strays are real:
+the older workflow merged locally and pushed, so those commits are in `main` with no pull
+request behind them.
+
+It names no control id yet. The closed control corpus — SOC 2 CC, ISO/IEC 27001 Annex A and
+ISO/IEC 42001 in one vocabulary, with the crosswalk edges that make CC8.1, A.8.32 and their
+42001 counterparts one implementation with three names — is being built separately, and an
+id minted here before that corpus exists is exactly the fabricated-control problem the
+corpus is closed to prevent. What the report carries instead is the mapping from each column
+to the CC8.1 verbs it answers, in the output where an auditor can argue with it, ready for
+the corpus to point at.
+
 ## The Android app
 
 A native shell around the same PWA, in `android/`. It exists for the four things a
