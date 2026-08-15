@@ -288,8 +288,21 @@ solo install behaves exactly as it always did.
 
 ## Asking a question
 
-Anything labelled `human` shows up. To get buttons, diagrams and links, put a
-fenced `decision` block in the body:
+Anything labelled `human` shows up. **A question ends with a fenced `decision` block,
+with nothing after it, and one option in it marked `recommended: true`** — that is the
+rule the briefs teach and `beadcause-ask` refuses a body without it. The prose above the
+block is context; the block is the ask, and it is what turns a wall of text into buttons
+you can tap from a phone. Without one, the card falls back to guessing the options out of
+the prose (`lib/suggest.js`) — and a guessed option *fills* the answer box rather than
+sending it, because nobody wrote it on purpose.
+
+One question per bead: two things to decide is two beads and two cards, because a card
+has one answer box and no way to say which half of it an answer answers. And if what you
+need is a *fact* rather than a choice — a password, a number nobody wrote down — there is
+nothing to offer and inventing two options would be worse than none: `--no-options` says
+so, and is the only way past the check.
+
+The block is also what gets you diagrams, documents and links:
 
 ````markdown
 Some markdown context. Tables, images, links, `code` — all of it renders.
@@ -9010,6 +9023,162 @@ either empty (`active`, `retiring`) or optional (`crash`, still null until
 out has always been for).
 
 
+### The severity, the clock, and the commitment it is measured against
+
+Everything above is **detection**, and detection is the half most incident programmes
+never finish: theirs is a document describing a process that runs when somebody remembers
+to run it. Here the error files itself the moment it happens, so detection and recording
+are one act and neither can be forgotten.
+
+What that leaves missing is everything asked *after* "do you detect them". A daemon that
+exited and a red toast on one phone were both `app-error`, which means either everything
+is an emergency or nothing is. "We respond promptly" is not a control; "acknowledged
+within fifteen minutes, resolved within four" is one — **but only if the number was
+written down before the incident rather than after it**.
+
+So every filed error now carries a severity, and the severity carries a commitment:
+
+| | what it means | acknowledge | resolve |
+|---|---|---|---|
+| **sev1** | the daemon is not running — nothing works until it is back | 15 min | 4h |
+| **sev2** | the daemon is up and a function of it has stopped working | 1h | 24h |
+| **sev3** | one page or one action is broken for whoever is looking at it | 24h | 7d |
+| **sev4** | the app caught it and said so; nothing was lost | 7d | 30d |
+
+**The scale is closed, and an id nobody minted is a refusal rather than a warning** — the
+same rule the requirements corpus is built on, for the same reason: a severity scale you
+can add to at the moment of the incident says whatever the person filing wanted it to say.
+
+**It is decided by impact, not by how alarming the stack looked.** `lib/incident.js` reads
+the `kind` the reporter gave, and the two reporters between them emit nine and no more.
+`uncaughtException` and `unhandledRejection` are `sev1` and nothing else can be — those
+arrive only from `installCrashHandlers`, which prints the stack and *then exits 1*, so by
+the time the bead is written the daemon is going down. That is the one fact about impact
+this system knows for certain. A failed `fetch` is `sev2` rather than `sev3`, which is the
+least obvious one: the browser only reports it when the daemon did not answer, and from the
+phone's side that is indistinguishable from the daemon being down. A kind nobody knows is
+`sev3`, deliberately not `sev4` — a report we cannot classify is not thereby harmless, and
+the cheaper mistake is the one that puts a middling bead on the board rather than the one
+that quietly buries something on a thirty-day clock.
+
+**The same bug forty times is worse than the same bug once**, so past ten occurrences the
+severity goes up a level — and it can never reach `sev1`, because that one is a statement
+that the process died and not a statement that something happened a lot. The label is
+rewritten only when it would actually change: this is the hot path of a page in a render
+loop, and a `bd` write per occurrence is the exact cost the [coalescing
+window](#an-error-the-app-hits-files-itself-as-a-p0) exists to avoid.
+
+**And then the clock, which is read and never written.** Nothing in `lib/incident.js`
+stamps a timestamp of its own. `created_at` is when the error filed itself, `started_at` is
+when a session claimed the bead, `closed_at` is when the merge queue closed it — three
+timestamps bd was already keeping, written by people and agents doing their ordinary work
+with no idea an auditor would ever read them. **That is exactly what makes them evidence.**
+A log kept *for* the audit is a log somebody maintains, and a log somebody maintains is one
+that gets maintained the week before the audit. The acknowledgement is `bd update --claim`,
+which every worker session runs as its third line; nothing had to be added, and nothing can
+be forgotten without the work itself not happening.
+
+    beadcause-incidents -w beadcause                 the register, worst first
+    beadcause-incidents -w beadcause --period 90d    what happened in the last 90 days
+
+**Met, missed and pending are three answers, not two.** An incident ninety seconds old has
+not missed a fifteen-minute commitment — it is inside its window — and a report that folded
+"not yet" into "missed" would show a total breach every time it was run *during* an
+incident. Only `false` is a breach.
+
+The communication step is stated and measured, and **sends nothing**, which is deliberate
+in both halves. The bead already *is* the notification here: a P0 lands on the inbox the
+phone is polling. The interesting half is the one that does not exist yet — if the system
+this is ever attested about has user entities under contract, they have to be told inside
+whatever window that contract names, and which system that is has not been settled. A
+commitment stated on the bead and measured is worth having now; a mail-out to a customer
+list nobody has agreed on is not.
+
+### The post-incident review, and the loop it closes
+
+A `sev1` or `sev2` that has been resolved owes a review. Not a document and not a memory —
+**a bead**, because the only thing worse than a review nobody wrote is a review whose
+absence nobody can see.
+
+    beadcause-incidents -w beadcause --reviews          which resolved incidents owe one
+    beadcause-incidents -w beadcause --reviews --file   file the ones that are owed
+
+It asks four questions and the last one is the only one that changes anything. What
+happened, in order. Why — the cause, not the trigger, since the trigger is on the bead
+already. What held and what did not. And then: **does the risk register move?** Either a
+risk already in it now has a different likelihood or a different treatment, or this
+incident was not covered by any risk in it and one is missing — say which, and name it. A
+review whose output is "we fixed the bug" changed nothing; the bug was already fixed, which
+is why the review is being written.
+
+The review is filed **held**, unlike the incident it is about. A P0 crash behind a tap
+defeats the point of filing it automatically; a review is work somebody has to sit down and
+do, and queueing that unasked is how an advocate spends a night on a form. The record
+exists either way, and the record is what the clock reads.
+
+### The exercise, because a plan nobody has run is a document
+
+Everything above is machinery, and machinery is not the thing that fails first. What fails
+first is the hour nobody has ever spent asking what actually happens — and a response plan
+that has never been run is an exception waiting to be written down by somebody else.
+
+    beadcause-incidents -w beadcause --tabletop                the scenarios worth walking
+    beadcause-incidents -w beadcause --tabletop night-exit --file --with "Adam" --when 2026-09-01
+
+Three scenarios come with it, and each is chosen because it breaks a *different*
+assumption this system quietly makes. **night-exit** — the daemon takes an
+`uncaughtException` at 02:00 and launchd restarts it into the same fault four times, and
+nobody is awake; it breaks the assumption that a P0 reaching the inbox is the same thing as
+somebody being told. **silent-sweep** — a background sweep has been throwing for six days
+and the daemon has carried on each time; it breaks the assumption that a degraded system
+looks different from a working one. **no-fix-critical** — a critical advisory with no
+published fix, seven days from its SLA; it breaks the assumption that every finding has a
+remediation you can perform.
+
+The exercise is a bead, filed **before** it happens so it can be scheduled and so its
+absence is visible, with the date and the people on it. Four answers go on it afterwards,
+and the fourth is what changed as a result — a bead, a revised commitment, a registered
+risk. If nothing changed, that goes on it too, because "we ran an exercise and learned
+nothing" is a finding of its own.
+
+An exercise carries the `incident` label so the register stays one `bd` call, and is
+**pulled out of the register** exactly as a review is. Neither is an incident, and counting
+the paperwork about incidents as incidents would make a bad month look worse for having
+been handled properly.
+
+### Dependencies on the same clock
+
+`npm audit` has been in the box the whole time. What it never had is a **deadline**, and
+the deadline is the whole difference between "we scan our dependencies" and a control.
+
+    beadcause-incidents -w beadcause --vulns          the scan, on a remediation clock
+    beadcause-incidents -w beadcause --vulns --file   file what is new, close what is fixed
+
+One vulnerable package is one bead: filed the first time a scan sees it, closed by the
+first scan that no longer does, and the days between the two are the remediation time. The
+SLA is by npm's own severity word — critical 7 days, high 30, moderate 90, low 180 — taken
+as published rather than re-scored locally, because a local score is a judgement made on
+the day by whoever was looking and it is not reproducible a year later. `info` is
+deliberately absent from that table and gets **no bead at all**: an informational advisory
+is not a finding, and a board full of beads nobody will ever action is how the ones that
+matter stop being read.
+
+**There is no state file of first-seen dates**, and that is the design rather than a
+shortcut: an SLA measured against a file this repo writes is measured against a file this
+repo can rewrite. Measured against a bead it is measured against something with a history,
+that somebody had to close, in a graph nobody edits by hand. Same argument as the incident
+clock, and the same three timestamps.
+
+**The severity is read back off the bead rather than re-scanned**, which matters more than
+it sounds: an advisory can be re-scored upstream after the bead is filed, and the deadline
+that counts is the one that was in force when it was detected. Re-scoring a live finding
+into a longer SLA is how a breach disappears.
+
+Reconciliation closes as well as files, and the closing half is the one that is easy to
+leave out. A register that only ever files grows for ever and evidences nothing — `closed_at`
+is the entire measurement.
+
+
 ## Advocates — an agent per repo, whose job is the queue reaching zero
 
 Everything above is a **channel**. A question reaches your phone, an answer reaches
@@ -12410,6 +12579,94 @@ those is a new shared module arriving with the tags that load it, which is exact
 work this fires on and exactly the work a human bumped for. `bc-p38c.2` stays silent
 under it for the reason it always did: `report.js` went onto twelve pages and nothing
 gained a call into it, so cached HTML without the tag is the app exactly as it was.
+
+## Change management, evidenced — `beadcause-changes`
+
+SOC 2 CC8.1 asks that changes to infrastructure, data, software and procedures are
+authorised, designed, developed, configured, documented, tested, approved and implemented
+to meet objectives. ISO/IEC 27001:2022 A.8.32 asks the same thing in fewer words. It is
+the criterion a first-time service organisation most often fails, and the reason is always
+the same: the answer is a convention rather than a control. A ticket template and a code
+review culture cannot be tested — they can only be evidenced by a person assembling
+screenshots for each sampled change, the week before fieldwork, out of four systems that
+were never asked to agree with each other, and what those screenshots show is what the
+convention *usually* produced.
+
+Here the answer is a gate, and every part of it already leaves a record:
+
+- an unattended session **cannot be opened on a bead nobody endorsed** — `assertEndorsed`
+  in lib/endorse.js is a refusal at the launcher and not merely a filter on a queue, so a
+  change has an authorisation or it has no session at all;
+- the session is archived against the bead on `refs/beadcause/sessions/<bead>`, with the
+  agent, the model, the branch and the commits it made;
+- **the worker does not merge its own branch.** It files a merge bead carrying what it
+  ran, and its own bead is made to depend on that one, so the approval is a different
+  agent looking at the whole board — see [Landing work](#landing-work--a-branch-a-pull-request-and-a-merge-queue);
+- the merge writes `beadcause: landed <workspace>/<bead>` onto the merge commit, on
+  `refs/notes/beadcause`, where it is anchored to an immutable object;
+- and the deploy closes a ship bead against the pull request number, or — since auto-ship
+  — records it in the release ledger.
+
+**None of that was built for an auditor**, which is exactly what makes it evidence rather
+than a claim. The command only reads it:
+
+```bash
+beadcause-changes sample --from 2026-04-01 --to 2026-07-01 --size 25 --seed 7
+beadcause-changes all --from 2026-04-01 --to 2026-07-01     # the period, not a sample
+beadcause-changes summary --from "3 months ago"             # one line, for a log
+```
+
+Out comes a document with one row per sampled change and, for each, six columns saying
+where the authorisation, the design, the development, the test, the approval and the
+deployment record actually are — with the bead id, the merge bead id and the ledger
+timestamp, so any cell can be opened rather than believed. Six columns and not eight,
+because two of CC8.1's verbs have no separate record here and inventing one would be worse
+than saying so: *configured* is the same act as developed in a repository where
+configuration is files in the diff, and *implemented* is the commit the row is keyed on,
+so a column for it would tick by construction and teach a reader nothing.
+
+**The seed is what makes it their sample rather than ours.** Selection is a pure function
+of the seed and the commit hash — a hash, sorted, sliced, no clock and no randomness — so
+the auditor picks the seed, nothing here can steer which changes come out, and the same
+window with the same seed returns the same 25 rows on any machine next year. `Math.random`
+would have made the artefact worthless in the only way that matters: a second run
+disagreeing with the one already in the audit file. `test/changesample.mjs` pins the hash
+to a literal for that reason, so changing it fails loudly rather than quietly re-selecting.
+
+**Three states, and the middle one is the point.** `✓` a record exists and says so; `✗`
+the record that would say so does not exist, which is a **finding**; `?` nothing here could
+ask. They are never folded together. A `?` reported as a tick is a lie and reported as a
+finding is noise that trains a reader to ignore the findings, and the first version of the
+totals counted a row with no findings as a row with a complete record — which made a run
+against a checkout with no tracker report 47 of 47 changes clean, the most confident
+possible way of saying nothing at all. Clean now means every column evidenced, and the rows
+that are neither clean nor a finding are counted and named.
+
+**Nothing is dropped, and the strays are the interesting part.** A commit that reached
+`main` outside a pull request is not a change this can shape into a row — no pull request
+means no approval covering it individually — so it goes in its own list at the foot of the
+report rather than out of the population. A tool that quietly counted only the rows it
+could answer for would understate the denominator by precisely the changes that skipped the
+process, which is the population an auditor came to find.
+
+The first run over this repository says three true things worth stating out loud, and it is
+a better advertisement for the tool than a page of ticks would be. The merge queue is
+**new** — the pull requests before #314 have no merge bead, so `approved` is a finding on
+almost every historical change and the control has an effective date rather than a history.
+The release ledger **prunes at 45 days**, where a Type II observation window is three months
+at the short end, so a sample taken at the end of one asks it about deployments it has
+already forgotten; the report says so where it would otherwise read as changes that never
+shipped, and keeping evidence past the observation window is its own bead (bc-4r10.7). And the strays are real:
+the older workflow merged locally and pushed, so those commits are in `main` with no pull
+request behind them.
+
+It names no control id yet. The closed control corpus — SOC 2 CC, ISO/IEC 27001 Annex A and
+ISO/IEC 42001 in one vocabulary, with the crosswalk edges that make CC8.1, A.8.32 and their
+42001 counterparts one implementation with three names — is being built separately, and an
+id minted here before that corpus exists is exactly the fabricated-control problem the
+corpus is closed to prevent. What the report carries instead is the mapping from each column
+to the CC8.1 verbs it answers, in the output where an auditor can argue with it, ready for
+the corpus to point at.
 
 ## The Android app
 
@@ -16209,6 +16466,10 @@ another Mac's, and an agent's — and asserts that exactly one of them rings.
 | `release.beads` | file a bead per merged pull request and close it when a deploy makes it live (default `true`). Only ever in a repo whose deploy beadcause can see the outcome of — a bead nothing could close is a chore invented rather than found. See [The release queue](#the-release-queue--the-number-over-ship) |
 | `release.seconds` | how often the queue is swept (default 300, floor 60). Slow on purpose: it is a `gh pr list` per repo when nobody has looked at the board recently, and its news keeps for five minutes |
 | `release.settleSeconds` | how long an [auto-ship](#auto-ship--the-merge-that-does-not-wait-for-the-tap) waits before it fires, so four merges in ten minutes are one deploy (default 600) |
+| `incidents.sev1` … `incidents.sev4` | what we said we would do about an error, in **minutes**, before one happened: `{ acknowledge, resolve }` per severity (defaults 15/240, 60/1440, 1440/10080, 10080/43200). Measured against bd's own `created_at`, `started_at` and `closed_at` — claiming the bead is the acknowledgement and closing it is the resolution. Setting one number leaves the rest, and neither can be set below a minute, because a zero would breach every incident at the moment it was filed. See [The severity, the clock, and the commitment](#the-severity-the-clock-and-the-commitment-it-is-measured-against) |
+| `incidents.escalateAt` | occurrences of one fingerprint before it escalates a severity level (default `10`). It can never reach `sev1`: that one means the process died, which is a fact and not a volume |
+| `incidents.reviewFrom` | the severity at and above which a **resolved** incident owes a post-incident review (default `sev2`). See [The post-incident review](#the-post-incident-review-and-the-loop-it-closes) |
+| `incidents.vulnerabilityDays` | the remediation SLA for a dependency advisory, in days, by npm's own severity word (defaults critical 7, high 30, moderate 90, low 180). `info` is deliberately absent and gets no bead at all. See [Dependencies on the same clock](#dependencies-on-the-same-clock) |
 | `sessionDirs` | override where a workspace's session opens. Normally unnecessary — see Discussing a question on the Mac |
 | `sessionPermissionMode` | `--permission-mode` for an opened session (default `auto`; `null` to omit the flag) |
 | `sessionWindows.layout` | deal session windows onto one screen as cards (default `true`; `false` leaves them wherever iTerm cascades them). See [The card table](#the-card-table--where-session-windows-go) |
