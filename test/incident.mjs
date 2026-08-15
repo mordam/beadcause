@@ -397,6 +397,45 @@ await check('the repeat that crosses the threshold escalates the bead, and only 
   assert.deepEqual(calls, ['comment'], `expected only the comment, got ${calls.join(', ')}`);
 });
 
+await check('one bug seen from two reporters takes the worse of the two, and never the milder', async () => {
+  const calls = [];
+  const bead = { id: 'bc-old2', status: 'open', labels: ['app-error', 'incident', 'sev4'], comment_count: 0 };
+  const bd = {
+    async json() {
+      return [bead];
+    },
+    async create() {
+      throw new Error('should not file a second bead');
+    },
+    async comment() {},
+    async addLabel(ws, id, label) {
+      calls.push(`add ${label}`);
+    },
+    async removeLabel(ws, id, label) {
+      calls.push(`remove ${label}`);
+    },
+  };
+  // Filed off a toast on Monday; the same fingerprint arrives from the crash handler on
+  // Tuesday. It is one bug, and the second report is the one that says what it costs.
+  const loud = { message: 'the same underlying fault', kind: 'uncaughtException' };
+  bead.labels.push(fingerprint(loud).msgLabel);
+  const out = await intake(bd, { name: 'w' }, loud);
+  assert.equal(out.severity, 'sev1');
+  assert.ok(calls.includes('add sev1') && calls.includes('remove sev4'), calls.join(', '));
+
+  // And the other way round changes nothing: a bead does not become less serious because
+  // the next report of it came from somewhere quieter.
+  // A distinct message, so this is a fresh comment rather than one folded into the window
+  // the call above opened — the window is the subject of another check, not this one.
+  calls.length = 0;
+  bead.labels = bead.labels.filter((l) => l !== 'sev4').concat('sev1');
+  const meek = { message: 'the same fault, noticed somewhere quieter', kind: 'toast' };
+  bead.labels.push(fingerprint(meek).msgLabel);
+  const back = await intake(bd, { name: 'w' }, meek);
+  assert.equal(back.severity, 'sev1');
+  assert.deepEqual(calls, [], `expected no label writes, got ${calls.join(', ')}`);
+});
+
 await check('labelsFor with no severity is exactly what it always was', () => {
   const fp = fingerprint({ message: 'x', source: 'app.js', line: 3 });
   assert.deepEqual(labelsFor(fp), ['app-error', fp.atLabel, fp.msgLabel]);
