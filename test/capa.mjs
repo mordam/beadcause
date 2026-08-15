@@ -269,6 +269,7 @@ console.log('\ngate refusals — the control working');
 
 assert.throws(() => refusalRecord({ gate: 'endorse' }), /name the control/, 'an unnamed refusal is an obstruction');
 assert.throws(() => refusalRecord({ control: 'A.9.2' }), /name the gate/);
+assert.throws(() => refusalRecord({ control: 'A · 9.2', gate: 'endorse' }), /may not contain/, 'the field separator cannot be inside a field');
 const r = refusalRecord({
   control: 'A.9.2',
   gate: 'endorse',
