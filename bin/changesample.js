@@ -28,7 +28,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { loadConfig } from '../lib/config.js';
 import { Bd } from '../lib/bd.js';
-import { resolveSessionDir } from '../lib/session.js';
+import { ownWorkspace } from '../lib/deploy.js';
+import { mainCheckout } from '../lib/gitref.js';
 import { collect } from '../lib/changegather.js';
 import { describeSample, renderReport } from '../lib/changesample.js';
 
@@ -66,41 +67,31 @@ if (has('--help') || has('-h') || !['sample', 'all', 'summary'].includes(verb)) 
 const cfg = loadConfig();
 const workspaces = cfg.workspaces || [];
 
-/** Every checkout this workspace's beads could be worked in. */
-function checkoutsOf(w) {
-  const dirs = [];
-  try {
-    dirs.push(resolveSessionDir(cfg, w));
-  } catch {
-    // A workspace whose checkout cannot be resolved is not a place this could be run
-    // from. It is still selectable by name, which is what `-w` is for.
-  }
-  for (const r of cfg.repos?.[w.name] || []) if (r?.dir) dirs.push(r.dir);
-  return dirs.map((d) => path.resolve(d));
-}
+const dir = arg('--dir') || process.cwd();
 
 /**
  * Which workspace's tracker holds the beads for the checkout being read: named, else
  * inferred from where the command was run, else the only one there is.
  *
- * `workspace.dir` is the **tracker**, not the checkout — `~/beads/beadcause/.beads` for a
- * repository at `~/neadamthal.projects/beadcause` — so matching the cwd against it finds
- * nothing, ever. The checkout is `resolveSessionDir`, plus every repo the workspace
- * declares for the multi-repo case. Worth the indirection: a first version compared
- * against `workspace.dir`, resolved no workspace from inside the repository it was
- * standing in, and produced a confident report of 47 changes with nothing evidenced.
+ * Two indirections, and both are load-bearing. **`workspace.dir` is the tracker, not the
+ * checkout** — `~/beads/beadcause/.beads` for a repository at
+ * `~/neadamthal.projects/beadcause` — so comparing the cwd against it finds nothing,
+ * ever; `ownWorkspace` in lib/deploy.js is that lookup done right, including the
+ * multi-repo case where forty approved checkouts share one tracker. And **it wants a
+ * checkout root**, where this is run from wherever somebody is standing, which in this
+ * repository is usually a worktree — so `mainCheckout` normalises first, since git's
+ * common dir resolves a worktree back to the checkout that owns it.
  */
-function resolveWorkspace() {
+async function resolveWorkspace() {
   const named = arg('--workspace', '-w');
   if (named) return workspaces.find((w) => w.name === named) || null;
-  const here = path.resolve(arg('--dir') || process.cwd());
-  const inside = workspaces.find((w) => checkoutsOf(w).some((d) => here === d || here.startsWith(`${d}${path.sep}`)));
-  if (inside) return inside;
+  const root = (await mainCheckout(path.resolve(dir)).catch(() => null)) || path.resolve(dir);
+  const name = ownWorkspace(cfg, root);
+  if (name) return workspaces.find((w) => w.name === name) || null;
   return workspaces.length === 1 ? workspaces[0] : null;
 }
 
-const ws = resolveWorkspace();
-const dir = arg('--dir') || process.cwd();
+const ws = await resolveWorkspace();
 
 // Not fatal, and deliberately so. A checkout with no workspace still has a complete
 // population — git holds that — and a report of six `unknown` columns over a real list of
