@@ -12670,10 +12670,10 @@ the corpus to point at.
 
 ## What you elected to be held to — `lib/election.js`
 
-Everything above this line records unconditionally. Sessions are archived, merges are
-noted, configuration changes land as commits, and the control vocabulary ships compiled
-into the release. None of that asks permission, because a record that can be turned off is
-not a record.
+Beadcause **records** unconditionally. Sessions are archived against their bead, merges
+carry notes, configuration changes land as commits, and the control vocabulary ships
+compiled into the release. None of that asks permission and none of it can be switched
+off, because a record that can be turned off is not a record.
 
 **Enforcement is the other half, and it is the half that can say no.** A gate that refuses
 a merge, holds a session shut or fails a deploy is not a record — it is a cost, and it is a
